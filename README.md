@@ -52,7 +52,11 @@ railway link
 
 Select the food-scanner project and environment when prompted. This stores the link in `~/.railway/config.json` (global, not in the repo).
 
-### Step 3: Set Environment Variables
+### Step 3: Obtain OAuth Credentials
+
+Follow the **OAuth Setup** section below to create Google and Fitbit OAuth credentials before setting environment variables.
+
+### Step 4: Set Environment Variables
 
 ```bash
 railway variables set \
@@ -65,11 +69,11 @@ railway variables set \
   ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
-Set real values for all credentials. See DEVELOPMENT.md OAuth Setup section for how to obtain OAuth credentials.
+Set real values for all credentials.
 
 **Do not set `NODE_ENV`** — Railway handles this automatically. Setting `NODE_ENV=development` breaks the Next.js production build.
 
-### Step 4: Generate Public Domain
+### Step 5: Generate Public Domain
 
 ```bash
 railway domain
@@ -77,7 +81,14 @@ railway domain
 
 This creates a public URL like `https://food-scanner-production-XXXX.up.railway.app`.
 
-### Step 5: Verify
+### Step 6: Update OAuth Redirect URIs
+
+Once you have your Railway domain, go back to both Google Cloud Console and Fitbit Developer portal and add the production redirect URIs:
+
+- Google: `https://<your-railway-domain>/api/auth/google/callback`
+- Fitbit: `https://<your-railway-domain>/api/auth/fitbit/callback`
+
+### Step 7: Verify
 
 ```bash
 curl https://food-scanner-production-XXXX.up.railway.app/api/health
@@ -105,13 +116,31 @@ Or use the Railway MCP from Claude Code to query logs and deployment status.
 
 1. Add custom domain in Railway dashboard → Settings → Networking
 2. Configure DNS (CNAME record pointing to Railway)
-3. Update OAuth redirect URIs to use custom domain
+3. Update OAuth redirect URIs in both Google and Fitbit portals to use the custom domain
 
-### OAuth Redirect URIs
+---
 
-When implementing OAuth, update redirect URIs to match your domain:
-- Google: `https://<your-domain>/api/auth/google/callback`
-- Fitbit: `https://<your-domain>/api/auth/fitbit/callback`
+## OAuth Setup
+
+### Google OAuth
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a new project (or select existing)
+3. Navigate to **APIs & Services → Credentials**
+4. Click **Create Credentials → OAuth 2.0 Client ID**
+5. Select application type: **Web application**
+6. Under **Authorized redirect URIs**, add your production URL:
+   - `https://<your-railway-domain>/api/auth/google/callback`
+7. Copy the **Client ID** and **Client Secret**
+
+### Fitbit OAuth
+
+1. Go to [dev.fitbit.com](https://dev.fitbit.com) → **Manage → Register an App**
+2. Set OAuth 2.0 Application Type: **Personal**
+3. Under **Redirect URIs**, add your production URL:
+   - `https://<your-railway-domain>/api/auth/fitbit/callback`
+4. Under **Default Access Type**, select **Read & Write**
+5. Copy the **Client ID** and **Client Secret**
 
 ---
 

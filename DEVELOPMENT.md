@@ -29,11 +29,11 @@ SESSION_SECRET=at-least-32-characters-long-random-string
 # Auth
 ALLOWED_EMAIL=wall.lucas@gmail.com
 
-# Google OAuth (see OAuth Setup section below)
+# Google OAuth (see OAuth Setup for Local Development section below)
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 
-# Fitbit OAuth (see OAuth Setup section below)
+# Fitbit OAuth (see OAuth Setup for Local Development section below)
 FITBIT_CLIENT_ID=your-fitbit-client-id
 FITBIT_CLIENT_SECRET=your-fitbit-client-secret
 
@@ -41,7 +41,7 @@ FITBIT_CLIENT_SECRET=your-fitbit-client-secret
 ANTHROPIC_API_KEY=placeholder
 ```
 
-Google and Fitbit OAuth credentials are required for the auth flow. See the **OAuth Setup** section below for how to obtain them.
+Google and Fitbit OAuth credentials are required for the auth flow. See the **OAuth Setup for Local Development** section below.
 
 ### 3. Run Development Server
 
@@ -192,25 +192,13 @@ The CLI link is stored globally at `~/.railway/config.json`, not in the project 
 
 ---
 
-## OAuth Setup
+## OAuth Setup for Local Development
 
-These are only needed when implementing auth features.
+Follow the [OAuth Setup section in README.md](README.md#oauth-setup) to create Google and Fitbit OAuth credentials. Then add the localhost redirect URIs to each provider:
 
-### Google Cloud Console
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project (or select existing)
-3. Navigate to APIs & Services → Credentials
-4. Create OAuth 2.0 Client ID (Web application)
-5. Add authorized redirect URIs:
-   - Local: `http://localhost:3000/api/auth/google/callback`
-   - Production: `https://<your-railway-domain>/api/auth/google/callback`
-6. Copy Client ID and Client Secret to `.env.local` and Railway variables
+- **Google Cloud Console** → Your OAuth client → Authorized redirect URIs → add:
+  `http://localhost:3000/api/auth/google/callback`
+- **Fitbit Developer** → Your app → Redirect URIs → add:
+  `http://localhost:3000/api/auth/fitbit/callback`
 
-### Fitbit Developer
-1. Go to [dev.fitbit.com](https://dev.fitbit.com) → Manage → Register an App
-2. Set OAuth 2.0 Application Type: **Personal**
-3. Add redirect URIs:
-   - Local: `http://localhost:3000/api/auth/fitbit/callback`
-   - Production: `https://<your-railway-domain>/api/auth/fitbit/callback`
-4. Request scopes: `nutrition`
-5. Copy Client ID and Client Secret to `.env.local` and Railway variables
+Copy the Client ID and Client Secret values into your `.env.local` file.
