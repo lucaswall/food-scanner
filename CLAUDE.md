@@ -185,7 +185,7 @@ food-scanner/
 
 - **Team:** "Food Scanner"
 - **Issue Key Prefix:** FOO-xxx
-- **States:** Backlog → Todo → In Progress → Review → Merge → Done
+- **States:** Backlog → Todo → In Progress → Review → Done
 - **Labels:** Security, Bug, Performance, Convention, Technical Debt, Feature, Improvement
 - **Priorities:** 1 (Urgent), 2 (High), 3 (Medium), 4 (Low)
 

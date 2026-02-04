@@ -1,11 +1,11 @@
 ---
 name: plan-review-implementation
-description: QA review of completed implementation. Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Merge. Creates new issues in Todo for bugs found. Identifies bugs, edge cases, security issues (OWASP-based), type safety, resource leaks, and async issues. Creates fix plans for issues found or marks COMPLETE.
+description: QA review of completed implementation. Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Done. Creates new issues in Todo for bugs found. Identifies bugs, edge cases, security issues (OWASP-based), type safety, resource leaks, and async issues. Creates fix plans for issues found or marks COMPLETE.
 allowed-tools: Read, Edit, Glob, Grep, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
-Review **ALL** implementation iterations that need review, then mark complete or create fix plans. Moves Linear issues Review→Merge.
+Review **ALL** implementation iterations that need review, then mark complete or create fix plans. Moves Linear issues Review→Done.
 
 **Reference:** See [references/code-review-checklist.md](references/code-review-checklist.md) for comprehensive checklist.
 
@@ -17,13 +17,13 @@ Review **ALL** implementation iterations that need review, then mark complete or
 
 ## Linear State Management
 
-This skill moves issues from **Review → Merge** (preparing for PR).
+This skill moves issues from **Review → Done**.
 
 **If task passes review (no issues):**
-- Move issue from "Review" to "Merge" using `mcp__linear__update_issue`
+- Move issue from "Review" to "Done" using `mcp__linear__update_issue`
 
 **If task needs fixes (issues found):**
-- Move original issue from "Review" to "Merge" (the original task was completed)
+- Move original issue from "Review" to "Done" (the original task was completed)
 - Create NEW Linear issue(s) in "Todo" for each bug/fix using `mcp__linear__create_issue`:
   - `team`: "Food Scanner"
   - `state`: "Todo" (will enter PLANS.md via Fix Plan)
@@ -133,8 +133,8 @@ Use the Priority Tiers from code-review-checklist.md:
 
 | Severity | Criteria | Action |
 |----------|----------|--------|
-| **CRITICAL** | Security vulnerabilities, data corruption, crashes | Must fix before merge |
-| **HIGH** | Logic errors, race conditions, auth issues, resource leaks | Must fix before merge |
+| **CRITICAL** | Security vulnerabilities, data corruption, crashes | Must fix |
+| **HIGH** | Logic errors, race conditions, auth issues, resource leaks | Must fix |
 | **MEDIUM** | Edge cases, type safety, error handling gaps | Should fix |
 | **LOW** | Convention violations, style (only if egregious) | Document only |
 
@@ -175,7 +175,7 @@ Summary: N issue(s) found
 - [MEDIUM] EDGE CASE: Unicode filenames not tested (`src/upload.ts:30`)
 
 ### Linear Updates
-- FOO-123: Review → Merge (original task completed)
+- FOO-123: Review → Done (original task completed)
 - FOO-125: Created in Todo (Fix: SQL injection)
 - FOO-126: Created in Todo (Fix: Race condition)
 - FOO-127: Created in Todo (Fix: Unhandled promise)
@@ -210,7 +210,7 @@ Summary: N issue(s) found
 
 **Note:** The `<!-- REVIEW COMPLETE -->` marker is added to the iteration even when issues are found, because the review itself is complete. The Fix Plan is at h2 level so `plan-implement` can find and execute it.
 
-**Linear workflow:** Original issues move to Merge (the original task was completed, ready for PR). Bug issues are created in Todo state for the fix plan.
+**Linear workflow:** Original issues move to Done (the original task was completed). Bug issues are created in Todo state for the fix plan.
 
 ### If No Issues Found
 
@@ -225,8 +225,8 @@ Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
 No issues found - all implementations are correct and follow project conventions.
 
 ### Linear Updates
-- FOO-123: Review → Merge
-- FOO-124: Review → Merge
+- FOO-123: Review → Done
+- FOO-124: Review → Done
 
 <!-- REVIEW COMPLETE -->
 ```
@@ -258,7 +258,7 @@ When all pending iterations have been reviewed:
 
 ## Status: COMPLETE
 
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+All tasks implemented and reviewed successfully. All Linear issues moved to Done.
 Ready for PR creation.
 ```
 
@@ -267,7 +267,7 @@ Ready for PR creation.
 
 This triggers the `pr-creator` subagent to handle branch creation, commit, push, and PR.
 
-**Note:** When marking COMPLETE, all issues from the plan should be in Merge state. They will automatically move to Done when the PR is merged (via Linear's GitHub integration).
+**Note:** When marking COMPLETE, all issues from the plan should already be in Done state.
 
 ## Issue Categories Reference
 
@@ -307,7 +307,7 @@ This triggers the `pr-creator` subagent to handle branch creation, commit, push,
 - **Fix Plan follows TDD** - Test first for each fix
 - **Never modify previous sections** - Only add to current iteration or append status
 - **Mark COMPLETE only when ALL iterations pass** - No fix plans pending, all reviewed
-- **Move issues to Merge** - All reviewed issues that pass go Review→Merge
+- **Move issues to Done** - All reviewed issues that pass go Review→Done
 - **Create bug issues in Todo** - All bugs found create new issues in Todo state
 - If no iteration needs review, inform the user and stop
 

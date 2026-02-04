@@ -188,7 +188,7 @@ Closes FOO-123, FOO-124
 **How it works:**
 - Linear's GitHub integration monitors PRs for magic keywords (`closes`, `fixes`, `resolves`)
 - When the PR is merged, Linear automatically moves linked issues to Done
-- This enables the workflow: Review → Merge (after code review) → Done (after PR merge)
+- This enables the workflow: Review → Done (after code review) → PR merged
 
 **Issue extraction:**
 - Look for `**Linear Issues:**` line in PLANS.md

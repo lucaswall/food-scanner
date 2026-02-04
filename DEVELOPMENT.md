@@ -124,7 +124,7 @@ This project is in **active development**. Breaking changes are expected and acc
 
 Issues are tracked in Linear under the "Food Scanner" team with FOO-xxx prefix.
 
-**State flow:** Backlog → Todo → In Progress → Review → Merge → Done
+**State flow:** Backlog → Todo → In Progress → Review → Done
 
 To authenticate Linear MCP, use the `/mcp` command in Claude Code.
 

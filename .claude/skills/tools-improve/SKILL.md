@@ -114,7 +114,7 @@ You are a specialist in [domain]. When invoked:
 | `$ARGUMENTS` | All arguments passed |
 | `$ARGUMENTS[N]` or `$N` | Positional argument (0-indexed) |
 | `${CLAUDE_SESSION_ID}` | Current session ID |
-| `` !`command` `` | Dynamic command output (runs before Claude sees content) |
+| `!{backtick}command{backtick}` | Dynamic command output (runs before Claude sees content). Syntax: exclamation + backtick-wrapped shell command |
 
 ## Patterns
 
