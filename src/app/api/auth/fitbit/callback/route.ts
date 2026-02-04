@@ -3,6 +3,7 @@ import { exchangeFitbitCode } from "@/lib/fitbit";
 import { errorResponse } from "@/lib/api-response";
 import { getSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
+import { logger } from "@/lib/logger";
 
 function getCookieValue(request: Request, name: string): string | undefined {
   const cookieHeader = request.headers.get("cookie") ?? "";
@@ -17,6 +18,7 @@ export async function GET(request: Request) {
   const storedState = getCookieValue(request, "fitbit-oauth-state");
 
   if (!code || !state || state !== storedState) {
+    logger.warn({ action: "fitbit_callback_invalid_state" }, "invalid fitbit oauth state");
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
@@ -52,6 +54,8 @@ export async function GET(request: Request) {
   // Clear the OAuth state cookie
   const cookieStore = await cookies();
   cookieStore.delete("fitbit-oauth-state");
+
+  logger.info({ action: "fitbit_connect_success" }, "fitbit connected successfully");
 
   return Response.redirect(buildUrl("/app"), 302);
 }

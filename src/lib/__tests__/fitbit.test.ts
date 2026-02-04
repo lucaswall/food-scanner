@@ -1,14 +1,37 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.stubEnv("FITBIT_CLIENT_ID", "test-fitbit-client-id");
 vi.stubEnv("FITBIT_CLIENT_SECRET", "test-fitbit-client-secret");
 
-const { buildFitbitAuthUrl, ensureFreshToken } = await import("@/lib/fitbit");
+vi.mock("@/lib/logger", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn(),
+  },
+}));
+
+const {
+  buildFitbitAuthUrl,
+  exchangeFitbitCode,
+  refreshFitbitToken,
+  ensureFreshToken,
+} = await import("@/lib/fitbit");
+const { logger } = await import("@/lib/logger");
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("buildFitbitAuthUrl", () => {
   it("returns a URL pointing to Fitbit OAuth", () => {
     const url = new URL(
-      buildFitbitAuthUrl("test-state", "http://localhost:3000/api/auth/fitbit/callback"),
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+      ),
     );
     expect(url.origin).toBe("https://www.fitbit.com");
     expect(url.pathname).toBe("/oauth2/authorize");
@@ -16,14 +39,20 @@ describe("buildFitbitAuthUrl", () => {
 
   it("includes correct client_id", () => {
     const url = new URL(
-      buildFitbitAuthUrl("test-state", "http://localhost:3000/api/auth/fitbit/callback"),
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+      ),
     );
     expect(url.searchParams.get("client_id")).toBe("test-fitbit-client-id");
   });
 
   it("includes redirect_uri", () => {
     const url = new URL(
-      buildFitbitAuthUrl("test-state", "http://localhost:3000/api/auth/fitbit/callback"),
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+      ),
     );
     expect(url.searchParams.get("redirect_uri")).toBe(
       "http://localhost:3000/api/auth/fitbit/callback",
@@ -32,21 +61,30 @@ describe("buildFitbitAuthUrl", () => {
 
   it("requests nutrition scope", () => {
     const url = new URL(
-      buildFitbitAuthUrl("test-state", "http://localhost:3000/api/auth/fitbit/callback"),
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+      ),
     );
     expect(url.searchParams.get("scope")).toContain("nutrition");
   });
 
   it("uses response_type=code", () => {
     const url = new URL(
-      buildFitbitAuthUrl("test-state", "http://localhost:3000/api/auth/fitbit/callback"),
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+      ),
     );
     expect(url.searchParams.get("response_type")).toBe("code");
   });
 
   it("includes state parameter", () => {
     const url = new URL(
-      buildFitbitAuthUrl("my-state", "http://localhost:3000/api/auth/fitbit/callback"),
+      buildFitbitAuthUrl(
+        "my-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+      ),
     );
     expect(url.searchParams.get("state")).toBe("my-state");
   });
@@ -73,5 +111,62 @@ describe("ensureFreshToken", () => {
     await expect(ensureFreshToken(session as never)).rejects.toThrow(
       "FITBIT_TOKEN_INVALID",
     );
+  });
+});
+
+describe("exchangeFitbitCode", () => {
+  it("logs error on token exchange HTTP failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(
+      exchangeFitbitCode("bad-code", "http://localhost:3000/callback"),
+    ).rejects.toThrow();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "fitbit_token_exchange_failed",
+        status: 401,
+      }),
+      expect.any(String),
+    );
+
+    vi.restoreAllMocks();
+  });
+});
+
+describe("refreshFitbitToken", () => {
+  it("logs error on token refresh HTTP failure", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(refreshFitbitToken("bad-refresh")).rejects.toThrow();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "fitbit_token_refresh_failed",
+        status: 401,
+      }),
+      expect.any(String),
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("logs debug when token refresh is triggered", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(refreshFitbitToken("token")).rejects.toThrow();
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "fitbit_token_refresh_start" }),
+      expect.any(String),
+    );
+
+    vi.restoreAllMocks();
   });
 });

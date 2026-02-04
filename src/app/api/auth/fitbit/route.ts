@@ -1,10 +1,13 @@
 import { buildFitbitAuthUrl } from "@/lib/fitbit";
 import { buildUrl } from "@/lib/url";
+import { logger } from "@/lib/logger";
 
 function initiateFitbitAuth() {
   const state = crypto.randomUUID();
   const redirectUri = buildUrl("/api/auth/fitbit/callback");
   const authUrl = buildFitbitAuthUrl(state, redirectUri);
+
+  logger.info({ action: "fitbit_oauth_start" }, "initiating fitbit oauth");
 
   return new Response(null, {
     status: 302,

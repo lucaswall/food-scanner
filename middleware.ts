@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 
 export function middleware(request: NextRequest) {
   const sessionCookie = request.cookies.get("food-scanner-session");
+  const { pathname } = request.nextUrl;
 
   if (!sessionCookie) {
-    const { pathname } = request.nextUrl;
-
     // API routes get 401 JSON
     if (pathname.startsWith("/api/")) {
+      logger.warn(
+        { path: pathname, action: "denied", reason: "missing_session" },
+        "unauthenticated api request",
+      );
       return Response.json(
         {
           success: false,
@@ -19,11 +23,19 @@ export function middleware(request: NextRequest) {
     }
 
     // Page routes redirect to landing
+    logger.warn(
+      { path: pathname, action: "redirect", reason: "missing_session" },
+      "unauthenticated page request",
+    );
     return NextResponse.redirect(new URL("/", request.url));
   }
 
+  logger.debug({ path: pathname, action: "allowed" }, "authenticated request");
   return NextResponse.next();
 }
+
+// Force Node.js runtime (pino requires Node.js APIs, not compatible with Edge Runtime)
+export const runtime = "nodejs";
 
 export const config = {
   matcher: ["/app/:path*", "/settings/:path*", "/api/((?!health|auth).*)"],

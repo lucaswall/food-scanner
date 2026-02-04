@@ -207,3 +207,95 @@
 - Middleware runs in Edge Runtime by default — pino works in Node.js runtime. May need to verify middleware runs in Node.js runtime or use a lightweight alternative for middleware logging. If Edge runtime is required, middleware logging may need to use `console.*` with structured JSON instead.
 - Test mocking: pino logger needs to be mockable in tests. Use `vi.mock('@/lib/logger')` pattern.
 - Log volume: OAuth callbacks and session checks are infrequent (single-user app), so no risk of hitting Railway's 500 lines/sec limit.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-04
+
+### Tasks Completed This Iteration
+- Task 1: Install pino and create logger module - Created `src/lib/logger.ts` with Railway-optimized config, 7 tests
+- Task 2: Add LOG_LEVEL to documentation - Updated CLAUDE.md, DEVELOPMENT.md, README.md
+- Task 3: Instrument API response helpers - Added auto-logging to successResponse/errorResponse, 5 new tests
+- Task 4: Instrument middleware with auth logging - Added warn/debug logging for auth decisions, forced Node.js runtime, 3 new tests
+- Task 5: Instrument OAuth route handlers - Added logging to all 4 OAuth routes (Google/Fitbit init + callbacks), 4 new tests
+- Task 6: Instrument session and logout routes - Added logging to session check and logout, 4 new tests
+- Task 7: Instrument lib helpers - Added logging to auth.ts, fitbit.ts, url.ts for HTTP failures, 6 new tests
+- Task 8: Health route logging and startup log - Added health check debug logging, created instrumentation.ts for startup log, 2 new tests
+
+### Files Modified
+- `src/lib/logger.ts` - Created: pino singleton, Railway-optimized config, test helpers
+- `src/lib/api-response.ts` - Added auto-logging to success/error responses
+- `src/lib/auth.ts` - Added error logging on Google token exchange and profile fetch failures
+- `src/lib/fitbit.ts` - Added error/debug logging on Fitbit token exchange, refresh failures
+- `src/lib/url.ts` - Added error logging on missing APP_URL
+- `middleware.ts` - Added auth decision logging, forced Node.js runtime for pino compatibility
+- `src/app/api/auth/google/route.ts` - Added OAuth initiation logging
+- `src/app/api/auth/google/callback/route.ts` - Added invalid state, unauthorized email, success logging
+- `src/app/api/auth/fitbit/route.ts` - Added OAuth initiation logging
+- `src/app/api/auth/fitbit/callback/route.ts` - Added invalid state, success logging
+- `src/app/api/auth/session/route.ts` - Added session check/invalid logging
+- `src/app/api/auth/logout/route.ts` - Added logout logging
+- `src/app/api/health/route.ts` - Added health check debug logging
+- `src/instrumentation.ts` - Created: startup log with nodeEnv and logLevel
+- `CLAUDE.md` - Added pino to tech stack, LOG_LEVEL to env vars, logger.ts to structure
+- `DEVELOPMENT.md` - Added LOG_LEVEL to local env setup
+- `README.md` - Added LOG_LEVEL to Railway env vars
+- `package.json` - Added pino, pino-pretty dependencies; removed deprecated @types/pino
+- Test files (13 files updated/created with logger mock setup and logging assertions)
+
+### Linear Updates
+- FOO-13: Todo → In Progress → Review
+- FOO-14: Todo → In Progress → Review
+- FOO-15: Todo → In Progress → Review
+- FOO-16: Todo → In Progress → Review
+- FOO-17: Todo → In Progress → Review
+- FOO-18: Todo → In Progress → Review
+- FOO-19: Todo → In Progress → Review
+- FOO-20: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 6 bugs (1 HIGH, 4 MEDIUM, 1 LOW), all fixed before proceeding:
+  - HIGH: Middleware Edge Runtime incompatibility — fixed by adding `export const runtime = "nodejs"`
+  - MEDIUM: Duplicate logging in route catch blocks + lib helpers + errorResponse — removed route-level catch logging
+  - MEDIUM: Unsafe LOG_LEVEL type cast — added runtime validation with Set
+  - MEDIUM: Double getTransport() call — stored result in variable
+  - LOW: Deprecated @types/pino — removed package
+- verifier: All 96 tests pass, zero warnings
+
+### Review Findings
+
+Files reviewed: 18 source files, 13 test files
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Error Handling, Conventions (CLAUDE.md)
+
+No issues found - all implementations are correct and follow project conventions.
+
+**Details:**
+- Security: No secrets logged anywhere; `details` parameter excluded from error logs; auth enforcement correct; cookie flags properly set
+- Logic: Log level validation with `Set` is correct; session expiry comparison correct; all error paths log before throwing/returning
+- Async: All promises properly awaited; no fire-and-forget operations
+- Resources: Logger is singleton; transport result stored in variable (no double creation)
+- Type Safety: No unsafe casts; `LogLevel` type properly constrained; runtime validation for LOG_LEVEL env var
+- Conventions: All imports use `@/` alias; file naming correct; documentation updated in all three files (CLAUDE.md, DEVELOPMENT.md, README.md)
+- Tests: Logger tests use real pino instances with custom destinations (strong validation); all route tests assert correct log actions/levels; security test verifies `details` excluded from logs
+- Edge Runtime: `export const runtime = "nodejs"` correctly addresses pino/Edge incompatibility in middleware
+
+### Linear Updates
+- FOO-13: Review → Merge
+- FOO-14: Review → Merge
+- FOO-15: Review → Merge
+- FOO-16: Review → Merge
+- FOO-17: Review → Merge
+- FOO-18: Review → Merge
+- FOO-19: Review → Merge
+- FOO-20: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+Ready for PR creation.

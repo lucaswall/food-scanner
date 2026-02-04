@@ -14,8 +14,19 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
+vi.mock("@/lib/logger", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn(),
+  },
+}));
+
 const { getIronSession } = await import("iron-session");
 const { POST } = await import("@/app/api/auth/logout/route");
+const { logger } = await import("@/lib/logger");
 
 const mockGetIronSession = vi.mocked(getIronSession);
 
@@ -37,5 +48,20 @@ describe("POST /api/auth/logout", () => {
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(destroyFn).toHaveBeenCalled();
+  });
+
+  it("logs info on logout", async () => {
+    const destroyFn = vi.fn();
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "test-session",
+      email: "wall.lucas@gmail.com",
+      destroy: destroyFn,
+    } as never);
+
+    await POST();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "logout" }),
+      expect.any(String),
+    );
   });
 });

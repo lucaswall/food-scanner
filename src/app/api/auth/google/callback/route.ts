@@ -3,6 +3,7 @@ import { exchangeGoogleCode, getGoogleProfile } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
 import { getSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
+import { logger } from "@/lib/logger";
 
 function getCookieValue(request: Request, name: string): string | undefined {
   const cookieHeader = request.headers.get("cookie") ?? "";
@@ -17,6 +18,7 @@ export async function GET(request: Request) {
   const storedState = getCookieValue(request, "google-oauth-state");
 
   if (!code || !state || state !== storedState) {
+    logger.warn({ action: "google_callback_invalid_state" }, "invalid oauth state");
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
@@ -37,6 +39,7 @@ export async function GET(request: Request) {
   }
 
   if (profile.email !== process.env.ALLOWED_EMAIL) {
+    logger.warn({ action: "google_unauthorized_email", email: profile.email }, "unauthorized email attempted login");
     return errorResponse("AUTH_INVALID_EMAIL", "Unauthorized email address", 403);
   }
 
@@ -52,6 +55,8 @@ export async function GET(request: Request) {
   // Clear the OAuth state cookie
   const cookieStore = await cookies();
   cookieStore.delete("google-oauth-state");
+
+  logger.info({ action: "google_login_success", email: profile.email }, "google login successful");
 
   // Redirect: if no Fitbit tokens, go to Fitbit OAuth; otherwise /app
   const redirectTo = session.fitbit ? "/app" : "/api/auth/fitbit";

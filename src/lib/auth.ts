@@ -1,3 +1,5 @@
+import { logger } from "@/lib/logger";
+
 export function buildGoogleAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
@@ -29,6 +31,10 @@ export async function exchangeGoogleCode(
   });
 
   if (!response.ok) {
+    logger.error(
+      { action: "google_token_exchange_failed", status: response.status },
+      "google token exchange http failure",
+    );
     throw new Error(`Google token exchange failed: ${response.status}`);
   }
 
@@ -46,6 +52,10 @@ export async function getGoogleProfile(
   );
 
   if (!response.ok) {
+    logger.error(
+      { action: "google_profile_fetch_failed", status: response.status },
+      "google profile fetch http failure",
+    );
     throw new Error(`Google profile fetch failed: ${response.status}`);
   }
 

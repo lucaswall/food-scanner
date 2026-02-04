@@ -26,6 +26,7 @@ Single-user web application for logging food to Fitbit using AI-powered nutritio
 | Session | iron-session (encrypted httpOnly cookies) |
 | Auth | Google OAuth 2.0 + Fitbit OAuth 2.0 |
 | AI | Anthropic Claude API (tool_use) |
+| Logging | pino (structured JSON, Railway-optimized) |
 | Deployment | Railway (single service, custom domain) |
 
 ---
@@ -73,6 +74,7 @@ food-scanner/
 │   │   ├── session.ts                    # iron-session config + getSession()
 │   │   ├── api-response.ts              # Standardized API response helpers
 │   │   ├── url.ts                        # APP_URL helper + buildUrl()
+│   │   ├── logger.ts                     # pino structured logging
 │   │   ├── utils.ts                      # shadcn/ui cn() utility
 │   │   ├── claude.ts                     # Claude API client (tool_use)
 │   │   ├── fitbit.ts                     # Fitbit API client
@@ -237,6 +239,9 @@ APP_URL=https://food.lucaswall.me
 
 # Auth
 ALLOWED_EMAIL=wall.lucas@gmail.com
+
+# Logging (optional, defaults to info in production, debug in development)
+LOG_LEVEL=info
 ```
 
 ---
