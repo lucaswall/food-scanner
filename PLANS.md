@@ -1,178 +1,214 @@
-# Fix Plan: Session cookie SameSite=strict breaks Fitbit OAuth flow
+# Implementation Plan
 
-**Issue:** [FOO-21](https://linear.app/lw-claude/issue/FOO-21/auth-session-cookie-samesitestrict-breaks-fitbit-oauth-flow)
-**Date:** 2026-02-04
-**Status:** Planning
-**Branch:** fix/FOO-21-session-samesite-oauth (proposed)
+**Created:** 2026-02-04
+**Source:** Inline request: ROADMAP.md Iteration 2 - AI Food Analysis
+**Linear Issues:** [FOO-22](https://linear.app/lw-claude/issue/FOO-22), [FOO-23](https://linear.app/lw-claude/issue/FOO-23), [FOO-24](https://linear.app/lw-claude/issue/FOO-24), [FOO-25](https://linear.app/lw-claude/issue/FOO-25), [FOO-26](https://linear.app/lw-claude/issue/FOO-26), [FOO-27](https://linear.app/lw-claude/issue/FOO-27), [FOO-28](https://linear.app/lw-claude/issue/FOO-28), [FOO-29](https://linear.app/lw-claude/issue/FOO-29), [FOO-30](https://linear.app/lw-claude/issue/FOO-30)
 
-## Investigation
+## Context Gathered
 
-### Bug Report
-After completing the full login flow (Google OAuth -> Fitbit OAuth -> /app), the session is silently corrupted. Railway deploy logs show `session_invalid` / `AUTH_MISSING_SESSION` warnings 7 seconds after a successful `fitbit_connect_success`. The `/app` page renders with `session.email` as `undefined`.
+### Codebase Analysis
+- **Related files:**
+  - `src/types/index.ts` — Has `FoodAnalysis` interface already defined
+  - `src/lib/api-response.ts` — Standard `successResponse`/`errorResponse` helpers
+  - `src/lib/session.ts` — `getSession()` for auth validation
+  - `src/lib/fitbit.ts` — Token refresh patterns to follow
+  - `src/app/app/page.tsx` — Current placeholder page to replace
+  - `src/components/ui/button.tsx` — Existing shadcn/ui button component
+- **Existing patterns:**
+  - Route handlers use `getSession()` + validate `session.sessionId`
+  - Errors use `errorResponse()` with typed error codes
+  - Logging via `logger.info/warn/error/debug` with structured objects
+  - Tests mock `iron-session`, `next/headers`, and `logger`
+- **Test conventions:**
+  - Colocated in `__tests__/` subdirectories
+  - Use `vi.mock()` for dependencies, `vi.stubEnv()` for env vars
+  - Test both success and error paths with logging assertions
 
-### Classification
-- **Type:** Auth Issue
-- **Severity:** Critical (login flow broken — session data lost after Fitbit OAuth)
-- **Affected Area:** Session cookie configuration, Fitbit OAuth callback
+### MCP Context
+- **MCPs used:** Linear (for issue creation)
+- **Findings:** Team ID for "Food Scanner" is `3e498d7a-30d2-4c11-89b3-ed7bd8cb2031`
 
-### Root Cause Analysis
+## Original Plan
 
-The session cookie is configured with `sameSite: "strict"` (`src/lib/session.ts:11`). When the browser follows Fitbit's OAuth redirect back to `/api/auth/fitbit/callback`, this is a **cross-site navigation** (from `api.fitbit.com` to `food.lucaswall.me`). Browsers do NOT send `SameSite=Strict` cookies on cross-site navigations.
+### Task 1: Add @anthropic-ai/sdk dependency
+**Linear Issue:** [FOO-22](https://linear.app/lw-claude/issue/FOO-22)
 
-As a result, the Fitbit callback's `getSession()` call reads an **empty cookie store** and creates a brand-new session. It then sets `session.fitbit = { ... }` on this empty session and calls `session.save()`, which **overwrites** the original session cookie (containing `sessionId`, `email`, `createdAt`, `expiresAt`) with one containing only Fitbit tokens.
+1. Add `@anthropic-ai/sdk` to package.json dependencies
+2. Run `npm install` to install the package
+3. Verify TypeScript types are available
 
-#### Evidence
+### Task 2: Create Claude API client library
+**Linear Issue:** [FOO-23](https://linear.app/lw-claude/issue/FOO-23)
 
-**Cookie configuration mismatch:**
-- `google-oauth-state` cookie: `SameSite=Lax` (`src/app/api/auth/google/route.ts:16`) — works correctly
-- `fitbit-oauth-state` cookie: `SameSite=Lax` (`src/app/api/auth/fitbit/route.ts:16`) — works correctly
-- `food-scanner-session` cookie: `sameSite: "strict"` (`src/lib/session.ts:11`) — **broken on cross-site redirects**
+1. Write tests in `src/lib/__tests__/claude.test.ts`:
+   - Test `analyzeFood()` returns `FoodAnalysis` for valid response
+   - Test `analyzeFood()` throws `CLAUDE_API_ERROR` on API failure
+   - Test `analyzeFood()` throws `CLAUDE_API_ERROR` when no tool_use block
+   - Test proper system prompt and tool definition are passed
+2. Run verifier (expect fail)
+3. Implement `src/lib/claude.ts`:
+   - Export `analyzeFood(images: Array<{base64: string, mimeType: string}>, description?: string): Promise<FoodAnalysis>`
+   - Use `claude-sonnet-4-20250514` model
+   - Define `report_nutrition` tool with schema from ROADMAP.md
+   - Use `tool_choice: { type: 'tool', name: 'report_nutrition' }`
+   - 30 second timeout, 1 retry on timeout
+4. Run verifier (expect pass)
 
-**Browser SameSite behavior on OAuth callbacks (cross-site top-level GET):**
-- `SameSite=Lax`: Sent on top-level navigations (GET redirects) -> OAuth state validation works
-- `SameSite=Strict`: NOT sent on cross-site navigations -> Session lost
+### Task 3: Create /api/analyze-food route handler
+**Linear Issue:** [FOO-24](https://linear.app/lw-claude/issue/FOO-24)
 
-**Railway deploy logs (deployment `5fe626c3`, 2026-02-04):**
-```
-20:35:08 — google_login_success (session created with sessionId + email)
-20:35:09 — fitbit_oauth_start (redirect to api.fitbit.com)
-20:35:10 — fitbit_connect_success (session OVERWRITTEN with only fitbit data)
-20:35:17 — session_invalid, reason: "missing" (sessionId is undefined)
-```
+1. Write tests in `src/app/api/analyze-food/__tests__/route.test.ts`:
+   - Test returns 401 for missing session
+   - Test returns 400 `FITBIT_NOT_CONNECTED` when `session.fitbit` is missing
+   - Test returns 400 `VALIDATION_ERROR` for no images
+   - Test returns 400 `VALIDATION_ERROR` for more than 3 images
+   - Test returns 400 `VALIDATION_ERROR` for invalid image type
+   - Test returns 400 `VALIDATION_ERROR` for image over 10MB
+   - Test returns 200 with `FoodAnalysis` for valid request
+   - Test returns 500 `CLAUDE_API_ERROR` on Claude failure
+   - Test logs appropriate actions
+2. Run verifier (expect fail)
+3. Implement `src/app/api/analyze-food/route.ts`:
+   - `POST` handler accepting `multipart/form-data`
+   - Validate session via `getSession()`
+   - Check `session.fitbit` exists (return `FITBIT_NOT_CONNECTED` if not)
+   - Parse form data: `images` (File[]), `description` (string)
+   - Validate: 1-3 images, JPEG/PNG only, max 10MB each
+   - Convert images to base64
+   - Call `analyzeFood()` from claude.ts
+   - Return `FoodAnalysis` via `successResponse()`
+4. Run verifier (expect pass)
 
-**Next.js internals verified:** `Response.redirect()` DOES include cookies set via `cookies()` API — Next.js merges them in `app-route/module.js:419-426` via `appendMutableCookies()`. The bug is on the browser side (cookie not SENT), not the server side (cookie not SET).
+### Task 4: Create image compression utility
+**Linear Issue:** [FOO-25](https://linear.app/lw-claude/issue/FOO-25)
 
-#### Affected Code
+1. Write tests in `src/lib/__tests__/image.test.ts`:
+   - Test `compressImage()` resizes image to max 1024px dimension
+   - Test `compressImage()` outputs JPEG at 80% quality
+   - Test `compressImage()` preserves aspect ratio
+   - Test `compressImage()` handles already-small images
+2. Run verifier (expect fail)
+3. Implement `src/lib/image.ts`:
+   - Export `compressImage(file: File): Promise<Blob>` (client-side utility)
+   - Use `<canvas>` for resizing and compression
+   - Target ~1024px max dimension, 80% JPEG quality
+4. Run verifier (expect pass)
 
-The problematic configuration in `src/lib/session.ts:11`:
-```typescript
-sameSite: "strict",
-```
+### Task 5: Create PhotoCapture component
+**Linear Issue:** [FOO-26](https://linear.app/lw-claude/issue/FOO-26)
 
-The Fitbit callback that creates a new session when the cookie is missing (`src/app/api/auth/fitbit/callback/route.ts:44-52`):
-```typescript
-const session = await getSession(); // Returns empty session (cookie not sent)
-session.fitbit = { ... };           // Sets fitbit on EMPTY session
-await session.save();               // Overwrites original session
-```
+1. Write tests in `src/components/__tests__/photo-capture.test.tsx`:
+   - Test renders file input with `accept="image/*"` and `capture="environment"`
+   - Test displays preview thumbnails for selected photos
+   - Test limits selection to 3 images
+   - Test shows validation error for invalid file types
+   - Test shows validation error for files over 10MB
+   - Test clear button removes all selected photos
+   - Test calls `onPhotosChange` with selected files
+2. Run verifier (expect fail)
+3. Implement `src/components/photo-capture.tsx`:
+   - Client component (`'use client'`)
+   - Props: `onPhotosChange: (files: File[]) => void`, `maxPhotos?: number`
+   - Native file input with `accept="image/*"` `capture="environment"`
+   - Multi-select support (1-3 photos)
+   - Preview thumbnails using `URL.createObjectURL()`
+   - Clear/retake button
+   - Validation feedback for file type and size
+4. Run verifier (expect pass)
 
-### Impact
-- **Login flow completely broken** — After first-time login, the session loses `sessionId` and `email`
-- **User sees undefined** — The `/app` page shows `undefined` instead of the user's email
-- **Session validation fails** — `/api/auth/session` returns 401 because `sessionId` is missing
-- **Fitbit reconnection from settings also affected** — Same cross-site redirect issue
-- **ROADMAP.md specifies `strict`** (line 72) — the spec itself has the bug
+### Task 6: Create DescriptionInput component
+**Linear Issue:** [FOO-27](https://linear.app/lw-claude/issue/FOO-27)
 
-## Fix Plan (TDD Approach)
+1. Write tests in `src/components/__tests__/description-input.test.tsx`:
+   - Test renders textarea with placeholder
+   - Test enforces 500 character limit
+   - Test shows character count
+   - Test calls `onChange` with current value
+2. Run verifier (expect fail)
+3. Implement `src/components/description-input.tsx`:
+   - Client component (`'use client'`)
+   - Props: `value: string`, `onChange: (value: string) => void`
+   - Textarea with placeholder "e.g., 250g pollo asado con chimichurri"
+   - Max 500 characters with counter display
+4. Run verifier (expect pass)
 
-### Step 1: Write Failing Test
+### Task 7: Create AnalysisResult component
+**Linear Issue:** [FOO-28](https://linear.app/lw-claude/issue/FOO-28)
 
-- **File:** `src/lib/__tests__/session.test.ts`
-- **Test:** Update existing test to expect `sameSite: "lax"` instead of `"strict"`
+1. Write tests in `src/components/__tests__/analysis-result.test.tsx`:
+   - Test displays all `FoodAnalysis` fields
+   - Test shows confidence indicator with correct color
+   - Test displays notes/assumptions
+   - Test shows loading state during analysis
+   - Test shows error state with retry button
+2. Run verifier (expect fail)
+3. Implement `src/components/analysis-result.tsx`:
+   - Client component (`'use client'`)
+   - Props: `analysis: FoodAnalysis | null`, `loading: boolean`, `error: string | null`, `onRetry: () => void`
+   - Display all nutrition fields
+   - Confidence indicator: high=green, medium=yellow, low=red
+   - Notes section for Claude's assumptions
+   - Loading spinner state
+   - Error state with retry button
+4. Run verifier (expect pass)
 
-```typescript
-it("has httpOnly, secure, sameSite lax, 30-day maxAge", () => {
-  const opts = sessionOptions.cookieOptions!;
-  expect(opts.httpOnly).toBe(true);
-  expect(opts.secure).toBe(true);
-  expect(opts.sameSite).toBe("lax");  // Changed from "strict"
-  expect(opts.maxAge).toBe(30 * 24 * 60 * 60);
-});
-```
+### Task 8: Create FoodAnalyzer container component
+**Linear Issue:** [FOO-29](https://linear.app/lw-claude/issue/FOO-29)
 
-### Step 2: Implement Fix
+1. Write tests in `src/components/__tests__/food-analyzer.test.tsx`:
+   - Test renders PhotoCapture and DescriptionInput
+   - Test "Analyze" button is disabled when no photos
+   - Test "Analyze" button calls /api/analyze-food on click
+   - Test shows AnalysisResult after successful analysis
+   - Test shows error on API failure
+   - Test "Clear" resets to initial state
+2. Run verifier (expect fail)
+3. Implement `src/components/food-analyzer.tsx`:
+   - Client component (`'use client'`)
+   - State: `photos`, `description`, `analysis`, `loading`, `error`
+   - Compose PhotoCapture, DescriptionInput, AnalysisResult
+   - "Analyze" button: compress images, send to /api/analyze-food
+   - Handle loading and error states
+   - "Clear" button to reset and take another photo
+4. Run verifier (expect pass)
 
-- **File:** `src/lib/session.ts:11`
-- **Change:** `sameSite: "strict"` -> `sameSite: "lax"`
+### Task 9: Update /app page with FoodAnalyzer
+**Linear Issue:** [FOO-30](https://linear.app/lw-claude/issue/FOO-30)
 
-```typescript
-cookieOptions: {
-  httpOnly: true,
-  secure: true,
-  sameSite: "lax",  // Must be "lax" for OAuth redirect flows
-  maxAge: 30 * 24 * 60 * 60, // 30 days
-  path: "/",
-},
-```
+1. Update `src/app/app/page.tsx`:
+   - Remove placeholder "Camera interface coming soon"
+   - Import and render `FoodAnalyzer` component
+   - Keep session email display and Settings link
+2. Run verifier (expect pass)
 
-### Step 3: Update dependent test mocks
-
-Update all test files that mock `sessionOptions` with `sameSite: "strict"` to use `"lax"`:
-- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts:28`
-- `src/app/api/auth/google/callback/__tests__/route.test.ts:27`
-
-### Step 4: Update documentation
-
-- **File:** `ROADMAP.md:72` — Change `sameSite: 'strict'` to `sameSite: 'lax'`
-- **File:** `CLAUDE.md` — Update the Security section cookie flags description
-
-### Step 5: Verify
-
-- [ ] Failing test now passes
-- [ ] Existing tests still pass
-- [ ] TypeScript compiles without errors
-- [ ] Lint passes
-- [ ] Manual verification: Full login flow (Google -> Fitbit -> /app) preserves session data
-
-## Notes
-
-- `SameSite=Lax` still provides CSRF protection: cookies are NOT sent on cross-site POST requests or subresource requests (fetch, images, iframes). Only top-level navigations (link clicks, GET redirects) include the cookie.
-- This is the industry-standard recommendation for auth cookies in OAuth flows. All major OAuth libraries document this requirement.
-- The OAuth state cookies (`google-oauth-state`, `fitbit-oauth-state`) already use `SameSite=Lax` correctly — only the session cookie was misconfigured.
-- The Google OAuth callback is NOT affected by this bug because it creates a new session rather than reading an existing one. The bug is specific to the Fitbit callback, which needs to read and update the existing session.
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent - Review changes for bugs
+2. Run `verifier` agent - Verify all tests pass and zero warnings
 
 ---
 
-## Iteration 1
+## Plan Summary
 
-**Implemented:** 2026-02-04
+**Objective:** Implement Claude-powered food photo analysis with a camera capture UI
 
-### Tasks Completed This Iteration
-- Step 1: Write failing test — Updated `session.test.ts` to expect `sameSite: "lax"`, confirmed test fails
-- Step 2: Implement fix — Changed `sameSite: "strict"` to `sameSite: "lax"` in `session.ts`, confirmed test passes
-- Step 3: Update dependent test mocks — Updated `sameSite` in mock `sessionOptions` in both `fitbit/callback` and `google/callback` test files
-- Step 4: Update documentation — Updated `ROADMAP.md` and `CLAUDE.md` to reflect `sameSite: lax`
+**Request:** Build Iteration 2 from ROADMAP.md - Claude API integration for food analysis and photo capture UI
 
-### Files Modified
-- `src/lib/session.ts` — Changed `sameSite: "strict"` to `sameSite: "lax"`
-- `src/lib/__tests__/session.test.ts` — Updated test expectation and description
-- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Updated mock sessionOptions
-- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Updated mock sessionOptions
-- `ROADMAP.md` — Updated session config spec
-- `CLAUDE.md` — Updated Security section cookie flags
+**Linear Issues:** FOO-22, FOO-23, FOO-24, FOO-25, FOO-26, FOO-27, FOO-28, FOO-29, FOO-30
 
-### Linear Updates
-- FOO-21: Todo → In Progress → Review
+**Approach:** TDD implementation starting with the Claude API client library, then the /api/analyze-food route, followed by client-side components (PhotoCapture, DescriptionInput, AnalysisResult), composed into a FoodAnalyzer container, and finally integrated into the /app page.
 
-### Pre-commit Verification
-- bug-hunter: Passed — no bugs found, confirmed all 6 files consistent
-- verifier: All 96 tests pass, zero warnings, lint clean, typecheck clean, build successful
+**Scope:**
+- Tasks: 9
+- Files affected: ~15 (new lib, route, components, tests)
+- New tests: yes
 
-### Continuation Status
-All tasks completed.
+**Key Decisions:**
+- Use `@anthropic-ai/sdk` official SDK for Claude API calls
+- Client-side image compression before upload to reduce bandwidth
+- Separate components for photo capture, description, and results for testability
+- FoodAnalyzer container manages state and orchestrates the flow
 
-### Review Findings
-
-Files reviewed: 6
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, AI-Generated Code Risks
-
-No issues found - all implementations are correct and follow project conventions.
-
-- `src/lib/session.ts` — `sameSite: "lax"` is correct for OAuth flows, all other cookie flags intact
-- `src/lib/__tests__/session.test.ts` — Test assertion correctly validates the new value
-- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Mock updated consistently
-- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Mock updated consistently
-- `ROADMAP.md` — Spec updated to match implementation
-- `CLAUDE.md` — Security section updated to match implementation
-
-### Linear Updates
-- FOO-21: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
-Ready for PR creation.
+**Risks/Considerations:**
+- Image compression uses `<canvas>` which requires client-side JavaScript
+- Claude API response time can vary; 30s timeout may need tuning
+- multipart/form-data parsing in Next.js App Router requires careful handling
