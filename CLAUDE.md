@@ -22,6 +22,7 @@ Single-user web application for logging food to Fitbit using AI-powered nutritio
 | Framework | Next.js 15+ (App Router) |
 | Language | TypeScript (strict mode) |
 | Styling | Tailwind CSS + shadcn/ui |
+| Testing | Vitest + Testing Library |
 | Session | iron-session (encrypted httpOnly cookies) |
 | Auth | Google OAuth 2.0 + Fitbit OAuth 2.0 |
 | AI | Anthropic Claude API (tool_use) |
@@ -185,7 +186,7 @@ food-scanner/
 
 - **Team:** "Food Scanner"
 - **Issue Key Prefix:** FOO-xxx
-- **States:** Backlog → Todo → In Progress → Review → Done
+- **States:** Backlog → Todo → In Progress → Review → Merge → Done
 - **Labels:** Security, Bug, Performance, Convention, Technical Debt, Feature, Improvement
 - **Priorities:** 1 (Urgent), 2 (High), 3 (Medium), 4 (Low)
 

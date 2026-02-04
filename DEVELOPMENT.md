@@ -29,21 +29,19 @@ SESSION_SECRET=at-least-32-characters-long-random-string
 # Auth
 ALLOWED_EMAIL=wall.lucas@gmail.com
 
-# Google OAuth (set up when implementing auth)
-GOOGLE_CLIENT_ID=placeholder
-GOOGLE_CLIENT_SECRET=placeholder
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+# Google OAuth (see OAuth Setup section below)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
 
-# Fitbit OAuth (set up when implementing Fitbit integration)
-FITBIT_CLIENT_ID=placeholder
-FITBIT_CLIENT_SECRET=placeholder
-FITBIT_REDIRECT_URI=http://localhost:3000/api/auth/fitbit/callback
+# Fitbit OAuth (see OAuth Setup section below)
+FITBIT_CLIENT_ID=your-fitbit-client-id
+FITBIT_CLIENT_SECRET=your-fitbit-client-secret
 
 # Anthropic (set up when implementing food analysis)
 ANTHROPIC_API_KEY=placeholder
 ```
 
-Replace placeholders with real values as each feature is implemented. The app will boot with placeholders for features not yet built.
+Google and Fitbit OAuth credentials are required for the auth flow. See the **OAuth Setup** section below for how to obtain them.
 
 ### 3. Run Development Server
 
@@ -59,7 +57,7 @@ Open [http://localhost:3000](http://localhost:3000).
 curl http://localhost:3000/api/health
 ```
 
-Should return `{ "status": "ok", "timestamp": ... }`.
+Should return `{ "success": true, "data": { "status": "ok" }, "timestamp": ... }`.
 
 ---
 
@@ -135,7 +133,7 @@ This project is in **active development**. Breaking changes are expected and acc
 
 Issues are tracked in Linear under the "Food Scanner" team with FOO-xxx prefix.
 
-**State flow:** Backlog → Todo → In Progress → Review → Done
+**State flow:** Backlog → Todo → In Progress → Review → Merge → Done
 
 To authenticate Linear MCP, use the `/mcp` command in Claude Code.
 

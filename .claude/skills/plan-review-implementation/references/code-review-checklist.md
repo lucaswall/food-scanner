@@ -7,7 +7,7 @@ Reference for plan-review-implementation skill.
 | Tier | Severity | Examples |
 |------|----------|----------|
 | **CRITICAL** | Immediate fix required | Security vulnerabilities, data corruption, crashes |
-| **HIGH** | Fix before done | Logic errors, race conditions, auth issues |
+| **HIGH** | Fix before merge | Logic errors, race conditions, auth issues |
 | **MEDIUM** | Should fix | Edge cases, type safety, error handling gaps |
 | **LOW** | Nice to have | Code style, documentation, minor improvements |
 

@@ -58,14 +58,14 @@ Select the food-scanner project and environment when prompted. This stores the l
 railway variables set \
   SESSION_SECRET="$(openssl rand -base64 32)" \
   ALLOWED_EMAIL=wall.lucas@gmail.com \
-  GOOGLE_CLIENT_ID=placeholder \
-  GOOGLE_CLIENT_SECRET=placeholder \
-  FITBIT_CLIENT_ID=placeholder \
-  FITBIT_CLIENT_SECRET=placeholder \
-  ANTHROPIC_API_KEY=placeholder
+  GOOGLE_CLIENT_ID=your-google-client-id \
+  GOOGLE_CLIENT_SECRET=your-google-client-secret \
+  FITBIT_CLIENT_ID=your-fitbit-client-id \
+  FITBIT_CLIENT_SECRET=your-fitbit-client-secret \
+  ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
-Replace placeholders with real values as features are implemented.
+Set real values for all credentials. See DEVELOPMENT.md OAuth Setup section for how to obtain OAuth credentials.
 
 **Do not set `NODE_ENV`** — Railway handles this automatically. Setting `NODE_ENV=development` breaks the Next.js production build.
 
@@ -83,7 +83,7 @@ This creates a public URL like `https://food-scanner-production-XXXX.up.railway.
 curl https://food-scanner-production-XXXX.up.railway.app/api/health
 ```
 
-Should return `{ "status": "ok", "timestamp": ... }`.
+Should return `{ "success": true, "data": { "status": "ok" }, "timestamp": ... }`.
 
 ### Build & Start
 

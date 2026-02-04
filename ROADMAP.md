@@ -37,7 +37,7 @@ For tech stack, project structure, and deployment: see [CLAUDE.md](CLAUDE.md), [
 
 ## Implementation Iterations
 
-### Iteration 1: Foundation & Auth
+### Iteration 1: Foundation & Auth ✅ COMPLETE
 
 Build the session layer, authentication flows, and route protection. After this iteration, the app has a working login flow with Google + Fitbit, protected routes, and a settings page.
 

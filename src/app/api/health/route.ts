@@ -1,6 +1,5 @@
+import { successResponse } from "@/lib/api-response";
+
 export async function GET() {
-  return Response.json({
-    status: "ok",
-    timestamp: Date.now(),
-  });
+  return successResponse({ status: "ok" });
 }
