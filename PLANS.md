@@ -2,7 +2,7 @@
 
 **Created:** 2026-02-04
 **Source:** Inline request: ROADMAP.md Iteration 2 - AI Food Analysis
-**Linear Issues:** [FOO-22](https://linear.app/lw-claude/issue/FOO-22), [FOO-23](https://linear.app/lw-claude/issue/FOO-23), [FOO-24](https://linear.app/lw-claude/issue/FOO-24), [FOO-25](https://linear.app/lw-claude/issue/FOO-25), [FOO-26](https://linear.app/lw-claude/issue/FOO-26), [FOO-27](https://linear.app/lw-claude/issue/FOO-27), [FOO-28](https://linear.app/lw-claude/issue/FOO-28), [FOO-29](https://linear.app/lw-claude/issue/FOO-29), [FOO-30](https://linear.app/lw-claude/issue/FOO-30)
+**Linear Issues:** [FOO-22](https://linear.app/lw-claude/issue/FOO-22), [FOO-23](https://linear.app/lw-claude/issue/FOO-23), [FOO-24](https://linear.app/lw-claude/issue/FOO-24), [FOO-25](https://linear.app/lw-claude/issue/FOO-25), [FOO-26](https://linear.app/lw-claude/issue/FOO-26), [FOO-27](https://linear.app/lw-claude/issue/FOO-27), [FOO-28](https://linear.app/lw-claude/issue/FOO-28), [FOO-29](https://linear.app/lw-claude/issue/FOO-29), [FOO-30](https://linear.app/lw-claude/issue/FOO-30), [FOO-31](https://linear.app/lw-claude/issue/FOO-31)
 
 ## Context Gathered
 
@@ -181,6 +181,19 @@
    - Keep session email display and Settings link
 2. Run verifier (expect pass)
 
+### Task 10: Update documentation for Anthropic API setup
+**Linear Issue:** [FOO-31](https://linear.app/lw-claude/issue/FOO-31)
+
+1. Update `DEVELOPMENT.md`:
+   - Add step to obtain Anthropic API key from https://console.anthropic.com/
+   - Add `ANTHROPIC_API_KEY` to `.env.local` example
+   - Document any required scopes/permissions
+2. Update `README.md`:
+   - Add `ANTHROPIC_API_KEY` to Railway environment variables section
+   - Add Anthropic API to the list of external services
+3. Verify `CLAUDE.md` already has `ANTHROPIC_API_KEY` in ENVIRONMENT VARIABLES section
+4. Run verifier (expect pass)
+
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent - Review changes for bugs
 2. Run `verifier` agent - Verify all tests pass and zero warnings
@@ -193,13 +206,13 @@
 
 **Request:** Build Iteration 2 from ROADMAP.md - Claude API integration for food analysis and photo capture UI
 
-**Linear Issues:** FOO-22, FOO-23, FOO-24, FOO-25, FOO-26, FOO-27, FOO-28, FOO-29, FOO-30
+**Linear Issues:** FOO-22, FOO-23, FOO-24, FOO-25, FOO-26, FOO-27, FOO-28, FOO-29, FOO-30, FOO-31
 
-**Approach:** TDD implementation starting with the Claude API client library, then the /api/analyze-food route, followed by client-side components (PhotoCapture, DescriptionInput, AnalysisResult), composed into a FoodAnalyzer container, and finally integrated into the /app page.
+**Approach:** TDD implementation starting with the Claude API client library, then the /api/analyze-food route, followed by client-side components (PhotoCapture, DescriptionInput, AnalysisResult), composed into a FoodAnalyzer container, integrated into the /app page, and finally documentation updates.
 
 **Scope:**
-- Tasks: 9
-- Files affected: ~15 (new lib, route, components, tests)
+- Tasks: 10
+- Files affected: ~17 (new lib, route, components, tests, docs)
 - New tests: yes
 
 **Key Decisions:**
