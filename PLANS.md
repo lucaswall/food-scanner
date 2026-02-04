@@ -201,6 +201,22 @@
    - Placeholder text: "Camera interface coming soon"
 4. Run verifier (expect pass)
 
+### Task 11: Update documentation for Iteration 1
+
+1. Update `CLAUDE.md`:
+   - Add Vitest to tech stack table
+   - Add `npm test` to commands section
+   - Confirm structure section matches actual new files
+2. Update `DEVELOPMENT.md`:
+   - Add test command documentation
+   - Document OAuth setup steps with real redirect URIs (local + Railway)
+   - Add note about shadcn/ui being available
+3. Update `README.md`:
+   - Update API endpoints table to reflect implemented routes
+   - Update environment variables section (remove "placeholder" language for OAuth keys)
+4. Update `ROADMAP.md`:
+   - Mark Iteration 1 as complete
+
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent - Review changes for bugs
 2. Run `verifier` agent - Verify all tests pass and zero warnings
@@ -218,8 +234,8 @@
 **Approach:** Start with test framework setup and shared types as the foundation. Layer on iron-session and middleware for route protection. Then build Google and Fitbit OAuth flows with proper token management. Finally, add the UI pages (landing, settings, placeholder app) that tie it all together.
 
 **Scope:**
-- Tasks: 10
-- Files affected: ~25 (new files: types, lib helpers, 8 route handlers, middleware, 3 pages + tests)
+- Tasks: 11
+- Files affected: ~28 (new files: types, lib helpers, 8 route handlers, middleware, 3 pages + tests + doc updates)
 - New tests: yes
 
 **Key Decisions:**
