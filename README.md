@@ -29,32 +29,61 @@ Single-user application for wall.lucas@gmail.com.
 
 ### Prerequisites
 
-- Railway account ([railway.app](https://railway.app))
-- GitHub repository connected to Railway
-- Custom domain (optional)
+- [Railway](https://railway.app) account
+- [Railway CLI](https://docs.railway.com/guides/cli) installed and authenticated (`railway login`)
+- GitHub repository pushed to origin
 
-### Setup
+### Step 1: Create Railway Project
 
-1. **Create Railway project** from GitHub repo (auto-deploys on push to main)
+1. Go to [railway.com/new](https://railway.com/new)
+2. Choose **"Deploy from GitHub Repo"**
+3. Select the `food-scanner` repository
+4. Railway creates the project and auto-deploys on every push to main
 
-2. **Set environment variables** in Railway dashboard → Variables:
+Do **not** use `railway init` — that's for manual deploys, not GitHub-linked projects.
 
-   ```
-   NODE_ENV=production
-   GOOGLE_CLIENT_ID=<your-google-client-id>
-   GOOGLE_CLIENT_SECRET=<your-google-client-secret>
-   FITBIT_CLIENT_ID=<your-fitbit-client-id>
-   FITBIT_CLIENT_SECRET=<your-fitbit-client-secret>
-   ANTHROPIC_API_KEY=<your-anthropic-api-key>
-   SESSION_SECRET=<min-32-character-random-string>
-   ALLOWED_EMAIL=wall.lucas@gmail.com
-   ```
+### Step 2: Link CLI to Project
 
-3. **Generate domain** in Railway dashboard → Settings → Networking → Generate Domain
+From the project directory:
 
-4. **Update OAuth redirect URIs** to use Railway domain:
-   - Google: `https://your-app.up.railway.app/api/auth/google/callback`
-   - Fitbit: `https://your-app.up.railway.app/api/auth/fitbit/callback`
+```bash
+railway link
+```
+
+Select the food-scanner project and environment when prompted. This stores the link in `~/.railway/config.json` (global, not in the repo).
+
+### Step 3: Set Environment Variables
+
+```bash
+railway variables set \
+  SESSION_SECRET="$(openssl rand -base64 32)" \
+  ALLOWED_EMAIL=wall.lucas@gmail.com \
+  GOOGLE_CLIENT_ID=placeholder \
+  GOOGLE_CLIENT_SECRET=placeholder \
+  FITBIT_CLIENT_ID=placeholder \
+  FITBIT_CLIENT_SECRET=placeholder \
+  ANTHROPIC_API_KEY=placeholder
+```
+
+Replace placeholders with real values as features are implemented.
+
+**Do not set `NODE_ENV`** — Railway handles this automatically. Setting `NODE_ENV=development` breaks the Next.js production build.
+
+### Step 4: Generate Public Domain
+
+```bash
+railway domain
+```
+
+This creates a public URL like `https://food-scanner-production-XXXX.up.railway.app`.
+
+### Step 5: Verify
+
+```bash
+curl https://food-scanner-production-XXXX.up.railway.app/api/health
+```
+
+Should return `{ "status": "ok", "timestamp": ... }`.
 
 ### Build & Start
 
@@ -63,11 +92,26 @@ Railway auto-detects Next.js:
 - **Start:** `npm start` (runs `next start`)
 - **Health check:** `GET /api/health` returns 200
 
-### Custom Domain
+### Monitoring
+
+```bash
+railway logs            # Stream deploy logs
+railway logs --build    # Stream build logs
+```
+
+Or use the Railway MCP from Claude Code to query logs and deployment status.
+
+### Custom Domain (Optional)
 
 1. Add custom domain in Railway dashboard → Settings → Networking
 2. Configure DNS (CNAME record pointing to Railway)
 3. Update OAuth redirect URIs to use custom domain
+
+### OAuth Redirect URIs
+
+When implementing OAuth, update redirect URIs to match your domain:
+- Google: `https://<your-domain>/api/auth/google/callback`
+- Fitbit: `https://<your-domain>/api/auth/fitbit/callback`
 
 ---
 
@@ -87,24 +131,9 @@ Railway auto-detects Next.js:
 
 ---
 
-## Monitoring
-
-- **Health check:** `GET /api/health` — returns `{ status: "ok", timestamp: <unix> }`
-- **Railway dashboard:** View logs, deployments, resource usage
-- **Railway MCP:** Query logs and deployment status from Claude Code
-
----
-
 ## Local Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for complete local setup instructions.
-
-Quick start:
-```bash
-npm install
-cp .env.example .env.local  # Edit with your credentials
-npm run dev
-```
 
 ---
 

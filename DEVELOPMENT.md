@@ -5,42 +5,45 @@
 - Node.js 20+
 - npm
 - Git
-- Railway CLI (for deployment, optional for local dev)
+- [Railway CLI](https://docs.railway.com/guides/cli) (for deployment monitoring)
 
 ## Local Setup
 
 ### 1. Clone and Install
 
 ```bash
-git clone <repo-url>
+git clone git@github.com:lucaswall/food-scanner.git
 cd food-scanner
 npm install
 ```
 
 ### 2. Environment Variables
 
-Create `.env.local` with:
+Create `.env.local`:
 
 ```bash
-# Google OAuth
-GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
-
-# Fitbit OAuth
-FITBIT_CLIENT_ID=your-fitbit-client-id
-FITBIT_CLIENT_SECRET=your-fitbit-client-secret
-FITBIT_REDIRECT_URI=http://localhost:3000/api/auth/fitbit/callback
-
-# Anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-
 # Session (iron-session password, min 32 characters)
+# Generate with: openssl rand -base64 32
 SESSION_SECRET=at-least-32-characters-long-random-string
 
 # Auth
 ALLOWED_EMAIL=wall.lucas@gmail.com
+
+# Google OAuth (set up when implementing auth)
+GOOGLE_CLIENT_ID=placeholder
+GOOGLE_CLIENT_SECRET=placeholder
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+
+# Fitbit OAuth (set up when implementing Fitbit integration)
+FITBIT_CLIENT_ID=placeholder
+FITBIT_CLIENT_SECRET=placeholder
+FITBIT_REDIRECT_URI=http://localhost:3000/api/auth/fitbit/callback
+
+# Anthropic (set up when implementing food analysis)
+ANTHROPIC_API_KEY=placeholder
 ```
+
+Replace placeholders with real values as each feature is implemented. The app will boot with placeholders for features not yet built.
 
 ### 3. Run Development Server
 
@@ -49,6 +52,14 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+### 4. Verify
+
+```bash
+curl http://localhost:3000/api/health
+```
+
+Should return `{ "status": "ok", "timestamp": ... }`.
 
 ---
 
@@ -158,16 +169,50 @@ This project uses Claude Code with custom agents and skills for development:
 
 ---
 
+## Railway CLI Setup
+
+The Railway CLI is used to monitor deployments and read logs. See [README.md](README.md) for full deployment instructions.
+
+```bash
+# Install Railway CLI (macOS)
+brew install railway
+
+# Login
+railway login
+
+# Link to the food-scanner project (from this directory)
+railway link
+
+# Useful commands
+railway logs              # Stream deploy logs
+railway logs --build      # Stream build logs
+railway variables          # List environment variables
+railway domain             # Show or generate public URL
+```
+
+The CLI link is stored globally at `~/.railway/config.json`, not in the project directory.
+
+---
+
 ## OAuth Setup
 
+These are only needed when implementing auth features.
+
 ### Google Cloud Console
-1. Create a project in [Google Cloud Console](https://console.cloud.google.com)
-2. Enable Google OAuth 2.0
-3. Add authorized redirect URI: `http://localhost:3000/api/auth/google/callback`
-4. Copy Client ID and Client Secret to `.env.local`
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a new project (or select existing)
+3. Navigate to APIs & Services → Credentials
+4. Create OAuth 2.0 Client ID (Web application)
+5. Add authorized redirect URIs:
+   - Local: `http://localhost:3000/api/auth/google/callback`
+   - Production: `https://<your-railway-domain>/api/auth/google/callback`
+6. Copy Client ID and Client Secret to `.env.local` and Railway variables
 
 ### Fitbit Developer
-1. Register an app at [dev.fitbit.com](https://dev.fitbit.com)
-2. Set OAuth redirect URI: `http://localhost:3000/api/auth/fitbit/callback`
-3. Request `nutrition` scope
-4. Copy Client ID and Client Secret to `.env.local`
+1. Go to [dev.fitbit.com](https://dev.fitbit.com) → Manage → Register an App
+2. Set OAuth 2.0 Application Type: **Personal**
+3. Add redirect URIs:
+   - Local: `http://localhost:3000/api/auth/fitbit/callback`
+   - Production: `https://<your-railway-domain>/api/auth/fitbit/callback`
+4. Request scopes: `nutrition`
+5. Copy Client ID and Client Secret to `.env.local` and Railway variables
