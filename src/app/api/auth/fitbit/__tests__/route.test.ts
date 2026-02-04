@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.stubEnv("FITBIT_CLIENT_ID", "test-fitbit-client-id");
 vi.stubEnv("FITBIT_CLIENT_SECRET", "test-fitbit-client-secret");
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
+vi.stubEnv("APP_URL", "http://localhost:3000");
 
 // Mock iron-session
 vi.mock("iron-session", () => ({
@@ -16,13 +17,7 @@ const { POST } = await import("@/app/api/auth/fitbit/route");
 
 describe("POST /api/auth/fitbit", () => {
   it("returns a redirect to Fitbit OAuth URL", async () => {
-    const request = new Request("http://localhost:3000/api/auth/fitbit", {
-      method: "POST",
-      headers: {
-        cookie: "food-scanner-session=encrypted-value",
-      },
-    });
-    const response = await POST(request);
+    const response = await POST();
 
     expect(response.status).toBe(302);
     const location = response.headers.get("location")!;
@@ -30,14 +25,17 @@ describe("POST /api/auth/fitbit", () => {
     expect(location).toContain("client_id=test-fitbit-client-id");
   });
 
+  it("uses APP_URL for redirect URI", async () => {
+    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
+    const response = await POST();
+    const location = response.headers.get("location")!;
+    expect(location).toContain(
+      encodeURIComponent("https://food.lucaswall.me/api/auth/fitbit/callback"),
+    );
+  });
+
   it("sets a state cookie for CSRF verification", async () => {
-    const request = new Request("http://localhost:3000/api/auth/fitbit", {
-      method: "POST",
-      headers: {
-        cookie: "food-scanner-session=encrypted-value",
-      },
-    });
-    const response = await POST(request);
+    const response = await POST();
     const setCookie = response.headers.get("set-cookie");
     expect(setCookie).toContain("fitbit-oauth-state");
   });

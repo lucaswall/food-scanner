@@ -227,6 +227,9 @@ ANTHROPIC_API_KEY=
 # Session (iron-session password, min 32 characters)
 SESSION_SECRET=
 
+# App URL (public domain, used for OAuth redirect URIs)
+APP_URL=https://food.lucaswall.me
+
 # Auth
 ALLOWED_EMAIL=wall.lucas@gmail.com
 ```

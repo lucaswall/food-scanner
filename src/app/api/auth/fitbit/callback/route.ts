@@ -2,6 +2,7 @@ import { getIronSession } from "iron-session";
 import { exchangeFitbitCode } from "@/lib/fitbit";
 import { errorResponse } from "@/lib/api-response";
 import { sessionOptions } from "@/lib/session";
+import { buildUrl } from "@/lib/url";
 import type { SessionData } from "@/types";
 
 function getCookieValue(request: Request, name: string): string | undefined {
@@ -20,10 +21,7 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
-  const redirectUri = new URL(
-    "/api/auth/fitbit/callback",
-    request.url,
-  ).toString();
+  const redirectUri = buildUrl("/api/auth/fitbit/callback");
 
   let tokens: {
     access_token: string;
@@ -75,10 +73,7 @@ export async function GET(request: Request) {
     "fitbit-oauth-state=; Path=/; HttpOnly; Max-Age=0",
   );
 
-  responseHeaders.set(
-    "Location",
-    new URL("/app", request.url).toString(),
-  );
+  responseHeaders.set("Location", buildUrl("/app"));
 
   return new Response(null, {
     status: 302,

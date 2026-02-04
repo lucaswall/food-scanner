@@ -26,6 +26,9 @@ Create `.env.local`:
 # Generate with: openssl rand -base64 32
 SESSION_SECRET=at-least-32-characters-long-random-string
 
+# App URL (must match OAuth redirect URIs)
+APP_URL=http://localhost:3000
+
 # Auth
 ALLOWED_EMAIL=wall.lucas@gmail.com
 
