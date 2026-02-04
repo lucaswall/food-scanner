@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.railway.com/railway.schema.json",
+  "build": {
+    "watchPatterns": [
+      "src/**",
+      "middleware.ts",
+      "package.json",
+      "package-lock.json",
+      "tsconfig.json",
+      "next.config.ts",
+      "tailwind.config.ts",
+      "postcss.config.mjs",
+      "eslint.config.mjs",
+      "public/**"
+    ]
+  }
+}
