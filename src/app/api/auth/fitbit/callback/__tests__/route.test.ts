@@ -13,29 +13,47 @@ vi.mock("@/lib/fitbit", () => ({
   ensureFreshToken: vi.fn(),
 }));
 
-// Mock iron-session
-vi.mock("iron-session", () => ({
-  getIronSession: vi.fn().mockResolvedValue({
-    email: "wall.lucas@gmail.com",
-    sessionId: "test-session",
-    save: vi.fn(),
-  }),
+// Mock session module
+const mockSession = {
+  email: "wall.lucas@gmail.com",
+  sessionId: "test-session",
+  save: vi.fn(),
+} as Record<string, unknown>;
+
+vi.mock("@/lib/session", () => ({
+  getSession: vi.fn().mockResolvedValue(mockSession),
+  sessionOptions: {
+    password: "a-test-secret-that-is-at-least-32-characters-long",
+    cookieName: "food-scanner-session",
+    cookieOptions: { httpOnly: true, secure: true, sameSite: "strict", maxAge: 2592000, path: "/" },
+  },
+}));
+
+// Mock next/headers cookies()
+const mockCookieStore = {
+  delete: vi.fn(),
+};
+vi.mock("next/headers", () => ({
+  cookies: vi.fn().mockResolvedValue(mockCookieStore),
 }));
 
 const { exchangeFitbitCode } = await import("@/lib/fitbit");
-const { getIronSession } = await import("iron-session");
+const { getSession } = await import("@/lib/session");
 const { GET } = await import("@/app/api/auth/fitbit/callback/route");
 
 const mockExchangeFitbitCode = vi.mocked(exchangeFitbitCode);
-const mockGetIronSession = vi.mocked(getIronSession);
+const mockGetSession = vi.mocked(getSession);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetIronSession.mockResolvedValue({
-    email: "wall.lucas@gmail.com",
-    sessionId: "test-session",
-    save: vi.fn(),
-  } as never);
+  vi.stubEnv("APP_URL", "http://localhost:3000");
+  Object.keys(mockSession).forEach((key) => {
+    if (key !== "save" && key !== "email" && key !== "sessionId") delete mockSession[key];
+  });
+  mockSession.email = "wall.lucas@gmail.com";
+  mockSession.sessionId = "test-session";
+  mockSession.save = vi.fn();
+  mockGetSession.mockResolvedValue(mockSession as never);
 });
 
 describe("GET /api/auth/fitbit/callback", () => {
@@ -46,13 +64,6 @@ describe("GET /api/auth/fitbit/callback", () => {
       user_id: "fitbit-user-123",
       expires_in: 28800,
     });
-
-    const session = {
-      email: "wall.lucas@gmail.com",
-      sessionId: "test-session",
-      save: vi.fn(),
-    } as Record<string, unknown>;
-    mockGetIronSession.mockResolvedValue(session as never);
 
     const url = new URL("http://localhost:3000/api/auth/fitbit/callback");
     url.searchParams.set("code", "valid-fitbit-code");
@@ -66,8 +77,9 @@ describe("GET /api/auth/fitbit/callback", () => {
     const response = await GET(request);
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toContain("/app");
-    expect(session.save).toHaveBeenCalled();
-    expect(session.fitbit).toEqual(
+    expect(mockGetSession).toHaveBeenCalled();
+    expect(mockSession.save).toHaveBeenCalled();
+    expect(mockSession.fitbit).toEqual(
       expect.objectContaining({
         accessToken: "fitbit-access-token",
         refreshToken: "fitbit-refresh-token",
@@ -84,13 +96,6 @@ describe("GET /api/auth/fitbit/callback", () => {
       user_id: "fitbit-user-123",
       expires_in: 28800,
     });
-
-    const session = {
-      email: "wall.lucas@gmail.com",
-      sessionId: "test-session",
-      save: vi.fn(),
-    } as Record<string, unknown>;
-    mockGetIronSession.mockResolvedValue(session as never);
 
     const url = new URL("http://internal:8080/api/auth/fitbit/callback");
     url.searchParams.set("code", "valid-fitbit-code");
@@ -131,5 +136,48 @@ describe("GET /api/auth/fitbit/callback", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
+  });
+
+  it("clears the fitbit-oauth-state cookie after successful auth", async () => {
+    mockExchangeFitbitCode.mockResolvedValue({
+      access_token: "fitbit-access-token",
+      refresh_token: "fitbit-refresh-token",
+      user_id: "fitbit-user-123",
+      expires_in: 28800,
+    });
+
+    const url = new URL("http://localhost:3000/api/auth/fitbit/callback");
+    url.searchParams.set("code", "valid-fitbit-code");
+    url.searchParams.set("state", "test-state");
+    const request = new Request(url, {
+      headers: {
+        cookie: "fitbit-oauth-state=test-state; food-scanner-session=encrypted",
+      },
+    });
+
+    await GET(request);
+    expect(mockCookieStore.delete).toHaveBeenCalledWith("fitbit-oauth-state");
+  });
+
+  it("uses a single getSession() call instead of double getIronSession", async () => {
+    mockExchangeFitbitCode.mockResolvedValue({
+      access_token: "fitbit-access-token",
+      refresh_token: "fitbit-refresh-token",
+      user_id: "fitbit-user-123",
+      expires_in: 28800,
+    });
+
+    const url = new URL("http://localhost:3000/api/auth/fitbit/callback");
+    url.searchParams.set("code", "valid-fitbit-code");
+    url.searchParams.set("state", "test-state");
+    const request = new Request(url, {
+      headers: {
+        cookie: "fitbit-oauth-state=test-state; food-scanner-session=encrypted",
+      },
+    });
+
+    await GET(request);
+    // getSession should be called exactly once (no double read+write pattern)
+    expect(mockGetSession).toHaveBeenCalledTimes(1);
   });
 });
