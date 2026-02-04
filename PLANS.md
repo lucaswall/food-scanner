@@ -1,214 +1,129 @@
-# Fix Plan: OAuth redirect URI uses internal container URL instead of public domain
+# Fix Plan: OAuth iron-session crash and lint errors
 
-**Issue:** [FOO-12](https://linear.app/lw-claude/issue/FOO-12/auth-oauth-redirect-uri-uses-internal-container-url-instead-of-public)
 **Date:** 2026-02-04
-**Status:** Planning
-**Branch:** fix/oauth-redirect-uri
+**Status:** IN_PROGRESS
 
-## Investigation
+## Summary
 
-### Bug Report
-Google OAuth login fails with `redirect_uri_mismatch` (Error 400) in production. User opens `https://food.lucaswall.me`, clicks "Login with Google", and Google rejects the request because the `redirect_uri` doesn't match any authorized URI.
+Two bugs need fixing:
+1. **OAuth callback 500 error** — `getIronSession` called with invalid argument in both Google and Fitbit callback routes, causing `TypeError: e.get is not a function` at runtime
+2. **Lint errors** — 1 error and 2 warnings preventing `npm run lint` from passing
 
-The authorized URI in Google Cloud Console is: `https://food.lucaswall.me/api/auth/google/callback`
+## Issues
 
-### Classification
-- **Type:** Auth Issue
-- **Severity:** Critical (login completely broken in production)
-- **Affected Area:** All OAuth flows (Google and Fitbit)
+### Bug 1: OAuth iron-session crash
 
-### Root Cause Analysis
-All four OAuth route handlers construct redirect URIs from `request.url`:
+**Priority:** Critical
+**Labels:** Bug
+**Classification:** Auth Issue
+**Affected Area:** `/api/auth/google/callback`, `/api/auth/fitbit/callback`
 
-```typescript
-const redirectUri = new URL("/api/auth/google/callback", request.url).toString();
+#### Bug Report
+Google OAuth callback returns HTTP 500. Railway deploy logs show:
+```
+TypeError: e.get is not a function
 ```
 
-Behind Railway's reverse proxy + Cloudflare CNAME, `request.url` resolves to the internal container address (`http://localhost:8080` or `http://10.244.164.165:8080`), not the public domain (`https://food.lucaswall.me`).
+#### Root Cause Analysis
+Both OAuth callback routes call `getIronSession` with `{ headers: responseHeaders } as never` — a plain object that lacks the `.get()` and `.set()` methods iron-session v8 requires.
+
+The correct approach (already used in `src/lib/session.ts:17-19`) is to pass the cookie store from `cookies()` (`next/headers`), which provides the required interface. When `cookies()` is used in a route handler, iron-session writes Set-Cookie headers automatically through Next.js's cookie API.
 
 #### Evidence
-- **File:** `src/app/api/auth/google/route.ts:5-8` — Builds Google redirect URI from `request.url`
-- **File:** `src/app/api/auth/google/callback/route.ts:23` — Builds Google redirect URI from `request.url` for token exchange
-- **File:** `src/app/api/auth/google/callback/route.ts:64` — Post-login redirect uses `request.url`
-- **File:** `src/app/api/auth/fitbit/route.ts:5-8` — Builds Fitbit redirect URI from `request.url`
-- **File:** `src/app/api/auth/fitbit/callback/route.ts:23-26` — Builds Fitbit redirect URI from `request.url` for token exchange
-- **File:** `src/app/api/auth/fitbit/callback/route.ts:80` — Post-Fitbit redirect uses `request.url`
-- **Logs:** Railway deployment shows `Local: http://localhost:8080`, confirming internal origin
+- **File:** `src/app/api/auth/google/callback/route.ts:46-48` — `getIronSession({ headers: responseHeaders } as never, sessionOptions)` crashes because the object has no `.get()` method
+- **File:** `src/app/api/auth/fitbit/callback/route.ts:44-47` — Same pattern: `getIronSession({ headers: request.headers } as never, sessionOptions)` — also crashes
+- **File:** `src/app/api/auth/fitbit/callback/route.ts:57-59` — Second `getIronSession` call with same invalid pattern
+- **File:** `src/lib/session.ts:17-19` — Shows the correct pattern: `getIronSession<SessionData>(cookieStore, sessionOptions)` using `await cookies()`
+- **Logs:** Railway deploy logs confirm `TypeError: e.get is not a function`
 
-### Impact
-- Google OAuth login is completely broken in production
-- Fitbit OAuth will also fail once Google login is fixed (same pattern)
-- No workaround — the app is unusable in production
+#### Impact
+- Login is completely broken in production — users cannot authenticate
+- Both Google and Fitbit OAuth flows crash on callback
 
-## Fix Plan (TDD Approach)
+### Bug 2: Lint errors
 
-### Step 1: Write failing test for `getAppUrl()` helper
-- **File:** `src/lib/__tests__/url.test.ts`
-- **Tests:**
-  - `getAppUrl()` returns `APP_URL` env var when set
-  - `getAppUrl()` throws when `APP_URL` is not set
-  - `buildUrl(path)` returns full URL using `APP_URL` as base
+**Priority:** Medium
+**Labels:** Bug
+**Classification:** Code quality
+**Affected Area:** `src/app/page.tsx`, `src/app/global-error.tsx`, `src/lib/__tests__/auth.test.ts`
 
-```typescript
-describe("getAppUrl", () => {
-  it("returns APP_URL when set", () => {
-    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
-    expect(getAppUrl()).toBe("https://food.lucaswall.me");
-  });
+#### Bug Report
+`npm run lint` exits with code 1 — 1 error and 2 warnings:
+1. **ERROR** `src/app/page.tsx:8` — `react-hooks/purity`: `Date.now()` is an impure function called during render
+2. **WARNING** `src/app/global-error.tsx:4` — `@typescript-eslint/no-unused-vars`: `error` parameter is defined but never used
+3. **WARNING** `src/lib/__tests__/auth.test.ts:1` — `@typescript-eslint/no-unused-vars`: `beforeEach` is imported but never used
 
-  it("throws when APP_URL is not set", () => {
-    vi.stubEnv("APP_URL", "");
-    expect(() => getAppUrl()).toThrow();
-  });
-});
+#### Root Cause Analysis
+1. `Date.now()` in a Server Component render function violates React's purity rule. The session expiry check should use a helper that doesn't call `Date.now()` inline during render — or the check can be restructured.
+2. `global-error.tsx` receives `error` prop per Next.js convention but doesn't use it.
+3. `auth.test.ts` imports `beforeEach` from vitest but never calls it.
 
-describe("buildUrl", () => {
-  it("builds full URL from path", () => {
-    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
-    expect(buildUrl("/api/auth/google/callback")).toBe(
-      "https://food.lucaswall.me/api/auth/google/callback"
-    );
-  });
+#### Impact
+- `npm run lint` fails, blocking CI/verifier checks
+- The `Date.now()` purity violation is also a correctness concern — React may call the render function multiple times
 
-  it("handles trailing slash in APP_URL", () => {
-    vi.stubEnv("APP_URL", "https://food.lucaswall.me/");
-    expect(buildUrl("/api/auth/google/callback")).toBe(
-      "https://food.lucaswall.me/api/auth/google/callback"
-    );
-  });
-});
-```
+## Implementation Tasks
 
-### Step 2: Implement `getAppUrl()` helper
-- **File:** `src/lib/url.ts` (new file)
+### Task 1: Fix Google OAuth callback iron-session usage
+**Linear Issue:** Create manually — Linear MCP not connected
 
-```typescript
-export function getAppUrl(): string {
-  const url = process.env.APP_URL;
-  if (!url) {
-    throw new Error("APP_URL environment variable is required");
-  }
-  return url.replace(/\/$/, "");
-}
+**TDD Steps:**
 
-export function buildUrl(path: string): string {
-  return `${getAppUrl()}${path}`;
-}
-```
+1. Write test in `src/app/api/auth/google/callback/__tests__/route.test.ts`:
+   - Update the mock for `iron-session` to also mock `getIronSession` via the `cookies()` pattern
+   - Mock `next/headers` `cookies()` to return a mock cookie store
+   - Add test: callback with valid code uses `cookies()` store (not raw headers) and sets session + redirects
+   - Ensure existing tests still pass with the updated mock setup
 
-### Step 3: Update Google OAuth route to use `buildUrl()`
-- **File:** `src/app/api/auth/google/route.ts`
-- **Change:** Replace `new URL("/api/auth/google/callback", request.url).toString()` with `buildUrl("/api/auth/google/callback")`
-- **Test update:** `src/app/api/auth/google/__tests__/route.test.ts` — add `vi.stubEnv("APP_URL", "http://localhost:3000")`
+2. Implement fix in `src/app/api/auth/google/callback/route.ts`:
+   - Import `cookies` from `next/headers`
+   - Replace `getIronSession({ headers: responseHeaders } as never, sessionOptions)` with `getIronSession<SessionData>(await cookies(), sessionOptions)` — same pattern as `getSession()` in `src/lib/session.ts`
+   - Remove the manual `responseHeaders` for session management — `cookies()` handles Set-Cookie automatically
+   - Keep the state cookie clearing via `cookies().delete('google-oauth-state')` or a manual Set-Cookie on the redirect response
+   - Use `NextResponse.redirect()` from `next/server` for the redirect (preserves cookies set through the cookie store)
+   - Remove unused `responseHeaders`, `getIronSession` import if now using `getSession` from `@/lib/session`
 
-### Step 4: Update Google OAuth callback to use `buildUrl()`
-- **File:** `src/app/api/auth/google/callback/route.ts`
-- **Changes:**
-  - Line 23: Replace `new URL("/api/auth/google/callback", request.url).toString()` with `buildUrl("/api/auth/google/callback")`
-  - Line 64: Replace `new URL(redirectTo, request.url).toString()` with `buildUrl(redirectTo)`
-- **Test update:** `src/app/api/auth/google/callback/__tests__/route.test.ts` — add `vi.stubEnv("APP_URL", "http://localhost:3000")`
+3. Run verifier (expect pass)
 
-### Step 5: Update Fitbit OAuth route to use `buildUrl()`
-- **File:** `src/app/api/auth/fitbit/route.ts`
-- **Change:** Replace `new URL("/api/auth/fitbit/callback", request.url).toString()` with `buildUrl("/api/auth/fitbit/callback")`
-- **Test update:** `src/app/api/auth/fitbit/__tests__/route.test.ts` — add `vi.stubEnv("APP_URL", "http://localhost:3000")`
+### Task 2: Fix Fitbit OAuth callback iron-session usage
+**Linear Issue:** Create manually — Linear MCP not connected
 
-### Step 6: Update Fitbit OAuth callback to use `buildUrl()`
-- **File:** `src/app/api/auth/fitbit/callback/route.ts`
-- **Changes:**
-  - Lines 23-26: Replace `new URL("/api/auth/fitbit/callback", request.url).toString()` with `buildUrl("/api/auth/fitbit/callback")`
-  - Line 80: Replace `new URL("/app", request.url).toString()` with `buildUrl("/app")`
-- **Test update:** `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — add `vi.stubEnv("APP_URL", "http://localhost:3000")`
+**TDD Steps:**
 
-### Step 7: Update documentation
-- **File:** `CLAUDE.md`
-  - Add `APP_URL` to the environment variables section with description
-- **File:** `DEVELOPMENT.md`
-  - Add `APP_URL=http://localhost:3000` to the `.env.local` template
-- **File:** `README.md`
-  - Add `APP_URL=https://food.lucaswall.me` to the `railway variables set` command
-  - Mention `APP_URL` in the environment variables context
+1. Write test in `src/app/api/auth/fitbit/callback/__tests__/route.test.ts`:
+   - Same approach as Task 1: mock `next/headers` `cookies()`
+   - Add test: callback reads existing session via `cookies()` store, adds Fitbit tokens, saves, and redirects
+   - Verify the double-`getIronSession` pattern is eliminated (was a workaround for the broken approach)
 
-### Step 8: Set `APP_URL` on Railway
-- Run: `railway variables set APP_URL=https://food.lucaswall.me`
-- This triggers a redeploy
+2. Implement fix in `src/app/api/auth/fitbit/callback/route.ts`:
+   - Import `cookies` from `next/headers`
+   - Replace the two `getIronSession` calls with a single `getIronSession<SessionData>(await cookies(), sessionOptions)` — this reads the existing session AND writes back via the same cookie store
+   - Remove the `Object.assign(responseSession, ...)` workaround — a single session object handles read+write
+   - Use `NextResponse.redirect()` for the redirect
+   - Clear the Fitbit state cookie via `cookies().delete('fitbit-oauth-state')` or manual Set-Cookie
 
-### Verify
-- [ ] New `url.test.ts` tests pass
-- [ ] All existing tests still pass (with `APP_URL` stubbed)
-- [ ] TypeScript compiles without errors
-- [ ] Lint passes
-- [ ] Google OAuth login works on `https://food.lucaswall.me`
-- [ ] Fitbit OAuth flow works after Google login
+3. Run verifier (expect pass)
 
-## Notes
-- `request.url` is still fine for reading query parameters (e.g., `code`, `state` in callbacks) — only URL *construction* needs `APP_URL`
-- The `APP_URL` approach is deliberately simple. No header forwarding complexity with Cloudflare + Railway double-proxy.
-- Local dev uses `APP_URL=http://localhost:3000` in `.env.local`
+### Task 3: Fix lint errors
+**Linear Issue:** Create manually — Linear MCP not connected
 
----
+**TDD Steps:**
 
-## Iteration 1
+1. Fix `src/app/page.tsx:8` — `Date.now()` purity error:
+   - Move the session expiry check out of the render path, or restructure to avoid calling `Date.now()` inline
+   - Option: check `session.sessionId` only (the session cookie itself expires via `maxAge`), making the `expiresAt` check redundant for the redirect decision
+   - Or: extract the timestamp before render logic
 
-**Implemented:** 2026-02-04
+2. Fix `src/app/global-error.tsx:4` — unused `error` parameter:
+   - Prefix with underscore: `_error` to indicate intentionally unused
+   - Or use the `error` prop (e.g., display `error.message`)
 
-### Tasks Completed This Iteration
-- Step 1-2: Created `src/lib/url.ts` with `getAppUrl()` and `buildUrl()` helpers, plus full test coverage
-- Step 3: Updated Google OAuth route (`src/app/api/auth/google/route.ts`) to use `buildUrl()`
-- Step 4: Updated Google OAuth callback (`src/app/api/auth/google/callback/route.ts`) to use `buildUrl()` for both redirect URI and post-login redirect
-- Step 5: Updated Fitbit OAuth route (`src/app/api/auth/fitbit/route.ts`) to use `buildUrl()`
-- Step 6: Updated Fitbit OAuth callback (`src/app/api/auth/fitbit/callback/route.ts`) to use `buildUrl()` for both redirect URI and post-auth redirect
-- Step 7: Updated documentation (CLAUDE.md, DEVELOPMENT.md, README.md) with `APP_URL` env var
+3. Fix `src/lib/__tests__/auth.test.ts:1` — unused `beforeEach` import:
+   - Remove `beforeEach` from the import statement
 
-### Files Modified
-- `src/lib/url.ts` — New helper: `getAppUrl()`, `buildUrl()`
-- `src/lib/__tests__/url.test.ts` — Tests for url helper (5 tests)
-- `src/app/api/auth/google/route.ts` — Replaced `new URL(path, request.url)` with `buildUrl(path)`
-- `src/app/api/auth/google/__tests__/route.test.ts` — Added APP_URL stub, APP_URL test, removed unused request args
-- `src/app/api/auth/google/callback/route.ts` — Replaced 2 instances of URL construction from request.url
-- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Added APP_URL stub and APP_URL verification test
-- `src/app/api/auth/fitbit/route.ts` — Replaced `new URL(path, request.url)` with `buildUrl(path)`
-- `src/app/api/auth/fitbit/__tests__/route.test.ts` — Added APP_URL stub, APP_URL test, removed unused request args
-- `src/app/api/auth/fitbit/callback/route.ts` — Replaced 2 instances of URL construction from request.url
-- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Added APP_URL stub and APP_URL verification test
-- `CLAUDE.md` — Added APP_URL to environment variables section
-- `DEVELOPMENT.md` — Added APP_URL=http://localhost:3000 to .env.local template
-- `README.md` — Added APP_URL=https://food.lucaswall.me to railway variables set command
+4. Run `npm run lint` — expect clean (0 errors, 0 warnings)
+5. Run verifier full mode — expect all tests pass, lint clean, build passes
 
-### Linear Updates
-- FOO-12: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Passed — no bugs found, all 6 request.url instances replaced, helper is correct
-- verifier: All 57 tests pass, typecheck clean, build succeeds. 3 pre-existing lint issues in unmodified files (page.tsx, global-error.tsx, auth.test.ts)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 13
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Test Quality, Conventions
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Details:**
-- All 6 `request.url`-based URL constructions correctly replaced with `buildUrl()`
-- `request.url` correctly preserved for reading query parameters in callbacks
-- `getAppUrl()` properly validates and normalizes `APP_URL` env var
-- OAuth state validation (CSRF) and cookie flags preserved
-- Tests cover APP_URL usage including internal-URL scenarios proving `request.url` is not used
-- Documentation updated consistently across CLAUDE.md, DEVELOPMENT.md, README.md
-
-### Linear Updates
-- FOO-12: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
-Ready for PR creation.
-
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent — Review changes for bugs
+2. Run `verifier` agent — Verify all tests pass, lint clean, zero warnings
