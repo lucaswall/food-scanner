@@ -1,362 +1,148 @@
-# Implementation Plan
+# Fix Plan: OAuth redirect URI uses internal container URL instead of public domain
 
-**Created:** 2026-02-04
-**Source:** Inline request: Iteration 1 of the roadmap — Foundation & Auth
-**Linear Issues:** [FOO-1](https://linear.app/lw-claude/issue/FOO-1/set-up-test-framework-vitest), [FOO-2](https://linear.app/lw-claude/issue/FOO-2/define-shared-typescript-types-and-api-response-helpers), [FOO-3](https://linear.app/lw-claude/issue/FOO-3/implement-iron-session-configuration-and-getsession-helper), [FOO-4](https://linear.app/lw-claude/issue/FOO-4/add-auth-middleware-for-protected-routes), [FOO-5](https://linear.app/lw-claude/issue/FOO-5/implement-google-oauth-login-flow), [FOO-6](https://linear.app/lw-claude/issue/FOO-6/implement-fitbit-oauth-and-token-management), [FOO-7](https://linear.app/lw-claude/issue/FOO-7/add-session-validation-and-logout-routes), [FOO-8](https://linear.app/lw-claude/issue/FOO-8/build-landing-page-with-google-login-button), [FOO-9](https://linear.app/lw-claude/issue/FOO-9/build-settings-page-with-fitbit-reconnect-and-logout), [FOO-10](https://linear.app/lw-claude/issue/FOO-10/create-placeholder-app-page-protected), [FOO-11](https://linear.app/lw-claude/issue/FOO-11/update-documentation-for-iteration-1)
+**Issue:** [FOO-12](https://linear.app/lw-claude/issue/FOO-12/auth-oauth-redirect-uri-uses-internal-container-url-instead-of-public)
+**Date:** 2026-02-04
+**Status:** Planning
+**Branch:** fix/oauth-redirect-uri
 
-## Context Gathered
+## Investigation
 
-### Codebase Analysis
-- **Existing source files:** 6 files — landing page (Coming Soon), global-error, layout, globals.css, favicon, /api/health route
-- **Test setup:** None — no test framework, no test script in package.json
-- **Dependencies:** Next.js 16.1.6, React 19.2.3, Tailwind CSS v4, TypeScript 5 (strict mode)
-- **Path alias:** `@/*` maps to `./src/*`
-- **API route pattern:** Simple async function named after HTTP method, returns `Response.json()`
-- **Middleware:** Does not exist yet
-- **next.config.ts:** Empty (default)
-- **shadcn/ui:** Not yet installed — needs init before UI tasks
+### Bug Report
+Google OAuth login fails with `redirect_uri_mismatch` (Error 400) in production. User opens `https://food.lucaswall.me`, clicks "Login with Google", and Google rejects the request because the `redirect_uri` doesn't match any authorized URI.
 
-### MCP Context
-- **Railway:** App deployed and running at https://food-scanner-production-0426.up.railway.app
-- **Railway vars set:** SESSION_SECRET, ALLOWED_EMAIL, placeholder OAuth/API keys
-- **Linear:** Food Scanner team created with FOO-xxx prefix
+The authorized URI in Google Cloud Console is: `https://food.lucaswall.me/api/auth/google/callback`
 
-## Original Plan
+### Classification
+- **Type:** Auth Issue
+- **Severity:** Critical (login completely broken in production)
+- **Affected Area:** All OAuth flows (Google and Fitbit)
 
-### Task 1: Set up test framework (Vitest)
-**Linear Issue:** [FOO-1](https://linear.app/lw-claude/issue/FOO-1/set-up-test-framework-vitest)
+### Root Cause Analysis
+All four OAuth route handlers construct redirect URIs from `request.url`:
 
-1. Install vitest, @vitejs/plugin-react, jsdom, @testing-library/react, @testing-library/jest-dom
-2. Create `vitest.config.ts` with:
-   - `@vitejs/plugin-react` plugin
-   - `resolve.alias` for `@/` → `./src/`
-   - `test.environment: 'jsdom'`
-   - `test.globals: true`
-   - `test.include: ['src/**/*.test.ts', 'src/**/*.test.tsx']`
-3. Add `"test": "vitest run"` to package.json scripts
-4. Write trivial test `src/lib/__tests__/setup.test.ts` that asserts `1 + 1 === 2`
-5. Run verifier (expect pass)
+```typescript
+const redirectUri = new URL("/api/auth/google/callback", request.url).toString();
+```
 
-### Task 2: Define shared TypeScript types and API response helpers
-**Linear Issue:** [FOO-2](https://linear.app/lw-claude/issue/FOO-2/define-shared-typescript-types-and-api-response-helpers)
+Behind Railway's reverse proxy + Cloudflare CNAME, `request.url` resolves to the internal container address (`http://localhost:8080` or `http://10.244.164.165:8080`), not the public domain (`https://food.lucaswall.me`).
 
-1. Write tests in `src/lib/__tests__/api-response.test.ts`:
-   - `successResponse()` returns `{ success: true, data, timestamp }`
-   - `errorResponse()` returns `{ success: false, error: { code, message }, timestamp }`
-   - timestamp is a number
-2. Run verifier (expect fail)
-3. Create `src/types/index.ts` with all shared types:
-   - `SessionData`, `FoodAnalysis`, `FoodLogRequest`, `FoodLogResponse`
-   - `FitbitMealType` enum
-   - `ApiSuccessResponse<T>`, `ApiErrorResponse`, `ApiResponse<T>`
-   - `ErrorCode` string union (AUTH_INVALID_EMAIL, AUTH_SESSION_EXPIRED, AUTH_MISSING_SESSION, FITBIT_NOT_CONNECTED, FITBIT_TOKEN_INVALID, CLAUDE_API_ERROR, FITBIT_API_ERROR, VALIDATION_ERROR)
-4. Create `src/lib/api-response.ts` with:
-   - `successResponse<T>(data: T): Response` — returns `Response.json({ success: true, data, timestamp: Date.now() })`
-   - `errorResponse(code: ErrorCode, message: string, status: number, details?: unknown): Response`
-5. Refactor `src/app/api/health/route.ts` to use `successResponse()`
-6. Run verifier (expect pass)
+#### Evidence
+- **File:** `src/app/api/auth/google/route.ts:5-8` — Builds Google redirect URI from `request.url`
+- **File:** `src/app/api/auth/google/callback/route.ts:23` — Builds Google redirect URI from `request.url` for token exchange
+- **File:** `src/app/api/auth/google/callback/route.ts:64` — Post-login redirect uses `request.url`
+- **File:** `src/app/api/auth/fitbit/route.ts:5-8` — Builds Fitbit redirect URI from `request.url`
+- **File:** `src/app/api/auth/fitbit/callback/route.ts:23-26` — Builds Fitbit redirect URI from `request.url` for token exchange
+- **File:** `src/app/api/auth/fitbit/callback/route.ts:80` — Post-Fitbit redirect uses `request.url`
+- **Logs:** Railway deployment shows `Local: http://localhost:8080`, confirming internal origin
 
-### Task 3: Implement iron-session configuration and getSession helper
-**Linear Issue:** [FOO-3](https://linear.app/lw-claude/issue/FOO-3/implement-iron-session-configuration-and-getsession-helper)
+### Impact
+- Google OAuth login is completely broken in production
+- Fitbit OAuth will also fail once Google login is fixed (same pattern)
+- No workaround — the app is unusable in production
 
-1. Install `iron-session`
-2. Write tests in `src/lib/__tests__/session.test.ts`:
-   - `sessionOptions` has correct cookie name `'food-scanner-session'`
-   - `sessionOptions.cookieOptions` has httpOnly, secure, sameSite strict, 30-day maxAge
-   - `sessionOptions.password` reads from `process.env.SESSION_SECRET`
-3. Run verifier (expect fail)
-4. Create `src/lib/session.ts` with:
-   - Import `SessionData` from `@/types`
-   - `sessionOptions` with cookie config per ROADMAP.md
-   - `getSession()` using `getIronSession<SessionData>()`
-5. Run verifier (expect pass)
+## Fix Plan (TDD Approach)
 
-### Task 4: Add auth middleware for protected routes
-**Linear Issue:** [FOO-4](https://linear.app/lw-claude/issue/FOO-4/add-auth-middleware-for-protected-routes)
+### Step 1: Write failing test for `getAppUrl()` helper
+- **File:** `src/lib/__tests__/url.test.ts`
+- **Tests:**
+  - `getAppUrl()` returns `APP_URL` env var when set
+  - `getAppUrl()` throws when `APP_URL` is not set
+  - `buildUrl(path)` returns full URL using `APP_URL` as base
 
-1. Write tests in `src/__tests__/middleware.test.ts`:
-   - Request to `/app` without cookie → redirects to `/`
-   - Request to `/settings` without cookie → redirects to `/`
-   - Request to `/api/log-food` without cookie → 401 JSON with AUTH_MISSING_SESSION
-   - Request to `/api/health` → passes through (not matched)
-   - Request to `/api/auth/google` → passes through (not matched)
-   - Request with valid cookie → passes through
-2. Run verifier (expect fail)
-3. Create `middleware.ts` at project root with:
-   - `config.matcher`: `['/app/:path*', '/settings/:path*', '/api/((?!health|auth).*)']`
-   - Check for `food-scanner-session` cookie
-   - API paths → 401 JSON, page paths → redirect to `/`
-4. Run verifier (expect pass)
+```typescript
+describe("getAppUrl", () => {
+  it("returns APP_URL when set", () => {
+    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
+    expect(getAppUrl()).toBe("https://food.lucaswall.me");
+  });
 
-### Task 5: Implement Google OAuth login flow
-**Linear Issue:** [FOO-5](https://linear.app/lw-claude/issue/FOO-5/implement-google-oauth-login-flow)
+  it("throws when APP_URL is not set", () => {
+    vi.stubEnv("APP_URL", "");
+    expect(() => getAppUrl()).toThrow();
+  });
+});
 
-1. Write tests in `src/lib/__tests__/auth.test.ts`:
-   - `buildGoogleAuthUrl()` returns URL with correct client_id, redirect_uri, scope, response_type
-   - `buildGoogleAuthUrl()` includes `state` parameter for CSRF
-2. Write tests in `src/app/api/auth/google/__tests__/route.test.ts`:
-   - POST returns redirect to Google OAuth URL
-3. Write tests in `src/app/api/auth/google/callback/__tests__/route.test.ts`:
-   - Callback with valid code + allowed email → creates session, redirects
-   - Callback with disallowed email → 403 with AUTH_INVALID_EMAIL
-   - Callback with invalid code → error response
-4. Run verifier (expect fail)
-5. Create `src/lib/auth.ts` with:
-   - `buildGoogleAuthUrl(state: string): string`
-   - `exchangeGoogleCode(code: string): Promise<GoogleTokens>`
-   - `getGoogleProfile(accessToken: string): Promise<{ email: string; name: string }>`
-6. Create `src/app/api/auth/google/route.ts`:
-   - POST: Generate state, store in cookie, redirect to Google
-7. Create `src/app/api/auth/google/callback/route.ts`:
-   - GET: Exchange code, validate email, create session, redirect to Fitbit OAuth or /app
-8. Run verifier (expect pass)
+describe("buildUrl", () => {
+  it("builds full URL from path", () => {
+    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
+    expect(buildUrl("/api/auth/google/callback")).toBe(
+      "https://food.lucaswall.me/api/auth/google/callback"
+    );
+  });
 
-### Task 6: Implement Fitbit OAuth and token management
-**Linear Issue:** [FOO-6](https://linear.app/lw-claude/issue/FOO-6/implement-fitbit-oauth-and-token-management)
+  it("handles trailing slash in APP_URL", () => {
+    vi.stubEnv("APP_URL", "https://food.lucaswall.me/");
+    expect(buildUrl("/api/auth/google/callback")).toBe(
+      "https://food.lucaswall.me/api/auth/google/callback"
+    );
+  });
+});
+```
 
-1. Write tests in `src/lib/__tests__/fitbit.test.ts`:
-   - `buildFitbitAuthUrl()` returns URL with correct client_id, redirect_uri, scope (nutrition), response_type
-   - `ensureFreshToken()` returns existing token if not expiring
-   - `ensureFreshToken()` calls refresh if expiring within 1 hour
-   - `ensureFreshToken()` throws FITBIT_TOKEN_INVALID if refresh fails
-2. Write tests in `src/app/api/auth/fitbit/__tests__/route.test.ts`:
-   - POST requires session, returns redirect to Fitbit OAuth URL
-3. Write tests in `src/app/api/auth/fitbit/callback/__tests__/route.test.ts`:
-   - Callback with valid code → stores tokens in session, redirects to /app
-   - Callback with invalid code → error response
-4. Run verifier (expect fail)
-5. Create `src/lib/fitbit.ts` with:
-   - `buildFitbitAuthUrl(state: string): string`
-   - `exchangeFitbitCode(code: string): Promise<FitbitTokens>`
-   - `refreshFitbitToken(refreshToken: string): Promise<FitbitTokens>`
-   - `ensureFreshToken(session: SessionData): Promise<string>` — refresh if within 1 hour of expiry
-6. Create `src/app/api/auth/fitbit/route.ts`:
-   - POST: Validate session, generate state, redirect to Fitbit
-7. Create `src/app/api/auth/fitbit/callback/route.ts`:
-   - GET: Exchange code, store tokens in session, redirect to /app
-8. Run verifier (expect pass)
+### Step 2: Implement `getAppUrl()` helper
+- **File:** `src/lib/url.ts` (new file)
 
-### Task 7: Add session validation and logout routes
-**Linear Issue:** [FOO-7](https://linear.app/lw-claude/issue/FOO-7/add-session-validation-and-logout-routes)
+```typescript
+export function getAppUrl(): string {
+  const url = process.env.APP_URL;
+  if (!url) {
+    throw new Error("APP_URL environment variable is required");
+  }
+  return url.replace(/\/$/, "");
+}
 
-1. Write tests in `src/app/api/auth/session/__tests__/route.test.ts`:
-   - GET with valid session → returns email, fitbit connected status, expiry
-   - GET with expired session → 401 AUTH_SESSION_EXPIRED
-   - GET without session → 401 AUTH_MISSING_SESSION
-2. Write tests in `src/app/api/auth/logout/__tests__/route.test.ts`:
-   - POST destroys session, returns success
-3. Run verifier (expect fail)
-4. Create `src/app/api/auth/session/route.ts`:
-   - GET: Unseal session, check expiry, return status
-5. Create `src/app/api/auth/logout/route.ts`:
-   - POST: Destroy session, return success
-6. Run verifier (expect pass)
+export function buildUrl(path: string): string {
+  return `${getAppUrl()}${path}`;
+}
+```
 
-### Task 8: Build landing page with Google login button
-**Linear Issue:** [FOO-8](https://linear.app/lw-claude/issue/FOO-8/build-landing-page-with-google-login-button)
+### Step 3: Update Google OAuth route to use `buildUrl()`
+- **File:** `src/app/api/auth/google/route.ts`
+- **Change:** Replace `new URL("/api/auth/google/callback", request.url).toString()` with `buildUrl("/api/auth/google/callback")`
+- **Test update:** `src/app/api/auth/google/__tests__/route.test.ts` — add `vi.stubEnv("APP_URL", "http://localhost:3000")`
 
-1. Initialize shadcn/ui: `npx shadcn@latest init`
-2. Add needed shadcn components: Button
-3. Write test in `src/app/__tests__/page.test.tsx`:
-   - Renders app name "Food Scanner"
-   - Renders "Login with Google" button
-4. Run verifier (expect fail)
-5. Rewrite `src/app/page.tsx`:
-   - Hero section: app name, tagline
-   - "Login with Google" button (form with POST to /api/auth/google)
-   - Brief feature explanation (photo → AI → Fitbit)
-   - Mobile-first layout
-   - Server component: check session, redirect to /app if valid
-6. Run verifier (expect pass)
+### Step 4: Update Google OAuth callback to use `buildUrl()`
+- **File:** `src/app/api/auth/google/callback/route.ts`
+- **Changes:**
+  - Line 23: Replace `new URL("/api/auth/google/callback", request.url).toString()` with `buildUrl("/api/auth/google/callback")`
+  - Line 64: Replace `new URL(redirectTo, request.url).toString()` with `buildUrl(redirectTo)`
+- **Test update:** `src/app/api/auth/google/callback/__tests__/route.test.ts` — add `vi.stubEnv("APP_URL", "http://localhost:3000")`
 
-### Task 9: Build settings page with Fitbit reconnect and logout
-**Linear Issue:** [FOO-9](https://linear.app/lw-claude/issue/FOO-9/build-settings-page-with-fitbit-reconnect-and-logout)
+### Step 5: Update Fitbit OAuth route to use `buildUrl()`
+- **File:** `src/app/api/auth/fitbit/route.ts`
+- **Change:** Replace `new URL("/api/auth/fitbit/callback", request.url).toString()` with `buildUrl("/api/auth/fitbit/callback")`
+- **Test update:** `src/app/api/auth/fitbit/__tests__/route.test.ts` — add `vi.stubEnv("APP_URL", "http://localhost:3000")`
 
-1. Write test in `src/app/settings/__tests__/page.test.tsx`:
-   - Renders "Settings" heading
-   - Renders Fitbit connection status
-   - Renders "Reconnect Fitbit" button
-   - Renders "Logout" button
-2. Run verifier (expect fail)
-3. Create `src/app/settings/page.tsx`:
-   - Server component fetching session data via /api/auth/session
-   - Client component for interactive buttons
-   - Fitbit status: connected/expired, token expiry date
-   - "Reconnect Fitbit" → POST /api/auth/fitbit
-   - "Logout" → POST /api/auth/logout, redirect to /
-   - shadcn/ui Button components
-4. Run verifier (expect pass)
+### Step 6: Update Fitbit OAuth callback to use `buildUrl()`
+- **File:** `src/app/api/auth/fitbit/callback/route.ts`
+- **Changes:**
+  - Lines 23-26: Replace `new URL("/api/auth/fitbit/callback", request.url).toString()` with `buildUrl("/api/auth/fitbit/callback")`
+  - Line 80: Replace `new URL("/app", request.url).toString()` with `buildUrl("/app")`
+- **Test update:** `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — add `vi.stubEnv("APP_URL", "http://localhost:3000")`
 
-### Task 10: Create placeholder /app page (protected)
-**Linear Issue:** [FOO-10](https://linear.app/lw-claude/issue/FOO-10/create-placeholder-app-page-protected)
+### Step 7: Update documentation
+- **File:** `CLAUDE.md`
+  - Add `APP_URL` to the environment variables section with description
+- **File:** `DEVELOPMENT.md`
+  - Add `APP_URL=http://localhost:3000` to the `.env.local` template
+- **File:** `README.md`
+  - Add `APP_URL=https://food.lucaswall.me` to the `railway variables set` command
+  - Mention `APP_URL` in the environment variables context
 
-1. Write test in `src/app/app/__tests__/page.test.tsx`:
-   - Renders "Food Scanner" heading
-   - Renders link to /settings
-2. Run verifier (expect fail)
-3. Create `src/app/app/page.tsx`:
-   - Server component: read session via getSession()
-   - Display "Food Scanner" heading and user email
-   - Link to /settings
-   - Placeholder text: "Camera interface coming soon"
-4. Run verifier (expect pass)
+### Step 8: Set `APP_URL` on Railway
+- Run: `railway variables set APP_URL=https://food.lucaswall.me`
+- This triggers a redeploy
 
-### Task 11: Update documentation for Iteration 1
-**Linear Issue:** [FOO-11](https://linear.app/lw-claude/issue/FOO-11/update-documentation-for-iteration-1)
+### Verify
+- [ ] New `url.test.ts` tests pass
+- [ ] All existing tests still pass (with `APP_URL` stubbed)
+- [ ] TypeScript compiles without errors
+- [ ] Lint passes
+- [ ] Google OAuth login works on `https://food.lucaswall.me`
+- [ ] Fitbit OAuth flow works after Google login
 
-1. Update `CLAUDE.md`:
-   - Add Vitest to tech stack table
-   - Add `npm test` to commands section
-   - Confirm structure section matches actual new files
-2. Update `DEVELOPMENT.md`:
-   - Add test command documentation
-   - Document OAuth setup steps with real redirect URIs (local + Railway)
-   - Add note about shadcn/ui being available
-3. Update `README.md`:
-   - Update API endpoints table to reflect implemented routes
-   - Update environment variables section (remove "placeholder" language for OAuth keys)
-4. Update `ROADMAP.md`:
-   - Mark Iteration 1 as complete
+## Notes
+- `request.url` is still fine for reading query parameters (e.g., `code`, `state` in callbacks) — only URL *construction* needs `APP_URL`
+- The `APP_URL` approach is deliberately simple. No header forwarding complexity with Cloudflare + Railway double-proxy.
+- Local dev uses `APP_URL=http://localhost:3000` in `.env.local`
 
-## Post-Implementation Checklist
-1. Run `bug-hunter` agent - Review changes for bugs
-2. Run `verifier` agent - Verify all tests pass and zero warnings
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-04
-
-### Tasks Completed This Iteration
-- Task 1: Set up test framework (Vitest) - Installed vitest, @testing-library/react, @testing-library/jest-dom, created vitest.config.ts, added test-setup.ts
-- Task 2: Define shared TypeScript types and API response helpers - Created src/types/index.ts with all shared types, src/lib/api-response.ts with successResponse/errorResponse, refactored /api/health
-- Task 3: Implement iron-session configuration and getSession helper - Installed iron-session, created src/lib/session.ts with sessionOptions and getSession()
-- Task 4: Add auth middleware for protected routes - Created middleware.ts with matcher for /app, /settings, protected API routes
-- Task 5: Implement Google OAuth login flow - Created src/lib/auth.ts (buildGoogleAuthUrl, exchangeGoogleCode, getGoogleProfile), POST /api/auth/google, GET /api/auth/google/callback
-- Task 6: Implement Fitbit OAuth and token management - Created src/lib/fitbit.ts (buildFitbitAuthUrl, exchangeFitbitCode, refreshFitbitToken, ensureFreshToken), POST+GET /api/auth/fitbit, GET /api/auth/fitbit/callback
-- Task 7: Add session validation and logout routes - GET /api/auth/session (validates session + expiry), POST /api/auth/logout (destroys session)
-- Task 8: Build landing page with Google login button - Initialized shadcn/ui, added Button component, rewrote landing page with session redirect
-- Task 9: Build settings page with Fitbit reconnect and logout - Client component with session fetch, Reconnect Fitbit and Logout buttons
-- Task 10: Create placeholder /app page (protected) - Server component showing user email, Settings link, "Camera interface coming soon"
-- Task 11: Update documentation for Iteration 1 - Updated CLAUDE.md (Vitest in tech stack), DEVELOPMENT.md (OAuth setup), README.md (health response format, env vars), ROADMAP.md (marked Iteration 1 complete)
-
-### Files Modified
-- `package.json` - Added test script, iron-session, vitest and testing deps, shadcn/ui deps
-- `vitest.config.ts` - Created: Vitest configuration with React plugin, jsdom, path alias
-- `src/test-setup.ts` - Created: @testing-library/jest-dom setup
-- `components.json` - Created: shadcn/ui configuration
-- `src/types/index.ts` - Created: SessionData, FoodAnalysis, FoodLogRequest, FoodLogResponse, FitbitMealType, ErrorCode, Api response types
-- `src/lib/api-response.ts` - Created: successResponse(), errorResponse()
-- `src/lib/session.ts` - Created: sessionOptions, getSession()
-- `src/lib/auth.ts` - Created: Google OAuth helpers
-- `src/lib/fitbit.ts` - Created: Fitbit OAuth helpers and token management
-- `src/lib/utils.ts` - Created: shadcn/ui utilities (cn)
-- `src/components/ui/button.tsx` - Created: shadcn/ui Button component
-- `middleware.ts` - Created: Auth enforcement for protected routes
-- `src/app/api/health/route.ts` - Refactored to use successResponse()
-- `src/app/api/auth/google/route.ts` - Created: POST initiates Google OAuth
-- `src/app/api/auth/google/callback/route.ts` - Created: GET exchanges code, validates email, creates session
-- `src/app/api/auth/fitbit/route.ts` - Created: POST+GET initiates Fitbit OAuth
-- `src/app/api/auth/fitbit/callback/route.ts` - Created: GET exchanges code, stores tokens in existing session
-- `src/app/api/auth/session/route.ts` - Created: GET validates session and returns status
-- `src/app/api/auth/logout/route.ts` - Created: POST destroys session
-- `src/app/page.tsx` - Rewrote: Landing page with session check, Login with Google button
-- `src/app/layout.tsx` - Updated: Title to "Food Scanner"
-- `src/app/globals.css` - Updated: shadcn/ui CSS variables
-- `src/app/settings/page.tsx` - Created: Client component with Fitbit status, Reconnect, Logout
-- `src/app/app/page.tsx` - Created: Placeholder protected page
-- `CLAUDE.md` - Added Vitest to tech stack
-- `DEVELOPMENT.md` - Updated OAuth setup, health response format
-- `README.md` - Updated env vars, health response format
-- `ROADMAP.md` - Marked Iteration 1 complete
-- 15 test files created across src/
-
-### Linear Updates
-- FOO-1: Todo → In Progress → Review
-- FOO-2: Todo → In Progress → Review
-- FOO-3: Todo → In Progress → Review
-- FOO-4: Todo → In Progress → Review
-- FOO-5: Todo → In Progress → Review
-- FOO-6: Todo → In Progress → Review
-- FOO-7: Todo → In Progress → Review
-- FOO-8: Todo → In Progress → Review
-- FOO-9: Todo → In Progress → Review
-- FOO-10: Todo → In Progress → Review
-- FOO-11: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 10 bugs (5 HIGH, 5 MEDIUM), fixed all HIGH bugs and key MEDIUM bugs before proceeding
-  - Fixed: FoodAnalysis type (sugar_g → confidence), FoodLogResponse (message → reusedFood)
-  - Fixed: Google callback redirect to Fitbit POST-only route (added GET handler)
-  - Fixed: Fitbit callback losing Google session data (reads existing session before writing)
-  - Fixed: OAuth state cookies missing Secure flag
-  - Fixed: Session/logout routes using wrong iron-session API (now use getSession())
-  - Fixed: Landing page not redirecting authenticated users
-- verifier: All 48 tests pass, zero warnings
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 28+
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Error Handling, Conventions (CLAUDE.md)
-
-No CRITICAL or HIGH issues found — all implementations are correct and follow project conventions.
-
-**Documented (no fix needed):**
-- [MEDIUM] TIMEOUT: External `fetch()` calls in `src/lib/auth.ts:19,41` and `src/lib/fitbit.ts:28,60` have no explicit timeouts. OAuth flows are infrequent and runtime provides defaults — acceptable risk.
-- [LOW] CONVENTION: `getCookieValue()` helper duplicated in `src/app/api/auth/google/callback/route.ts:7-11` and `src/app/api/auth/fitbit/callback/route.ts:7-11`. Minor duplication for 2 uses.
-- [LOW] ERROR: Settings page (`src/app/settings/page.tsx:16-23`) silently ignores fetch errors from `/api/auth/session`. Acceptable for a settings page behind auth middleware.
-
-### Linear Updates
-- FOO-1: Review → Merge
-- FOO-2: Review → Merge
-- FOO-3: Review → Merge
-- FOO-4: Review → Merge
-- FOO-5: Review → Merge
-- FOO-6: Review → Merge
-- FOO-7: Review → Merge
-- FOO-8: Review → Merge
-- FOO-9: Review → Merge
-- FOO-10: Review → Merge
-- FOO-11: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
-Ready for PR creation.
-
----
-
-## Plan Summary
-
-**Objective:** Build the foundation and authentication layer for the Food Scanner app
-
-**Request:** Implement Iteration 1 of the roadmap — session management, Google OAuth, Fitbit OAuth, auth middleware, landing page, settings page, and placeholder app page
-
-**Linear Issues:** FOO-1, FOO-2, FOO-3, FOO-4, FOO-5, FOO-6, FOO-7, FOO-8, FOO-9, FOO-10, FOO-11
-
-**Approach:** Start with test framework setup and shared types as the foundation. Layer on iron-session and middleware for route protection. Then build Google and Fitbit OAuth flows with proper token management. Finally, add the UI pages (landing, settings, placeholder app) that tie it all together.
-
-**Scope:**
-- Tasks: 11
-- Files affected: ~28 (new files: types, lib helpers, 8 route handlers, middleware, 3 pages + tests + doc updates)
-- New tests: yes
-
-**Key Decisions:**
-- Vitest over Jest (better ESM support, faster, native TypeScript)
-- shadcn/ui initialized in Task 8 (first UI task that needs it)
-- Placeholder /app page instead of full camera UI (proves auth flow end-to-end, camera comes in Iteration 2)
-- Google OAuth state parameter stored in a separate cookie for CSRF protection
-
-**Risks/Considerations:**
-- iron-session with Next.js 16 App Router — verify compatibility (iron-session v8+ supports it)
-- Google OAuth redirect URI must match exactly what's configured in Google Cloud Console
-- Fitbit OAuth requires `nutrition` scope specifically — verify available scopes at registration time
-- shadcn/ui with Tailwind v4 — ensure compatible version is used
