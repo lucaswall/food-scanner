@@ -1,9 +1,8 @@
-import { getIronSession } from "iron-session";
+import { cookies } from "next/headers";
 import { exchangeFitbitCode } from "@/lib/fitbit";
 import { errorResponse } from "@/lib/api-response";
-import { sessionOptions } from "@/lib/session";
+import { getSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
-import type { SessionData } from "@/types";
 
 function getCookieValue(request: Request, name: string): string | undefined {
   const cookieHeader = request.headers.get("cookie") ?? "";
@@ -39,12 +38,8 @@ export async function GET(request: Request) {
     );
   }
 
-  // Read existing session from request cookies, write updated cookie to response
-  const responseHeaders = new Headers();
-  const session = await getIronSession<SessionData>(
-    { headers: request.headers } as never,
-    sessionOptions,
-  );
+  // Read and update session using cookies() store
+  const session = await getSession();
 
   session.fitbit = {
     accessToken: tokens.access_token,
@@ -52,31 +47,11 @@ export async function GET(request: Request) {
     userId: tokens.user_id,
     expiresAt: Date.now() + tokens.expires_in * 1000,
   };
-
-  // Save to a response-oriented session to set the cookie
-  const responseSession = await getIronSession<SessionData>(
-    { headers: responseHeaders } as never,
-    sessionOptions,
-  );
-  Object.assign(responseSession, {
-    sessionId: session.sessionId,
-    email: session.email,
-    createdAt: session.createdAt,
-    expiresAt: session.expiresAt,
-    fitbit: session.fitbit,
-  });
-  await responseSession.save();
+  await session.save();
 
   // Clear the OAuth state cookie
-  responseHeaders.append(
-    "Set-Cookie",
-    "fitbit-oauth-state=; Path=/; HttpOnly; Max-Age=0",
-  );
+  const cookieStore = await cookies();
+  cookieStore.delete("fitbit-oauth-state");
 
-  responseHeaders.set("Location", buildUrl("/app"));
-
-  return new Response(null, {
-    status: 302,
-    headers: responseHeaders,
-  });
+  return Response.redirect(buildUrl("/app"), 302);
 }

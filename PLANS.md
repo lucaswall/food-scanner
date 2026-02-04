@@ -1,7 +1,7 @@
 # Fix Plan: OAuth iron-session crash and lint errors
 
 **Date:** 2026-02-04
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 
 ## Summary
 
@@ -127,3 +127,59 @@ The correct approach (already used in `src/lib/session.ts:17-19`) is to pass the
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
 2. Run `verifier` agent — Verify all tests pass, lint clean, zero warnings
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-04
+
+### Tasks Completed This Iteration
+- Task 1: Fix Google OAuth callback iron-session usage — Replaced `getIronSession({ headers } as never)` with `getSession()` from `@/lib/session`, used `cookies().delete()` for state cookie cleanup, switched to `Response.redirect()`. Updated tests to mock `@/lib/session` and `next/headers` instead of `iron-session` directly. Added tests for cookie cleanup and redirect logic.
+- Task 2: Fix Fitbit OAuth callback iron-session usage — Same pattern as Task 1. Eliminated the double `getIronSession` + `Object.assign` workaround by using a single `getSession()` call. Added tests for cookie cleanup and single-session-call verification.
+- Task 3: Fix lint errors — Removed `Date.now()` purity violation in `page.tsx` (cookie `maxAge` handles expiry), removed unused `error` destructuring in `global-error.tsx`, removed unused `beforeEach` import in `auth.test.ts`.
+
+### Files Modified
+- `src/app/api/auth/google/callback/route.ts` — Switched to `getSession()` + `cookies()` pattern
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Updated mocks, added cookie/redirect tests
+- `src/app/api/auth/fitbit/callback/route.ts` — Switched to `getSession()` + `cookies()` pattern, removed double-session workaround
+- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Updated mocks, added cookie/single-call tests
+- `src/app/page.tsx` — Removed `Date.now()` purity violation
+- `src/app/global-error.tsx` — Removed unused `error` destructuring
+- `src/lib/__tests__/auth.test.ts` — Removed unused `beforeEach` import
+
+### Linear Updates
+- No Linear issues linked (plan created before Linear MCP was connected)
+
+### Pre-commit Verification
+- bug-hunter: Found 1 medium note (expiresAt field written but not validated — cookie maxAge handles expiry, safe to clean up later). No critical or high issues.
+- verifier: All 62 tests pass, lint clean, typecheck clean, build clean.
+
+### Review Findings
+
+Files reviewed: 7
+Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, Edge Cases
+
+No issues found — all implementations are correct and follow project conventions.
+
+**Details:**
+- **Google OAuth callback** (`route.ts`): Correctly uses `getSession()` + `cookies()` pattern. State validation, error handling, and redirect logic are sound. `getCookieValue` regex uses hardcoded names only (no user input reaches `RegExp` constructor).
+- **Fitbit OAuth callback** (`route.ts`): Same correct pattern. Single `getSession()` call eliminates the previous double-session workaround. Token storage and state cookie cleanup work correctly.
+- **Landing page** (`page.tsx`): `Date.now()` purity violation properly removed. Session check via `sessionId` is sufficient since cookie `maxAge` handles expiry.
+- **Global error** (`global-error.tsx`): Unused `error` destructuring properly removed while keeping the type annotation for Next.js convention.
+- **Auth test** (`auth.test.ts`): Unused `beforeEach` import removed cleanly.
+- **Test suites**: Both callback test files properly mock `@/lib/session` and `next/headers`, test cookie cleanup, redirect behavior, and error paths.
+
+**Documented only (no fix needed):**
+- [LOW] `expiresAt` field is written to session in Google callback but no longer read anywhere — cookie `maxAge` handles expiry. Already noted by bug-hunter. Can be cleaned up in a future iteration.
+
+### Linear Updates
+- No Linear issues linked to this plan (created before Linear MCP was connected)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. Ready for PR creation.

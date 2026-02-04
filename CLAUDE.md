@@ -207,6 +207,7 @@ food-scanner/
 - **Full access:** Create/update issues, manage labels, projects
 - **Authentication:** OAuth via `/mcp` command
 - **Usage:** Issue management across all skills
+- **CRITICAL:** Any skill that uses Linear tools (`mcp__linear__*`) MUST verify Linear MCP is connected before proceeding. Test by calling `mcp__linear__list_teams`. If the tool is unavailable or errors, **STOP immediately** and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill." Do NOT silently fall back or continue without Linear.
 
 ---
 

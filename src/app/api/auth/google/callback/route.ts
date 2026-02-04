@@ -1,9 +1,8 @@
-import { getIronSession } from "iron-session";
+import { cookies } from "next/headers";
 import { exchangeGoogleCode, getGoogleProfile } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
-import { sessionOptions } from "@/lib/session";
+import { getSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
-import type { SessionData } from "@/types";
 
 function getCookieValue(request: Request, name: string): string | undefined {
   const cookieHeader = request.headers.get("cookie") ?? "";
@@ -41,12 +40,8 @@ export async function GET(request: Request) {
     return errorResponse("AUTH_INVALID_EMAIL", "Unauthorized email address", 403);
   }
 
-  // Create session
-  const responseHeaders = new Headers();
-  const session = await getIronSession<SessionData>(
-    { headers: responseHeaders } as never,
-    sessionOptions,
-  );
+  // Create session using cookies() store
+  const session = await getSession();
 
   session.sessionId = crypto.randomUUID();
   session.email = profile.email;
@@ -55,17 +50,10 @@ export async function GET(request: Request) {
   await session.save();
 
   // Clear the OAuth state cookie
-  responseHeaders.append(
-    "Set-Cookie",
-    "google-oauth-state=; Path=/; HttpOnly; Max-Age=0",
-  );
+  const cookieStore = await cookies();
+  cookieStore.delete("google-oauth-state");
 
   // Redirect: if no Fitbit tokens, go to Fitbit OAuth; otherwise /app
   const redirectTo = session.fitbit ? "/app" : "/api/auth/fitbit";
-  responseHeaders.set("Location", buildUrl(redirectTo));
-
-  return new Response(null, {
-    status: 302,
-    headers: responseHeaders,
-  });
+  return Response.redirect(buildUrl(redirectTo), 302);
 }
