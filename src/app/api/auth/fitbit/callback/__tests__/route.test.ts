@@ -25,7 +25,7 @@ vi.mock("@/lib/session", () => ({
   sessionOptions: {
     password: "a-test-secret-that-is-at-least-32-characters-long",
     cookieName: "food-scanner-session",
-    cookieOptions: { httpOnly: true, secure: true, sameSite: "strict", maxAge: 2592000, path: "/" },
+    cookieOptions: { httpOnly: true, secure: true, sameSite: "lax", maxAge: 2592000, path: "/" },
   },
 }));
 

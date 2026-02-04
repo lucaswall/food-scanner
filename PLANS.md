@@ -120,3 +120,33 @@ Update all test files that mock `sessionOptions` with `sameSite: "strict"` to us
 - This is the industry-standard recommendation for auth cookies in OAuth flows. All major OAuth libraries document this requirement.
 - The OAuth state cookies (`google-oauth-state`, `fitbit-oauth-state`) already use `SameSite=Lax` correctly — only the session cookie was misconfigured.
 - The Google OAuth callback is NOT affected by this bug because it creates a new session rather than reading an existing one. The bug is specific to the Fitbit callback, which needs to read and update the existing session.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-04
+
+### Tasks Completed This Iteration
+- Step 1: Write failing test — Updated `session.test.ts` to expect `sameSite: "lax"`, confirmed test fails
+- Step 2: Implement fix — Changed `sameSite: "strict"` to `sameSite: "lax"` in `session.ts`, confirmed test passes
+- Step 3: Update dependent test mocks — Updated `sameSite` in mock `sessionOptions` in both `fitbit/callback` and `google/callback` test files
+- Step 4: Update documentation — Updated `ROADMAP.md` and `CLAUDE.md` to reflect `sameSite: lax`
+
+### Files Modified
+- `src/lib/session.ts` — Changed `sameSite: "strict"` to `sameSite: "lax"`
+- `src/lib/__tests__/session.test.ts` — Updated test expectation and description
+- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Updated mock sessionOptions
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Updated mock sessionOptions
+- `ROADMAP.md` — Updated session config spec
+- `CLAUDE.md` — Updated Security section cookie flags
+
+### Linear Updates
+- FOO-21: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found, confirmed all 6 files consistent
+- verifier: All 96 tests pass, zero warnings, lint clean, typecheck clean, build successful
+
+### Continuation Status
+All tasks completed.

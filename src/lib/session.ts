@@ -8,7 +8,7 @@ export const sessionOptions: SessionOptions = {
   cookieOptions: {
     httpOnly: true,
     secure: true,
-    sameSite: "strict",
+    sameSite: "lax", // Must be "lax" for OAuth redirect flows
     maxAge: 30 * 24 * 60 * 60, // 30 days
     path: "/",
   },

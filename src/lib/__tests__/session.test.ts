@@ -9,11 +9,11 @@ describe("sessionOptions", () => {
     expect(sessionOptions.cookieName).toBe("food-scanner-session");
   });
 
-  it("has httpOnly, secure, sameSite strict, 30-day maxAge", () => {
+  it("has httpOnly, secure, sameSite lax, 30-day maxAge", () => {
     const opts = sessionOptions.cookieOptions!;
     expect(opts.httpOnly).toBe(true);
     expect(opts.secure).toBe(true);
-    expect(opts.sameSite).toBe("strict");
+    expect(opts.sameSite).toBe("lax");
     expect(opts.maxAge).toBe(30 * 24 * 60 * 60);
   });
 

@@ -149,7 +149,7 @@ food-scanner/
 
 - **Single user only:** wall.lucas@gmail.com — enforced at Google OAuth callback
 - **iron-session:** Encrypted httpOnly cookies (AES-256-CBC + HMAC-SHA-256)
-- **Cookie flags:** httpOnly, secure, sameSite: strict, 30-day expiry
+- **Cookie flags:** httpOnly, secure, sameSite: lax, 30-day expiry
 - **No public API surface** for unauthenticated users (except landing page and health check)
 - **Image validation:** Max 10MB per image, max 3 images, JPEG/PNG only
 - **Client-side compression:** Resize to ~1024px, 80% JPEG quality before upload
