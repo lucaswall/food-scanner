@@ -19,7 +19,7 @@ Single-user web application for logging food to Fitbit using AI-powered nutritio
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | Next.js 15+ (App Router) |
+| Framework | Next.js 16+ (App Router) |
 | Language | TypeScript (strict mode) |
 | Styling | Tailwind CSS + shadcn/ui |
 | Testing | Vitest + Testing Library |
@@ -51,6 +51,7 @@ food-scanner/
 │   ├── app/
 │   │   ├── layout.tsx                    # Root layout
 │   │   ├── page.tsx                      # Landing page (public)
+│   │   ├── global-error.tsx              # Global error boundary
 │   │   ├── app/
 │   │   │   └── page.tsx                  # Protected food logging page
 │   │   ├── settings/
@@ -67,23 +68,26 @@ food-scanner/
 │   │       ├── analyze-food/route.ts     # Claude tool_use analysis
 │   │       └── log-food/route.ts         # Fitbit search + create + log
 │   ├── components/                       # React components
+│   │   └── ui/                           # shadcn/ui components
 │   ├── lib/
 │   │   ├── session.ts                    # iron-session config + getSession()
+│   │   ├── api-response.ts              # Standardized API response helpers
+│   │   ├── url.ts                        # APP_URL helper + buildUrl()
+│   │   ├── utils.ts                      # shadcn/ui cn() utility
 │   │   ├── claude.ts                     # Claude API client (tool_use)
 │   │   ├── fitbit.ts                     # Fitbit API client
 │   │   └── auth.ts                       # OAuth helpers (Google, Fitbit)
-│   └── types/                            # Shared TypeScript types
+│   ├── types/                            # Shared TypeScript types
+│   └── test-setup.ts                     # Vitest global test setup
 ├── middleware.ts                          # Auth enforcement for protected routes
-├── public/
-│   ├── manifest.json                     # PWA manifest (home screen shortcut)
-│   ├── icon-192.png
-│   └── icon-512.png
 ├── ROADMAP.md                            # Full project specification
 ├── CLAUDE.md                             # This file
 ├── DEVELOPMENT.md                        # Local setup guide
 ├── README.md                             # Deployment & operations guide
 └── PLANS.md                              # Current implementation plan (when active)
 ```
+
+**Test file convention:** Tests are colocated with source files in `__tests__/` subdirectories (e.g., `src/lib/__tests__/session.test.ts`, `src/app/api/auth/google/__tests__/route.test.ts`).
 
 ---
 
@@ -243,3 +247,4 @@ ALLOWED_EMAIL=wall.lucas@gmail.com
 - **No "for compatibility" code** — When changing APIs, update ALL references
 - **Mobile-first design** — All UI components must work on mobile
 - **Same-origin deployment** — No CORS, no cross-domain cookie issues
+- **Keep documentation current** — When making changes that affect project structure, APIs, environment variables, setup steps, or deployment, update all relevant documentation files (`CLAUDE.md`, `README.md`, `DEVELOPMENT.md`) in the same changeset. Documentation must never drift from the actual codebase.

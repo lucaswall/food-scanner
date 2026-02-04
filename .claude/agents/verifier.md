@@ -26,14 +26,16 @@ When invoked with a test specifier argument:
 ### Full Mode (no argument)
 
 When invoked without arguments:
-- `verifier` - Run all tests and build
+- `verifier` - Run all tests, lint, and build
 
 **Full Workflow:**
 1. Run `npm test`
 2. Parse test output
-3. If tests pass, run `npm run build`
-4. Parse compiler output
-5. Report combined results
+3. If tests pass, run `npm run lint`
+4. Parse lint output
+5. If lint passes, run `npm run build`
+6. Parse compiler output
+7. Report combined results
 
 ## Output Format
 
@@ -66,15 +68,16 @@ Error: [message]
 [Next failure...]
 ```
 
-**Full Mode - All tests pass AND build succeeds:**
+**Full Mode - All pass:**
 ```
 VERIFIER REPORT (Full Mode)
 
 All tests passed.
+Lint passed.
 Build passed. No warnings or errors.
 ```
 
-**Full Mode - Tests fail (build skipped):**
+**Full Mode - Tests fail (lint+build skipped):**
 ```
 VERIFIER REPORT (Full Mode)
 
@@ -93,34 +96,36 @@ Error: [message]
 ---
 [Next failure...]
 
+Lint: SKIPPED (tests failed)
 Build: SKIPPED (tests failed)
 ```
 
-**Full Mode - Tests pass BUT build has warnings:**
+**Full Mode - Lint fails (build skipped):**
 ```
 VERIFIER REPORT (Full Mode)
 
 All tests passed.
 
-WARNINGS: [N]
+LINT ERRORS: [N]
 
-src/file.ts:42:5 - warning TS6133: 'unusedVar' is declared but never used.
-src/other.ts:17:1 - warning TS2345: Argument type mismatch...
+src/file.ts:42:5 - error: 'unusedVar' is defined but never used
+src/other.ts:17:1 - error: Missing return type...
 
 ---
-Repro: npm run build
+Repro: npm run lint
+Build: SKIPPED (lint failed)
 ```
 
-**Full Mode - Tests pass BUT build has errors:**
+**Full Mode - Build has warnings/errors:**
 ```
 VERIFIER REPORT (Full Mode)
 
 All tests passed.
+Lint passed.
 
-ERRORS: [N]
+BUILD WARNINGS: [N]
 
-src/file.ts:42:5 - error TS2304: Cannot find name 'foo'.
-src/other.ts:17:1 - error TS2345: Argument type mismatch...
+src/file.ts:42:5 - warning TS6133: 'unusedVar' is declared but never used.
 
 ---
 Repro: npm run build

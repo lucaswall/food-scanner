@@ -2,7 +2,7 @@
 name: plan-fix
 description: Investigates bugs AND creates actionable TDD fix plans. Creates Linear issues in Todo state. Use when you know you want to fix something - user reports errors, deployment failures, wrong data, or UI issues. Can be chained from investigate skill. Discovers MCPs from CLAUDE.md for debugging (logs, etc.).
 argument-hint: <bug description>
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__Railway__check-railway-status, mcp__Railway__get-logs, mcp__Railway__list-deployments, mcp__Railway__list-services, mcp__Railway__list-variables
 disable-model-invocation: true
 ---
 
@@ -13,23 +13,22 @@ Investigate bugs and create TDD fix plans in PLANS.md. Creates Linear issues in 
 Before starting any investigation, verify git status:
 
 ```bash
-git status
 git branch --show-current
+git status --porcelain
 ```
 
+- **STOP if NOT on `main` branch.** Tell the user: "Not on main branch. Please switch to main before planning: `git checkout main`"
 - **STOP if there are uncommitted changes.** Tell the user to commit or stash first.
-- Note the current branch name for later use in the fix plan.
+- **Check if behind remote:** `git fetch origin && git status -uno` — STOP if behind.
 
 ## 2. PLANS.md Pre-flight
 
 Check if `PLANS.md` already exists at the project root:
 
-```bash
-ls -la PLANS.md 2>/dev/null
-```
-
-- If it exists, read it and check for an existing section about this bug (avoid duplicates).
-- If it does not exist, you will create it when documenting findings.
+- If it does not exist: OK, you will create it when documenting findings.
+- If it exists with `Status: COMPLETE`: OK, overwrite with new fix plan.
+- If it exists with active (non-COMPLETE) content: **STOP.** Tell the user there is an active plan that must be completed or removed first.
+- In all cases, check for an existing section about this bug to avoid duplicates.
 
 ## 3. Read Project Context
 
@@ -275,16 +274,15 @@ When investigation and planning are complete:
    - Root cause (confirmed or hypothesized)
    - Files affected
    - Linear issue created (FOO-xxx)
-   - Proposed fix branch name
 
-2. **Suggest next steps:**
-   - "Run `/plan-implement FOO-xxx` to implement the fix plan"
-   - Or: "The fix plan is in PLANS.md - you can implement it manually"
+2. **Create branch, commit, and push:**
+   ```bash
+   git checkout -b fix/FOO-xxx-brief-description && git add PLANS.md && git commit -m "plan(FOO-xxx): add fix plan for brief description" && git push -u origin fix/FOO-xxx-brief-description
+   ```
+
+3. **Suggest next steps:**
+   - "Run `/plan-implement` to implement the fix plan"
    - If critical: "This is a critical issue - recommend implementing immediately"
-
-3. **Git reminder:**
-   - PLANS.md has been created/updated but NOT committed
-   - Suggest: `git add PLANS.md && git commit -m "Add fix plan for FOO-xxx: brief description"`
 
 4. **If chained from investigate skill:**
    - Reference the investigation findings

@@ -2,7 +2,7 @@
 name: investigate
 description: Read-only investigation that reports findings WITHOUT creating plans or modifying code. Use when user says "investigate", "check why", "look into", "diagnose", or wants to understand a problem before deciding on action. Accesses Railway logs and codebase.
 argument-hint: <what to investigate>
-allowed-tools: Read, Glob, Grep, Task, Bash, mcp__Railway__*
+allowed-tools: Read, Glob, Grep, Task, Bash, mcp__Railway__check-railway-status, mcp__Railway__get-logs, mcp__Railway__list-deployments, mcp__Railway__list-projects, mcp__Railway__list-services, mcp__Railway__list-variables
 disable-model-invocation: true
 ---
 
