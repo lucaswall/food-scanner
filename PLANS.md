@@ -2,7 +2,7 @@
 
 **Created:** 2026-02-04
 **Source:** Inline request: Iteration 1 of the roadmap — Foundation & Auth
-**Linear Issues:** [FOO-1](https://linear.app/lw-claude/issue/FOO-1/set-up-test-framework-vitest), [FOO-2](https://linear.app/lw-claude/issue/FOO-2/define-shared-typescript-types-and-api-response-helpers), [FOO-3](https://linear.app/lw-claude/issue/FOO-3/implement-iron-session-configuration-and-getsession-helper), [FOO-4](https://linear.app/lw-claude/issue/FOO-4/add-auth-middleware-for-protected-routes), [FOO-5](https://linear.app/lw-claude/issue/FOO-5/implement-google-oauth-login-flow), [FOO-6](https://linear.app/lw-claude/issue/FOO-6/implement-fitbit-oauth-and-token-management), [FOO-7](https://linear.app/lw-claude/issue/FOO-7/add-session-validation-and-logout-routes), [FOO-8](https://linear.app/lw-claude/issue/FOO-8/build-landing-page-with-google-login-button), [FOO-9](https://linear.app/lw-claude/issue/FOO-9/build-settings-page-with-fitbit-reconnect-and-logout), [FOO-10](https://linear.app/lw-claude/issue/FOO-10/create-placeholder-app-page-protected)
+**Linear Issues:** [FOO-1](https://linear.app/lw-claude/issue/FOO-1/set-up-test-framework-vitest), [FOO-2](https://linear.app/lw-claude/issue/FOO-2/define-shared-typescript-types-and-api-response-helpers), [FOO-3](https://linear.app/lw-claude/issue/FOO-3/implement-iron-session-configuration-and-getsession-helper), [FOO-4](https://linear.app/lw-claude/issue/FOO-4/add-auth-middleware-for-protected-routes), [FOO-5](https://linear.app/lw-claude/issue/FOO-5/implement-google-oauth-login-flow), [FOO-6](https://linear.app/lw-claude/issue/FOO-6/implement-fitbit-oauth-and-token-management), [FOO-7](https://linear.app/lw-claude/issue/FOO-7/add-session-validation-and-logout-routes), [FOO-8](https://linear.app/lw-claude/issue/FOO-8/build-landing-page-with-google-login-button), [FOO-9](https://linear.app/lw-claude/issue/FOO-9/build-settings-page-with-fitbit-reconnect-and-logout), [FOO-10](https://linear.app/lw-claude/issue/FOO-10/create-placeholder-app-page-protected), [FOO-11](https://linear.app/lw-claude/issue/FOO-11/update-documentation-for-iteration-1)
 
 ## Context Gathered
 
@@ -202,6 +202,7 @@
 4. Run verifier (expect pass)
 
 ### Task 11: Update documentation for Iteration 1
+**Linear Issue:** [FOO-11](https://linear.app/lw-claude/issue/FOO-11/update-documentation-for-iteration-1)
 
 1. Update `CLAUDE.md`:
    - Add Vitest to tech stack table
@@ -229,7 +230,7 @@
 
 **Request:** Implement Iteration 1 of the roadmap — session management, Google OAuth, Fitbit OAuth, auth middleware, landing page, settings page, and placeholder app page
 
-**Linear Issues:** FOO-1, FOO-2, FOO-3, FOO-4, FOO-5, FOO-6, FOO-7, FOO-8, FOO-9, FOO-10
+**Linear Issues:** FOO-1, FOO-2, FOO-3, FOO-4, FOO-5, FOO-6, FOO-7, FOO-8, FOO-9, FOO-10, FOO-11
 
 **Approach:** Start with test framework setup and shared types as the foundation. Layer on iron-session and middleware for route protection. Then build Google and Fitbit OAuth flows with proper token management. Finally, add the UI pages (landing, settings, placeholder app) that tie it all together.
 
