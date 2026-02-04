@@ -1,32 +1,35 @@
-export default function Home() {
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/session";
+import { Button } from "@/components/ui/button";
+
+export default async function Home() {
+  const session = await getSession();
+
+  if (session.sessionId && session.expiresAt > Date.now()) {
+    redirect("/app");
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-zinc-950">
-      <main className="flex flex-col items-center gap-8 px-8 text-center">
+    <div className="flex min-h-screen items-center justify-center px-4">
+      <main className="flex w-full max-w-sm flex-col items-center gap-8 text-center">
         <div className="flex flex-col items-center gap-2">
-          <h1 className="text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Food Logger
-          </h1>
-          <p className="text-lg text-zinc-500 dark:text-zinc-400">
+          <h1 className="text-4xl font-bold tracking-tight">Food Scanner</h1>
+          <p className="text-lg text-muted-foreground">
             AI-powered food logging for Fitbit
           </p>
         </div>
 
-        <div className="flex flex-col items-center gap-4 rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-zinc-100 text-3xl dark:bg-zinc-800">
-            📸
-          </div>
-          <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
-            Coming Soon
-          </h2>
-          <p className="max-w-sm text-sm text-zinc-500 dark:text-zinc-400">
+        <div className="flex w-full flex-col items-center gap-4 rounded-xl border bg-card p-6">
+          <p className="text-sm text-muted-foreground">
             Take a photo of your meal, let AI analyze the nutrition, and log it
-            directly to Fitbit. One tap, done.
+            directly to Fitbit.
           </p>
+          <form action="/api/auth/google" method="POST" className="w-full">
+            <Button type="submit" className="w-full" size="lg">
+              Login with Google
+            </Button>
+          </form>
         </div>
-
-        <p className="text-xs text-zinc-400 dark:text-zinc-600">
-          Single-user application
-        </p>
       </main>
     </div>
   );

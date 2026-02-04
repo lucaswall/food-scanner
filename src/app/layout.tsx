@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Food Logger",
+  title: "Food Scanner",
   description: "AI-powered food logging for Fitbit",
 };
 

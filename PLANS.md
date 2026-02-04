@@ -224,6 +224,116 @@
 
 ---
 
+## Iteration 1
+
+**Implemented:** 2026-02-04
+
+### Tasks Completed This Iteration
+- Task 1: Set up test framework (Vitest) - Installed vitest, @testing-library/react, @testing-library/jest-dom, created vitest.config.ts, added test-setup.ts
+- Task 2: Define shared TypeScript types and API response helpers - Created src/types/index.ts with all shared types, src/lib/api-response.ts with successResponse/errorResponse, refactored /api/health
+- Task 3: Implement iron-session configuration and getSession helper - Installed iron-session, created src/lib/session.ts with sessionOptions and getSession()
+- Task 4: Add auth middleware for protected routes - Created middleware.ts with matcher for /app, /settings, protected API routes
+- Task 5: Implement Google OAuth login flow - Created src/lib/auth.ts (buildGoogleAuthUrl, exchangeGoogleCode, getGoogleProfile), POST /api/auth/google, GET /api/auth/google/callback
+- Task 6: Implement Fitbit OAuth and token management - Created src/lib/fitbit.ts (buildFitbitAuthUrl, exchangeFitbitCode, refreshFitbitToken, ensureFreshToken), POST+GET /api/auth/fitbit, GET /api/auth/fitbit/callback
+- Task 7: Add session validation and logout routes - GET /api/auth/session (validates session + expiry), POST /api/auth/logout (destroys session)
+- Task 8: Build landing page with Google login button - Initialized shadcn/ui, added Button component, rewrote landing page with session redirect
+- Task 9: Build settings page with Fitbit reconnect and logout - Client component with session fetch, Reconnect Fitbit and Logout buttons
+- Task 10: Create placeholder /app page (protected) - Server component showing user email, Settings link, "Camera interface coming soon"
+- Task 11: Update documentation for Iteration 1 - Updated CLAUDE.md (Vitest in tech stack), DEVELOPMENT.md (OAuth setup), README.md (health response format, env vars), ROADMAP.md (marked Iteration 1 complete)
+
+### Files Modified
+- `package.json` - Added test script, iron-session, vitest and testing deps, shadcn/ui deps
+- `vitest.config.ts` - Created: Vitest configuration with React plugin, jsdom, path alias
+- `src/test-setup.ts` - Created: @testing-library/jest-dom setup
+- `components.json` - Created: shadcn/ui configuration
+- `src/types/index.ts` - Created: SessionData, FoodAnalysis, FoodLogRequest, FoodLogResponse, FitbitMealType, ErrorCode, Api response types
+- `src/lib/api-response.ts` - Created: successResponse(), errorResponse()
+- `src/lib/session.ts` - Created: sessionOptions, getSession()
+- `src/lib/auth.ts` - Created: Google OAuth helpers
+- `src/lib/fitbit.ts` - Created: Fitbit OAuth helpers and token management
+- `src/lib/utils.ts` - Created: shadcn/ui utilities (cn)
+- `src/components/ui/button.tsx` - Created: shadcn/ui Button component
+- `middleware.ts` - Created: Auth enforcement for protected routes
+- `src/app/api/health/route.ts` - Refactored to use successResponse()
+- `src/app/api/auth/google/route.ts` - Created: POST initiates Google OAuth
+- `src/app/api/auth/google/callback/route.ts` - Created: GET exchanges code, validates email, creates session
+- `src/app/api/auth/fitbit/route.ts` - Created: POST+GET initiates Fitbit OAuth
+- `src/app/api/auth/fitbit/callback/route.ts` - Created: GET exchanges code, stores tokens in existing session
+- `src/app/api/auth/session/route.ts` - Created: GET validates session and returns status
+- `src/app/api/auth/logout/route.ts` - Created: POST destroys session
+- `src/app/page.tsx` - Rewrote: Landing page with session check, Login with Google button
+- `src/app/layout.tsx` - Updated: Title to "Food Scanner"
+- `src/app/globals.css` - Updated: shadcn/ui CSS variables
+- `src/app/settings/page.tsx` - Created: Client component with Fitbit status, Reconnect, Logout
+- `src/app/app/page.tsx` - Created: Placeholder protected page
+- `CLAUDE.md` - Added Vitest to tech stack
+- `DEVELOPMENT.md` - Updated OAuth setup, health response format
+- `README.md` - Updated env vars, health response format
+- `ROADMAP.md` - Marked Iteration 1 complete
+- 15 test files created across src/
+
+### Linear Updates
+- FOO-1: Todo → In Progress → Review
+- FOO-2: Todo → In Progress → Review
+- FOO-3: Todo → In Progress → Review
+- FOO-4: Todo → In Progress → Review
+- FOO-5: Todo → In Progress → Review
+- FOO-6: Todo → In Progress → Review
+- FOO-7: Todo → In Progress → Review
+- FOO-8: Todo → In Progress → Review
+- FOO-9: Todo → In Progress → Review
+- FOO-10: Todo → In Progress → Review
+- FOO-11: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 10 bugs (5 HIGH, 5 MEDIUM), fixed all HIGH bugs and key MEDIUM bugs before proceeding
+  - Fixed: FoodAnalysis type (sugar_g → confidence), FoodLogResponse (message → reusedFood)
+  - Fixed: Google callback redirect to Fitbit POST-only route (added GET handler)
+  - Fixed: Fitbit callback losing Google session data (reads existing session before writing)
+  - Fixed: OAuth state cookies missing Secure flag
+  - Fixed: Session/logout routes using wrong iron-session API (now use getSession())
+  - Fixed: Landing page not redirecting authenticated users
+- verifier: All 48 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.
+
+### Review Findings
+
+Files reviewed: 28+
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Error Handling, Conventions (CLAUDE.md)
+
+No CRITICAL or HIGH issues found — all implementations are correct and follow project conventions.
+
+**Documented (no fix needed):**
+- [MEDIUM] TIMEOUT: External `fetch()` calls in `src/lib/auth.ts:19,41` and `src/lib/fitbit.ts:28,60` have no explicit timeouts. OAuth flows are infrequent and runtime provides defaults — acceptable risk.
+- [LOW] CONVENTION: `getCookieValue()` helper duplicated in `src/app/api/auth/google/callback/route.ts:7-11` and `src/app/api/auth/fitbit/callback/route.ts:7-11`. Minor duplication for 2 uses.
+- [LOW] ERROR: Settings page (`src/app/settings/page.tsx:16-23`) silently ignores fetch errors from `/api/auth/session`. Acceptable for a settings page behind auth middleware.
+
+### Linear Updates
+- FOO-1: Review → Merge
+- FOO-2: Review → Merge
+- FOO-3: Review → Merge
+- FOO-4: Review → Merge
+- FOO-5: Review → Merge
+- FOO-6: Review → Merge
+- FOO-7: Review → Merge
+- FOO-8: Review → Merge
+- FOO-9: Review → Merge
+- FOO-10: Review → Merge
+- FOO-11: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+Ready for PR creation.
+
+---
+
 ## Plan Summary
 
 **Objective:** Build the foundation and authentication layer for the Food Scanner app
