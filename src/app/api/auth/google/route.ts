@@ -1,11 +1,9 @@
 import { buildGoogleAuthUrl } from "@/lib/auth";
+import { buildUrl } from "@/lib/url";
 
-export async function POST(request: Request) {
+export async function POST() {
   const state = crypto.randomUUID();
-  const redirectUri = new URL(
-    "/api/auth/google/callback",
-    request.url,
-  ).toString();
+  const redirectUri = buildUrl("/api/auth/google/callback");
   const authUrl = buildGoogleAuthUrl(state, redirectUri);
 
   return new Response(null, {

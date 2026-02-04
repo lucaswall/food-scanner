@@ -146,3 +146,69 @@ export function buildUrl(path: string): string {
 - The `APP_URL` approach is deliberately simple. No header forwarding complexity with Cloudflare + Railway double-proxy.
 - Local dev uses `APP_URL=http://localhost:3000` in `.env.local`
 
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-04
+
+### Tasks Completed This Iteration
+- Step 1-2: Created `src/lib/url.ts` with `getAppUrl()` and `buildUrl()` helpers, plus full test coverage
+- Step 3: Updated Google OAuth route (`src/app/api/auth/google/route.ts`) to use `buildUrl()`
+- Step 4: Updated Google OAuth callback (`src/app/api/auth/google/callback/route.ts`) to use `buildUrl()` for both redirect URI and post-login redirect
+- Step 5: Updated Fitbit OAuth route (`src/app/api/auth/fitbit/route.ts`) to use `buildUrl()`
+- Step 6: Updated Fitbit OAuth callback (`src/app/api/auth/fitbit/callback/route.ts`) to use `buildUrl()` for both redirect URI and post-auth redirect
+- Step 7: Updated documentation (CLAUDE.md, DEVELOPMENT.md, README.md) with `APP_URL` env var
+
+### Files Modified
+- `src/lib/url.ts` — New helper: `getAppUrl()`, `buildUrl()`
+- `src/lib/__tests__/url.test.ts` — Tests for url helper (5 tests)
+- `src/app/api/auth/google/route.ts` — Replaced `new URL(path, request.url)` with `buildUrl(path)`
+- `src/app/api/auth/google/__tests__/route.test.ts` — Added APP_URL stub, APP_URL test, removed unused request args
+- `src/app/api/auth/google/callback/route.ts` — Replaced 2 instances of URL construction from request.url
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Added APP_URL stub and APP_URL verification test
+- `src/app/api/auth/fitbit/route.ts` — Replaced `new URL(path, request.url)` with `buildUrl(path)`
+- `src/app/api/auth/fitbit/__tests__/route.test.ts` — Added APP_URL stub, APP_URL test, removed unused request args
+- `src/app/api/auth/fitbit/callback/route.ts` — Replaced 2 instances of URL construction from request.url
+- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Added APP_URL stub and APP_URL verification test
+- `CLAUDE.md` — Added APP_URL to environment variables section
+- `DEVELOPMENT.md` — Added APP_URL=http://localhost:3000 to .env.local template
+- `README.md` — Added APP_URL=https://food.lucaswall.me to railway variables set command
+
+### Linear Updates
+- FOO-12: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found, all 6 request.url instances replaced, helper is correct
+- verifier: All 57 tests pass, typecheck clean, build succeeds. 3 pre-existing lint issues in unmodified files (page.tsx, global-error.tsx, auth.test.ts)
+
+### Continuation Status
+All tasks completed.
+
+### Review Findings
+
+Files reviewed: 13
+Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Test Quality, Conventions
+
+No issues found - all implementations are correct and follow project conventions.
+
+**Details:**
+- All 6 `request.url`-based URL constructions correctly replaced with `buildUrl()`
+- `request.url` correctly preserved for reading query parameters in callbacks
+- `getAppUrl()` properly validates and normalizes `APP_URL` env var
+- OAuth state validation (CSRF) and cookie flags preserved
+- Tests cover APP_URL usage including internal-URL scenarios proving `request.url` is not used
+- Documentation updated consistently across CLAUDE.md, DEVELOPMENT.md, README.md
+
+### Linear Updates
+- FOO-12: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+Ready for PR creation.
+

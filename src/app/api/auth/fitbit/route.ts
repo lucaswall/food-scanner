@@ -1,11 +1,9 @@
 import { buildFitbitAuthUrl } from "@/lib/fitbit";
+import { buildUrl } from "@/lib/url";
 
-function initiateFitbitAuth(request: Request) {
+function initiateFitbitAuth() {
   const state = crypto.randomUUID();
-  const redirectUri = new URL(
-    "/api/auth/fitbit/callback",
-    request.url,
-  ).toString();
+  const redirectUri = buildUrl("/api/auth/fitbit/callback");
   const authUrl = buildFitbitAuthUrl(state, redirectUri);
 
   return new Response(null, {
@@ -18,11 +16,11 @@ function initiateFitbitAuth(request: Request) {
 }
 
 // POST: from settings page form
-export async function POST(request: Request) {
-  return initiateFitbitAuth(request);
+export async function POST() {
+  return initiateFitbitAuth();
 }
 
 // GET: from Google callback redirect
-export async function GET(request: Request) {
-  return initiateFitbitAuth(request);
+export async function GET() {
+  return initiateFitbitAuth();
 }
