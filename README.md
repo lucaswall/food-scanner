@@ -67,7 +67,8 @@ railway variables set \
   GOOGLE_CLIENT_SECRET=your-google-client-secret \
   FITBIT_CLIENT_ID=your-fitbit-client-id \
   FITBIT_CLIENT_SECRET=your-fitbit-client-secret \
-  ANTHROPIC_API_KEY=your-anthropic-api-key
+  ANTHROPIC_API_KEY=your-anthropic-api-key \
+  LOG_LEVEL=info
 ```
 
 Set real values for all credentials.

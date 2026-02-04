@@ -13,7 +13,18 @@ vi.mock("iron-session", () => ({
   }),
 }));
 
+vi.mock("@/lib/logger", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn(),
+  },
+}));
+
 const { POST } = await import("@/app/api/auth/fitbit/route");
+const { logger } = await import("@/lib/logger");
 
 describe("POST /api/auth/fitbit", () => {
   it("returns a redirect to Fitbit OAuth URL", async () => {
@@ -38,5 +49,13 @@ describe("POST /api/auth/fitbit", () => {
     const response = await POST();
     const setCookie = response.headers.get("set-cookie");
     expect(setCookie).toContain("fitbit-oauth-state");
+  });
+
+  it("logs info on OAuth initiation", async () => {
+    await POST();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "fitbit_oauth_start" }),
+      expect.any(String),
+    );
   });
 });

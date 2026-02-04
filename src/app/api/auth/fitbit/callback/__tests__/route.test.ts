@@ -37,9 +37,20 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn().mockResolvedValue(mockCookieStore),
 }));
 
+vi.mock("@/lib/logger", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn(),
+  },
+}));
+
 const { exchangeFitbitCode } = await import("@/lib/fitbit");
 const { getSession } = await import("@/lib/session");
 const { GET } = await import("@/app/api/auth/fitbit/callback/route");
+const { logger } = await import("@/lib/logger");
 
 const mockExchangeFitbitCode = vi.mocked(exchangeFitbitCode);
 const mockGetSession = vi.mocked(getSession);
@@ -56,6 +67,26 @@ beforeEach(() => {
   mockGetSession.mockResolvedValue(mockSession as never);
 });
 
+function makeCallbackRequest(
+  code: string | null,
+  state: string | null,
+  cookieState: string | null,
+) {
+  const url = new URL("http://localhost:3000/api/auth/fitbit/callback");
+  if (code) url.searchParams.set("code", code);
+  if (state) url.searchParams.set("state", state);
+  return new Request(url, {
+    headers: {
+      cookie: [
+        cookieState ? `fitbit-oauth-state=${cookieState}` : "",
+        "food-scanner-session=encrypted",
+      ]
+        .filter(Boolean)
+        .join("; "),
+    },
+  });
+}
+
 describe("GET /api/auth/fitbit/callback", () => {
   it("stores tokens in session and redirects to /app on valid code", async () => {
     mockExchangeFitbitCode.mockResolvedValue({
@@ -65,16 +96,7 @@ describe("GET /api/auth/fitbit/callback", () => {
       expires_in: 28800,
     });
 
-    const url = new URL("http://localhost:3000/api/auth/fitbit/callback");
-    url.searchParams.set("code", "valid-fitbit-code");
-    url.searchParams.set("state", "test-state");
-    const request = new Request(url, {
-      headers: {
-        cookie: "fitbit-oauth-state=test-state; food-scanner-session=encrypted",
-      },
-    });
-
-    const response = await GET(request);
+    const response = await GET(makeCallbackRequest("valid-fitbit-code", "test-state", "test-state"));
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toContain("/app");
     expect(mockGetSession).toHaveBeenCalled();
@@ -108,13 +130,11 @@ describe("GET /api/auth/fitbit/callback", () => {
 
     const response = await GET(request);
 
-    // Verify redirect URI passed to exchangeFitbitCode uses APP_URL
     expect(mockExchangeFitbitCode).toHaveBeenCalledWith(
       "valid-fitbit-code",
       "https://food.lucaswall.me/api/auth/fitbit/callback",
     );
 
-    // Verify post-auth redirect uses APP_URL
     const location = response.headers.get("location")!;
     expect(location).toBe("https://food.lucaswall.me/app");
     expect(location).not.toContain("internal:8080");
@@ -123,16 +143,7 @@ describe("GET /api/auth/fitbit/callback", () => {
   it("returns error when code exchange fails", async () => {
     mockExchangeFitbitCode.mockRejectedValue(new Error("Invalid code"));
 
-    const url = new URL("http://localhost:3000/api/auth/fitbit/callback");
-    url.searchParams.set("code", "invalid-code");
-    url.searchParams.set("state", "test-state");
-    const request = new Request(url, {
-      headers: {
-        cookie: "fitbit-oauth-state=test-state; food-scanner-session=encrypted",
-      },
-    });
-
-    const response = await GET(request);
+    const response = await GET(makeCallbackRequest("invalid-code", "test-state", "test-state"));
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
@@ -146,16 +157,7 @@ describe("GET /api/auth/fitbit/callback", () => {
       expires_in: 28800,
     });
 
-    const url = new URL("http://localhost:3000/api/auth/fitbit/callback");
-    url.searchParams.set("code", "valid-fitbit-code");
-    url.searchParams.set("state", "test-state");
-    const request = new Request(url, {
-      headers: {
-        cookie: "fitbit-oauth-state=test-state; food-scanner-session=encrypted",
-      },
-    });
-
-    await GET(request);
+    await GET(makeCallbackRequest("valid-fitbit-code", "test-state", "test-state"));
     expect(mockCookieStore.delete).toHaveBeenCalledWith("fitbit-oauth-state");
   });
 
@@ -167,17 +169,30 @@ describe("GET /api/auth/fitbit/callback", () => {
       expires_in: 28800,
     });
 
-    const url = new URL("http://localhost:3000/api/auth/fitbit/callback");
-    url.searchParams.set("code", "valid-fitbit-code");
-    url.searchParams.set("state", "test-state");
-    const request = new Request(url, {
-      headers: {
-        cookie: "fitbit-oauth-state=test-state; food-scanner-session=encrypted",
-      },
-    });
-
-    await GET(request);
-    // getSession should be called exactly once (no double read+write pattern)
+    await GET(makeCallbackRequest("valid-fitbit-code", "test-state", "test-state"));
     expect(mockGetSession).toHaveBeenCalledTimes(1);
+  });
+
+  // Logging tests
+  it("logs warn on invalid OAuth state", async () => {
+    await GET(makeCallbackRequest("code", "bad-state", "good-state"));
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "fitbit_callback_invalid_state" }),
+      expect.any(String),
+    );
+  });
+
+  it("logs info on successful Fitbit connection", async () => {
+    mockExchangeFitbitCode.mockResolvedValue({
+      access_token: "token",
+      refresh_token: "refresh",
+      user_id: "user1",
+      expires_in: 28800,
+    });
+    await GET(makeCallbackRequest("code", "test-state", "test-state"));
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "fitbit_connect_success" }),
+      expect.any(String),
+    );
   });
 });

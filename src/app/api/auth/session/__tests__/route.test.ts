@@ -14,8 +14,19 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
+vi.mock("@/lib/logger", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn(),
+  },
+}));
+
 const { getIronSession } = await import("iron-session");
 const { GET } = await import("@/app/api/auth/session/route");
+const { logger } = await import("@/lib/logger");
 
 const mockGetIronSession = vi.mocked(getIronSession);
 
@@ -67,5 +78,52 @@ describe("GET /api/auth/session", () => {
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
+  });
+
+  // Logging tests
+  it("logs debug on session check", async () => {
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "test-session",
+      email: "wall.lucas@gmail.com",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + 86400000,
+    } as never);
+
+    await GET();
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "session_check" }),
+      expect.any(String),
+    );
+  });
+
+  it("logs warn on missing session", async () => {
+    mockGetIronSession.mockResolvedValue({} as never);
+
+    await GET();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "session_invalid",
+        reason: "missing",
+      }),
+      expect.any(String),
+    );
+  });
+
+  it("logs warn on expired session", async () => {
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "test-session",
+      email: "wall.lucas@gmail.com",
+      createdAt: Date.now() - 86400000 * 31,
+      expiresAt: Date.now() - 1000,
+    } as never);
+
+    await GET();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "session_invalid",
+        reason: "expired",
+      }),
+      expect.any(String),
+    );
   });
 });

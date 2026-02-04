@@ -42,6 +42,9 @@ FITBIT_CLIENT_SECRET=your-fitbit-client-secret
 
 # Anthropic (set up when implementing food analysis)
 ANTHROPIC_API_KEY=placeholder
+
+# Logging (optional, defaults to debug in development)
+LOG_LEVEL=debug
 ```
 
 Google and Fitbit OAuth credentials are required for the auth flow. See the **OAuth Setup for Local Development** section below.

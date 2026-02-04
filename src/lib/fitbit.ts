@@ -1,4 +1,5 @@
 import type { SessionData } from "@/types";
+import { logger } from "@/lib/logger";
 
 export function buildFitbitAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
@@ -39,6 +40,10 @@ export async function exchangeFitbitCode(
   });
 
   if (!response.ok) {
+    logger.error(
+      { action: "fitbit_token_exchange_failed", status: response.status },
+      "fitbit token exchange http failure",
+    );
     throw new Error(`Fitbit token exchange failed: ${response.status}`);
   }
 
@@ -53,6 +58,8 @@ export async function refreshFitbitToken(
   user_id: string;
   expires_in: number;
 }> {
+  logger.debug({ action: "fitbit_token_refresh_start" }, "refreshing fitbit token");
+
   const credentials = Buffer.from(
     `${process.env.FITBIT_CLIENT_ID}:${process.env.FITBIT_CLIENT_SECRET}`,
   ).toString("base64");
@@ -70,6 +77,10 @@ export async function refreshFitbitToken(
   });
 
   if (!response.ok) {
+    logger.error(
+      { action: "fitbit_token_refresh_failed", status: response.status },
+      "fitbit token refresh http failure",
+    );
     throw new Error("FITBIT_TOKEN_INVALID");
   }
 
