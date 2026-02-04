@@ -1,0 +1,173 @@
+# Development Guide
+
+## Prerequisites
+
+- Node.js 20+
+- npm
+- Git
+- Railway CLI (for deployment, optional for local dev)
+
+## Local Setup
+
+### 1. Clone and Install
+
+```bash
+git clone <repo-url>
+cd food-scanner
+npm install
+```
+
+### 2. Environment Variables
+
+Create `.env.local` with:
+
+```bash
+# Google OAuth
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+
+# Fitbit OAuth
+FITBIT_CLIENT_ID=your-fitbit-client-id
+FITBIT_CLIENT_SECRET=your-fitbit-client-secret
+FITBIT_REDIRECT_URI=http://localhost:3000/api/auth/fitbit/callback
+
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Session (iron-session password, min 32 characters)
+SESSION_SECRET=at-least-32-characters-long-random-string
+
+# Auth
+ALLOWED_EMAIL=wall.lucas@gmail.com
+```
+
+### 3. Run Development Server
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+---
+
+## Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start dev server with hot reload |
+| `npm run build` | Production build |
+| `npm start` | Start production server |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | Run TypeScript type checking |
+| `npm test` | Run tests |
+
+---
+
+## Project Structure
+
+See [CLAUDE.md](CLAUDE.md) for the full project structure breakdown.
+
+Key directories:
+- `src/app/` — Next.js App Router pages and API routes
+- `src/components/` — React components
+- `src/lib/` — Shared utilities (session, API clients)
+- `src/types/` — TypeScript type definitions
+
+---
+
+## Code Style
+
+### TypeScript
+- **Strict mode** is enabled — no implicit `any`, no unused locals/params
+- Use `@/` path alias for imports: `import { getSession } from '@/lib/session'`
+- Build must pass with **zero warnings**
+
+### Formatting
+- Tailwind CSS for styling (no custom CSS unless necessary)
+- shadcn/ui for UI components
+- Mobile-first responsive design
+
+### Commit Messages
+
+Format: `<type>: <summary>`
+
+| Type | When |
+|------|------|
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `refactor` | Code restructuring |
+| `chore` | Build, config, dependencies |
+| `docs` | Documentation |
+| `test` | Tests |
+
+Examples:
+- `feat: add Google OAuth login flow`
+- `fix: handle expired Fitbit tokens gracefully`
+- `chore: update Next.js to 15.1`
+
+---
+
+## Development Status
+
+This project is in **active development**. Breaking changes are expected and acceptable.
+
+- No backward compatibility required
+- Delete unused code immediately
+- No deprecation warnings needed
+- When changing APIs/configs, update ALL references
+
+---
+
+## Linear Integration
+
+Issues are tracked in Linear under the "Food Scanner" team with FOO-xxx prefix.
+
+**State flow:** Backlog → Todo → In Progress → Review → Merge → Done
+
+To authenticate Linear MCP, use the `/mcp` command in Claude Code.
+
+---
+
+## Claude Code Workflow
+
+This project uses Claude Code with custom agents and skills for development:
+
+### Agents
+- **verifier** — Runs tests and build validation (use proactively)
+- **commit-bot** — Creates commits (only when asked)
+- **pr-creator** — Full PR workflow (only when asked)
+- **bug-hunter** — Reviews code for bugs (use proactively before commits)
+
+### Skills (invoke with `/skill-name`)
+- `/plan-todo FOO-123` — Plan implementation of a backlog issue
+- `/plan-inline <description>` — Plan from a direct description
+- `/plan-implement` — Execute the current plan
+- `/plan-review-implementation` — Review completed implementation
+- `/plan-fix <bug>` — Investigate and plan a bug fix
+- `/investigate <issue>` — Read-only investigation
+- `/code-audit` — Full codebase audit
+- `/add-to-backlog <items>` — Add issues to Linear backlog
+
+### Typical Workflow
+1. `/plan-todo FOO-123` or `/plan-inline <feature>` — Create plan
+2. `/plan-implement` — Execute the plan with TDD
+3. `/plan-review-implementation` — Review the implementation
+4. Ask for commit and PR when ready
+
+---
+
+## OAuth Setup
+
+### Google Cloud Console
+1. Create a project in [Google Cloud Console](https://console.cloud.google.com)
+2. Enable Google OAuth 2.0
+3. Add authorized redirect URI: `http://localhost:3000/api/auth/google/callback`
+4. Copy Client ID and Client Secret to `.env.local`
+
+### Fitbit Developer
+1. Register an app at [dev.fitbit.com](https://dev.fitbit.com)
+2. Set OAuth redirect URI: `http://localhost:3000/api/auth/fitbit/callback`
+3. Request `nutrition` scope
+4. Copy Client ID and Client Secret to `.env.local`

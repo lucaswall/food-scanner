@@ -1,0 +1,405 @@
+---
+name: plan-todo
+description: Convert Linear Backlog issues into TDD implementation plans. Use when user says "plan FOO-123", "plan all bugs", "work on backlog", or wants to implement issues from Linear. Moves planned issues to Todo state. Explores codebase for patterns and discovers available MCPs from CLAUDE.md.
+argument-hint: [issue-selector] e.g., "FOO-123", "all Bug issues", "the auth issue"
+allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+disable-model-invocation: true
+---
+
+# Plan Todo Skill
+
+Convert Linear Backlog issues into a structured TDD implementation plan written to `PLANS.md`.
+
+## Overview
+
+This skill takes one or more Linear issues from the Backlog state and produces a detailed, step-by-step TDD implementation plan. The plan is written to `PLANS.md` at the project root. After planning, the Linear issues are moved to the "Todo" state.
+
+This skill creates plans. It does NOT implement them.
+
+---
+
+## Workflow
+
+### Phase 1: Pre-Flight Checks
+
+#### 1.1 Git Pre-Flight
+
+Before doing anything, verify the git state:
+
+```bash
+git status
+git branch --show-current
+```
+
+**Requirements:**
+- Must be on `main` branch
+- Working tree must be clean (no uncommitted changes)
+
+If either check fails, STOP and report the issue to the user. Do not proceed.
+
+#### 1.2 PLANS.md Pre-Flight
+
+Check if `PLANS.md` exists at the project root:
+
+```bash
+ls -la PLANS.md
+```
+
+**Rules:**
+- If `PLANS.md` does not exist: OK, proceed.
+- If `PLANS.md` exists and its status is `COMPLETE`: OK, proceed (it will be overwritten).
+- If `PLANS.md` exists and its status is NOT `COMPLETE`: STOP. Tell the user there is an active plan that must be completed or removed first.
+
+To check status, read the file and look for `Status: COMPLETE` in the header section.
+
+---
+
+### Phase 2: Gather Context
+
+#### 2.1 Query Linear for Backlog Issues
+
+Use the Linear MCP to find the requested issues.
+
+**If user specified a specific issue (e.g., "FOO-123"):**
+
+```
+mcp__linear__get_issue(issueId: "FOO-123")
+```
+
+Verify the issue exists and is in the "Backlog" state. If not in Backlog, warn the user but continue if they confirm.
+
+**If user specified a filter (e.g., "all Bug issues", "the auth issue"):**
+
+First, get the team's issue statuses and labels:
+
+```
+mcp__linear__list_issue_statuses(teamName: "Food Scanner")
+mcp__linear__list_issue_labels(teamName: "Food Scanner")
+```
+
+Then query for Backlog issues:
+
+```
+mcp__linear__list_issues(teamName: "Food Scanner", statusName: "Backlog")
+```
+
+Filter the results based on the user's criteria (label, title keywords, etc.).
+
+**If user said "plan all" or "work on backlog":**
+
+```
+mcp__linear__list_issues(teamName: "Food Scanner", statusName: "Backlog")
+```
+
+Present the list to the user and confirm which issues to plan.
+
+#### 2.2 Read CLAUDE.md
+
+Read the project's `CLAUDE.md` file to understand:
+- Project architecture and conventions
+- Available MCP servers and their capabilities
+- Testing patterns and preferences
+- Code style and structure guidelines
+
+```
+Read CLAUDE.md
+```
+
+This is critical for generating plans that align with the project's patterns.
+
+#### 2.3 Explore the Codebase
+
+Explore the codebase to understand existing patterns:
+
+```bash
+# Project structure
+find . -type f -name "*.ts" -o -name "*.tsx" | head -50
+find . -type f -name "*.test.*" | head -20
+
+# Package dependencies
+cat package.json
+
+# Existing patterns
+ls -la src/app/
+ls -la src/components/
+ls -la src/lib/
+```
+
+Use Glob and Grep to find:
+- Existing components similar to what the issues require
+- Test file patterns and conventions
+- API route patterns
+- Database/data patterns
+- Shared utilities and hooks
+
+#### 2.4 Gather MCP Context
+
+Based on what you learned from CLAUDE.md, identify which MCP servers are available. Common ones for this project:
+
+- **Linear MCP**: Issue tracking, status updates
+- **Railway MCP**: Deployment and infrastructure context
+
+Query relevant MCPs to gather context that will inform the plan. For example:
+- Check Railway for existing services and environment variables
+- Check Linear for related issues or dependencies
+
+---
+
+### Phase 3: Generate the Plan
+
+#### 3.1 Analyze Requirements
+
+For each issue being planned:
+1. Read the issue title, description, and any comments
+2. Identify acceptance criteria (explicit or implied)
+3. Identify dependencies on other issues or existing code
+4. Determine the scope of changes needed
+5. Identify which files will be created or modified
+
+#### 3.2 Design the Implementation
+
+For each issue:
+1. Break down into small, testable tasks
+2. Order tasks so each builds on the previous
+3. Identify the TDD cycle for each task (test first, then implement)
+4. Note any MCP tools that will be useful during implementation
+5. Identify potential risks or questions
+
+#### 3.3 Write PLANS.md
+
+Write the plan to `PLANS.md` at the project root using the structure template below.
+
+---
+
+## PLANS.md Structure Template
+
+```markdown
+# Implementation Plan
+
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-123-short-description
+**Issues:** FOO-123, FOO-456
+**Created:** YYYY-MM-DD
+**Last Updated:** YYYY-MM-DD
+
+## Summary
+
+Brief description of what this plan implements and why.
+
+## Issues
+
+### FOO-123: Issue Title
+
+**Priority:** High/Medium/Low
+**Labels:** Bug, Feature, etc.
+**Description:** Copy or summarize the issue description from Linear.
+
+**Acceptance Criteria:**
+- [ ] Criterion 1
+- [ ] Criterion 2
+- [ ] Criterion 3
+
+### FOO-456: Issue Title
+
+(Same structure for additional issues)
+
+## Prerequisites
+
+List anything that must be true before starting implementation:
+- [ ] Database migrations are up to date
+- [ ] Environment variables are configured
+- [ ] Dependencies are installed
+
+## Implementation Tasks
+
+### Task 1: [Short description]
+
+**Issue:** FOO-123
+**Files:**
+- `src/lib/some-module.ts` (create)
+- `src/lib/__tests__/some-module.test.ts` (create)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Create `src/lib/__tests__/some-module.test.ts`
+   - Test that [specific behavior]
+   - Run: `npm test -- some-module`
+   - Verify: Test fails with [expected error]
+
+2. **GREEN** - Make it pass:
+   - Create `src/lib/some-module.ts`
+   - Implement [specific logic]
+   - Run: `npm test -- some-module`
+   - Verify: Test passes
+
+3. **REFACTOR** - Clean up:
+   - Extract [shared logic] if needed
+   - Ensure naming follows project conventions
+
+**Notes:**
+- Use [specific pattern] from existing codebase
+- Reference: `src/lib/existing-example.ts`
+
+### Task 2: [Short description]
+
+(Same structure for each task)
+
+### Task N: Integration & Verification
+
+**Issue:** FOO-123, FOO-456
+**Files:**
+- Various files from previous tasks
+
+**Steps:**
+
+1. Run full test suite: `npm test`
+2. Run linter: `npm run lint`
+3. Run type checker: `npx tsc --noEmit`
+4. Manual verification steps:
+   - [ ] Step 1
+   - [ ] Step 2
+5. Build check: `npm run build`
+
+## MCP Usage During Implementation
+
+Document which MCP tools the implementer should use:
+
+| MCP Server | Tool | Purpose |
+|------------|------|---------|
+| Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
+| Railway | `list_services` | Check deployment configuration if needed |
+
+## Error Handling
+
+| Error Scenario | Expected Behavior | Test Coverage |
+|---------------|-------------------|---------------|
+| Invalid input | Return validation error | Unit test |
+| Network failure | Retry with backoff | Integration test |
+| Auth failure | Redirect to login | E2E test |
+
+## Risks & Open Questions
+
+- [ ] Risk/Question 1: Description and mitigation
+- [ ] Risk/Question 2: Description and mitigation
+
+## Scope Boundaries
+
+**In Scope:**
+- Items explicitly mentioned in the issues
+
+**Out of Scope:**
+- Items NOT part of the current issues
+- Future enhancements mentioned but not planned
+```
+
+---
+
+## Task Writing Guidelines
+
+When writing tasks in the plan:
+
+1. **Be specific**: Name exact files, functions, and components.
+2. **Be ordered**: Each task should build on the previous one. Never reference something that hasn't been created in an earlier task.
+3. **Be testable**: Every task must have a clear test-first approach. Write the test assertion before the implementation.
+4. **Be small**: Each task should be completable in 15-30 minutes. If it's bigger, break it down further.
+5. **Reference patterns**: Point to existing code in the codebase that the implementer should follow.
+6. **Include file paths**: Always specify the full file path for every file created or modified.
+7. **Include commands**: Provide the exact terminal commands to run tests, linters, etc.
+8. **Note dependencies**: If a task depends on a previous task, say so explicitly.
+
+### TDD Pattern
+
+Every implementation task MUST follow the Red-Green-Refactor cycle:
+
+- **RED**: Write a failing test first. Specify what the test asserts and what error message is expected.
+- **GREEN**: Write the minimum code to make the test pass. Do not over-engineer.
+- **REFACTOR**: Clean up the code while keeping tests green. Extract shared logic, improve naming, etc.
+
+---
+
+## MCP Usage Guidelines
+
+When planning, consider how MCPs will be used during implementation:
+
+### Linear MCP
+- Move issues to "In Progress" when implementation starts
+- Move issues to "Done" when implementation is complete
+- Add comments to issues with progress updates if needed
+
+### Railway MCP
+- Check existing services and their configuration
+- Verify environment variables are set correctly
+- Understand deployment pipeline for the project
+
+---
+
+## Rules
+
+1. **PLANS.md is the single source of truth.** All planning output goes into this file.
+2. **Never modify existing code.** This skill only creates `PLANS.md`. It does not create or edit source files.
+3. **One plan at a time.** If `PLANS.md` already has an active (non-COMPLETE) plan, do not overwrite it.
+4. **Always verify Linear state.** Confirm issues are in Backlog before planning them.
+5. **Always read CLAUDE.md.** The project configuration file contains critical context.
+6. **Always explore the codebase.** Plans must reference real files and real patterns from the project.
+7. **TDD is mandatory.** Every task must follow the Red-Green-Refactor cycle.
+8. **Plans must be self-contained.** An implementer should be able to follow the plan without needing to re-read the Linear issues.
+9. **Keep scope tight.** Only plan what the issues ask for. Do not add nice-to-haves.
+10. **Move issues to Todo.** After writing the plan, update the Linear issues to the "Todo" state.
+
+---
+
+## Scope Boundaries
+
+This skill:
+- **DOES**: Read Linear issues, explore codebase, read CLAUDE.md, write PLANS.md, move issues to Todo
+- **DOES NOT**: Write source code, write tests, run tests, deploy, create PRs, modify any file other than PLANS.md
+
+If the user asks to also implement the plan, tell them to use the `plan-implement` skill after this one completes.
+
+---
+
+## Error Handling
+
+| Situation | Action |
+|-----------|--------|
+| Not on `main` branch | STOP. Tell user to switch to main. |
+| Uncommitted changes on `main` | STOP. Tell user to commit or stash changes. |
+| `PLANS.md` has active plan | STOP. Tell user to complete or remove the existing plan. |
+| Linear issue not found | STOP. Tell user the issue ID is invalid. |
+| Linear issue not in Backlog | WARN user but continue if they confirm. |
+| No CLAUDE.md found | WARN user. Continue with reduced context. |
+| MCP server unavailable | WARN user. Continue without that MCP's context. |
+| User specifies no issues | ASK user which issues to plan. |
+
+---
+
+## Termination: Git Workflow
+
+After writing `PLANS.md` and moving issues to Todo in Linear, complete the session with these git operations:
+
+1. **Create a feature branch:**
+   ```bash
+   git checkout -b feat/FOO-123-short-description
+   ```
+   Use the primary issue key in the branch name. If multiple issues, use the first one.
+
+2. **Stage and commit the plan:**
+   ```bash
+   git add PLANS.md
+   git commit -m "plan(FOO-123): add implementation plan for [short description]
+
+   Issues: FOO-123, FOO-456
+   Status: Todo in Linear"
+   ```
+
+3. **Push the branch:**
+   ```bash
+   git push -u origin feat/FOO-123-short-description
+   ```
+
+4. **Report completion** to the user with:
+   - Branch name
+   - Summary of what was planned
+   - Number of tasks in the plan
+   - Next step: use `plan-implement` to start implementation

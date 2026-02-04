@@ -1,0 +1,291 @@
+---
+name: plan-fix
+description: Investigates bugs AND creates actionable TDD fix plans. Creates Linear issues in Todo state. Use when you know you want to fix something - user reports errors, deployment failures, wrong data, or UI issues. Can be chained from investigate skill. Discovers MCPs from CLAUDE.md for debugging (logs, etc.).
+argument-hint: <bug description>
+allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+disable-model-invocation: true
+---
+
+Investigate bugs and create TDD fix plans in PLANS.md. Creates Linear issues in Todo state.
+
+## 1. Git Pre-flight Check
+
+Before starting any investigation, verify git status:
+
+```bash
+git status
+git branch --show-current
+```
+
+- **STOP if there are uncommitted changes.** Tell the user to commit or stash first.
+- Note the current branch name for later use in the fix plan.
+
+## 2. PLANS.md Pre-flight
+
+Check if `PLANS.md` already exists at the project root:
+
+```bash
+ls -la PLANS.md 2>/dev/null
+```
+
+- If it exists, read it and check for an existing section about this bug (avoid duplicates).
+- If it does not exist, you will create it when documenting findings.
+
+## 3. Read Project Context
+
+Read `CLAUDE.md` at the project root (if it exists) to understand:
+- Project structure and conventions
+- Available MCPs (Linear, Railway, etc.)
+- Tech stack details
+- Testing conventions
+- Any project-specific debugging notes
+
+## 4. Classify Bug Type
+
+Categorize the reported issue into one of these types:
+
+| Category | Description | Key Investigation Areas |
+|----------|-------------|------------------------|
+| **API Error** | Backend route failures, 500s, bad responses | Route handlers, middleware, external API calls, error handling |
+| **Auth Issue** | Login failures, session problems, unauthorized access | Auth configuration, session management, middleware, token handling |
+| **Deployment Failure** | Build errors, runtime crashes on Railway | Build logs, environment variables, dependency issues |
+| **Frontend Bug** | UI rendering issues, broken interactions, wrong data display | React components, state management, data fetching, hydration |
+| **Data Issue** | Wrong data, missing data, data corruption | Database queries, API transformations, caching, race conditions |
+| **Performance** | Slow responses, timeouts, memory issues | Query performance, bundle size, API response times |
+| **Integration** | Third-party service failures (AI APIs, payment, etc.) | API keys, request/response formats, rate limits, error handling |
+
+## 5. Gather Evidence
+
+### 5.1 Codebase Investigation
+
+Search the codebase for relevant code:
+
+```bash
+# Find related files
+find src -name "*.ts" -o -name "*.tsx" | head -50
+
+# Search for relevant patterns
+grep -rn "relevant_pattern" src/
+```
+
+Use Glob and Grep tools to:
+- Find the files involved in the bug
+- Trace the code path from entry point to the error
+- Look for recent changes that might have introduced the bug
+- Check test files for related test coverage
+
+### 5.2 Deployment Logs (Railway MCP)
+
+If the bug involves deployment or runtime errors, use Railway MCP to check logs:
+
+- Check recent deployment status
+- Look for error logs around the time of the reported issue
+- Check environment variable configuration (without exposing values)
+- Review build logs for warnings or errors
+
+### 5.3 Linear Context
+
+Search Linear for related issues:
+
+- Use `mcp__linear__list_issues` to find existing issues about this bug
+- Check if there are related issues that provide context
+- Look for previously attempted fixes
+
+### 5.4 Reproduce the Issue
+
+When possible, try to reproduce:
+
+```bash
+# Check if tests exist and if they catch the issue
+npm test 2>&1 | tail -50
+
+# Check for TypeScript errors
+npx tsc --noEmit 2>&1 | tail -50
+
+# Check for lint errors
+npm run lint 2>&1 | tail -50
+```
+
+## 6. Document Findings in PLANS.md
+
+Write or append to `PLANS.md` at the project root with this structure:
+
+```markdown
+# Fix Plan: [Brief Bug Title]
+
+**Issue:** FOO-xxx (if Linear issue exists, otherwise "To be created")
+**Date:** YYYY-MM-DD
+**Status:** Planning
+**Branch:** fix/FOO-xxx-brief-description (proposed)
+
+## Investigation
+
+### Bug Report
+[What was reported - user's description of the problem]
+
+### Classification
+- **Type:** [API Error | Auth Issue | Deployment Failure | Frontend Bug | Data Issue | Performance | Integration]
+- **Severity:** [Critical | High | Medium | Low]
+- **Affected Area:** [specific component/route/feature]
+
+### Root Cause Analysis
+[What you found during investigation]
+
+#### Evidence
+- **File:** `path/to/file.ts:lineNumber` - [what's wrong here]
+- **File:** `path/to/another-file.ts:lineNumber` - [related issue]
+- **Logs:** [relevant log output if any]
+
+#### Related Code
+```typescript
+// The problematic code
+```
+
+### Impact
+- [What breaks because of this bug]
+- [Who is affected]
+- [Any data implications]
+
+## Fix Plan (TDD Approach)
+
+### Step 1: Write Failing Test
+- **File:** `src/__tests__/path/to/test.test.ts` (or appropriate test location)
+- **Test:** [describe what the test should verify]
+```typescript
+// Test code outline
+```
+
+### Step 2: Implement Fix
+- **File:** `path/to/file.ts`
+- **Change:** [describe the specific code change]
+```typescript
+// Fixed code outline
+```
+
+### Step 3: Verify
+- [ ] Failing test now passes
+- [ ] Existing tests still pass
+- [ ] TypeScript compiles without errors
+- [ ] Lint passes
+- [ ] Manual verification (if applicable)
+
+### Step 4: Additional Tests (if needed)
+- [ ] Edge case: [describe]
+- [ ] Integration test: [describe]
+
+## Notes
+- [Any additional context, workarounds, or considerations]
+```
+
+## 7. Create Linear Issue
+
+Create a Linear issue in the "Food Scanner" team with status "Todo":
+
+1. First, get the team statuses to find the "Todo" state ID:
+   ```
+   mcp__linear__list_issue_statuses for team "Food Scanner"
+   ```
+
+2. Get available labels:
+   ```
+   mcp__linear__list_issue_labels for team "Food Scanner"
+   ```
+
+3. Create the issue:
+   ```
+   mcp__linear__create_issue with:
+   - team: "Food Scanner"
+   - title: "[Bug Type] Brief description of the fix needed"
+   - description: |
+     ## Bug Report
+     [Summary of the issue]
+
+     ## Root Cause
+     [What was found during investigation]
+
+     ## Fix Plan
+     See PLANS.md for detailed TDD fix plan.
+
+     ## Files Affected
+     - `path/to/file.ts`
+     - `path/to/another-file.ts`
+
+     ## Acceptance Criteria
+     - [ ] Failing test written and passes after fix
+     - [ ] All existing tests pass
+     - [ ] No TypeScript errors
+     - [ ] Deployed successfully
+   - status: "Todo"
+   - Apply relevant labels (bug, etc.)
+   ```
+
+4. Update PLANS.md with the created issue key (FOO-xxx).
+
+## 8. Error Handling
+
+| Situation | Action |
+|-----------|--------|
+| Cannot reproduce the bug | Document what was tried, create issue with "needs-reproduction" label |
+| Root cause unclear | Document hypotheses ranked by likelihood, create issue with investigation notes |
+| Multiple bugs found | Create separate PLANS.md sections and Linear issues for each |
+| Bug is in a dependency | Document the dependency issue, check for updates/workarounds, note in issue |
+| Railway MCP unavailable | Skip deployment log analysis, note in findings |
+| Linear MCP unavailable | Document the issue details in PLANS.md only, tell user to create manually |
+| CLAUDE.md not found | Proceed with standard Next.js conventions |
+| Existing fix in progress | Check the existing Linear issue and PLANS.md entry, update rather than duplicate |
+| Bug is actually a feature request | Reclassify and suggest using add-to-backlog skill instead |
+
+## 9. Rules
+
+- **NEVER modify application code.** This skill only investigates and plans.
+- **NEVER run destructive commands** (no `rm`, no `git reset --hard`, no database mutations).
+- **ALWAYS use TDD approach** in fix plans - tests first, then implementation.
+- **ALWAYS check for existing Linear issues** before creating new ones to avoid duplicates.
+- **ALWAYS include file paths and line numbers** in evidence and fix plans.
+- **ALWAYS propose a branch name** following the pattern `fix/FOO-xxx-brief-description`.
+- **Keep fix plans actionable** - another developer (or AI agent) should be able to follow the plan without additional context.
+- **Severity guidelines:**
+  - **Critical:** Production down, data loss, security vulnerability
+  - **High:** Feature broken for all users, significant data issues
+  - **Medium:** Feature partially broken, workaround exists
+  - **Low:** Minor UI issue, edge case, cosmetic problem
+- **DO NOT expose secrets, API keys, or sensitive environment variable values** in PLANS.md or Linear issues.
+- **DO NOT hallucinate code** - only reference code that actually exists in the codebase.
+
+## 10. Scope Boundaries
+
+This skill is specifically for:
+- Investigating reported bugs and errors
+- Creating structured fix plans with TDD approach
+- Creating Linear issues for tracking
+
+This skill is NOT for:
+- Actually implementing fixes (use plan-implement for that)
+- Adding new features (use plan-todo or add-to-backlog)
+- Code reviews (use code-audit)
+- General investigation without a fix intent (use investigate)
+- Refactoring (create a separate task)
+
+## 11. Termination and Git Workflow
+
+When investigation and planning are complete:
+
+1. **Summarize findings** to the user:
+   - Bug classification and severity
+   - Root cause (confirmed or hypothesized)
+   - Files affected
+   - Linear issue created (FOO-xxx)
+   - Proposed fix branch name
+
+2. **Suggest next steps:**
+   - "Run `/plan-implement FOO-xxx` to implement the fix plan"
+   - Or: "The fix plan is in PLANS.md - you can implement it manually"
+   - If critical: "This is a critical issue - recommend implementing immediately"
+
+3. **Git reminder:**
+   - PLANS.md has been created/updated but NOT committed
+   - Suggest: `git add PLANS.md && git commit -m "Add fix plan for FOO-xxx: brief description"`
+
+4. **If chained from investigate skill:**
+   - Reference the investigation findings
+   - Note any additional evidence found during the fix planning phase
