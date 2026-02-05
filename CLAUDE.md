@@ -70,6 +70,9 @@ food-scanner/
 │   │       └── log-food/route.ts         # Fitbit search + create + log
 │   ├── components/                       # React components
 │   │   └── ui/                           # shadcn/ui components
+│   ├── hooks/
+│   │   ├── use-keyboard-shortcuts.ts     # Keyboard shortcuts (Ctrl+Enter, Escape)
+│   │   └── use-theme.ts                  # Dark mode with localStorage persistence
 │   ├── lib/
 │   │   ├── session.ts                    # iron-session config + getSession()
 │   │   ├── api-response.ts              # Standardized API response helpers
@@ -78,7 +81,8 @@ food-scanner/
 │   │   ├── utils.ts                      # shadcn/ui cn() utility
 │   │   ├── claude.ts                     # Claude API client (tool_use)
 │   │   ├── fitbit.ts                     # Fitbit API client
-│   │   └── auth.ts                       # OAuth helpers (Google, Fitbit)
+│   │   ├── auth.ts                       # OAuth helpers (Google, Fitbit)
+│   │   └── haptics.ts                    # Mobile haptic feedback (Vibration API)
 │   ├── types/                            # Shared TypeScript types
 │   └── test-setup.ts                     # Vitest global test setup
 ├── middleware.ts                          # Auth enforcement for protected routes
