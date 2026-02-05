@@ -1,6 +1,23 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
+
+// Inline script to set theme before hydration (prevents flash of wrong theme)
+const themeScript = `
+(function() {
+  try {
+    var stored = localStorage.getItem("theme") || "system";
+    var root = document.documentElement;
+    if (stored === "system") {
+      var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.classList.add(dark ? "dark" : "light");
+    } else {
+      root.classList.add(stored);
+    }
+  } catch (e) {}
+})();
+`;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,11 +58,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

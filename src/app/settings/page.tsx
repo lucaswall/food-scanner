@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
-import { Sun, Moon, Monitor } from "lucide-react";
+import { Sun, Moon, Monitor, ArrowLeft } from "lucide-react";
 import useSWR from "swr";
 
 interface SessionInfo {
@@ -41,7 +42,14 @@ export default function SettingsPage() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <main className="flex w-full max-w-sm flex-col gap-6">
-        <h1 className="text-2xl font-bold">Settings</h1>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]">
+            <Link href="/app" aria-label="Back to Food Scanner">
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          </Button>
+          <h1 className="text-2xl font-bold">Settings</h1>
+        </div>
 
         <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
           {error && (
