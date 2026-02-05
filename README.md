@@ -184,6 +184,29 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for complete local setup instructions.
 
 ---
 
+## PWA (Add to Home Screen)
+
+The app supports "Add to Home Screen" on mobile devices for a native-like experience.
+
+**Features:**
+- Standalone display mode (no browser chrome)
+- Custom app icon on home screen
+- Portrait orientation lock
+
+**To install:**
+1. Open the app in Safari (iOS) or Chrome (Android)
+2. Tap the Share button → "Add to Home Screen"
+3. The app launches in standalone mode
+
+**Customizing icons:**
+Replace the placeholder icons in `public/`:
+- `icon-192.png` — 192x192 PNG
+- `icon-512.png` — 512x512 PNG
+
+No service worker or offline support — the app requires an internet connection.
+
+---
+
 ## Documentation
 
 | File | Description |

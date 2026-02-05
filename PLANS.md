@@ -1,212 +1,125 @@
-# Fix Plan: logFood logs 1 gram instead of full serving size
+# Implementation Plan
 
-**Issue:** FOO-59
-**Date:** 2026-02-05
-**Status:** Planning
-**Branch:** fix/FOO-59-log-food-amount
+**Created:** 2026-02-05
+**Source:** Inline request: Complete Iteration 4 (PWA setup) from ROADMAP.md
+**Linear Issues:** [FOO-60](https://linear.app/lw-claude/issue/FOO-60/create-pwa-manifest-file), [FOO-61](https://linear.app/lw-claude/issue/FOO-61/create-pwa-icon-assets), [FOO-62](https://linear.app/lw-claude/issue/FOO-62/link-manifest-in-root-layout), [FOO-63](https://linear.app/lw-claude/issue/FOO-63/increase-button-touch-target-size-to-44px-minimum), [FOO-64](https://linear.app/lw-claude/issue/FOO-64/update-documentation-for-pwa-setup)
 
-## Investigation
+## Context Gathered
 
-### Bug Report
-Food uploaded to Fitbit shows 0 calories and no nutrient information. The Fitbit app displays "Serving size: 1 gr... 0 cal" with all nutrition facts showing "-" (null/zero).
+### Codebase Analysis
+- **Root layout:** `src/app/layout.tsx` - Has basic metadata, no manifest link
+- **Public directory:** Empty - no PWA assets exist
+- **Button component:** `src/components/ui/button.tsx` - Default height is h-9 (36px), below 44px touch target
+- **Component buttons:** PhotoCapture, FoodAnalyzer, etc. use default button size
 
-### Classification
-- **Type:** Integration / Data Issue
-- **Severity:** Critical (core functionality broken - all logged food has no nutritional value)
-- **Affected Area:** `src/lib/fitbit.ts` - `logFood` function
+### ROADMAP Requirements (Iteration 4: Mobile & PWA)
+- Touch-friendly: All buttons minimum 44px x 44px
+- PWA manifest for "Add to Home Screen" (no service worker, no offline support)
+- Icons: 192x192 and 512x512 PNG files
+- Manifest fields: name, short_name, description, start_url, display, colors, orientation, icons
 
-### Root Cause Analysis
+### MCP Context
+- **Linear MCP:** Connected (verified via list_teams)
+- **Railway MCP:** Available for deployment verification
 
-The `logFood` function logs 1 gram instead of the full serving size, causing all nutritional values to be scaled down to effectively zero.
+## Original Plan
 
-#### Evidence
+### Task 1: Create PWA manifest file
+**Linear Issue:** [FOO-60](https://linear.app/lw-claude/issue/FOO-60/create-pwa-manifest-file)
 
-**File:** `src/lib/fitbit.ts:129-135`
-```typescript
-const params = new URLSearchParams({
-  foodId: foodId.toString(),
-  mealTypeId: mealTypeId.toString(),
-  unitId: "147", // gram
-  amount: "1", // 1 serving  <-- WRONG: comment says "serving" but value is 1 gram
-});
-```
+1. Write test in `src/app/__tests__/manifest.test.ts` for manifest presence and fields
+   - Test manifest.json exists in public directory
+   - Test required fields are present (name, short_name, start_url, display, icons)
+   - Test icon paths are valid
+2. Run verifier (expect fail)
+3. Create `public/manifest.json` with ROADMAP-specified fields:
+   - name: "Food Logger"
+   - short_name: "FoodLog"
+   - description: "AI-powered food logging for Fitbit"
+   - start_url: "/app"
+   - display: "standalone"
+   - background_color: "#ffffff"
+   - theme_color: "#000000"
+   - orientation: "portrait"
+   - icons: 192x192 and 512x512
+4. Run verifier (expect pass)
 
-**File:** `src/lib/fitbit.ts:75-85` (createFood - correctly stores nutrients per full serving)
-```typescript
-const params = new URLSearchParams({
-  name: food.food_name,
-  defaultFoodMeasurementUnitId: "147", // gram
-  defaultServingSize: food.portion_size_g.toString(),  // e.g., 250g
-  calories: food.calories.toString(),  // calories for 250g
-  protein: food.protein_g.toString(),  // protein for 250g
-  // ... other nutrients for 250g
-});
-```
+### Task 2: Create PWA icon assets
+**Linear Issue:** [FOO-61](https://linear.app/lw-claude/issue/FOO-61/create-pwa-icon-assets)
 
-**Railway Logs (2026-02-05T14:12):**
-```
-[INFO] created new food action="fitbit_food_created" foodId=828510280
-[INFO] food logged successfully action="log_food_success" foodId=828510280 logId=38034767823
-```
+1. No test needed (static asset)
+2. Create `public/icon-192.png` - 192x192 PNG icon
+3. Create `public/icon-512.png` - 512x512 PNG icon
+4. Verify icons are properly sized and formatted
 
-The API calls succeed, but Fitbit scales nutritional values proportionally:
-- Food created with 250g serving = 40 calories
-- Food logged with 1g amount = 40 * (1/250) = 0.16 calories → rounds to **0**
+### Task 3: Link manifest in root layout
+**Linear Issue:** [FOO-62](https://linear.app/lw-claude/issue/FOO-62/link-manifest-in-root-layout)
 
-**Fitbit API Documentation:** Per https://dev.fitbit.com/build/reference/web-api/nutrition/create-food-log/, the `amount` parameter represents "the amount consumed in the format X.XX in the specified unitId". Since `unitId: "147"` is gram, `amount: "1"` means 1 gram.
+1. Write test in `src/app/__tests__/layout.test.tsx` for manifest link
+   - Test layout renders with manifest link in head
+   - Test theme-color meta tag is present
+2. Run verifier (expect fail)
+3. Update `src/app/layout.tsx`:
+   - Add manifest link to metadata
+   - Add theme-color meta tag
+   - Add apple-touch-icon link for iOS
+4. Run verifier (expect pass)
 
-### Impact
-- All food logged to Fitbit has 0 calories and no nutritional values
-- Users see "0 cal" for everything they log
-- Core app functionality is completely broken
-- Food is created correctly but logged incorrectly
+### Task 4: Increase button touch target size
+**Linear Issue:** [FOO-63](https://linear.app/lw-claude/issue/FOO-63/increase-button-touch-target-size-to-44px-minimum)
 
-## Fix Plan (TDD Approach)
+1. Write test in `src/components/ui/__tests__/button.test.tsx` for touch-friendly size
+   - Test default button height is at least 44px (h-11)
+   - Test all size variants meet minimum touch target
+2. Run verifier (expect fail)
+3. Update `src/components/ui/button.tsx`:
+   - Change default size from h-9 (36px) to h-11 (44px)
+   - Update lg size from h-10 (40px) to h-12 (48px)
+   - Update sm size from h-8 (32px) to h-10 (40px) - acceptable for secondary actions
+   - Update icon sizes proportionally
+4. Run verifier (expect pass)
 
-### Step 1: Write Failing Test
+### Task 5: Update documentation
+**Linear Issue:** [FOO-64](https://linear.app/lw-claude/issue/FOO-64/update-documentation-for-pwa-setup)
 
-**File:** `src/lib/__tests__/fitbit.test.ts`
+1. No test needed (documentation)
+2. Update `CLAUDE.md`:
+   - Add PWA section describing manifest and icons
+   - Note touch target requirement in development policies
+3. Update `README.md`:
+   - Add PWA setup notes
+   - Document icon generation process
+4. Run verifier (verify build still passes)
 
-Add a test that verifies `logFood` is called with the correct `amount` parameter matching the portion size:
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent - Review changes for bugs
+2. Run `verifier` agent - Verify all tests pass and zero warnings
 
-```typescript
-it("should log food with correct amount matching portion size", async () => {
-  // Setup mock for createFood and logFood
-  const mockFood: FoodAnalysis = {
-    food_name: "Test Food",
-    portion_size_g: 250,
-    calories: 100,
-    protein_g: 5,
-    carbs_g: 20,
-    fat_g: 3,
-    fiber_g: 2,
-    sodium_mg: 100,
-    confidence: "high",
-    notes: "",
-  };
+---
 
-  // ... mock responses
+## Plan Summary
 
-  // Verify logFood is called with amount: "250" (the portion size)
-  expect(fetch).toHaveBeenCalledWith(
-    "https://api.fitbit.com/1/user/-/foods/log.json",
-    expect.objectContaining({
-      body: expect.stringContaining("amount=250"),
-    })
-  );
-});
-```
+**Objective:** Complete Iteration 4 by adding PWA manifest, icons, and ensuring touch-friendly UI
 
-### Step 2: Update logFood Function Signature
+**Request:** Plan the remaining work of the ROADMAP (Iteration 4: Polish & PWA)
 
-**File:** `src/lib/fitbit.ts`
+**Linear Issues:** FOO-60, FOO-61, FOO-62, FOO-63, FOO-64
 
-Add `amount` parameter to `logFood`:
+**Approach:** Create PWA manifest and icons for "Add to Home Screen" functionality on mobile. Update root layout to link manifest. Increase button touch targets from 36px to 44px minimum to meet accessibility guidelines.
 
-```typescript
-// Change from:
-export async function logFood(
-  accessToken: string,
-  foodId: number,
-  mealTypeId: number,
-  date: string,
-  time?: string,
-): Promise<LogFoodResponse>
+**Scope:**
+- Tasks: 5
+- Files affected: 7 (manifest.json, 2 icons, layout.tsx, button.tsx, CLAUDE.md, README.md)
+- New tests: yes (manifest validation, layout metadata, button sizing)
 
-// To:
-export async function logFood(
-  accessToken: string,
-  foodId: number,
-  mealTypeId: number,
-  amount: number,  // NEW: portion size in grams
-  date: string,
-  time?: string,
-): Promise<LogFoodResponse>
-```
+**Key Decisions:**
+- No service worker or offline support per ROADMAP spec
+- Button default size increased to h-11 (44px) to meet touch target guidelines
+- Icons will be simple placeholder images (user can replace with custom branding)
 
-### Step 3: Update logFood Implementation
-
-**File:** `src/lib/fitbit.ts:129-135`
-
-```typescript
-// Change from:
-const params = new URLSearchParams({
-  foodId: foodId.toString(),
-  mealTypeId: mealTypeId.toString(),
-  unitId: "147", // gram
-  amount: "1", // 1 serving  <-- WRONG
-  date,
-});
-
-// To:
-const params = new URLSearchParams({
-  foodId: foodId.toString(),
-  mealTypeId: mealTypeId.toString(),
-  unitId: "147", // gram
-  amount: amount.toString(), // portion size in grams
-  date,
-});
-```
-
-### Step 4: Update Caller in log-food Route
-
-**File:** `src/app/api/log-food/route.ts:156-162`
-
-```typescript
-// Change from:
-const logResult = await logFood(
-  accessToken,
-  foodId,
-  body.mealTypeId,
-  date,
-  body.time
-);
-
-// To:
-const logResult = await logFood(
-  accessToken,
-  foodId,
-  body.mealTypeId,
-  body.portion_size_g,  // NEW: pass the portion size
-  date,
-  body.time
-);
-```
-
-### Step 5: Update Existing Tests
-
-**File:** `src/lib/__tests__/fitbit.test.ts`
-
-Update existing `logFood` tests to:
-1. Pass the new `amount` parameter
-2. Verify the correct amount is sent to Fitbit API
-
-**File:** `src/app/api/log-food/__tests__/route.test.ts`
-
-Update route tests to verify `logFood` is called with `portion_size_g`.
-
-### Step 6: Verify
-
-- [ ] New test for correct amount passes
-- [ ] All existing tests updated and pass
-- [ ] TypeScript compiles without errors
-- [ ] Lint passes
-- [ ] Manual verification: log a food item and verify calories/nutrients appear correctly in Fitbit
-
-## Files Affected
-
-| File | Change |
-|------|--------|
-| `src/lib/fitbit.ts` | Add `amount` param to `logFood`, use it instead of hardcoded "1" |
-| `src/app/api/log-food/route.ts` | Pass `body.portion_size_g` to `logFood` |
-| `src/lib/__tests__/fitbit.test.ts` | Update tests for new `logFood` signature |
-| `src/app/api/log-food/__tests__/route.test.ts` | Update mock to verify correct amount |
-
-## Notes
-- The `createFood` function is correct - it stores nutrients per the full serving size
-- Only `logFood` needs to be fixed to log the correct amount
-- The fix is backward compatible - no API changes to clients
-- The comment `// 1 serving` was misleading - it's actually 1 gram
+**Risks/Considerations:**
+- Button size increase may affect existing layouts - visual review recommended
+- Icons are placeholder - production app may want branded icons
 
 ---
 
@@ -215,50 +128,60 @@ Update route tests to verify `logFood` is called with `portion_size_g`.
 **Implemented:** 2026-02-05
 
 ### Tasks Completed This Iteration
-- Step 1-6: Full TDD fix for logFood amount parameter
-  - Added failing test verifying `amount=250` is sent to Fitbit API
-  - Added `amount: number` parameter to `logFood` function signature
-  - Updated `logFood` implementation to use `amount.toString()` instead of hardcoded `"1"`
-  - Updated `log-food/route.ts` to pass `body.portion_size_g` to `logFood`
-  - Updated all existing tests to include the new `amount` parameter
+- Task 1: Create PWA manifest file - Created `public/manifest.json` with all required fields
+- Task 2: Create PWA icon assets - Created placeholder icons (192x192 and 512x512 PNG)
+- Task 3: Link manifest in root layout - Added manifest, viewport, icons, and appleWebApp metadata
+- Task 4: Increase button touch target size - Updated all button variants to meet 44px minimum
+- Task 5: Update documentation - Added PWA section to CLAUDE.md and README.md
 
 ### Files Modified
-- `src/lib/fitbit.ts` - Added `amount` parameter to `logFood`, use it instead of hardcoded "1"
-- `src/app/api/log-food/route.ts` - Pass `body.portion_size_g` to `logFood`
-- `src/lib/__tests__/fitbit.test.ts` - Updated tests for new `logFood` signature
-- `src/app/api/log-food/__tests__/route.test.ts` - Updated mock expectations to verify correct amount
+- `public/manifest.json` - Created PWA manifest
+- `public/icon-192.png` - Created 192x192 placeholder icon
+- `public/icon-512.png` - Created 512x512 placeholder icon
+- `src/app/layout.tsx` - Added PWA metadata, viewport with themeColor, icons, appleWebApp
+- `src/app/__tests__/layout.test.tsx` - Created tests for layout metadata
+- `src/app/__tests__/manifest.test.ts` - Created tests for manifest validation
+- `src/components/ui/button.tsx` - Updated all sizes to meet 44px minimum, removed xs variants
+- `src/components/ui/__tests__/button.test.tsx` - Created tests for touch target sizes
+- `CLAUDE.md` - Added PWA section and touch target policy
+- `README.md` - Added PWA installation instructions
 
 ### Linear Updates
-- FOO-59: Todo → In Progress → Review
+- FOO-60: Todo → In Progress → Review
+- FOO-61: Todo → In Progress → Review
+- FOO-62: Todo → In Progress → Review
+- FOO-63: Todo → In Progress → Review
+- FOO-64: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 1 medium (defensive validation for amount), 1 low (float precision) - both acceptable since route validation already checks `portion_size_g > 0`
-- verifier: All 266 tests pass, zero errors, build passes
+- bug-hunter: Found 3 issues (naming inconsistency, xs sizes below minimum), fixed before proceeding
+- verifier: All 280 tests pass, zero warnings
 
 ### Continuation Status
 All tasks completed.
 
 ### Review Findings
 
-Files reviewed: 4
-- `src/lib/fitbit.ts` - `logFood` function with new `amount` parameter
-- `src/app/api/log-food/route.ts` - Route handler passing `portion_size_g`
-- `src/lib/__tests__/fitbit.test.ts` - Unit tests for `logFood`
-- `src/app/api/log-food/__tests__/route.test.ts` - Route integration tests
-
-Checks applied: Security, Logic, Async, Resources, Type Safety, Edge Cases, Error Handling, Conventions
+Files reviewed: 10
+Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Edge Cases, Conventions
 
 No issues found - all implementations are correct and follow project conventions.
 
-**Details:**
-- Security: Parameters properly encoded via URLSearchParams, auth validated before API calls
-- Logic: Fix correctly addresses root cause (hardcoded "1" → actual portion size)
-- Edge Cases: Route validates `portion_size_g > 0` at line 25, preventing zero/negative values
-- Type Safety: `amount: number` parameter type is explicit
-- Tests: New test verifies `amount=250` sent to Fitbit API; route tests verify `portion_size_g` passed correctly
+**Verification:**
+- All 280 tests pass
+- Build completes with zero warnings
+- TypeScript type checking passes
+- PWA manifest has all required fields
+- Icons are correctly sized (192x192 and 512x512 PNG)
+- Button touch targets meet 44px minimum requirement
+- Documentation updated in CLAUDE.md and README.md
 
 ### Linear Updates
-- FOO-59: Review → Merge
+- FOO-60: Review → Merge
+- FOO-61: Review → Merge
+- FOO-62: Review → Merge
+- FOO-63: Review → Merge
+- FOO-64: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 
@@ -266,4 +189,4 @@ No issues found - all implementations are correct and follow project conventions
 
 ## Status: COMPLETE
 
-All tasks implemented and reviewed successfully. FOO-59 moved to Merge.
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.

@@ -158,6 +158,27 @@ food-scanner/
 
 ---
 
+## PWA
+
+The app is configured as a Progressive Web App for "Add to Home Screen" functionality on mobile devices.
+
+**Assets:**
+- `public/manifest.json` — PWA manifest with app metadata
+- `public/icon-192.png` — 192x192 app icon
+- `public/icon-512.png` — 512x512 app icon
+
+**Features:**
+- Standalone display mode (no browser chrome)
+- Portrait orientation
+- Apple touch icon for iOS
+- Theme color integration
+
+**Not included:** Service worker, offline support (per ROADMAP spec)
+
+**Icon replacement:** The placeholder icons can be replaced with branded icons. Maintain the same filenames and dimensions.
+
+---
+
 ## SUBAGENTS
 
 | Agent | Model | Purpose | Trigger |
@@ -253,6 +274,7 @@ LOG_LEVEL=info
 - **Delete unused code immediately** — No deprecation warnings
 - **No "for compatibility" code** — When changing APIs, update ALL references
 - **Mobile-first design** — All UI components must work on mobile
+- **Touch targets** — All interactive elements (buttons, links) must be at least 44px x 44px
 - **Same-origin deployment** — No CORS, no cross-domain cookie issues
 - **Keep documentation current** — When making changes that affect project structure, APIs, environment variables, setup steps, or deployment, update all relevant documentation files (`CLAUDE.md`, `README.md`, `DEVELOPMENT.md`) in the same changeset. Documentation must never drift from the actual codebase.
 - **No co-author attribution in commits** — Commit messages must NOT include `Co-Authored-By` tags. This applies to all commits created by agents (commit-bot, pr-creator) and skills.
