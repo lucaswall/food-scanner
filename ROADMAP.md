@@ -305,7 +305,7 @@ const nutrition: FoodAnalysis = toolUseBlock.input;
 - Clear/retake functionality
 - "Analyze" button
 
-**Image validation:** Max 10MB per image, max 3 images, JPEG/PNG only.
+**Image validation:** Max 10MB per image, max 3 images, JPEG/PNG/GIF/WebP/HEIC supported. HEIC images are converted to JPEG client-side via heic2any before upload (Claude API doesn't support HEIC natively).
 
 **No photo persistence:** Photos kept in browser memory only until analysis complete.
 

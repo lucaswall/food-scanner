@@ -5,7 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Camera, ImageIcon } from "lucide-react";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = ["image/jpeg", "image/png"];
+const ALLOWED_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+];
+const HEIC_EXTENSIONS = [".heic", ".heif"];
 
 interface PhotoCaptureProps {
   onPhotosChange: (files: File[]) => void;
@@ -23,8 +31,16 @@ export function PhotoCapture({
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const validateFile = (file: File): string | null => {
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      return "Only JPEG and PNG images are allowed";
+    // Check MIME type first
+    const isValidType = ALLOWED_TYPES.includes(file.type);
+
+    // Fallback: check file extension for HEIC (Android sometimes reports empty MIME)
+    const dotIndex = file.name.lastIndexOf(".");
+    const extension = dotIndex !== -1 ? file.name.toLowerCase().slice(dotIndex) : "";
+    const isHeicByExtension = HEIC_EXTENSIONS.includes(extension);
+
+    if (!isValidType && !isHeicByExtension) {
+      return "Only JPEG, PNG, GIF, WebP, and HEIC images are allowed";
     }
     if (file.size > MAX_FILE_SIZE) {
       return "Each image must be under 10MB";
@@ -113,7 +129,7 @@ export function PhotoCapture({
       <input
         ref={cameraInputRef}
         type="file"
-        accept="image/jpeg,image/png"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
         capture="environment"
         multiple
         onChange={handleFileChange}
@@ -123,7 +139,7 @@ export function PhotoCapture({
       <input
         ref={galleryInputRef}
         type="file"
-        accept="image/jpeg,image/png"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
         multiple
         onChange={handleFileChange}
         data-testid="gallery-input"

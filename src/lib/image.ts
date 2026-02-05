@@ -1,10 +1,58 @@
+import heic2any from "heic2any";
+
 const MAX_DIMENSION = 1024;
 const JPEG_QUALITY = 0.8;
 
+const HEIC_MIME_TYPES = ["image/heic", "image/heif"];
+const HEIC_EXTENSIONS = [".heic", ".heif"];
+
+/**
+ * Detect if a file is a HEIC/HEIF image.
+ * Checks both MIME type and file extension (Android sometimes reports empty MIME for HEIC).
+ */
+export function isHeicFile(file: File): boolean {
+  // Check MIME type first
+  if (HEIC_MIME_TYPES.includes(file.type.toLowerCase())) {
+    return true;
+  }
+
+  // Fallback to extension check (for Android devices that report empty MIME)
+  const dotIndex = file.name.lastIndexOf(".");
+  const extension = dotIndex !== -1 ? file.name.toLowerCase().slice(dotIndex) : "";
+  return HEIC_EXTENSIONS.includes(extension);
+}
+
+/**
+ * Convert a HEIC/HEIF file to JPEG using heic2any library.
+ * Throws on conversion failure.
+ */
+export async function convertHeicToJpeg(file: File): Promise<Blob> {
+  const result = await heic2any({
+    blob: file,
+    toType: "image/jpeg",
+  });
+
+  // heic2any can return array for multi-image HEIC files, take first
+  if (Array.isArray(result)) {
+    if (result.length === 0) {
+      throw new Error("HEIC conversion returned no images");
+    }
+    return result[0];
+  }
+
+  return result;
+}
+
 export async function compressImage(file: File): Promise<Blob> {
+  // Convert HEIC to JPEG first if needed
+  let processFile: File | Blob = file;
+  if (isHeicFile(file)) {
+    processFile = await convertHeicToJpeg(file);
+  }
+
   return new Promise((resolve, reject) => {
     const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
+    const objectUrl = URL.createObjectURL(processFile);
 
     img.onload = () => {
       // Clean up the object URL to prevent memory leak

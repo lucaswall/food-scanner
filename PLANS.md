@@ -153,3 +153,45 @@
 - HEIC conversion takes 1-3 seconds per image — user sees normal "Analyzing..." state
 - If heic2any fails to load or convert, error propagates to user as "Failed to load image"
 - Testing HEIC conversion requires mocking heic2any library
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-04
+
+### Tasks Completed This Iteration
+- Task 1: Add heic2any dependency - Installed heic2any (includes built-in TypeScript types)
+- Task 2: Create HEIC detection and conversion utility - Added isHeicFile() and convertHeicToJpeg() functions with tests
+- Task 3: Update compressImage to handle HEIC input - Auto-converts HEIC before canvas processing
+- Task 4: Update PhotoCapture to accept all supported formats - Added GIF, WebP, HEIC, HEIF with extension fallback
+- Task 5: Update API route to accept all Claude-supported formats - Added GIF and WebP to analyze-food endpoint
+- Task 6: Update CLAUDE.md and ROADMAP.md documentation - Updated image format documentation
+
+### Files Modified
+- `package.json` - Added heic2any dependency
+- `package-lock.json` - Updated lockfile
+- `src/lib/image.ts` - Added isHeicFile(), convertHeicToJpeg(), updated compressImage()
+- `src/lib/__tests__/image.test.ts` - Added 12 new tests for HEIC handling
+- `src/test-setup.ts` - Added Worker mock for heic2any compatibility
+- `src/components/photo-capture.tsx` - Updated ALLOWED_TYPES and accept attributes
+- `src/components/__tests__/photo-capture.test.tsx` - Added 6 new format tests
+- `src/app/api/analyze-food/route.ts` - Updated ALLOWED_TYPES for GIF/WebP
+- `src/app/api/analyze-food/__tests__/route.test.ts` - Added 3 new format tests
+- `CLAUDE.md` - Updated Security section for image formats
+- `ROADMAP.md` - Updated image validation documentation
+
+### Linear Updates
+- FOO-41: Todo → In Progress → Review
+- FOO-42: Todo → In Progress → Review
+- FOO-43: Todo → In Progress → Review
+- FOO-44: Todo → In Progress → Review
+- FOO-45: Todo → In Progress → Review
+- FOO-46: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 medium bugs (empty array handling, extension parsing edge cases), fixed before proceeding
+- verifier: All 255 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.

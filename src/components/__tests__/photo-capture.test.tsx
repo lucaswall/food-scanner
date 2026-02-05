@@ -60,7 +60,10 @@ describe("PhotoCapture", () => {
 
       const cameraInput = screen.getByTestId("camera-input");
       expect(cameraInput).toHaveAttribute("capture", "environment");
-      expect(cameraInput).toHaveAttribute("accept", "image/jpeg,image/png");
+      expect(cameraInput).toHaveAttribute(
+        "accept",
+        "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
+      );
       expect(cameraInput).toHaveAttribute("type", "file");
       expect(cameraInput).toHaveClass("hidden");
     });
@@ -71,7 +74,10 @@ describe("PhotoCapture", () => {
 
       const galleryInput = screen.getByTestId("gallery-input");
       expect(galleryInput).not.toHaveAttribute("capture");
-      expect(galleryInput).toHaveAttribute("accept", "image/jpeg,image/png");
+      expect(galleryInput).toHaveAttribute(
+        "accept",
+        "image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
+      );
       expect(galleryInput).toHaveAttribute("type", "file");
       expect(galleryInput).toHaveClass("hidden");
     });
@@ -243,20 +249,7 @@ describe("PhotoCapture", () => {
   });
 
   describe("shared validation", () => {
-    it("shows validation error for invalid file types from camera", async () => {
-      const onPhotosChange = vi.fn();
-      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
-
-      const cameraInput = screen.getByTestId("camera-input");
-      const files = [createMockFile("test.gif", "image/gif", 1000)];
-
-      fireEvent.change(cameraInput, { target: { files } });
-
-      expect(screen.getByText(/JPEG|PNG/i)).toBeInTheDocument();
-      expect(onPhotosChange).not.toHaveBeenCalled();
-    });
-
-    it("shows validation error for invalid file types from gallery", async () => {
+    it("accepts GIF files (image/gif)", async () => {
       const onPhotosChange = vi.fn();
       render(<PhotoCapture onPhotosChange={onPhotosChange} />);
 
@@ -265,7 +258,95 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files } });
 
-      expect(screen.getByText(/JPEG|PNG/i)).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(onPhotosChange).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "test.gif", type: "image/gif" }),
+        ])
+      );
+    });
+
+    it("accepts WebP files (image/webp)", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      const files = [createMockFile("test.webp", "image/webp", 1000)];
+
+      fireEvent.change(galleryInput, { target: { files } });
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(onPhotosChange).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "test.webp", type: "image/webp" }),
+        ])
+      );
+    });
+
+    it("accepts HEIC files (image/heic)", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      const files = [createMockFile("test.heic", "image/heic", 1000)];
+
+      fireEvent.change(galleryInput, { target: { files } });
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(onPhotosChange).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "test.heic", type: "image/heic" }),
+        ])
+      );
+    });
+
+    it("accepts HEIF files (image/heif)", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      const files = [createMockFile("test.heif", "image/heif", 1000)];
+
+      fireEvent.change(galleryInput, { target: { files } });
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(onPhotosChange).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "test.heif", type: "image/heif" }),
+        ])
+      );
+    });
+
+    it("accepts .heic files with empty MIME type (Android fallback)", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      // Android sometimes reports empty MIME type for HEIC files
+      const files = [createMockFile("photo.heic", "", 1000)];
+
+      fireEvent.change(galleryInput, { target: { files } });
+
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(onPhotosChange).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "photo.heic" }),
+        ])
+      );
+    });
+
+    it("shows validation error for unsupported file types", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const cameraInput = screen.getByTestId("camera-input");
+      const files = [createMockFile("test.bmp", "image/bmp", 1000)];
+
+      fireEvent.change(cameraInput, { target: { files } });
+
+      expect(
+        screen.getByText(/JPEG.*PNG.*GIF.*WebP.*HEIC/i)
+      ).toBeInTheDocument();
       expect(onPhotosChange).not.toHaveBeenCalled();
     });
 

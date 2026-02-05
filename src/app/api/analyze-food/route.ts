@@ -5,7 +5,8 @@ import { analyzeFood } from "@/lib/claude";
 
 const MAX_IMAGES = 3;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = ["image/jpeg", "image/png"];
+// Note: HEIC not included - client converts HEIC to JPEG before upload
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
       );
       return errorResponse(
         "VALIDATION_ERROR",
-        "Only JPEG and PNG images are allowed",
+        "Only JPEG, PNG, GIF, and WebP images are allowed",
         400
       );
     }
