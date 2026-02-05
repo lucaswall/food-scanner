@@ -1,167 +1,212 @@
-# Fix Plan: Incorrect API Endpoint URLs
+# Fix Plan: logFood logs 1 gram instead of full serving size
 
-**Issue:** FOO-58
+**Issue:** FOO-59
 **Date:** 2026-02-05
 **Status:** Planning
-**Branch:** fix/FOO-58-api-endpoint-urls
+**Branch:** fix/FOO-59-log-food-amount
 
 ## Investigation
 
 ### Bug Report
-Fitbit food logging fails with 404 "The API you are requesting could not be found." The investigation revealed incorrect API endpoint URLs in the codebase.
+Food uploaded to Fitbit shows 0 calories and no nutrient information. The Fitbit app displays "Serving size: 1 gr... 0 cal" with all nutrition facts showing "-" (null/zero).
 
 ### Classification
-- **Type:** API Error / Integration
-- **Severity:** Critical (food logging completely broken)
-- **Affected Area:** `src/lib/fitbit.ts`, `src/lib/auth.ts`
+- **Type:** Integration / Data Issue
+- **Severity:** Critical (core functionality broken - all logged food has no nutritional value)
+- **Affected Area:** `src/lib/fitbit.ts` - `logFood` function
 
 ### Root Cause Analysis
 
-Comprehensive audit of all external API endpoints revealed:
+The `logFood` function logs 1 gram instead of the full serving size, causing all nutritional values to be scaled down to effectively zero.
 
-#### 1. CRITICAL: Fitbit Log Food Endpoint (Breaking Bug)
-The `logFood` function uses singular `food` instead of plural `foods` in the URL path.
+#### Evidence
 
-**Evidence from Railway Logs (2026-02-05T13:02:43.996Z):**
-```json
-{
-  "action": "fitbit_log_food_failed",
-  "status": 404,
-  "errorBody": {
-    "errors": [{
-      "errorType": "not_found",
-      "message": "The API you are requesting could not be found."
-    }]
-  }
-}
-```
-
-**File:** `src/lib/fitbit.ts:142`
+**File:** `src/lib/fitbit.ts:129-135`
 ```typescript
-// Current (WRONG)
-`${FITBIT_API_BASE}/1/user/-/food/log.json`
-
-// Should be (plural "foods")
-`${FITBIT_API_BASE}/1/user/-/foods/log.json`
+const params = new URLSearchParams({
+  foodId: foodId.toString(),
+  mealTypeId: mealTypeId.toString(),
+  unitId: "147", // gram
+  amount: "1", // 1 serving  <-- WRONG: comment says "serving" but value is 1 gram
+});
 ```
 
-#### 2. MINOR: Google Userinfo Endpoint (Deprecation Risk)
-The Google userinfo endpoint uses v2 which is legacy. Google recommends v3.
-
-**File:** `src/lib/auth.ts:48`
+**File:** `src/lib/fitbit.ts:75-85` (createFood - correctly stores nutrients per full serving)
 ```typescript
-// Current (legacy v2)
-"https://www.googleapis.com/oauth2/v2/userinfo"
-
-// Recommended (v3)
-"https://www.googleapis.com/oauth2/v3/userinfo"
+const params = new URLSearchParams({
+  name: food.food_name,
+  defaultFoodMeasurementUnitId: "147", // gram
+  defaultServingSize: food.portion_size_g.toString(),  // e.g., 250g
+  calories: food.calories.toString(),  // calories for 250g
+  protein: food.protein_g.toString(),  // protein for 250g
+  // ... other nutrients for 250g
+});
 ```
 
-**Note:** v2 still works but may be deprecated in the future.
+**Railway Logs (2026-02-05T14:12):**
+```
+[INFO] created new food action="fitbit_food_created" foodId=828510280
+[INFO] food logged successfully action="log_food_success" foodId=828510280 logId=38034767823
+```
 
-### Verified Correct Endpoints
+The API calls succeed, but Fitbit scales nutritional values proportionally:
+- Food created with 250g serving = 40 calories
+- Food logged with 1g amount = 40 * (1/250) = 0.16 calories → rounds to **0**
 
-| Service | Endpoint | Code URL | Status |
-|---------|----------|----------|--------|
-| Google OAuth | Authorization | `https://accounts.google.com/o/oauth2/v2/auth` | Correct |
-| Google OAuth | Token Exchange | `https://oauth2.googleapis.com/token` | Correct |
-| Fitbit OAuth | Authorization | `https://www.fitbit.com/oauth2/authorize` | Correct |
-| Fitbit OAuth | Token Exchange | `https://api.fitbit.com/oauth2/token` | Correct |
-| Fitbit | Create Food | `https://api.fitbit.com/1/user/-/foods.json` | Correct |
+**Fitbit API Documentation:** Per https://dev.fitbit.com/build/reference/web-api/nutrition/create-food-log/, the `amount` parameter represents "the amount consumed in the format X.XX in the specified unitId". Since `unitId: "147"` is gram, `amount: "1"` means 1 gram.
 
 ### Impact
-- All food logging attempts fail with 404
+- All food logged to Fitbit has 0 calories and no nutritional values
+- Users see "0 cal" for everything they log
 - Core app functionality is completely broken
-- Users cannot log any food to Fitbit
+- Food is created correctly but logged incorrectly
 
 ## Fix Plan (TDD Approach)
 
-### Step 1: Update Test to Expect Correct Endpoint
+### Step 1: Write Failing Test
 
 **File:** `src/lib/__tests__/fitbit.test.ts`
 
-Update line 273 to use the correct endpoint:
+Add a test that verifies `logFood` is called with the correct `amount` parameter matching the portion size:
 
 ```typescript
-// Change from:
-expect(fetch).toHaveBeenCalledWith(
-  "https://api.fitbit.com/1/user/-/food/log.json",
-  // ...
-);
+it("should log food with correct amount matching portion size", async () => {
+  // Setup mock for createFood and logFood
+  const mockFood: FoodAnalysis = {
+    food_name: "Test Food",
+    portion_size_g: 250,
+    calories: 100,
+    protein_g: 5,
+    carbs_g: 20,
+    fat_g: 3,
+    fiber_g: 2,
+    sodium_mg: 100,
+    confidence: "high",
+    notes: "",
+  };
 
-// To:
-expect(fetch).toHaveBeenCalledWith(
-  "https://api.fitbit.com/1/user/-/foods/log.json",
-  // ...
-);
+  // ... mock responses
+
+  // Verify logFood is called with amount: "250" (the portion size)
+  expect(fetch).toHaveBeenCalledWith(
+    "https://api.fitbit.com/1/user/-/foods/log.json",
+    expect.objectContaining({
+      body: expect.stringContaining("amount=250"),
+    })
+  );
+});
 ```
 
-### Step 2: Fix Fitbit Log Food Endpoint
+### Step 2: Update logFood Function Signature
 
 **File:** `src/lib/fitbit.ts`
 
-Update line 142 to use the correct endpoint:
+Add `amount` parameter to `logFood`:
 
 ```typescript
 // Change from:
-const response = await fetchWithRetry(
-  `${FITBIT_API_BASE}/1/user/-/food/log.json`,
-  // ...
-);
+export async function logFood(
+  accessToken: string,
+  foodId: number,
+  mealTypeId: number,
+  date: string,
+  time?: string,
+): Promise<LogFoodResponse>
 
 // To:
-const response = await fetchWithRetry(
-  `${FITBIT_API_BASE}/1/user/-/foods/log.json`,
-  // ...
-);
+export async function logFood(
+  accessToken: string,
+  foodId: number,
+  mealTypeId: number,
+  amount: number,  // NEW: portion size in grams
+  date: string,
+  time?: string,
+): Promise<LogFoodResponse>
 ```
 
-### Step 3: Update Google Userinfo Endpoint (Optional but Recommended)
+### Step 3: Update logFood Implementation
 
-**File:** `src/lib/auth.ts`
-
-Update line 48 to use v3:
+**File:** `src/lib/fitbit.ts:129-135`
 
 ```typescript
 // Change from:
-const response = await fetch(
-  "https://www.googleapis.com/oauth2/v2/userinfo",
-  // ...
+const params = new URLSearchParams({
+  foodId: foodId.toString(),
+  mealTypeId: mealTypeId.toString(),
+  unitId: "147", // gram
+  amount: "1", // 1 serving  <-- WRONG
+  date,
+});
+
+// To:
+const params = new URLSearchParams({
+  foodId: foodId.toString(),
+  mealTypeId: mealTypeId.toString(),
+  unitId: "147", // gram
+  amount: amount.toString(), // portion size in grams
+  date,
+});
+```
+
+### Step 4: Update Caller in log-food Route
+
+**File:** `src/app/api/log-food/route.ts:156-162`
+
+```typescript
+// Change from:
+const logResult = await logFood(
+  accessToken,
+  foodId,
+  body.mealTypeId,
+  date,
+  body.time
 );
 
 // To:
-const response = await fetch(
-  "https://www.googleapis.com/oauth2/v3/userinfo",
-  // ...
+const logResult = await logFood(
+  accessToken,
+  foodId,
+  body.mealTypeId,
+  body.portion_size_g,  // NEW: pass the portion size
+  date,
+  body.time
 );
 ```
 
-### Step 4: Verify
+### Step 5: Update Existing Tests
 
-- [ ] Update test expectation for `logFood` endpoint
-- [ ] Fix `logFood` endpoint in implementation
-- [ ] Update Google userinfo endpoint to v3
-- [ ] All tests pass (`npm test`)
-- [ ] TypeScript compiles without errors (`npm run typecheck`)
-- [ ] Lint passes (`npm run lint`)
-- [ ] Manual verification: log a food item in production
+**File:** `src/lib/__tests__/fitbit.test.ts`
+
+Update existing `logFood` tests to:
+1. Pass the new `amount` parameter
+2. Verify the correct amount is sent to Fitbit API
+
+**File:** `src/app/api/log-food/__tests__/route.test.ts`
+
+Update route tests to verify `logFood` is called with `portion_size_g`.
+
+### Step 6: Verify
+
+- [ ] New test for correct amount passes
+- [ ] All existing tests updated and pass
+- [ ] TypeScript compiles without errors
+- [ ] Lint passes
+- [ ] Manual verification: log a food item and verify calories/nutrients appear correctly in Fitbit
 
 ## Files Affected
 
-| File | Line | Change |
-|------|------|--------|
-| `src/lib/__tests__/fitbit.test.ts` | 273 | `food/log.json` → `foods/log.json` |
-| `src/lib/fitbit.ts` | 142 | `food/log.json` → `foods/log.json` |
-| `src/lib/auth.ts` | 48 | `oauth2/v2/userinfo` → `oauth2/v3/userinfo` |
-
-## Documentation Sources
-- [Fitbit Create Food Log API](https://dev.fitbit.com/build/reference/web-api/nutrition/create-food-log/)
-- [Google OAuth2 Userinfo](https://www.oauth.com/oauth2-servers/signing-in-with-google/verifying-the-user-info/)
+| File | Change |
+|------|--------|
+| `src/lib/fitbit.ts` | Add `amount` param to `logFood`, use it instead of hardcoded "1" |
+| `src/app/api/log-food/route.ts` | Pass `body.portion_size_g` to `logFood` |
+| `src/lib/__tests__/fitbit.test.ts` | Update tests for new `logFood` signature |
+| `src/app/api/log-food/__tests__/route.test.ts` | Update mock to verify correct amount |
 
 ## Notes
-- The Fitbit endpoint typo is a single character fix (`food` → `foods`)
-- Google v2 userinfo still works but v3 is the current recommended version
-- No changes needed to API response handling - only the URL paths are wrong
+- The `createFood` function is correct - it stores nutrients per the full serving size
+- Only `logFood` needs to be fixed to log the correct amount
+- The fix is backward compatible - no API changes to clients
+- The comment `// 1 serving` was misleading - it's actually 1 gram
 
 ---
 
@@ -170,24 +215,25 @@ const response = await fetch(
 **Implemented:** 2026-02-05
 
 ### Tasks Completed This Iteration
-- Step 1: Updated test expectation for `logFood` endpoint (`food/log.json` → `foods/log.json`)
-- Step 2: Fixed Fitbit `logFood` endpoint in implementation
-- Step 3: Added test for Google v3 userinfo endpoint
-- Step 3: Updated Google userinfo endpoint to v3 (`oauth2/v2/userinfo` → `oauth2/v3/userinfo`)
-- Step 4: Verified all tests pass, typecheck clean, lint clean (1 pre-existing warning)
+- Step 1-6: Full TDD fix for logFood amount parameter
+  - Added failing test verifying `amount=250` is sent to Fitbit API
+  - Added `amount: number` parameter to `logFood` function signature
+  - Updated `logFood` implementation to use `amount.toString()` instead of hardcoded `"1"`
+  - Updated `log-food/route.ts` to pass `body.portion_size_g` to `logFood`
+  - Updated all existing tests to include the new `amount` parameter
 
 ### Files Modified
-- `src/lib/__tests__/fitbit.test.ts` - Updated logFood test expectation to correct endpoint
-- `src/lib/fitbit.ts` - Fixed logFood endpoint URL
-- `src/lib/__tests__/auth.test.ts` - Added test for v3 userinfo endpoint
-- `src/lib/auth.ts` - Updated Google userinfo endpoint to v3
+- `src/lib/fitbit.ts` - Added `amount` parameter to `logFood`, use it instead of hardcoded "1"
+- `src/app/api/log-food/route.ts` - Pass `body.portion_size_g` to `logFood`
+- `src/lib/__tests__/fitbit.test.ts` - Updated tests for new `logFood` signature
+- `src/app/api/log-food/__tests__/route.test.ts` - Updated mock expectations to verify correct amount
 
 ### Linear Updates
-- FOO-58: Todo → In Progress → Review
+- FOO-59: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Passed - no bugs found
-- verifier: All 266 tests pass, zero errors, 1 pre-existing lint warning (unrelated)
+- bug-hunter: Found 1 medium (defensive validation for amount), 1 low (float precision) - both acceptable since route validation already checks `portion_size_g > 0`
+- verifier: All 266 tests pass, zero errors, build passes
 
 ### Continuation Status
 All tasks completed.
@@ -195,25 +241,24 @@ All tasks completed.
 ### Review Findings
 
 Files reviewed: 4
-- `src/lib/__tests__/fitbit.test.ts` - Test assertion for logFood endpoint
-- `src/lib/fitbit.ts` - logFood implementation
-- `src/lib/__tests__/auth.test.ts` - Test for v3 userinfo endpoint
-- `src/lib/auth.ts` - getGoogleProfile implementation
+- `src/lib/fitbit.ts` - `logFood` function with new `amount` parameter
+- `src/app/api/log-food/route.ts` - Route handler passing `portion_size_g`
+- `src/lib/__tests__/fitbit.test.ts` - Unit tests for `logFood`
+- `src/app/api/log-food/__tests__/route.test.ts` - Route integration tests
 
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
+Checks applied: Security, Logic, Async, Resources, Type Safety, Edge Cases, Error Handling, Conventions
 
-**Summary:** No issues found - all implementations are correct and follow project conventions.
+No issues found - all implementations are correct and follow project conventions.
 
 **Details:**
-- Fitbit endpoint correctly changed to `foods/log.json` (plural) per official API documentation
-- Google userinfo correctly updated to v3 endpoint
-- Tests properly verify the endpoint URLs are called
-- TDD approach followed (test expectations updated before implementation)
-- Proper structured logging maintained
-- No security issues introduced
+- Security: Parameters properly encoded via URLSearchParams, auth validated before API calls
+- Logic: Fix correctly addresses root cause (hardcoded "1" → actual portion size)
+- Edge Cases: Route validates `portion_size_g > 0` at line 25, preventing zero/negative values
+- Type Safety: `amount: number` parameter type is explicit
+- Tests: New test verifies `amount=250` sent to Fitbit API; route tests verify `portion_size_g` passed correctly
 
 ### Linear Updates
-- FOO-58: Review → Merge
+- FOO-59: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 
@@ -221,4 +266,4 @@ Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, 
 
 ## Status: COMPLETE
 
-All tasks implemented and reviewed successfully. FOO-58 moved to Merge.
+All tasks implemented and reviewed successfully. FOO-59 moved to Merge.

@@ -258,7 +258,7 @@ describe("createFood", () => {
 });
 
 describe("logFood", () => {
-  it("logs food entry with required parameters", async () => {
+  it("logs food entry with correct amount matching portion size", async () => {
     const mockResponse = {
       foodLog: { logId: 12345, loggedFood: { foodId: 789 } },
     };
@@ -267,7 +267,8 @@ describe("logFood", () => {
       new Response(JSON.stringify(mockResponse), { status: 201 }),
     );
 
-    const result = await logFood("test-token", 789, 1, "2024-01-15");
+    const portionSizeG = 250;
+    const result = await logFood("test-token", 789, 1, portionSizeG, "2024-01-15");
 
     expect(fetch).toHaveBeenCalledWith(
       "https://api.fitbit.com/1/user/-/foods/log.json",
@@ -279,6 +280,12 @@ describe("logFood", () => {
         }),
       }),
     );
+
+    // Verify the amount parameter matches the portion size
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).toContain("amount=250");
+
     expect(result.foodLog.logId).toBe(12345);
 
     vi.restoreAllMocks();
@@ -293,7 +300,7 @@ describe("logFood", () => {
       new Response(JSON.stringify(mockResponse), { status: 201 }),
     );
 
-    await logFood("test-token", 789, 1, "2024-01-15", "12:30");
+    await logFood("test-token", 789, 1, 100, "2024-01-15", "12:30");
 
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const body = fetchCall[1]?.body as string;
@@ -307,7 +314,7 @@ describe("logFood", () => {
       new Response(null, { status: 401 }),
     );
 
-    await expect(logFood("bad-token", 789, 1, "2024-01-15")).rejects.toThrow(
+    await expect(logFood("bad-token", 789, 1, 100, "2024-01-15")).rejects.toThrow(
       "FITBIT_TOKEN_INVALID",
     );
 
