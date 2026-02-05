@@ -389,3 +389,50 @@ Replace the hardcoded grams-only portion system (Small/Medium/Large presets with
 - Fetching the full Fitbit unit list from the API at runtime
 - Food deduplication/search (separate issue)
 - Adding custom/new Fitbit units beyond the hardcoded set
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Task 1: Define Fitbit unit constants and update types — Added FITBIT_UNITS constant, FitbitUnitKey type, getUnitById/getUnitLabel helpers, replaced portion_size_g with amount+unit_id in FoodAnalysis
+- Task 2: Update Claude tool schema and analysis function — Updated SYSTEM_PROMPT and REPORT_NUTRITION_TOOL to use amount+unit_id
+- Task 3: Update Fitbit client to accept dynamic units — createFood uses food.unit_id, logFood accepts unitId parameter
+- Task 4: Update log-food API route — Updated isValidFoodLogRequest and logFood call
+- Task 5: Update analyze-food API route — Updated test mocks (route is passthrough, no code changes)
+- Task 6: Update AnalysisResult component — Uses getUnitLabel for portion display
+- Task 7: Update NutritionEditor component — Replaced Small/Medium/Large presets with amount input + unit dropdown
+- Task 8: Update FoodAnalyzer component — Updated test mocks (component spreads analysis, no code changes)
+- Task 9: Integration & Verification — All 406 tests pass, build passes, zero portion_size_g references remain
+
+### Files Modified
+- `src/types/index.ts` — Added FITBIT_UNITS, FitbitUnitKey, getUnitById, getUnitLabel; replaced portion_size_g with amount+unit_id
+- `src/types/__tests__/index.test.ts` — New test file (15 tests)
+- `src/lib/claude.ts` — Updated tool schema and system prompt
+- `src/lib/__tests__/claude.test.ts` — Updated mocks and assertions
+- `src/lib/fitbit.ts` — Dynamic unit_id in createFood, unitId param in logFood
+- `src/lib/__tests__/fitbit.test.ts` — Updated mocks and assertions
+- `src/app/api/log-food/route.ts` — Updated validation and logFood call
+- `src/app/api/log-food/__tests__/route.test.ts` — Updated mocks, added unit_id validation test
+- `src/app/api/analyze-food/__tests__/route.test.ts` — Updated mocks
+- `src/components/analysis-result.tsx` — Uses getUnitLabel for portion display
+- `src/components/__tests__/analysis-result.test.tsx` — Updated mocks, added cup/plural tests
+- `src/components/nutrition-editor.tsx` — Replaced presets with amount input + unit dropdown
+- `src/components/__tests__/nutrition-editor.test.tsx` — Rewrote for new UI
+- `src/components/__tests__/food-analyzer.test.tsx` — Updated mocks
+
+### Linear Updates
+- FOO-89: Todo → In Progress → Review
+
+### Pre-commit Verification
+- verifier: 406/406 tests pass, build passes, 2 pre-existing lint warnings (img elements), 2 pre-existing typecheck errors (image.test.ts)
+- bug-hunter: No bugs found in implementation
+
+### Continuation Status
+All tasks completed.
+
+## Status: COMPLETE
+
+All tasks implemented and verified. FOO-89 moved to Review.

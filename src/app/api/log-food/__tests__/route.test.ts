@@ -55,7 +55,8 @@ const validSession: SessionData = {
 
 const validFoodLogRequest: FoodLogRequest = {
   food_name: "Test Food",
-  portion_size_g: 100,
+  amount: 100,
+  unit_id: 147,
   calories: 150,
   protein_g: 10,
   carbs_g: 20,
@@ -147,6 +148,22 @@ describe("POST /api/log-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(body.error.message).toContain("mealTypeId");
+  });
+
+  it("returns 400 VALIDATION_ERROR for missing unit_id", async () => {
+    mockGetIronSession.mockResolvedValue({
+      ...validSession,
+      save: vi.fn(),
+    } as never);
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { unit_id, ...requestWithoutUnitId } = validFoodLogRequest;
+    const request = createMockRequest(requestWithoutUnitId as Partial<FoodLogRequest>);
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("returns 400 VALIDATION_ERROR for missing required FoodAnalysis fields", async () => {
@@ -306,7 +323,8 @@ describe("POST /api/log-food", () => {
       "fresh-token",
       123,
       1,
-      100, // portion_size_g from validFoodLogRequest
+      100, // amount from validFoodLogRequest
+      147, // unit_id from validFoodLogRequest
       "2024-01-15",
       undefined
     );
@@ -331,7 +349,8 @@ describe("POST /api/log-food", () => {
       "fresh-token",
       123,
       1,
-      100, // portion_size_g from validFoodLogRequest
+      100, // amount from validFoodLogRequest
+      147, // unit_id from validFoodLogRequest
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       undefined
     );
@@ -408,7 +427,8 @@ describe("POST /api/log-food", () => {
       "fresh-token",
       123,
       1,
-      100, // portion_size_g from validFoodLogRequest
+      100, // amount from validFoodLogRequest
+      147, // unit_id from validFoodLogRequest
       "2024-01-15",
       "12:30:00"
     );

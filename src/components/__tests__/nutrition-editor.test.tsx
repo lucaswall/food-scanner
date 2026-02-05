@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { NutritionEditor } from "../nutrition-editor";
 import type { FoodAnalysis } from "@/types";
+import { FITBIT_UNITS } from "@/types";
 
 // Mock ResizeObserver for any Radix UI components
 beforeAll(() => {
@@ -19,7 +20,8 @@ afterEach(() => {
 
 const mockAnalysis: FoodAnalysis = {
   food_name: "Test Food",
-  portion_size_g: 100,
+  amount: 100,
+  unit_id: 147,
   calories: 150,
   protein_g: 10,
   carbs_g: 20,
@@ -35,9 +37,7 @@ describe("NutritionEditor", () => {
     const onChange = vi.fn();
     render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
 
-    // Check for all editable fields
     expect(screen.getByLabelText(/food name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/portion.*g/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/calories/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/protein/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/carbs/i)).toBeInTheDocument();
@@ -46,12 +46,81 @@ describe("NutritionEditor", () => {
     expect(screen.getByLabelText(/sodium/i)).toBeInTheDocument();
   });
 
+  it("renders amount input field", () => {
+    const onChange = vi.fn();
+    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+    const amountInput = screen.getByLabelText(/portion/i);
+    expect(amountInput).toBeInTheDocument();
+    expect(amountInput).toHaveValue(100);
+  });
+
+  it("renders unit dropdown with common Fitbit units", () => {
+    const onChange = vi.fn();
+    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+    const unitSelect = screen.getByLabelText(/unit/i);
+    expect(unitSelect).toBeInTheDocument();
+
+    // Verify all units are options
+    for (const key of Object.keys(FITBIT_UNITS)) {
+      const unit = FITBIT_UNITS[key as keyof typeof FITBIT_UNITS];
+      expect(unitSelect).toContainHTML(`value="${unit.id}"`);
+    }
+  });
+
+  it("unit dropdown shows current unit as selected", () => {
+    const onChange = vi.fn();
+    render(<NutritionEditor value={{ ...mockAnalysis, unit_id: 91 }} onChange={onChange} />);
+
+    const unitSelect = screen.getByLabelText(/unit/i) as HTMLSelectElement;
+    expect(unitSelect.value).toBe("91");
+  });
+
+  it("changing amount input calls onChange with new amount", () => {
+    const onChange = vi.fn();
+    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+    const amountInput = screen.getByLabelText(/portion/i);
+    fireEvent.change(amountInput, { target: { value: "200" } });
+
+    expect(onChange).toHaveBeenCalledWith({
+      ...mockAnalysis,
+      amount: 200,
+    });
+  });
+
+  it("changing unit dropdown calls onChange with new unit_id", () => {
+    const onChange = vi.fn();
+    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+    const unitSelect = screen.getByLabelText(/unit/i);
+    fireEvent.change(unitSelect, { target: { value: "91" } });
+
+    expect(onChange).toHaveBeenCalledWith({
+      ...mockAnalysis,
+      unit_id: 91,
+    });
+  });
+
+  it("amount input rejects negative values", () => {
+    const onChange = vi.fn();
+    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+    const amountInput = screen.getByLabelText(/portion/i);
+    fireEvent.change(amountInput, { target: { value: "-10" } });
+
+    expect(onChange).not.toHaveBeenCalledWith(
+      expect.objectContaining({ amount: -10 })
+    );
+  });
+
   it("displays current values in the inputs", () => {
     const onChange = vi.fn();
     render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
 
     expect(screen.getByLabelText(/food name/i)).toHaveValue("Test Food");
-    expect(screen.getByLabelText(/portion.*g/i)).toHaveValue(100);
+    expect(screen.getByLabelText(/portion/i)).toHaveValue(100);
     expect(screen.getByLabelText(/calories/i)).toHaveValue(150);
     expect(screen.getByLabelText(/protein/i)).toHaveValue(10);
     expect(screen.getByLabelText(/carbs/i)).toHaveValue(20);
@@ -86,27 +155,12 @@ describe("NutritionEditor", () => {
     });
   });
 
-  it("calls onChange with updated FoodAnalysis when protein changes", () => {
-    const onChange = vi.fn();
-    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
-
-    const proteinInput = screen.getByLabelText(/protein/i);
-    fireEvent.change(proteinInput, { target: { value: "15" } });
-
-    expect(onChange).toHaveBeenCalledWith({
-      ...mockAnalysis,
-      protein_g: 15,
-    });
-  });
-
   it("displays confidence as read-only (not editable)", () => {
     const onChange = vi.fn();
     render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
 
-    // Confidence should be displayed but not as an input
     expect(screen.getByText(/high/i)).toBeInTheDocument();
 
-    // There should be no input field for confidence (only the indicator div)
     const confidenceInputs = screen.queryAllByRole("textbox").filter(
       (el) => el.id?.includes("confidence") || el.getAttribute("name")?.includes("confidence")
     );
@@ -117,7 +171,6 @@ describe("NutritionEditor", () => {
     const onChange = vi.fn();
     render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
 
-    // Notes should be displayed
     expect(screen.getByText("Test notes for the food item")).toBeInTheDocument();
   });
 
@@ -128,26 +181,14 @@ describe("NutritionEditor", () => {
     );
 
     expect(screen.getByLabelText(/food name/i)).toBeDisabled();
-    expect(screen.getByLabelText(/portion.*g/i)).toBeDisabled();
+    expect(screen.getByLabelText(/portion/i)).toBeDisabled();
+    expect(screen.getByLabelText(/unit/i)).toBeDisabled();
     expect(screen.getByLabelText(/calories/i)).toBeDisabled();
     expect(screen.getByLabelText(/protein/i)).toBeDisabled();
     expect(screen.getByLabelText(/carbs/i)).toBeDisabled();
     expect(screen.getByLabelText(/fat/i)).toBeDisabled();
     expect(screen.getByLabelText(/fiber/i)).toBeDisabled();
     expect(screen.getByLabelText(/sodium/i)).toBeDisabled();
-  });
-
-  it("rejects negative numbers for portion_size_g", () => {
-    const onChange = vi.fn();
-    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
-
-    const portionInput = screen.getByLabelText(/portion.*g/i);
-    fireEvent.change(portionInput, { target: { value: "-10" } });
-
-    // Should not call onChange with negative value
-    expect(onChange).not.toHaveBeenCalledWith(
-      expect.objectContaining({ portion_size_g: -10 })
-    );
   });
 
   it("rejects negative numbers for calories", () => {
@@ -157,7 +198,6 @@ describe("NutritionEditor", () => {
     const caloriesInput = screen.getByLabelText(/calories/i);
     fireEvent.change(caloriesInput, { target: { value: "-50" } });
 
-    // Should not call onChange with negative value
     expect(onChange).not.toHaveBeenCalledWith(
       expect.objectContaining({ calories: -50 })
     );
@@ -227,91 +267,13 @@ describe("NutritionEditor", () => {
     });
   });
 
-  describe("portion size quick-select", () => {
-    it("renders Small, Medium, Large quick-select buttons", () => {
-      const onChange = vi.fn();
-      render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+  it("does not render Small/Medium/Large preset buttons", () => {
+    const onChange = vi.fn();
+    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
 
-      expect(screen.getByRole("button", { name: /small/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /medium/i })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: /large/i })).toBeInTheDocument();
-    });
-
-    it("clicking Small sets portion to 100g", async () => {
-      const user = userEvent.setup();
-      const onChange = vi.fn();
-      const analysis = { ...mockAnalysis, portion_size_g: 250 };
-      render(<NutritionEditor value={analysis} onChange={onChange} />);
-
-      const smallButton = screen.getByRole("button", { name: /small/i });
-      await user.click(smallButton);
-
-      expect(onChange).toHaveBeenCalledWith({
-        ...analysis,
-        portion_size_g: 100,
-      });
-    });
-
-    it("clicking Medium sets portion to 200g", async () => {
-      const user = userEvent.setup();
-      const onChange = vi.fn();
-      const analysis = { ...mockAnalysis, portion_size_g: 50 };
-      render(<NutritionEditor value={analysis} onChange={onChange} />);
-
-      const mediumButton = screen.getByRole("button", { name: /medium/i });
-      await user.click(mediumButton);
-
-      expect(onChange).toHaveBeenCalledWith({
-        ...analysis,
-        portion_size_g: 200,
-      });
-    });
-
-    it("clicking Large sets portion to 350g", async () => {
-      const user = userEvent.setup();
-      const onChange = vi.fn();
-      render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
-
-      const largeButton = screen.getByRole("button", { name: /large/i });
-      await user.click(largeButton);
-
-      expect(onChange).toHaveBeenCalledWith({
-        ...mockAnalysis,
-        portion_size_g: 350,
-      });
-    });
-
-    it("manual input still works after using quick-select", async () => {
-      const onChange = vi.fn();
-      render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
-
-      const portionInput = screen.getByLabelText(/portion.*g/i);
-      fireEvent.change(portionInput, { target: { value: "175" } });
-
-      expect(onChange).toHaveBeenCalledWith({
-        ...mockAnalysis,
-        portion_size_g: 175,
-      });
-    });
-
-    it("quick-select buttons are disabled when editor is disabled", () => {
-      const onChange = vi.fn();
-      render(<NutritionEditor value={mockAnalysis} onChange={onChange} disabled />);
-
-      expect(screen.getByRole("button", { name: /small/i })).toBeDisabled();
-      expect(screen.getByRole("button", { name: /medium/i })).toBeDisabled();
-      expect(screen.getByRole("button", { name: /large/i })).toBeDisabled();
-    });
-
-    it("highlights the button matching current portion size", () => {
-      const onChange = vi.fn();
-      const analysis100 = { ...mockAnalysis, portion_size_g: 100 };
-      render(<NutritionEditor value={analysis100} onChange={onChange} />);
-
-      const smallButton = screen.getByRole("button", { name: /small/i });
-      // When selected, button should have default (non-outline) variant styling
-      expect(smallButton).toHaveAttribute("data-selected", "true");
-    });
+    expect(screen.queryByRole("button", { name: /small/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /medium/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /large/i })).not.toBeInTheDocument();
   });
 
   describe("accessible confidence indicator", () => {

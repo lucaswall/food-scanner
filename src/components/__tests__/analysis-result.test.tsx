@@ -19,7 +19,8 @@ afterEach(() => {
 
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
-  portion_size_g: 150,
+  amount: 150,
+  unit_id: 147,
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -57,6 +58,34 @@ describe("AnalysisResult", () => {
     expect(screen.getByText("18g")).toBeInTheDocument(); // fat
     expect(screen.getByText("2g")).toBeInTheDocument(); // fiber
     expect(screen.getByText("450mg")).toBeInTheDocument(); // sodium
+  });
+
+  it("displays cup unit correctly", () => {
+    const onRetry = vi.fn();
+    render(
+      <AnalysisResult
+        analysis={{ ...mockAnalysis, amount: 1, unit_id: 91 }}
+        loading={false}
+        error={null}
+        onRetry={onRetry}
+      />
+    );
+
+    expect(screen.getByText(/1 cup/)).toBeInTheDocument();
+  });
+
+  it("displays plural unit correctly", () => {
+    const onRetry = vi.fn();
+    render(
+      <AnalysisResult
+        analysis={{ ...mockAnalysis, amount: 2, unit_id: 91 }}
+        loading={false}
+        error={null}
+        onRetry={onRetry}
+      />
+    );
+
+    expect(screen.getByText(/2 cups/)).toBeInTheDocument();
   });
 
   it("shows confidence indicator with correct color - high (green)", () => {

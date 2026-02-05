@@ -9,7 +9,8 @@ const client = new Anthropic({
 
 const SYSTEM_PROMPT = `You are a nutrition analyst specializing in Argentine and Latin American cuisine.
 Analyze food images and descriptions to provide accurate nutritional information.
-Consider typical Argentine portions and preparation methods.`;
+Consider typical Argentine portions and preparation methods.
+Choose the most natural measurement unit for each food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).`;
 
 const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
@@ -22,9 +23,13 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
         type: "string",
         description: "Clear name of the food in Spanish or English",
       },
-      portion_size_g: {
+      amount: {
         type: "number",
-        description: "Estimated weight in grams",
+        description: "Estimated quantity in the chosen unit (e.g., 150 for grams, 1 for cup, 2 for slices)",
+      },
+      unit_id: {
+        type: "number",
+        description: "Fitbit measurement unit ID. Use: 147=gram, 91=cup, 226=oz, 349=tbsp, 364=tsp, 211=ml, 311=slice, 256=piece, 304=serving. Choose the most natural unit for the food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).",
       },
       calories: { type: "number" },
       protein_g: { type: "number" },
@@ -40,7 +45,8 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
     },
     required: [
       "food_name",
-      "portion_size_g",
+      "amount",
+      "unit_id",
       "calories",
       "protein_g",
       "carbs_g",

@@ -27,7 +27,8 @@ vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
 
 const validAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
-  portion_size_g: 150,
+  amount: 150,
+  unit_id: 147,
   calories: 320,
   protein_g: 12,
   carbs_g: 28,
@@ -124,6 +125,8 @@ describe("analyzeFood", () => {
               type: "object",
               required: expect.arrayContaining([
                 "food_name",
+                "amount",
+                "unit_id",
                 "calories",
                 "protein_g",
               ]),
@@ -152,6 +155,27 @@ describe("analyzeFood", () => {
         ]),
       })
     );
+  });
+
+  it("returns amount and unit_id from Claude response", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.amount).toBe(150);
+    expect(result.unit_id).toBe(147);
   });
 
   it("uses default text when no description provided", async () => {

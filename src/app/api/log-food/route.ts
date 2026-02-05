@@ -21,8 +21,9 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   return (
     typeof req.food_name === "string" &&
     req.food_name.length > 0 &&
-    typeof req.portion_size_g === "number" &&
-    req.portion_size_g > 0 &&
+    typeof req.amount === "number" &&
+    req.amount > 0 &&
+    typeof req.unit_id === "number" &&
     typeof req.calories === "number" &&
     req.calories >= 0 &&
     typeof req.protein_g === "number" &&
@@ -157,7 +158,8 @@ export async function POST(request: Request) {
       accessToken,
       foodId,
       body.mealTypeId,
-      body.portion_size_g,
+      body.amount,
+      body.unit_id,
       date,
       body.time
     );

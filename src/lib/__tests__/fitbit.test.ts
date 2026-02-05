@@ -178,7 +178,8 @@ describe("refreshFitbitToken", () => {
 describe("createFood", () => {
   const mockFoodAnalysis = {
     food_name: "Homemade Oatmeal",
-    portion_size_g: 250,
+    amount: 250,
+    unit_id: 147,
     calories: 150,
     protein_g: 5,
     carbs_g: 27,
@@ -211,6 +212,24 @@ describe("createFood", () => {
       }),
     );
     expect(result.food.foodId).toBe(789);
+
+    vi.restoreAllMocks();
+  });
+
+  it("uses food.unit_id for defaultFoodMeasurementUnitId", async () => {
+    const cupFood = { ...mockFoodAnalysis, unit_id: 91, amount: 2 };
+    const mockResponse = { food: { foodId: 789, name: "Tea" } };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await createFood("test-token", cupFood);
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).toContain("defaultFoodMeasurementUnitId=91");
+    expect(body).toContain("defaultServingSize=2");
 
     vi.restoreAllMocks();
   });
@@ -258,7 +277,7 @@ describe("createFood", () => {
 });
 
 describe("logFood", () => {
-  it("logs food entry with correct amount matching portion size", async () => {
+  it("logs food entry with correct amount and unitId", async () => {
     const mockResponse = {
       foodLog: { logId: 12345, loggedFood: { foodId: 789 } },
     };
@@ -267,8 +286,7 @@ describe("logFood", () => {
       new Response(JSON.stringify(mockResponse), { status: 201 }),
     );
 
-    const portionSizeG = 250;
-    const result = await logFood("test-token", 789, 1, portionSizeG, "2024-01-15");
+    const result = await logFood("test-token", 789, 1, 250, 147, "2024-01-15");
 
     expect(fetch).toHaveBeenCalledWith(
       "https://api.fitbit.com/1/user/-/foods/log.json",
@@ -281,12 +299,31 @@ describe("logFood", () => {
       }),
     );
 
-    // Verify the amount parameter matches the portion size
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const body = fetchCall[1]?.body as string;
     expect(body).toContain("amount=250");
+    expect(body).toContain("unitId=147");
 
     expect(result.foodLog.logId).toBe(12345);
+
+    vi.restoreAllMocks();
+  });
+
+  it("uses provided unitId instead of hardcoded gram", async () => {
+    const mockResponse = {
+      foodLog: { logId: 12345, loggedFood: { foodId: 789 } },
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await logFood("test-token", 789, 1, 2, 91, "2024-01-15");
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).toContain("unitId=91");
+    expect(body).toContain("amount=2");
 
     vi.restoreAllMocks();
   });
@@ -300,7 +337,7 @@ describe("logFood", () => {
       new Response(JSON.stringify(mockResponse), { status: 201 }),
     );
 
-    await logFood("test-token", 789, 1, 100, "2024-01-15", "12:30");
+    await logFood("test-token", 789, 1, 100, 147, "2024-01-15", "12:30");
 
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const body = fetchCall[1]?.body as string;
@@ -314,7 +351,7 @@ describe("logFood", () => {
       new Response(null, { status: 401 }),
     );
 
-    await expect(logFood("bad-token", 789, 1, 100, "2024-01-15")).rejects.toThrow(
+    await expect(logFood("bad-token", 789, 1, 100, 147, "2024-01-15")).rejects.toThrow(
       "FITBIT_TOKEN_INVALID",
     );
 
@@ -325,7 +362,8 @@ describe("logFood", () => {
 describe("findOrCreateFood", () => {
   const mockFoodAnalysis = {
     food_name: "Homemade Oatmeal",
-    portion_size_g: 250,
+    amount: 250,
+    unit_id: 147,
     calories: 150,
     protein_g: 5,
     carbs_g: 27,

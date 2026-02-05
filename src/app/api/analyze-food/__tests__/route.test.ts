@@ -53,7 +53,8 @@ const validSession = {
 
 const validAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
-  portion_size_g: 150,
+  amount: 150,
+  unit_id: 147,
   calories: 320,
   protein_g: 12,
   carbs_g: 28,

@@ -1,6 +1,7 @@
 "use client";
 
 import type { FoodAnalysis } from "@/types";
+import { getUnitLabel } from "@/types";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -117,7 +118,7 @@ export function AnalysisResult({
       </div>
 
       {/* Portion size */}
-      <p className="text-sm text-gray-600">Portion: {analysis.portion_size_g}g</p>
+      <p className="text-sm text-gray-600">Portion: {getUnitLabel(analysis.unit_id, analysis.amount)}</p>
 
       {/* Main nutrition grid */}
       <div className="grid grid-cols-2 gap-4">

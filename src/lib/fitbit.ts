@@ -74,8 +74,8 @@ export async function createFood(
 
   const params = new URLSearchParams({
     name: food.food_name,
-    defaultFoodMeasurementUnitId: "147", // gram
-    defaultServingSize: food.portion_size_g.toString(),
+    defaultFoodMeasurementUnitId: food.unit_id.toString(),
+    defaultServingSize: food.amount.toString(),
     calories: food.calories.toString(),
     protein: food.protein_g.toString(),
     totalCarbohydrate: food.carbs_g.toString(),
@@ -119,18 +119,19 @@ export async function logFood(
   foodId: number,
   mealTypeId: number,
   amount: number,
+  unitId: number,
   date: string,
   time?: string,
 ): Promise<LogFoodResponse> {
   logger.debug(
-    { action: "fitbit_log_food", foodId, mealTypeId, amount, date },
+    { action: "fitbit_log_food", foodId, mealTypeId, amount, unitId, date },
     "logging food",
   );
 
   const params = new URLSearchParams({
     foodId: foodId.toString(),
     mealTypeId: mealTypeId.toString(),
-    unitId: "147", // gram
+    unitId: unitId.toString(),
     amount: amount.toString(),
     date,
   });

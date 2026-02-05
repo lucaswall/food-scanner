@@ -1,7 +1,7 @@
 "use client";
 
 import type { FoodAnalysis } from "@/types";
-import { Button } from "@/components/ui/button";
+import { FITBIT_UNITS, type FitbitUnitKey } from "@/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -11,12 +11,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { CheckCircle, AlertTriangle } from "lucide-react";
-
-const PORTION_PRESETS = [
-  { label: "Small", grams: 100 },
-  { label: "Medium", grams: 200 },
-  { label: "Large", grams: 350 },
-] as const;
 
 interface NutritionEditorProps {
   value: FoodAnalysis;
@@ -51,6 +45,10 @@ export function NutritionEditor({
     if (num < 0) return;
     // Allow empty/NaN to clear the field (will show as empty input)
     onChange({ ...value, [field]: isNaN(num) ? 0 : num });
+  };
+
+  const handleUnitChange = (newUnitId: string) => {
+    onChange({ ...value, unit_id: parseInt(newUnitId, 10) });
   };
 
   return (
@@ -109,37 +107,37 @@ export function NutritionEditor({
         />
       </div>
 
-      {/* Portion size */}
+      {/* Portion: amount + unit */}
       <div className="space-y-2">
-        <Label htmlFor="portion_size_g">Portion (g)</Label>
-        <div className="flex gap-2 mb-2">
-          {PORTION_PRESETS.map((preset) => {
-            const isSelected = value.portion_size_g === preset.grams;
-            return (
-              <Button
-                key={preset.label}
-                type="button"
-                variant={isSelected ? "default" : "outline"}
-                size="sm"
-                disabled={disabled}
-                data-selected={isSelected}
-                onClick={() => onChange({ ...value, portion_size_g: preset.grams })}
-                className="flex-1"
-              >
-                {preset.label}
-              </Button>
-            );
-          })}
+        <Label htmlFor="amount">Portion</Label>
+        <div className="flex gap-2">
+          <Input
+            id="amount"
+            type="number"
+            min="0"
+            step="0.1"
+            value={value.amount}
+            onChange={(e) => handleNumberChange("amount", e.target.value)}
+            disabled={disabled}
+            className="min-h-[44px] flex-1"
+          />
+          <div className="flex-1">
+            <Label htmlFor="unit_id" className="sr-only">Unit</Label>
+            <select
+              id="unit_id"
+              value={value.unit_id}
+              onChange={(e) => handleUnitChange(e.target.value)}
+              disabled={disabled}
+              className="w-full min-h-[44px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {(Object.keys(FITBIT_UNITS) as FitbitUnitKey[]).map((key) => (
+                <option key={key} value={FITBIT_UNITS[key].id}>
+                  {FITBIT_UNITS[key].name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <Input
-          id="portion_size_g"
-          type="number"
-          min="0"
-          value={value.portion_size_g}
-          onChange={(e) => handleNumberChange("portion_size_g", e.target.value)}
-          disabled={disabled}
-          className="min-h-[44px]"
-        />
       </div>
 
       {/* Nutrition grid */}
