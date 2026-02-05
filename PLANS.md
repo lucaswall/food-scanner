@@ -237,3 +237,33 @@ Update route tests to verify `logFood` is called with `portion_size_g`.
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Files reviewed: 4
+- `src/lib/fitbit.ts` - `logFood` function with new `amount` parameter
+- `src/app/api/log-food/route.ts` - Route handler passing `portion_size_g`
+- `src/lib/__tests__/fitbit.test.ts` - Unit tests for `logFood`
+- `src/app/api/log-food/__tests__/route.test.ts` - Route integration tests
+
+Checks applied: Security, Logic, Async, Resources, Type Safety, Edge Cases, Error Handling, Conventions
+
+No issues found - all implementations are correct and follow project conventions.
+
+**Details:**
+- Security: Parameters properly encoded via URLSearchParams, auth validated before API calls
+- Logic: Fix correctly addresses root cause (hardcoded "1" → actual portion size)
+- Edge Cases: Route validates `portion_size_g > 0` at line 25, preventing zero/negative values
+- Type Safety: `amount: number` parameter type is explicit
+- Tests: New test verifies `amount=250` sent to Fitbit API; route tests verify `portion_size_g` passed correctly
+
+### Linear Updates
+- FOO-59: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. FOO-59 moved to Merge.
