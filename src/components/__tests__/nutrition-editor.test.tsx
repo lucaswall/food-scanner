@@ -105,9 +105,11 @@ describe("NutritionEditor", () => {
     // Confidence should be displayed but not as an input
     expect(screen.getByText(/high/i)).toBeInTheDocument();
 
-    // There should be no input field for confidence
-    const confidenceInput = screen.queryByLabelText(/confidence/i);
-    expect(confidenceInput).toBeNull();
+    // There should be no input field for confidence (only the indicator div)
+    const confidenceInputs = screen.queryAllByRole("textbox").filter(
+      (el) => el.id?.includes("confidence") || el.getAttribute("name")?.includes("confidence")
+    );
+    expect(confidenceInputs).toHaveLength(0);
   });
 
   it("displays notes as read-only", () => {
@@ -197,5 +199,13 @@ describe("NutritionEditor", () => {
 
     const indicator = screen.getByTestId("confidence-indicator");
     expect(indicator).toHaveClass("bg-red-500");
+  });
+
+  it("confidence indicator has accessible label", () => {
+    const onChange = vi.fn();
+    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+    const indicator = screen.getByTestId("confidence-indicator");
+    expect(indicator).toHaveAttribute("aria-label", "Confidence: high");
   });
 });

@@ -8,12 +8,29 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 // Note: HEIC not included - client converts HEIC to JPEG before upload
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 
+// Type guard for File-like objects (works with both real Files and test mocks)
+function isFileLike(value: unknown): value is File {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as File).name === "string" &&
+    typeof (value as File).type === "string" &&
+    typeof (value as File).size === "number" &&
+    typeof (value as File).arrayBuffer === "function"
+  );
+}
+
 export async function POST(request: Request) {
   const session = await getSession();
 
   if (!session.sessionId) {
     logger.warn({ action: "analyze_food_unauthorized" }, "no active session");
     return errorResponse("AUTH_MISSING_SESSION", "No active session", 401);
+  }
+
+  if (!session.expiresAt || session.expiresAt < Date.now()) {
+    logger.warn({ action: "analyze_food_unauthorized" }, "session expired");
+    return errorResponse("AUTH_SESSION_EXPIRED", "Session has expired", 401);
   }
 
   if (!session.fitbit) {
@@ -32,8 +49,19 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid form data", 400);
   }
 
-  const images = formData.getAll("images") as File[];
-  const description = formData.get("description") as string | null;
+  const imagesRaw = formData.getAll("images");
+  const images = imagesRaw.filter(isFileLike);
+  if (images.length !== imagesRaw.length) {
+    logger.warn({ action: "analyze_food_validation" }, "non-file values in images");
+    return errorResponse("VALIDATION_ERROR", "Invalid image data", 400);
+  }
+
+  const descriptionRaw = formData.get("description");
+  if (descriptionRaw !== null && typeof descriptionRaw !== "string") {
+    logger.warn({ action: "analyze_food_validation" }, "description is not a string");
+    return errorResponse("VALIDATION_ERROR", "Description must be text", 400);
+  }
+  const description = descriptionRaw;
 
   // Validate image count
   if (images.length === 0) {

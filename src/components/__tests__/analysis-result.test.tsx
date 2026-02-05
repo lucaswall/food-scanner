@@ -167,4 +167,19 @@ describe("AnalysisResult", () => {
     // Container should be empty or have minimal content
     expect(container.textContent).toBe("");
   });
+
+  it("confidence indicator has accessible label", () => {
+    const onRetry = vi.fn();
+    render(
+      <AnalysisResult
+        analysis={mockAnalysis}
+        loading={false}
+        error={null}
+        onRetry={onRetry}
+      />
+    );
+
+    const confidenceElement = screen.getByTestId("confidence-indicator");
+    expect(confidenceElement).toHaveAttribute("aria-label", "Confidence: high");
+  });
 });

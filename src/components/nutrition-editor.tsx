@@ -41,6 +41,7 @@ export function NutritionEditor({
         <div className="flex items-center gap-2">
           <div
             data-testid="confidence-indicator"
+            aria-label={`Confidence: ${value.confidence}`}
             className={`w-3 h-3 rounded-full ${confidenceColors[value.confidence]}`}
           />
           <span className="text-sm text-gray-500 capitalize">
