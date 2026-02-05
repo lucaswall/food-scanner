@@ -1,4 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, Mock } from "vitest";
+import heic2any from "heic2any";
+
+// Mock heic2any module
+vi.mock("heic2any", () => ({
+  default: vi.fn(),
+}));
+
+const mockedHeic2any = heic2any as Mock;
 
 // We need to mock canvas APIs since jsdom doesn't fully support them
 const mockToBlob = vi.fn();
@@ -51,6 +59,7 @@ beforeEach(() => {
   mockGetContext.mockReturnValue(mockContext);
   mockCanvas.width = 0;
   mockCanvas.height = 0;
+  mockedHeic2any.mockReset();
 });
 
 afterEach(() => {
@@ -259,6 +268,183 @@ describe("compressImage", () => {
       0,
       500,
       500
+    );
+  });
+
+  it("converts HEIC file before canvas processing", async () => {
+    vi.stubGlobal(
+      "Image",
+      class extends MockImage {
+        constructor() {
+          super();
+          this.width = 500;
+          this.height = 500;
+        }
+      }
+    );
+
+    const mockJpegBlob = new Blob(["converted jpeg"], { type: "image/jpeg" });
+    mockedHeic2any.mockResolvedValue(mockJpegBlob);
+
+    const mockCompressedBlob = new Blob(["compressed"], { type: "image/jpeg" });
+    mockToBlob.mockImplementation((callback: (blob: Blob) => void) => {
+      callback(mockCompressedBlob);
+    });
+
+    const { compressImage } = await import("@/lib/image");
+    const heicFile = new File(["heic data"], "photo.heic", {
+      type: "image/heic",
+    });
+
+    await compressImage(heicFile);
+
+    // Should have called heic2any to convert before canvas processing
+    expect(mockedHeic2any).toHaveBeenCalledWith({
+      blob: heicFile,
+      toType: "image/jpeg",
+    });
+  });
+
+  it("does not call heic2any for JPEG files", async () => {
+    vi.stubGlobal(
+      "Image",
+      class extends MockImage {
+        constructor() {
+          super();
+          this.width = 500;
+          this.height = 500;
+        }
+      }
+    );
+
+    const mockBlob = new Blob(["test"], { type: "image/jpeg" });
+    mockToBlob.mockImplementation((callback: (blob: Blob) => void) => {
+      callback(mockBlob);
+    });
+
+    const { compressImage } = await import("@/lib/image");
+    const jpegFile = new File(["jpeg data"], "photo.jpg", {
+      type: "image/jpeg",
+    });
+
+    await compressImage(jpegFile);
+
+    // Should NOT have called heic2any
+    expect(mockedHeic2any).not.toHaveBeenCalled();
+  });
+
+  it("propagates HEIC conversion errors", async () => {
+    mockedHeic2any.mockRejectedValue(new Error("HEIC conversion failed"));
+
+    const { compressImage } = await import("@/lib/image");
+    const heicFile = new File(["heic data"], "photo.heic", {
+      type: "image/heic",
+    });
+
+    await expect(compressImage(heicFile)).rejects.toThrow(
+      "HEIC conversion failed"
+    );
+  });
+});
+
+describe("isHeicFile", () => {
+  it("returns true for image/heic MIME type", async () => {
+    const { isHeicFile } = await import("@/lib/image");
+    const file = new File(["test"], "photo.heic", { type: "image/heic" });
+    expect(isHeicFile(file)).toBe(true);
+  });
+
+  it("returns true for image/heif MIME type", async () => {
+    const { isHeicFile } = await import("@/lib/image");
+    const file = new File(["test"], "photo.heif", { type: "image/heif" });
+    expect(isHeicFile(file)).toBe(true);
+  });
+
+  it("returns true for .heic extension when MIME is empty", async () => {
+    const { isHeicFile } = await import("@/lib/image");
+    const file = new File(["test"], "photo.heic", { type: "" });
+    expect(isHeicFile(file)).toBe(true);
+  });
+
+  it("returns true for .heif extension when MIME is empty", async () => {
+    const { isHeicFile } = await import("@/lib/image");
+    const file = new File(["test"], "photo.heif", { type: "" });
+    expect(isHeicFile(file)).toBe(true);
+  });
+
+  it("returns true for .HEIC extension (case insensitive)", async () => {
+    const { isHeicFile } = await import("@/lib/image");
+    const file = new File(["test"], "PHOTO.HEIC", { type: "" });
+    expect(isHeicFile(file)).toBe(true);
+  });
+
+  it("returns false for JPEG files", async () => {
+    const { isHeicFile } = await import("@/lib/image");
+    const file = new File(["test"], "photo.jpg", { type: "image/jpeg" });
+    expect(isHeicFile(file)).toBe(false);
+  });
+
+  it("returns false for PNG files", async () => {
+    const { isHeicFile } = await import("@/lib/image");
+    const file = new File(["test"], "photo.png", { type: "image/png" });
+    expect(isHeicFile(file)).toBe(false);
+  });
+
+  it("returns false for file without extension and empty MIME", async () => {
+    const { isHeicFile } = await import("@/lib/image");
+    const file = new File(["test"], "photo", { type: "" });
+    expect(isHeicFile(file)).toBe(false);
+  });
+});
+
+describe("convertHeicToJpeg", () => {
+  it("returns Blob with image/jpeg type", async () => {
+    const mockJpegBlob = new Blob(["converted"], { type: "image/jpeg" });
+    mockedHeic2any.mockResolvedValue(mockJpegBlob);
+
+    const { convertHeicToJpeg } = await import("@/lib/image");
+    const file = new File(["heic data"], "photo.heic", { type: "image/heic" });
+
+    const result = await convertHeicToJpeg(file);
+
+    expect(result).toBe(mockJpegBlob);
+    expect(result.type).toBe("image/jpeg");
+    expect(mockedHeic2any).toHaveBeenCalledWith({
+      blob: file,
+      toType: "image/jpeg",
+    });
+  });
+
+  it("handles array result from heic2any", async () => {
+    // heic2any can return an array of blobs for multi-image HEIC files
+    const mockJpegBlob = new Blob(["converted"], { type: "image/jpeg" });
+    mockedHeic2any.mockResolvedValue([mockJpegBlob]);
+
+    const { convertHeicToJpeg } = await import("@/lib/image");
+    const file = new File(["heic data"], "photo.heic", { type: "image/heic" });
+
+    const result = await convertHeicToJpeg(file);
+
+    expect(result).toBe(mockJpegBlob);
+  });
+
+  it("throws on conversion failure", async () => {
+    mockedHeic2any.mockRejectedValue(new Error("Conversion failed"));
+
+    const { convertHeicToJpeg } = await import("@/lib/image");
+    const file = new File(["heic data"], "photo.heic", { type: "image/heic" });
+
+    await expect(convertHeicToJpeg(file)).rejects.toThrow("Conversion failed");
+  });
+
+  it("throws when heic2any returns empty array", async () => {
+    mockedHeic2any.mockResolvedValue([]);
+
+    const { convertHeicToJpeg } = await import("@/lib/image");
+    const file = new File(["heic data"], "photo.heic", { type: "image/heic" });
+
+    await expect(convertHeicToJpeg(file)).rejects.toThrow(
+      "HEIC conversion returned no images"
     );
   });
 });

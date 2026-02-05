@@ -1,175 +1,119 @@
 # Implementation Plan
 
 **Created:** 2026-02-04
-**Source:** Roadmap Iteration 3: Fitbit Logging & Review UI
-**Linear Issues:** [FOO-33](https://linear.app/lw-claude/issue/FOO-33), [FOO-34](https://linear.app/lw-claude/issue/FOO-34), [FOO-35](https://linear.app/lw-claude/issue/FOO-35), [FOO-36](https://linear.app/lw-claude/issue/FOO-36), [FOO-37](https://linear.app/lw-claude/issue/FOO-37), [FOO-38](https://linear.app/lw-claude/issue/FOO-38), [FOO-39](https://linear.app/lw-claude/issue/FOO-39), [FOO-40](https://linear.app/lw-claude/issue/FOO-40)
+**Source:** Inline request: Add support for all Claude-supported image formats (JPEG, PNG, GIF, WebP) plus HEIC with conversion
+**Linear Issues:** [FOO-41](https://linear.app/lw-claude/issue/FOO-41), [FOO-42](https://linear.app/lw-claude/issue/FOO-42), [FOO-43](https://linear.app/lw-claude/issue/FOO-43), [FOO-44](https://linear.app/lw-claude/issue/FOO-44), [FOO-45](https://linear.app/lw-claude/issue/FOO-45), [FOO-46](https://linear.app/lw-claude/issue/FOO-46)
 
 ## Context Gathered
 
 ### Codebase Analysis
 - **Related files:**
-  - `src/lib/fitbit.ts` — OAuth functions exist; missing API client for food search/create/log
-  - `src/app/api/analyze-food/route.ts` — Template for new API routes (session validation, error handling)
-  - `src/components/food-analyzer.tsx` — Parent component that needs to integrate meal type + logging
-  - `src/components/analysis-result.tsx` — Currently read-only display; needs edit mode + log button
-  - `src/types/index.ts` — `FoodAnalysis`, `FoodLogRequest`, `FoodLogResponse`, `FitbitMealType` already defined
-  - `src/lib/api-response.ts` — `successResponse()`, `errorResponse()` helpers
+  - `src/lib/image.ts` — Client-side image compression (compressImage function using canvas)
+  - `src/lib/__tests__/image.test.ts` — Tests for image compression
+  - `src/components/photo-capture.tsx` — File input component with ALLOWED_TYPES validation
+  - `src/components/__tests__/photo-capture.test.tsx` — Tests for photo capture
+  - `src/components/food-analyzer.tsx` — Parent component that calls compressImage
+  - `src/app/api/analyze-food/route.ts` — Server-side validation (no changes needed - receives JPEG from client)
 - **Existing patterns:**
-  - API routes: validate session → validate fitbit → validate input → process → return standardized response
-  - Tests: mock iron-session, mock next/headers, mock external APIs, test error codes
-  - Components: `'use client'`, shadcn/ui Button, controlled inputs
+  - Client-side image processing in `src/lib/image.ts` using canvas API
+  - File validation in PhotoCapture component with ALLOWED_TYPES array
+  - Tests mock canvas APIs and Image class
 - **Test conventions:**
-  - Colocated in `__tests__/` subdirectories
-  - Mock external dependencies with `vi.mock()`
-  - Use `createMockFile()` helpers for File objects
-  - Test validation errors, success paths, error handling
+  - Mock browser APIs (URL.createObjectURL, canvas, Image)
+  - Use createMockFile helper for File objects
+  - Test both success and error paths
 
 ### MCP Context
 - **MCPs used:** Linear (for issue creation)
 - **Findings:** Team "Food Scanner" (ID: `3e498d7a-30d2-4c11-89b3-ed7bd8cb2031`)
 
+### Research Findings
+- **Claude API supported formats:** JPEG, PNG, GIF, WebP only — HEIC NOT supported
+- **heic2any library:** ~2.7MB, converts HEIC to JPEG/PNG client-side using libheif WebAssembly
+- **Browser HEIC support:** Safari 17.6+ native, Chrome/Firefox/Edge need conversion
+- **Android relevance:** Android Photos app saves in HEIC by default on many devices; conversion is necessary
+
 ## Original Plan
 
-### Task 1: Add Fitbit food API client functions
-**Linear Issue:** [FOO-33](https://linear.app/lw-claude/issue/FOO-33)
+### Task 1: Add heic2any dependency
+**Linear Issue:** [FOO-41](https://linear.app/lw-claude/issue/FOO-41)
 
-1. Write tests in `src/lib/__tests__/fitbit.test.ts` for new functions:
-   - `searchFoods(accessToken, query)` — searches user's custom foods
-   - `createFood(accessToken, food: FoodAnalysis)` — creates custom food with nutrition data
-   - `logFood(accessToken, foodId, mealTypeId, date, time?)` — logs food entry
-   - `findOrCreateFood(accessToken, food)` — deduplication logic (search → match → reuse or create)
-   - Test rate limiting retry logic (429 → exponential backoff)
-   - Test token refresh trigger (401 → throw FITBIT_TOKEN_INVALID)
+1. No tests needed (dependency installation)
+2. Install heic2any: `npm install heic2any`
+3. Install @types/heic2any: `npm install --save-dev @types/heic2any`
+4. Verify installation in package.json
+5. Run verifier (expect pass)
+
+### Task 2: Create HEIC detection and conversion utility
+**Linear Issue:** [FOO-42](https://linear.app/lw-claude/issue/FOO-42)
+
+1. Write tests in `src/lib/__tests__/image.test.ts` for HEIC handling:
+   - Test `isHeicFile(file)` returns true for image/heic MIME type
+   - Test `isHeicFile(file)` returns true for image/heif MIME type
+   - Test `isHeicFile(file)` returns true for .heic file extension (fallback when MIME is empty)
+   - Test `isHeicFile(file)` returns true for .heif file extension
+   - Test `isHeicFile(file)` returns false for JPEG/PNG files
+   - Test `convertHeicToJpeg(file)` returns Blob with image/jpeg type
+   - Test `convertHeicToJpeg(file)` throws on conversion failure
 2. Run verifier (expect fail)
-3. Implement functions in `src/lib/fitbit.ts`:
-   - `searchFoods`: GET `/1/user/-/foods.json?query={name}`
-   - `createFood`: POST `/1/user/-/foods.json` (x-www-form-urlencoded)
-   - `logFood`: POST `/1/user/-/foods/log.json` (x-www-form-urlencoded)
-   - `findOrCreateFood`: Search → match by name+calories (10% tolerance) → reuse or create
-   - Add retry with exponential backoff for 429 errors (max 3 retries)
-   - Add 10-second timeout per request
+3. Implement in `src/lib/image.ts`:
+   - Add `isHeicFile(file: File): boolean` — check MIME type and extension
+   - Add `convertHeicToJpeg(file: File): Promise<Blob>` — use heic2any library
+   - Export both functions
 4. Run verifier (expect pass)
 
-### Task 2: Create POST /api/log-food route
-**Linear Issue:** [FOO-34](https://linear.app/lw-claude/issue/FOO-34)
+### Task 3: Update compressImage to handle HEIC input
+**Linear Issue:** [FOO-43](https://linear.app/lw-claude/issue/FOO-43)
 
-1. Write tests in `src/app/api/log-food/__tests__/route.test.ts`:
-   - Test 401 for missing session
-   - Test 400 FITBIT_NOT_CONNECTED if no Fitbit tokens
-   - Test 400 VALIDATION_ERROR for invalid mealTypeId (not 1,2,3,4,5,7)
-   - Test 400 VALIDATION_ERROR for missing required FoodAnalysis fields
-   - Test 200 with FoodLogResponse on success
-   - Test 500 FITBIT_API_ERROR on Fitbit failure
-   - Test 401 FITBIT_TOKEN_INVALID triggers reconnect prompt
-   - Test session.fitbit tokens updated after refresh
-   - Test reusedFood=true when existing food matched
-   - Test reusedFood=false when new food created
+1. Write tests in `src/lib/__tests__/image.test.ts`:
+   - Test `compressImage` with HEIC file converts before canvas processing
+   - Test `compressImage` still works with JPEG/PNG (no conversion)
+   - Test `compressImage` propagates conversion errors
 2. Run verifier (expect fail)
-3. Implement `src/app/api/log-food/route.ts`:
-   - Validate session and Fitbit connection
-   - Parse JSON body as FoodLogRequest
-   - Validate mealTypeId is valid FitbitMealType
-   - Call `ensureFreshToken()` and save session if refreshed
-   - Call `findOrCreateFood()` for deduplication
-   - Call `logFood()` with foodId
-   - Return `FoodLogResponse` with fitbitFoodId, fitbitLogId, reusedFood
-   - Handle errors with appropriate error codes
+3. Update `compressImage` in `src/lib/image.ts`:
+   - At start, check if file is HEIC using `isHeicFile`
+   - If HEIC, convert to JPEG using `convertHeicToJpeg` first
+   - Create new File from converted blob for canvas processing
+   - Existing canvas resize/compress logic unchanged
 4. Run verifier (expect pass)
 
-### Task 3: Add shadcn/ui Select component
-**Linear Issue:** [FOO-35](https://linear.app/lw-claude/issue/FOO-35)
+### Task 4: Update PhotoCapture to accept all supported formats
+**Linear Issue:** [FOO-44](https://linear.app/lw-claude/issue/FOO-44)
 
-1. No tests needed (shadcn/ui component installation)
-2. Install select component: `npx shadcn@latest add select`
-3. Verify component exists at `src/components/ui/select.tsx`
-4. Run verifier (expect pass)
-
-### Task 4: Add shadcn/ui Input and Label components
-**Linear Issue:** [FOO-36](https://linear.app/lw-claude/issue/FOO-36)
-
-1. No tests needed (shadcn/ui component installation)
-2. Install components: `npx shadcn@latest add input label`
-3. Verify components exist at `src/components/ui/input.tsx` and `src/components/ui/label.tsx`
-4. Run verifier (expect pass)
-
-### Task 5: Create MealTypeSelector component
-**Linear Issue:** [FOO-37](https://linear.app/lw-claude/issue/FOO-37)
-
-1. Write tests in `src/components/__tests__/meal-type-selector.test.tsx`:
-   - Test renders all meal type options (Breakfast, Morning Snack, Lunch, etc.)
-   - Test default value selects option
-   - Test onChange called with mealTypeId when selection changes
-   - Test disabled state
-   - Test each meal type maps to correct ID (1,2,3,4,5,7)
+1. Write tests in `src/components/__tests__/photo-capture.test.tsx`:
+   - Test GIF files (image/gif) are accepted without validation error
+   - Test WebP files (image/webp) are accepted without validation error
+   - Test HEIC files (image/heic) are accepted without validation error
+   - Test HEIF files (image/heif) are accepted without validation error
+   - Test files with .heic extension but empty MIME type are accepted
+   - Test updated error message lists all supported formats
 2. Run verifier (expect fail)
-3. Implement `src/components/meal-type-selector.tsx`:
-   - Use shadcn/ui Select component
-   - Map FitbitMealType enum to dropdown options
-   - Props: `value: number`, `onChange: (id: number) => void`, `disabled?: boolean`
-   - Display user-friendly labels: "Breakfast", "Morning Snack", "Lunch", "Afternoon Snack", "Dinner", "Anytime"
+3. Update `src/components/photo-capture.tsx`:
+   - Update ALLOWED_TYPES: `["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]`
+   - Update accept attribute: `image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif`
+   - Update validateFile to also check file extension for .heic/.heif
+   - Update error message: "Only JPEG, PNG, GIF, WebP, and HEIC images are allowed"
 4. Run verifier (expect pass)
 
-### Task 6: Create NutritionEditor component for editable fields
-**Linear Issue:** [FOO-38](https://linear.app/lw-claude/issue/FOO-38)
+### Task 5: Update API route to accept all Claude-supported formats
+**Linear Issue:** [FOO-46](https://linear.app/lw-claude/issue/FOO-46)
 
-1. Write tests in `src/components/__tests__/nutrition-editor.test.tsx`:
-   - Test renders all FoodAnalysis fields as editable inputs
-   - Test onChange called with updated FoodAnalysis when any field changes
-   - Test number inputs accept only valid numbers
-   - Test confidence is read-only (not editable)
-   - Test disabled state disables all inputs
-   - Test validation: negative numbers rejected, portion_size_g required
+1. Write tests in `src/app/api/analyze-food/__tests__/route.test.ts`:
+   - Test GIF files (image/gif) are accepted
+   - Test WebP files (image/webp) are accepted
+   - Test validation error message updated
 2. Run verifier (expect fail)
-3. Implement `src/components/nutrition-editor.tsx`:
-   - Props: `value: FoodAnalysis`, `onChange: (analysis: FoodAnalysis) => void`, `disabled?: boolean`
-   - Editable fields: food_name (text), portion_size_g, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg (all numbers)
-   - Read-only display: confidence indicator, notes
-   - Use shadcn/ui Input and Label components
-   - Grid layout matching AnalysisResult style
-   - Inline validation for number fields
+3. Update `src/app/api/analyze-food/route.ts`:
+   - Update ALLOWED_TYPES: `["image/jpeg", "image/png", "image/gif", "image/webp"]`
+   - Note: HEIC not included here — client converts HEIC to JPEG before upload
 4. Run verifier (expect pass)
 
-### Task 7: Create FoodLogConfirmation component
-**Linear Issue:** [FOO-39](https://linear.app/lw-claude/issue/FOO-39)
+### Task 6: Update CLAUDE.md and ROADMAP.md documentation
+**Linear Issue:** [FOO-45](https://linear.app/lw-claude/issue/FOO-45)
 
-1. Write tests in `src/components/__tests__/food-log-confirmation.test.tsx`:
-   - Test displays success message with food name
-   - Test shows "Reused existing food" when reusedFood=true
-   - Test shows "Created new food" when reusedFood=false
-   - Test displays fitbitLogId
-   - Test "Log Another" button calls onReset
-   - Test hidden when response is null
-2. Run verifier (expect fail)
-3. Implement `src/components/food-log-confirmation.tsx`:
-   - Props: `response: FoodLogResponse | null`, `foodName: string`, `onReset: () => void`
-   - Success state with checkmark icon
-   - Display reuse status message
-   - "Log Another" button to start fresh
-4. Run verifier (expect pass)
-
-### Task 8: Refactor FoodAnalyzer to support full logging flow
-**Linear Issue:** [FOO-40](https://linear.app/lw-claude/issue/FOO-40)
-
-1. Update tests in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test shows MealTypeSelector after analysis
-   - Test shows editable NutritionEditor after analysis
-   - Test "Edit Manually" toggle switches between read-only and edit mode
-   - Test "Regenerate Analysis" button re-calls analyze API
-   - Test "Log to Fitbit" button calls /api/log-food with current values
-   - Test "Log to Fitbit" disabled while logging in progress
-   - Test FoodLogConfirmation shown after successful log
-   - Test error state shows Fitbit reconnect prompt for FITBIT_TOKEN_INVALID
-   - Test reset after successful log clears all state
-2. Run verifier (expect fail)
-3. Update `src/components/food-analyzer.tsx`:
-   - Add state: `mealTypeId`, `editedAnalysis`, `editMode`, `logging`, `logResponse`
-   - After analysis: show MealTypeSelector (default based on current time)
-   - Add "Edit Manually" toggle to switch between AnalysisResult and NutritionEditor
-   - Add "Regenerate Analysis" button (re-runs analyze with same photos/description)
-   - Add "Log to Fitbit" button that POSTs to /api/log-food
-   - Show FoodLogConfirmation on success
-   - Handle FITBIT_TOKEN_INVALID with reconnect prompt
-   - Reset all state after successful log or on "Log Another"
+1. No tests needed (documentation)
+2. Update CLAUDE.md Security section: "JPEG, PNG, GIF, WebP, HEIC" (HEIC converted client-side)
+3. Update ROADMAP.md image validation section with all supported formats
 4. Run verifier (expect pass)
 
 ## Post-Implementation Checklist
@@ -180,104 +124,102 @@
 
 ## Plan Summary
 
-**Objective:** Complete Iteration 3 - Fitbit food logging and review/edit UI
+**Objective:** Support all Claude-compatible image formats (JPEG, PNG, GIF, WebP) plus HEIC with client-side conversion
 
-**Request:** Implement Roadmap Iteration 3 which covers Fitbit API client for food logging (search, create, log with deduplication), the POST /api/log-food route, and the Review & Edit UI (meal type selector, editable nutrition fields, log to Fitbit button, success confirmation).
+**Request:** User uses Android and wants HEIC support. Expanding to all Claude-supported formats for completeness.
 
-**Linear Issues:** FOO-33, FOO-34, FOO-35, FOO-36, FOO-37, FOO-38, FOO-39, FOO-40
+**Linear Issues:** FOO-41, FOO-42, FOO-43, FOO-44, FOO-45, FOO-46
 
-**Approach:** Build bottom-up starting with Fitbit API client functions, then the log-food route, then UI components (MealTypeSelector, NutritionEditor, FoodLogConfirmation), and finally integrate everything into FoodAnalyzer. Each task follows TDD with tests first. Install shadcn/ui Select, Input, Label components as dependencies.
+**Approach:**
+1. Add GIF and WebP to both client and server validation (Claude API supports these natively)
+2. Install heic2any library for client-side HEIC-to-JPEG conversion
+3. Create detection and conversion utilities in the image library
+4. Update compressImage to automatically convert HEIC before canvas processing
+5. Update PhotoCapture and API route to accept all formats
 
 **Scope:**
-- Tasks: 8
-- Files affected: ~15 (6 new, 9 modified)
+- Tasks: 6
+- Files affected: 6 (3 source files, 3 test files, 2 docs)
 - New tests: yes
 
 **Key Decisions:**
-- Food deduplication: Match by name (case-insensitive) + calories within 10% tolerance
-- Edit mode: Toggle between read-only AnalysisResult and editable NutritionEditor
-- Default meal type: Infer from current time (morning=Breakfast, noon=Lunch, evening=Dinner)
-- Fitbit API retry: Exponential backoff for 429, max 3 retries, 10s timeout
+- GIF and WebP pass through to Claude API directly (natively supported)
+- HEIC converted to JPEG client-side before upload (Claude doesn't support HEIC)
+- Detection checks both MIME type and file extension (Android sometimes reports empty MIME for HEIC)
+- Conversion happens in compressImage transparently — caller doesn't need to know about HEIC
 
 **Risks/Considerations:**
-- Fitbit API rate limits may require careful retry logic
-- Token refresh during log flow needs session save after refresh
-- Edit mode UX needs clear visual distinction from read-only mode
-- Mobile touch targets must be 44px minimum per project requirements
+- heic2any adds ~2.7MB to client bundle — acceptable tradeoff for universal support
+- HEIC conversion takes 1-3 seconds per image — user sees normal "Analyzing..." state
+- If heic2any fails to load or convert, error propagates to user as "Failed to load image"
+- Testing HEIC conversion requires mocking heic2any library
 
 ---
 
 ## Iteration 1
 
-**Implemented:** 2026-02-05
+**Implemented:** 2026-02-04
 
 ### Tasks Completed This Iteration
-- Task 1: Add Fitbit food API client functions - Added searchFoods, createFood, logFood, findOrCreateFood with retry logic and timeout
-- Task 2: Create POST /api/log-food route - Full validation, token refresh, food deduplication, error handling
-- Task 3: Add shadcn/ui Select component - Installed via npx shadcn@latest add select
-- Task 4: Add shadcn/ui Input and Label components - Installed via npx shadcn@latest add input label
-- Task 5: Create MealTypeSelector component - Dropdown with all 6 meal types using shadcn/ui Select
-- Task 6: Create NutritionEditor component - Editable form for all nutrition fields with validation
-- Task 7: Create FoodLogConfirmation component - Success display with reuse status and Log Another button
-- Task 8: Refactor FoodAnalyzer for full logging flow - Integrated all components with edit mode, meal selection, and Fitbit logging
+- Task 1: Add heic2any dependency - Installed heic2any (includes built-in TypeScript types)
+- Task 2: Create HEIC detection and conversion utility - Added isHeicFile() and convertHeicToJpeg() functions with tests
+- Task 3: Update compressImage to handle HEIC input - Auto-converts HEIC before canvas processing
+- Task 4: Update PhotoCapture to accept all supported formats - Added GIF, WebP, HEIC, HEIF with extension fallback
+- Task 5: Update API route to accept all Claude-supported formats - Added GIF and WebP to analyze-food endpoint
+- Task 6: Update CLAUDE.md and ROADMAP.md documentation - Updated image format documentation
 
 ### Files Modified
-- `src/lib/fitbit.ts` - Added searchFoods, createFood, logFood, findOrCreateFood, fetchWithRetry
-- `src/lib/__tests__/fitbit.test.ts` - Added tests for all new Fitbit API functions
-- `src/app/api/log-food/route.ts` - Created new route with validation and error handling
-- `src/app/api/log-food/__tests__/route.test.ts` - Created comprehensive tests
-- `src/components/ui/select.tsx` - Added via shadcn/ui
-- `src/components/ui/input.tsx` - Added via shadcn/ui
-- `src/components/ui/label.tsx` - Added via shadcn/ui
-- `src/components/meal-type-selector.tsx` - Created new component
-- `src/components/__tests__/meal-type-selector.test.tsx` - Created tests
-- `src/components/nutrition-editor.tsx` - Created new component
-- `src/components/__tests__/nutrition-editor.test.tsx` - Created tests
-- `src/components/food-log-confirmation.tsx` - Created new component
-- `src/components/__tests__/food-log-confirmation.test.tsx` - Created tests
-- `src/components/food-analyzer.tsx` - Refactored with full logging flow
-- `src/components/__tests__/food-analyzer.test.tsx` - Updated with new tests
-- `package.json` - Added @testing-library/user-event dependency
+- `package.json` - Added heic2any dependency
+- `package-lock.json` - Updated lockfile
+- `src/lib/image.ts` - Added isHeicFile(), convertHeicToJpeg(), updated compressImage()
+- `src/lib/__tests__/image.test.ts` - Added 12 new tests for HEIC handling
+- `src/test-setup.ts` - Added Worker mock for heic2any compatibility
+- `src/components/photo-capture.tsx` - Updated ALLOWED_TYPES and accept attributes
+- `src/components/__tests__/photo-capture.test.tsx` - Added 6 new format tests
+- `src/app/api/analyze-food/route.ts` - Updated ALLOWED_TYPES for GIF/WebP
+- `src/app/api/analyze-food/__tests__/route.test.ts` - Added 3 new format tests
+- `CLAUDE.md` - Updated Security section for image formats
+- `ROADMAP.md` - Updated image validation documentation
 
 ### Linear Updates
-- FOO-33: Todo → In Progress → Review
-- FOO-34: Todo → In Progress → Review
-- FOO-35: Todo → In Progress → Review
-- FOO-36: Todo → In Progress → Review
-- FOO-37: Todo → In Progress → Review
-- FOO-38: Todo → In Progress → Review
-- FOO-39: Todo → In Progress → Review
-- FOO-40: Todo → In Progress → Review
+- FOO-41: Todo → In Progress → Review
+- FOO-42: Todo → In Progress → Review
+- FOO-43: Todo → In Progress → Review
+- FOO-44: Todo → In Progress → Review
+- FOO-45: Todo → In Progress → Review
+- FOO-46: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 1 high bug (division by zero in calorie matching), 3 medium bugs - all fixed before proceeding
-- verifier: All 234 tests pass, zero errors, 1 lint warning (pre-existing img tag)
+- bug-hunter: Found 3 medium bugs (empty array handling, extension parsing edge cases), fixed before proceeding
+- verifier: All 255 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.
 
 ### Review Findings
 
-Files reviewed: 16
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Timeouts, Conventions
+Files reviewed: 11
+Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
 
-**Summary:** No critical or high issues found. All implementations are correct and follow project conventions.
+No issues found - all implementations are correct and follow project conventions.
 
-**Verification Results:**
-- All 234 tests pass
-- TypeScript typecheck passes with no errors
-- ESLint passes with 1 pre-existing warning (img tag in photo-capture.tsx)
-
-**Documented (no fix needed):**
-- [MEDIUM] TEST HYGIENE: Unhandled promise rejection in `src/lib/__tests__/fitbit.test.ts` test "throws after max retries on 429" - test passes but cleanup could be improved
-- [LOW] React `act()` warnings in settings page tests (pre-existing, not related to this iteration)
+**Verification details:**
+- `isHeicFile()`: Correctly handles MIME types (image/heic, image/heif), extension fallback (Android compatibility), case-insensitive matching, files without extensions
+- `convertHeicToJpeg()`: Handles single blob, array return (multi-image HEIC), empty array edge case, error propagation
+- `compressImage()`: Transparent HEIC detection and conversion, passthrough for non-HEIC, error propagation
+- `PhotoCapture`: All formats accepted, extension fallback, correct accept attributes, comprehensive error messages
+- `analyze-food route`: Claude-supported formats only (JPEG/PNG/GIF/WebP), HEIC exclusion documented
+- Test coverage: 21 new tests across 3 test files
+- Documentation: CLAUDE.md and ROADMAP.md both updated consistently
+- Memory management: URL.revokeObjectURL called properly, no resource leaks
 
 ### Linear Updates
-- FOO-33: Review → Merge
-- FOO-34: Review → Merge
-- FOO-35: Review → Merge
-- FOO-36: Review → Merge
-- FOO-37: Review → Merge
-- FOO-38: Review → Merge
-- FOO-39: Review → Merge
-- FOO-40: Review → Merge
+- FOO-41: Review → Merge
+- FOO-42: Review → Merge
+- FOO-43: Review → Merge
+- FOO-44: Review → Merge
+- FOO-45: Review → Merge
+- FOO-46: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 

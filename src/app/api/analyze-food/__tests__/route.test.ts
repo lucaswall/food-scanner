@@ -164,18 +164,46 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.message).toContain("3");
   });
 
-  it("returns 400 VALIDATION_ERROR for invalid image type", async () => {
+  it("accepts GIF images (image/gif)", async () => {
     mockGetIronSession.mockResolvedValue(validSession as never);
+    mockAnalyzeFood.mockResolvedValue(validAnalysis);
 
     const request = createMockRequest([
       createMockFile("test.gif", "image/gif", 1000),
     ]);
 
     const response = await POST(request);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+  });
+
+  it("accepts WebP images (image/webp)", async () => {
+    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+
+    const request = createMockRequest([
+      createMockFile("test.webp", "image/webp", 1000),
+    ]);
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+  });
+
+  it("returns 400 VALIDATION_ERROR for unsupported image type", async () => {
+    mockGetIronSession.mockResolvedValue(validSession as never);
+
+    const request = createMockRequest([
+      createMockFile("test.bmp", "image/bmp", 1000),
+    ]);
+
+    const response = await POST(request);
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
-    expect(body.error.message).toContain("JPEG");
+    expect(body.error.message).toMatch(/JPEG.*PNG.*GIF.*WebP/i);
   });
 
   it("returns 400 VALIDATION_ERROR for image over 10MB", async () => {

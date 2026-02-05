@@ -151,7 +151,8 @@ food-scanner/
 - **iron-session:** Encrypted httpOnly cookies (AES-256-CBC + HMAC-SHA-256)
 - **Cookie flags:** httpOnly, secure, sameSite: lax, 30-day expiry
 - **No public API surface** for unauthenticated users (except landing page and health check)
-- **Image validation:** Max 10MB per image, max 3 images, JPEG/PNG only
+- **Image validation:** Max 10MB per image, max 3 images, JPEG/PNG/GIF/WebP/HEIC supported
+- **HEIC conversion:** HEIC/HEIF images are converted to JPEG client-side via heic2any library before upload
 - **Client-side compression:** Resize to ~1024px, 80% JPEG quality before upload
 - **Never log:** Cookie values, access tokens, images, user descriptions
 
