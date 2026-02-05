@@ -161,3 +161,30 @@ setPreviews(newPreviews);
 **Risks/Considerations:**
 - Edge case: user selecting more files while still processing (should queue or replace)
 - Ensure processingCount is always cleared on both success and error paths
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Task 1: Add loading state for photo processing - Implemented `processingCount` state, added placeholder grid with spinners during HEIC conversion
+
+### Files Modified
+- `src/components/photo-capture.tsx` - Added `processingCount` state, processing placeholders with spinners, race condition protection
+- `src/components/__tests__/photo-capture.test.tsx` - Added 9 new tests for processing state
+
+### Linear Updates
+- FOO-88: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (2 HIGH, 2 MEDIUM), all fixed before proceeding
+  - Fixed: processingCount was counting all photos instead of just new ones
+  - Fixed: Race condition when selecting files during processing (now ignores new selections)
+  - Fixed: Spinner missing aria-hidden attribute
+  - Fixed: Test description inaccuracy
+- verifier: All 387 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.
