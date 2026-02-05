@@ -162,3 +162,32 @@ const response = await fetch(
 - The Fitbit endpoint typo is a single character fix (`food` → `foods`)
 - Google v2 userinfo still works but v3 is the current recommended version
 - No changes needed to API response handling - only the URL paths are wrong
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Step 1: Updated test expectation for `logFood` endpoint (`food/log.json` → `foods/log.json`)
+- Step 2: Fixed Fitbit `logFood` endpoint in implementation
+- Step 3: Added test for Google v3 userinfo endpoint
+- Step 3: Updated Google userinfo endpoint to v3 (`oauth2/v2/userinfo` → `oauth2/v3/userinfo`)
+- Step 4: Verified all tests pass, typecheck clean, lint clean (1 pre-existing warning)
+
+### Files Modified
+- `src/lib/__tests__/fitbit.test.ts` - Updated logFood test expectation to correct endpoint
+- `src/lib/fitbit.ts` - Fixed logFood endpoint URL
+- `src/lib/__tests__/auth.test.ts` - Added test for v3 userinfo endpoint
+- `src/lib/auth.ts` - Updated Google userinfo endpoint to v3
+
+### Linear Updates
+- FOO-58: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed - no bugs found
+- verifier: All 266 tests pass, zero errors, 1 pre-existing lint warning (unrelated)
+
+### Continuation Status
+All tasks completed.

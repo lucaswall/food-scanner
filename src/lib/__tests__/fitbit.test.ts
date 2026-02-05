@@ -270,7 +270,7 @@ describe("logFood", () => {
     const result = await logFood("test-token", 789, 1, "2024-01-15");
 
     expect(fetch).toHaveBeenCalledWith(
-      "https://api.fitbit.com/1/user/-/food/log.json",
+      "https://api.fitbit.com/1/user/-/foods/log.json",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
