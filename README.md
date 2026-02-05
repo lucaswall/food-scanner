@@ -122,6 +122,22 @@ Or use the Railway MCP from Claude Code to query logs and deployment status.
 
 ---
 
+## External Services Setup
+
+### Anthropic API
+
+Claude Sonnet powers the AI food analysis feature.
+
+1. Go to [console.anthropic.com](https://console.anthropic.com)
+2. Create an account or sign in
+3. Navigate to **API Keys** in the sidebar
+4. Click **Create Key** and copy the API key
+5. Add to Railway: `ANTHROPIC_API_KEY=sk-ant-api03-...`
+
+**Note:** The API key is included in Step 4 (Set Environment Variables) above.
+
+---
+
 ## OAuth Setup
 
 ### Google OAuth
