@@ -2,7 +2,7 @@
 name: code-audit
 description: Audits codebase for bugs, security issues, memory leaks, and CLAUDE.md violations. Creates Linear issues in Backlog state for findings. Use when user says "audit", "find bugs", "check security", or "review codebase". Analysis only.
 argument-hint: [optional: specific area like "lib" or "api"]
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Glob, Grep, Task, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -10,14 +10,15 @@ Perform a comprehensive code audit and create Linear issues in Backlog for findi
 
 ## Pre-flight
 
-1. **Read CLAUDE.md** - Load project-specific rules to audit against (if exists)
-2. **Query Linear Backlog** - Get existing issues using `mcp__linear__list_issues` with:
+1. **Verify Linear MCP** — Call `mcp__linear__list_teams`. If unavailable, STOP and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
+2. **Read CLAUDE.md** - Load project-specific rules to audit against (if exists)
+3. **Query Linear Backlog** - Get existing issues using `mcp__linear__list_issues` with:
    - `team`: "Food Scanner"
    - `state`: "Backlog"
    - For each issue, record: ID, title, labels, priority, description
    - **Audit issues** (labels: Bug, Security, Performance, Convention, Technical Debt) → mark as `pending_validation`
    - **Non-audit issues** (labels: Feature, Improvement) → mark as `preserve` (skip validation)
-3. **Read project config** - `tsconfig.json`, `package.json`, `.gitignore` for structure discovery
+4. **Read project config** - `tsconfig.json`, `package.json`, `.gitignore` for structure discovery
 
 ## Audit Process
 
@@ -185,6 +186,7 @@ labels: [Mapped label(s)]
 
 | Situation | Action |
 |-----------|--------|
+| Linear MCP not connected | STOP — tell user to run `/mcp` |
 | No tsconfig.json or package.json | Use conventions: `src/`, `lib/`, `app/` |
 | npm audit fails | Note skip, continue with code audit |
 | CLAUDE.md doesn't exist | Skip project-specific checks |
