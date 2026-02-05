@@ -1,5 +1,234 @@
-import type { SessionData } from "@/types";
+import type { SessionData, FoodAnalysis } from "@/types";
 import { logger } from "@/lib/logger";
+
+const FITBIT_API_BASE = "https://api.fitbit.com";
+const MAX_RETRIES = 3;
+const REQUEST_TIMEOUT_MS = 10000;
+
+interface FitbitFood {
+  foodId: number;
+  name: string;
+  calories: number;
+}
+
+interface SearchFoodsResponse {
+  foods: FitbitFood[];
+}
+
+interface CreateFoodResponse {
+  food: {
+    foodId: number;
+    name: string;
+  };
+}
+
+interface LogFoodResponse {
+  foodLog: {
+    logId: number;
+    loggedFood: {
+      foodId: number;
+    };
+  };
+}
+
+interface FindOrCreateResult {
+  foodId: number;
+  reused: boolean;
+}
+
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retryCount = 0,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    if (response.status === 401) {
+      throw new Error("FITBIT_TOKEN_INVALID");
+    }
+
+    if (response.status === 429) {
+      if (retryCount >= MAX_RETRIES) {
+        throw new Error("FITBIT_RATE_LIMIT");
+      }
+      const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+      logger.warn(
+        { action: "fitbit_rate_limit", retryCount, delay },
+        "rate limited, retrying",
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return fetchWithRetry(url, options, retryCount + 1);
+    }
+
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function searchFoods(
+  accessToken: string,
+  query: string,
+): Promise<SearchFoodsResponse> {
+  logger.debug({ action: "fitbit_search_foods", query }, "searching foods");
+
+  const url = `${FITBIT_API_BASE}/1/user/-/foods.json?query=${encodeURIComponent(query)}`;
+  const response = await fetchWithRetry(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    logger.error(
+      { action: "fitbit_search_foods_failed", status: response.status },
+      "food search failed",
+    );
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  return response.json();
+}
+
+export async function createFood(
+  accessToken: string,
+  food: FoodAnalysis,
+): Promise<CreateFoodResponse> {
+  logger.debug(
+    { action: "fitbit_create_food", foodName: food.food_name },
+    "creating food",
+  );
+
+  const params = new URLSearchParams({
+    name: food.food_name,
+    defaultFoodMeasurementUnitId: "147", // gram
+    defaultServingSize: food.portion_size_g.toString(),
+    calories: food.calories.toString(),
+    protein: food.protein_g.toString(),
+    totalCarbohydrate: food.carbs_g.toString(),
+    totalFat: food.fat_g.toString(),
+    fiber: food.fiber_g.toString(),
+    sodium: food.sodium_mg.toString(),
+  });
+
+  const response = await fetchWithRetry(
+    `${FITBIT_API_BASE}/1/user/-/foods.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    },
+  );
+
+  if (!response.ok) {
+    logger.error(
+      { action: "fitbit_create_food_failed", status: response.status },
+      "food creation failed",
+    );
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  return response.json();
+}
+
+export async function logFood(
+  accessToken: string,
+  foodId: number,
+  mealTypeId: number,
+  date: string,
+  time?: string,
+): Promise<LogFoodResponse> {
+  logger.debug(
+    { action: "fitbit_log_food", foodId, mealTypeId, date },
+    "logging food",
+  );
+
+  const params = new URLSearchParams({
+    foodId: foodId.toString(),
+    mealTypeId: mealTypeId.toString(),
+    unitId: "147", // gram
+    amount: "1", // 1 serving
+    date,
+  });
+
+  if (time) {
+    params.append("time", time);
+  }
+
+  const response = await fetchWithRetry(
+    `${FITBIT_API_BASE}/1/user/-/food/log.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    },
+  );
+
+  if (!response.ok) {
+    logger.error(
+      { action: "fitbit_log_food_failed", status: response.status },
+      "food logging failed",
+    );
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  return response.json();
+}
+
+export async function findOrCreateFood(
+  accessToken: string,
+  food: FoodAnalysis,
+): Promise<FindOrCreateResult> {
+  logger.debug(
+    { action: "fitbit_find_or_create", foodName: food.food_name },
+    "finding or creating food",
+  );
+
+  // Search for existing food
+  const searchResult = await searchFoods(accessToken, food.food_name);
+
+  // Look for a match by name (case-insensitive) and calories (within 10%)
+  const match = searchResult.foods.find((f) => {
+    const nameMatch =
+      f.name.toLowerCase() === food.food_name.toLowerCase();
+    // Handle zero-calorie foods (e.g., water, black coffee)
+    const caloriesMatch =
+      food.calories === 0
+        ? f.calories === 0
+        : Math.abs(f.calories - food.calories) / food.calories <= 0.1;
+    return nameMatch && caloriesMatch;
+  });
+
+  if (match) {
+    logger.info(
+      { action: "fitbit_food_reused", foodId: match.foodId },
+      "reusing existing food",
+    );
+    return { foodId: match.foodId, reused: true };
+  }
+
+  // Create new food
+  const createResult = await createFood(accessToken, food);
+  logger.info(
+    { action: "fitbit_food_created", foodId: createResult.food.foodId },
+    "created new food",
+  );
+  return { foodId: createResult.food.foodId, reused: false };
+}
 
 export function buildFitbitAuthUrl(state: string, redirectUri: string): string {
   const params = new URLSearchParams({
