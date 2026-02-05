@@ -1,210 +1,164 @@
-# Fix Plan: Fitbit Food Search Endpoint Returns 403
+# Fix Plan: Incorrect API Endpoint URLs
 
-**Issue:** FOO-57
+**Issue:** FOO-58
 **Date:** 2026-02-05
 **Status:** Planning
-**Branch:** fix/FOO-57-remove-fitbit-food-search
+**Branch:** fix/FOO-58-api-endpoint-urls
 
 ## Investigation
 
 ### Bug Report
-Fitbit food logging failed with a 403 error. The `searchFoods` function at `src/lib/fitbit.ts:82` uses the endpoint `GET /1/user/-/foods.json?query=...` which doesn't exist in Fitbit's API. This causes a 403 Forbidden response.
+Fitbit food logging fails with 404 "The API you are requesting could not be found." The investigation revealed incorrect API endpoint URLs in the codebase.
 
 ### Classification
 - **Type:** API Error / Integration
-- **Severity:** High (feature completely broken)
-- **Affected Area:** `/api/log-food` route, `src/lib/fitbit.ts`
+- **Severity:** Critical (food logging completely broken)
+- **Affected Area:** `src/lib/fitbit.ts`, `src/lib/auth.ts`
 
 ### Root Cause Analysis
-The `searchFoods` function uses an incorrect/non-existent Fitbit API endpoint. The Fitbit API provides:
-1. Public food search: `GET /1/foods/search.json?query=...`
-2. User's recent foods: `GET /1/user/-/foods/log/recent.json` (no query param)
-3. User's frequent foods: `GET /1/user/-/foods/log/frequent.json` (no query param)
 
-None of these match what the code currently uses (`GET /1/user/-/foods.json?query=...`).
+Comprehensive audit of all external API endpoints revealed:
 
-#### Evidence
-- **Railway Logs (2026-02-05 10:30:27 UTC):**
-  - `fitbit_search_foods_failed` with status 403
-  - Food being logged: "Té con leche descremada alta proteina"
-- **File:** `src/lib/fitbit.ts:82` - Uses non-existent endpoint
-- **File:** `src/lib/fitbit.ts:192-231` - `findOrCreateFood` calls `searchFoods` which fails
+#### 1. CRITICAL: Fitbit Log Food Endpoint (Breaking Bug)
+The `logFood` function uses singular `food` instead of plural `foods` in the URL path.
 
-#### Related Code
-```typescript
-// src/lib/fitbit.ts:82
-const url = `${FITBIT_API_BASE}/1/user/-/foods.json?query=${encodeURIComponent(query)}`;
-```
-
-### Impact
-- All food logging attempts fail with FITBIT_API_ERROR
-- Users cannot log any food to Fitbit
-- Core functionality is broken
-
-## Fix Plan (TDD Approach)
-
-### Summary
-Simplify the flow by **always creating a new custom food** instead of searching for existing foods. The search/reuse feature will be reimplemented properly in a future iteration.
-
-### Step 1: Update Tests for Simplified Flow
-
-**File:** `src/lib/__tests__/fitbit.test.ts`
-
-1. **Remove** `describe("searchFoods", ...)` block (lines 178-267)
-2. **Update** `describe("findOrCreateFood", ...)` to test simplified behavior:
-   - Remove tests that mock search responses
-   - Test that it always creates a new food
-   - Test that it always returns `reused: false`
-
-```typescript
-describe("findOrCreateFood", () => {
-  const mockFoodAnalysis = {
-    food_name: "Homemade Oatmeal",
-    portion_size_g: 250,
-    calories: 150,
-    protein_g: 5,
-    carbs_g: 27,
-    fat_g: 3,
-    fiber_g: 4,
-    sodium_mg: 10,
-    confidence: "high" as const,
-    notes: "Test food",
-  };
-
-  it("always creates a new food", async () => {
-    const createResponse = { food: { foodId: 789, name: "Homemade Oatmeal" } };
-
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify(createResponse), { status: 201 }),
-    );
-
-    const result = await findOrCreateFood("test-token", mockFoodAnalysis);
-
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch).toHaveBeenCalledWith(
-      "https://api.fitbit.com/1/user/-/foods.json",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(result.foodId).toBe(789);
-    expect(result.reused).toBe(false);
-
-    vi.restoreAllMocks();
-  });
-
-  it("propagates errors from createFood", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(null, { status: 401 }),
-    );
-
-    await expect(findOrCreateFood("bad-token", mockFoodAnalysis)).rejects.toThrow(
-      "FITBIT_TOKEN_INVALID",
-    );
-
-    vi.restoreAllMocks();
-  });
-});
-```
-
-### Step 2: Implement Fix
-
-**File:** `src/lib/fitbit.ts`
-
-1. **Remove** `searchFoods` function (lines 76-99)
-2. **Remove** unused interfaces: `FitbitFood` (lines 8-12), `SearchFoodsResponse` (lines 14-16)
-3. **Simplify** `findOrCreateFood` to always create:
-
-```typescript
-export async function findOrCreateFood(
-  accessToken: string,
-  food: FoodAnalysis,
-): Promise<FindOrCreateResult> {
-  logger.debug(
-    { action: "fitbit_create_food_entry", foodName: food.food_name },
-    "creating food entry",
-  );
-
-  const createResult = await createFood(accessToken, food);
-  logger.info(
-    { action: "fitbit_food_created", foodId: createResult.food.foodId },
-    "created new food",
-  );
-  return { foodId: createResult.food.foodId, reused: false };
+**Evidence from Railway Logs (2026-02-05T13:02:43.996Z):**
+```json
+{
+  "action": "fitbit_log_food_failed",
+  "status": 404,
+  "errorBody": {
+    "errors": [{
+      "errorType": "not_found",
+      "message": "The API you are requesting could not be found."
+    }]
+  }
 }
 ```
 
-4. **Update import in test file** to remove `searchFoods` from imports
+**File:** `src/lib/fitbit.ts:142`
+```typescript
+// Current (WRONG)
+`${FITBIT_API_BASE}/1/user/-/food/log.json`
 
-### Step 3: Verify
+// Should be (plural "foods")
+`${FITBIT_API_BASE}/1/user/-/foods/log.json`
+```
+
+#### 2. MINOR: Google Userinfo Endpoint (Deprecation Risk)
+The Google userinfo endpoint uses v2 which is legacy. Google recommends v3.
+
+**File:** `src/lib/auth.ts:48`
+```typescript
+// Current (legacy v2)
+"https://www.googleapis.com/oauth2/v2/userinfo"
+
+// Recommended (v3)
+"https://www.googleapis.com/oauth2/v3/userinfo"
+```
+
+**Note:** v2 still works but may be deprecated in the future.
+
+### Verified Correct Endpoints
+
+| Service | Endpoint | Code URL | Status |
+|---------|----------|----------|--------|
+| Google OAuth | Authorization | `https://accounts.google.com/o/oauth2/v2/auth` | Correct |
+| Google OAuth | Token Exchange | `https://oauth2.googleapis.com/token` | Correct |
+| Fitbit OAuth | Authorization | `https://www.fitbit.com/oauth2/authorize` | Correct |
+| Fitbit OAuth | Token Exchange | `https://api.fitbit.com/oauth2/token` | Correct |
+| Fitbit | Create Food | `https://api.fitbit.com/1/user/-/foods.json` | Correct |
+
+### Impact
+- All food logging attempts fail with 404
+- Core app functionality is completely broken
+- Users cannot log any food to Fitbit
+
+## Fix Plan (TDD Approach)
+
+### Step 1: Update Test to Expect Correct Endpoint
+
+**File:** `src/lib/__tests__/fitbit.test.ts`
+
+Update line 273 to use the correct endpoint:
+
+```typescript
+// Change from:
+expect(fetch).toHaveBeenCalledWith(
+  "https://api.fitbit.com/1/user/-/food/log.json",
+  // ...
+);
+
+// To:
+expect(fetch).toHaveBeenCalledWith(
+  "https://api.fitbit.com/1/user/-/foods/log.json",
+  // ...
+);
+```
+
+### Step 2: Fix Fitbit Log Food Endpoint
+
+**File:** `src/lib/fitbit.ts`
+
+Update line 142 to use the correct endpoint:
+
+```typescript
+// Change from:
+const response = await fetchWithRetry(
+  `${FITBIT_API_BASE}/1/user/-/food/log.json`,
+  // ...
+);
+
+// To:
+const response = await fetchWithRetry(
+  `${FITBIT_API_BASE}/1/user/-/foods/log.json`,
+  // ...
+);
+```
+
+### Step 3: Update Google Userinfo Endpoint (Optional but Recommended)
+
+**File:** `src/lib/auth.ts`
+
+Update line 48 to use v3:
+
+```typescript
+// Change from:
+const response = await fetch(
+  "https://www.googleapis.com/oauth2/v2/userinfo",
+  // ...
+);
+
+// To:
+const response = await fetch(
+  "https://www.googleapis.com/oauth2/v3/userinfo",
+  // ...
+);
+```
+
+### Step 4: Verify
+
+- [ ] Update test expectation for `logFood` endpoint
+- [ ] Fix `logFood` endpoint in implementation
+- [ ] Update Google userinfo endpoint to v3
 - [ ] All tests pass (`npm test`)
 - [ ] TypeScript compiles without errors (`npm run typecheck`)
 - [ ] Lint passes (`npm run lint`)
-- [ ] Manual test on deployed app (log a food item)
+- [ ] Manual verification: log a food item in production
 
-### Step 4: Update Route Tests
+## Files Affected
 
-**File:** `src/app/api/log-food/__tests__/route.test.ts`
+| File | Line | Change |
+|------|------|--------|
+| `src/lib/__tests__/fitbit.test.ts` | 273 | `food/log.json` → `foods/log.json` |
+| `src/lib/fitbit.ts` | 142 | `food/log.json` → `foods/log.json` |
+| `src/lib/auth.ts` | 48 | `oauth2/v2/userinfo` → `oauth2/v3/userinfo` |
 
-1. **Remove** test for `reusedFood=true` (line 244-261) - this case no longer exists
-2. **Update** any remaining tests that check `reusedFood` to expect `false`
+## Documentation Sources
+- [Fitbit Create Food Log API](https://dev.fitbit.com/build/reference/web-api/nutrition/create-food-log/)
+- [Google OAuth2 Userinfo](https://www.oauth.com/oauth2-servers/signing-in-with-google/verifying-the-user-info/)
 
 ## Notes
-- This is a temporary simplification. Food reuse can be reimplemented later using the correct Fitbit endpoints (`/1/user/-/foods/log/recent.json` or `/1/user/-/foods/log/frequent.json`)
-- The `reusedFood` field in `FoodLogResponse` will always be `false` until reuse is reimplemented
-- No changes needed to `src/app/api/log-food/route.ts` - it already uses `findOrCreateFood` which we're simplifying
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-05
-
-### Tasks Completed This Iteration
-- Step 1: Updated tests for simplified flow - Removed `searchFoods` tests, updated `findOrCreateFood` tests
-- Step 2: Implemented fix - Removed `searchFoods` function and unused interfaces, simplified `findOrCreateFood`
-- Step 3: Verified - All tests pass, TypeScript compiles, lint passes
-- Step 4: Updated route tests - Removed `reusedFood=true` test case, updated mocks
-
-### Files Modified
-- `src/lib/fitbit.ts` - Removed `searchFoods`, `FitbitFood`, `SearchFoodsResponse`; simplified `findOrCreateFood`
-- `src/lib/__tests__/fitbit.test.ts` - Removed `searchFoods` tests, updated `findOrCreateFood` tests
-- `src/app/api/log-food/__tests__/route.test.ts` - Removed test for `reusedFood=true`, updated mock values
-
-### Linear Updates
-- FOO-57: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Passed
-- verifier: All 266 tests pass, zero errors, one pre-existing lint warning (unrelated)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 3
-- `src/lib/fitbit.ts`
-- `src/lib/__tests__/fitbit.test.ts`
-- `src/app/api/log-food/__tests__/route.test.ts`
-
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
-
-**Summary:** No issues found - all implementations are correct and follow project conventions.
-
-**Details:**
-- Security: No injection vulnerabilities, tokens handled correctly, no sensitive data logged
-- Logic: `findOrCreateFood` correctly delegates to `createFood`, returns proper `FindOrCreateResult`
-- Async: Timeout handling with `AbortController`, proper cleanup in finally block
-- Resources: No leaks, timeout cleared properly
-- Type Safety: All interfaces properly defined and used
-- Conventions: Uses `@/` path alias, structured logging, proper naming conventions
-
-### Linear Updates
-- FOO-57: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- The Fitbit endpoint typo is a single character fix (`food` → `foods`)
+- Google v2 userinfo still works but v3 is the current recommended version
+- No changes needed to API response handling - only the URL paths are wrong
