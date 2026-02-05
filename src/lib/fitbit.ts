@@ -97,11 +97,12 @@ export async function createFood(
   );
 
   if (!response.ok) {
+    const bodyText = await response.text().catch(() => "unable to read body");
     let errorBody: unknown;
     try {
-      errorBody = await response.json();
+      errorBody = JSON.parse(bodyText);
     } catch {
-      errorBody = await response.text().catch(() => "unable to read body");
+      errorBody = bodyText;
     }
     logger.error(
       { action: "fitbit_create_food_failed", status: response.status, errorBody },
@@ -150,11 +151,12 @@ export async function logFood(
   );
 
   if (!response.ok) {
+    const bodyText = await response.text().catch(() => "unable to read body");
     let errorBody: unknown;
     try {
-      errorBody = await response.json();
+      errorBody = JSON.parse(bodyText);
     } catch {
-      errorBody = await response.text().catch(() => "unable to read body");
+      errorBody = bodyText;
     }
     logger.error(
       { action: "fitbit_log_food_failed", status: response.status, errorBody },
@@ -222,14 +224,8 @@ export async function exchangeFitbitCode(
   });
 
   if (!response.ok) {
-    let errorBody: unknown;
-    try {
-      errorBody = await response.json();
-    } catch {
-      errorBody = await response.text().catch(() => "unable to read body");
-    }
     logger.error(
-      { action: "fitbit_token_exchange_failed", status: response.status, errorBody },
+      { action: "fitbit_token_exchange_failed", status: response.status, statusText: response.statusText },
       "fitbit token exchange http failure",
     );
     throw new Error(`Fitbit token exchange failed: ${response.status}`);
@@ -265,14 +261,8 @@ export async function refreshFitbitToken(
   });
 
   if (!response.ok) {
-    let errorBody: unknown;
-    try {
-      errorBody = await response.json();
-    } catch {
-      errorBody = await response.text().catch(() => "unable to read body");
-    }
     logger.error(
-      { action: "fitbit_token_refresh_failed", status: response.status, errorBody },
+      { action: "fitbit_token_refresh_failed", status: response.status, statusText: response.statusText },
       "fitbit token refresh http failure",
     );
     throw new Error("FITBIT_TOKEN_INVALID");
