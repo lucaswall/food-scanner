@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { Camera, ImageIcon } from "lucide-react";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png"];
@@ -18,7 +19,8 @@ export function PhotoCapture({
   const [photos, setPhotos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const validateFile = (file: File): string | null => {
     if (!ALLOWED_TYPES.includes(file.type)) {
@@ -41,9 +43,12 @@ export function PhotoCapture({
       const validationError = validateFile(file);
       if (validationError) {
         setError(validationError);
-        // Reset input
-        if (inputRef.current) {
-          inputRef.current.value = "";
+        // Reset inputs
+        if (cameraInputRef.current) {
+          cameraInputRef.current.value = "";
+        }
+        if (galleryInputRef.current) {
+          galleryInputRef.current.value = "";
         }
         return;
       }
@@ -67,9 +72,12 @@ export function PhotoCapture({
     setPreviews(newPreviews);
     onPhotosChange(combinedPhotos);
 
-    // Reset input to allow selecting the same file again
-    if (inputRef.current) {
-      inputRef.current.value = "";
+    // Reset inputs to allow selecting the same file again
+    if (cameraInputRef.current) {
+      cameraInputRef.current.value = "";
+    }
+    if (galleryInputRef.current) {
+      galleryInputRef.current.value = "";
     }
   };
 
@@ -82,29 +90,71 @@ export function PhotoCapture({
     setError(null);
     onPhotosChange([]);
 
-    // Reset input
-    if (inputRef.current) {
-      inputRef.current.value = "";
+    // Reset inputs
+    if (cameraInputRef.current) {
+      cameraInputRef.current.value = "";
     }
+    if (galleryInputRef.current) {
+      galleryInputRef.current.value = "";
+    }
+  };
+
+  const handleTakePhoto = () => {
+    cameraInputRef.current?.click();
+  };
+
+  const handleChooseFromGallery = () => {
+    galleryInputRef.current?.click();
   };
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-2">
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          multiple
-          onChange={handleFileChange}
-          data-testid="photo-input"
-          className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90"
-        />
-        <p className="text-xs text-gray-500">
-          {photos.length}/{maxPhotos} photos selected
-        </p>
+      {/* Hidden file inputs */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/jpeg,image/png"
+        capture="environment"
+        multiple
+        onChange={handleFileChange}
+        data-testid="camera-input"
+        className="hidden"
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/jpeg,image/png"
+        multiple
+        onChange={handleFileChange}
+        data-testid="gallery-input"
+        className="hidden"
+      />
+
+      {/* Action buttons */}
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleTakePhoto}
+          className="flex-1"
+        >
+          <Camera className="mr-2 h-4 w-4" />
+          Take Photo
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={handleChooseFromGallery}
+          className="flex-1"
+        >
+          <ImageIcon className="mr-2 h-4 w-4" />
+          Choose from Gallery
+        </Button>
       </div>
+
+      <p className="text-xs text-gray-500">
+        {photos.length}/{maxPhotos} photos selected
+      </p>
 
       {error && (
         <p className="text-sm text-red-500" role="alert">
