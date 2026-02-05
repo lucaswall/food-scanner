@@ -1,7 +1,7 @@
 ---
 name: plan-review-implementation
 description: QA review of completed implementation. Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Merge. Creates new issues in Todo for bugs found. Identifies bugs, edge cases, security issues (OWASP-based), type safety, resource leaks, and async issues. Creates fix plans for issues found or marks COMPLETE.
-allowed-tools: Read, Edit, Glob, Grep, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Glob, Grep, Bash, Task, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -238,9 +238,9 @@ No issues found - all implementations are correct and follow project conventions
 If context is low (<=60%) after completing an iteration review but MORE iterations remain:
 
 1. Document the completed iteration's findings (as normal)
-2. Inform user about remaining iterations
-3. **Suggest commit to preserve progress:**
-   > "Iteration N review complete. Context is running low (~X% estimated remaining). Would you like me to commit these changes before continuing? Run `/plan-review-implementation` again to review the remaining iterations."
+2. **Commit and push all changes** (see Termination section)
+3. Inform user about remaining iterations:
+   > "Iteration N review complete. Changes committed and pushed. Context is running low (~X% estimated remaining). Run `/plan-review-implementation` again to review the remaining iterations."
 
 This ensures work is preserved even if the session ends.
 
@@ -249,7 +249,9 @@ This ensures work is preserved even if the session ends.
 When all pending iterations have been reviewed:
 
 - **If Fix Plan exists OR tasks remain unfinished** → Do NOT mark complete. More implementation needed.
-  > "Review complete. Run `/plan-implement` to continue implementation."
+  1. **Commit and push all changes** (see Termination section)
+  2. Inform user:
+     > "Review complete. Changes committed and pushed. Run `/plan-implement` to continue implementation."
 
 - **If all tasks complete and no issues** → Append final status and create PR:
 
@@ -259,13 +261,14 @@ When all pending iterations have been reviewed:
 ## Status: COMPLETE
 
 All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
-Ready for PR creation.
 ```
 
-**Then tell the user:**
-> "Plan complete! Create a PR for these changes."
-
-This triggers the `pr-creator` subagent to handle branch creation, commit, push, and PR.
+**Then create the PR:**
+1. **Commit any uncommitted changes** (review findings in PLANS.md)
+2. **Push to remote** if not already pushed
+3. **Create PR** using the `pr-creator` subagent
+4. Inform user with PR URL:
+   > "Plan complete! PR created: [URL]"
 
 **Note:** When marking COMPLETE, all issues from the plan should be in Merge state. They will automatically move to Done when the PR is merged (via Linear's GitHub integration).
 
@@ -298,6 +301,44 @@ This triggers the `pr-creator` subagent to handle branch creation, commit, push,
 | Too many issues found | Prioritize by severity, create fix plan for critical/high only |
 | Multiple iterations pending | Review ALL of them in order, don't stop after one |
 
+## Termination: Commit, Push, and PR
+
+**MANDATORY:** Before ending, commit all local changes and push to remote.
+
+### For Incomplete Plans (Fix Plan exists OR tasks remain)
+
+**Steps:**
+1. Stage all modified files: `git add -A`
+2. Create commit with message format:
+   ```
+   plan: review iteration N - [issues found | no issues]
+   ```
+3. Push to current branch: `git push`
+4. Inform user to run `/plan-implement`
+
+### For Complete Plans (all tasks done, no issues)
+
+**Steps:**
+1. Stage all modified files: `git add -A`
+2. Create commit with message format:
+   ```
+   plan: mark [plan-name] complete
+
+   All tasks implemented and reviewed successfully.
+   ```
+3. Push to current branch: `git push`
+4. **Create PR** using the `pr-creator` subagent
+5. Inform user with PR URL
+
+**Branch handling:**
+- This skill assumes plan-implement already created a feature branch
+- If somehow on `main`, create branch first: `git checkout -b feat/[plan-name]`
+
+**Why commit at termination:**
+- Preserves review findings for next session
+- Enables clean handoff between implement/review cycles
+- Complete plans get PRs automatically
+
 ## Rules
 
 - **Review ALL pending iterations** - Don't stop after one; process every iteration lacking `<!-- REVIEW COMPLETE -->`
@@ -309,6 +350,8 @@ This triggers the `pr-creator` subagent to handle branch creation, commit, push,
 - **Mark COMPLETE only when ALL iterations pass** - No fix plans pending, all reviewed
 - **Move issues to Merge** - All reviewed issues that pass go Review→Merge
 - **Create bug issues in Todo** - All bugs found create new issues in Todo state
+- **Always commit and push at termination** - Never end without committing progress
+- **Create PR when plan is complete** - Use pr-creator subagent for final PR
 - If no iteration needs review, inform the user and stop
 
 ## Context Management & Continuation

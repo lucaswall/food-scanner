@@ -166,6 +166,7 @@ After completing each task's TDD cycle (steps 1-6), estimate remaining context:
 **Why 40% threshold:** Leaves buffer for:
 - Running bug-hunter and verifier before stopping
 - Documenting the iteration
+- Committing and pushing changes
 - User interactions in next session
 - Unexpected issues
 
@@ -173,7 +174,8 @@ After completing each task's TDD cycle (steps 1-6), estimate remaining context:
 1. Run `bug-hunter` agent on completed work
 2. Run `verifier` agent to confirm all tests pass
 3. Write the `## Iteration N` block documenting what was done
-4. **Always end with:** "Run `/plan-review-implementation` to review completed work."
+4. **Commit and push all changes** (see Termination section)
+5. **Always end with:** "Run `/plan-review-implementation` to review completed work."
 
 ## Error Handling
 
@@ -191,11 +193,38 @@ After completing each task's TDD cycle (steps 1-6), estimate remaining context:
 ## Scope Boundaries
 
 **This skill implements plans. It does NOT:**
-1. **NEVER create commits or PRs** - Unless user explicitly requests
+1. **NEVER create PRs** - PRs are created by plan-review-implementation when plan is complete
 2. **NEVER skip failing tests** - Fix them or ask for help
 3. **NEVER modify PLANS.md sections above current iteration** - Append only
 4. **NEVER proceed with warnings** - Fix all warnings first
 5. **NEVER ask "should I continue?"** - Use context estimation to decide automatically
+
+## Termination: Commit and Push
+
+**MANDATORY:** Before ending, commit all local changes and push to remote.
+
+This happens AFTER writing the Iteration block to PLANS.md.
+
+**Steps:**
+1. Stage all modified files: `git add -A`
+2. Create commit with message format:
+   ```
+   plan: implement iteration N - [brief summary]
+
+   Tasks completed:
+   - Task X: [title]
+   - Task Y: [title]
+   ```
+3. Push to current branch: `git push`
+
+**Branch handling:**
+- If on `main`, create a feature branch first: `git checkout -b feat/[plan-name]`
+- If already on a feature branch, push to that branch
+
+**Why commit at termination:**
+- Preserves work for next session
+- Enables review to see actual changes via git
+- Prevents lost work if session ends unexpectedly
 
 ## Rules
 
@@ -204,7 +233,7 @@ After completing each task's TDD cycle (steps 1-6), estimate remaining context:
 - **Follow TDD strictly** - Test before implementation, always
 - **Fix failures immediately** - Do not proceed with failing tests or warnings
 - **Never modify previous sections** - Only append new Iteration section
-- **Do not commit or create PR** - Unless explicitly requested
+- **Always commit and push at termination** - Never end without committing progress
 - **Document completed AND remaining tasks** - So next iteration knows where to resume
 - **Update Linear in real-time** - Move issues Todo→In Progress at task start, In Progress→Review at task end
 - If nothing to execute, inform the user and stop
