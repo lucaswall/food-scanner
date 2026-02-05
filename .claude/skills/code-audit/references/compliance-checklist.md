@@ -168,6 +168,93 @@ Universal checks that apply to any project. Project-specific rules should be def
 - No typosquatting package names
 - Lock files committed and up to date
 
+## Logging
+
+### Log Level Correctness
+
+Verify each log statement uses the appropriate level:
+
+| Level | Correct Usage | Anti-patterns |
+|-------|---------------|---------------|
+| **FATAL** | Critical failures preventing app from continuing (missing required config, DB unavailable at startup, security breaches) | Using for recoverable errors |
+| **ERROR** | Operations that fail but app continues (API failures after retries exhausted, resource creation failures, unexpected exceptions) | Logging expected exceptions, errors with auto-recovery |
+| **WARN** | Unexpected but recoverable conditions (resource thresholds approaching limits, deprecated config, excessive failed logins, slow API responses) | Normal operational events |
+| **INFO** | Significant business events (state changes, successful completions, service startup/shutdown, milestones) | Excessive details, sensitive data |
+| **DEBUG** | Implementation details for troubleshooting (DB queries, API calls/responses, config values, timing) | Enabled in production continuously |
+
+### Log Coverage
+
+Ensure sufficient logging for operational visibility:
+
+- **Error paths**: All catch blocks log the error with context (operation, inputs, stack trace)
+- **API boundaries**: Incoming requests and outgoing responses logged at INFO or DEBUG
+- **State transitions**: Key business state changes logged at INFO
+- **External calls**: Third-party API calls logged at DEBUG with timing
+- **Authentication events**: Login success/failure, token refresh, session creation logged at INFO
+- **Startup/shutdown**: Service initialization and graceful shutdown logged at INFO
+- **Scheduled jobs**: Job start, completion, and failures logged at INFO
+
+### Debug Coverage for Investigation
+
+Verify DEBUG logs exist for troubleshooting all potential errors:
+
+- **Every external API call**: Request parameters, response status, timing
+- **Database operations**: Queries, parameters (sanitized), row counts
+- **Business logic decisions**: Key conditional branches, computed values
+- **Data transformations**: Input/output shapes, validation results
+- **Configuration**: Loaded config values at startup (not secrets)
+- **Queue/async operations**: Job enqueue, dequeue, processing steps
+
+### Log Overflow Prevention
+
+Check for patterns that could saturate the logging backend:
+
+- **No logging in tight loops**: Avoid `logger.debug()` inside `for`/`while` processing many items
+- **Batch logging for bulk operations**: Log summary (e.g., "Processed 1000 items") not individual items
+- **No redundant logs**: Same information not logged multiple times per request
+- **Conditional verbose logging**: High-volume debug logs should be behind feature flags or log level checks
+- **Request/response body limits**: Large payloads truncated or summarized, not logged in full
+- **Error log deduplication**: Repeated identical errors sampled or aggregated (e.g., "Error X occurred 50 times in last minute")
+- **No stack traces at INFO/WARN**: Stack traces only at ERROR/DEBUG
+- **Streaming/SSE logs**: Don't log every chunk/event in streaming operations
+
+### Structured Logging
+
+- **JSON format**: Logs should be structured (JSON) not plain text for machine parsing
+- **Consistent fields**: Request ID, user ID, operation name included consistently
+- **Proper logger used**: No `console.log`/`console.error` in production code - use proper logging framework
+
+### Log Security
+
+- **No sensitive data**: Passwords, tokens, API keys, session secrets never logged
+- **No PII without consent**: Email, phone, address not logged or properly redacted
+- **No request bodies with secrets**: Auth headers, cookie values not logged
+- **Error messages sanitized**: Stack traces don't expose internal paths in production
+- **Image/binary data**: Never log raw binary data or base64-encoded images
+
+### Search Patterns for Logging Issues
+
+Use Grep tool to find potential logging issues:
+
+**Wrong level usage:**
+- `logger\.info.*error|logger\.info.*fail|logger\.info.*exception` - errors logged at INFO
+- `logger\.debug.*critical|logger\.debug.*fatal` - critical issues at DEBUG
+- `logger\.error` in catch blocks for expected/recoverable errors
+
+**Missing logs:**
+- `catch\s*\([^)]*\)\s*\{[^}]*\}` - empty or log-less catch blocks
+- API route handlers without any logger calls
+
+**Log overflow risks:**
+- `for.*\{[^}]*logger\.|while.*\{[^}]*logger\.` - logging inside loops
+- `\.map\([^)]*logger\.|\.forEach\([^)]*logger\.` - logging in array iterations
+- `logger\.(debug|info).*JSON\.stringify` - potentially large objects logged
+
+**Security issues:**
+- `logger\..*(password|secret|token|key|auth)` - potential secrets in logs
+- `logger\..*req\.body|logger\..*request\.body` - request bodies might contain secrets
+- `logger\..*headers` - headers might contain auth tokens
+
 ## Rate Limiting
 
 ### External API Quotas
