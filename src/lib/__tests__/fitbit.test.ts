@@ -18,6 +18,10 @@ const {
   exchangeFitbitCode,
   refreshFitbitToken,
   ensureFreshToken,
+  searchFoods,
+  createFood,
+  logFood,
+  findOrCreateFood,
 } = await import("@/lib/fitbit");
 const { logger } = await import("@/lib/logger");
 
@@ -166,6 +170,328 @@ describe("refreshFitbitToken", () => {
       expect.objectContaining({ action: "fitbit_token_refresh_start" }),
       expect.any(String),
     );
+
+    vi.restoreAllMocks();
+  });
+});
+
+describe("searchFoods", () => {
+  it("searches user custom foods with query", async () => {
+    const mockFoods = {
+      foods: [
+        { foodId: 123, name: "Oatmeal", calories: 150 },
+        { foodId: 456, name: "Oatmeal with Banana", calories: 200 },
+      ],
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockFoods), { status: 200 }),
+    );
+
+    const result = await searchFoods("test-token", "oatmeal");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.fitbit.com/1/user/-/foods.json?query=oatmeal",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+        }),
+      }),
+    );
+    expect(result.foods).toHaveLength(2);
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID on 401", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(searchFoods("bad-token", "oatmeal")).rejects.toThrow(
+      "FITBIT_TOKEN_INVALID",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("retries with exponential backoff on 429", async () => {
+    vi.useFakeTimers();
+    const mockFoods = { foods: [] };
+    let callCount = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount < 3) {
+        return Promise.resolve(new Response(null, { status: 429 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(mockFoods), { status: 200 }),
+      );
+    });
+
+    const promise = searchFoods("test-token", "oatmeal");
+
+    // Fast-forward through retry delays: 1s + 2s
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const result = await promise;
+
+    expect(callCount).toBe(3);
+    expect(result.foods).toHaveLength(0);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("throws after max retries on 429", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 429 }),
+    );
+
+    const promise = searchFoods("test-token", "oatmeal");
+
+    // Fast-forward through all retry delays: 1s + 2s + 4s = 7s
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(4000);
+
+    await expect(promise).rejects.toThrow("FITBIT_RATE_LIMIT");
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("createFood", () => {
+  const mockFoodAnalysis = {
+    food_name: "Homemade Oatmeal",
+    portion_size_g: 250,
+    calories: 150,
+    protein_g: 5,
+    carbs_g: 27,
+    fat_g: 3,
+    fiber_g: 4,
+    sodium_mg: 10,
+    confidence: "high" as const,
+    notes: "Test food",
+  };
+
+  it("creates a custom food with correct parameters", async () => {
+    const mockResponse = {
+      food: { foodId: 789, name: "Homemade Oatmeal" },
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    const result = await createFood("test-token", mockFoodAnalysis);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.fitbit.com/1/user/-/foods.json",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+          "Content-Type": "application/x-www-form-urlencoded",
+        }),
+      }),
+    );
+    expect(result.food.foodId).toBe(789);
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID on 401", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(createFood("bad-token", mockFoodAnalysis)).rejects.toThrow(
+      "FITBIT_TOKEN_INVALID",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("retries on 429", async () => {
+    vi.useFakeTimers();
+    const mockResponse = { food: { foodId: 789 } };
+    let callCount = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount < 2) {
+        return Promise.resolve(new Response(null, { status: 429 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(mockResponse), { status: 201 }),
+      );
+    });
+
+    const promise = createFood("test-token", mockFoodAnalysis);
+
+    // Fast-forward through retry delay: 1s
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const result = await promise;
+
+    expect(callCount).toBe(2);
+    expect(result.food.foodId).toBe(789);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("logFood", () => {
+  it("logs food entry with required parameters", async () => {
+    const mockResponse = {
+      foodLog: { logId: 12345, loggedFood: { foodId: 789 } },
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    const result = await logFood("test-token", 789, 1, "2024-01-15");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.fitbit.com/1/user/-/food/log.json",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+          "Content-Type": "application/x-www-form-urlencoded",
+        }),
+      }),
+    );
+    expect(result.foodLog.logId).toBe(12345);
+
+    vi.restoreAllMocks();
+  });
+
+  it("includes optional time parameter when provided", async () => {
+    const mockResponse = {
+      foodLog: { logId: 12345, loggedFood: { foodId: 789 } },
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await logFood("test-token", 789, 1, "2024-01-15", "12:30");
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).toContain("time=12%3A30");
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID on 401", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(logFood("bad-token", 789, 1, "2024-01-15")).rejects.toThrow(
+      "FITBIT_TOKEN_INVALID",
+    );
+
+    vi.restoreAllMocks();
+  });
+});
+
+describe("findOrCreateFood", () => {
+  const mockFoodAnalysis = {
+    food_name: "Homemade Oatmeal",
+    portion_size_g: 250,
+    calories: 150,
+    protein_g: 5,
+    carbs_g: 27,
+    fat_g: 3,
+    fiber_g: 4,
+    sodium_mg: 10,
+    confidence: "high" as const,
+    notes: "Test food",
+  };
+
+  it("returns existing food when name and calories match within 10%", async () => {
+    const searchResponse = {
+      foods: [{ foodId: 123, name: "Homemade Oatmeal", calories: 155 }],
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(searchResponse), { status: 200 }),
+    );
+
+    const result = await findOrCreateFood("test-token", mockFoodAnalysis);
+
+    expect(result.foodId).toBe(123);
+    expect(result.reused).toBe(true);
+
+    vi.restoreAllMocks();
+  });
+
+  it("creates new food when no match found", async () => {
+    const searchResponse = { foods: [] };
+    const createResponse = { food: { foodId: 789, name: "Homemade Oatmeal" } };
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(searchResponse), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(createResponse), { status: 201 }),
+      );
+
+    const result = await findOrCreateFood("test-token", mockFoodAnalysis);
+
+    expect(result.foodId).toBe(789);
+    expect(result.reused).toBe(false);
+
+    vi.restoreAllMocks();
+  });
+
+  it("creates new food when calories differ by more than 10%", async () => {
+    const searchResponse = {
+      foods: [{ foodId: 123, name: "Homemade Oatmeal", calories: 200 }], // 33% diff
+    };
+    const createResponse = { food: { foodId: 789, name: "Homemade Oatmeal" } };
+
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(searchResponse), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(createResponse), { status: 201 }),
+      );
+
+    const result = await findOrCreateFood("test-token", mockFoodAnalysis);
+
+    expect(result.foodId).toBe(789);
+    expect(result.reused).toBe(false);
+
+    vi.restoreAllMocks();
+  });
+
+  it("matches food name case-insensitively", async () => {
+    const searchResponse = {
+      foods: [{ foodId: 123, name: "HOMEMADE OATMEAL", calories: 150 }],
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(searchResponse), { status: 200 }),
+    );
+
+    const result = await findOrCreateFood("test-token", mockFoodAnalysis);
+
+    expect(result.foodId).toBe(123);
+    expect(result.reused).toBe(true);
 
     vi.restoreAllMocks();
   });
