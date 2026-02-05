@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import type { FoodLogResponse } from "@/types";
 import { Button } from "@/components/ui/button";
 import { CheckCircle } from "lucide-react";
+import { vibrateSuccess } from "@/lib/haptics";
 
 interface FoodLogConfirmationProps {
   response: FoodLogResponse | null;
@@ -15,12 +17,22 @@ export function FoodLogConfirmation({
   foodName,
   onReset,
 }: FoodLogConfirmationProps) {
+  // Trigger haptic feedback on mount
+  useEffect(() => {
+    if (response) {
+      vibrateSuccess();
+    }
+  }, [response]);
+
   if (!response) {
     return null;
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
+    <div
+      className="flex flex-col items-center justify-center py-8 space-y-4 text-center animate-slide-up"
+      aria-live="assertive"
+    >
       <CheckCircle
         data-testid="success-icon"
         className="w-16 h-16 text-green-500"

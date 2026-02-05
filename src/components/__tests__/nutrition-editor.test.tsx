@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { NutritionEditor } from "../nutrition-editor";
 import type { FoodAnalysis } from "@/types";
 
@@ -13,7 +14,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
-  document.body.innerHTML = "";
+  cleanup();
 });
 
 const mockAnalysis: FoodAnalysis = {
@@ -207,5 +208,132 @@ describe("NutritionEditor", () => {
 
     const indicator = screen.getByTestId("confidence-indicator");
     expect(indicator).toHaveAttribute("aria-label", "Confidence: high");
+  });
+
+  describe("confidence tooltip", () => {
+    it("shows tooltip on hover with explanation text", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+      const confidenceTrigger = screen.getByTestId("confidence-trigger");
+      await user.hover(confidenceTrigger);
+
+      await waitFor(() => {
+        const tooltip = screen.getByRole("tooltip");
+        expect(tooltip).toBeInTheDocument();
+        expect(tooltip).toHaveTextContent(/confidence/i);
+      });
+    });
+  });
+
+  describe("portion size quick-select", () => {
+    it("renders Small, Medium, Large quick-select buttons", () => {
+      const onChange = vi.fn();
+      render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+      expect(screen.getByRole("button", { name: /small/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /medium/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /large/i })).toBeInTheDocument();
+    });
+
+    it("clicking Small sets portion to 100g", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const analysis = { ...mockAnalysis, portion_size_g: 250 };
+      render(<NutritionEditor value={analysis} onChange={onChange} />);
+
+      const smallButton = screen.getByRole("button", { name: /small/i });
+      await user.click(smallButton);
+
+      expect(onChange).toHaveBeenCalledWith({
+        ...analysis,
+        portion_size_g: 100,
+      });
+    });
+
+    it("clicking Medium sets portion to 200g", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      const analysis = { ...mockAnalysis, portion_size_g: 50 };
+      render(<NutritionEditor value={analysis} onChange={onChange} />);
+
+      const mediumButton = screen.getByRole("button", { name: /medium/i });
+      await user.click(mediumButton);
+
+      expect(onChange).toHaveBeenCalledWith({
+        ...analysis,
+        portion_size_g: 200,
+      });
+    });
+
+    it("clicking Large sets portion to 350g", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+      const largeButton = screen.getByRole("button", { name: /large/i });
+      await user.click(largeButton);
+
+      expect(onChange).toHaveBeenCalledWith({
+        ...mockAnalysis,
+        portion_size_g: 350,
+      });
+    });
+
+    it("manual input still works after using quick-select", async () => {
+      const onChange = vi.fn();
+      render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+      const portionInput = screen.getByLabelText(/portion.*g/i);
+      fireEvent.change(portionInput, { target: { value: "175" } });
+
+      expect(onChange).toHaveBeenCalledWith({
+        ...mockAnalysis,
+        portion_size_g: 175,
+      });
+    });
+
+    it("quick-select buttons are disabled when editor is disabled", () => {
+      const onChange = vi.fn();
+      render(<NutritionEditor value={mockAnalysis} onChange={onChange} disabled />);
+
+      expect(screen.getByRole("button", { name: /small/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /medium/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /large/i })).toBeDisabled();
+    });
+
+    it("highlights the button matching current portion size", () => {
+      const onChange = vi.fn();
+      const analysis100 = { ...mockAnalysis, portion_size_g: 100 };
+      render(<NutritionEditor value={analysis100} onChange={onChange} />);
+
+      const smallButton = screen.getByRole("button", { name: /small/i });
+      // When selected, button should have default (non-outline) variant styling
+      expect(smallButton).toHaveAttribute("data-selected", "true");
+    });
+  });
+
+  describe("accessible confidence indicator", () => {
+    it("shows CheckCircle icon for high confidence", () => {
+      const onChange = vi.fn();
+      render(<NutritionEditor value={{ ...mockAnalysis, confidence: "high" }} onChange={onChange} />);
+
+      expect(screen.getByTestId("confidence-icon-check")).toBeInTheDocument();
+    });
+
+    it("shows AlertTriangle icon for medium confidence", () => {
+      const onChange = vi.fn();
+      render(<NutritionEditor value={{ ...mockAnalysis, confidence: "medium" }} onChange={onChange} />);
+
+      expect(screen.getByTestId("confidence-icon-alert")).toBeInTheDocument();
+    });
+
+    it("shows AlertTriangle icon for low confidence", () => {
+      const onChange = vi.fn();
+      render(<NutritionEditor value={{ ...mockAnalysis, confidence: "low" }} onChange={onChange} />);
+
+      expect(screen.getByTestId("confidence-icon-alert")).toBeInTheDocument();
+    });
   });
 });

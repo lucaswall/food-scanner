@@ -12,6 +12,10 @@ beforeAll(() => {
   };
 });
 
+// Mock fetch (must be before component mocks that might use it)
+const mockFetch = vi.fn();
+vi.stubGlobal("fetch", mockFetch);
+
 // Mock the child components
 vi.mock("../photo-capture", () => ({
   PhotoCapture: ({
@@ -60,7 +64,10 @@ vi.mock("../analysis-result", () => ({
     error: string | null;
     onRetry: () => void;
   }) => (
-    <div data-testid="analysis-result">
+    <div
+      data-testid="analysis-result"
+      aria-live={loading ? "assertive" : error ? "polite" : undefined}
+    >
       {loading && <span>Loading...</span>}
       {error && (
         <>
@@ -129,21 +136,24 @@ vi.mock("../food-log-confirmation", () => ({
     onReset: () => void;
   }) =>
     response ? (
-      <div data-testid="food-log-confirmation">
+      <div data-testid="food-log-confirmation" tabIndex={-1}>
         <span>Successfully logged {foodName}</span>
         <button onClick={onReset}>Log Another</button>
       </div>
     ) : null,
 }));
 
-// Mock image compression
+// Mock image compression - must be defined after vi.mock calls
 vi.mock("@/lib/image", () => ({
   compressImage: vi.fn().mockResolvedValue(new Blob(["compressed"])),
 }));
 
-// Mock fetch
-const mockFetch = vi.fn();
-vi.stubGlobal("fetch", mockFetch);
+// Get reference to the mocked compressImage for per-test control
+let mockCompressImage: ReturnType<typeof vi.fn>;
+beforeEach(async () => {
+  const imageModule = await import("@/lib/image");
+  mockCompressImage = imageModule.compressImage as ReturnType<typeof vi.fn>;
+});
 
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
@@ -605,6 +615,609 @@ describe("FoodAnalyzer", () => {
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /regenerate/i })).toBeInTheDocument();
+    });
+  });
+
+  describe("regenerate with edits warning", () => {
+    it("regenerate without edits proceeds immediately", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { ...mockAnalysis, food_name: "Updated" } }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      // Add photo and analyze
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /regenerate/i })).toBeInTheDocument();
+      });
+
+      // Click regenerate (no edits made)
+      fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
+
+      // Should proceed immediately (no confirmation dialog)
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it("regenerate with edits shows warning dialog", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      // Add photo and analyze
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /edit manually/i })).toBeInTheDocument();
+      });
+
+      // Enter edit mode and make changes
+      fireEvent.click(screen.getByRole("button", { name: /edit manually/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("nutrition-editor")).toBeInTheDocument();
+      });
+
+      // Edit the food name
+      const nameInput = screen.getByTestId("nutrition-editor-name");
+      fireEvent.change(nameInput, { target: { value: "Modified food" } });
+
+      // Click regenerate
+      fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
+
+      // Should show warning dialog
+      await waitFor(() => {
+        expect(screen.getByRole("heading", { name: /discard your edits/i })).toBeInTheDocument();
+      });
+    });
+
+    it("confirming regenerate discards edits and re-analyzes", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { ...mockAnalysis, food_name: "New Analysis" } }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      // Add photo and analyze
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /edit manually/i })).toBeInTheDocument();
+      });
+
+      // Enter edit mode and make changes
+      fireEvent.click(screen.getByRole("button", { name: /edit manually/i }));
+      await waitFor(() => {
+        expect(screen.getByTestId("nutrition-editor")).toBeInTheDocument();
+      });
+
+      const nameInput = screen.getByTestId("nutrition-editor-name");
+      fireEvent.change(nameInput, { target: { value: "Modified food" } });
+
+      // Click regenerate
+      fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
+
+      // Confirm the regenerate
+      await waitFor(() => {
+        expect(screen.getByRole("heading", { name: /discard your edits/i })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+
+      // Should have called analyze API again
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    it("canceling regenerate keeps edits", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      // Add photo and analyze
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /edit manually/i })).toBeInTheDocument();
+      });
+
+      // Enter edit mode and make changes
+      fireEvent.click(screen.getByRole("button", { name: /edit manually/i }));
+      await waitFor(() => {
+        expect(screen.getByTestId("nutrition-editor")).toBeInTheDocument();
+      });
+
+      const nameInput = screen.getByTestId("nutrition-editor-name");
+      fireEvent.change(nameInput, { target: { value: "Modified food" } });
+
+      // Click regenerate
+      fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
+
+      // Cancel the regenerate
+      await waitFor(() => {
+        expect(screen.getByRole("heading", { name: /discard your edits/i })).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+      // Edits should still be there
+      await waitFor(() => {
+        expect(screen.getByTestId("nutrition-editor-name")).toHaveValue("Modified food");
+      });
+
+      // Should NOT have called analyze API again
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("image compression loading state", () => {
+    it("shows 'Preparing images...' during compression phase", async () => {
+      // Make compression hang to observe the state
+      let resolveCompression: (value: Blob) => void;
+      mockCompressImage.mockImplementationOnce(
+        () =>
+          new Promise<Blob>((resolve) => {
+            resolveCompression = resolve;
+          })
+      );
+
+      render(<FoodAnalyzer />);
+
+      // Add photo
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      // Click analyze
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      // Should show "Preparing images..." during compression
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /preparing images/i })).toBeInTheDocument();
+      });
+
+      // Resolve compression to clean up
+      resolveCompression!(new Blob(["compressed"]));
+    });
+
+    it("shows 'Analyzing...' after compression completes", async () => {
+      // Compression resolves immediately, but fetch hangs
+      mockCompressImage.mockResolvedValueOnce(new Blob(["compressed"]));
+      mockFetch.mockImplementationOnce(
+        () => new Promise((resolve) => setTimeout(resolve, 1000))
+      );
+
+      render(<FoodAnalyzer />);
+
+      // Add photo
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      // Click analyze
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      // Should eventually show "Analyzing..." after compression completes
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyzing/i })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("keyboard shortcuts", () => {
+    function dispatchKeyboardEvent(
+      key: string,
+      options: { ctrlKey?: boolean; shiftKey?: boolean } = {}
+    ) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        ctrlKey: options.ctrlKey || false,
+        shiftKey: options.shiftKey || false,
+        bubbles: true,
+      });
+      document.dispatchEvent(event);
+    }
+
+    it("Ctrl+Enter triggers analyze when photos present", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      // Add photo
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      // Use keyboard shortcut
+      dispatchKeyboardEvent("Enter", { ctrlKey: true });
+
+      // Should trigger analysis
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/analyze-food",
+          expect.any(Object)
+        );
+      });
+    });
+
+    it("Ctrl+Shift+Enter triggers log when analysis present", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      // Add photo and analyze
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      // Use keyboard shortcut to log
+      dispatchKeyboardEvent("Enter", { ctrlKey: true, shiftKey: true });
+
+      // Should trigger log
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/log-food",
+          expect.any(Object)
+        );
+      });
+    });
+
+    it("Escape exits edit mode", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      // Add photo and analyze
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /edit manually/i })).toBeInTheDocument();
+      });
+
+      // Enter edit mode
+      fireEvent.click(screen.getByRole("button", { name: /edit manually/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("nutrition-editor")).toBeInTheDocument();
+      });
+
+      // Press Escape
+      dispatchKeyboardEvent("Escape");
+
+      // Should exit edit mode - button text changes back
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /edit manually/i })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("first-time user guidance", () => {
+    it("shows tips when no photos and no analysis", () => {
+      render(<FoodAnalyzer />);
+
+      expect(screen.getByText(/take a photo/i)).toBeInTheDocument();
+      expect(screen.getByText(/add description/i)).toBeInTheDocument();
+      expect(screen.getByText(/log to fitbit/i)).toBeInTheDocument();
+    });
+
+    it("hides tips after photos added", async () => {
+      render(<FoodAnalyzer />);
+
+      // Initially tips are visible
+      expect(screen.getByText(/take a photo/i)).toBeInTheDocument();
+
+      // Add a photo
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+      // Tips should be hidden
+      await waitFor(() => {
+        // The "Take a photo" text in the guidance should be gone
+        // (Note: "Log to Fitbit" will still appear as a button after analysis, so we check the guidance specifically)
+        const guidanceSection = screen.queryByTestId("first-time-guidance");
+        expect(guidanceSection).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("button hierarchy post-analysis", () => {
+    it("'Log to Fitbit' uses default (primary) variant", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      const logButton = screen.getByRole("button", { name: /log to fitbit/i });
+      // Check data-variant attribute set by Button component
+      expect(logButton).toHaveAttribute("data-variant", "default");
+    });
+
+    it("'Edit Manually' uses ghost variant", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /edit manually/i })).toBeInTheDocument();
+      });
+
+      const editButton = screen.getByRole("button", { name: /edit manually/i });
+      // Check data-variant attribute set by Button component
+      expect(editButton).toHaveAttribute("data-variant", "ghost");
+    });
+
+    it("'Regenerate' uses ghost variant", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /regenerate/i })).toBeInTheDocument();
+      });
+
+      const regenerateButton = screen.getByRole("button", { name: /regenerate/i });
+      // Check data-variant attribute set by Button component
+      expect(regenerateButton).toHaveAttribute("data-variant", "ghost");
+    });
+  });
+
+  describe("state transition animations", () => {
+    it("applies animation class to analysis result container", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("analysis-result")).toBeInTheDocument();
+      });
+
+      // Check the container has animation class
+      const analysisContainer = screen.getByTestId("analysis-section");
+      expect(analysisContainer.className).toMatch(/animate-fade-in/);
+    });
+  });
+
+  describe("aria-live regions", () => {
+    it("has aria-live='polite' on error messages", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            error: { code: "CLAUDE_API_ERROR", message: "Failed to analyze" },
+          }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        const errorContainer = screen.getByTestId("analysis-result");
+        expect(errorContainer).toHaveAttribute("aria-live", "polite");
+      });
+    });
+
+    it("has aria-live='assertive' on loading state", async () => {
+      mockFetch.mockImplementationOnce(
+        () => new Promise((resolve) => setTimeout(resolve, 1000))
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        const loadingContainer = screen.getByTestId("analysis-result");
+        expect(loadingContainer).toHaveAttribute("aria-live", "assertive");
+      });
+    });
+
+    it("has aria-live='polite' on log error messages", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () =>
+            Promise.resolve({
+              success: false,
+              error: { code: "FITBIT_API_ERROR", message: "Failed to log" },
+            }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        const errorContainer = screen.getByTestId("log-error");
+        expect(errorContainer).toHaveAttribute("aria-live", "polite");
+      });
+    });
+  });
+
+  describe("focus management", () => {
+    it("moves focus to analysis result after analysis completes", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      // Focus should be on analysis section
+      await waitFor(() => {
+        const analysisSection = screen.getByTestId("analysis-section");
+        expect(analysisSection).toHaveFocus();
+      });
+    });
+
+    it("moves focus to confirmation after log succeeds", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      });
+
+      // Focus should be on confirmation wrapper (parent of food-log-confirmation)
+      await waitFor(() => {
+        const confirmationSection = screen.getByTestId("food-log-confirmation").parentElement;
+        expect(confirmationSection).toHaveFocus();
+      });
     });
   });
 });

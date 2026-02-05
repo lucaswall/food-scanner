@@ -2,12 +2,20 @@
 
 import type { FoodAnalysis } from "@/types";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { CheckCircle, AlertTriangle } from "lucide-react";
 
 interface AnalysisResultProps {
   analysis: FoodAnalysis | null;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  loadingStep?: string;
 }
 
 const confidenceColors = {
@@ -16,27 +24,43 @@ const confidenceColors = {
   low: "bg-red-500",
 } as const;
 
+const confidenceExplanations = {
+  high: "High confidence: Claude is certain about this analysis based on clear visual information.",
+  medium: "Medium confidence: The analysis is likely accurate but some details may need verification.",
+  low: "Low confidence: Claude is uncertain. Please verify the nutritional values before logging.",
+} as const;
+
 export function AnalysisResult({
   analysis,
   loading,
   error,
   onRetry,
+  loadingStep,
 }: AnalysisResultProps) {
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4">
+      <div
+        className="flex flex-col items-center justify-center py-8 space-y-4"
+        aria-live="assertive"
+        aria-busy="true"
+      >
         <div
           data-testid="loading-spinner"
           className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"
         />
-        <p className="text-sm text-gray-500">Analyzing your food...</p>
+        <p className="text-sm text-gray-500">
+          {loadingStep || "Analyzing your food..."}
+        </p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4">
+      <div
+        className="flex flex-col items-center justify-center py-8 space-y-4"
+        aria-live="polite"
+      >
         <p className="text-sm text-red-500">{error}</p>
         <Button onClick={onRetry} variant="outline">
           Retry
@@ -50,20 +74,46 @@ export function AnalysisResult({
   }
 
   return (
-    <div className="space-y-4 p-4 border rounded-lg">
+    <div className="space-y-4 p-4 border rounded-lg" aria-live="polite">
       {/* Header with food name and confidence */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">{analysis.food_name}</h3>
-        <div className="flex items-center gap-2">
-          <div
-            data-testid="confidence-indicator"
-            aria-label={`Confidence: ${analysis.confidence}`}
-            className={`w-3 h-3 rounded-full ${confidenceColors[analysis.confidence]}`}
-          />
-          <span className="text-sm text-gray-500 capitalize">
-            {analysis.confidence}
-          </span>
-        </div>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                data-testid="confidence-trigger"
+                className="flex items-center gap-2 cursor-help"
+              >
+                {analysis.confidence === "high" ? (
+                  <CheckCircle
+                    data-testid="confidence-icon-check"
+                    className="w-4 h-4 text-green-500"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <AlertTriangle
+                    data-testid="confidence-icon-alert"
+                    className={`w-4 h-4 ${analysis.confidence === "medium" ? "text-yellow-500" : "text-red-500"}`}
+                    aria-hidden="true"
+                  />
+                )}
+                <div
+                  data-testid="confidence-indicator"
+                  aria-label={`Confidence: ${analysis.confidence}`}
+                  className={`w-3 h-3 rounded-full ${confidenceColors[analysis.confidence]}`}
+                />
+                <span className="text-sm text-gray-500 capitalize">
+                  {analysis.confidence}
+                </span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              <p>{confidenceExplanations[analysis.confidence]}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
 
       {/* Portion size */}

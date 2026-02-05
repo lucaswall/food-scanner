@@ -107,4 +107,20 @@ describe("FoodLogConfirmation", () => {
     // Check for checkmark icon (via test id or aria-label)
     expect(screen.getByTestId("success-icon")).toBeInTheDocument();
   });
+
+  describe("aria-live region", () => {
+    it("has aria-live='assertive' on success message container", () => {
+      const onReset = vi.fn();
+      render(
+        <FoodLogConfirmation
+          response={mockResponse}
+          foodName="Test Food"
+          onReset={onReset}
+        />
+      );
+
+      const successContainer = screen.getByText(/logged successfully/i).closest("[aria-live]");
+      expect(successContainer).toHaveAttribute("aria-live", "assertive");
+    });
+  });
 });
