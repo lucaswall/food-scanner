@@ -14,3 +14,18 @@ import "@testing-library/jest-dom/vitest";
 
   terminate(): void {}
 };
+
+// Mock window.matchMedia for theme detection
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  value: (query: string) => ({
+    matches: query === "(prefers-color-scheme: dark)" ? false : false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }),
+});

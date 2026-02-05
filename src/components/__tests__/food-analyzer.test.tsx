@@ -1049,4 +1049,29 @@ describe("FoodAnalyzer", () => {
       expect(regenerateButton).toHaveAttribute("data-variant", "ghost");
     });
   });
+
+  describe("state transition animations", () => {
+    it("applies animation class to analysis result container", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("analysis-result")).toBeInTheDocument();
+      });
+
+      // Check the container has animation class
+      const analysisContainer = screen.getByTestId("analysis-section");
+      expect(analysisContainer.className).toMatch(/animate-fade-in/);
+    });
+  });
 });

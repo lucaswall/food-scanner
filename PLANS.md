@@ -651,3 +651,53 @@ No issues found - all implementations are correct and follow project conventions
 - FOO-75: Review → Merge
 
 <!-- REVIEW COMPLETE -->
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Task 12: Add photo preview zoom - Created Dialog component, PhotoPreviewDialog, made previews clickable
+- Task 13: Add dark mode toggle - Created useTheme hook, added appearance section to settings page
+- Task 14: Add state transition animations - Added CSS keyframes and animation classes to globals.css
+- Task 15: Cache session in settings page - Installed SWR, refactored settings page to use useSWR
+
+### Tasks Remaining
+- Task 16: Add portion size quick-select buttons
+- Task 17: Add aria-live regions for dynamic content
+- Task 18: Manage focus after actions
+- Task 19: Add accessible confidence indicator
+- Task 20: Add skip link for keyboard navigation
+
+### Files Modified
+- `src/components/ui/dialog.tsx` - Created new shadcn/ui Dialog component
+- `src/components/photo-preview-dialog.tsx` - Created new full-screen preview dialog
+- `src/components/photo-capture.tsx` - Made previews clickable, opens dialog on click
+- `src/hooks/use-theme.ts` - Created new theme management hook with hydration fix
+- `src/app/settings/page.tsx` - Added dark mode toggle, refactored to use SWR
+- `src/app/globals.css` - Added fade-in and slide-up animation keyframes
+- `src/components/food-analyzer.tsx` - Added animation class with key prop to analysis section
+- `src/components/food-log-confirmation.tsx` - Added slide-up animation
+- `src/test-setup.ts` - Added window.matchMedia mock for theme tests
+- `package.json` - Added SWR dependency
+
+### Tests Added/Modified
+- `src/components/__tests__/photo-capture.test.tsx` - Tests for preview zoom dialog
+- `src/hooks/__tests__/use-theme.test.ts` - Tests for theme hook
+- `src/app/settings/__tests__/page.test.tsx` - Tests for dark mode toggle and SWR caching
+- `src/components/__tests__/food-analyzer.test.tsx` - Tests for animation class
+
+### Linear Updates
+- FOO-76: Todo → In Progress → Review
+- FOO-77: Todo → In Progress → Review
+- FOO-78: Todo → In Progress → Review
+- FOO-79: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 medium bugs (animation key, stale preview index, hydration mismatch), all fixed
+- verifier: All 340 tests pass, zero type errors, 2 acceptable lint warnings (img element)
+
+### Continuation Status
+Context running low (~35% remaining). More tasks remain.

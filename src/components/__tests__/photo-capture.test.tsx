@@ -707,4 +707,84 @@ describe("PhotoCapture", () => {
       expect(screen.queryAllByRole("img")).toHaveLength(0);
     });
   });
+
+  describe("photo preview zoom", () => {
+    it("opens full-screen dialog when tapping preview", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      const files = [createMockFile("photo.jpg", "image/jpeg", 1000)];
+
+      fireEvent.change(galleryInput, { target: { files } });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
+
+      // Click on the preview image
+      const previewImage = screen.getByAltText("Preview 1");
+      fireEvent.click(previewImage);
+
+      // Should open a dialog with the full-screen image
+      await waitFor(() => {
+        expect(screen.getByRole("dialog")).toBeInTheDocument();
+      });
+    });
+
+    it("shows close button in full-screen dialog", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      const files = [createMockFile("photo.jpg", "image/jpeg", 1000)];
+
+      fireEvent.change(galleryInput, { target: { files } });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
+
+      // Click on the preview image
+      const previewImage = screen.getByAltText("Preview 1");
+      fireEvent.click(previewImage);
+
+      // Should show close button
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
+      });
+    });
+
+    it("closes dialog when clicking close button", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      const files = [createMockFile("photo.jpg", "image/jpeg", 1000)];
+
+      fireEvent.change(galleryInput, { target: { files } });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
+
+      // Click on the preview image
+      const previewImage = screen.getByAltText("Preview 1");
+      fireEvent.click(previewImage);
+
+      // Wait for dialog to open
+      await waitFor(() => {
+        expect(screen.getByRole("dialog")).toBeInTheDocument();
+      });
+
+      // Click close button
+      const closeButton = screen.getByRole("button", { name: /close/i });
+      fireEvent.click(closeButton);
+
+      // Dialog should be closed
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      });
+    });
+  });
 });

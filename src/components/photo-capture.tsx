@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { PhotoPreviewDialog } from "@/components/photo-preview-dialog";
 import { Camera, ImageIcon } from "lucide-react";
 import { isHeicFile, convertHeicToJpeg } from "@/lib/image";
 
@@ -39,6 +40,8 @@ export function PhotoCapture({
   const [error, setError] = useState<string | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
+  const [selectedPreviewIndex, setSelectedPreviewIndex] = useState<number | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -150,6 +153,8 @@ export function PhotoCapture({
     setError(null);
     onPhotosChange([]);
     setShowClearConfirm(false);
+    setPreviewDialogOpen(false);
+    setSelectedPreviewIndex(null);
 
     // Reset inputs
     if (cameraInputRef.current) {
@@ -166,6 +171,11 @@ export function PhotoCapture({
 
   const handleChooseFromGallery = () => {
     galleryInputRef.current?.click();
+  };
+
+  const handlePreviewClick = (index: number) => {
+    setSelectedPreviewIndex(index);
+    setPreviewDialogOpen(true);
   };
 
   return (
@@ -227,13 +237,19 @@ export function PhotoCapture({
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-2">
             {previews.map((preview, index) => (
-              <div key={`preview-${index}`} className="relative aspect-square">
+              <button
+                key={`preview-${index}`}
+                type="button"
+                className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
+                onClick={() => handlePreviewClick(index)}
+                aria-label={`View full-size preview ${index + 1}`}
+              >
                 <img
                   src={preview}
                   alt={`Preview ${index + 1}`}
                   className="w-full h-full object-cover rounded-md"
                 />
-              </div>
+              </button>
             ))}
           </div>
 
@@ -247,6 +263,13 @@ export function PhotoCapture({
           </Button>
         </div>
       )}
+
+      <PhotoPreviewDialog
+        open={previewDialogOpen}
+        onOpenChange={setPreviewDialogOpen}
+        imageUrl={selectedPreviewIndex !== null ? previews[selectedPreviewIndex] : null}
+        imageAlt={selectedPreviewIndex !== null ? `Preview ${selectedPreviewIndex + 1}` : undefined}
+      />
 
       <AlertDialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
         <AlertDialogContent>

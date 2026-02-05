@@ -253,23 +253,29 @@ export function FoodAnalyzer() {
       </Button>
 
       {/* Analysis result section */}
-      {!editMode ? (
-        <AnalysisResult
-          analysis={analysis}
-          loading={loading}
-          error={error}
-          onRetry={handleRetry}
-          loadingStep={loadingStep}
-        />
-      ) : (
-        currentAnalysis && (
-          <NutritionEditor
-            value={currentAnalysis}
-            onChange={setEditedAnalysis}
-            disabled={logging}
+      <div
+        data-testid="analysis-section"
+        className={analysis ? "animate-fade-in" : ""}
+        key={analysis ? `analysis-${analysis.food_name}-${analysis.calories}` : "no-analysis"}
+      >
+        {!editMode ? (
+          <AnalysisResult
+            analysis={analysis}
+            loading={loading}
+            error={error}
+            onRetry={handleRetry}
+            loadingStep={loadingStep}
           />
-        )
-      )}
+        ) : (
+          currentAnalysis && (
+            <NutritionEditor
+              value={currentAnalysis}
+              onChange={setEditedAnalysis}
+              disabled={logging}
+            />
+          )
+        )}
+      </div>
 
       {/* Post-analysis controls */}
       {analysis && !loading && (

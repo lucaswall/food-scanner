@@ -1,7 +1,9 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { useEffect, useState } from "react";
+import { useTheme } from "@/hooks/use-theme";
+import { Sun, Moon, Monitor } from "lucide-react";
+import useSWR from "swr";
 
 interface SessionInfo {
   email: string;
@@ -9,27 +11,27 @@ interface SessionInfo {
   expiresAt: number;
 }
 
-export default function SettingsPage() {
-  const [session, setSession] = useState<SessionInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
+async function fetchSession(): Promise<SessionInfo> {
+  const res = await fetch("/api/auth/session");
+  if (!res.ok) throw new Error("Failed to load session");
+  const data = await res.json();
+  if (!data.success) {
+    throw new Error(data.error?.message || "Failed to load session");
+  }
+  return data.data;
+}
 
-  useEffect(() => {
-    fetch("/api/auth/session")
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load session");
-        return res.json();
-      })
-      .then((data) => {
-        if (data.success) {
-          setSession(data.data);
-        } else {
-          throw new Error(data.error?.message || "Failed to load session");
-        }
-      })
-      .catch((err) => {
-        setError(err.message || "Failed to load session");
-      });
-  }, []);
+export default function SettingsPage() {
+  const { data: session, error } = useSWR<SessionInfo, Error>(
+    "/api/auth/session",
+    fetchSession,
+    {
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      dedupingInterval: 5000,
+    }
+  );
+  const { theme, setTheme } = useTheme();
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -43,7 +45,7 @@ export default function SettingsPage() {
 
         <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
           {error && (
-            <p className="text-sm text-red-500">{error}</p>
+            <p className="text-sm text-red-500">{error.message}</p>
           )}
           {session && (
             <div className="flex flex-col gap-1 text-sm">
@@ -76,6 +78,42 @@ export default function SettingsPage() {
           >
             Logout
           </Button>
+        </div>
+
+        <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
+          <h2 className="text-lg font-semibold">Appearance</h2>
+          <div className="flex gap-2">
+            <Button
+              variant={theme === "light" ? "default" : "outline"}
+              size="sm"
+              className="flex-1 min-h-[44px]"
+              onClick={() => setTheme("light")}
+              aria-label="Light"
+            >
+              <Sun className="mr-2 h-4 w-4" />
+              Light
+            </Button>
+            <Button
+              variant={theme === "dark" ? "default" : "outline"}
+              size="sm"
+              className="flex-1 min-h-[44px]"
+              onClick={() => setTheme("dark")}
+              aria-label="Dark"
+            >
+              <Moon className="mr-2 h-4 w-4" />
+              Dark
+            </Button>
+            <Button
+              variant={theme === "system" ? "default" : "outline"}
+              size="sm"
+              className="flex-1 min-h-[44px]"
+              onClick={() => setTheme("system")}
+              aria-label="System"
+            >
+              <Monitor className="mr-2 h-4 w-4" />
+              System
+            </Button>
+          </div>
         </div>
       </main>
     </div>
