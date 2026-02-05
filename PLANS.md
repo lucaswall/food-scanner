@@ -86,3 +86,26 @@
 - Browser behavior varies: some Android browsers may still show a picker even with capture attribute
 - iOS Safari handles capture attribute differently than Android Chrome
 - Testing hidden inputs requires triggering via refs/programmatic clicks
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Task 1: Separate camera capture from gallery selection in PhotoCapture - Replaced single file input with two hidden inputs (camera with `capture="environment"`, gallery without). Added "Take Photo" and "Choose from Gallery" buttons with Lucide icons. Both inputs share validation logic. Updated 18 tests.
+
+### Files Modified
+- `src/components/photo-capture.tsx` - Replaced single input with dual hidden inputs, added two action buttons, added Camera and ImageIcon from lucide-react
+- `src/components/__tests__/photo-capture.test.tsx` - Rewrote tests for new dual-input structure with comprehensive coverage
+
+### Linear Updates
+- FOO-32: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 medium bug (inconsistent accept attributes between camera/gallery inputs), fixed before proceeding
+- verifier: All 166 tests pass, zero TypeScript errors, 1 lint warning (acceptable: `<img>` for blob URLs)
+
+### Continuation Status
+All tasks completed.
