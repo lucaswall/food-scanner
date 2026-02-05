@@ -31,8 +31,14 @@ export async function exchangeGoogleCode(
   });
 
   if (!response.ok) {
+    let errorBody: unknown;
+    try {
+      errorBody = await response.json();
+    } catch {
+      errorBody = await response.text().catch(() => "unable to read body");
+    }
     logger.error(
-      { action: "google_token_exchange_failed", status: response.status },
+      { action: "google_token_exchange_failed", status: response.status, errorBody },
       "google token exchange http failure",
     );
     throw new Error(`Google token exchange failed: ${response.status}`);
@@ -52,8 +58,14 @@ export async function getGoogleProfile(
   );
 
   if (!response.ok) {
+    let errorBody: unknown;
+    try {
+      errorBody = await response.json();
+    } catch {
+      errorBody = await response.text().catch(() => "unable to read body");
+    }
     logger.error(
-      { action: "google_profile_fetch_failed", status: response.status },
+      { action: "google_profile_fetch_failed", status: response.status, errorBody },
       "google profile fetch http failure",
     );
     throw new Error(`Google profile fetch failed: ${response.status}`);

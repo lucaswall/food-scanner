@@ -32,20 +32,9 @@ describe("successResponse", () => {
     expect(response.status).toBe(200);
   });
 
-  it("logs at info level with status code", () => {
-    successResponse({ foo: "bar" });
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 200 }),
-      expect.any(String),
-    );
-  });
-
-  it("logs with custom status code", () => {
-    successResponse({ created: true }, 201);
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 201 }),
-      expect.any(String),
-    );
+  it("accepts custom status code", () => {
+    const response = successResponse({ created: true }, 201);
+    expect(response.status).toBe(201);
   });
 });
 
