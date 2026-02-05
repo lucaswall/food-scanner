@@ -451,13 +451,110 @@ describe("PhotoCapture", () => {
         expect(screen.getAllByRole("img")).toHaveLength(2);
       });
 
+      // Click clear button - with 2+ photos, shows confirmation
+      const clearButton = screen.getByRole("button", { name: /clear/i });
+      fireEvent.click(clearButton);
+
+      // Confirm the clear action
+      await waitFor(() => {
+        const confirmButton = screen.getByRole("button", { name: /confirm/i });
+        fireEvent.click(confirmButton);
+      });
+
+      // Should have no previews
+      await waitFor(() => {
+        expect(screen.queryAllByRole("img")).toHaveLength(0);
+      });
+      expect(onPhotosChange).toHaveBeenLastCalledWith([]);
+    });
+
+    it("clears immediately with 1 photo (no confirmation)", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const cameraInput = screen.getByTestId("camera-input");
+
+      // Add just 1 photo
+      fireEvent.change(cameraInput, {
+        target: { files: [createMockFile("camera.jpg", "image/jpeg", 1000)] },
+      });
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
+
+      // Click clear button - with 1 photo, clears immediately
+      const clearButton = screen.getByRole("button", { name: /clear/i });
+      fireEvent.click(clearButton);
+
+      // Should clear immediately without confirmation
+      await waitFor(() => {
+        expect(screen.queryAllByRole("img")).toHaveLength(0);
+      });
+      expect(onPhotosChange).toHaveBeenLastCalledWith([]);
+    });
+
+    it("shows confirmation dialog with 2+ photos", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      // Add 2 photos at once
+      fireEvent.change(galleryInput, {
+        target: {
+          files: [
+            createMockFile("photo1.jpg", "image/jpeg", 1000),
+            createMockFile("photo2.jpg", "image/jpeg", 1000),
+          ],
+        },
+      });
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(2);
+      });
+
       // Click clear button
       const clearButton = screen.getByRole("button", { name: /clear/i });
       fireEvent.click(clearButton);
 
-      // Should have no previews
-      expect(screen.queryAllByRole("img")).toHaveLength(0);
-      expect(onPhotosChange).toHaveBeenLastCalledWith([]);
+      // Should show confirmation dialog
+      await waitFor(() => {
+        expect(screen.getByText(/clear all photos/i)).toBeInTheDocument();
+      });
+    });
+
+    it("canceling confirmation keeps photos", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      // Add 2 photos
+      fireEvent.change(galleryInput, {
+        target: {
+          files: [
+            createMockFile("photo1.jpg", "image/jpeg", 1000),
+            createMockFile("photo2.jpg", "image/jpeg", 1000),
+          ],
+        },
+      });
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(2);
+      });
+
+      // Click clear button
+      const clearButton = screen.getByRole("button", { name: /clear/i });
+      fireEvent.click(clearButton);
+
+      // Cancel the clear action
+      await waitFor(() => {
+        const cancelButton = screen.getByRole("button", { name: /cancel/i });
+        fireEvent.click(cancelButton);
+      });
+
+      // Photos should still be there
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(2);
+      });
     });
   });
 

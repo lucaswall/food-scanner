@@ -2,6 +2,16 @@
 
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Camera, ImageIcon } from "lucide-react";
 import { isHeicFile, convertHeicToJpeg } from "@/lib/image";
 
@@ -28,6 +38,7 @@ export function PhotoCapture({
   const [photos, setPhotos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -120,7 +131,17 @@ export function PhotoCapture({
     }
   };
 
-  const handleClear = () => {
+  const handleClearClick = () => {
+    // If 2+ photos, show confirmation dialog
+    if (photos.length >= 2) {
+      setShowClearConfirm(true);
+    } else {
+      // 1 photo or less, clear immediately
+      doClear();
+    }
+  };
+
+  const doClear = () => {
     // Revoke all preview URLs
     previews.forEach((url) => URL.revokeObjectURL(url));
 
@@ -128,6 +149,7 @@ export function PhotoCapture({
     setPreviews([]);
     setError(null);
     onPhotosChange([]);
+    setShowClearConfirm(false);
 
     // Reset inputs
     if (cameraInputRef.current) {
@@ -218,13 +240,28 @@ export function PhotoCapture({
           <Button
             type="button"
             variant="outline"
-            onClick={handleClear}
+            onClick={handleClearClick}
             className="w-full"
           >
             Clear All
           </Button>
         </div>
       )}
+
+      <AlertDialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear all photos?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove all {photos.length} selected photos. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={doClear}>Confirm</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

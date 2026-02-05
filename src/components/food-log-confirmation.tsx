@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect } from "react";
 import type { FoodLogResponse } from "@/types";
 import { Button } from "@/components/ui/button";
 import { CheckCircle } from "lucide-react";
+import { vibrateSuccess } from "@/lib/haptics";
 
 interface FoodLogConfirmationProps {
   response: FoodLogResponse | null;
@@ -15,6 +17,13 @@ export function FoodLogConfirmation({
   foodName,
   onReset,
 }: FoodLogConfirmationProps) {
+  // Trigger haptic feedback on mount
+  useEffect(() => {
+    if (response) {
+      vibrateSuccess();
+    }
+  }, [response]);
+
   if (!response) {
     return null;
   }

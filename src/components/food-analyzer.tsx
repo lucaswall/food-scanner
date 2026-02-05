@@ -8,7 +8,19 @@ import { MealTypeSelector } from "./meal-type-selector";
 import { NutritionEditor } from "./nutrition-editor";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { compressImage } from "@/lib/image";
+import { vibrateError } from "@/lib/haptics";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { FoodAnalysis, FoodLogResponse } from "@/types";
 
 function getDefaultMealType(): number {
@@ -26,6 +38,7 @@ export function FoodAnalyzer() {
   const [description, setDescription] = useState("");
   const [analysis, setAnalysis] = useState<FoodAnalysis | null>(null);
   const [editedAnalysis, setEditedAnalysis] = useState<FoodAnalysis | null>(null);
+  const [compressing, setCompressing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -33,8 +46,12 @@ export function FoodAnalyzer() {
   const [logging, setLogging] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
 
   const currentAnalysis = editedAnalysis || analysis;
+  const hasEdits = editedAnalysis !== null;
+  const canAnalyze = photos.length > 0 && !compressing && !loading && !logging;
+  const canLog = analysis !== null && !loading && !logging;
 
   const handlePhotosChange = (files: File[]) => {
     setPhotos(files);
@@ -56,13 +73,16 @@ export function FoodAnalyzer() {
   const handleAnalyze = async () => {
     if (photos.length === 0) return;
 
-    setLoading(true);
+    setCompressing(true);
     setError(null);
     setLogError(null);
 
     try {
       // Compress all images
       const compressedBlobs = await Promise.all(photos.map(compressImage));
+
+      setCompressing(false);
+      setLoading(true);
 
       // Create FormData
       const formData = new FormData();
@@ -83,6 +103,7 @@ export function FoodAnalyzer() {
 
       if (!response.ok || !result.success) {
         setError(result.error?.message || "Failed to analyze food");
+        vibrateError();
         return;
       }
 
@@ -91,12 +112,27 @@ export function FoodAnalyzer() {
       setEditMode(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      vibrateError();
     } finally {
+      setCompressing(false);
       setLoading(false);
     }
   };
 
   const handleRetry = () => {
+    handleAnalyze();
+  };
+
+  const handleRegenerateClick = () => {
+    if (hasEdits) {
+      setShowRegenerateConfirm(true);
+    } else {
+      handleAnalyze();
+    }
+  };
+
+  const handleConfirmRegenerate = () => {
+    setShowRegenerateConfirm(false);
     handleAnalyze();
   };
 
@@ -125,12 +161,15 @@ export function FoodAnalyzer() {
         } else {
           setLogError(result.error?.message || "Failed to log food to Fitbit");
         }
+        vibrateError();
         return;
       }
 
       setLogResponse(result.data);
+      // Note: vibrateSuccess() is called in FoodLogConfirmation on mount
     } catch (err) {
       setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      vibrateError();
     } finally {
       setLogging(false);
     }
@@ -150,6 +189,22 @@ export function FoodAnalyzer() {
     }
     setEditMode(!editMode);
   };
+
+  const handleExitEditMode = () => {
+    if (editMode) {
+      setEditMode(false);
+    }
+  };
+
+  // Register keyboard shortcuts
+  useKeyboardShortcuts({
+    onAnalyze: handleAnalyze,
+    onLogToFitbit: handleLogToFitbit,
+    onExitEditMode: handleExitEditMode,
+    canAnalyze,
+    canLog,
+    isEditing: editMode,
+  });
 
   // Show confirmation if logged successfully
   if (logResponse) {
@@ -172,10 +227,10 @@ export function FoodAnalyzer() {
 
       <Button
         onClick={handleAnalyze}
-        disabled={photos.length === 0 || loading || logging}
+        disabled={photos.length === 0 || compressing || loading || logging}
         className="w-full min-h-[44px]"
       >
-        {loading ? "Analyzing..." : "Analyze Food"}
+        {compressing ? "Preparing images..." : loading ? "Analyzing..." : "Analyze Food"}
       </Button>
 
       {/* Analysis result section */}
@@ -210,7 +265,7 @@ export function FoodAnalyzer() {
               {editMode ? "Done Editing" : "Edit Manually"}
             </Button>
             <Button
-              onClick={handleAnalyze}
+              onClick={handleRegenerateClick}
               variant="outline"
               className="flex-1 min-h-[44px]"
               disabled={logging}
@@ -254,6 +309,21 @@ export function FoodAnalyzer() {
           </Button>
         </div>
       )}
+
+      <AlertDialog open={showRegenerateConfirm} onOpenChange={setShowRegenerateConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard your edits?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Regenerating will discard your manual edits and create a new analysis from AI.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmRegenerate}>Confirm</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

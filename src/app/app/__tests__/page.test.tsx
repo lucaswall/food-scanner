@@ -36,4 +36,19 @@ describe("/app page", () => {
     expect(link).toBeInTheDocument();
     expect(link).toHaveAttribute("href", "/settings");
   });
+
+  it("settings button has proper aria-label", async () => {
+    const jsx = await AppPage();
+    render(jsx);
+    const button = screen.getByRole("link", { name: /settings/i });
+    expect(button).toHaveAttribute("aria-label", "Settings");
+  });
+
+  it("settings button meets 44px touch target", async () => {
+    const jsx = await AppPage();
+    render(jsx);
+    const button = screen.getByRole("link", { name: /settings/i });
+    expect(button).toHaveClass("min-h-[44px]");
+    expect(button).toHaveClass("min-w-[44px]");
+  });
 });
