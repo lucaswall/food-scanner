@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Camera, ImageIcon } from "lucide-react";
+import { isHeicFile, convertHeicToJpeg } from "@/lib/image";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = [
@@ -48,7 +49,7 @@ export function PhotoCapture({
     return null;
   };
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = event.target.files;
     if (!fileList || fileList.length === 0) return;
 
@@ -76,10 +77,32 @@ export function PhotoCapture({
     // Combine with existing photos, respecting the limit
     const combinedPhotos = [...photos, ...newFiles].slice(0, maxPhotos);
 
-    // Create preview URLs for new photos
-    const newPreviews = combinedPhotos.map((file) =>
-      URL.createObjectURL(file)
-    );
+    // Convert HEIC files to JPEG for preview (browsers can't display HEIC natively)
+    // Original files are preserved for upload (conversion happens again in FoodAnalyzer)
+    let previewBlobs: (File | Blob)[];
+    try {
+      const previewBlobPromises = combinedPhotos.map(async (file) => {
+        if (isHeicFile(file)) {
+          return convertHeicToJpeg(file);
+        }
+        return file;
+      });
+
+      previewBlobs = await Promise.all(previewBlobPromises);
+    } catch {
+      setError("Failed to process HEIC image. Please try a different photo.");
+      // Reset inputs
+      if (cameraInputRef.current) {
+        cameraInputRef.current.value = "";
+      }
+      if (galleryInputRef.current) {
+        galleryInputRef.current.value = "";
+      }
+      return;
+    }
+
+    // Create preview URLs from (potentially converted) blobs
+    const newPreviews = previewBlobs.map((blob) => URL.createObjectURL(blob));
 
     // Revoke old preview URLs to prevent memory leaks
     previews.forEach((url) => URL.revokeObjectURL(url));
