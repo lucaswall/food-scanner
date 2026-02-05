@@ -157,6 +157,7 @@ export async function POST(request: Request) {
       accessToken,
       foodId,
       body.mealTypeId,
+      body.portion_size_g,
       date,
       body.time
     );

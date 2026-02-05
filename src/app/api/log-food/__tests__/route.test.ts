@@ -306,6 +306,7 @@ describe("POST /api/log-food", () => {
       "fresh-token",
       123,
       1,
+      100, // portion_size_g from validFoodLogRequest
       "2024-01-15",
       undefined
     );
@@ -330,6 +331,7 @@ describe("POST /api/log-food", () => {
       "fresh-token",
       123,
       1,
+      100, // portion_size_g from validFoodLogRequest
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       undefined
     );
@@ -406,6 +408,7 @@ describe("POST /api/log-food", () => {
       "fresh-token",
       123,
       1,
+      100, // portion_size_g from validFoodLogRequest
       "2024-01-15",
       "12:30:00"
     );

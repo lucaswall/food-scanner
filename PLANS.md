@@ -207,3 +207,33 @@ Update route tests to verify `logFood` is called with `portion_size_g`.
 - Only `logFood` needs to be fixed to log the correct amount
 - The fix is backward compatible - no API changes to clients
 - The comment `// 1 serving` was misleading - it's actually 1 gram
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Step 1-6: Full TDD fix for logFood amount parameter
+  - Added failing test verifying `amount=250` is sent to Fitbit API
+  - Added `amount: number` parameter to `logFood` function signature
+  - Updated `logFood` implementation to use `amount.toString()` instead of hardcoded `"1"`
+  - Updated `log-food/route.ts` to pass `body.portion_size_g` to `logFood`
+  - Updated all existing tests to include the new `amount` parameter
+
+### Files Modified
+- `src/lib/fitbit.ts` - Added `amount` parameter to `logFood`, use it instead of hardcoded "1"
+- `src/app/api/log-food/route.ts` - Pass `body.portion_size_g` to `logFood`
+- `src/lib/__tests__/fitbit.test.ts` - Updated tests for new `logFood` signature
+- `src/app/api/log-food/__tests__/route.test.ts` - Updated mock expectations to verify correct amount
+
+### Linear Updates
+- FOO-59: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 medium (defensive validation for amount), 1 low (float precision) - both acceptable since route validation already checks `portion_size_g > 0`
+- verifier: All 266 tests pass, zero errors, build passes
+
+### Continuation Status
+All tasks completed.

@@ -118,11 +118,12 @@ export async function logFood(
   accessToken: string,
   foodId: number,
   mealTypeId: number,
+  amount: number,
   date: string,
   time?: string,
 ): Promise<LogFoodResponse> {
   logger.debug(
-    { action: "fitbit_log_food", foodId, mealTypeId, date },
+    { action: "fitbit_log_food", foodId, mealTypeId, amount, date },
     "logging food",
   );
 
@@ -130,7 +131,7 @@ export async function logFood(
     foodId: foodId.toString(),
     mealTypeId: mealTypeId.toString(),
     unitId: "147", // gram
-    amount: "1", // 1 serving
+    amount: amount.toString(),
     date,
   });
 
