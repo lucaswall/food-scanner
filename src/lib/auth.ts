@@ -32,7 +32,7 @@ export async function exchangeGoogleCode(
 
   if (!response.ok) {
     logger.error(
-      { action: "google_token_exchange_failed", status: response.status },
+      { action: "google_token_exchange_failed", status: response.status, statusText: response.statusText },
       "google token exchange http failure",
     );
     throw new Error(`Google token exchange failed: ${response.status}`);
@@ -52,8 +52,15 @@ export async function getGoogleProfile(
   );
 
   if (!response.ok) {
+    const bodyText = await response.text().catch(() => "unable to read body");
+    let errorBody: unknown;
+    try {
+      errorBody = JSON.parse(bodyText);
+    } catch {
+      errorBody = bodyText;
+    }
     logger.error(
-      { action: "google_profile_fetch_failed", status: response.status },
+      { action: "google_profile_fetch_failed", status: response.status, errorBody },
       "google profile fetch http failure",
     );
     throw new Error(`Google profile fetch failed: ${response.status}`);

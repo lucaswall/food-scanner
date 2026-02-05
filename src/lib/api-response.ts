@@ -2,8 +2,6 @@ import type { ErrorCode } from "@/types";
 import { logger } from "@/lib/logger";
 
 export function successResponse<T>(data: T, status = 200): Response {
-  logger.info({ status }, "api response success");
-
   return Response.json(
     {
       success: true,
