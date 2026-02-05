@@ -708,6 +708,285 @@ describe("PhotoCapture", () => {
     });
   });
 
+  describe("processing state", () => {
+    it("shows loading placeholder immediately when selecting HEIC file", async () => {
+      const onPhotosChange = vi.fn();
+      // Make convertHeicToJpeg not resolve immediately - use a deferred promise
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      // Placeholder should appear before conversion completes
+      await waitFor(() => {
+        expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
+      });
+
+      // Now resolve the conversion
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+
+      // After conversion, placeholder should be gone and preview should appear
+      await waitFor(() => {
+        expect(screen.queryByTestId("processing-placeholder")).not.toBeInTheDocument();
+        expect(screen.getByAltText("Preview 1")).toBeInTheDocument();
+      });
+    });
+
+    it("shows spinner inside loading placeholder", async () => {
+      const onPhotosChange = vi.fn();
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      // Placeholder should contain a spinner
+      await waitFor(() => {
+        const placeholder = screen.getByTestId("processing-placeholder");
+        expect(placeholder.querySelector(".animate-spin")).toBeInTheDocument();
+      });
+
+      // Cleanup
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+    });
+
+    it("replaces loading placeholder with actual preview when conversion completes", async () => {
+      const onPhotosChange = vi.fn();
+      const convertedBlob = new Blob(["converted"], { type: "image/jpeg" });
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+      mockCreateObjectURL.mockImplementation(() => "blob:converted-heic");
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      // Placeholder visible during processing
+      await waitFor(() => {
+        expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
+      });
+
+      // Resolve conversion
+      resolveConversion!(convertedBlob);
+
+      // Placeholder gone, actual preview visible
+      await waitFor(() => {
+        expect(screen.queryByTestId("processing-placeholder")).not.toBeInTheDocument();
+        const preview = screen.getByAltText("Preview 1");
+        expect(preview).toBeInTheDocument();
+        expect(preview).toHaveAttribute("src", "blob:converted-heic");
+      });
+    });
+
+    it("shows correct number of placeholders for multiple files", async () => {
+      const onPhotosChange = vi.fn();
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile1 = createMockFile("photo1.heic", "image/heic", 1000);
+      const heicFile2 = createMockFile("photo2.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile1, heicFile2] } });
+
+      // Should show 2 placeholders
+      await waitFor(() => {
+        const placeholders = screen.getAllByTestId("processing-placeholder");
+        expect(placeholders).toHaveLength(2);
+      });
+
+      // Cleanup
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+    });
+
+    it("shows placeholders for all new files during processing (HEIC + JPEG)", async () => {
+      const onPhotosChange = vi.fn();
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const jpegFile = createMockFile("photo.jpg", "image/jpeg", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile, jpegFile] } });
+
+      // All new files show placeholders during async processing (Promise.all waits for all)
+      await waitFor(() => {
+        const placeholders = screen.getAllByTestId("processing-placeholder");
+        expect(placeholders).toHaveLength(2);
+      });
+
+      // Cleanup
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+    });
+
+    it("loading placeholder has proper accessibility attributes", async () => {
+      const onPhotosChange = vi.fn();
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      // Verify accessibility attributes
+      await waitFor(() => {
+        const placeholder = screen.getByTestId("processing-placeholder");
+        expect(placeholder).toHaveAttribute("aria-busy", "true");
+        expect(placeholder).toHaveAttribute("aria-label", "Processing photo");
+      });
+
+      // Cleanup
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+    });
+
+    it("shows correct placeholder count when adding to existing photos", async () => {
+      const onPhotosChange = vi.fn();
+      mockIsHeicFile.mockReturnValue(false);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
+
+      // First, add a JPEG (no processing delay needed)
+      const jpegFile = createMockFile("existing.jpg", "image/jpeg", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, { target: { files: [jpegFile] } });
+
+      await waitFor(() => {
+        expect(screen.getByAltText("Preview 1")).toBeInTheDocument();
+      });
+
+      // Now set up a slow HEIC conversion
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      // Add a HEIC file
+      const heicFile = createMockFile("new.heic", "image/heic", 1000);
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      // Should show only 1 placeholder (for the new file), not 2
+      await waitFor(() => {
+        const placeholders = screen.getAllByTestId("processing-placeholder");
+        expect(placeholders).toHaveLength(1);
+      });
+
+      // Existing preview should still be there
+      expect(screen.getByAltText("Preview 1")).toBeInTheDocument();
+
+      // Cleanup
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+    });
+
+    it("ignores new selections while processing to prevent race conditions", async () => {
+      const onPhotosChange = vi.fn();
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
+
+      const heicFile = createMockFile("first.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      // Start processing first file
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
+      });
+
+      // Try to add another file while processing
+      const secondFile = createMockFile("second.jpg", "image/jpeg", 1000);
+      fireEvent.change(galleryInput, { target: { files: [secondFile] } });
+
+      // Should still only have 1 placeholder (second selection was ignored)
+      const placeholders = screen.getAllByTestId("processing-placeholder");
+      expect(placeholders).toHaveLength(1);
+
+      // Complete the first conversion
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+
+      // After processing completes, should have only the first file
+      await waitFor(() => {
+        expect(screen.queryByTestId("processing-placeholder")).not.toBeInTheDocument();
+        expect(screen.getByAltText("Preview 1")).toBeInTheDocument();
+      });
+
+      // onPhotosChange should only have been called with the first file
+      expect(onPhotosChange).toHaveBeenLastCalledWith([heicFile]);
+    });
+
+    it("clears processing count on HEIC conversion error", async () => {
+      const onPhotosChange = vi.fn();
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockRejectedValue(new Error("Conversion failed"));
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      // Wait for error to be displayed
+      await waitFor(() => {
+        expect(screen.getByText(/failed to process heic/i)).toBeInTheDocument();
+      });
+
+      // Placeholder should be cleared after error
+      expect(screen.queryByTestId("processing-placeholder")).not.toBeInTheDocument();
+    });
+  });
+
   describe("photo preview zoom", () => {
     it("opens full-screen dialog when tapping preview", async () => {
       const onPhotosChange = vi.fn();

@@ -42,6 +42,7 @@ export function PhotoCapture({
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
   const [selectedPreviewIndex, setSelectedPreviewIndex] = useState<number | null>(null);
+  const [processingCount, setProcessingCount] = useState(0);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
@@ -67,6 +68,13 @@ export function PhotoCapture({
     const fileList = event.target.files;
     if (!fileList || fileList.length === 0) return;
 
+    // Ignore new selections while processing (prevent race conditions)
+    if (processingCount > 0) {
+      // Reset input so user can try again after processing completes
+      event.target.value = "";
+      return;
+    }
+
     const newFiles = Array.from(fileList);
 
     // Validate each file
@@ -91,6 +99,10 @@ export function PhotoCapture({
     // Combine with existing photos, respecting the limit
     const combinedPhotos = [...photos, ...newFiles].slice(0, maxPhotos);
 
+    // Show processing placeholders only for newly added files
+    const actualNewCount = combinedPhotos.length - photos.length;
+    setProcessingCount(actualNewCount);
+
     // Convert HEIC files to JPEG for preview (browsers can't display HEIC natively)
     // Original files are preserved for upload (conversion happens again in FoodAnalyzer)
     let previewBlobs: (File | Blob)[];
@@ -105,6 +117,7 @@ export function PhotoCapture({
       previewBlobs = await Promise.all(previewBlobPromises);
     } catch {
       setError("Failed to process HEIC image. Please try a different photo.");
+      setProcessingCount(0);
       // Reset inputs
       if (cameraInputRef.current) {
         cameraInputRef.current.value = "";
@@ -121,6 +134,7 @@ export function PhotoCapture({
     // Revoke old preview URLs to prevent memory leaks
     previews.forEach((url) => URL.revokeObjectURL(url));
 
+    setProcessingCount(0);
     setPhotos(combinedPhotos);
     setPreviews(newPreviews);
     onPhotosChange(combinedPhotos);
@@ -231,6 +245,23 @@ export function PhotoCapture({
         <p className="text-sm text-red-500" role="alert">
           {error}
         </p>
+      )}
+
+      {/* Processing placeholders */}
+      {processingCount > 0 && (
+        <div className="grid grid-cols-3 gap-2">
+          {Array.from({ length: processingCount }).map((_, index) => (
+            <div
+              key={`processing-${index}`}
+              data-testid="processing-placeholder"
+              className="relative aspect-square rounded-md bg-muted flex items-center justify-center"
+              aria-busy="true"
+              aria-label="Processing photo"
+            >
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+            </div>
+          ))}
+        </div>
       )}
 
       {previews.length > 0 && (

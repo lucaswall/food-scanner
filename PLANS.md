@@ -1,291 +1,134 @@
-# Fix Plan: HEIC Distortion + Backlog Bugs
+# Implementation Plan
 
-**Date:** 2026-02-05
-**Status:** Planning
-**Branch:** fix/FOO-87-heic-distortion-and-backlog-bugs (proposed)
+**Created:** 2026-02-05
+**Source:** Inline request: Add loading indicator during HEIC photo processing
+**Linear Issues:** [FOO-88](https://linear.app/lw-claude/issue/FOO-88/add-loading-indicator-during-heic-photo-processing)
 
-## Overview
+## Context Gathered
 
-This plan addresses three bugs:
-1. **HEIC Image Distortion** (new) - Photos selected from phone in HEIC format display as distorted/corrupted images
-2. **FOO-85** - Food Scanner screen always displays in light mode regardless of theme setting
-3. **FOO-86** - No way to return to Food Scanner from Settings page
+### Codebase Analysis
+- **Related files:**
+  - `src/components/photo-capture.tsx` - Main component handling photo selection and HEIC conversion
+  - `src/components/__tests__/photo-capture.test.tsx` - Existing tests (791 lines, comprehensive coverage)
+  - `src/lib/image.ts` - HEIC conversion via `convertHeicToJpeg()` using heic-to library
+  - `src/components/analysis-result.tsx` - Has existing spinner pattern to follow
+
+- **Existing patterns:**
+  - Spinner: `w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin` (analysis-result.tsx:49)
+  - Preview grid: `grid grid-cols-3 gap-2` with `aspect-square` items (photo-capture.tsx:238)
+  - Error handling: `setError()` with role="alert" (photo-capture.tsx:230-234)
+
+- **Test conventions:**
+  - Mock `isHeicFile` and `convertHeicToJpeg` from `@/lib/image`
+  - Use `waitFor()` for async operations
+  - Use `screen.getByTestId()` for loading states
+
+### Root Cause
+In `handleFileChange` (photo-capture.tsx:66-135):
+1. Validation runs synchronously (lines 73-86)
+2. HEIC conversion runs asynchronously (lines 97-105)
+3. Previews only appear after `Promise.all()` resolves (lines 118-126)
+
+During step 2, which can take several seconds for large HEIC files, there's no visual feedback.
 
 ---
 
-## Task 1: Fix HEIC Image Distortion
+## Original Plan
 
-**Linear Issue:** [FOO-87](https://linear.app/lw-claude/issue/FOO-87)
+### Task 1: Add loading state for photo processing
+**Linear Issue:** [FOO-88](https://linear.app/lw-claude/issue/FOO-88/add-loading-indicator-during-heic-photo-processing)
 
-### Bug Report
-Photos selected from phone in HEIC format get corrupted and display as very distorted images. When submitted, Claude receives these distorted images and food recognition degrades significantly.
-
-### Classification
-- **Type:** Integration
-- **Severity:** High
-- **Affected Area:** `src/lib/image.ts`, `src/components/photo-capture.tsx`
-
-### Root Cause Analysis
-
-The app uses `heic2any@0.0.4` (published April 2023) which bundles an outdated version of `libheif`. A [known GitHub issue #16](https://github.com/alexcorvi/heic2any/issues/16) documents "Slant Image after converting" which produces distorted, skewed images for certain HEIC files.
-
-#### Evidence
-- **File:** `src/lib/image.ts:33-36` - Uses heic2any without quality parameter
-- **File:** `package.json` - heic2any@0.0.4 (outdated, last published April 2023)
-- **Documentation:** heic2any explicitly states "Library doesn't take any metadata from the original file" - this breaks orientation handling
-
-#### Related Code
-```typescript
-// Current code in src/lib/image.ts
-const result = await heic2any({
-  blob: file,
-  toType: "image/jpeg",
-  // quality is NOT specified
-});
-```
-
-### Impact
-- HEIC photos (default iPhone format) appear distorted in previews and analysis
-- Claude receives corrupted images, degrading food recognition accuracy
-- Users must take photos in JPEG format or use a different phone
-
-### Fix Plan (TDD Approach)
-
-#### Step 1: Write Failing Test
-- **File:** `src/lib/__tests__/image.test.ts`
-- **Test:** Verify heic-to library is called with correct parameters
+#### Step 1: Write failing tests
+- **File:** `src/components/__tests__/photo-capture.test.tsx`
+- Add new describe block "processing state"
 
 ```typescript
-it("converts HEIC file using heic-to with quality parameter", async () => {
-  // Mock heic-to instead of heic2any
-  // Verify quality: 1 is passed for maximum quality
-  // Verify type: "image/jpeg" is passed
-});
-```
-
-#### Step 2: Implement Fix
-- **File:** `package.json` - Replace heic2any with heic-to
-- **File:** `src/lib/image.ts` - Update convertHeicToJpeg to use heic-to
-
-```bash
-npm uninstall heic2any && npm install heic-to
-```
-
-```typescript
-// New code in src/lib/image.ts
-export async function convertHeicToJpeg(file: File): Promise<Blob> {
-  const heicTo = (await import("heic-to")).default;
-
-  const result = await heicTo({
-    blob: file,
-    type: "image/jpeg",
-    quality: 1, // Maximum quality to preserve image fidelity
+describe("processing state", () => {
+  it("shows loading placeholder immediately when selecting HEIC file", async () => {
+    // Setup: make convertHeicToJpeg take time (don't resolve immediately)
+    // Select HEIC file
+    // Verify loading placeholder appears before conversion completes
   });
 
-  return result;
-}
-```
+  it("shows spinner inside loading placeholder", async () => {
+    // Verify the placeholder contains an animated spinner element
+  });
 
-#### Step 3: Verify
-- [ ] Failing test now passes
-- [ ] Existing HEIC tests still pass (update mocks)
-- [ ] TypeScript compiles without errors
-- [ ] Lint passes
-- [ ] Manual verification with actual HEIC photos from iPhone
+  it("replaces loading placeholder with actual preview when conversion completes", async () => {
+    // Verify spinner disappears and real preview appears
+  });
 
-#### Step 4: Additional Tests
-- [ ] Test heic-to returns single blob (not array like heic2any)
-- [ ] Test error propagation when conversion fails
+  it("shows correct number of placeholders for multiple files", async () => {
+    // Select 2 HEIC files, verify 2 placeholders appear
+  });
 
----
+  it("shows mix of placeholders and previews for HEIC + JPEG selection", async () => {
+    // Select 1 HEIC + 1 JPEG, verify JPEG shows immediately, HEIC shows placeholder
+  });
 
-## Task 2: Fix Theme Not Applied on Food Scanner Page
-
-**Linear Issue:** [FOO-85](https://linear.app/lw-claude/issue/FOO-85)
-
-### Bug Report
-When opening the app, the Food Scanner page is not respecting the theme setting and always displays in light mode.
-
-### Classification
-- **Type:** Frontend Bug
-- **Severity:** Urgent
-- **Affected Area:** `src/app/layout.tsx`, `src/hooks/use-theme.ts`
-
-### Root Cause Analysis
-
-The `useTheme` hook applies the theme class to `document.documentElement`, but this only happens when a component using `useTheme` mounts. The main `/app/page.tsx` is a Server Component that doesn't use `useTheme`, and no client component at the layout level initializes the theme on page load.
-
-#### Evidence
-- **File:** `src/app/layout.tsx:43-44` - `<html>` element has no theme class
-- **File:** `src/app/app/page.tsx:8` - Server Component, doesn't use `useTheme`
-- **File:** `src/hooks/use-theme.ts:26-33` - Only applies theme when hook is called
-
-#### Related Code
-```typescript
-// src/app/layout.tsx - no theme initialization
-<html lang="en">
-  <body>...</body>
-</html>
-```
-
-### Impact
-- Users see light mode on initial load even with dark preference
-- Flash of wrong theme when navigating from settings to app
-- Poor UX for users who prefer dark mode
-
-### Fix Plan (TDD Approach)
-
-#### Step 1: Write Failing Test
-- **File:** `src/app/__tests__/layout.test.tsx` (new)
-- **Test:** Verify ThemeProvider is rendered
-
-```typescript
-it("renders ThemeProvider in layout", async () => {
-  render(<RootLayout><div>test</div></RootLayout>);
-  // ThemeProvider should initialize theme on mount
+  it("loading placeholder has proper accessibility attributes", async () => {
+    // Verify aria-busy="true" and aria-label on processing container
+  });
 });
 ```
 
-#### Step 2: Implement Fix
-- **File:** `src/components/theme-provider.tsx` - Create new ThemeProvider component
-- **File:** `src/app/layout.tsx` - Wrap children in ThemeProvider
-- **File:** `src/app/layout.tsx` - Add script to apply theme before hydration (prevent flash)
+#### Step 2: Run verifier (expect fail)
 
+#### Step 3: Implement loading state
+- **File:** `src/components/photo-capture.tsx`
+
+**Add new state variables:**
 ```typescript
-// src/components/theme-provider.tsx
-"use client";
+const [processingCount, setProcessingCount] = useState(0);
+```
 
-import { useEffect } from "react";
+**Modify handleFileChange:**
+1. After validation passes, immediately set `processingCount` to number of new files
+2. Show placeholder grid slots while processing
+3. Clear `processingCount` after Promise.all completes (success or error)
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  useEffect(() => {
-    const stored = localStorage.getItem("theme") || "system";
-    const root = document.documentElement;
-    root.classList.remove("light", "dark");
+**Add loading placeholder component:**
+```typescript
+// Inside the preview grid, before actual previews:
+{processingCount > 0 && Array.from({ length: processingCount }).map((_, index) => (
+  <div
+    key={`processing-${index}`}
+    className="relative aspect-square rounded-md bg-muted flex items-center justify-center"
+    aria-busy="true"
+    aria-label="Processing photo"
+  >
+    <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+  </div>
+))}
+```
 
-    if (stored === "system") {
-      const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      root.classList.add(systemDark ? "dark" : "light");
-    } else {
-      root.classList.add(stored);
-    }
-  }, []);
+**Key changes to handleFileChange flow:**
+```typescript
+// After validation passes:
+setProcessingCount(newFiles.length);
 
-  return <>{children}</>;
+try {
+  const previewBlobPromises = combinedPhotos.map(async (file) => {
+    // ... conversion logic
+  });
+  previewBlobs = await Promise.all(previewBlobPromises);
+} catch {
+  setError("Failed to process HEIC image...");
+  setProcessingCount(0); // Clear on error
+  return;
 }
+
+// After success:
+setProcessingCount(0);
+setPhotos(combinedPhotos);
+setPreviews(newPreviews);
 ```
 
-```typescript
-// src/app/layout.tsx
-import { ThemeProvider } from "@/components/theme-provider";
+#### Step 4: Run verifier (expect pass)
 
-export default function RootLayout({ children }) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: `
-          (function() {
-            const stored = localStorage.getItem("theme") || "system";
-            const root = document.documentElement;
-            if (stored === "system") {
-              const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-              root.classList.add(dark ? "dark" : "light");
-            } else {
-              root.classList.add(stored);
-            }
-          })();
-        `}} />
-      </head>
-      <body>
-        <ThemeProvider>{children}</ThemeProvider>
-      </body>
-    </html>
-  );
-}
-```
-
-#### Step 3: Verify
-- [ ] Failing test now passes
-- [ ] Existing tests still pass
-- [ ] TypeScript compiles without errors
-- [ ] Lint passes
-- [ ] Manual verification: theme applies immediately on page load
-
-#### Step 4: Additional Tests
-- [ ] Test system theme detection works
-- [ ] Test theme persists across page navigation
-
----
-
-## Task 3: Add Back Navigation from Settings
-
-**Linear Issue:** [FOO-86](https://linear.app/lw-claude/issue/FOO-86)
-
-### Bug Report
-There is no way of returning to the Food Scanner screen after going to settings.
-
-### Classification
-- **Type:** Frontend Bug
-- **Severity:** Urgent
-- **Affected Area:** `src/app/settings/page.tsx`
-
-### Root Cause Analysis
-
-The settings page has no back button or link to return to `/app`. Users are stuck unless they manually edit the URL or use browser back button (which may not work in PWA mode).
-
-#### Evidence
-- **File:** `src/app/settings/page.tsx` - No navigation element to return to `/app`
-- **Pattern:** `/app/page.tsx:17-21` has settings icon button as reference
-
-### Impact
-- Users stuck on settings page in PWA mode
-- Poor navigation UX
-- Forces users to use browser controls or URL bar
-
-### Fix Plan (TDD Approach)
-
-#### Step 1: Write Failing Test
-- **File:** `src/app/settings/__tests__/page.test.tsx`
-- **Test:** Verify back button exists and links to /app
-
-```typescript
-it("renders back button that links to /app", () => {
-  render(<SettingsPage />);
-  const backButton = screen.getByRole("link", { name: /back to food scanner/i });
-  expect(backButton).toHaveAttribute("href", "/app");
-});
-
-it("back button has proper touch target size", () => {
-  render(<SettingsPage />);
-  const backButton = screen.getByRole("link", { name: /back to food scanner/i });
-  expect(backButton).toHaveClass("min-h-[44px]", "min-w-[44px]");
-});
-```
-
-#### Step 2: Implement Fix
-- **File:** `src/app/settings/page.tsx` - Add back button with arrow icon
-
-```typescript
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-
-// In the return, add before h1:
-<div className="flex items-center gap-2">
-  <Button asChild variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]">
-    <Link href="/app" aria-label="Back to Food Scanner">
-      <ArrowLeft className="h-5 w-5" />
-    </Link>
-  </Button>
-  <h1 className="text-2xl font-bold">Settings</h1>
-</div>
-```
-
-#### Step 3: Verify
-- [ ] Failing test now passes
-- [ ] Existing tests still pass
-- [ ] TypeScript compiles without errors
-- [ ] Lint passes
-- [ ] Manual verification: clicking back button returns to food scanner
+#### Step 5: Additional refinements
+- Ensure placeholders appear in the grid alongside existing previews
+- Handle edge case: user selects more files while still processing
 
 ---
 
@@ -297,29 +140,27 @@ import { ArrowLeft } from "lucide-react";
 
 ## Plan Summary
 
-**Objective:** Fix HEIC image distortion and address urgent backlog bugs
+**Objective:** Add visual feedback when HEIC photos are being processed
 
-**Linear Issues:** [FOO-85](https://linear.app/lw-claude/issue/FOO-85), [FOO-86](https://linear.app/lw-claude/issue/FOO-86), [FOO-87](https://linear.app/lw-claude/issue/FOO-87)
+**Request:** When attaching a HEIC photo from the gallery, show a loading placeholder with a spinner immediately, then replace it with the actual thumbnail once processing completes.
 
-**Approach:**
-1. Replace outdated heic2any with actively maintained heic-to library (uses libheif 1.21.2)
-2. Add ThemeProvider to layout with inline script to prevent theme flash
-3. Add back navigation button to settings page
+**Linear Issues:** FOO-88
+
+**Approach:** Add a `processingCount` state variable that tracks how many files are currently being converted. Show placeholder grid slots with spinners while processing, then clear the count and show actual previews once conversion completes.
 
 **Scope:**
-- Tasks: 3
-- Files affected: ~6 (image.ts, layout.tsx, settings/page.tsx, new theme-provider.tsx)
-- New tests: yes (all tasks include tests)
+- Tasks: 1
+- Files affected: 2 (photo-capture.tsx, photo-capture.test.tsx)
+- New tests: yes (6+ new test cases)
 
 **Key Decisions:**
-- Use heic-to library (libheif 1.21.2, actively maintained, updated Feb 2026)
-- Inline script in layout prevents flash of wrong theme (industry standard approach)
-- Back button uses ArrowLeft icon consistent with mobile navigation patterns
+- Use same spinner pattern as analysis-result.tsx for consistency
+- Track count of processing files rather than individual file states (simpler, sufficient for max 3 photos)
+- Placeholders appear in grid alongside any existing previews
 
 **Risks/Considerations:**
-- heic-to has slightly different API than heic2any (returns single Blob, not array)
-- Inline script requires `suppressHydrationWarning` on html element
-- Bundle size change: heic2any (2.7MB) → heic-to (unknown, likely similar)
+- Edge case: user selecting more files while still processing (should queue or replace)
+- Ensure processingCount is always cleared on both success and error paths
 
 ---
 
@@ -328,67 +169,46 @@ import { ArrowLeft } from "lucide-react";
 **Implemented:** 2026-02-05
 
 ### Tasks Completed This Iteration
-- Task 1: Fix HEIC Image Distortion (FOO-87) - Replaced heic2any with heic-to library, uses named export `heicTo` with quality: 1
-- Task 2: Fix Theme Not Applied (FOO-85) - Created ThemeProvider component, added inline script in layout.tsx to prevent flash
-- Task 3: Add Back Navigation from Settings (FOO-86) - Added ArrowLeft back button with proper touch target size
+- Task 1: Add loading state for photo processing - Implemented `processingCount` state, added placeholder grid with spinners during HEIC conversion
 
 ### Files Modified
-- `package.json` - Replaced heic2any with heic-to dependency
-- `src/lib/image.ts` - Updated convertHeicToJpeg to use heic-to, fixed validateImage to accept HEIC with empty MIME
-- `src/lib/__tests__/image.test.ts` - Rewrote tests for heic-to API, added validateImage HEIC fallback tests
-- `src/components/theme-provider.tsx` - Created new ThemeProvider component
-- `src/app/layout.tsx` - Added ThemeProvider wrapper and inline theme script
-- `src/app/__tests__/layout.test.tsx` - Added ThemeProvider and script tests
-- `src/app/settings/page.tsx` - Added back button with ArrowLeft icon
-- `src/app/settings/__tests__/page.test.tsx` - Added back navigation tests
-- `src/components/photo-capture.tsx` - Fixed bounds check for preview index access
+- `src/components/photo-capture.tsx` - Added `processingCount` state, processing placeholders with spinners, race condition protection
+- `src/components/__tests__/photo-capture.test.tsx` - Added 9 new tests for processing state
 
 ### Linear Updates
-- FOO-87: Todo → In Progress → Review
-- FOO-85: Todo → In Progress → Review
-- FOO-86: Todo → In Progress → Review
+- FOO-88: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 2 medium bugs, fixed before proceeding (preview index bounds check, validateImage HEIC fallback)
-- verifier: All 378 tests pass, zero warnings, build successful
+- bug-hunter: Found 4 bugs (2 HIGH, 2 MEDIUM), all fixed before proceeding
+  - Fixed: processingCount was counting all photos instead of just new ones
+  - Fixed: Race condition when selecting files during processing (now ignores new selections)
+  - Fixed: Spinner missing aria-hidden attribute
+  - Fixed: Test description inaccuracy
+- verifier: All 387 tests pass, zero warnings
 
 ### Continuation Status
 All tasks completed.
 
 ### Review Findings
 
-**Files reviewed:** 9
-**Checks applied:** Security, Logic, Async, Resources, Type Safety, Conventions
+Files reviewed: 2
+- `src/components/photo-capture.tsx` (322 lines)
+- `src/components/__tests__/photo-capture.test.tsx` (1070 lines)
 
-| Category | Check | Result |
-|----------|-------|--------|
-| Security | Injection (SQL/XSS/Command) | ✅ No issues |
-| Security | dangerouslySetInnerHTML | ✅ Safe - static content only |
-| Security | Auth bypass | ✅ Not applicable |
-| Bug | Logic errors | ✅ No issues |
-| Bug | Null handling | ✅ Proper bounds checks |
-| Async | Unhandled promises | ✅ All awaited |
-| Async | Error propagation | ✅ Correct |
-| Resource | Memory leaks | ✅ URL.revokeObjectURL called |
-| Type | Unsafe casts | ✅ None found |
-| Convention | CLAUDE.md compliance | ✅ Full compliance |
-| Convention | Touch targets | ✅ 44px minimum |
-| Convention | Test coverage | ✅ All tasks tested |
+Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Accessibility, Conventions
 
-**Implementation Details Verified:**
-- heic-to library (v1.4.2) properly installed, heic2any removed
-- Named export `heicTo` used correctly with quality: 1
-- ThemeProvider removes existing classes before adding new theme
-- Inline script has try/catch wrapper for restricted environments
-- Back button uses proper `asChild` pattern with aria-label
-- Preview index bounds check added to prevent undefined access
+**Summary:** No issues found - all implementations are correct and follow project conventions.
 
-No issues found - all implementations are correct and follow project conventions.
+**Details:**
+- Processing placeholder logic correctly shows/hides based on `processingCount`
+- Race condition protection properly ignores new selections while processing
+- Count calculation correctly tracks only new files (respecting maxPhotos limit)
+- Error cleanup properly clears `processingCount` on both success and failure paths
+- Accessibility attributes (aria-busy, aria-label, aria-hidden) correctly applied
+- Test coverage is comprehensive with 9 new tests covering all edge cases
 
 ### Linear Updates
-- FOO-87: Review → Merge
-- FOO-85: Review → Merge
-- FOO-86: Review → Merge
+- FOO-88: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 
