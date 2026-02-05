@@ -21,27 +21,22 @@ export function isHeicFile(file: File): boolean {
 }
 
 /**
- * Convert a HEIC/HEIF file to JPEG using heic2any library.
+ * Convert a HEIC/HEIF file to JPEG using heic-to library.
+ * Uses quality: 1 for maximum fidelity to preserve image details.
  * Throws on conversion failure.
  */
 export async function convertHeicToJpeg(file: File): Promise<Blob> {
   // Dynamic import - only loads when function is called (client-side only)
-  // This prevents "window is not defined" SSR errors since heic2any
+  // This prevents "window is not defined" SSR errors since heic-to
   // accesses browser-only APIs during module initialization
-  const heic2any = (await import("heic2any")).default;
+  const { heicTo } = await import("heic-to");
 
-  const result = await heic2any({
+  // heic-to returns a single Blob (unlike heic2any which returned arrays)
+  const result = await heicTo({
     blob: file,
-    toType: "image/jpeg",
+    type: "image/jpeg",
+    quality: 1, // Maximum quality to preserve image fidelity
   });
-
-  // heic2any can return array for multi-image HEIC files, take first
-  if (Array.isArray(result)) {
-    if (result.length === 0) {
-      throw new Error("HEIC conversion returned no images");
-    }
-    return result[0];
-  }
 
   return result;
 }
@@ -53,66 +48,73 @@ export async function compressImage(file: File): Promise<Blob> {
     processFile = await convertHeicToJpeg(file);
   }
 
+  // If it's a blob (from HEIC conversion), convert to File for canvas operations
+  const fileToCompress = processFile instanceof File ? processFile : new File([processFile], "image.jpg", { type: "image/jpeg" });
+
+  const canvas = await createResizedCanvas(fileToCompress);
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(processFile);
-
-    img.onload = () => {
-      // Clean up the object URL to prevent memory leak
-      URL.revokeObjectURL(objectUrl);
-
-      const { width, height } = img;
-
-      // Calculate new dimensions
-      let newWidth = width;
-      let newHeight = height;
-
-      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
-        if (width > height) {
-          // Landscape
-          newWidth = MAX_DIMENSION;
-          newHeight = Math.round((height / width) * MAX_DIMENSION);
-        } else {
-          // Portrait or square
-          newHeight = MAX_DIMENSION;
-          newWidth = Math.round((width / height) * MAX_DIMENSION);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Failed to compress image: canvas.toBlob returned null"));
+          return;
         }
-      }
-
-      // Create canvas and draw resized image
-      const canvas = document.createElement("canvas");
-      canvas.width = newWidth;
-      canvas.height = newHeight;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("Failed to get canvas context"));
-        return;
-      }
-
-      ctx.drawImage(img, 0, 0, newWidth, newHeight);
-
-      // Convert to JPEG blob at specified quality
-      canvas.toBlob(
-        (blob) => {
-          if (blob) {
-            resolve(blob);
-          } else {
-            reject(new Error("Failed to create blob"));
-          }
-        },
-        "image/jpeg",
-        JPEG_QUALITY
-      );
-    };
-
-    img.onerror = () => {
-      // Clean up the object URL to prevent memory leak
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("Failed to load image"));
-    };
-
-    // Load image from file
-    img.src = objectUrl;
+        resolve(blob);
+      },
+      "image/jpeg",
+      JPEG_QUALITY
+    );
   });
+}
+
+async function createResizedCanvas(file: File): Promise<HTMLCanvasElement> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const scale = Math.min(MAX_DIMENSION / img.width, MAX_DIMENSION / img.height, 1);
+
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Failed to get canvas 2D context"));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas);
+      };
+      img.onerror = () => reject(new Error("Failed to load image for resizing"));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Validate image file before processing.
+ * Returns { valid: true } or { valid: false, error: string }
+ */
+export function validateImage(file: File): { valid: boolean; error?: string } {
+  const validMimes = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"];
+
+  // Check MIME type first, then fallback to extension for HEIC (Android reports empty MIME)
+  const isValidMime = validMimes.includes(file.type.toLowerCase());
+  const isHeicByExtension = isHeicFile(file);
+
+  if (!isValidMime && !isHeicByExtension) {
+    return { valid: false, error: `Unsupported image type: ${file.type || "unknown"}` };
+  }
+
+  const maxSizeMb = 10;
+  if (file.size > maxSizeMb * 1024 * 1024) {
+    return { valid: false, error: `Image too large. Max ${maxSizeMb}MB.` };
+  }
+
+  return { valid: true };
 }

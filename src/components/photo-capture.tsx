@@ -267,7 +267,7 @@ export function PhotoCapture({
       <PhotoPreviewDialog
         open={previewDialogOpen}
         onOpenChange={setPreviewDialogOpen}
-        imageUrl={selectedPreviewIndex !== null ? previews[selectedPreviewIndex] : null}
+        imageUrl={selectedPreviewIndex !== null && selectedPreviewIndex < previews.length ? previews[selectedPreviewIndex] : null}
         imageAlt={selectedPreviewIndex !== null ? `Preview ${selectedPreviewIndex + 1}` : undefined}
       />
 

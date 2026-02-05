@@ -22,6 +22,50 @@ beforeEach(() => {
 });
 
 describe("Settings page", () => {
+  describe("back navigation", () => {
+    it("renders back button that links to /app", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              email: "wall.lucas@gmail.com",
+              fitbitConnected: true,
+              expiresAt: Date.now() + 86400000,
+            },
+          }),
+      });
+
+      renderWithSWR(<SettingsPage />);
+
+      const backButton = screen.getByRole("link", { name: /back to food scanner/i });
+      expect(backButton).toBeInTheDocument();
+      expect(backButton).toHaveAttribute("href", "/app");
+    });
+
+    it("back button has proper touch target size", async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              email: "wall.lucas@gmail.com",
+              fitbitConnected: true,
+              expiresAt: Date.now() + 86400000,
+            },
+          }),
+      });
+
+      renderWithSWR(<SettingsPage />);
+
+      const backButton = screen.getByRole("link", { name: /back to food scanner/i });
+      expect(backButton).toHaveClass("min-h-[44px]");
+      expect(backButton).toHaveClass("min-w-[44px]");
+    });
+  });
+
   it("renders 'Settings' heading", async () => {
     mockFetch.mockResolvedValue({
       ok: true,

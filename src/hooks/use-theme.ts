@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useTransition } from "react";
 
 type Theme = "light" | "dark" | "system";
 
@@ -37,13 +37,17 @@ export function useTheme() {
   // Always start with "system" on server and initial client render for consistent hydration
   const [theme, setThemeState] = useState<Theme>("system");
   const [mounted, setMounted] = useState(false);
+  const [, startTransition] = useTransition();
 
   // On mount, read from localStorage and update state
   useEffect(() => {
-    setMounted(true);
     const storedTheme = getStoredTheme();
-    setThemeState(storedTheme);
     applyTheme(storedTheme);
+
+    startTransition(() => {
+      setThemeState(storedTheme);
+      setMounted(true);
+    });
   }, []);
 
   // Listen for system theme changes when in system mode

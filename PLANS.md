@@ -320,3 +320,37 @@ import { ArrowLeft } from "lucide-react";
 - heic-to has slightly different API than heic2any (returns single Blob, not array)
 - Inline script requires `suppressHydrationWarning` on html element
 - Bundle size change: heic2any (2.7MB) → heic-to (unknown, likely similar)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Task 1: Fix HEIC Image Distortion (FOO-87) - Replaced heic2any with heic-to library, uses named export `heicTo` with quality: 1
+- Task 2: Fix Theme Not Applied (FOO-85) - Created ThemeProvider component, added inline script in layout.tsx to prevent flash
+- Task 3: Add Back Navigation from Settings (FOO-86) - Added ArrowLeft back button with proper touch target size
+
+### Files Modified
+- `package.json` - Replaced heic2any with heic-to dependency
+- `src/lib/image.ts` - Updated convertHeicToJpeg to use heic-to, fixed validateImage to accept HEIC with empty MIME
+- `src/lib/__tests__/image.test.ts` - Rewrote tests for heic-to API, added validateImage HEIC fallback tests
+- `src/components/theme-provider.tsx` - Created new ThemeProvider component
+- `src/app/layout.tsx` - Added ThemeProvider wrapper and inline theme script
+- `src/app/__tests__/layout.test.tsx` - Added ThemeProvider and script tests
+- `src/app/settings/page.tsx` - Added back button with ArrowLeft icon
+- `src/app/settings/__tests__/page.test.tsx` - Added back navigation tests
+- `src/components/photo-capture.tsx` - Fixed bounds check for preview index access
+
+### Linear Updates
+- FOO-87: Todo → In Progress → Review
+- FOO-85: Todo → In Progress → Review
+- FOO-86: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 medium bugs, fixed before proceeding (preview index bounds check, validateImage HEIC fallback)
+- verifier: All 378 tests pass, zero warnings, build successful
+
+### Continuation Status
+All tasks completed.
