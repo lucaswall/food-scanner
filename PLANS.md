@@ -2,7 +2,7 @@
 
 **Issue:** [FOO-47](https://linear.app/lw-claude/issue/FOO-47), [FOO-48](https://linear.app/lw-claude/issue/FOO-48)
 **Date:** 2026-02-04
-**Status:** Planning
+**Status:** COMPLETE
 **Branch:** fix/FOO-47-heic-ssr-and-preview
 
 ## Investigation
