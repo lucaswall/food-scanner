@@ -40,14 +40,14 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 FITBIT_CLIENT_ID=your-fitbit-client-id
 FITBIT_CLIENT_SECRET=your-fitbit-client-secret
 
-# Anthropic (set up when implementing food analysis)
-ANTHROPIC_API_KEY=placeholder
+# Anthropic (see Anthropic API Setup section below)
+ANTHROPIC_API_KEY=your-anthropic-api-key
 
 # Logging (optional, defaults to debug in development)
 LOG_LEVEL=debug
 ```
 
-Google and Fitbit OAuth credentials are required for the auth flow. See the **OAuth Setup for Local Development** section below.
+Google and Fitbit OAuth credentials are required for the auth flow. See the **OAuth Setup for Local Development** section below. Anthropic API key is required for food analysis — see the **Anthropic API Setup** section below.
 
 ### 3. Run Development Server
 
@@ -208,3 +208,23 @@ Follow the [OAuth Setup section in README.md](README.md#oauth-setup) to create G
   `http://localhost:3000/api/auth/fitbit/callback`
 
 Copy the Client ID and Client Secret values into your `.env.local` file.
+
+---
+
+## Anthropic API Setup
+
+The Anthropic API is used for AI-powered food analysis via Claude Sonnet.
+
+1. Go to [console.anthropic.com](https://console.anthropic.com)
+2. Create an account or sign in
+3. Navigate to **API Keys** in the sidebar
+4. Click **Create Key** and give it a name (e.g., "food-scanner-dev")
+5. Copy the API key immediately (it won't be shown again)
+6. Add the key to your `.env.local`:
+   ```bash
+   ANTHROPIC_API_KEY=sk-ant-api03-...
+   ```
+
+**Permissions:** The API key needs standard API access. No special scopes or permissions are required.
+
+**Costs:** Claude Sonnet is used for food analysis. Typical usage (1-3 analyses per day) costs approximately $0.02/day or ~$0.60/month. See [Anthropic pricing](https://www.anthropic.com/pricing) for current rates.

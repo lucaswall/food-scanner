@@ -1,27 +1,26 @@
 import Link from "next/link";
 import { getSession } from "@/lib/session";
+import { FoodAnalyzer } from "@/components/food-analyzer";
 
 export default async function AppPage() {
   const session = await getSession();
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <main className="flex w-full max-w-sm flex-col items-center gap-6 text-center">
-        <h1 className="text-2xl font-bold">Food Scanner</h1>
-        <p className="text-sm text-muted-foreground">{session.email}</p>
-
-        <div className="w-full rounded-xl border bg-card p-6">
-          <p className="text-muted-foreground">
-            Camera interface coming soon
-          </p>
+    <div className="min-h-screen px-4 py-6">
+      <main className="mx-auto w-full max-w-md flex flex-col gap-6">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Food Scanner</h1>
+          <Link
+            href="/settings"
+            className="text-sm text-muted-foreground underline"
+          >
+            Settings
+          </Link>
         </div>
 
-        <Link
-          href="/settings"
-          className="text-sm text-muted-foreground underline"
-        >
-          Settings
-        </Link>
+        <p className="text-sm text-muted-foreground">{session.email}</p>
+
+        <FoodAnalyzer />
       </main>
     </div>
   );
