@@ -549,3 +549,54 @@ No issues found - all implementations are correct and follow project conventions
 - FOO-70: Review → Merge
 
 <!-- REVIEW COMPLETE -->
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Task 7: Show meal type time-based hint - Added showTimeHint prop with current time display and 60s auto-update
+- Task 8: Fix button hierarchy post-analysis - Changed "Edit Manually" and "Regenerate" to ghost variant
+- Task 9: Add first-time user guidance - Added numbered steps guidance when no photos and no analysis
+- Task 10: Add confidence indicator tooltip - Added shadcn/ui Tooltip with explanations for high/medium/low confidence in both AnalysisResult and NutritionEditor
+- Task 11: Add multi-step loading progress - Added loadingStep prop to AnalysisResult, integrated with FoodAnalyzer
+
+### Tasks Remaining
+- Task 12: Add photo preview zoom
+- Task 13: Add dark mode toggle
+- Task 14: Add state transition animations
+- Task 15: Cache session in settings page
+- Task 16: Add portion size quick-select buttons
+- Task 17: Add aria-live regions for dynamic content
+- Task 18: Manage focus after actions
+- Task 19: Add accessible confidence indicator
+- Task 20: Add skip link for keyboard navigation
+
+### Files Modified
+- `src/components/meal-type-selector.tsx` - Added showTimeHint prop with time-based hint display
+- `src/components/food-analyzer.tsx` - Changed button variants, added guidance, added loadingStep state
+- `src/components/analysis-result.tsx` - Added confidence tooltip and loadingStep prop
+- `src/components/nutrition-editor.tsx` - Added confidence tooltip
+- `src/components/ui/tooltip.tsx` - Created new shadcn/ui Tooltip component
+
+### Tests Added/Modified
+- `src/components/__tests__/meal-type-selector.test.tsx` - Tests for time-based hint
+- `src/components/__tests__/food-analyzer.test.tsx` - Tests for button hierarchy and first-time guidance
+- `src/components/__tests__/analysis-result.test.tsx` - Tests for confidence tooltip and multi-step loading
+- `src/components/__tests__/nutrition-editor.test.tsx` - Tests for confidence tooltip
+
+### Linear Updates
+- FOO-71: Todo → In Progress → Review
+- FOO-72: Todo → In Progress → Review
+- FOO-73: Todo → In Progress → Review
+- FOO-74: Todo → In Progress → Review
+- FOO-75: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 medium issues (loading step timing, code duplication), fixed loading step issue
+- verifier: All 325 tests pass, zero type errors, 1 acceptable lint warning (blob URL img)
+
+### Continuation Status
+Context running low (~35% remaining). More tasks remain.

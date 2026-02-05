@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { NutritionEditor } from "../nutrition-editor";
 import type { FoodAnalysis } from "@/types";
 
@@ -13,7 +14,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
-  document.body.innerHTML = "";
+  cleanup();
 });
 
 const mockAnalysis: FoodAnalysis = {
@@ -207,5 +208,22 @@ describe("NutritionEditor", () => {
 
     const indicator = screen.getByTestId("confidence-indicator");
     expect(indicator).toHaveAttribute("aria-label", "Confidence: high");
+  });
+
+  describe("confidence tooltip", () => {
+    it("shows tooltip on hover with explanation text", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+      const confidenceTrigger = screen.getByTestId("confidence-trigger");
+      await user.hover(confidenceTrigger);
+
+      await waitFor(() => {
+        const tooltip = screen.getByRole("tooltip");
+        expect(tooltip).toBeInTheDocument();
+        expect(tooltip).toHaveTextContent(/confidence/i);
+      });
+    });
   });
 });

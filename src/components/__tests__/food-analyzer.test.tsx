@@ -950,4 +950,103 @@ describe("FoodAnalyzer", () => {
       });
     });
   });
+
+  describe("first-time user guidance", () => {
+    it("shows tips when no photos and no analysis", () => {
+      render(<FoodAnalyzer />);
+
+      expect(screen.getByText(/take a photo/i)).toBeInTheDocument();
+      expect(screen.getByText(/add description/i)).toBeInTheDocument();
+      expect(screen.getByText(/log to fitbit/i)).toBeInTheDocument();
+    });
+
+    it("hides tips after photos added", async () => {
+      render(<FoodAnalyzer />);
+
+      // Initially tips are visible
+      expect(screen.getByText(/take a photo/i)).toBeInTheDocument();
+
+      // Add a photo
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+      // Tips should be hidden
+      await waitFor(() => {
+        // The "Take a photo" text in the guidance should be gone
+        // (Note: "Log to Fitbit" will still appear as a button after analysis, so we check the guidance specifically)
+        const guidanceSection = screen.queryByTestId("first-time-guidance");
+        expect(guidanceSection).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("button hierarchy post-analysis", () => {
+    it("'Log to Fitbit' uses default (primary) variant", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      const logButton = screen.getByRole("button", { name: /log to fitbit/i });
+      // Check data-variant attribute set by Button component
+      expect(logButton).toHaveAttribute("data-variant", "default");
+    });
+
+    it("'Edit Manually' uses ghost variant", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /edit manually/i })).toBeInTheDocument();
+      });
+
+      const editButton = screen.getByRole("button", { name: /edit manually/i });
+      // Check data-variant attribute set by Button component
+      expect(editButton).toHaveAttribute("data-variant", "ghost");
+    });
+
+    it("'Regenerate' uses ghost variant", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /regenerate/i })).toBeInTheDocument();
+      });
+
+      const regenerateButton = screen.getByRole("button", { name: /regenerate/i });
+      // Check data-variant attribute set by Button component
+      expect(regenerateButton).toHaveAttribute("data-variant", "ghost");
+    });
+  });
 });

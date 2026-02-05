@@ -40,6 +40,7 @@ export function FoodAnalyzer() {
   const [editedAnalysis, setEditedAnalysis] = useState<FoodAnalysis | null>(null);
   const [compressing, setCompressing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
@@ -74,6 +75,7 @@ export function FoodAnalyzer() {
     if (photos.length === 0) return;
 
     setCompressing(true);
+    setLoadingStep("Preparing images...");
     setError(null);
     setLogError(null);
 
@@ -83,6 +85,7 @@ export function FoodAnalyzer() {
 
       setCompressing(false);
       setLoading(true);
+      setLoadingStep("Analyzing food...");
 
       // Create FormData
       const formData = new FormData();
@@ -116,6 +119,7 @@ export function FoodAnalyzer() {
     } finally {
       setCompressing(false);
       setLoading(false);
+      setLoadingStep(undefined);
     }
   };
 
@@ -225,6 +229,21 @@ export function FoodAnalyzer() {
 
       <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging} />
 
+      {/* First-time user guidance */}
+      {photos.length === 0 && !analysis && (
+        <div
+          data-testid="first-time-guidance"
+          className="p-4 rounded-lg bg-muted/50 text-muted-foreground"
+        >
+          <p className="text-sm font-medium mb-2">How it works:</p>
+          <ol className="text-sm space-y-1 list-decimal list-inside">
+            <li>Take a photo of your food</li>
+            <li>Add description (optional)</li>
+            <li>Log to Fitbit</li>
+          </ol>
+        </div>
+      )}
+
       <Button
         onClick={handleAnalyze}
         disabled={photos.length === 0 || compressing || loading || logging}
@@ -240,6 +259,7 @@ export function FoodAnalyzer() {
           loading={loading}
           error={error}
           onRetry={handleRetry}
+          loadingStep={loadingStep}
         />
       ) : (
         currentAnalysis && (
@@ -258,7 +278,7 @@ export function FoodAnalyzer() {
           <div className="flex gap-2">
             <Button
               onClick={handleEditToggle}
-              variant="outline"
+              variant="ghost"
               className="flex-1 min-h-[44px]"
               disabled={logging}
             >
@@ -266,7 +286,7 @@ export function FoodAnalyzer() {
             </Button>
             <Button
               onClick={handleRegenerateClick}
-              variant="outline"
+              variant="ghost"
               className="flex-1 min-h-[44px]"
               disabled={logging}
             >
