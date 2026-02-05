@@ -1,404 +1,293 @@
-# Implementation Plan
-
-**Created:** 2026-02-05
-**Source:** Inline request: UX improvements from comprehensive review (all except sound and recent food)
-**Linear Issues:** [FOO-65](https://linear.app/lw-claude/issue/FOO-65), [FOO-66](https://linear.app/lw-claude/issue/FOO-66), [FOO-67](https://linear.app/lw-claude/issue/FOO-67), [FOO-68](https://linear.app/lw-claude/issue/FOO-68), [FOO-69](https://linear.app/lw-claude/issue/FOO-69), [FOO-70](https://linear.app/lw-claude/issue/FOO-70), [FOO-71](https://linear.app/lw-claude/issue/FOO-71), [FOO-72](https://linear.app/lw-claude/issue/FOO-72), [FOO-73](https://linear.app/lw-claude/issue/FOO-73), [FOO-74](https://linear.app/lw-claude/issue/FOO-74), [FOO-75](https://linear.app/lw-claude/issue/FOO-75), [FOO-76](https://linear.app/lw-claude/issue/FOO-76), [FOO-77](https://linear.app/lw-claude/issue/FOO-77), [FOO-78](https://linear.app/lw-claude/issue/FOO-78), [FOO-79](https://linear.app/lw-claude/issue/FOO-79), [FOO-80](https://linear.app/lw-claude/issue/FOO-80), [FOO-81](https://linear.app/lw-claude/issue/FOO-81), [FOO-82](https://linear.app/lw-claude/issue/FOO-82), [FOO-83](https://linear.app/lw-claude/issue/FOO-83), [FOO-84](https://linear.app/lw-claude/issue/FOO-84)
-
-## Context Gathered
-
-### Codebase Analysis
-- **Main workflow component:** `src/components/food-analyzer.tsx` - orchestrates entire flow
-- **Photo handling:** `src/components/photo-capture.tsx` - camera/gallery, HEIC conversion
-- **Analysis display:** `src/components/analysis-result.tsx` - loading, error, results
-- **Editor:** `src/components/nutrition-editor.tsx` - manual editing of values
-- **Confirmation:** `src/components/food-log-confirmation.tsx` - success state
-- **Settings:** `src/app/settings/page.tsx` - session info, Fitbit reconnect, logout
-- **App header:** `src/app/app/page.tsx` - text link to settings
-- **UI components:** `src/components/ui/` - button, input, label, select (shadcn/ui)
-- **Test conventions:** `__tests__/` subdirectories with `.test.tsx` files
-
-### UX Issues Identified (from review)
-1. No visual feedback during image compression before analysis
-2. Destructive "Clear All" without confirmation
-3. Edit mode loses changes on regenerate without warning
-4. Settings link buried as text in header
-5. No haptic feedback on mobile
-6. No keyboard shortcuts
-7. Meal type default not communicated to user
-8. Inconsistent button hierarchy post-analysis
-9. No first-time user guidance
-10. Confidence indicator not explained
-11. Loading spinner is generic (no progress steps)
-12. Photo previews not zoomable
-13. No dark mode toggle
-14. No animation on state transitions
-15. Settings page loads session on every mount
-16. Portion size input awkward (no quick-select)
-17. Missing aria-live for dynamic content
-18. Focus not managed after actions
-19. Color-only confidence indicator (accessibility)
-20. No skip links
-
-### Exclusions (per user request)
-- No success sound
-- No recent foods list
-
-### MCP Context
-- **Linear MCP:** Connected (verified via list_teams)
-- **Team:** Food Scanner (ID: 3e498d7a-30d2-4c11-89b3-ed7bd8cb2031)
-
-## Original Plan
-
-### Task 1: Add image compression loading state
-**Linear Issue:** [FOO-65](https://linear.app/lw-claude/issue/FOO-65/add-image-compression-loading-state)
-
-Add visual feedback during image compression before AI analysis begins.
-
-1. Write test in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test "Preparing images..." state appears before "Analyzing..."
-   - Test loading state shows during compression phase
-2. Run verifier (expect fail)
-3. Update `src/components/food-analyzer.tsx`:
-   - Add `compressing` state boolean
-   - Set `compressing=true` before `Promise.all(photos.map(compressImage))`
-   - Set `compressing=false` after compression completes
-   - Update button text: "Preparing images..." when compressing
-4. Run verifier (expect pass)
-
-### Task 2: Add confirmation dialog for Clear All
-**Linear Issue:** [FOO-66](https://linear.app/lw-claude/issue/FOO-66/add-confirmation-dialog-for-clear-all-photos)
-
-Prevent accidental photo deletion with confirmation when 2+ photos selected.
-
-1. Write test in `src/components/__tests__/photo-capture.test.tsx`:
-   - Test clicking Clear All with 1 photo clears immediately
-   - Test clicking Clear All with 2+ photos shows confirmation
-   - Test confirming dialog clears photos
-   - Test canceling dialog keeps photos
-2. Run verifier (expect fail)
-3. Create `src/components/ui/alert-dialog.tsx` (shadcn/ui AlertDialog)
-4. Update `src/components/photo-capture.tsx`:
-   - Import AlertDialog components
-   - Add `showClearConfirm` state
-   - Show confirmation when photos.length >= 2
-   - Clear immediately when photos.length === 1
-5. Run verifier (expect pass)
-
-### Task 3: Warn before regenerate discards edits
-**Linear Issue:** [FOO-67](https://linear.app/lw-claude/issue/FOO-67/warn-before-regenerate-discards-edits)
-
-Warn users when clicking Regenerate will discard their manual edits.
-
-1. Write test in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test regenerate without edits proceeds immediately
-   - Test regenerate with edits shows warning dialog
-   - Test confirming regenerate discards edits and re-analyzes
-   - Test canceling regenerate keeps edits
-2. Run verifier (expect fail)
-3. Update `src/components/food-analyzer.tsx`:
-   - Add `showRegenerateConfirm` state
-   - Check if `editedAnalysis` differs from `analysis` before regenerate
-   - Show AlertDialog when edits exist
-   - Proceed directly when no edits
-4. Run verifier (expect pass)
-
-### Task 4: Replace settings text link with icon button
-**Linear Issue:** [FOO-68](https://linear.app/lw-claude/issue/FOO-68/replace-settings-text-link-with-icon-button)
-
-Make settings more discoverable with a gear icon button.
-
-1. Write test in `src/app/app/__tests__/page.test.tsx`:
-   - Test settings button is rendered with accessible name
-   - Test settings button has proper aria-label
-   - Test settings button meets 44px touch target
-2. Run verifier (expect fail)
-3. Update `src/app/app/page.tsx`:
-   - Replace Link with Button using asChild
-   - Add Settings icon from lucide-react
-   - Add aria-label="Settings"
-   - Add min-h-[44px] min-w-[44px] for touch target
-4. Run verifier (expect pass)
-
-### Task 5: Add haptic feedback on mobile actions
-**Linear Issue:** [FOO-69](https://linear.app/lw-claude/issue/FOO-69/add-haptic-feedback-on-mobile-actions)
-
-Add vibration feedback for success and error states on mobile.
-
-1. Write test in `src/lib/__tests__/haptics.test.ts`:
-   - Test vibrate success pattern
-   - Test vibrate error pattern
-   - Test graceful handling when Vibration API unavailable
-2. Run verifier (expect fail)
-3. Create `src/lib/haptics.ts`:
-   - Export `vibrateSuccess()` - 200ms vibration
-   - Export `vibrateError()` - [100, 50, 100] pattern
-   - Check `navigator.vibrate` exists before calling
-4. Update `src/components/food-analyzer.tsx`:
-   - Call `vibrateSuccess()` after successful log
-   - Call `vibrateError()` on log/analyze errors
-5. Update `src/components/food-log-confirmation.tsx`:
-   - Call `vibrateSuccess()` on mount
-6. Run verifier (expect pass)
-
-### Task 6: Add keyboard shortcuts for common actions
-**Linear Issue:** [FOO-70](https://linear.app/lw-claude/issue/FOO-70/add-keyboard-shortcuts-for-common-actions)
-
-Add keyboard shortcuts for power users.
-
-1. Write test in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test Ctrl+Enter triggers analyze when photos present
-   - Test Ctrl+Shift+Enter triggers log when analysis present
-   - Test Escape exits edit mode
-2. Run verifier (expect fail)
-3. Create `src/hooks/use-keyboard-shortcuts.ts`:
-   - Custom hook for keyboard event handling
-   - Handle Ctrl+Enter (analyze)
-   - Handle Ctrl+Shift+Enter (log to Fitbit)
-   - Handle Escape (exit edit mode)
-4. Update `src/components/food-analyzer.tsx`:
-   - Use the keyboard shortcuts hook
-   - Wire up to existing handlers
-5. Run verifier (expect pass)
-
-### Task 7: Show meal type time-based hint
-**Linear Issue:** [FOO-71](https://linear.app/lw-claude/issue/FOO-71/show-meal-type-time-based-hint)
-
-Explain why a specific meal type is pre-selected.
-
-1. Write test in `src/components/__tests__/meal-type-selector.test.tsx`:
-   - Test helper text shows current time context
-   - Test helper text updates with time
-2. Run verifier (expect fail)
-3. Update `src/components/meal-type-selector.tsx`:
-   - Add optional `showTimeHint` prop (default true)
-   - Add helper text below selector showing current time
-   - Format: "Based on current time (7:15 PM)"
-4. Run verifier (expect pass)
-
-### Task 8: Fix button hierarchy post-analysis
-**Linear Issue:** [FOO-72](https://linear.app/lw-claude/issue/FOO-72/fix-button-hierarchy-post-analysis)
-
-Make "Log to Fitbit" the clear primary action.
-
-1. Write test in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test "Log to Fitbit" uses default (primary) variant
-   - Test "Edit Manually" uses ghost variant
-   - Test "Regenerate" uses ghost variant
-2. Run verifier (expect fail)
-3. Update `src/components/food-analyzer.tsx`:
-   - Change "Edit Manually" to `variant="ghost"`
-   - Change "Regenerate" to `variant="ghost"`
-   - Keep "Log to Fitbit" as default (primary) variant
-4. Run verifier (expect pass)
-
-### Task 9: Add first-time user guidance
-**Linear Issue:** [FOO-73](https://linear.app/lw-claude/issue/FOO-73/add-first-time-user-guidance)
-
-Show inline tips for new users on workflow.
-
-1. Write test in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test tips show when no photos and no analysis
-   - Test tips hidden after photos added
-2. Run verifier (expect fail)
-3. Update `src/components/food-analyzer.tsx`:
-   - Add guidance section when photos.length === 0 && !analysis
-   - Show numbered steps: "1. Take a photo → 2. Add description → 3. Log to Fitbit"
-   - Use muted-foreground styling
-4. Run verifier (expect pass)
-
-### Task 10: Add confidence indicator tooltip
-**Linear Issue:** [FOO-74](https://linear.app/lw-claude/issue/FOO-74/add-confidence-indicator-tooltip)
-
-Explain what confidence levels mean with a tooltip.
-
-1. Write test in `src/components/__tests__/analysis-result.test.tsx`:
-   - Test tooltip appears on confidence indicator hover/tap
-   - Test tooltip has explanation text
-2. Run verifier (expect fail)
-3. Create `src/components/ui/tooltip.tsx` (shadcn/ui Tooltip)
-4. Update `src/components/analysis-result.tsx`:
-   - Wrap confidence indicator in Tooltip
-   - Add content explaining confidence levels
-5. Update `src/components/nutrition-editor.tsx`:
-   - Same tooltip treatment for consistency
-6. Run verifier (expect pass)
-
-### Task 11: Add multi-step loading progress
-**Linear Issue:** [FOO-75](https://linear.app/lw-claude/issue/FOO-75/add-multi-step-loading-progress)
-
-Show progress steps during AI analysis.
-
-1. Write test in `src/components/__tests__/analysis-result.test.tsx`:
-   - Test loading shows step text
-   - Test step text updates (mock timing)
-2. Run verifier (expect fail)
-3. Update `src/components/analysis-result.tsx`:
-   - Add `loadingStep` prop (optional)
-   - Show step text: "Reading images...", "Identifying food...", "Calculating nutrition..."
-4. Update `src/components/food-analyzer.tsx`:
-   - Add `loadingStep` state
-   - Update step during compression/analysis phases
-   - Pass to AnalysisResult
-5. Run verifier (expect pass)
-
-### Task 12: Add photo preview zoom
-**Linear Issue:** [FOO-76](https://linear.app/lw-claude/issue/FOO-76/add-photo-preview-zoom)
-
-Allow tapping thumbnails to see full-screen preview.
-
-1. Write test in `src/components/__tests__/photo-capture.test.tsx`:
-   - Test tapping preview opens full-screen view
-   - Test full-screen view shows close button
-   - Test close button returns to normal view
-2. Run verifier (expect fail)
-3. Create `src/components/ui/dialog.tsx` (shadcn/ui Dialog) if not exists
-4. Create `src/components/photo-preview-dialog.tsx`:
-   - Full-screen image display
-   - Close button
-   - Basic styling
-5. Update `src/components/photo-capture.tsx`:
-   - Make preview images clickable
-   - Open PhotoPreviewDialog on click
-   - Pass selected preview URL
-6. Run verifier (expect pass)
-
-### Task 13: Add dark mode toggle
-**Linear Issue:** [FOO-77](https://linear.app/lw-claude/issue/FOO-77/add-dark-mode-toggle)
-
-Allow manual dark mode control in settings.
-
-1. Write test in `src/app/settings/__tests__/page.test.tsx`:
-   - Test dark mode toggle is rendered
-   - Test toggle changes theme
-   - Test preference persists in localStorage
-2. Run verifier (expect fail)
-3. Create `src/hooks/use-theme.ts`:
-   - Custom hook for theme management
-   - Read/write localStorage
-   - Apply class to document.documentElement
-4. Update `src/app/settings/page.tsx`:
-   - Add "Appearance" section
-   - Add toggle for dark/light/system
-5. Run verifier (expect pass)
-
-### Task 14: Add state transition animations
-**Linear Issue:** [FOO-78](https://linear.app/lw-claude/issue/FOO-78/add-state-transition-animations)
-
-Smooth transitions between workflow steps.
-
-1. Write test in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test transition classes applied during state changes
-2. Run verifier (expect fail)
-3. Update `src/app/globals.css`:
-   - Add fade-in animation keyframe
-   - Add slide-up animation keyframe
-4. Update `src/components/food-analyzer.tsx`:
-   - Add animation classes to state containers
-   - Use `animate-fade-in` for appearing elements
-5. Update `src/components/food-log-confirmation.tsx`:
-   - Add entrance animation
-6. Run verifier (expect pass)
-
-### Task 15: Cache session in settings page
-**Linear Issue:** [FOO-79](https://linear.app/lw-claude/issue/FOO-79/cache-session-in-settings-page)
-
-Avoid loading spinner on every settings page visit.
-
-1. Write test in `src/app/settings/__tests__/page.test.tsx`:
-   - Test cached session shows immediately
-   - Test stale session triggers background refresh
-2. Run verifier (expect fail)
-3. Install SWR if not present: `npm install swr`
-4. Update `src/app/settings/page.tsx`:
-   - Use SWR with stale-while-revalidate pattern
-   - Show cached data immediately
-   - Revalidate in background
-5. Run verifier (expect pass)
-
-### Task 16: Add portion size quick-select buttons
-**Linear Issue:** [FOO-80](https://linear.app/lw-claude/issue/FOO-80/add-portion-size-quick-select-buttons)
-
-Add Small/Medium/Large quick-select for portions.
-
-1. Write test in `src/components/__tests__/nutrition-editor.test.tsx`:
-   - Test clicking "Small" sets portion to 100g
-   - Test clicking "Medium" sets portion to 200g
-   - Test clicking "Large" sets portion to 350g
-   - Test manual input still works
-2. Run verifier (expect fail)
-3. Update `src/components/nutrition-editor.tsx`:
-   - Add row of quick-select buttons above portion input
-   - Map: Small=100g, Medium=200g, Large=350g
-   - Style as toggle buttons (outline when not selected)
-4. Run verifier (expect pass)
-
-### Task 17: Add aria-live regions for dynamic content
-**Linear Issue:** [FOO-81](https://linear.app/lw-claude/issue/FOO-81/add-aria-live-regions-for-dynamic-content)
-
-Announce state changes to screen readers.
-
-1. Write test in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test aria-live="polite" on error messages
-   - Test aria-live="assertive" on success state
-2. Run verifier (expect fail)
-3. Update `src/components/food-analyzer.tsx`:
-   - Add `aria-live="polite"` to error containers
-   - Add `aria-live="assertive"` to loading state
-4. Update `src/components/analysis-result.tsx`:
-   - Add `aria-live="polite"` to result container
-5. Update `src/components/food-log-confirmation.tsx`:
-   - Add `aria-live="assertive"` to success message
-6. Run verifier (expect pass)
-
-### Task 18: Manage focus after actions
-**Linear Issue:** [FOO-82](https://linear.app/lw-claude/issue/FOO-82/manage-focus-after-actions)
-
-Move focus to relevant content after state changes.
-
-1. Write test in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test focus moves to analysis result after analysis completes
-   - Test focus moves to confirmation after log succeeds
-2. Run verifier (expect fail)
-3. Update `src/components/food-analyzer.tsx`:
-   - Add refs for analysis result and confirmation sections
-   - Use `useEffect` to focus after state changes
-   - Focus analysis result when `analysis` changes from null
-   - Focus confirmation when `logResponse` changes from null
-4. Run verifier (expect pass)
-
-### Task 19: Add accessible confidence indicator
-**Linear Issue:** [FOO-83](https://linear.app/lw-claude/issue/FOO-83/add-accessible-confidence-indicator)
-
-Add text labels alongside color indicators for colorblind users.
-
-1. Write test in `src/components/__tests__/analysis-result.test.tsx`:
-   - Test confidence shows text label not just color
-   - Test icon differs by confidence level
-2. Run verifier (expect fail)
-3. Update `src/components/analysis-result.tsx`:
-   - Add icon next to confidence text (CheckCircle for high, AlertTriangle for medium/low)
-   - Keep color as visual enhancement
-4. Update `src/components/nutrition-editor.tsx`:
-   - Same icon treatment for consistency
-5. Run verifier (expect pass)
-
-### Task 20: Add skip link for keyboard navigation
-**Linear Issue:** [FOO-84](https://linear.app/lw-claude/issue/FOO-84/add-skip-link-for-keyboard-navigation)
-
-Allow keyboard users to skip to main content.
-
-1. Write test in `src/app/app/__tests__/page.test.tsx`:
-   - Test skip link exists and is focusable
-   - Test skip link scrolls to main content
-2. Run verifier (expect fail)
-3. Create `src/components/skip-link.tsx`:
-   - Visually hidden but focusable link
-   - Shows on focus
-   - Links to #main-content
-4. Update `src/app/app/page.tsx`:
-   - Add SkipLink at top of page
-   - Add id="main-content" to main element
-5. Run verifier (expect pass)
+# Fix Plan: HEIC Distortion + Backlog Bugs
+
+**Date:** 2026-02-05
+**Status:** Planning
+**Branch:** fix/FOO-87-heic-distortion-and-backlog-bugs (proposed)
+
+## Overview
+
+This plan addresses three bugs:
+1. **HEIC Image Distortion** (new) - Photos selected from phone in HEIC format display as distorted/corrupted images
+2. **FOO-85** - Food Scanner screen always displays in light mode regardless of theme setting
+3. **FOO-86** - No way to return to Food Scanner from Settings page
+
+---
+
+## Task 1: Fix HEIC Image Distortion
+
+**Linear Issue:** [FOO-87](https://linear.app/lw-claude/issue/FOO-87)
+
+### Bug Report
+Photos selected from phone in HEIC format get corrupted and display as very distorted images. When submitted, Claude receives these distorted images and food recognition degrades significantly.
+
+### Classification
+- **Type:** Integration
+- **Severity:** High
+- **Affected Area:** `src/lib/image.ts`, `src/components/photo-capture.tsx`
+
+### Root Cause Analysis
+
+The app uses `heic2any@0.0.4` (published April 2023) which bundles an outdated version of `libheif`. A [known GitHub issue #16](https://github.com/alexcorvi/heic2any/issues/16) documents "Slant Image after converting" which produces distorted, skewed images for certain HEIC files.
+
+#### Evidence
+- **File:** `src/lib/image.ts:33-36` - Uses heic2any without quality parameter
+- **File:** `package.json` - heic2any@0.0.4 (outdated, last published April 2023)
+- **Documentation:** heic2any explicitly states "Library doesn't take any metadata from the original file" - this breaks orientation handling
+
+#### Related Code
+```typescript
+// Current code in src/lib/image.ts
+const result = await heic2any({
+  blob: file,
+  toType: "image/jpeg",
+  // quality is NOT specified
+});
+```
+
+### Impact
+- HEIC photos (default iPhone format) appear distorted in previews and analysis
+- Claude receives corrupted images, degrading food recognition accuracy
+- Users must take photos in JPEG format or use a different phone
+
+### Fix Plan (TDD Approach)
+
+#### Step 1: Write Failing Test
+- **File:** `src/lib/__tests__/image.test.ts`
+- **Test:** Verify heic-to library is called with correct parameters
+
+```typescript
+it("converts HEIC file using heic-to with quality parameter", async () => {
+  // Mock heic-to instead of heic2any
+  // Verify quality: 1 is passed for maximum quality
+  // Verify type: "image/jpeg" is passed
+});
+```
+
+#### Step 2: Implement Fix
+- **File:** `package.json` - Replace heic2any with heic-to
+- **File:** `src/lib/image.ts` - Update convertHeicToJpeg to use heic-to
+
+```bash
+npm uninstall heic2any && npm install heic-to
+```
+
+```typescript
+// New code in src/lib/image.ts
+export async function convertHeicToJpeg(file: File): Promise<Blob> {
+  const heicTo = (await import("heic-to")).default;
+
+  const result = await heicTo({
+    blob: file,
+    type: "image/jpeg",
+    quality: 1, // Maximum quality to preserve image fidelity
+  });
+
+  return result;
+}
+```
+
+#### Step 3: Verify
+- [ ] Failing test now passes
+- [ ] Existing HEIC tests still pass (update mocks)
+- [ ] TypeScript compiles without errors
+- [ ] Lint passes
+- [ ] Manual verification with actual HEIC photos from iPhone
+
+#### Step 4: Additional Tests
+- [ ] Test heic-to returns single blob (not array like heic2any)
+- [ ] Test error propagation when conversion fails
+
+---
+
+## Task 2: Fix Theme Not Applied on Food Scanner Page
+
+**Linear Issue:** [FOO-85](https://linear.app/lw-claude/issue/FOO-85)
+
+### Bug Report
+When opening the app, the Food Scanner page is not respecting the theme setting and always displays in light mode.
+
+### Classification
+- **Type:** Frontend Bug
+- **Severity:** Urgent
+- **Affected Area:** `src/app/layout.tsx`, `src/hooks/use-theme.ts`
+
+### Root Cause Analysis
+
+The `useTheme` hook applies the theme class to `document.documentElement`, but this only happens when a component using `useTheme` mounts. The main `/app/page.tsx` is a Server Component that doesn't use `useTheme`, and no client component at the layout level initializes the theme on page load.
+
+#### Evidence
+- **File:** `src/app/layout.tsx:43-44` - `<html>` element has no theme class
+- **File:** `src/app/app/page.tsx:8` - Server Component, doesn't use `useTheme`
+- **File:** `src/hooks/use-theme.ts:26-33` - Only applies theme when hook is called
+
+#### Related Code
+```typescript
+// src/app/layout.tsx - no theme initialization
+<html lang="en">
+  <body>...</body>
+</html>
+```
+
+### Impact
+- Users see light mode on initial load even with dark preference
+- Flash of wrong theme when navigating from settings to app
+- Poor UX for users who prefer dark mode
+
+### Fix Plan (TDD Approach)
+
+#### Step 1: Write Failing Test
+- **File:** `src/app/__tests__/layout.test.tsx` (new)
+- **Test:** Verify ThemeProvider is rendered
+
+```typescript
+it("renders ThemeProvider in layout", async () => {
+  render(<RootLayout><div>test</div></RootLayout>);
+  // ThemeProvider should initialize theme on mount
+});
+```
+
+#### Step 2: Implement Fix
+- **File:** `src/components/theme-provider.tsx` - Create new ThemeProvider component
+- **File:** `src/app/layout.tsx` - Wrap children in ThemeProvider
+- **File:** `src/app/layout.tsx` - Add script to apply theme before hydration (prevent flash)
+
+```typescript
+// src/components/theme-provider.tsx
+"use client";
+
+import { useEffect } from "react";
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    const stored = localStorage.getItem("theme") || "system";
+    const root = document.documentElement;
+    root.classList.remove("light", "dark");
+
+    if (stored === "system") {
+      const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.classList.add(systemDark ? "dark" : "light");
+    } else {
+      root.classList.add(stored);
+    }
+  }, []);
+
+  return <>{children}</>;
+}
+```
+
+```typescript
+// src/app/layout.tsx
+import { ThemeProvider } from "@/components/theme-provider";
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            const stored = localStorage.getItem("theme") || "system";
+            const root = document.documentElement;
+            if (stored === "system") {
+              const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+              root.classList.add(dark ? "dark" : "light");
+            } else {
+              root.classList.add(stored);
+            }
+          })();
+        `}} />
+      </head>
+      <body>
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+#### Step 3: Verify
+- [ ] Failing test now passes
+- [ ] Existing tests still pass
+- [ ] TypeScript compiles without errors
+- [ ] Lint passes
+- [ ] Manual verification: theme applies immediately on page load
+
+#### Step 4: Additional Tests
+- [ ] Test system theme detection works
+- [ ] Test theme persists across page navigation
+
+---
+
+## Task 3: Add Back Navigation from Settings
+
+**Linear Issue:** [FOO-86](https://linear.app/lw-claude/issue/FOO-86)
+
+### Bug Report
+There is no way of returning to the Food Scanner screen after going to settings.
+
+### Classification
+- **Type:** Frontend Bug
+- **Severity:** Urgent
+- **Affected Area:** `src/app/settings/page.tsx`
+
+### Root Cause Analysis
+
+The settings page has no back button or link to return to `/app`. Users are stuck unless they manually edit the URL or use browser back button (which may not work in PWA mode).
+
+#### Evidence
+- **File:** `src/app/settings/page.tsx` - No navigation element to return to `/app`
+- **Pattern:** `/app/page.tsx:17-21` has settings icon button as reference
+
+### Impact
+- Users stuck on settings page in PWA mode
+- Poor navigation UX
+- Forces users to use browser controls or URL bar
+
+### Fix Plan (TDD Approach)
+
+#### Step 1: Write Failing Test
+- **File:** `src/app/settings/__tests__/page.test.tsx`
+- **Test:** Verify back button exists and links to /app
+
+```typescript
+it("renders back button that links to /app", () => {
+  render(<SettingsPage />);
+  const backButton = screen.getByRole("link", { name: /back to food scanner/i });
+  expect(backButton).toHaveAttribute("href", "/app");
+});
+
+it("back button has proper touch target size", () => {
+  render(<SettingsPage />);
+  const backButton = screen.getByRole("link", { name: /back to food scanner/i });
+  expect(backButton).toHaveClass("min-h-[44px]", "min-w-[44px]");
+});
+```
+
+#### Step 2: Implement Fix
+- **File:** `src/app/settings/page.tsx` - Add back button with arrow icon
+
+```typescript
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
+
+// In the return, add before h1:
+<div className="flex items-center gap-2">
+  <Button asChild variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]">
+    <Link href="/app" aria-label="Back to Food Scanner">
+      <ArrowLeft className="h-5 w-5" />
+    </Link>
+  </Button>
+  <h1 className="text-2xl font-bold">Settings</h1>
+</div>
+```
+
+#### Step 3: Verify
+- [ ] Failing test now passes
+- [ ] Existing tests still pass
+- [ ] TypeScript compiles without errors
+- [ ] Lint passes
+- [ ] Manual verification: clicking back button returns to food scanner
+
+---
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent - Review changes for bugs
@@ -408,465 +297,26 @@ Allow keyboard users to skip to main content.
 
 ## Plan Summary
 
-**Objective:** Improve UX across all screens with accessibility, feedback, and polish enhancements
+**Objective:** Fix HEIC image distortion and address urgent backlog bugs
 
-**Request:** Implement all UX improvements from the comprehensive review except sound effects and recent foods list
+**Linear Issues:** [FOO-85](https://linear.app/lw-claude/issue/FOO-85), [FOO-86](https://linear.app/lw-claude/issue/FOO-86), [FOO-87](https://linear.app/lw-claude/issue/FOO-87)
 
-**Linear Issues:** FOO-65, FOO-66, FOO-67, FOO-68, FOO-69, FOO-70, FOO-71, FOO-72, FOO-73, FOO-74, FOO-75, FOO-76, FOO-77, FOO-78, FOO-79, FOO-80, FOO-81, FOO-82, FOO-83, FOO-84
-
-**Approach:** Incremental TDD implementation of UX improvements, starting with critical issues (visual feedback, confirmations), then major workflow improvements (settings icon, keyboard shortcuts, haptics), followed by polish items (animations, caching) and accessibility (aria-live, focus management, skip links). Each task is self-contained with full file paths and clear acceptance criteria.
+**Approach:**
+1. Replace outdated heic2any with actively maintained heic-to library (uses libheif 1.21.2)
+2. Add ThemeProvider to layout with inline script to prevent theme flash
+3. Add back navigation button to settings page
 
 **Scope:**
-- Tasks: 20
-- Files affected: ~25 (components, hooks, pages, styles)
+- Tasks: 3
+- Files affected: ~6 (image.ts, layout.tsx, settings/page.tsx, new theme-provider.tsx)
 - New tests: yes (all tasks include tests)
 
 **Key Decisions:**
-- Use shadcn/ui AlertDialog for confirmation dialogs (consistent with existing UI)
-- Use SWR for session caching (industry standard, minimal bundle impact)
-- Haptic feedback via Vibration API with graceful fallback
-- Quick-select portion sizes: Small=100g, Medium=200g, Large=350g
+- Use heic-to library (libheif 1.21.2, actively maintained, updated Feb 2026)
+- Inline script in layout prevents flash of wrong theme (industry standard approach)
+- Back button uses ArrowLeft icon consistent with mobile navigation patterns
 
 **Risks/Considerations:**
-- Vibration API not available on all devices - graceful degradation required
-- Dark mode toggle affects entire app - needs careful testing
-- Animation additions should be subtle to avoid motion sickness concerns
-- SWR installation adds small bundle size (~4KB gzipped)
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-05
-
-### Tasks Completed This Iteration
-- Task 1: Add image compression loading state - Added `compressing` state to show "Preparing images..." before "Analyzing..."
-- Task 2: Add confirmation dialog for Clear All - Created AlertDialog component, shows confirmation when clearing 2+ photos
-- Task 3: Warn before regenerate discards edits - Shows warning dialog when user has made edits before regenerating
-- Task 4: Replace settings text link with icon button - Gear icon with proper aria-label and 44px touch target
-- Task 5: Add haptic feedback on mobile actions - Created haptics utility, integrated into success/error states
-- Task 6: Add keyboard shortcuts for common actions - Ctrl+Enter (analyze), Ctrl+Shift+Enter (log), Escape (exit edit)
-
-### Tasks Remaining
-- Task 7: Show meal type time-based hint
-- Task 8: Fix button hierarchy post-analysis
-- Task 9: Add first-time user guidance
-- Task 10: Add confidence indicator tooltip
-- Task 11: Add multi-step loading progress
-- Task 12: Add photo preview zoom
-- Task 13: Add dark mode toggle
-- Task 14: Add state transition animations
-- Task 15: Cache session in settings page
-- Task 16: Add portion size quick-select buttons
-- Task 17: Add aria-live regions for dynamic content
-- Task 18: Manage focus after actions
-- Task 19: Add accessible confidence indicator
-- Task 20: Add skip link for keyboard navigation
-
-### Files Modified
-- `src/components/food-analyzer.tsx` - Added compressing state, regenerate warning, haptics, keyboard shortcuts
-- `src/components/photo-capture.tsx` - Added clear confirmation dialog
-- `src/components/food-log-confirmation.tsx` - Added haptic feedback on mount
-- `src/components/ui/alert-dialog.tsx` - Created new shadcn/ui AlertDialog component
-- `src/app/app/page.tsx` - Replaced settings text link with icon button
-- `src/lib/haptics.ts` - Created new haptic feedback utility
-- `src/hooks/use-keyboard-shortcuts.ts` - Created new keyboard shortcuts hook
-
-### Tests Added
-- `src/components/__tests__/food-analyzer.test.tsx` - Tests for compression loading, regenerate warning, keyboard shortcuts
-- `src/components/__tests__/photo-capture.test.tsx` - Tests for clear confirmation dialog
-- `src/app/app/__tests__/page.test.tsx` - Tests for settings icon button
-- `src/lib/__tests__/haptics.test.ts` - Tests for haptic feedback utility
-- `src/hooks/__tests__/use-keyboard-shortcuts.test.ts` - Tests for keyboard shortcuts hook
-
-### Linear Updates
-- FOO-65: Todo → In Progress → Review
-- FOO-66: Todo → In Progress → Review
-- FOO-67: Todo → In Progress → Review
-- FOO-68: Todo → In Progress → Review
-- FOO-69: Todo → In Progress → Review
-- FOO-70: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 2 bugs (double haptic, escape key interference), fixed before proceeding
-- verifier: All 309 tests pass, zero type errors, 1 acceptable lint warning (blob URL img)
-
-### Continuation Status
-Context running low (~35% remaining). More tasks remain.
-
-### Review Findings
-
-Files reviewed: 7 source files, 5 test files
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Detailed Review:**
-
-1. **`src/components/food-analyzer.tsx`**
-   - Compressing state correctly toggles between "Preparing images..." and "Analyzing..."
-   - Regenerate warning dialog properly checks `hasEdits` before showing confirmation
-   - Haptic feedback called on errors, success delegated to confirmation component
-   - Keyboard shortcuts hook properly integrated with condition guards
-
-2. **`src/components/photo-capture.tsx`**
-   - Clear confirmation shows for 2+ photos, clears immediately for 1
-   - AlertDialog properly integrated with state management
-   - URL.revokeObjectURL called to prevent memory leaks
-
-3. **`src/components/food-log-confirmation.tsx`**
-   - vibrateSuccess called in useEffect with response dependency
-   - Properly guards against null response
-
-4. **`src/components/ui/alert-dialog.tsx`**
-   - Standard shadcn/ui component, correctly exported
-
-5. **`src/app/app/page.tsx`**
-   - Settings button uses Button with asChild, Link inside
-   - Proper aria-label and 44px touch targets
-
-6. **`src/lib/haptics.ts`**
-   - Proper navigator check before vibrate calls
-   - Handles both undefined navigator and missing vibrate method
-
-7. **`src/hooks/use-keyboard-shortcuts.ts`**
-   - useCallback for handler, proper dependencies
-   - Event listener cleanup in useEffect return
-   - Dialog check prevents Escape from interfering with modals
-
-**Test Quality:**
-- All tests have meaningful assertions
-- Edge cases covered (no photos, 1 photo, 2+ photos)
-- Async behavior properly awaited with waitFor
-- Mocks appropriately scoped
-
-### Linear Updates
-- FOO-65: Review → Merge
-- FOO-66: Review → Merge
-- FOO-67: Review → Merge
-- FOO-68: Review → Merge
-- FOO-69: Review → Merge
-- FOO-70: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-02-05
-
-### Tasks Completed This Iteration
-- Task 7: Show meal type time-based hint - Added showTimeHint prop with current time display and 60s auto-update
-- Task 8: Fix button hierarchy post-analysis - Changed "Edit Manually" and "Regenerate" to ghost variant
-- Task 9: Add first-time user guidance - Added numbered steps guidance when no photos and no analysis
-- Task 10: Add confidence indicator tooltip - Added shadcn/ui Tooltip with explanations for high/medium/low confidence in both AnalysisResult and NutritionEditor
-- Task 11: Add multi-step loading progress - Added loadingStep prop to AnalysisResult, integrated with FoodAnalyzer
-
-### Tasks Remaining
-- Task 12: Add photo preview zoom
-- Task 13: Add dark mode toggle
-- Task 14: Add state transition animations
-- Task 15: Cache session in settings page
-- Task 16: Add portion size quick-select buttons
-- Task 17: Add aria-live regions for dynamic content
-- Task 18: Manage focus after actions
-- Task 19: Add accessible confidence indicator
-- Task 20: Add skip link for keyboard navigation
-
-### Files Modified
-- `src/components/meal-type-selector.tsx` - Added showTimeHint prop with time-based hint display
-- `src/components/food-analyzer.tsx` - Changed button variants, added guidance, added loadingStep state
-- `src/components/analysis-result.tsx` - Added confidence tooltip and loadingStep prop
-- `src/components/nutrition-editor.tsx` - Added confidence tooltip
-- `src/components/ui/tooltip.tsx` - Created new shadcn/ui Tooltip component
-
-### Tests Added/Modified
-- `src/components/__tests__/meal-type-selector.test.tsx` - Tests for time-based hint
-- `src/components/__tests__/food-analyzer.test.tsx` - Tests for button hierarchy and first-time guidance
-- `src/components/__tests__/analysis-result.test.tsx` - Tests for confidence tooltip and multi-step loading
-- `src/components/__tests__/nutrition-editor.test.tsx` - Tests for confidence tooltip
-
-### Linear Updates
-- FOO-71: Todo → In Progress → Review
-- FOO-72: Todo → In Progress → Review
-- FOO-73: Todo → In Progress → Review
-- FOO-74: Todo → In Progress → Review
-- FOO-75: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 2 medium issues (loading step timing, code duplication), fixed loading step issue
-- verifier: All 325 tests pass, zero type errors, 1 acceptable lint warning (blob URL img)
-
-### Continuation Status
-Context running low (~35% remaining). More tasks remain.
-
-### Review Findings
-
-Files reviewed: 5 source files, 4 test files
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Detailed Review:**
-
-1. **`src/components/meal-type-selector.tsx`**
-   - Time hint feature correctly implemented with `showTimeHint` prop
-   - useEffect interval properly cleaned up when component unmounts
-   - Early return prevents interval creation when `showTimeHint=false`
-   - Time format uses locale-aware `toLocaleTimeString`
-
-2. **`src/components/food-analyzer.tsx`**
-   - Button variants correctly applied: "Edit Manually" and "Regenerate" use `variant="ghost"`
-   - "Log to Fitbit" remains primary (default variant)
-   - First-time guidance shows only when `photos.length === 0 && !analysis`
-   - `loadingStep` state properly managed during compression/analysis phases
-
-3. **`src/components/analysis-result.tsx`**
-   - Tooltip properly wraps confidence indicator
-   - `loadingStep` prop with fallback to "Analyzing your food..."
-   - Confidence explanations are clear and context-appropriate
-
-4. **`src/components/nutrition-editor.tsx`**
-   - Same tooltip implementation as AnalysisResult for consistency
-   - Confidence colors and explanations match AnalysisResult
-
-5. **`src/components/ui/tooltip.tsx`**
-   - Standard shadcn/ui component, correctly exported
-
-**Documented (no fix needed):**
-- [MEDIUM] Code duplication: `confidenceColors` and `confidenceExplanations` are duplicated between `analysis-result.tsx` and `nutrition-editor.tsx`. Could be extracted to a shared file, but this is a style preference not affecting correctness.
-
-**Test Quality:**
-- All tests have meaningful assertions
-- Edge cases covered (time updates, different confidence levels, hover/tap interactions)
-- Async behavior properly tested with `waitFor` and fake timers
-- Mocks appropriately scoped
-
-### Linear Updates
-- FOO-71: Review → Merge
-- FOO-72: Review → Merge
-- FOO-73: Review → Merge
-- FOO-74: Review → Merge
-- FOO-75: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Iteration 3
-
-**Implemented:** 2026-02-05
-
-### Tasks Completed This Iteration
-- Task 12: Add photo preview zoom - Created Dialog component, PhotoPreviewDialog, made previews clickable
-- Task 13: Add dark mode toggle - Created useTheme hook, added appearance section to settings page
-- Task 14: Add state transition animations - Added CSS keyframes and animation classes to globals.css
-- Task 15: Cache session in settings page - Installed SWR, refactored settings page to use useSWR
-
-### Tasks Remaining
-- Task 16: Add portion size quick-select buttons
-- Task 17: Add aria-live regions for dynamic content
-- Task 18: Manage focus after actions
-- Task 19: Add accessible confidence indicator
-- Task 20: Add skip link for keyboard navigation
-
-### Files Modified
-- `src/components/ui/dialog.tsx` - Created new shadcn/ui Dialog component
-- `src/components/photo-preview-dialog.tsx` - Created new full-screen preview dialog
-- `src/components/photo-capture.tsx` - Made previews clickable, opens dialog on click
-- `src/hooks/use-theme.ts` - Created new theme management hook with hydration fix
-- `src/app/settings/page.tsx` - Added dark mode toggle, refactored to use SWR
-- `src/app/globals.css` - Added fade-in and slide-up animation keyframes
-- `src/components/food-analyzer.tsx` - Added animation class with key prop to analysis section
-- `src/components/food-log-confirmation.tsx` - Added slide-up animation
-- `src/test-setup.ts` - Added window.matchMedia mock for theme tests
-- `package.json` - Added SWR dependency
-
-### Tests Added/Modified
-- `src/components/__tests__/photo-capture.test.tsx` - Tests for preview zoom dialog
-- `src/hooks/__tests__/use-theme.test.ts` - Tests for theme hook
-- `src/app/settings/__tests__/page.test.tsx` - Tests for dark mode toggle and SWR caching
-- `src/components/__tests__/food-analyzer.test.tsx` - Tests for animation class
-
-### Linear Updates
-- FOO-76: Todo → In Progress → Review
-- FOO-77: Todo → In Progress → Review
-- FOO-78: Todo → In Progress → Review
-- FOO-79: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 3 medium bugs (animation key, stale preview index, hydration mismatch), all fixed
-- verifier: All 340 tests pass, zero type errors, 2 acceptable lint warnings (img element)
-
-### Continuation Status
-Context running low (~35% remaining). More tasks remain.
-
-### Review Findings
-
-Files reviewed: 10 source files, 4 test files
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Detailed Review:**
-
-1. **`src/components/ui/dialog.tsx`**
-   - Standard shadcn/ui Dialog component with proper forwardRef usage
-   - Accessibility: Close button has `sr-only` text for screen readers
-   - Proper animation classes for open/close states
-
-2. **`src/components/photo-preview-dialog.tsx`**
-   - Early return when `imageUrl` is null prevents rendering empty dialog
-   - Uses `VisuallyHidden` for DialogTitle (accessibility requirement)
-   - Close button has proper `aria-label` and 44px touch target
-
-3. **`src/components/photo-capture.tsx`**
-   - Preview click opens dialog with correct index tracking
-   - `doClear` properly resets dialog state
-
-4. **`src/hooks/use-theme.ts`**
-   - Hydration handled correctly: starts with "system", updates after mount
-   - `useEffect` cleanup for system theme media query listener
-   - `setTheme` wrapped in `useCallback` for stable reference
-   - localStorage operations properly guarded with `typeof window` checks
-
-5. **`src/app/settings/page.tsx`**
-   - SWR properly configured with revalidation options
-   - Theme toggle buttons have proper accessibility and touch targets
-   - Error handling for failed session fetch
-
-6. **`src/app/globals.css`**
-   - Animation keyframes properly defined
-   - `prefers-reduced-motion` media query respects accessibility
-
-7. **`src/components/food-analyzer.tsx`**
-   - Animation class applied conditionally with `key` prop for re-animation
-   - `loadingStep` state properly managed
-
-8. **`src/components/food-log-confirmation.tsx`**
-   - `animate-slide-up` class properly applied
-
-9. **`src/test-setup.ts`**
-   - `window.matchMedia` mock properly structured for theme tests
-
-**Test Quality:**
-- All tests have meaningful assertions covering open/close, persistence, and edge cases
-- SWR tests use fresh cache wrapper to prevent test interference
-- Animation tests verify class application
-
-### Linear Updates
-- FOO-76: Review → Merge
-- FOO-77: Review → Merge
-- FOO-78: Review → Merge
-- FOO-79: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Iteration 4
-
-**Implemented:** 2026-02-05
-
-### Tasks Completed This Iteration
-- Task 16: Add portion size quick-select buttons - Added Small/Medium/Large buttons above portion input in NutritionEditor
-- Task 17: Add aria-live regions for dynamic content - Added aria-live attributes to loading, error, and success states
-- Task 18: Manage focus after actions - Added refs and useEffect to move focus to analysis results and confirmation
-- Task 19: Add accessible confidence indicator - Added CheckCircle/AlertTriangle icons alongside confidence color dots
-- Task 20: Add skip link for keyboard navigation - Created SkipLink component, added to app page with #main-content target
-
-### Files Modified
-- `src/components/nutrition-editor.tsx` - Added portion quick-select buttons, accessible confidence icon
-- `src/components/analysis-result.tsx` - Added aria-live regions, accessible confidence icon
-- `src/components/food-log-confirmation.tsx` - Added aria-live="assertive" to success container
-- `src/components/food-analyzer.tsx` - Added aria-live on log error, focus management refs and useEffects
-- `src/components/skip-link.tsx` - Created new skip link component
-- `src/app/app/page.tsx` - Added SkipLink component and id="main-content" to main element
-
-### Tests Added/Modified
-- `src/components/__tests__/nutrition-editor.test.tsx` - Tests for portion quick-select and accessible confidence icon
-- `src/components/__tests__/analysis-result.test.tsx` - Tests for aria-live regions and accessible confidence icon
-- `src/components/__tests__/food-log-confirmation.test.tsx` - Tests for aria-live region
-- `src/components/__tests__/food-analyzer.test.tsx` - Tests for aria-live regions and focus management
-- `src/components/__tests__/skip-link.test.tsx` - Created new tests for SkipLink component
-- `src/app/app/__tests__/page.test.tsx` - Tests for skip link integration
-
-### Linear Updates
-- FOO-80: Todo → In Progress → Review
-- FOO-81: Todo → In Progress → Review
-- FOO-82: Todo → In Progress → Review
-- FOO-83: Todo → In Progress → Review
-- FOO-84: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 1 medium issue (missing SkipLink tests), fixed before proceeding
-- verifier: All 371 tests pass, zero type errors, 1 pre-existing lint error (use-theme.ts from Iteration 3), 2 acceptable lint warnings (img element)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 6 source files, 6 test files
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Detailed Review:**
-
-1. **`src/components/nutrition-editor.tsx`**
-   - Portion quick-select buttons correctly implemented with Small=100g, Medium=200g, Large=350g
-   - Selected state properly tracked via `data-selected` attribute
-   - Buttons correctly disabled when editor is disabled
-   - Accessible confidence icon (CheckCircle for high, AlertTriangle for medium/low) properly implemented
-   - Icons have `aria-hidden="true"` since text label provides the accessible name
-
-2. **`src/components/analysis-result.tsx`**
-   - `aria-live="assertive"` correctly applied to loading container with `aria-busy="true"`
-   - `aria-live="polite"` correctly applied to error and result containers
-   - Accessible confidence icon matches NutritionEditor implementation
-   - `loadingStep` prop with fallback to generic message
-
-3. **`src/components/food-log-confirmation.tsx`**
-   - `aria-live="assertive"` correctly applied to success container
-   - Animation class properly applied
-
-4. **`src/components/food-analyzer.tsx`**
-   - Focus management refs (`analysisSectionRef`, `confirmationRef`) properly created
-   - `useEffect` hooks correctly focus elements after state changes
-   - `tabIndex={-1}` and `outline-none` class allow programmatic focus without visible ring
-   - `aria-live="polite"` on log error container
-   - Dependencies in useEffect are correct (`[analysis, loading]` and `[logResponse]`)
-
-5. **`src/components/skip-link.tsx`**
-   - Proper implementation with `sr-only` and `focus:not-sr-only` classes
-   - Shows on focus with proper styling (z-50, absolute positioning)
-   - Default href to `#main-content` with customizable props
-
-6. **`src/app/app/page.tsx`**
-   - SkipLink properly imported and placed at top of component
-   - `main` element has `id="main-content"` for skip link target
-   - `role="main"` implicit from `<main>` element
-
-**Test Quality:**
-- All tests have meaningful assertions
-- Portion quick-select tests cover all three sizes and manual input
-- aria-live tests verify correct attribute values on correct containers
-- Focus management tests verify focus moves to correct elements
-- Skip link tests verify visibility classes and href attribute
-
-### Linear Updates
-- FOO-80: Review → Merge
-- FOO-81: Review → Merge
-- FOO-82: Review → Merge
-- FOO-83: Review → Merge
-- FOO-84: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- heic-to has slightly different API than heic2any (returns single Blob, not array)
+- Inline script requires `suppressHydrationWarning` on html element
+- Bundle size change: heic2any (2.7MB) → heic-to (unknown, likely similar)
