@@ -64,7 +64,10 @@ vi.mock("../analysis-result", () => ({
     error: string | null;
     onRetry: () => void;
   }) => (
-    <div data-testid="analysis-result">
+    <div
+      data-testid="analysis-result"
+      aria-live={loading ? "assertive" : error ? "polite" : undefined}
+    >
       {loading && <span>Loading...</span>}
       {error && (
         <>
@@ -133,7 +136,7 @@ vi.mock("../food-log-confirmation", () => ({
     onReset: () => void;
   }) =>
     response ? (
-      <div data-testid="food-log-confirmation">
+      <div data-testid="food-log-confirmation" tabIndex={-1}>
         <span>Successfully logged {foodName}</span>
         <button onClick={onReset}>Log Another</button>
       </div>
@@ -1072,6 +1075,149 @@ describe("FoodAnalyzer", () => {
       // Check the container has animation class
       const analysisContainer = screen.getByTestId("analysis-section");
       expect(analysisContainer.className).toMatch(/animate-fade-in/);
+    });
+  });
+
+  describe("aria-live regions", () => {
+    it("has aria-live='polite' on error messages", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            error: { code: "CLAUDE_API_ERROR", message: "Failed to analyze" },
+          }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        const errorContainer = screen.getByTestId("analysis-result");
+        expect(errorContainer).toHaveAttribute("aria-live", "polite");
+      });
+    });
+
+    it("has aria-live='assertive' on loading state", async () => {
+      mockFetch.mockImplementationOnce(
+        () => new Promise((resolve) => setTimeout(resolve, 1000))
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        const loadingContainer = screen.getByTestId("analysis-result");
+        expect(loadingContainer).toHaveAttribute("aria-live", "assertive");
+      });
+    });
+
+    it("has aria-live='polite' on log error messages", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () =>
+            Promise.resolve({
+              success: false,
+              error: { code: "FITBIT_API_ERROR", message: "Failed to log" },
+            }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        const errorContainer = screen.getByTestId("log-error");
+        expect(errorContainer).toHaveAttribute("aria-live", "polite");
+      });
+    });
+  });
+
+  describe("focus management", () => {
+    it("moves focus to analysis result after analysis completes", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      // Focus should be on analysis section
+      await waitFor(() => {
+        const analysisSection = screen.getByTestId("analysis-section");
+        expect(analysisSection).toHaveFocus();
+      });
+    });
+
+    it("moves focus to confirmation after log succeeds", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      });
+
+      // Focus should be on confirmation wrapper (parent of food-log-confirmation)
+      await waitFor(() => {
+        const confirmationSection = screen.getByTestId("food-log-confirmation").parentElement;
+        expect(confirmationSection).toHaveFocus();
+      });
     });
   });
 });

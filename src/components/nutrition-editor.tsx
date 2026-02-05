@@ -1,6 +1,7 @@
 "use client";
 
 import type { FoodAnalysis } from "@/types";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -9,6 +10,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CheckCircle, AlertTriangle } from "lucide-react";
+
+const PORTION_PRESETS = [
+  { label: "Small", grams: 100 },
+  { label: "Medium", grams: 200 },
+  { label: "Large", grams: 350 },
+] as const;
 
 interface NutritionEditorProps {
   value: FoodAnalysis;
@@ -58,6 +66,19 @@ export function NutritionEditor({
                 data-testid="confidence-trigger"
                 className="flex items-center gap-2 cursor-help"
               >
+                {value.confidence === "high" ? (
+                  <CheckCircle
+                    data-testid="confidence-icon-check"
+                    className="w-4 h-4 text-green-500"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <AlertTriangle
+                    data-testid="confidence-icon-alert"
+                    className={`w-4 h-4 ${value.confidence === "medium" ? "text-yellow-500" : "text-red-500"}`}
+                    aria-hidden="true"
+                  />
+                )}
                 <div
                   data-testid="confidence-indicator"
                   aria-label={`Confidence: ${value.confidence}`}
@@ -91,6 +112,25 @@ export function NutritionEditor({
       {/* Portion size */}
       <div className="space-y-2">
         <Label htmlFor="portion_size_g">Portion (g)</Label>
+        <div className="flex gap-2 mb-2">
+          {PORTION_PRESETS.map((preset) => {
+            const isSelected = value.portion_size_g === preset.grams;
+            return (
+              <Button
+                key={preset.label}
+                type="button"
+                variant={isSelected ? "default" : "outline"}
+                size="sm"
+                disabled={disabled}
+                data-selected={isSelected}
+                onClick={() => onChange({ ...value, portion_size_g: preset.grams })}
+                className="flex-1"
+              >
+                {preset.label}
+              </Button>
+            );
+          })}
+        </div>
         <Input
           id="portion_size_g"
           type="number"

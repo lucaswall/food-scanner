@@ -29,7 +29,10 @@ export function FoodLogConfirmation({
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center animate-slide-up">
+    <div
+      className="flex flex-col items-center justify-center py-8 space-y-4 text-center animate-slide-up"
+      aria-live="assertive"
+    >
       <CheckCircle
         data-testid="success-icon"
         className="w-16 h-16 text-green-500"

@@ -8,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { CheckCircle, AlertTriangle } from "lucide-react";
 
 interface AnalysisResultProps {
   analysis: FoodAnalysis | null;
@@ -38,7 +39,11 @@ export function AnalysisResult({
 }: AnalysisResultProps) {
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4">
+      <div
+        className="flex flex-col items-center justify-center py-8 space-y-4"
+        aria-live="assertive"
+        aria-busy="true"
+      >
         <div
           data-testid="loading-spinner"
           className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"
@@ -52,7 +57,10 @@ export function AnalysisResult({
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4">
+      <div
+        className="flex flex-col items-center justify-center py-8 space-y-4"
+        aria-live="polite"
+      >
         <p className="text-sm text-red-500">{error}</p>
         <Button onClick={onRetry} variant="outline">
           Retry
@@ -66,7 +74,7 @@ export function AnalysisResult({
   }
 
   return (
-    <div className="space-y-4 p-4 border rounded-lg">
+    <div className="space-y-4 p-4 border rounded-lg" aria-live="polite">
       {/* Header with food name and confidence */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">{analysis.food_name}</h3>
@@ -78,6 +86,19 @@ export function AnalysisResult({
                 data-testid="confidence-trigger"
                 className="flex items-center gap-2 cursor-help"
               >
+                {analysis.confidence === "high" ? (
+                  <CheckCircle
+                    data-testid="confidence-icon-check"
+                    className="w-4 h-4 text-green-500"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <AlertTriangle
+                    data-testid="confidence-icon-alert"
+                    className={`w-4 h-4 ${analysis.confidence === "medium" ? "text-yellow-500" : "text-red-500"}`}
+                    aria-hidden="true"
+                  />
+                )}
                 <div
                   data-testid="confidence-indicator"
                   aria-label={`Confidence: ${analysis.confidence}`}

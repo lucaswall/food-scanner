@@ -320,4 +320,109 @@ describe("AnalysisResult", () => {
       });
     });
   });
+
+  describe("aria-live regions", () => {
+    it("loading state has aria-live='assertive'", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={null}
+          loading={true}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      const loadingContainer = screen.getByTestId("loading-spinner").closest("[aria-live]");
+      expect(loadingContainer).toHaveAttribute("aria-live", "assertive");
+    });
+
+    it("error state has aria-live='polite'", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={null}
+          loading={false}
+          error="Test error"
+          onRetry={onRetry}
+        />
+      );
+
+      const errorContainer = screen.getByText("Test error").closest("[aria-live]");
+      expect(errorContainer).toHaveAttribute("aria-live", "polite");
+    });
+
+    it("result state has aria-live='polite'", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      const resultContainer = screen.getByText("Empanada de carne").closest("[aria-live]");
+      expect(resultContainer).toHaveAttribute("aria-live", "polite");
+    });
+  });
+
+  describe("accessible confidence indicator", () => {
+    it("shows CheckCircle icon for high confidence", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={{ ...mockAnalysis, confidence: "high" }}
+          loading={false}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      expect(screen.getByTestId("confidence-icon-check")).toBeInTheDocument();
+    });
+
+    it("shows AlertTriangle icon for medium confidence", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={{ ...mockAnalysis, confidence: "medium" }}
+          loading={false}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      expect(screen.getByTestId("confidence-icon-alert")).toBeInTheDocument();
+    });
+
+    it("shows AlertTriangle icon for low confidence", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={{ ...mockAnalysis, confidence: "low" }}
+          loading={false}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      expect(screen.getByTestId("confidence-icon-alert")).toBeInTheDocument();
+    });
+
+    it("still shows text label alongside icon", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={{ ...mockAnalysis, confidence: "high" }}
+          loading={false}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      expect(screen.getByText(/high/i)).toBeInTheDocument();
+    });
+  });
 });

@@ -762,3 +762,46 @@ No issues found - all implementations are correct and follow project conventions
 - FOO-79: Review → Merge
 
 <!-- REVIEW COMPLETE -->
+
+---
+
+## Iteration 4
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Task 16: Add portion size quick-select buttons - Added Small/Medium/Large buttons above portion input in NutritionEditor
+- Task 17: Add aria-live regions for dynamic content - Added aria-live attributes to loading, error, and success states
+- Task 18: Manage focus after actions - Added refs and useEffect to move focus to analysis results and confirmation
+- Task 19: Add accessible confidence indicator - Added CheckCircle/AlertTriangle icons alongside confidence color dots
+- Task 20: Add skip link for keyboard navigation - Created SkipLink component, added to app page with #main-content target
+
+### Files Modified
+- `src/components/nutrition-editor.tsx` - Added portion quick-select buttons, accessible confidence icon
+- `src/components/analysis-result.tsx` - Added aria-live regions, accessible confidence icon
+- `src/components/food-log-confirmation.tsx` - Added aria-live="assertive" to success container
+- `src/components/food-analyzer.tsx` - Added aria-live on log error, focus management refs and useEffects
+- `src/components/skip-link.tsx` - Created new skip link component
+- `src/app/app/page.tsx` - Added SkipLink component and id="main-content" to main element
+
+### Tests Added/Modified
+- `src/components/__tests__/nutrition-editor.test.tsx` - Tests for portion quick-select and accessible confidence icon
+- `src/components/__tests__/analysis-result.test.tsx` - Tests for aria-live regions and accessible confidence icon
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Tests for aria-live region
+- `src/components/__tests__/food-analyzer.test.tsx` - Tests for aria-live regions and focus management
+- `src/components/__tests__/skip-link.test.tsx` - Created new tests for SkipLink component
+- `src/app/app/__tests__/page.test.tsx` - Tests for skip link integration
+
+### Linear Updates
+- FOO-80: Todo → In Progress → Review
+- FOO-81: Todo → In Progress → Review
+- FOO-82: Todo → In Progress → Review
+- FOO-83: Todo → In Progress → Review
+- FOO-84: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 medium issue (missing SkipLink tests), fixed before proceeding
+- verifier: All 371 tests pass, zero type errors, 1 pre-existing lint error (use-theme.ts from Iteration 3), 2 acceptable lint warnings (img element)
+
+### Continuation Status
+All tasks completed.

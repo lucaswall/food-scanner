@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { PhotoCapture } from "./photo-capture";
 import { DescriptionInput } from "./description-input";
 import { AnalysisResult } from "./analysis-result";
@@ -37,6 +37,10 @@ export function FoodAnalyzer() {
   const [photos, setPhotos] = useState<File[]>([]);
   const [description, setDescription] = useState("");
   const [analysis, setAnalysis] = useState<FoodAnalysis | null>(null);
+
+  // Refs for focus management
+  const analysisSectionRef = useRef<HTMLDivElement>(null);
+  const confirmationRef = useRef<HTMLDivElement>(null);
   const [editedAnalysis, setEditedAnalysis] = useState<FoodAnalysis | null>(null);
   const [compressing, setCompressing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -210,15 +214,31 @@ export function FoodAnalyzer() {
     isEditing: editMode,
   });
 
+  // Focus management: move focus to analysis section after analysis completes
+  useEffect(() => {
+    if (analysis && !loading && analysisSectionRef.current) {
+      analysisSectionRef.current.focus();
+    }
+  }, [analysis, loading]);
+
+  // Focus management: move focus to confirmation after log succeeds
+  useEffect(() => {
+    if (logResponse && confirmationRef.current) {
+      confirmationRef.current.focus();
+    }
+  }, [logResponse]);
+
   // Show confirmation if logged successfully
   if (logResponse) {
     return (
       <div className="space-y-6">
-        <FoodLogConfirmation
-          response={logResponse}
-          foodName={currentAnalysis?.food_name || "Food"}
-          onReset={handleReset}
-        />
+        <div ref={confirmationRef} tabIndex={-1} className="outline-none">
+          <FoodLogConfirmation
+            response={logResponse}
+            foodName={currentAnalysis?.food_name || "Food"}
+            onReset={handleReset}
+          />
+        </div>
       </div>
     );
   }
@@ -254,8 +274,10 @@ export function FoodAnalyzer() {
 
       {/* Analysis result section */}
       <div
+        ref={analysisSectionRef}
         data-testid="analysis-section"
-        className={analysis ? "animate-fade-in" : ""}
+        className={analysis ? "animate-fade-in outline-none" : "outline-none"}
+        tabIndex={-1}
         key={analysis ? `analysis-${analysis.food_name}-${analysis.calories}` : "no-analysis"}
       >
         {!editMode ? (
@@ -312,7 +334,11 @@ export function FoodAnalyzer() {
 
           {/* Log error display */}
           {logError && (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+            <div
+              data-testid="log-error"
+              className="p-3 bg-red-50 border border-red-200 rounded-lg"
+              aria-live="polite"
+            >
               <p className="text-sm text-red-600">{logError}</p>
               {logError.includes("reconnect") && (
                 <a
