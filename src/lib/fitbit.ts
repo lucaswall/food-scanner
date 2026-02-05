@@ -139,7 +139,7 @@ export async function logFood(
   }
 
   const response = await fetchWithRetry(
-    `${FITBIT_API_BASE}/1/user/-/food/log.json`,
+    `${FITBIT_API_BASE}/1/user/-/foods/log.json`,
     {
       method: "POST",
       headers: {

@@ -112,6 +112,24 @@ describe("exchangeGoogleCode", () => {
 });
 
 describe("getGoogleProfile", () => {
+  it("calls the v3 userinfo endpoint", async () => {
+    const mockProfile = { email: "test@example.com", name: "Test User" };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockProfile), { status: 200 }),
+    );
+
+    await getGoogleProfile("test-token");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://www.googleapis.com/oauth2/v3/userinfo",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer test-token" },
+      }),
+    );
+
+    vi.restoreAllMocks();
+  });
+
   it("logs error on profile fetch HTTP failure", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 403 }),
