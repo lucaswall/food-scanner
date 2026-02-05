@@ -109,3 +109,50 @@
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Files reviewed: 2
+- `src/components/photo-capture.tsx`
+- `src/components/__tests__/photo-capture.test.tsx`
+
+Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Test Quality, CLAUDE.md Conventions
+
+**Security:**
+- ✅ File validation (type and size) properly implemented
+- ✅ No XSS risk - blob URLs are safe
+- ✅ Client-side component; server validates at API level
+
+**Logic & Correctness:**
+- ✅ Both inputs share identical `accept="image/jpeg,image/png"` attributes
+- ✅ Camera input has `capture="environment"`, gallery input does not
+- ✅ Validation logic correctly rejects invalid files before state update
+- ✅ `maxPhotos` limit enforced via `.slice(0, maxPhotos)`
+
+**Resource Management:**
+- ✅ `URL.revokeObjectURL` called on old previews to prevent memory leaks
+- ✅ Input values reset to allow re-selecting same file
+
+**Type Safety:**
+- ✅ Props interface defined, refs typed, no `any` casts
+
+**Test Quality:**
+- ✅ 18 comprehensive tests covering both inputs, validation, combining photos, clear functionality
+- ✅ Mocks properly set up for URL methods
+
+**CLAUDE.md Compliance:**
+- ✅ Uses `'use client'`, `@/` imports, shadcn/ui components
+- ✅ Naming conventions followed
+
+No issues found - all implementations are correct and follow project conventions.
+
+### Linear Updates
+- FOO-32: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
