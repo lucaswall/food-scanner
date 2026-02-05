@@ -1,230 +1,210 @@
-# Implementation Plan
+# Fix Plan: HEIC SSR Error and Preview Issues
 
-**Created:** 2026-02-04
-**Source:** Inline request: Add support for all Claude-supported image formats (JPEG, PNG, GIF, WebP) plus HEIC with conversion
-**Linear Issues:** [FOO-41](https://linear.app/lw-claude/issue/FOO-41), [FOO-42](https://linear.app/lw-claude/issue/FOO-42), [FOO-43](https://linear.app/lw-claude/issue/FOO-43), [FOO-44](https://linear.app/lw-claude/issue/FOO-44), [FOO-45](https://linear.app/lw-claude/issue/FOO-45), [FOO-46](https://linear.app/lw-claude/issue/FOO-46)
+**Issue:** [FOO-47](https://linear.app/lw-claude/issue/FOO-47), [FOO-48](https://linear.app/lw-claude/issue/FOO-48)
+**Date:** 2026-02-04
+**Status:** Planning
+**Branch:** fix/FOO-47-heic-ssr-and-preview
 
-## Context Gathered
+## Investigation
 
-### Codebase Analysis
-- **Related files:**
-  - `src/lib/image.ts` — Client-side image compression (compressImage function using canvas)
-  - `src/lib/__tests__/image.test.ts` — Tests for image compression
-  - `src/components/photo-capture.tsx` — File input component with ALLOWED_TYPES validation
-  - `src/components/__tests__/photo-capture.test.tsx` — Tests for photo capture
-  - `src/components/food-analyzer.tsx` — Parent component that calls compressImage
-  - `src/app/api/analyze-food/route.ts` — Server-side validation (no changes needed - receives JPEG from client)
-- **Existing patterns:**
-  - Client-side image processing in `src/lib/image.ts` using canvas API
-  - File validation in PhotoCapture component with ALLOWED_TYPES array
-  - Tests mock canvas APIs and Image class
-- **Test conventions:**
-  - Mock browser APIs (URL.createObjectURL, canvas, Image)
-  - Use createMockFile helper for File objects
-  - Test both success and error paths
+### Bug Report
+User reported:
+- HEIC image preview is broken (not rendering)
+- Site stuck on "Analyzing" and then gave an error
 
-### MCP Context
-- **MCPs used:** Linear (for issue creation)
-- **Findings:** Team "Food Scanner" (ID: `3e498d7a-30d2-4c11-89b3-ed7bd8cb2031`)
+### Classification
+- **Type:** Frontend Bug + Deployment Failure
+- **Severity:** Critical (app broken in production)
+- **Affected Area:** `/app` page, image handling
 
-### Research Findings
-- **Claude API supported formats:** JPEG, PNG, GIF, WebP only — HEIC NOT supported
-- **heic2any library:** ~2.7MB, converts HEIC to JPEG/PNG client-side using libheif WebAssembly
-- **Browser HEIC support:** Safari 17.6+ native, Chrome/Firefox/Edge need conversion
-- **Android relevance:** Android Photos app saves in HEIC by default on many devices; conversion is necessary
+### Root Cause Analysis
 
-## Original Plan
+**Two separate bugs identified:**
 
-### Task 1: Add heic2any dependency
-**Linear Issue:** [FOO-41](https://linear.app/lw-claude/issue/FOO-41)
+#### Bug 1: SSR Error - "window is not defined" (Critical)
 
-1. No tests needed (dependency installation)
-2. Install heic2any: `npm install heic2any`
-3. Install @types/heic2any: `npm install --save-dev @types/heic2any`
-4. Verify installation in package.json
-5. Run verifier (expect pass)
+The `heic2any` library accesses browser-only APIs (`window`, Web Workers) during module initialization. When Next.js server-renders the `/app` page, it tries to evaluate the module and crashes.
 
-### Task 2: Create HEIC detection and conversion utility
-**Linear Issue:** [FOO-42](https://linear.app/lw-claude/issue/FOO-42)
+**Evidence:**
+- **Railway logs:** `ReferenceError: window is not defined` at `.next/server/chunks/ssr/_f53f0bb7._.js:1:1428716`
+- **File:** `src/lib/image.ts:1` - Top-level import: `import heic2any from "heic2any";`
+- **File:** `src/components/food-analyzer.tsx:10` - Imports `compressImage` from `@/lib/image`
+- **File:** `src/app/app/page.tsx:3` - Server Component imports `FoodAnalyzer`
 
-1. Write tests in `src/lib/__tests__/image.test.ts` for HEIC handling:
-   - Test `isHeicFile(file)` returns true for image/heic MIME type
-   - Test `isHeicFile(file)` returns true for image/heif MIME type
-   - Test `isHeicFile(file)` returns true for .heic file extension (fallback when MIME is empty)
-   - Test `isHeicFile(file)` returns true for .heif file extension
-   - Test `isHeicFile(file)` returns false for JPEG/PNG files
-   - Test `convertHeicToJpeg(file)` returns Blob with image/jpeg type
-   - Test `convertHeicToJpeg(file)` throws on conversion failure
-2. Run verifier (expect fail)
-3. Implement in `src/lib/image.ts`:
-   - Add `isHeicFile(file: File): boolean` — check MIME type and extension
-   - Add `convertHeicToJpeg(file: File): Promise<Blob>` — use heic2any library
-   - Export both functions
-4. Run verifier (expect pass)
+The `"use client"` directive helps with runtime execution but does NOT prevent module evaluation during SSR in Next.js 16's Turbopack bundler.
 
-### Task 3: Update compressImage to handle HEIC input
-**Linear Issue:** [FOO-43](https://linear.app/lw-claude/issue/FOO-43)
+#### Bug 2: HEIC Previews Not Rendering
 
-1. Write tests in `src/lib/__tests__/image.test.ts`:
-   - Test `compressImage` with HEIC file converts before canvas processing
-   - Test `compressImage` still works with JPEG/PNG (no conversion)
-   - Test `compressImage` propagates conversion errors
-2. Run verifier (expect fail)
-3. Update `compressImage` in `src/lib/image.ts`:
-   - At start, check if file is HEIC using `isHeicFile`
-   - If HEIC, convert to JPEG using `convertHeicToJpeg` first
-   - Create new File from converted blob for canvas processing
-   - Existing canvas resize/compress logic unchanged
-4. Run verifier (expect pass)
+The `PhotoCapture` component shows previews using `URL.createObjectURL(file)` directly on the original files. Browsers (except Safari on macOS) cannot decode HEIC format natively in `<img>` tags.
 
-### Task 4: Update PhotoCapture to accept all supported formats
-**Linear Issue:** [FOO-44](https://linear.app/lw-claude/issue/FOO-44)
+**Evidence:**
+- **File:** `src/components/photo-capture.tsx:80-81` - Creates object URLs from raw files
+- **File:** `src/components/photo-capture.tsx:186-190` - Renders `<img src={preview}>` with raw HEIC blob URL
+- HEIC-to-JPEG conversion only happens in `compressImage()` during analysis, not during preview generation
 
-1. Write tests in `src/components/__tests__/photo-capture.test.tsx`:
-   - Test GIF files (image/gif) are accepted without validation error
-   - Test WebP files (image/webp) are accepted without validation error
-   - Test HEIC files (image/heic) are accepted without validation error
-   - Test HEIF files (image/heif) are accepted without validation error
-   - Test files with .heic extension but empty MIME type are accepted
-   - Test updated error message lists all supported formats
-2. Run verifier (expect fail)
-3. Update `src/components/photo-capture.tsx`:
-   - Update ALLOWED_TYPES: `["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]`
-   - Update accept attribute: `image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif`
-   - Update validateFile to also check file extension for .heic/.heif
-   - Update error message: "Only JPEG, PNG, GIF, WebP, and HEIC images are allowed"
-4. Run verifier (expect pass)
+### Impact
+- Bug 1: App completely broken - `/app` page crashes on load with SSR error
+- Bug 2: HEIC image previews appear broken/blank (user can't see what they selected)
 
-### Task 5: Update API route to accept all Claude-supported formats
-**Linear Issue:** [FOO-46](https://linear.app/lw-claude/issue/FOO-46)
+## Fix Plan (TDD Approach)
 
-1. Write tests in `src/app/api/analyze-food/__tests__/route.test.ts`:
-   - Test GIF files (image/gif) are accepted
-   - Test WebP files (image/webp) are accepted
-   - Test validation error message updated
-2. Run verifier (expect fail)
-3. Update `src/app/api/analyze-food/route.ts`:
-   - Update ALLOWED_TYPES: `["image/jpeg", "image/png", "image/gif", "image/webp"]`
-   - Note: HEIC not included here — client converts HEIC to JPEG before upload
-4. Run verifier (expect pass)
+### Task 1: Fix heic2any SSR Error with Dynamic Import
+**Linear Issue:** FOO-47
 
-### Task 6: Update CLAUDE.md and ROADMAP.md documentation
-**Linear Issue:** [FOO-45](https://linear.app/lw-claude/issue/FOO-45)
+#### Step 1: Write Failing Test
+- **File:** `src/lib/__tests__/image.test.ts`
+- **Test:** Verify heic2any is only imported when `convertHeicToJpeg` is called (not at module load)
 
-1. No tests needed (documentation)
-2. Update CLAUDE.md Security section: "JPEG, PNG, GIF, WebP, HEIC" (HEIC converted client-side)
-3. Update ROADMAP.md image validation section with all supported formats
-4. Run verifier (expect pass)
+```typescript
+describe("convertHeicToJpeg", () => {
+  it("dynamically imports heic2any only when called", async () => {
+    // Reset module state
+    vi.resetModules();
+
+    // Import module - should NOT throw even if heic2any accesses window
+    const imageModule = await import("@/lib/image");
+
+    // Module should load without error (heic2any not yet imported)
+    expect(imageModule.convertHeicToJpeg).toBeDefined();
+  });
+});
+```
+
+#### Step 2: Implement Fix
+- **File:** `src/lib/image.ts`
+- **Change:** Replace top-level import with dynamic import inside `convertHeicToJpeg`
+
+```typescript
+// REMOVE: import heic2any from "heic2any";
+
+export async function convertHeicToJpeg(file: File): Promise<Blob> {
+  // Dynamic import - only loads when function is called (client-side only)
+  const heic2any = (await import("heic2any")).default;
+
+  const result = await heic2any({
+    blob: file,
+    toType: "image/jpeg",
+  });
+
+  // ... rest unchanged
+}
+```
+
+#### Step 3: Verify
+- [ ] Existing heic2any tests still pass (mock still works)
+- [ ] No SSR error when loading `/app` page
+- [ ] TypeScript compiles without errors
+- [ ] Build passes (`npm run build`)
+
+---
+
+### Task 2: Fix HEIC Preview with Pre-conversion
+**Linear Issue:** FOO-48
+
+#### Step 1: Write Failing Test
+- **File:** `src/components/__tests__/photo-capture.test.tsx`
+- **Test:** Verify HEIC files are converted before creating preview URLs
+
+```typescript
+describe("HEIC preview handling", () => {
+  it("converts HEIC files to JPEG for preview", async () => {
+    // Mock convertHeicToJpeg
+    const mockConvertHeicToJpeg = vi.fn().mockResolvedValue(
+      new Blob(["converted"], { type: "image/jpeg" })
+    );
+    vi.mock("@/lib/image", () => ({
+      isHeicFile: vi.fn().mockReturnValue(true),
+      convertHeicToJpeg: mockConvertHeicToJpeg,
+    }));
+
+    render(<PhotoCapture onPhotosChange={mockOnChange} />);
+
+    const heicFile = new File(["test"], "photo.heic", { type: "image/heic" });
+    const input = screen.getByTestId("gallery-input");
+
+    await userEvent.upload(input, heicFile);
+
+    // Should have called conversion
+    expect(mockConvertHeicToJpeg).toHaveBeenCalledWith(heicFile);
+
+    // Preview should render (converted JPEG blob)
+    expect(screen.getByAltText("Preview 1")).toBeInTheDocument();
+  });
+
+  it("does not convert non-HEIC files for preview", async () => {
+    vi.mock("@/lib/image", () => ({
+      isHeicFile: vi.fn().mockReturnValue(false),
+      convertHeicToJpeg: vi.fn(),
+    }));
+
+    render(<PhotoCapture onPhotosChange={mockOnChange} />);
+
+    const jpegFile = new File(["test"], "photo.jpg", { type: "image/jpeg" });
+    const input = screen.getByTestId("gallery-input");
+
+    await userEvent.upload(input, jpegFile);
+
+    // Should NOT have called conversion
+    expect(convertHeicToJpeg).not.toHaveBeenCalled();
+  });
+});
+```
+
+#### Step 2: Implement Fix
+- **File:** `src/components/photo-capture.tsx`
+- **Change:** Make `handleFileChange` async, convert HEIC files before creating preview URLs
+
+```typescript
+import { isHeicFile, convertHeicToJpeg } from "@/lib/image";
+
+// Store converted blobs for preview (separate from original files for upload)
+const [previewBlobs, setPreviewBlobs] = useState<Blob[]>([]);
+
+const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  // ... validation unchanged ...
+
+  // Convert HEIC files for preview
+  const previewBlobsPromises = combinedPhotos.map(async (file) => {
+    if (isHeicFile(file)) {
+      return convertHeicToJpeg(file);
+    }
+    return file;
+  });
+
+  const convertedBlobs = await Promise.all(previewBlobsPromises);
+
+  // Create preview URLs from converted blobs
+  const newPreviews = convertedBlobs.map((blob) =>
+    URL.createObjectURL(blob)
+  );
+
+  // ... rest unchanged ...
+};
+```
+
+#### Step 3: Verify
+- [ ] HEIC files show preview correctly (converted to JPEG)
+- [ ] Non-HEIC files still preview correctly (no conversion)
+- [ ] Original HEIC files are preserved for upload (conversion happens again in FoodAnalyzer)
+- [ ] Memory cleanup still works (URL.revokeObjectURL)
+- [ ] Loading state shown during conversion (optional enhancement)
+
+#### Step 4: Additional Tests
+- [ ] Edge case: Multiple HEIC files converted in parallel
+- [ ] Edge case: Mix of HEIC and non-HEIC files
+- [ ] Error handling: Conversion failure shows error message
+
+---
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent - Review changes for bugs
 2. Run `verifier` agent - Verify all tests pass and zero warnings
+3. Manual test on deployed app with HEIC image
 
----
+## Notes
 
-## Plan Summary
-
-**Objective:** Support all Claude-compatible image formats (JPEG, PNG, GIF, WebP) plus HEIC with client-side conversion
-
-**Request:** User uses Android and wants HEIC support. Expanding to all Claude-supported formats for completeness.
-
-**Linear Issues:** FOO-41, FOO-42, FOO-43, FOO-44, FOO-45, FOO-46
-
-**Approach:**
-1. Add GIF and WebP to both client and server validation (Claude API supports these natively)
-2. Install heic2any library for client-side HEIC-to-JPEG conversion
-3. Create detection and conversion utilities in the image library
-4. Update compressImage to automatically convert HEIC before canvas processing
-5. Update PhotoCapture and API route to accept all formats
-
-**Scope:**
-- Tasks: 6
-- Files affected: 6 (3 source files, 3 test files, 2 docs)
-- New tests: yes
-
-**Key Decisions:**
-- GIF and WebP pass through to Claude API directly (natively supported)
-- HEIC converted to JPEG client-side before upload (Claude doesn't support HEIC)
-- Detection checks both MIME type and file extension (Android sometimes reports empty MIME for HEIC)
-- Conversion happens in compressImage transparently — caller doesn't need to know about HEIC
-
-**Risks/Considerations:**
-- heic2any adds ~2.7MB to client bundle — acceptable tradeoff for universal support
-- HEIC conversion takes 1-3 seconds per image — user sees normal "Analyzing..." state
-- If heic2any fails to load or convert, error propagates to user as "Failed to load image"
-- Testing HEIC conversion requires mocking heic2any library
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-04
-
-### Tasks Completed This Iteration
-- Task 1: Add heic2any dependency - Installed heic2any (includes built-in TypeScript types)
-- Task 2: Create HEIC detection and conversion utility - Added isHeicFile() and convertHeicToJpeg() functions with tests
-- Task 3: Update compressImage to handle HEIC input - Auto-converts HEIC before canvas processing
-- Task 4: Update PhotoCapture to accept all supported formats - Added GIF, WebP, HEIC, HEIF with extension fallback
-- Task 5: Update API route to accept all Claude-supported formats - Added GIF and WebP to analyze-food endpoint
-- Task 6: Update CLAUDE.md and ROADMAP.md documentation - Updated image format documentation
-
-### Files Modified
-- `package.json` - Added heic2any dependency
-- `package-lock.json` - Updated lockfile
-- `src/lib/image.ts` - Added isHeicFile(), convertHeicToJpeg(), updated compressImage()
-- `src/lib/__tests__/image.test.ts` - Added 12 new tests for HEIC handling
-- `src/test-setup.ts` - Added Worker mock for heic2any compatibility
-- `src/components/photo-capture.tsx` - Updated ALLOWED_TYPES and accept attributes
-- `src/components/__tests__/photo-capture.test.tsx` - Added 6 new format tests
-- `src/app/api/analyze-food/route.ts` - Updated ALLOWED_TYPES for GIF/WebP
-- `src/app/api/analyze-food/__tests__/route.test.ts` - Added 3 new format tests
-- `CLAUDE.md` - Updated Security section for image formats
-- `ROADMAP.md` - Updated image validation documentation
-
-### Linear Updates
-- FOO-41: Todo → In Progress → Review
-- FOO-42: Todo → In Progress → Review
-- FOO-43: Todo → In Progress → Review
-- FOO-44: Todo → In Progress → Review
-- FOO-45: Todo → In Progress → Review
-- FOO-46: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 3 medium bugs (empty array handling, extension parsing edge cases), fixed before proceeding
-- verifier: All 255 tests pass, zero warnings
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 11
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Verification details:**
-- `isHeicFile()`: Correctly handles MIME types (image/heic, image/heif), extension fallback (Android compatibility), case-insensitive matching, files without extensions
-- `convertHeicToJpeg()`: Handles single blob, array return (multi-image HEIC), empty array edge case, error propagation
-- `compressImage()`: Transparent HEIC detection and conversion, passthrough for non-HEIC, error propagation
-- `PhotoCapture`: All formats accepted, extension fallback, correct accept attributes, comprehensive error messages
-- `analyze-food route`: Claude-supported formats only (JPEG/PNG/GIF/WebP), HEIC exclusion documented
-- Test coverage: 21 new tests across 3 test files
-- Documentation: CLAUDE.md and ROADMAP.md both updated consistently
-- Memory management: URL.revokeObjectURL called properly, no resource leaks
-
-### Linear Updates
-- FOO-41: Review → Merge
-- FOO-42: Review → Merge
-- FOO-43: Review → Merge
-- FOO-44: Review → Merge
-- FOO-45: Review → Merge
-- FOO-46: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Task 1 is **critical** - must be fixed first as it completely breaks the app
+- Task 2 is **high** - impacts UX but doesn't prevent functionality
+- Both fixes are independent and can be done in sequence
+- The HEIC conversion in PhotoCapture is for preview only; FoodAnalyzer still does its own conversion during analysis (this is intentional - keeps concerns separated)
+- Consider adding a loading spinner during HEIC preview conversion for better UX (optional, can be separate issue)
