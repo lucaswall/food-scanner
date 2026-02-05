@@ -11,14 +11,23 @@ interface SessionInfo {
 
 export default function SettingsPage() {
   const [session, setSession] = useState<SessionInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/session")
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load session");
+        return res.json();
+      })
       .then((data) => {
         if (data.success) {
           setSession(data.data);
+        } else {
+          throw new Error(data.error?.message || "Failed to load session");
         }
+      })
+      .catch((err) => {
+        setError(err.message || "Failed to load session");
       });
   }, []);
 
@@ -33,6 +42,9 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold">Settings</h1>
 
         <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
+          {error && (
+            <p className="text-sm text-red-500">{error}</p>
+          )}
           {session && (
             <div className="flex flex-col gap-1 text-sm">
               <p className="text-muted-foreground">{session.email}</p>

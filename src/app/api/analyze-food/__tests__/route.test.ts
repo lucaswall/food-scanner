@@ -64,11 +64,24 @@ const validAnalysis: FoodAnalysis = {
   notes: "Standard Argentine beef empanada, baked style",
 };
 
-interface MockFile {
+// Create a mock file that works with jsdom (which lacks File.arrayBuffer)
+class MockFile {
   name: string;
   type: string;
   size: number;
-  arrayBuffer: () => Promise<ArrayBuffer>;
+  private content: ArrayBuffer;
+
+  constructor(name: string, type: string, sizeInBytes: number) {
+    this.name = name;
+    this.type = type;
+    this.size = sizeInBytes;
+    // Create small content for actual buffer operations
+    this.content = new ArrayBuffer(Math.min(sizeInBytes, 100));
+  }
+
+  arrayBuffer(): Promise<ArrayBuffer> {
+    return Promise.resolve(this.content);
+  }
 }
 
 function createMockFile(
@@ -76,13 +89,7 @@ function createMockFile(
   type: string,
   sizeInBytes: number
 ): MockFile {
-  const buffer = new ArrayBuffer(Math.min(sizeInBytes, 100));
-  return {
-    name,
-    type,
-    size: sizeInBytes,
-    arrayBuffer: () => Promise.resolve(buffer),
-  };
+  return new MockFile(name, type, sizeInBytes);
 }
 
 function createMockRequest(
@@ -91,7 +98,7 @@ function createMockRequest(
 ): Request {
   const formData = {
     getAll: (key: string) => (key === "images" ? files : []),
-    get: (key: string) => (key === "description" ? description : null),
+    get: (key: string) => (key === "description" ? (description ?? null) : null),
   };
 
   return {
@@ -115,6 +122,30 @@ describe("POST /api/analyze-food", () => {
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
+  });
+
+  it("returns 401 AUTH_SESSION_EXPIRED for expired session", async () => {
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "test-session",
+      email: "wall.lucas@gmail.com",
+      createdAt: Date.now() - 86400000,
+      expiresAt: Date.now() - 1000, // Expired 1 second ago
+      fitbit: {
+        accessToken: "token",
+        refreshToken: "refresh",
+        userId: "user-123",
+        expiresAt: Date.now() + 28800000,
+      },
+    } as never);
+
+    const request = createMockRequest([
+      createMockFile("test.jpg", "image/jpeg", 1000),
+    ]);
+
+    const response = await POST(request);
+    expect(response.status).toBe(401);
+    const body = await response.json();
+    expect(body.error.code).toBe("AUTH_SESSION_EXPIRED");
   });
 
   it("returns 400 FITBIT_NOT_CONNECTED when session.fitbit is missing", async () => {
@@ -317,5 +348,48 @@ describe("POST /api/analyze-food", () => {
       expect.any(Array),
       "250g pollo asado"
     );
+  });
+
+  it("returns 400 VALIDATION_ERROR when images contains non-File values", async () => {
+    mockGetIronSession.mockResolvedValue(validSession as never);
+
+    // Create a request where getAll("images") returns a mix of strings and files
+    const mockFile = createMockFile("test.jpg", "image/jpeg", 1000);
+    const formData = {
+      getAll: (key: string) =>
+        key === "images" ? [mockFile, "not-a-file"] : [],
+      get: (key: string) => (key === "description" ? null : null),
+    };
+
+    const request = {
+      formData: () => Promise.resolve(formData),
+    } as unknown as Request;
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 VALIDATION_ERROR when description is a File", async () => {
+    mockGetIronSession.mockResolvedValue(validSession as never);
+
+    // Create a request where get("description") returns a File object
+    const mockFile = createMockFile("test.jpg", "image/jpeg", 1000);
+    const descriptionFile = createMockFile("desc.txt", "text/plain", 100);
+    const formData = {
+      getAll: (key: string) => (key === "images" ? [mockFile] : []),
+      get: (key: string) => (key === "description" ? descriptionFile : null),
+    };
+
+    const request = {
+      formData: () => Promise.resolve(formData),
+    } as unknown as Request;
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("text");
   });
 });

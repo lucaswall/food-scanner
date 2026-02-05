@@ -50,12 +50,25 @@ function formatDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function isValidDateFormat(date: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date);
+}
+
+function isValidTimeFormat(time: string): boolean {
+  return /^\d{2}:\d{2}:\d{2}$/.test(time);
+}
+
 export async function POST(request: Request) {
   const session = await getSession();
 
   if (!session.sessionId) {
     logger.warn({ action: "log_food_unauthorized" }, "no active session");
     return errorResponse("AUTH_MISSING_SESSION", "No active session", 401);
+  }
+
+  if (!session.expiresAt || session.expiresAt < Date.now()) {
+    logger.warn({ action: "log_food_unauthorized" }, "session expired");
+    return errorResponse("AUTH_SESSION_EXPIRED", "Session has expired", 401);
   }
 
   if (!session.fitbit) {
@@ -91,6 +104,30 @@ export async function POST(request: Request) {
     return errorResponse(
       "VALIDATION_ERROR",
       "Invalid mealTypeId. Must be 1 (Breakfast), 2 (Morning Snack), 3 (Lunch), 4 (Afternoon Snack), 5 (Dinner), or 7 (Anytime)",
+      400
+    );
+  }
+
+  if (body.date && !isValidDateFormat(body.date)) {
+    logger.warn(
+      { action: "log_food_validation" },
+      "invalid date format"
+    );
+    return errorResponse(
+      "VALIDATION_ERROR",
+      "Invalid date format. Use YYYY-MM-DD",
+      400
+    );
+  }
+
+  if (body.time && !isValidTimeFormat(body.time)) {
+    logger.warn(
+      { action: "log_food_validation" },
+      "invalid time format"
+    );
+    return errorResponse(
+      "VALIDATION_ERROR",
+      "Invalid time format. Use HH:mm:ss",
       400
     );
   }

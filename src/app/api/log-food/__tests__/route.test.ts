@@ -91,6 +91,29 @@ describe("POST /api/log-food", () => {
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
+  it("returns 401 AUTH_SESSION_EXPIRED for expired session", async () => {
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "test-session",
+      email: "wall.lucas@gmail.com",
+      createdAt: Date.now() - 86400000,
+      expiresAt: Date.now() - 1000, // Expired 1 second ago
+      fitbit: {
+        accessToken: "token",
+        refreshToken: "refresh",
+        userId: "user-123",
+        expiresAt: Date.now() + 28800000,
+      },
+      save: vi.fn(),
+    } as never);
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(401);
+    const body = await response.json();
+    expect(body.error.code).toBe("AUTH_SESSION_EXPIRED");
+  });
+
   it("returns 400 FITBIT_NOT_CONNECTED if no Fitbit tokens", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
@@ -328,6 +351,82 @@ describe("POST /api/log-food", () => {
       1,
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       undefined
+    );
+  });
+
+  it("returns 400 VALIDATION_ERROR for invalid date format", async () => {
+    // Test formats that don't match YYYY-MM-DD pattern
+    const invalidDates = ["invalid-date", "01-15-2024", "2024/01/15", "2024-1-15", "24-01-15"];
+
+    for (const date of invalidDates) {
+      vi.clearAllMocks();
+      mockGetIronSession.mockResolvedValue({
+        ...validSession,
+        save: vi.fn(),
+      } as never);
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        date,
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+      expect(body.error.message).toContain("date");
+    }
+  });
+
+  it("returns 400 VALIDATION_ERROR for invalid time format", async () => {
+    // Test formats that don't match HH:mm:ss pattern
+    const invalidTimes = ["invalid-time", "12:00", "12:00:00:00", "1:00:00", "12:0:00"];
+
+    for (const time of invalidTimes) {
+      vi.clearAllMocks();
+      mockGetIronSession.mockResolvedValue({
+        ...validSession,
+        save: vi.fn(),
+      } as never);
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        time,
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+      expect(body.error.message).toContain("time");
+    }
+  });
+
+  it("accepts valid date and time formats", async () => {
+    mockGetIronSession.mockResolvedValue({
+      ...validSession,
+      save: vi.fn(),
+    } as never);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+
+    const request = createMockRequest({
+      ...validFoodLogRequest,
+      date: "2024-01-15",
+      time: "12:30:00",
+    });
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(mockLogFood).toHaveBeenCalledWith(
+      "fresh-token",
+      123,
+      1,
+      "2024-01-15",
+      "12:30:00"
     );
   });
 });
