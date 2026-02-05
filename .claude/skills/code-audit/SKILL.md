@@ -86,6 +86,7 @@ Use Task tool with `subagent_type=Explore` to examine each discovered area.
 - Async issues (unhandled promises, missing try/catch)
 - Timeout/hang scenarios (API calls without timeouts)
 - Graceful shutdown issues (cleanup not performed)
+- Logging issues (wrong levels, missing logs, log overflow, insufficient debug coverage)
 
 **AI-Generated Code Risks:**
 When code shows AI patterns (repetitive structure, unusual APIs), apply extra scrutiny for:
@@ -162,7 +163,7 @@ labels: [Mapped label(s)]
 | Category Tags | Linear Label |
 |---------------|--------------|
 | `[security]`, `[dependency]` | Security |
-| `[bug]`, `[async]`, `[shutdown]`, `[edge-case]`, `[type]` | Bug |
+| `[bug]`, `[async]`, `[shutdown]`, `[edge-case]`, `[type]`, `[logging]` | Bug |
 | `[memory-leak]`, `[resource-leak]`, `[timeout]`, `[rate-limit]` | Performance |
 | `[convention]` | Convention |
 | `[dead-code]`, `[duplicate]`, `[test]`, `[practice]`, `[docs]`, `[chore]` | Technical Debt |
