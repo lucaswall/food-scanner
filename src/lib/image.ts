@@ -1,5 +1,3 @@
-import heic2any from "heic2any";
-
 const MAX_DIMENSION = 1024;
 const JPEG_QUALITY = 0.8;
 
@@ -27,6 +25,11 @@ export function isHeicFile(file: File): boolean {
  * Throws on conversion failure.
  */
 export async function convertHeicToJpeg(file: File): Promise<Blob> {
+  // Dynamic import - only loads when function is called (client-side only)
+  // This prevents "window is not defined" SSR errors since heic2any
+  // accesses browser-only APIs during module initialization
+  const heic2any = (await import("heic2any")).default;
+
   const result = await heic2any({
     blob: file,
     toType: "image/jpeg",

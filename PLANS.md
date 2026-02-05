@@ -208,3 +208,30 @@ const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
 - Both fixes are independent and can be done in sequence
 - The HEIC conversion in PhotoCapture is for preview only; FoodAnalyzer still does its own conversion during analysis (this is intentional - keeps concerns separated)
 - Consider adding a loading spinner during HEIC preview conversion for better UX (optional, can be separate issue)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-04
+
+### Tasks Completed This Iteration
+- Task 1: Fix heic2any SSR Error with Dynamic Import - Replaced top-level import with dynamic import inside `convertHeicToJpeg()`
+- Task 2: Fix HEIC Preview with Pre-conversion - Made `handleFileChange` async, added HEIC-to-JPEG conversion before creating preview URLs, added error handling for conversion failures
+
+### Files Modified
+- `src/lib/image.ts` - Changed from static `import heic2any` to dynamic `await import("heic2any")` inside function
+- `src/lib/__tests__/image.test.ts` - Added test for convertHeicToJpeg function export, renamed test to clarify scope
+- `src/components/photo-capture.tsx` - Made handleFileChange async, added HEIC conversion for previews with error handling
+- `src/components/__tests__/photo-capture.test.tsx` - Added tests for HEIC preview conversion, error handling, and updated existing tests to handle async changes
+
+### Linear Updates
+- FOO-47: Todo → In Progress → Review
+- FOO-48: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 HIGH bug (missing error handling for HEIC conversion), fixed before proceeding
+- verifier: All 261 tests pass, zero warnings (pre-existing act() warnings in SettingsPage tests are unrelated)
+
+### Continuation Status
+All tasks completed.

@@ -398,6 +398,25 @@ describe("isHeicFile", () => {
 });
 
 describe("convertHeicToJpeg", () => {
+  it("exports convertHeicToJpeg function and calls heic2any", async () => {
+    // Note: True SSR safety verification requires integration testing in a Node.js
+    // environment without window defined. This test verifies the function exists
+    // and works correctly with the heic2any mock.
+    const mockJpegBlob = new Blob(["converted"], { type: "image/jpeg" });
+    mockedHeic2any.mockResolvedValue(mockJpegBlob);
+
+    const { convertHeicToJpeg } = await import("@/lib/image");
+
+    // Module should export convertHeicToJpeg
+    expect(convertHeicToJpeg).toBeDefined();
+    expect(typeof convertHeicToJpeg).toBe("function");
+
+    // Calling it should work and use heic2any
+    const file = new File(["heic data"], "photo.heic", { type: "image/heic" });
+    const result = await convertHeicToJpeg(file);
+    expect(result).toBe(mockJpegBlob);
+  });
+
   it("returns Blob with image/jpeg type", async () => {
     const mockJpegBlob = new Blob(["converted"], { type: "image/jpeg" });
     mockedHeic2any.mockResolvedValue(mockJpegBlob);

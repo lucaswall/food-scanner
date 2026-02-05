@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { PhotoCapture } from "../photo-capture";
+
+// Mock the image module
+const mockIsHeicFile = vi.fn();
+const mockConvertHeicToJpeg = vi.fn();
+vi.mock("@/lib/image", () => ({
+  isHeicFile: (...args: unknown[]) => mockIsHeicFile(...args),
+  convertHeicToJpeg: (...args: unknown[]) => mockConvertHeicToJpeg(...args),
+}));
 
 // Mock URL.createObjectURL
 const mockCreateObjectURL = vi.fn();
@@ -29,7 +37,15 @@ function createMockFile(
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockCreateObjectURL.mockImplementation((file: File) => `blob:${file.name}`);
+  mockCreateObjectURL.mockImplementation((blob: Blob | File) => {
+    if (blob instanceof File) {
+      return `blob:${blob.name}`;
+    }
+    return `blob:converted`;
+  });
+  // Default: no files are HEIC
+  mockIsHeicFile.mockReturnValue(false);
+  mockConvertHeicToJpeg.mockResolvedValue(new Blob(["converted"], { type: "image/jpeg" }));
 });
 
 describe("PhotoCapture", () => {
@@ -123,9 +139,11 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(cameraInput, { target: { files } });
 
-      const previews = screen.getAllByRole("img");
-      expect(previews).toHaveLength(1);
-      expect(previews[0]).toHaveAttribute("src", "blob:camera-photo.jpg");
+      await waitFor(() => {
+        const previews = screen.getAllByRole("img");
+        expect(previews).toHaveLength(1);
+        expect(previews[0]).toHaveAttribute("src", "blob:camera-photo.jpg");
+      });
     });
 
     it("calls onPhotosChange with camera photos", async () => {
@@ -137,11 +155,13 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(cameraInput, { target: { files } });
 
-      expect(onPhotosChange).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ name: "camera-photo.jpg" }),
-        ])
-      );
+      await waitFor(() => {
+        expect(onPhotosChange).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ name: "camera-photo.jpg" }),
+          ])
+        );
+      });
     });
   });
 
@@ -158,10 +178,12 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files } });
 
-      const previews = screen.getAllByRole("img");
-      expect(previews).toHaveLength(2);
-      expect(previews[0]).toHaveAttribute("src", "blob:gallery1.jpg");
-      expect(previews[1]).toHaveAttribute("src", "blob:gallery2.png");
+      await waitFor(() => {
+        const previews = screen.getAllByRole("img");
+        expect(previews).toHaveLength(2);
+        expect(previews[0]).toHaveAttribute("src", "blob:gallery1.jpg");
+        expect(previews[1]).toHaveAttribute("src", "blob:gallery2.png");
+      });
     });
 
     it("calls onPhotosChange with gallery photos", async () => {
@@ -176,12 +198,14 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files } });
 
-      expect(onPhotosChange).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ name: "gallery1.jpg", type: "image/jpeg" }),
-          expect.objectContaining({ name: "gallery2.png", type: "image/png" }),
-        ])
-      );
+      await waitFor(() => {
+        expect(onPhotosChange).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ name: "gallery1.jpg", type: "image/jpeg" }),
+            expect.objectContaining({ name: "gallery2.png", type: "image/png" }),
+          ])
+        );
+      });
     });
   });
 
@@ -197,7 +221,9 @@ describe("PhotoCapture", () => {
       fireEvent.change(cameraInput, {
         target: { files: [createMockFile("camera.jpg", "image/jpeg", 1000)] },
       });
-      expect(screen.getAllByRole("img")).toHaveLength(1);
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
 
       // Add photos from gallery
       fireEvent.change(galleryInput, {
@@ -208,7 +234,9 @@ describe("PhotoCapture", () => {
           ],
         },
       });
-      expect(screen.getAllByRole("img")).toHaveLength(3);
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(3);
+      });
 
       // Verify onPhotosChange was called with all 3 photos
       expect(onPhotosChange).toHaveBeenLastCalledWith(
@@ -231,6 +259,9 @@ describe("PhotoCapture", () => {
       fireEvent.change(cameraInput, {
         target: { files: [createMockFile("camera.jpg", "image/jpeg", 1000)] },
       });
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
 
       // Try to add 2 more from gallery (should only add 1)
       fireEvent.change(galleryInput, {
@@ -243,8 +274,10 @@ describe("PhotoCapture", () => {
       });
 
       // Should only have 2 photos (limit)
-      expect(screen.getAllByRole("img")).toHaveLength(2);
-      expect(onPhotosChange.mock.calls.at(-1)?.[0]).toHaveLength(2);
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(2);
+        expect(onPhotosChange.mock.calls.at(-1)?.[0]).toHaveLength(2);
+      });
     });
   });
 
@@ -258,12 +291,14 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files } });
 
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(onPhotosChange).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ name: "test.gif", type: "image/gif" }),
-        ])
-      );
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        expect(onPhotosChange).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ name: "test.gif", type: "image/gif" }),
+          ])
+        );
+      });
     });
 
     it("accepts WebP files (image/webp)", async () => {
@@ -275,12 +310,14 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files } });
 
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(onPhotosChange).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ name: "test.webp", type: "image/webp" }),
-        ])
-      );
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        expect(onPhotosChange).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ name: "test.webp", type: "image/webp" }),
+          ])
+        );
+      });
     });
 
     it("accepts HEIC files (image/heic)", async () => {
@@ -292,12 +329,14 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files } });
 
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(onPhotosChange).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ name: "test.heic", type: "image/heic" }),
-        ])
-      );
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        expect(onPhotosChange).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ name: "test.heic", type: "image/heic" }),
+          ])
+        );
+      });
     });
 
     it("accepts HEIF files (image/heif)", async () => {
@@ -309,12 +348,14 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files } });
 
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(onPhotosChange).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ name: "test.heif", type: "image/heif" }),
-        ])
-      );
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        expect(onPhotosChange).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ name: "test.heif", type: "image/heif" }),
+          ])
+        );
+      });
     });
 
     it("accepts .heic files with empty MIME type (Android fallback)", async () => {
@@ -327,12 +368,14 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files } });
 
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-      expect(onPhotosChange).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({ name: "photo.heic" }),
-        ])
-      );
+      await waitFor(() => {
+        expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+        expect(onPhotosChange).toHaveBeenCalledWith(
+          expect.arrayContaining([
+            expect.objectContaining({ name: "photo.heic" }),
+          ])
+        );
+      });
     });
 
     it("shows validation error for unsupported file types", async () => {
@@ -344,6 +387,7 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(cameraInput, { target: { files } });
 
+      // Validation happens synchronously before async processing
       expect(
         screen.getByText(/JPEG.*PNG.*GIF.*WebP.*HEIC/i)
       ).toBeInTheDocument();
@@ -361,6 +405,7 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(cameraInput, { target: { files } });
 
+      // Validation happens synchronously before async processing
       expect(screen.getByText(/10MB/i)).toBeInTheDocument();
       expect(onPhotosChange).not.toHaveBeenCalled();
     });
@@ -376,6 +421,7 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files } });
 
+      // Validation happens synchronously before async processing
       expect(screen.getByText(/10MB/i)).toBeInTheDocument();
       expect(onPhotosChange).not.toHaveBeenCalled();
     });
@@ -393,13 +439,17 @@ describe("PhotoCapture", () => {
       fireEvent.change(cameraInput, {
         target: { files: [createMockFile("camera.jpg", "image/jpeg", 1000)] },
       });
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
 
       // Add photo from gallery
       fireEvent.change(galleryInput, {
         target: { files: [createMockFile("gallery.jpg", "image/jpeg", 1000)] },
       });
-
-      expect(screen.getAllByRole("img")).toHaveLength(2);
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(2);
+      });
 
       // Click clear button
       const clearButton = screen.getByRole("button", { name: /clear/i });
@@ -425,7 +475,139 @@ describe("PhotoCapture", () => {
       });
 
       // After adding 1 photo
-      expect(screen.getByText("1/3 photos selected")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("1/3 photos selected")).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("HEIC preview handling", () => {
+    it("converts HEIC files to JPEG for preview", async () => {
+      const onPhotosChange = vi.fn();
+      const convertedBlob = new Blob(["converted jpeg"], { type: "image/jpeg" });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockResolvedValue(convertedBlob);
+      mockCreateObjectURL.mockImplementation((blob: Blob) => {
+        if (blob === convertedBlob) {
+          return "blob:converted-heic";
+        }
+        return `blob:original`;
+      });
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      // Wait for async conversion to complete
+      await waitFor(() => {
+        expect(mockConvertHeicToJpeg).toHaveBeenCalledWith(heicFile);
+      });
+
+      // Preview should render with converted blob URL
+      await waitFor(() => {
+        const preview = screen.getByAltText("Preview 1");
+        expect(preview).toBeInTheDocument();
+        expect(preview).toHaveAttribute("src", "blob:converted-heic");
+      });
+    });
+
+    it("does not convert non-HEIC files for preview", async () => {
+      const onPhotosChange = vi.fn();
+      mockIsHeicFile.mockReturnValue(false);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const jpegFile = createMockFile("photo.jpg", "image/jpeg", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [jpegFile] } });
+
+      // Wait for state update
+      await waitFor(() => {
+        expect(screen.getByAltText("Preview 1")).toBeInTheDocument();
+      });
+
+      // Should NOT have called conversion
+      expect(mockConvertHeicToJpeg).not.toHaveBeenCalled();
+    });
+
+    it("handles mix of HEIC and non-HEIC files", async () => {
+      const onPhotosChange = vi.fn();
+      const convertedBlob = new Blob(["converted"], { type: "image/jpeg" });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockResolvedValue(convertedBlob);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const jpegFile = createMockFile("photo.jpg", "image/jpeg", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile, jpegFile] } });
+
+      // Wait for async conversion to complete
+      await waitFor(() => {
+        expect(mockConvertHeicToJpeg).toHaveBeenCalledTimes(1);
+        expect(mockConvertHeicToJpeg).toHaveBeenCalledWith(heicFile);
+      });
+
+      // Both previews should render
+      await waitFor(() => {
+        expect(screen.getByAltText("Preview 1")).toBeInTheDocument();
+        expect(screen.getByAltText("Preview 2")).toBeInTheDocument();
+      });
+    });
+
+    it("still passes original HEIC files to onPhotosChange (not converted blobs)", async () => {
+      const onPhotosChange = vi.fn();
+      const convertedBlob = new Blob(["converted"], { type: "image/jpeg" });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockResolvedValue(convertedBlob);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      // Wait for async conversion
+      await waitFor(() => {
+        expect(mockConvertHeicToJpeg).toHaveBeenCalled();
+      });
+
+      // onPhotosChange should receive the original File, not the converted Blob
+      // (conversion for upload happens separately in FoodAnalyzer)
+      await waitFor(() => {
+        expect(onPhotosChange).toHaveBeenCalledWith([heicFile]);
+      });
+    });
+
+    it("shows error message when HEIC conversion fails", async () => {
+      const onPhotosChange = vi.fn();
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockRejectedValue(new Error("Conversion failed"));
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const heicFile = createMockFile("photo.heic", "image/heic", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      // Should show error message
+      await waitFor(() => {
+        expect(screen.getByText(/failed to process heic/i)).toBeInTheDocument();
+      });
+
+      // onPhotosChange should NOT have been called
+      expect(onPhotosChange).not.toHaveBeenCalled();
+
+      // No previews should be shown
+      expect(screen.queryAllByRole("img")).toHaveLength(0);
     });
   });
 });
