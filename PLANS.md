@@ -1,8 +1,8 @@
 # Implementation Plan
 
 **Created:** 2026-02-04
-**Source:** Inline request: Add HEIC image format support using heic2any library (Option B - universal browser support)
-**Linear Issues:** [FOO-41](https://linear.app/lw-claude/issue/FOO-41), [FOO-42](https://linear.app/lw-claude/issue/FOO-42), [FOO-43](https://linear.app/lw-claude/issue/FOO-43), [FOO-44](https://linear.app/lw-claude/issue/FOO-44), [FOO-45](https://linear.app/lw-claude/issue/FOO-45)
+**Source:** Inline request: Add support for all Claude-supported image formats (JPEG, PNG, GIF, WebP) plus HEIC with conversion
+**Linear Issues:** [FOO-41](https://linear.app/lw-claude/issue/FOO-41), [FOO-42](https://linear.app/lw-claude/issue/FOO-42), [FOO-43](https://linear.app/lw-claude/issue/FOO-43), [FOO-44](https://linear.app/lw-claude/issue/FOO-44), [FOO-45](https://linear.app/lw-claude/issue/FOO-45), [FOO-46](https://linear.app/lw-claude/issue/FOO-46)
 
 ## Context Gathered
 
@@ -77,28 +77,43 @@
    - Existing canvas resize/compress logic unchanged
 4. Run verifier (expect pass)
 
-### Task 4: Update PhotoCapture to accept HEIC files
+### Task 4: Update PhotoCapture to accept all supported formats
 **Linear Issue:** [FOO-44](https://linear.app/lw-claude/issue/FOO-44)
 
 1. Write tests in `src/components/__tests__/photo-capture.test.tsx`:
+   - Test GIF files (image/gif) are accepted without validation error
+   - Test WebP files (image/webp) are accepted without validation error
    - Test HEIC files (image/heic) are accepted without validation error
    - Test HEIF files (image/heif) are accepted without validation error
    - Test files with .heic extension but empty MIME type are accepted
-   - Test updated error message includes HEIC format
+   - Test updated error message lists all supported formats
 2. Run verifier (expect fail)
 3. Update `src/components/photo-capture.tsx`:
-   - Add `image/heic` and `image/heif` to ALLOWED_TYPES array
-   - Update accept attribute on file inputs to include HEIC
+   - Update ALLOWED_TYPES: `["image/jpeg", "image/png", "image/gif", "image/webp", "image/heic", "image/heif"]`
+   - Update accept attribute: `image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif`
    - Update validateFile to also check file extension for .heic/.heif
-   - Update error message: "Only JPEG, PNG, and HEIC images are allowed"
+   - Update error message: "Only JPEG, PNG, GIF, WebP, and HEIC images are allowed"
 4. Run verifier (expect pass)
 
-### Task 5: Update CLAUDE.md and ROADMAP.md documentation
+### Task 5: Update API route to accept all Claude-supported formats
+**Linear Issue:** [FOO-46](https://linear.app/lw-claude/issue/FOO-46)
+
+1. Write tests in `src/app/api/analyze-food/__tests__/route.test.ts`:
+   - Test GIF files (image/gif) are accepted
+   - Test WebP files (image/webp) are accepted
+   - Test validation error message updated
+2. Run verifier (expect fail)
+3. Update `src/app/api/analyze-food/route.ts`:
+   - Update ALLOWED_TYPES: `["image/jpeg", "image/png", "image/gif", "image/webp"]`
+   - Note: HEIC not included here — client converts HEIC to JPEG before upload
+4. Run verifier (expect pass)
+
+### Task 6: Update CLAUDE.md and ROADMAP.md documentation
 **Linear Issue:** [FOO-45](https://linear.app/lw-claude/issue/FOO-45)
 
 1. No tests needed (documentation)
-2. Update CLAUDE.md Security section to list HEIC alongside JPEG/PNG
-3. Update ROADMAP.md image validation section to include HEIC format
+2. Update CLAUDE.md Security section: "JPEG, PNG, GIF, WebP, HEIC" (HEIC converted client-side)
+3. Update ROADMAP.md image validation section with all supported formats
 4. Run verifier (expect pass)
 
 ## Post-Implementation Checklist
@@ -109,24 +124,29 @@
 
 ## Plan Summary
 
-**Objective:** Add HEIC image format support with universal browser compatibility
+**Objective:** Support all Claude-compatible image formats (JPEG, PNG, GIF, WebP) plus HEIC with client-side conversion
 
-**Request:** User requested Option B (heic2any library) for HEIC support since they use Android, which often saves photos in HEIC format by default.
+**Request:** User uses Android and wants HEIC support. Expanding to all Claude-supported formats for completeness.
 
-**Linear Issues:** FOO-41, FOO-42, FOO-43, FOO-44, FOO-45
+**Linear Issues:** FOO-41, FOO-42, FOO-43, FOO-44, FOO-45, FOO-46
 
-**Approach:** Install heic2any library for client-side HEIC-to-JPEG conversion. Create detection and conversion utilities in the image library. Update compressImage to automatically convert HEIC before canvas processing. Update PhotoCapture component to accept HEIC files in validation and file input accept attributes. The conversion happens transparently client-side, so no API changes are needed (server always receives JPEG).
+**Approach:**
+1. Add GIF and WebP to both client and server validation (Claude API supports these natively)
+2. Install heic2any library for client-side HEIC-to-JPEG conversion
+3. Create detection and conversion utilities in the image library
+4. Update compressImage to automatically convert HEIC before canvas processing
+5. Update PhotoCapture and API route to accept all formats
 
 **Scope:**
-- Tasks: 5
-- Files affected: 5 (2 source files, 2 test files, 2 docs)
+- Tasks: 6
+- Files affected: 6 (3 source files, 3 test files, 2 docs)
 - New tests: yes
 
 **Key Decisions:**
-- Convert HEIC to JPEG (not PNG) to maintain existing compression pipeline
+- GIF and WebP pass through to Claude API directly (natively supported)
+- HEIC converted to JPEG client-side before upload (Claude doesn't support HEIC)
 - Detection checks both MIME type and file extension (Android sometimes reports empty MIME for HEIC)
 - Conversion happens in compressImage transparently — caller doesn't need to know about HEIC
-- heic2any loaded synchronously (adds ~2.7MB to bundle, acceptable for this use case)
 
 **Risks/Considerations:**
 - heic2any adds ~2.7MB to client bundle — acceptable tradeoff for universal support
