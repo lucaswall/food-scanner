@@ -254,3 +254,4 @@ LOG_LEVEL=info
 - **Mobile-first design** — All UI components must work on mobile
 - **Same-origin deployment** — No CORS, no cross-domain cookie issues
 - **Keep documentation current** — When making changes that affect project structure, APIs, environment variables, setup steps, or deployment, update all relevant documentation files (`CLAUDE.md`, `README.md`, `DEVELOPMENT.md`) in the same changeset. Documentation must never drift from the actual codebase.
+- **No co-author attribution in commits** — Commit messages must NOT include `Co-Authored-By` tags. This applies to all commits created by agents (commit-bot, pr-creator) and skills.
