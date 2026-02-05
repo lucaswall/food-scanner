@@ -5,16 +5,6 @@ const FITBIT_API_BASE = "https://api.fitbit.com";
 const MAX_RETRIES = 3;
 const REQUEST_TIMEOUT_MS = 10000;
 
-interface FitbitFood {
-  foodId: number;
-  name: string;
-  calories: number;
-}
-
-interface SearchFoodsResponse {
-  foods: FitbitFood[];
-}
-
 interface CreateFoodResponse {
   food: {
     foodId: number;
@@ -71,31 +61,6 @@ async function fetchWithRetry(
   } finally {
     clearTimeout(timeoutId);
   }
-}
-
-export async function searchFoods(
-  accessToken: string,
-  query: string,
-): Promise<SearchFoodsResponse> {
-  logger.debug({ action: "fitbit_search_foods", query }, "searching foods");
-
-  const url = `${FITBIT_API_BASE}/1/user/-/foods.json?query=${encodeURIComponent(query)}`;
-  const response = await fetchWithRetry(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  if (!response.ok) {
-    logger.error(
-      { action: "fitbit_search_foods_failed", status: response.status },
-      "food search failed",
-    );
-    throw new Error("FITBIT_API_ERROR");
-  }
-
-  return response.json();
 }
 
 export async function createFood(
@@ -194,34 +159,10 @@ export async function findOrCreateFood(
   food: FoodAnalysis,
 ): Promise<FindOrCreateResult> {
   logger.debug(
-    { action: "fitbit_find_or_create", foodName: food.food_name },
-    "finding or creating food",
+    { action: "fitbit_create_food_entry", foodName: food.food_name },
+    "creating food entry",
   );
 
-  // Search for existing food
-  const searchResult = await searchFoods(accessToken, food.food_name);
-
-  // Look for a match by name (case-insensitive) and calories (within 10%)
-  const match = searchResult.foods.find((f) => {
-    const nameMatch =
-      f.name.toLowerCase() === food.food_name.toLowerCase();
-    // Handle zero-calorie foods (e.g., water, black coffee)
-    const caloriesMatch =
-      food.calories === 0
-        ? f.calories === 0
-        : Math.abs(f.calories - food.calories) / food.calories <= 0.1;
-    return nameMatch && caloriesMatch;
-  });
-
-  if (match) {
-    logger.info(
-      { action: "fitbit_food_reused", foodId: match.foodId },
-      "reusing existing food",
-    );
-    return { foodId: match.foodId, reused: true };
-  }
-
-  // Create new food
   const createResult = await createFood(accessToken, food);
   logger.info(
     { action: "fitbit_food_created", foodId: createResult.food.foodId },

@@ -229,7 +229,7 @@ describe("POST /api/log-food", () => {
     };
     mockGetIronSession.mockResolvedValue(sessionWithSave as never);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: true });
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
@@ -241,26 +241,7 @@ describe("POST /api/log-food", () => {
     expect(mockSave).toHaveBeenCalled();
   });
 
-  it("returns reusedFood=true when existing food matched", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 999, reused: true });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 888, loggedFood: { foodId: 999 } },
-    });
-
-    const request = createMockRequest(validFoodLogRequest);
-    const response = await POST(request);
-
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.data.reusedFood).toBe(true);
-  });
-
-  it("returns reusedFood=false when new food created", async () => {
+  it("returns reusedFood=false when food is logged", async () => {
     mockGetIronSession.mockResolvedValue({
       ...validSession,
       save: vi.fn(),
