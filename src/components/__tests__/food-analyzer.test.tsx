@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FoodAnalyzer } from "../food-analyzer";
-import type { FoodAnalysis, FoodLogResponse } from "@/types";
+import type { FoodAnalysis, FoodLogResponse, FoodMatch } from "@/types";
 
 // Mock ResizeObserver for Radix UI
 beforeAll(() => {
@@ -125,6 +125,25 @@ vi.mock("../nutrition-editor", () => ({
   ),
 }));
 
+vi.mock("../food-match-card", () => ({
+  FoodMatchCard: ({
+    match,
+    onSelect,
+    disabled,
+  }: {
+    match: FoodMatch;
+    onSelect: (match: FoodMatch) => void;
+    disabled?: boolean;
+  }) => (
+    <div data-testid="food-match-card">
+      <span>{match.foodName}</span>
+      <button onClick={() => onSelect(match)} disabled={disabled}>
+        Use this
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock("../food-log-confirmation", () => ({
   FoodLogConfirmation: ({
     response,
@@ -167,6 +186,7 @@ const mockAnalysis: FoodAnalysis = {
   sodium_mg: 450,
   confidence: "high",
   notes: "Standard Argentine beef empanada",
+  keywords: ["empanada", "carne", "beef"],
 };
 
 const mockLogResponse: FoodLogResponse = {
@@ -175,6 +195,27 @@ const mockLogResponse: FoodLogResponse = {
   fitbitLogId: 67890,
   reusedFood: false,
 };
+
+const mockMatches: FoodMatch[] = [
+  {
+    customFoodId: 42,
+    foodName: "Empanada de carne",
+    calories: 310,
+    proteinG: 11,
+    carbsG: 27,
+    fatG: 17,
+    fitbitFoodId: 111,
+    matchRatio: 0.9,
+    lastLoggedAt: new Date("2026-02-04T12:00:00Z"),
+    amount: 150,
+    unitId: 147,
+  },
+];
+
+const emptyMatchesResponse = () => ({
+  ok: true,
+  json: () => Promise.resolve({ success: true, data: { matches: [] } }),
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -440,6 +481,7 @@ describe("FoodAnalyzer", () => {
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
       })
+      .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockLogResponse }),
@@ -476,6 +518,7 @@ describe("FoodAnalyzer", () => {
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
       })
+      .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockLogResponse }),
@@ -506,6 +549,7 @@ describe("FoodAnalyzer", () => {
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
       })
+      .mockResolvedValueOnce(emptyMatchesResponse())
       .mockImplementationOnce(() => new Promise((resolve) => setTimeout(resolve, 1000)));
 
     render(<FoodAnalyzer />);
@@ -533,6 +577,7 @@ describe("FoodAnalyzer", () => {
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
       })
+      .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
         ok: false,
         json: () =>
@@ -567,6 +612,7 @@ describe("FoodAnalyzer", () => {
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
       })
+      .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockLogResponse }),
@@ -626,10 +672,12 @@ describe("FoodAnalyzer", () => {
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockAnalysis }),
         })
+        .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { ...mockAnalysis, food_name: "Updated" } }),
-        });
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse());
 
       render(<FoodAnalyzer />);
 
@@ -648,16 +696,19 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /regenerate/i }));
 
       // Should proceed immediately (no confirmation dialog)
+      // 4 calls: analyze + find-matches + regenerate-analyze + find-matches
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(mockFetch).toHaveBeenCalledTimes(4);
       });
     });
 
     it("regenerate with edits shows warning dialog", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
-      });
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse());
 
       render(<FoodAnalyzer />);
 
@@ -698,10 +749,12 @@ describe("FoodAnalyzer", () => {
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockAnalysis }),
         })
+        .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { ...mockAnalysis, food_name: "New Analysis" } }),
-        });
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse());
 
       render(<FoodAnalyzer />);
 
@@ -735,16 +788,19 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
 
       // Should have called analyze API again
+      // 4 calls: analyze + find-matches + regenerate-analyze + find-matches
       await waitFor(() => {
-        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(mockFetch).toHaveBeenCalledTimes(4);
       });
     });
 
     it("canceling regenerate keeps edits", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
-      });
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse());
 
       render(<FoodAnalyzer />);
 
@@ -783,7 +839,8 @@ describe("FoodAnalyzer", () => {
       });
 
       // Should NOT have called analyze API again
-      expect(mockFetch).toHaveBeenCalledTimes(1);
+      // 2 calls: analyze + find-matches (no second analyze)
+      expect(mockFetch).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -889,6 +946,7 @@ describe("FoodAnalyzer", () => {
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockAnalysis }),
         })
+        .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockLogResponse }),
@@ -1129,6 +1187,7 @@ describe("FoodAnalyzer", () => {
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockAnalysis }),
         })
+        .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: false,
           json: () =>
@@ -1155,6 +1214,169 @@ describe("FoodAnalyzer", () => {
       await waitFor(() => {
         const errorContainer = screen.getByTestId("log-error");
         expect(errorContainer).toHaveAttribute("aria-live", "polite");
+      });
+    });
+  });
+
+  describe("food matching", () => {
+    it("calls /api/find-matches after analysis succeeds", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/find-matches",
+          expect.objectContaining({
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      });
+    });
+
+    it("shows match section when matches returned", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/similar foods you've logged before/i)).toBeInTheDocument();
+        expect(screen.getByTestId("food-match-card")).toBeInTheDocument();
+      });
+    });
+
+    it("hides match section when no matches", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: [] } }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText(/similar foods you've logged before/i)).not.toBeInTheDocument();
+      expect(screen.queryByTestId("food-match-card")).not.toBeInTheDocument();
+    });
+
+    it("'Use this' triggers the reuse log flow", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { ...mockLogResponse, reusedFood: true } }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-match-card")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /use this/i }));
+
+      await waitFor(() => {
+        // Should call log-food with reuseCustomFoodId
+        const logFoodCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logFoodCall).toBeDefined();
+        const body = JSON.parse((logFoodCall![1] as RequestInit).body as string);
+        expect(body.reuseCustomFoodId).toBe(42);
+      });
+    });
+
+    it("'Log as new' still creates a new food entry when matches exist", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log as new/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log as new/i }));
+
+      await waitFor(() => {
+        const logFoodCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logFoodCall).toBeDefined();
+        const body = JSON.parse((logFoodCall![1] as RequestInit).body as string);
+        expect(body.reuseCustomFoodId).toBeUndefined();
       });
     });
   });
@@ -1191,6 +1413,7 @@ describe("FoodAnalyzer", () => {
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockAnalysis }),
         })
+        .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockLogResponse }),

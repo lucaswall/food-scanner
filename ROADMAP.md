@@ -4,80 +4,7 @@ Future features and improvements to tackle after the current foundation is stabl
 
 ---
 
-## 1. Smart Food Matching & Reuse
-
-When the user logs the same food repeatedly, we should avoid creating duplicate Fitbit food definitions and instead reuse existing ones when appropriate.
-
-### Problem
-
-Currently every food log creates a new Fitbit food definition (`POST /1/user/-/foods.json`), even if the user logs "Tea with milk" every morning. This clutters the Fitbit recent/frequent foods lists with duplicates and wastes API calls against the 150/hour rate limit.
-
-### Keyword Extraction
-
-Claude generates keywords during the food analysis tool_use call. The analysis tool schema includes a `keywords` field — an array of lowercase, normalized, language-agnostic tokens that identify the food (e.g., "Tostadas con casancrem y huevos fritos" → `["tostada", "casancrem", "huevo", "frito"]`). Keywords are stored on the `custom_foods` row at creation time. This adds zero extra API calls since the analysis is already happening.
-
-A `keywords` text array column is added to the `custom_foods` table.
-
-### Keyword Matching
-
-When a new food is analyzed, its keywords are compared against all existing `custom_foods` for the user. The match ratio is:
-
-```
-match_ratio = |new_keywords ∩ existing_keywords| / |new_keywords|
-```
-
-This measures what fraction of the new food's identity is captured by an existing food. Threshold: **>= 0.5** (at least half the new food's keywords must appear in the existing food).
-
-Examples:
-- "tea milk" vs "tea milk honey": 2/2 = 1.0 — match
-- "tea" vs "tea milk": 1/1 = 1.0 — match
-- "pizza margherita" vs "pizza pepperoni": 1/2 = 0.5 — match (nutrient check filters)
-- "pizza margherita" vs "tea milk": 0/2 = 0.0 — no match
-
-False positives from keyword matching are acceptable — the nutrient tolerance layer and user confirmation catch them.
-
-### Nutrient Tolerance
-
-Candidates that pass keyword matching are filtered by nutrient similarity. Each nutrient uses a hybrid threshold: the **larger** of a percentage band and an absolute band. This prevents the percentage from being too tight on small values or too loose on large values.
-
-| Nutrient  | Percentage | Absolute | Example (low) | Example (high) |
-|-----------|-----------|----------|---------------|----------------|
-| Calories  | ±20%      | ±25 kcal | 11 cal → 0–36 | 800 cal → 640–960 |
-| Protein   | ±25%      | ±3 g     | 1g → 0–4      | 30g → 22.5–37.5 |
-| Carbs     | ±25%      | ±5 g     | 2g → 0–7      | 60g → 45–75 |
-| Fat       | ±25%      | ±3 g     | 1g → 0–4      | 20g → 15–25 |
-
-Fiber and sodium are **not** used for matching — they are too variable in AI estimates and not critical for food identity.
-
-A candidate must pass **all four** nutrient checks (calories + protein + carbs + fat) to be considered a match.
-
-### User Confirmation UI
-
-After Claude analyzes the food, matching runs in the background against `custom_foods`. The confirmation screen shows:
-
-1. **Match section** (only if matches exist): A "Similar foods you've logged before" card above the new analysis. Shows the top 3 candidates ranked by match_ratio (tiebreaker: most recently logged). Each candidate displays:
-   - Food name
-   - Last logged date
-   - Calories and macros summary
-   - A **"Use this"** button
-
-2. **New analysis section** (always shown): The full Claude analysis with the normal **"Log as new"** button.
-
-Choosing an existing food skips food creation on Fitbit entirely — it logs a new `food_log_entry` referencing the existing `custom_food` and calls only `POST /1/user/-/food-log.json` with the existing `fitbitFoodId`. This saves one API call per reuse.
-
-If no matches are found, the flow is unchanged — the user sees only the new analysis.
-
-### Implementation Order
-
-1. ~~Schema split: separate `custom_foods` from `food_log_entries` (FOO-157)~~ **Done** (PR #29)
-2. Add `keywords` column to `custom_foods` + update Claude tool_use schema to emit keywords
-3. Keyword matching logic + nutrient tolerance comparison
-4. Confirmation UI with match presentation
-5. Wire up reuse flow (log with existing `fitbitFoodId`, skip food creation)
-
----
-
-## 2. Re-prompting for Nutrition Editing
+## 1. Re-prompting for Nutrition Editing
 
 ### Problem
 
@@ -107,7 +34,7 @@ The confirmation screen gets a text input field with placeholder text like "Corr
 
 ---
 
-## 3. Food Table Maintenance
+## 2. Food Table Maintenance
 
 _Lower priority — address when the `custom_foods` table grows large enough to affect matching performance or usability._
 
@@ -128,7 +55,7 @@ Over months of daily use, `custom_foods` accumulates entries. Some are near-dupl
 
 ---
 
-## 4. Fitbit API Rate Limit Handling
+## 3. Fitbit API Rate Limit Handling
 
 _Lower priority — address when rate limiting becomes a practical issue._
 

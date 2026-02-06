@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
 
@@ -14,6 +15,7 @@ export interface CustomFoodInput {
   confidence: "high" | "medium" | "low";
   notes: string | null;
   fitbitFoodId?: number | null;
+  keywords?: string[] | null;
 }
 
 export interface FoodLogEntryInput {
@@ -47,6 +49,7 @@ export async function insertCustomFood(
       confidence: data.confidence,
       notes: data.notes,
       fitbitFoodId: data.fitbitFoodId ?? null,
+      keywords: data.keywords ?? null,
     })
     .returning({ id: customFoods.id, createdAt: customFoods.createdAt });
 
@@ -77,4 +80,14 @@ export async function insertFoodLogEntry(
   const row = rows[0];
   if (!row) throw new Error("Failed to insert food log entry: no row returned");
   return row;
+}
+
+export async function getCustomFoodById(id: number) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(customFoods)
+    .where(eq(customFoods.id, id));
+
+  return rows[0] ?? null;
 }

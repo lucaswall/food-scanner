@@ -1,0 +1,1 @@
+ALTER TABLE "custom_foods" ADD COLUMN "keywords" text[];

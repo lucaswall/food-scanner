@@ -45,6 +45,11 @@ describe("database schema", () => {
       expect(columns).toHaveProperty("notes");
       expect(columns).toHaveProperty("createdAt");
     });
+
+    it("has a keywords column", () => {
+      const columns = getTableColumns(customFoods);
+      expect(columns).toHaveProperty("keywords");
+    });
   });
 
   describe("foodLogEntries table", () => {

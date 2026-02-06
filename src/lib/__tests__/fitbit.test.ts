@@ -389,6 +389,7 @@ describe("createFood", () => {
     sodium_mg: 10,
     confidence: "high" as const,
     notes: "Test food",
+    keywords: ["oatmeal"],
   };
 
   it("creates a custom food with correct parameters", async () => {
@@ -632,6 +633,7 @@ describe("fetchWithRetry 5xx handling", () => {
     sodium_mg: 100,
     confidence: "high" as const,
     notes: "Test",
+    keywords: ["test"],
   };
 
   it("retries on 500 response with backoff", async () => {
@@ -784,6 +786,7 @@ describe("findOrCreateFood", () => {
     sodium_mg: 10,
     confidence: "high" as const,
     notes: "Test food",
+    keywords: ["oatmeal"],
   };
 
   it("always creates a new food", async () => {

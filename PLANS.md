@@ -1,464 +1,306 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
-**Branch:** feat/FOO-159-tsconfig-and-schema-split
-**Issues:** FOO-159, FOO-157
 **Created:** 2026-02-06
-**Last Updated:** 2026-02-06
+**Source:** Inline request: Implement Smart Food Matching & Reuse (ROADMAP section 1) — keyword extraction, matching, nutrient tolerance, confirmation UI, reuse flow
+**Linear Issues:** [FOO-160](https://linear.app/lw-claude/issue/FOO-160), [FOO-161](https://linear.app/lw-claude/issue/FOO-161), [FOO-162](https://linear.app/lw-claude/issue/FOO-162), [FOO-163](https://linear.app/lw-claude/issue/FOO-163), [FOO-164](https://linear.app/lw-claude/issue/FOO-164), [FOO-165](https://linear.app/lw-claude/issue/FOO-165), [FOO-166](https://linear.app/lw-claude/issue/FOO-166), [FOO-167](https://linear.app/lw-claude/issue/FOO-167)
 
-## Summary
+## Context Gathered
 
-Two issues: (1) Fix broken Railway deployment by excluding the standalone `mcp-fitbit/` directory from TypeScript compilation, and (2) split the denormalized `food_logs` table into two properly normalized tables (`custom_foods` + `food_log_entries`) matching the Fitbit API's data model.
+### Codebase Analysis
+- **Schema:** `custom_foods` table exists (`src/db/schema.ts:31-47`) — needs `keywords text[]` column added
+- **Claude tool_use:** `src/lib/claude.ts:23-68` — `REPORT_NUTRITION_TOOL` schema has 11 fields, no `keywords` yet. `validateFoodAnalysis()` at line 82 returns `FoodAnalysis` type.
+- **Types:** `FoodAnalysis` interface (`src/types/index.ts:47-59`) — needs `keywords` field. `FoodLogRequest` extends it. `FoodLogResponse` has `reusedFood: boolean` already.
+- **DB insert:** `insertCustomFood()` in `src/lib/food-log.ts:29-56` — needs to accept and store keywords.
+- **Fitbit client:** `findOrCreateFood()` in `src/lib/fitbit.ts:222-237` — always creates new food, hardcodes `reused: false`. Needs conditional path for reuse.
+- **Log route:** `src/app/api/log-food/route.ts` — calls `findOrCreateFood()` then `insertCustomFood()`. Needs reuse path: skip `findOrCreateFood()`, use existing `fitbitFoodId`.
+- **Frontend:** `FoodAnalyzer` in `src/components/food-analyzer.tsx` — after analysis, shows `AnalysisResult` + `MealTypeSelector` + "Log to Fitbit" button. Needs match section inserted between analysis and logging controls.
+- **Test patterns:** Vitest, colocated `__tests__/` dirs, `vi.mock()` for module mocks, `mockResolvedValue`/`mockRejectedValue` for async.
 
-## Issues
+### MCP Context
+- **Linear:** FOO-158 (old reuse issue) already marked Duplicate. No backlog items to conflict.
+- **Railway:** Not relevant for this feature.
 
-### FOO-159: Next.js build fails on Railway due to mcp-fitbit TypeScript inclusion
+## Original Plan
 
-**Priority:** Urgent
-**Labels:** Bug
-**Description:** `tsconfig.json` includes `**/*.ts` which causes Next.js to type-check the standalone `mcp-fitbit/` directory during `next build`. On Railway, only the root `package.json` dependencies are installed — `mcp-fitbit/node_modules` doesn't exist, so the `dotenv` import in `mcp-fitbit/index.ts` fails type checking. Production deployment is blocked.
+### Task 1: Add `keywords` column to `custom_foods` schema + update types
+**Linear Issue:** [FOO-160](https://linear.app/lw-claude/issue/FOO-160/add-keywords-column-to-custom-foods-schema-update-foodanalysis-type)
 
-**Acceptance Criteria:**
-- [ ] `mcp-fitbit` directory excluded from `tsconfig.json`
-- [ ] `npm run build` succeeds locally
-- [ ] `npm run typecheck` succeeds locally
-- [ ] Railway deployment unblocked
+1. Write test in `src/db/__tests__/schema.test.ts`:
+   - Test `customFoods` table has a `keywords` column
+   - Verify column exists in the table's column definitions
+2. Run verifier (expect fail)
+3. Update `src/db/schema.ts`:
+   - Import `text` array type from drizzle-orm (use `.array()` on `text()`)
+   - Add `keywords: text("keywords").array()` column to `customFoods` table (nullable — old rows won't have keywords)
+4. Update `src/types/index.ts`:
+   - Add `keywords: string[]` to `FoodAnalysis` interface
+5. Run verifier (expect pass for schema test, expect type errors in claude.ts/log-food route — resolved in later tasks)
 
-### FOO-157: DB schema: separate custom foods table from food log entries
-
-**Priority:** High
-**Labels:** Improvement
-**Description:** The current `food_logs` table conflates two distinct Fitbit API entities: the food definition (nutrition data, created via `POST /1/user/-/foods.json`) and the log entry (date/meal/amount, created via `POST /1/user/-/foods/log.json`). Every log duplicates the full nutritional data even when the same food is logged repeatedly. Split into `custom_foods` (reusable food definitions) and `food_log_entries` (instances of eating a food).
-
-**Acceptance Criteria:**
-- [ ] New `custom_foods` table with nutrition data + `fitbit_food_id`
-- [ ] New `food_log_entries` table with FK to `custom_foods` + meal metadata
-- [ ] Old `food_logs` table removed from schema
-- [ ] Drizzle migration generated
-- [ ] `src/lib/food-log.ts` updated with `insertCustomFood()` and `insertFoodLogEntry()`
-- [ ] `src/app/api/log-food/route.ts` updated to use two-step insert
-- [ ] All existing tests updated and passing
-- [ ] `npm run build`, `npm run lint`, `npm run typecheck` all pass with zero warnings
-
-## Prerequisites
-
-- [ ] On `main` branch with clean working tree
-- [ ] Local Postgres running (`docker compose up -d`)
-- [ ] Dependencies installed (`npm install`)
-
-## Implementation Tasks
-
-### Task 1: Exclude mcp-fitbit from tsconfig.json
-
-**Issue:** FOO-159
-**Files:**
-- `tsconfig.json` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Verify the problem exists:
-   - Run: `npm run typecheck`
-   - Expect: Should pass locally (you have `mcp-fitbit/node_modules`), but confirm `mcp-fitbit/` files are being included
-   - Run: `npx tsc --listFiles 2>/dev/null | grep mcp-fitbit | head -5`
-   - Verify: mcp-fitbit TypeScript files appear in the output
-
-2. **GREEN** — Add exclusion:
-   - Edit `tsconfig.json` line 33: change `"exclude": ["node_modules"]` to `"exclude": ["node_modules", "mcp-fitbit"]`
-   - Run: `npx tsc --listFiles 2>/dev/null | grep mcp-fitbit | head -5`
-   - Verify: No mcp-fitbit files in output
-   - Run: `npm run typecheck`
-   - Verify: Still passes (no regressions)
-
-3. **REFACTOR** — Verify build:
-   - Run: `npm run build`
-   - Verify: Build succeeds with zero warnings
-   - Run: `npm run lint`
-   - Verify: Lint passes
-
-**Notes:**
-- Single-line change. No code logic changes needed.
-- This unblocks Railway deployment immediately.
+**Files:** `src/db/schema.ts`, `src/db/__tests__/schema.test.ts`, `src/types/index.ts`
 
 ---
 
-### Task 2: Define new DB schema tables
+### Task 2: Update Claude tool_use schema to emit keywords + update validation
+**Linear Issue:** [FOO-161](https://linear.app/lw-claude/issue/FOO-161/update-claude-tool-use-schema-to-emit-keywords-update-validation)
 
-**Issue:** FOO-157
-**Files:**
-- `src/db/schema.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Write tests for the new schema:
-   - Create `src/db/__tests__/schema.test.ts`
-   - Import the new `customFoods` and `foodLogEntries` table definitions
-   - Test that `customFoods` has the expected columns: `id`, `email`, `foodName`, `amount`, `unitId`, `calories`, `proteinG`, `carbsG`, `fatG`, `fiberG`, `sodiumMg`, `fitbitFoodId` (unique), `confidence`, `notes`, `createdAt`
-   - Test that `foodLogEntries` has the expected columns: `id`, `email`, `customFoodId` (FK), `fitbitLogId`, `mealTypeId`, `amount`, `unitId`, `date`, `time`, `loggedAt`
-   - Test that `foodLogs` export no longer exists
-   - Run: `npm test -- schema`
-   - Verify: Tests fail (tables don't exist yet)
-
-2. **GREEN** — Create the new tables in `src/db/schema.ts`:
-   - Add `customFoods` table:
+1. Write test in `src/lib/__tests__/claude.test.ts`:
+   - Test `validateFoodAnalysis` accepts input with `keywords` array of strings
+   - Test `validateFoodAnalysis` rejects non-array `keywords`
+   - Test `validateFoodAnalysis` rejects `keywords` containing non-string values
+   - Test `validateFoodAnalysis` rejects empty `keywords` array
+   - Test Claude response includes keywords in returned `FoodAnalysis`
+2. Run verifier (expect fail)
+3. Update `src/lib/claude.ts`:
+   - Add `keywords` field to `REPORT_NUTRITION_TOOL.input_schema.properties`:
      ```
-     custom_foods: id (serial PK), email (text, not null), food_name (text, not null),
-     amount (numeric, not null), unit_id (integer, not null), calories (integer, not null),
-     protein_g (numeric, not null), carbs_g (numeric, not null), fat_g (numeric, not null),
-     fiber_g (numeric, not null), sodium_mg (numeric, not null),
-     fitbit_food_id (bigint, unique), confidence (text, not null), notes (text),
-     created_at (timestamp with tz, default now, not null)
-     ```
-   - Add `foodLogEntries` table:
-     ```
-     food_log_entries: id (serial PK), email (text, not null),
-     custom_food_id (integer, not null, references custom_foods.id),
-     fitbit_log_id (bigint), meal_type_id (integer, not null),
-     amount (numeric, not null), unit_id (integer, not null),
-     date (date, not null), time (time),
-     logged_at (timestamp with tz, default now, not null)
-     ```
-   - Remove the old `foodLogs` table definition entirely
-   - Run: `npm test -- schema`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Clean up:
-   - Ensure column naming follows existing patterns (camelCase Drizzle names, snake_case DB columns)
-   - Reference existing tables (`sessions`, `fitbitTokens`) for conventions
-   - Run: `npm run typecheck`
-   - Verify: Type errors appear in `food-log.ts` and `route.ts` (expected — they still reference removed `foodLogs`)
-
-**Notes:**
-- The FK from `food_log_entries.custom_food_id` → `custom_foods.id` uses Drizzle's `.references()` syntax
-- `fitbit_food_id` on `custom_foods` should be unique (one Fitbit food per custom food definition)
-- `amount` and `unit_id` on `food_log_entries` allow logging a different portion than the food's default serving
-- The old `food_logs` table is deleted outright (dev status, no backward compat per CLAUDE.md)
-
----
-
-### Task 3: Update food-log.ts with new insert functions
-
-**Issue:** FOO-157
-**Files:**
-- `src/lib/food-log.ts` (modify)
-- `src/lib/__tests__/food-log.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Rewrite tests for new functions:
-   - Update `src/lib/__tests__/food-log.test.ts`:
-   - Remove all tests for `insertFoodLog` (it no longer exists)
-   - Add tests for `insertCustomFood(email, data)`:
-     - Test it inserts into `customFoods` table with correct fields
-     - Test numeric fields are converted to strings (same pattern as before)
-     - Test it returns `{ id, createdAt }`
-     - Test nullable fields (`notes`, `fitbitFoodId`)
-     - Test large `fitbitFoodId` values (bigint range)
-   - Add tests for `insertFoodLogEntry(email, data)`:
-     - Test it inserts into `foodLogEntries` table with correct fields
-     - Test it returns `{ id, loggedAt }`
-     - Test nullable fields (`time`, `fitbitLogId`)
-     - Test numeric `amount` is converted to string
-   - Update mocks: mock `@/db/schema` to export `customFoods` and `foodLogEntries` instead of `foodLogs`
-   - Run: `npm test -- food-log`
-   - Verify: Tests fail (functions don't exist yet)
-
-2. **GREEN** — Implement new functions:
-   - Replace `FoodLogInput` interface with two new interfaces:
-     ```typescript
-     export interface CustomFoodInput {
-       foodName: string;
-       amount: number;
-       unitId: number;
-       calories: number;
-       proteinG: number;
-       carbsG: number;
-       fatG: number;
-       fiberG: number;
-       sodiumMg: number;
-       confidence: "high" | "medium" | "low";
-       notes: string | null;
-       fitbitFoodId?: number | null;
-     }
-
-     export interface FoodLogEntryInput {
-       customFoodId: number;
-       mealTypeId: number;
-       amount: number;
-       unitId: number;
-       date: string;
-       time?: string | null;
-       fitbitLogId?: number | null;
+     keywords: {
+       type: "array",
+       items: { type: "string" },
+       description: "Lowercase, normalized, language-agnostic tokens identifying this food. Include the food type, key distinguishing ingredients, and preparation method. Example: 'Tostadas con casancrem y huevos fritos' → ['tostada', 'casancrem', 'huevo', 'frito']"
      }
      ```
-   - Implement `insertCustomFood(email, data)`:
-     - Insert into `customFoods` table
-     - Convert numeric fields to strings for Drizzle `numeric` columns
-     - Return `{ id: number; createdAt: Date }`
-   - Implement `insertFoodLogEntry(email, data)`:
-     - Insert into `foodLogEntries` table
-     - Convert `amount` to string
-     - Return `{ id: number; loggedAt: Date }`
-   - Remove old `insertFoodLog` function and `FoodLogInput` interface
-   - Run: `npm test -- food-log`
-   - Verify: Tests pass
+   - Add `"keywords"` to `required` array
+   - Update `validateFoodAnalysis()` to validate `keywords`:
+     - Must be an array
+     - Must have at least 1 element
+     - All elements must be strings
+   - Return `keywords` in the validated output object
+4. Run verifier (expect pass)
 
-3. **REFACTOR** — Verify types:
-   - Run: `npm run typecheck`
-   - Verify: Only `log-food/route.ts` has remaining type errors (expected — updated in Task 4)
-
-**Notes:**
-- Follow the exact same DB mock pattern from the existing tests (see `mockInsert`, `mockValues`, `mockReturning`)
-- The mock setup needs to handle two different table references now (one mock for each table)
+**Files:** `src/lib/claude.ts`, `src/lib/__tests__/claude.test.ts`
 
 ---
 
-### Task 4: Update log-food route handler
+### Task 3: Update food-log insert to accept keywords + update log-food route
+**Linear Issue:** [FOO-162](https://linear.app/lw-claude/issue/FOO-162/update-food-log-insert-to-accept-keywords-update-log-food-route)
 
-**Issue:** FOO-157
-**Files:**
-- `src/app/api/log-food/route.ts` (modify)
-- `src/app/api/log-food/__tests__/route.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update route tests for new two-step flow:
-   - Update `src/app/api/log-food/__tests__/route.test.ts`:
-   - Replace `mockInsertFoodLog` with two mocks: `mockInsertCustomFood` and `mockInsertFoodLogEntry`
-   - Update mock for `@/lib/food-log`:
-     ```typescript
-     const mockInsertCustomFood = vi.fn();
-     const mockInsertFoodLogEntry = vi.fn();
-     vi.mock("@/lib/food-log", () => ({
-       insertCustomFood: (...args: unknown[]) => mockInsertCustomFood(...args),
-       insertFoodLogEntry: (...args: unknown[]) => mockInsertFoodLogEntry(...args),
-     }));
+1. Write tests in `src/lib/__tests__/food-log.test.ts`:
+   - Test `insertCustomFood` stores `keywords` array in the `customFoods` table
+   - Test `insertCustomFood` stores `null` keywords when not provided
+2. Update tests in `src/app/api/log-food/__tests__/route.test.ts`:
+   - Update mock request bodies to include `keywords` field
+   - Test keywords are passed through to `insertCustomFood`
+3. Run verifier (expect fail)
+4. Update `src/lib/food-log.ts`:
+   - Add `keywords?: string[] | null` to `CustomFoodInput` interface
+   - Pass `keywords: data.keywords ?? null` in `insertCustomFood()`
+5. Update `src/app/api/log-food/route.ts`:
+   - Add `body.keywords` (from `FoodLogRequest` which extends `FoodAnalysis`) to `insertCustomFood` call (line 158-171):
      ```
-   - Update `beforeEach` to set default mock returns:
-     ```typescript
-     mockInsertCustomFood.mockResolvedValue({ id: 1, createdAt: new Date() });
-     mockInsertFoodLogEntry.mockResolvedValue({ id: 1, loggedAt: new Date() });
+     keywords: body.keywords,
      ```
-   - Update "calls insertFoodLog after successful Fitbit logging" test → split into two assertions:
-     - `mockInsertCustomFood` called with email and food data (name, nutrition, fitbitFoodId)
-     - `mockInsertFoodLogEntry` called with email, `customFoodId` from first insert, and log data (mealTypeId, amount, unitId, date, time, fitbitLogId)
-   - Update "returns success even if DB insert fails (non-fatal)" → test both failure modes:
-     - Custom food insert fails → still returns success (Fitbit is primary)
-     - Food log entry insert fails → still returns success
-   - Keep all validation tests unchanged (session, mealTypeId, date, time)
-   - Run: `npm test -- log-food`
-   - Verify: Tests fail (route still uses old function)
+6. Update `src/app/api/log-food/route.ts` validation function `isValidFoodLogRequest`:
+   - Add validation: `keywords` must be an array of strings if present
+7. Run verifier (expect pass)
 
-2. **GREEN** — Update route handler:
-   - Import `insertCustomFood` and `insertFoodLogEntry` instead of `insertFoodLog`
-   - Replace the single `insertFoodLog` call with two calls:
-     ```typescript
-     // Step 1: Save custom food to DB
-     const customFoodResult = await insertCustomFood(session!.email, {
-       foodName: body.food_name,
-       amount: body.amount,
-       unitId: body.unit_id,
-       calories: body.calories,
-       proteinG: body.protein_g,
-       carbsG: body.carbs_g,
-       fatG: body.fat_g,
-       fiberG: body.fiber_g,
-       sodiumMg: body.sodium_mg,
-       confidence: body.confidence,
-       notes: body.notes,
-       fitbitFoodId: foodId,
-     });
-
-     // Step 2: Save food log entry to DB
-     const logEntryResult = await insertFoodLogEntry(session!.email, {
-       customFoodId: customFoodResult.id,
-       mealTypeId: body.mealTypeId,
-       amount: body.amount,
-       unitId: body.unit_id,
-       date,
-       time: body.time ?? null,
-       fitbitLogId: logResult.foodLog.logId,
-     });
-     foodLogId = logEntryResult.id;
-     ```
-   - Both inserts remain in the non-fatal try/catch block (Fitbit is primary)
-   - The `FoodLogResponse` shape stays the same (`foodLogId` now refers to the log entry ID)
-   - Run: `npm test -- log-food`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Clean up:
-   - Verify error handling wraps both inserts
-   - Run: `npm run typecheck`
-   - Verify: No type errors
-
-**Notes:**
-- The route handler's public API (`FoodLogRequest` → `FoodLogResponse`) does NOT change — no frontend updates needed
-- `FoodLogResponse.foodLogId` now refers to `food_log_entries.id` instead of `food_logs.id`
-- Both DB inserts are non-fatal — if custom food insert fails, skip log entry too
+**Files:** `src/lib/food-log.ts`, `src/lib/__tests__/food-log.test.ts`, `src/app/api/log-food/route.ts`, `src/app/api/log-food/__tests__/route.test.ts`
 
 ---
 
-### Task 5: Generate Drizzle migration
+### Task 4: Create food matching service
+**Linear Issue:** [FOO-163](https://linear.app/lw-claude/issue/FOO-163/create-food-matching-service-keyword-ratio-nutrient-tolerance)
 
-**Issue:** FOO-157
-**Files:**
-- `drizzle/` (new migration file generated)
+1. Write tests in `src/lib/__tests__/food-matching.test.ts`:
+   - **`computeMatchRatio` tests:**
+     - `["tea", "milk"]` vs `["tea", "milk", "honey"]` → 1.0
+     - `["tea"]` vs `["tea", "milk"]` → 1.0
+     - `["pizza", "margherita"]` vs `["pizza", "pepperoni"]` → 0.5
+     - `["pizza", "margherita"]` vs `["tea", "milk"]` → 0.0
+     - Empty new keywords → 0 (edge case)
+   - **`checkNutrientTolerance` tests:**
+     - Matching nutrients within thresholds → true
+     - Calories outside ±20%/±25kcal → false
+     - Protein outside ±25%/±3g → false
+     - Carbs outside ±25%/±5g → false
+     - Fat outside ±25%/±3g → false
+     - Low-value nutrients use absolute band (e.g., 10 cal ±25kcal passes for 30 cal)
+     - High-value nutrients use percentage band (e.g., 800 cal ±20% passes for 700 cal)
+     - All four must pass — one failure rejects
+   - **`findMatchingFoods` tests:**
+     - Returns empty array when no custom foods exist
+     - Returns empty array when no keywords match at >= 0.5
+     - Returns empty array when keywords match but nutrients differ
+     - Returns matches ranked by match_ratio desc, then by most recently created
+     - Returns max 3 matches
+     - Ignores custom foods without keywords (null keywords)
+2. Run verifier (expect fail)
+3. Create `src/lib/food-matching.ts`:
+   - Export `computeMatchRatio(newKeywords: string[], existingKeywords: string[]): number`
+   - Export `checkNutrientTolerance(newFood: NutrientValues, existingFood: NutrientValues): boolean`
+     - Interface `NutrientValues`: `{ calories: number; proteinG: number; carbsG: number; fatG: number }`
+     - Thresholds: calories ±20%/±25, protein ±25%/±3, carbs ±25%/±5, fat ±25%/±3
+     - Each check: `Math.abs(newVal - existVal) <= Math.max(existVal * pct, absolute)`
+   - Export `findMatchingFoods(email: string, newAnalysis: FoodAnalysis): Promise<FoodMatch[]>`
+     - Interface `FoodMatch`: `{ customFoodId: number; foodName: string; calories: number; proteinG: number; carbsG: number; fatG: number; fitbitFoodId: number; matchRatio: number; lastLoggedAt: Date; amount: number; unitId: number }`
+     - Query all `custom_foods` for the user that have non-null keywords and non-null fitbitFoodId
+     - Join with `food_log_entries` to get last logged date (MAX `logged_at` per `custom_food_id`)
+     - Compute match_ratio for each, filter >= 0.5
+     - Filter by nutrient tolerance
+     - Sort by match_ratio desc, then lastLoggedAt desc
+     - Return top 3
+4. Run verifier (expect pass)
 
-**Steps:**
-
-1. Run migration generation:
-   - Run: `npx drizzle-kit generate`
-   - Verify: A new migration SQL file is created in `drizzle/`
-   - Read the generated SQL and verify it:
-     - Creates `custom_foods` table with correct columns
-     - Creates `food_log_entries` table with FK constraint to `custom_foods`
-     - Drops `food_logs` table
-   - If the migration SQL doesn't look right, manually adjust and re-run
-
-2. Verify migration applies locally:
-   - Run: `docker compose up -d` (ensure local Postgres is running)
-   - Run: `npm run dev` (triggers migration at startup via `src/db/migrate.ts`)
-   - Verify: No migration errors in console output
-
-**Notes:**
-- Migration files in `drizzle/` must be committed to git
-- The migration will DROP the `food_logs` table — this is intentional (dev status, no data to preserve)
-- Drizzle Kit generates the migration based on diff between schema and existing migrations
-
----
-
-### Task 6: Integration & Verification
-
-**Issue:** FOO-159, FOO-157
-**Files:**
-- Various files from previous tasks
-
-**Steps:**
-
-1. Run full test suite:
-   - Run: `npm test`
-   - Verify: All tests pass
-
-2. Run linter:
-   - Run: `npm run lint`
-   - Verify: No errors, no warnings
-
-3. Run type checker:
-   - Run: `npm run typecheck`
-   - Verify: No type errors
-
-4. Run build:
-   - Run: `npm run build`
-   - Verify: Build succeeds with zero warnings
-
-5. Manual verification:
-   - [ ] Start local dev server: `npm run dev`
-   - [ ] Verify migration applies without errors
-   - [ ] Verify `/api/health` responds
-   - [ ] Verify no `mcp-fitbit/` files in TypeScript compilation
-
-## MCP Usage During Implementation
-
-| MCP Server | Tool | Purpose |
-|------------|------|---------|
-| Linear | `update_issue` | Move FOO-159 and FOO-157 to "In Progress" when starting, "Done" when complete |
-
-## Error Handling
-
-| Error Scenario | Expected Behavior | Test Coverage |
-|---------------|-------------------|---------------|
-| Custom food DB insert fails | Log error, skip log entry, return Fitbit success | Unit test (route.test.ts) |
-| Food log entry DB insert fails | Log error, return Fitbit success | Unit test (route.test.ts) |
-| Fitbit API fails | Return FITBIT_API_ERROR 500 | Unit test (route.test.ts) |
-| Invalid request body | Return VALIDATION_ERROR 400 | Unit test (route.test.ts) |
-
-## Risks & Open Questions
-
-- [ ] Risk: Migration drops `food_logs` — any manually inserted test data will be lost. Mitigation: Dev status, no backward compat needed per CLAUDE.md.
-- [ ] Risk: `findOrCreateFood` in `fitbit.ts` currently always creates new foods. This plan does NOT change that behavior — food reuse is a separate feature. The DB schema enables it for future work.
-
-## Scope Boundaries
-
-**In Scope:**
-- Exclude `mcp-fitbit` from tsconfig.json (FOO-159)
-- Create `custom_foods` and `food_log_entries` tables (FOO-157)
-- Drop `food_logs` table (FOO-157)
-- Update `food-log.ts` insert functions (FOO-157)
-- Update `log-food/route.ts` to use new functions (FOO-157)
-- Update all tests (FOO-157)
-- Generate Drizzle migration (FOO-157)
-
-**Out of Scope:**
-- Implementing food reuse/search logic in `findOrCreateFood` (separate feature)
-- Frontend changes (API contract is unchanged)
-- Data migration from existing `food_logs` rows (dev status, no data to preserve)
+**Files:** `src/lib/food-matching.ts`, `src/lib/__tests__/food-matching.test.ts`
 
 ---
 
-## Iteration 1
+### Task 5: Create matching API endpoint
+**Linear Issue:** [FOO-164](https://linear.app/lw-claude/issue/FOO-164/create-post-apifind-matches-endpoint)
 
-**Implemented:** 2026-02-06
-**Method:** Agent team (2 workers)
+1. Write tests in `src/app/api/find-matches/__tests__/route.test.ts`:
+   - Test returns 401 for missing session
+   - Test returns 400 for missing/invalid keywords
+   - Test returns empty matches when no similar foods exist
+   - Test returns up to 3 matches with correct shape
+   - Test handles `findMatchingFoods` errors gracefully
+2. Run verifier (expect fail)
+3. Create `src/app/api/find-matches/route.ts`:
+   - POST endpoint
+   - Accepts JSON body: `FoodAnalysis` (with keywords)
+   - Validates session (require auth, does NOT require Fitbit — matching is DB-only)
+   - Calls `findMatchingFoods(email, analysis)`
+   - Returns `{ matches: FoodMatch[] }`
+4. Run verifier (expect pass)
 
-### Tasks Completed This Iteration
-- Task 1: Exclude mcp-fitbit from tsconfig.json - Added "mcp-fitbit" to exclude array (worker-1)
-- Task 2: Define new DB schema tables - Replaced foodLogs with customFoods and foodLogEntries tables (worker-2)
-- Task 3: Update food-log.ts with new insert functions - Replaced insertFoodLog with insertCustomFood and insertFoodLogEntry (worker-2)
-- Task 4: Update log-food route handler - Two-step DB insert flow: customFood then logEntry with FK (worker-2)
-- Task 5: Generate Drizzle migration - Created 0002_schema_split.sql (worker-2)
-- Task 6: Integration & Verification - All checks pass (lead)
+**Files:** `src/app/api/find-matches/route.ts`, `src/app/api/find-matches/__tests__/route.test.ts`
 
-### Files Modified
-- `tsconfig.json` - Added "mcp-fitbit" to exclude array
-- `src/db/schema.ts` - Removed foodLogs, added customFoods (15 columns) and foodLogEntries (10 columns, FK to customFoods.id)
-- `src/db/__tests__/schema.test.ts` - Updated tests for new tables, added test confirming foodLogs removed
-- `src/lib/food-log.ts` - Replaced insertFoodLog/FoodLogInput with insertCustomFood/CustomFoodInput and insertFoodLogEntry/FoodLogEntryInput
-- `src/lib/__tests__/food-log.test.ts` - Rewrote 9 tests for new functions
-- `src/app/api/log-food/route.ts` - Updated to call insertCustomFood then insertFoodLogEntry in non-fatal try/catch
-- `src/app/api/log-food/__tests__/route.test.ts` - Updated mocks, added tests for two-step flow and failure modes
-- `drizzle/0002_schema_split.sql` - Migration: CREATE custom_foods, CREATE food_log_entries with FK, DROP food_logs CASCADE
-- `drizzle/meta/0002_snapshot.json` - Updated snapshot
-- `drizzle/meta/_journal.json` - Updated journal entry
-- `CLAUDE.md` - Updated table names and function references
+---
 
-### Linear Updates
-- FOO-159: Todo → In Progress → Review
-- FOO-157: Todo → In Progress → Review
+### Task 6: Create FoodMatchCard component and integrate into FoodAnalyzer
+**Linear Issue:** [FOO-165](https://linear.app/lw-claude/issue/FOO-165/create-foodmatchcard-component-and-integrate-into-foodanalyzer)
 
-### Pre-commit Verification
-- bug-hunter: Found 1 HIGH bug (unique constraint on fitbit_food_id incompatible with per-log-request inserts), fixed before proceeding. 3 MEDIUM findings: CLAUDE.md staleness (fixed), test coverage gap (skipped — over-engineering), migration data loss (intentional).
-- verifier: 570 tests pass, zero warnings. Pre-existing failure in migrate.test.ts (not in changeset).
+1. Write tests in `src/components/__tests__/food-match-card.test.tsx`:
+   - Test renders food name, calories, macros, last logged date
+   - Test renders amount with correct unit label
+   - Test "Use this" button calls `onSelect` with the match data
+   - Test "Use this" button has min 44px touch target
+2. Write tests in `src/components/__tests__/food-analyzer.test.tsx`:
+   - Test calls `/api/find-matches` after analysis succeeds
+   - Test shows match section when matches returned
+   - Test hides match section when no matches
+   - Test "Use this" triggers the reuse log flow (not the new-food flow)
+   - Test "Log as new" still creates a new food entry
+3. Run verifier (expect fail)
+4. Create `src/components/food-match-card.tsx`:
+   - Props: `match: FoodMatch`, `onSelect: (match: FoodMatch) => void`, `disabled?: boolean`
+   - Shows food name, `getUnitLabel(unitId, amount)`, calories/protein/carbs/fat summary
+   - Shows "Last logged: X" with relative date
+   - "Use this" button (min-h-[44px])
+5. Update `src/components/food-analyzer.tsx`:
+   - Add state: `matches: FoodMatch[]`, `matchLoading: boolean`
+   - After `setAnalysis(result.data)` succeeds in `handleAnalyze`, fire async call to `/api/find-matches`
+   - Store results in `matches` state
+   - Between `AnalysisResult` and post-analysis controls, conditionally render match section:
+     - Heading: "Similar foods you've logged before"
+     - Render up to 3 `FoodMatchCard` components
+   - Add `handleUseExisting(match: FoodMatch)` — stores selected match, triggers reuse log flow
+   - Rename current "Log to Fitbit" button to "Log as new" when matches exist
+6. Run verifier (expect pass)
 
-### Work Partition
-- Worker 1: Task 1 (tsconfig.json)
-- Worker 2: Tasks 2, 3, 4, 5 (schema, food-log.ts, route handler, migration)
+**Files:** `src/components/food-match-card.tsx`, `src/components/__tests__/food-match-card.test.tsx`, `src/components/food-analyzer.tsx`, `src/components/__tests__/food-analyzer.test.tsx`
 
-### Continuation Status
-All tasks completed.
+---
+
+### Task 7: Wire up reuse flow in log-food route + fitbit client
+**Linear Issue:** [FOO-166](https://linear.app/lw-claude/issue/FOO-166/wire-up-reuse-flow-in-log-food-route-skip-fitbit-food-creation)
+
+1. Write tests in `src/app/api/log-food/__tests__/route.test.ts`:
+   - Test accepts `reuseCustomFoodId` field in request body
+   - When `reuseCustomFoodId` is provided:
+     - Test does NOT call `findOrCreateFood` (skips food creation)
+     - Test calls `logFood` with the existing food's `fitbitFoodId`
+     - Test inserts a `food_log_entry` referencing the existing `custom_food`
+     - Test does NOT insert a new `custom_food`
+     - Test response has `reusedFood: true`
+   - When `reuseCustomFoodId` is NOT provided:
+     - Test flow unchanged (creates new food, new custom_food row)
+2. Write tests in `src/lib/__tests__/food-log.test.ts`:
+   - Test `getCustomFoodById(id)` returns the food with correct fields
+   - Test `getCustomFoodById(id)` returns null for non-existent ID
+3. Run verifier (expect fail)
+4. Update `src/lib/food-log.ts`:
+   - Add `getCustomFoodById(id: number): Promise<CustomFood | null>` — queries `custom_foods` by ID, returns food data including `fitbitFoodId`
+5. Update `src/types/index.ts`:
+   - Add `reuseCustomFoodId?: number` to `FoodLogRequest` interface
+6. Update `src/app/api/log-food/route.ts`:
+   - At the start of the Fitbit section (line 136-153), check for `body.reuseCustomFoodId`:
+     - If present: call `getCustomFoodById(body.reuseCustomFoodId)` to get existing food
+     - If food not found or no `fitbitFoodId`: return error
+     - Skip `findOrCreateFood()`, use existing `fitbitFoodId` directly
+     - Call `logFood()` with existing food's amount/unitId/fitbitFoodId
+     - Insert only a `food_log_entry` (not a new `custom_food`)
+     - Set `reused = true`
+   - If `reuseCustomFoodId` not present: existing flow unchanged
+7. Update `src/components/food-analyzer.tsx`:
+   - `handleUseExisting(match)` sends POST to `/api/log-food` with `reuseCustomFoodId: match.customFoodId` and current `mealTypeId`
+8. Run verifier (expect pass)
+
+**Files:** `src/lib/food-log.ts`, `src/lib/__tests__/food-log.test.ts`, `src/types/index.ts`, `src/app/api/log-food/route.ts`, `src/app/api/log-food/__tests__/route.test.ts`, `src/components/food-analyzer.tsx`
+
+---
+
+### Task 8: Generate Drizzle migration + update docs
+**Linear Issue:** [FOO-167](https://linear.app/lw-claude/issue/FOO-167/generate-drizzle-migration-for-keywords-column-update-docs)
+
+1. Run `npx drizzle-kit generate` to create migration for the `keywords` column addition
+2. Verify generated SQL adds `keywords text[]` column to `custom_foods`
+3. Update `CLAUDE.md`:
+   - Add `/api/find-matches` to API endpoints table
+   - Add `food-matching.ts` to lib section in STRUCTURE
+   - Add `food-match-card.tsx` to components section
+4. Run verifier (full suite: tests, lint, typecheck, build — all must pass with zero warnings)
+
+**Files:** `drizzle/` (generated), `CLAUDE.md`
+
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent - Review changes for bugs
+2. Run `verifier` agent - Verify all tests pass and zero warnings
+
+---
+
+## Iteration 1: Implementation Complete
+
+**Date:** 2026-02-06
+**Status:** COMPLETE
+**Branch:** `feat/smart-food-matching`
+**Tests:** 629 passing (54 test files)
+**Build:** Clean (zero warnings)
+
+### Worker Assignments
+| Worker | Tasks | Files |
+|--------|-------|-------|
+| worker-1 | 1, 3, 6, 7 | schema, types, food-log, log-food route, food-match-card, food-analyzer |
+| worker-2 | 2 | claude.ts, claude tests |
+| worker-3 | 4, 5 | food-matching service, find-matches API |
+| lead | 8 | drizzle migration, CLAUDE.md, integration fixes |
+
+### Integration Fixes by Lead
+- Removed duplicate `FoodMatch` interface from `food-matching.ts` (worker-3) — imported from `@/types` (worker-1's canonical definition)
+- Removed redundant `FoodAnalysisWithKeywords` from `food-matching.ts` — `FoodAnalysis` already has `keywords`
+- Added missing `keywords` to pre-existing test fixtures (4 files, 6 locations)
+- Added `.groupBy(customFoods.id)` to `findMatchingFoods` query (bug-hunter finding: missing GROUP BY with aggregate)
+- Updated mock chain in `food-matching.test.ts` to include `mockGroupBy`
+- Fixed 2 lint warnings: unused `_keywords` destructure, unused `_sortDate` destructure
+- Generated migration via `npx drizzle-kit generate` → `drizzle/0003_exotic_ultimatum.sql`
 
 ### Review Findings
 
-Files reviewed: 11
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
+Files reviewed: 18 (8 source, 8 test, 1 migration, 1 docs)
+Checks applied: Security, Logic, Async, Resources, Type Safety, Edge Cases, Conventions
 
 No issues found - all implementations are correct and follow project conventions.
 
-**Details:**
-- `tsconfig.json` — Correctly excludes `mcp-fitbit` from compilation
-- `src/db/schema.ts` — Proper table definitions, correct column types, FK constraint, follows existing naming conventions
-- `src/lib/food-log.ts` — Clean insert functions, proper numeric-to-string conversion for Drizzle `numeric` columns, defensive null handling
-- `src/app/api/log-food/route.ts` — Two-step DB insert with FK linkage, non-fatal error handling preserved, API contract unchanged
-- `drizzle/0002_schema_split.sql` — Correct CREATE/DROP/FK migration
-- All test files — Good coverage of happy paths, error paths, null handling, and bigint edge cases
-
-**Verification results:**
-- Tests: 570 passed (1 pre-existing failure in migrate.test.ts — not in changeset)
-- Typecheck: Passed
-- Lint: Passed (zero warnings)
-- Build: Passed (zero warnings)
+**Verification:** 631 tests passing, typecheck clean, lint clean, build clean (zero warnings).
 
 ### Linear Updates
-- FOO-159: Review → Merge
-- FOO-157: Review → Merge
+- FOO-160: Review → Merge
+- FOO-161: Review → Merge
+- FOO-162: Review → Merge
+- FOO-163: Review → Merge
+- FOO-164: Review → Merge
+- FOO-165: Review → Merge
+- FOO-166: Review → Merge
+- FOO-167: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 
@@ -467,3 +309,31 @@ No issues found - all implementations are correct and follow project conventions
 ## Status: COMPLETE
 
 All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+
+---
+
+## Plan Summary
+
+**Objective:** Implement Smart Food Matching & Reuse to avoid duplicate Fitbit food definitions
+
+**Request:** Plan ROADMAP section 1 (Smart Food Matching & Reuse) and remove it from the roadmap, renumbering remaining sections
+
+**Linear Issues:** FOO-160, FOO-161, FOO-162, FOO-163, FOO-164, FOO-165, FOO-166, FOO-167
+
+**Approach:** Four-layer implementation: (1) Schema + types for keywords, (2) Claude keyword extraction at analysis time, (3) Matching engine (keyword ratio + nutrient tolerance), (4) API + UI to present matches and wire up reuse flow that skips Fitbit food creation. New `/api/find-matches` endpoint decouples matching from logging. Reuse is opt-in via `reuseCustomFoodId` field in existing `/api/log-food` endpoint.
+
+**Scope:**
+- Tasks: 8
+- Files affected: ~18 (8 source + 8 test + 2 generated/docs)
+- New tests: yes (matching service, match API, match card component, reuse flow)
+
+**Key Decisions:**
+- Separate `/api/find-matches` endpoint rather than inlining matching into analyze-food — keeps matching decoupled and allows the frontend to call it asynchronously after analysis
+- `reuseCustomFoodId` in existing `/api/log-food` rather than a new reuse endpoint — minimal API surface change
+- Keywords are nullable on `custom_foods` — existing rows without keywords are excluded from matching (no backfill needed)
+- Max 3 matches displayed, ranked by match_ratio desc then recency
+
+**Risks/Considerations:**
+- Keyword quality depends on Claude's consistency — the prompt guides on "type + ingredients + preparation" but can't guarantee identical keywords across sessions
+- No backfill for existing custom_foods rows — matching only works for foods logged after this feature ships
+- The match query fetches all user's custom_foods with keywords — acceptable at single-user scale (~3,650 rows/year max)

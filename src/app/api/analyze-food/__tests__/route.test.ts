@@ -66,6 +66,7 @@ const validAnalysis: FoodAnalysis = {
   sodium_mg: 450,
   confidence: "high",
   notes: "Standard Argentine beef empanada, baked style",
+  keywords: ["empanada", "carne", "horno"],
 };
 
 // Create a mock file that works with jsdom (which lacks File.arrayBuffer)

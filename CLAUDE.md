@@ -68,8 +68,10 @@ food-scanner/
 │   │       │   ├── session/route.ts      # Validate session
 │   │       │   └── logout/route.ts       # Destroy session
 │   │       ├── analyze-food/route.ts     # Claude tool_use analysis
+│   │       ├── find-matches/route.ts     # Food matching (keyword + nutrient)
 │   │       └── log-food/route.ts         # Fitbit search + create + log
 │   ├── components/                       # React components
+│   │   ├── food-match-card.tsx           # Food match card (reuse suggestion)
 │   │   └── ui/                           # shadcn/ui components
 │   ├── hooks/
 │   │   ├── use-keyboard-shortcuts.ts     # Keyboard shortcuts (Ctrl+Enter, Escape)
@@ -82,7 +84,8 @@ food-scanner/
 │   │   ├── session.ts                    # iron-session config + getSession() (DB-backed)
 │   │   ├── session-db.ts                 # Session CRUD (createSession, getSessionById, touchSession, deleteSession)
 │   │   ├── fitbit-tokens.ts              # Fitbit token CRUD (getFitbitTokens, upsertFitbitTokens, deleteFitbitTokens)
-│   │   ├── food-log.ts                   # Food log insert (insertCustomFood, insertFoodLogEntry)
+│   │   ├── food-log.ts                   # Food log insert (insertCustomFood, insertFoodLogEntry, getCustomFoodById)
+│   │   ├── food-matching.ts              # Food matching engine (keyword ratio + nutrient tolerance)
 │   │   ├── api-response.ts              # Standardized API response helpers
 │   │   ├── url.ts                        # APP_URL helper + buildUrl()
 │   │   ├── logger.ts                     # pino structured logging
@@ -153,6 +156,7 @@ food-scanner/
 | GET | `/api/auth/session` | Yes | Validate current session |
 | POST | `/api/auth/logout` | Yes | Destroy session cookie |
 | POST | `/api/analyze-food` | Yes | Claude analysis (multipart/form-data) |
+| POST | `/api/find-matches` | Yes | Find matching foods (keyword + nutrient) |
 | POST | `/api/log-food` | Yes | Post to Fitbit |
 
 **Auth enforcement:** Next.js middleware (`middleware.ts`) checks for session cookie on all protected routes. Route handlers validate session contents via iron-session.

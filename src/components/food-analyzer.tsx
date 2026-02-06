@@ -7,6 +7,7 @@ import { AnalysisResult } from "./analysis-result";
 import { MealTypeSelector } from "./meal-type-selector";
 import { NutritionEditor } from "./nutrition-editor";
 import { FoodLogConfirmation } from "./food-log-confirmation";
+import { FoodMatchCard } from "./food-match-card";
 import { compressImage } from "@/lib/image";
 import { vibrateError } from "@/lib/haptics";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
@@ -21,7 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import type { FoodAnalysis, FoodLogResponse } from "@/types";
+import type { FoodAnalysis, FoodLogResponse, FoodMatch } from "@/types";
 
 function getDefaultMealType(): number {
   const hour = new Date().getHours();
@@ -52,6 +53,7 @@ export function FoodAnalyzer() {
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [matches, setMatches] = useState<FoodMatch[]>([]);
 
   const currentAnalysis = editedAnalysis || analysis;
   const hasEdits = editedAnalysis !== null;
@@ -73,6 +75,7 @@ export function FoodAnalyzer() {
     setEditMode(false);
     setLogError(null);
     setLogResponse(null);
+    setMatches([]);
   };
 
   const handleAnalyze = async () => {
@@ -117,6 +120,22 @@ export function FoodAnalyzer() {
       setAnalysis(result.data);
       setEditedAnalysis(null);
       setEditMode(false);
+
+      // Fire async match search (non-blocking)
+      fetch("/api/find-matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result.data),
+      })
+        .then((r) => r.json())
+        .then((matchResult) => {
+          if (matchResult.success && matchResult.data?.matches) {
+            setMatches(matchResult.data.matches);
+          }
+        })
+        .catch(() => {
+          // Silently ignore match errors — matching is optional
+        });
     } catch (err) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
@@ -175,6 +194,42 @@ export function FoodAnalyzer() {
 
       setLogResponse(result.data);
       // Note: vibrateSuccess() is called in FoodLogConfirmation on mount
+    } catch (err) {
+      setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      vibrateError();
+    } finally {
+      setLogging(false);
+    }
+  };
+
+  const handleUseExisting = async (match: FoodMatch) => {
+    setLogging(true);
+    setLogError(null);
+
+    try {
+      const response = await fetch("/api/log-food", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reuseCustomFoodId: match.customFoodId,
+          mealTypeId,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        const errorCode = result.error?.code;
+        if (errorCode === "FITBIT_TOKEN_INVALID") {
+          setLogError("Your Fitbit session has expired. Please reconnect your Fitbit account in Settings.");
+        } else {
+          setLogError(result.error?.message || "Failed to log food to Fitbit");
+        }
+        vibrateError();
+        return;
+      }
+
+      setLogResponse(result.data);
     } catch (err) {
       setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
@@ -299,6 +354,21 @@ export function FoodAnalyzer() {
         )}
       </div>
 
+      {/* Food matches section */}
+      {analysis && !loading && matches.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-sm font-medium">Similar foods you&apos;ve logged before</p>
+          {matches.slice(0, 3).map((match) => (
+            <FoodMatchCard
+              key={match.customFoodId}
+              match={match}
+              onSelect={handleUseExisting}
+              disabled={logging}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Post-analysis controls */}
       {analysis && !loading && (
         <div className="space-y-4">
@@ -357,7 +427,7 @@ export function FoodAnalyzer() {
             disabled={logging}
             className="w-full min-h-[44px]"
           >
-            {logging ? "Logging..." : "Log to Fitbit"}
+            {logging ? "Logging..." : matches.length > 0 ? "Log as new" : "Log to Fitbit"}
           </Button>
         </div>
       )}

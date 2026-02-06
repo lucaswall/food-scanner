@@ -22,6 +22,13 @@
       "when": 1770403146650,
       "tag": "0002_schema_split",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1770415806436,
+      "tag": "0003_exotic_ultimatum",
+      "breakpoints": true
     }
   ]
 }
