@@ -7,6 +7,9 @@ import { logger } from "@/lib/logger";
 import { getSessionById, deleteSession, touchSession } from "@/lib/session-db";
 import { getFitbitTokens } from "@/lib/fitbit-tokens";
 
+let touchFailCount = 0;
+const TOUCH_FAIL_THRESHOLD = 3;
+
 let _sessionOptions: SessionOptions | null = null;
 
 function getSessionOptions(): SessionOptions {
@@ -51,10 +54,16 @@ export async function getSession(): Promise<FullSession | null> {
   // This debounces to at most once per day of active use (30 - 29 = 1 day window).
   const msUntilExpiry = dbSession.expiresAt.getTime() - Date.now();
   if (msUntilExpiry < TWENTY_NINE_DAYS_MS) {
-    touchSession(dbSession.id).catch((err) => {
-      logger.warn(
-        { action: "touch_session_error", error: err instanceof Error ? err.message : String(err) },
-        "failed to extend session expiration",
+    touchSession(dbSession.id).then(() => {
+      touchFailCount = 0;
+    }).catch((err) => {
+      touchFailCount++;
+      const logLevel = touchFailCount >= TOUCH_FAIL_THRESHOLD ? "error" : "warn";
+      logger[logLevel](
+        { action: "touch_session_error", consecutiveFailures: touchFailCount, error: err instanceof Error ? err.message : String(err) },
+        touchFailCount >= TOUCH_FAIL_THRESHOLD
+          ? "persistent session touch failures detected"
+          : "failed to extend session expiration",
       );
     });
   }

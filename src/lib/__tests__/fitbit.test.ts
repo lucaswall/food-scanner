@@ -165,6 +165,71 @@ describe("ensureFreshToken", () => {
     await ensureFreshToken("test@example.com");
     expect(mockUpsertFitbitTokens).not.toHaveBeenCalled();
   });
+
+  it("two concurrent calls with expiring token only refresh once", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000), // expired
+    });
+    mockUpsertFitbitTokens.mockResolvedValue(undefined);
+
+    const [token1, token2] = await Promise.all([
+      ensureFreshToken("test@example.com"),
+      ensureFreshToken("test@example.com"),
+    ]);
+
+    expect(token1).toBe("new-token");
+    expect(token2).toBe("new-token");
+    // refreshFitbitToken should only be called once (1 fetch call for refresh)
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    vi.restoreAllMocks();
+  });
+
+  it("second concurrent call receives same refreshed access token", async () => {
+    let resolveRefresh: (value: Response) => void;
+    const refreshPromise = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => refreshPromise);
+
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000), // expired
+    });
+    mockUpsertFitbitTokens.mockResolvedValue(undefined);
+
+    const promise1 = ensureFreshToken("test@example.com");
+    const promise2 = ensureFreshToken("test@example.com");
+
+    // Resolve the refresh after both calls are in-flight
+    resolveRefresh!(new Response(JSON.stringify({
+      access_token: "shared-new-token",
+      refresh_token: "new-refresh",
+      user_id: "user-123",
+      expires_in: 28800,
+    })));
+
+    const [token1, token2] = await Promise.all([promise1, promise2]);
+    expect(token1).toBe("shared-new-token");
+    expect(token2).toBe("shared-new-token");
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe("exchangeFitbitCode", () => {
@@ -516,6 +581,157 @@ describe("logFood", () => {
     );
 
     vi.restoreAllMocks();
+  });
+});
+
+describe("fetchWithRetry 5xx handling", () => {
+  const mockFoodAnalysis = {
+    food_name: "Test Food",
+    amount: 100,
+    unit_id: 147,
+    calories: 200,
+    protein_g: 10,
+    carbs_g: 20,
+    fat_g: 5,
+    fiber_g: 3,
+    sodium_mg: 100,
+    confidence: "high" as const,
+    notes: "Test",
+  };
+
+  it("retries on 500 response with backoff", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    const mockResponse = { food: { foodId: 789, name: "Test Food" } };
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount < 2) {
+        return Promise.resolve(new Response(null, { status: 500 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(mockResponse), { status: 201 }),
+      );
+    });
+
+    const promise = createFood("test-token", mockFoodAnalysis);
+    await vi.advanceTimersByTimeAsync(1000);
+    const result = await promise;
+
+    expect(callCount).toBe(2);
+    expect(result.food.foodId).toBe(789);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("retries on 502 response", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    const mockResponse = { food: { foodId: 789, name: "Test Food" } };
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount < 2) {
+        return Promise.resolve(new Response(null, { status: 502 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(mockResponse), { status: 201 }),
+      );
+    });
+
+    const promise = createFood("test-token", mockFoodAnalysis);
+    await vi.advanceTimersByTimeAsync(1000);
+    const result = await promise;
+
+    expect(callCount).toBe(2);
+    expect(result.food.foodId).toBe(789);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("does NOT retry on 400 client error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: [{ message: "bad request" }] }), { status: 400 }),
+    );
+
+    await expect(createFood("test-token", mockFoodAnalysis)).rejects.toThrow(
+      "FITBIT_API_ERROR",
+    );
+
+    // Should only call fetch once (no retry for 4xx)
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws after exhausting retries on persistent 5xx", async () => {
+    vi.useFakeTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      return Promise.resolve(new Response(null, { status: 500 }));
+    });
+
+    const promise = createFood("test-token", mockFoodAnalysis);
+
+    // Advance through all retry delays: 1s, 2s, 4s, 8s
+    await vi.advanceTimersByTimeAsync(20000);
+
+    // Should eventually return the 500 response which triggers FITBIT_API_ERROR
+    await expect(promise).rejects.toThrow("FITBIT_API_ERROR");
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("parseErrorBody", () => {
+  it("parses JSON error body", async () => {
+    const { parseErrorBody } = await import("@/lib/fitbit");
+    const response = new Response(JSON.stringify({ error: "bad request" }), { status: 400 });
+    const body = await parseErrorBody(response);
+    expect(body).toEqual({ error: "bad request" });
+  });
+
+  it("returns text when body is not JSON", async () => {
+    const { parseErrorBody } = await import("@/lib/fitbit");
+    const response = new Response("Not Found", { status: 404 });
+    const body = await parseErrorBody(response);
+    expect(body).toBe("Not Found");
+  });
+
+  it("returns fallback when body read fails", async () => {
+    const { parseErrorBody } = await import("@/lib/fitbit");
+    const response = new Response(null, { status: 500 });
+    // Override text() to throw
+    vi.spyOn(response, "text").mockRejectedValue(new Error("read failed"));
+    const body = await parseErrorBody(response);
+    expect(body).toBe("unable to read body");
+  });
+});
+
+describe("jsonWithTimeout", () => {
+  it("returns parsed JSON within timeout", async () => {
+    const { jsonWithTimeout } = await import("@/lib/fitbit");
+    const response = new Response(JSON.stringify({ foo: "bar" }), { status: 200 });
+    const result = await jsonWithTimeout<{ foo: string }>(response);
+    expect(result).toEqual({ foo: "bar" });
+  });
+
+  it("rejects when response.json() exceeds timeout", async () => {
+    vi.useFakeTimers();
+    const { jsonWithTimeout } = await import("@/lib/fitbit");
+
+    const response = new Response(null, { status: 200 });
+    vi.spyOn(response, "json").mockImplementation(() => new Promise(() => {})); // never resolves
+
+    const promise = jsonWithTimeout(response, 5000);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    await expect(promise).rejects.toThrow("Response body read timed out");
+
+    vi.useRealTimers();
   });
 });
 

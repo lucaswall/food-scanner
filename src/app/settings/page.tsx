@@ -35,7 +35,11 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Best-effort logout — redirect anyway to clear client state
+    }
     window.location.href = "/";
   }
 

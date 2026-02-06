@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { fitbitTokens } from "@/db/schema";
+import { encryptToken, decryptToken } from "@/lib/token-encryption";
 
 export interface FitbitTokenRow {
   id: number;
@@ -15,7 +16,19 @@ export interface FitbitTokenRow {
 export async function getFitbitTokens(email: string): Promise<FitbitTokenRow | null> {
   const db = getDb();
   const rows = await db.select().from(fitbitTokens).where(eq(fitbitTokens.email, email));
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  let accessToken: string;
+  let refreshToken: string;
+  try {
+    accessToken = decryptToken(row.accessToken);
+    refreshToken = decryptToken(row.refreshToken);
+  } catch {
+    // Plaintext tokens from before encryption was enabled — return as-is
+    accessToken = row.accessToken;
+    refreshToken = row.refreshToken;
+  }
+  return { ...row, accessToken, refreshToken };
 }
 
 export async function upsertFitbitTokens(
@@ -29,13 +42,15 @@ export async function upsertFitbitTokens(
 ): Promise<void> {
   const db = getDb();
   const now = new Date();
+  const encryptedAccessToken = encryptToken(data.accessToken);
+  const encryptedRefreshToken = encryptToken(data.refreshToken);
   await db
     .insert(fitbitTokens)
     .values({
       email,
       fitbitUserId: data.fitbitUserId,
-      accessToken: data.accessToken,
-      refreshToken: data.refreshToken,
+      accessToken: encryptedAccessToken,
+      refreshToken: encryptedRefreshToken,
       expiresAt: data.expiresAt,
       updatedAt: now,
     })
@@ -43,8 +58,8 @@ export async function upsertFitbitTokens(
       target: fitbitTokens.email,
       set: {
         fitbitUserId: data.fitbitUserId,
-        accessToken: data.accessToken,
-        refreshToken: data.refreshToken,
+        accessToken: encryptedAccessToken,
+        refreshToken: encryptedRefreshToken,
         expiresAt: data.expiresAt,
         updatedAt: now,
       },

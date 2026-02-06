@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
+import { parseErrorBody, sanitizeErrorBody } from "@/lib/fitbit";
 
 const OAUTH_TIMEOUT_MS = 10000;
 
@@ -72,13 +73,8 @@ export async function getGoogleProfile(
     );
 
     if (!response.ok) {
-      const bodyText = await response.text().catch(() => "unable to read body");
-      let errorBody: unknown;
-      try {
-        errorBody = JSON.parse(bodyText);
-      } catch {
-        errorBody = bodyText;
-      }
+      const rawBody = await parseErrorBody(response);
+      const errorBody = sanitizeErrorBody(rawBody);
       logger.error(
         { action: "google_profile_fetch_failed", status: response.status, errorBody },
         "google profile fetch http failure",

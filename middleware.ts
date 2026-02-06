@@ -5,7 +5,7 @@ export function middleware(request: NextRequest) {
   const sessionCookie = request.cookies.get("food-scanner-session");
   const { pathname } = request.nextUrl;
 
-  if (!sessionCookie) {
+  if (!sessionCookie || !sessionCookie.value?.trim()) {
     // API routes get 401 JSON
     if (pathname.startsWith("/api/")) {
       logger.warn(

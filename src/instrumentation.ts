@@ -15,6 +15,12 @@ export async function register() {
   const { runMigrations } = await import("@/db/migrate");
   await runMigrations();
 
+  const { cleanExpiredSessions } = await import("@/lib/session-db");
+  const cleaned = await cleanExpiredSessions();
+  if (cleaned > 0) {
+    logger.info({ action: "sessions_cleaned", count: cleaned }, "cleaned expired sessions");
+  }
+
   if (typeof globalThis.process?.on === "function") {
     let shuttingDown = false;
     const proc = globalThis.process;
@@ -25,8 +31,11 @@ export async function register() {
       try {
         const { closeDb } = await import("@/db/index");
         await closeDb();
-      } catch {
-        // Best-effort cleanup
+      } catch (error) {
+        logger.debug(
+          { action: "shutdown_cleanup_error", error: error instanceof Error ? error.message : String(error) },
+          "best-effort cleanup failed during shutdown",
+        );
       }
       setTimeout(() => {
         logger.info({ action: "server_exit" }, "server exiting");

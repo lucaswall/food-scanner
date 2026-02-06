@@ -112,4 +112,22 @@ describe("middleware", () => {
       expect.any(String),
     );
   });
+
+  it("redirects /app when session cookie has empty value", () => {
+    const url = new URL("/app", "http://localhost:3000");
+    const req = new NextRequest(url);
+    req.cookies.set("food-scanner-session", "");
+    const response = middleware(req);
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost:3000/");
+  });
+
+  it("redirects /app when session cookie has whitespace-only value", () => {
+    const url = new URL("/app", "http://localhost:3000");
+    const req = new NextRequest(url);
+    req.cookies.set("food-scanner-session", "   ");
+    const response = middleware(req);
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost:3000/");
+  });
 });

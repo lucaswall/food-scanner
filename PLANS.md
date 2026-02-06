@@ -1146,3 +1146,101 @@ This task is merged into Task 11. No separate action needed.
 - Database indexes (separate optimization)
 - Full-page error reporting integration (e.g., Sentry)
 - Automated session cleanup via cron (startup cleanup is sufficient)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-06
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Fix cookie name regex escaping — escaped metacharacters in getCookieValue (worker-1)
+- Task 2: Use getRequiredEnv for ALLOWED_EMAIL + mask unauthorized email in logs (worker-1)
+- Task 3: Add session validation to Fitbit OAuth GET endpoint (worker-1)
+- Task 4: Fix Claude API type safety — validateFoodAnalysis input guard, explicit object construction, isRateLimitError type guard, rate limit backoff delay (worker-2)
+- Task 5: Add 5xx retry, extract parseErrorBody/sanitizeErrorBody, add jsonWithTimeout for response body timeouts (worker-2)
+- Task 6: Sanitize API error response bodies in auth.ts logs, import shared helpers from fitbit.ts (worker-2)
+- Task 7: Fix Fitbit token refresh TOCTOU race condition with in-flight promise cache (worker-2)
+- Task 8: Fix touchSession fire-and-forget with failure counter escalation (worker-3)
+- Task 9: Configure PostgreSQL connection pool timeouts (max:5, idle:30s, connect:5s) (worker-3)
+- Task 10: Fix FileReader result type check with proper type guard (worker-4)
+- Task 11: Add error handling to logout, fix empty catch blocks, always log in global-error (worker-3)
+- Task 12: Extract shared ConfidenceBadge component, fix import ordering (worker-4)
+- Task 13: Add cleanExpiredSessions with startup cleanup in instrumentation.ts (worker-3)
+- Task 14: Move OAuth state to iron-session instead of plain cookies (worker-1)
+- Task 15: Improve middleware session validation — reject empty/whitespace cookies (worker-1)
+- Task 17: Add in-memory rate limiting to Google OAuth endpoints (10 req/min/IP) (worker-1)
+- Task 18: Encrypt Fitbit tokens at rest with AES-256-GCM (worker-3)
+- Task 19: Annotate dangerouslySetInnerHTML with safety comment (worker-3)
+- Task 20: Add test coverage for confidence.ts, utils.ts, analyze-food error path (worker-4)
+- Task 21: Resolve esbuild vulnerability via package.json overrides (worker-4)
+
+### Tasks Remaining
+- Task 16: Merged into Task 11 (no separate action)
+- Task 22: Integration verification — completed by lead during post-implementation phase
+
+### Files Modified
+- `src/lib/cookies.ts` — Regex escaping for cookie name
+- `src/lib/__tests__/cookies.test.ts` — New tests for metacharacter handling
+- `src/app/api/auth/google/route.ts` — OAuth state in iron-session, rate limiting
+- `src/app/api/auth/google/__tests__/route.test.ts` — Updated for session + rate limit
+- `src/app/api/auth/google/callback/route.ts` — getRequiredEnv, masked email, iron-session state, rate limiting
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Updated for all changes
+- `src/app/api/auth/fitbit/route.ts` — Session validation, iron-session state
+- `src/app/api/auth/fitbit/__tests__/route.test.ts` — New tests
+- `src/app/api/auth/fitbit/callback/route.ts` — Iron-session state
+- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Updated tests
+- `src/types/index.ts` — Added oauthState to SessionData, RATE_LIMIT_EXCEEDED to ErrorCode
+- `src/lib/rate-limit.ts` — New: in-memory rate limiter with cleanup
+- `src/lib/__tests__/rate-limit.test.ts` — New tests
+- `middleware.ts` — Empty/whitespace cookie check
+- `src/__tests__/middleware.test.ts` — Updated tests
+- `src/lib/claude.ts` — Input type guard, explicit object construction, isRateLimitError fix, backoff delay
+- `src/lib/__tests__/claude.test.ts` — 6 new tests
+- `src/lib/fitbit.ts` — 5xx retry, parseErrorBody, sanitizeErrorBody, jsonWithTimeout, TOCTOU fix, removed any casts
+- `src/lib/__tests__/fitbit.test.ts` — 9 new tests
+- `src/lib/auth.ts` — Import shared helpers, sanitize error bodies
+- `src/lib/__tests__/auth.test.ts` — 2 new tests, fixed abort test unhandled rejections
+- `src/lib/session.ts` — touchFailCount escalation
+- `src/lib/__tests__/session.test.ts` — 2 new tests
+- `src/lib/session-db.ts` — cleanExpiredSessions function
+- `src/lib/__tests__/session-db.test.ts` — New tests
+- `src/db/index.ts` — Pool timeout/size config
+- `src/db/__tests__/index.test.ts` — 3 new tests
+- `src/lib/token-encryption.ts` — New: AES-256-GCM encrypt/decrypt
+- `src/lib/__tests__/token-encryption.test.ts` — New: 5 tests
+- `src/lib/fitbit-tokens.ts` — Encrypt on write, decrypt on read (with plaintext fallback)
+- `src/lib/__tests__/fitbit-tokens.test.ts` — New: 3 tests
+- `src/instrumentation.ts` — Session cleanup at startup, debug logging on shutdown error
+- `src/app/settings/page.tsx` — Logout try-catch
+- `src/app/settings/__tests__/page.test.tsx` — 2 new tests
+- `src/app/global-error.tsx` — Always console.error (removed NODE_ENV guard)
+- `src/app/__tests__/global-error.test.tsx` — Updated tests
+- `src/app/layout.tsx` — SECURITY comment, theme catch comment
+- `src/lib/image.ts` — FileReader result type guard
+- `src/lib/__tests__/image.test.ts` — New test
+- `src/components/confidence-badge.tsx` — New: shared ConfidenceBadge component
+- `src/components/__tests__/confidence-badge.test.tsx` — New: 9 tests
+- `src/components/analysis-result.tsx` — Use ConfidenceBadge, fix imports
+- `src/components/nutrition-editor.tsx` — Use ConfidenceBadge, fix imports
+- `src/lib/__tests__/confidence.test.ts` — New: 10 tests
+- `src/lib/__tests__/utils.test.ts` — New: 7 tests
+- `src/app/api/analyze-food/__tests__/route.test.ts` — Malformed body test
+- `package.json` — esbuild override for vulnerability fix
+
+### Linear Updates
+- FOO-125 through FOO-153: All moved to Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 HIGH (rate limiter memory leak — fixed), 1 MEDIUM (token encryption migration — fixed with plaintext fallback), 1 MEDIUM (any casts — fixed with Record<string, unknown>). Other findings accepted as low-risk for single-user app.
+- verifier: 555 tests pass, zero lint warnings, zero type errors, build succeeds. 1 pre-existing test file (migrate.test.ts) has mock hoisting bug — not from this changeset.
+
+### Work Partition
+- Worker 1 (6 tasks): Tasks 1, 2, 3, 14, 15, 17 — auth routes, cookies, middleware, rate limiting
+- Worker 2 (4 tasks): Tasks 4, 5, 6, 7 — API clients (Claude, Fitbit, Auth)
+- Worker 3 (6 tasks): Tasks 8, 9, 11, 13, 18, 19 — core infrastructure
+- Worker 4 (4 tasks): Tasks 10, 12, 20, 21 — UI components, test coverage, dependency audit
+
+### Continuation Status
+All tasks completed.

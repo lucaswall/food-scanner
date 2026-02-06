@@ -94,22 +94,23 @@ describe("exchangeGoogleCode", () => {
     vi.useFakeTimers();
 
     vi.spyOn(globalThis, "fetch").mockImplementation(
-      (_, opts: RequestInit | undefined) => {
-        return new Promise((_, reject) => {
-          if (opts?.signal) {
-            opts.signal.addEventListener("abort", () => {
+      (_url: string | URL | Request, opts?: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          const signal = opts?.signal;
+          if (signal) {
+            signal.onabort = () => {
               reject(new DOMException("The operation was aborted.", "AbortError"));
-            });
+            };
           }
         });
       }
     );
 
     const promise = exchangeGoogleCode("code", "http://localhost:3000/callback");
+    const expectation = expect(promise).rejects.toThrow();
 
     await vi.advanceTimersByTimeAsync(10000);
-
-    await expect(promise).rejects.toThrow();
+    await expectation;
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -153,22 +154,23 @@ describe("getGoogleProfile", () => {
     vi.useFakeTimers();
 
     vi.spyOn(globalThis, "fetch").mockImplementation(
-      (_, opts: RequestInit | undefined) => {
-        return new Promise((_, reject) => {
-          if (opts?.signal) {
-            opts.signal.addEventListener("abort", () => {
+      (_url: string | URL | Request, opts?: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          const signal = opts?.signal;
+          if (signal) {
+            signal.onabort = () => {
               reject(new DOMException("The operation was aborted.", "AbortError"));
-            });
+            };
           }
         });
       }
     );
 
     const promise = getGoogleProfile("test-token");
+    const expectation = expect(promise).rejects.toThrow();
 
     await vi.advanceTimersByTimeAsync(10000);
-
-    await expect(promise).rejects.toThrow();
+    await expectation;
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -230,6 +232,46 @@ describe("getGoogleProfile", () => {
     await expect(getGoogleProfile("test-token")).rejects.toThrow(
       "Invalid Google profile response: missing name",
     );
+
+    vi.restoreAllMocks();
+  });
+
+  it("truncates error body to 500 chars in log", async () => {
+    const longBody = "x".repeat(1000);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(longBody, { status: 500 }),
+    );
+
+    await expect(getGoogleProfile("test-token")).rejects.toThrow();
+
+    const errorCall = vi.mocked(logger.error).mock.calls.find(
+      (call) => (call[0] as Record<string, unknown>).action === "google_profile_fetch_failed",
+    );
+    expect(errorCall).toBeDefined();
+    const errorBody = (errorCall![0] as Record<string, unknown>).errorBody as string;
+    expect(errorBody.length).toBeLessThanOrEqual(500);
+
+    vi.restoreAllMocks();
+  });
+
+  it("strips HTML tags from error body in log", async () => {
+    const htmlBody = '<html><body><h1>Error</h1><p>Something went wrong</p></body></html>';
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(htmlBody, { status: 500 }),
+    );
+
+    await expect(getGoogleProfile("test-token")).rejects.toThrow();
+
+    const errorCall = vi.mocked(logger.error).mock.calls.find(
+      (call) => (call[0] as Record<string, unknown>).action === "google_profile_fetch_failed",
+    );
+    expect(errorCall).toBeDefined();
+    const errorBody = (errorCall![0] as Record<string, unknown>).errorBody as string;
+    expect(errorBody).not.toContain("<html>");
+    expect(errorBody).not.toContain("<body>");
+    expect(errorBody).not.toContain("<h1>");
+    expect(errorBody).toContain("Error");
+    expect(errorBody).toContain("Something went wrong");
 
     vi.restoreAllMocks();
   });

@@ -40,12 +40,10 @@ vi.mock("@/lib/fitbit-tokens", () => ({
   getFitbitTokens: (...args: unknown[]) => mockGetFitbitTokens(...args),
 }));
 
-// Mock next/headers cookies()
-const mockCookieStore = {
-  delete: vi.fn(),
-};
-vi.mock("next/headers", () => ({
-  cookies: vi.fn().mockResolvedValue(mockCookieStore),
+// Mock rate limiter
+const mockCheckRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -73,23 +71,17 @@ beforeEach(() => {
   });
   mockRawSession.save = vi.fn();
   mockRawSession.destroy = vi.fn();
+  mockRawSession.oauthState = "test-state"; // State stored in iron-session
   mockCreateSession.mockResolvedValue("new-session-uuid");
   mockGetFitbitTokens.mockResolvedValue(null);
+  mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 9 });
 });
 
-function makeCallbackRequest(
-  code: string | null,
-  state: string | null,
-  cookieState: string | null,
-) {
+function makeCallbackRequest(code: string | null, state: string | null) {
   const url = new URL("http://localhost:3000/api/auth/google/callback");
   if (code) url.searchParams.set("code", code);
   if (state) url.searchParams.set("state", state);
-  return new Request(url, {
-    headers: {
-      cookie: cookieState ? `google-oauth-state=${cookieState}` : "",
-    },
-  });
+  return new Request(url);
 }
 
 describe("GET /api/auth/google/callback", () => {
@@ -100,10 +92,42 @@ describe("GET /api/auth/google/callback", () => {
       name: "Test User",
     });
 
-    const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.status).toBe(302);
     expect(mockCreateSession).toHaveBeenCalledWith("test@example.com");
     expect(mockRawSession.sessionId).toBe("new-session-uuid");
+    expect(mockRawSession.save).toHaveBeenCalled();
+  });
+
+  it("reads OAuth state from iron-session, not plain cookie", async () => {
+    mockRawSession.oauthState = "session-state";
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({
+      email: "test@example.com",
+      name: "Test User",
+    });
+
+    // State in URL matches session state
+    const response = await GET(makeCallbackRequest("valid-code", "session-state"));
+    expect(response.status).toBe(302);
+  });
+
+  it("rejects when URL state does not match session state", async () => {
+    mockRawSession.oauthState = "correct-state";
+
+    const response = await GET(makeCallbackRequest("code", "wrong-state"));
+    expect(response.status).toBe(400);
+  });
+
+  it("clears oauthState from session after successful auth", async () => {
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({
+      email: "test@example.com",
+      name: "Test User",
+    });
+
+    await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(mockRawSession.oauthState).toBeUndefined();
     expect(mockRawSession.save).toHaveBeenCalled();
   });
 
@@ -114,7 +138,7 @@ describe("GET /api/auth/google/callback", () => {
       name: "Hacker",
     });
 
-    const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.status).toBe(403);
     const body = await response.json();
     expect(body.error.code).toBe("AUTH_INVALID_EMAIL");
@@ -131,9 +155,7 @@ describe("GET /api/auth/google/callback", () => {
     const url = new URL("http://internal:8080/api/auth/google/callback");
     url.searchParams.set("code", "valid-code");
     url.searchParams.set("state", "test-state");
-    const request = new Request(url, {
-      headers: { cookie: "google-oauth-state=test-state" },
-    });
+    const request = new Request(url);
 
     const response = await GET(request);
 
@@ -150,7 +172,7 @@ describe("GET /api/auth/google/callback", () => {
   it("returns error when code exchange fails", async () => {
     mockExchangeGoogleCode.mockRejectedValue(new Error("Invalid code"));
 
-    const response = await GET(makeCallbackRequest("invalid-code", "test-state", "test-state"));
+    const response = await GET(makeCallbackRequest("invalid-code", "test-state"));
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.success).toBe(false);
@@ -159,7 +181,7 @@ describe("GET /api/auth/google/callback", () => {
   it("logs error when code exchange fails", async () => {
     mockExchangeGoogleCode.mockRejectedValue(new Error("Token exchange failed"));
 
-    await GET(makeCallbackRequest("bad-code", "test-state", "test-state"));
+    await GET(makeCallbackRequest("bad-code", "test-state"));
 
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -174,7 +196,7 @@ describe("GET /api/auth/google/callback", () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
     mockGetGoogleProfile.mockRejectedValue(new Error("Profile fetch failed"));
 
-    await GET(makeCallbackRequest("code", "test-state", "test-state"));
+    await GET(makeCallbackRequest("code", "test-state"));
 
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -185,17 +207,6 @@ describe("GET /api/auth/google/callback", () => {
     );
   });
 
-  it("clears the google-oauth-state cookie after successful auth", async () => {
-    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
-
-    await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
-    expect(mockCookieStore.delete).toHaveBeenCalledWith("google-oauth-state");
-  });
-
   it("redirects to /api/auth/fitbit when no Fitbit tokens in DB", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
@@ -204,7 +215,7 @@ describe("GET /api/auth/google/callback", () => {
     });
     mockGetFitbitTokens.mockResolvedValue(null);
 
-    const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.headers.get("location")).toBe(
       "http://localhost:3000/api/auth/fitbit",
     );
@@ -218,7 +229,7 @@ describe("GET /api/auth/google/callback", () => {
     });
     mockGetFitbitTokens.mockResolvedValue({ accessToken: "existing" });
 
-    const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.headers.get("location")).toBe(
       "http://localhost:3000/app",
     );
@@ -226,24 +237,37 @@ describe("GET /api/auth/google/callback", () => {
 
   // Logging tests
   it("logs warn on invalid OAuth state", async () => {
-    await GET(makeCallbackRequest("code", "bad-state", "good-state"));
+    await GET(makeCallbackRequest("code", "bad-state"));
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ action: "google_callback_invalid_state" }),
       expect.any(String),
     );
   });
 
-  it("logs warn on unauthorized email", async () => {
+  it("logs warn on unauthorized email with masked email", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
     mockGetGoogleProfile.mockResolvedValue({ email: "bad@evil.com", name: "Bad" });
-    await GET(makeCallbackRequest("code", "test-state", "test-state"));
+    await GET(makeCallbackRequest("code", "test-state"));
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "google_unauthorized_email",
-        email: "bad@evil.com",
+        email: "b***@evil.com",
       }),
       expect.any(String),
     );
+  });
+
+  it("throws when ALLOWED_EMAIL env var is unset", async () => {
+    vi.stubEnv("ALLOWED_EMAIL", "");
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test" });
+
+    await expect(GET(makeCallbackRequest("code", "test-state"))).rejects.toThrow(
+      "Required environment variable ALLOWED_EMAIL is not set",
+    );
+
+    // Restore env for subsequent tests
+    vi.stubEnv("ALLOWED_EMAIL", "test@example.com");
   });
 
   it("logs info on successful login", async () => {
@@ -252,7 +276,7 @@ describe("GET /api/auth/google/callback", () => {
       email: "test@example.com",
       name: "Test User",
     });
-    await GET(makeCallbackRequest("code", "test-state", "test-state"));
+    await GET(makeCallbackRequest("code", "test-state"));
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "google_login_success",
@@ -260,5 +284,14 @@ describe("GET /api/auth/google/callback", () => {
       }),
       expect.any(String),
     );
+  });
+
+  it("returns 429 when rate limit exceeded", async () => {
+    mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+    const response = await GET(makeCallbackRequest("code", "test-state"));
+    expect(response.status).toBe(429);
+    const body = await response.json();
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
   });
 });

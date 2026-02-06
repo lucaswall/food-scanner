@@ -260,6 +260,85 @@ describe("Settings page", () => {
     });
   });
 
+  describe("logout", () => {
+    it("redirects to / on successful logout", async () => {
+      // Mock successful session fetch
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              email: "test@example.com",
+              fitbitConnected: true,
+              expiresAt: Date.now() + 86400000,
+            },
+          }),
+      });
+
+      const user = userEvent.setup();
+      // Mock window.location
+      const locationAssign = { href: "" };
+      Object.defineProperty(window, "location", {
+        value: locationAssign,
+        writable: true,
+      });
+
+      renderWithSWR(<SettingsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /logout/i })).toBeInTheDocument();
+      });
+
+      // Mock the logout POST response
+      mockFetch.mockResolvedValueOnce({ ok: true });
+
+      await user.click(screen.getByRole("button", { name: /logout/i }));
+
+      await waitFor(() => {
+        expect(locationAssign.href).toBe("/");
+      });
+    });
+
+    it("still redirects when logout fetch throws network error", async () => {
+      // Mock successful session fetch
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              email: "test@example.com",
+              fitbitConnected: true,
+              expiresAt: Date.now() + 86400000,
+            },
+          }),
+      });
+
+      const user = userEvent.setup();
+      const locationAssign = { href: "" };
+      Object.defineProperty(window, "location", {
+        value: locationAssign,
+        writable: true,
+      });
+
+      renderWithSWR(<SettingsPage />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /logout/i })).toBeInTheDocument();
+      });
+
+      // Mock the logout POST to throw
+      mockFetch.mockRejectedValueOnce(new Error("Network error"));
+
+      await user.click(screen.getByRole("button", { name: /logout/i }));
+
+      await waitFor(() => {
+        expect(locationAssign.href).toBe("/");
+      });
+    });
+  });
+
   describe("session caching", () => {
     it("uses SWR for session fetching", async () => {
       const sessionData = {
