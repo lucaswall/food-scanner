@@ -858,3 +858,89 @@ Tasks are grouped into logical phases. Earlier phases create shared utilities th
 - 0 lint errors (2 pre-existing warnings: img vs Image in photo-capture, photo-preview-dialog)
 - 2 pre-existing TS errors in image.test.ts (duplicate identifier in mock — not from our changes)
 - All 22 Linear issues in Review state
+
+### Review Findings
+
+Files reviewed: 35+
+Checks applied: Security, Logic, Async, Resources, Type Safety, Edge Cases, Conventions
+
+**Categories checked:**
+- SECURITY: Input validation, auth bypass, secrets exposure, injection vectors — all clear
+- BUG: Logic errors, off-by-one, null handling, race conditions — all clear
+- ASYNC: Unhandled promises, missing .catch, race conditions — all clear
+- RESOURCE: Memory leaks, missing cleanup — all clear
+- TYPE: Unsafe casts, missing type guards — all clear
+- ERROR: Missing error handling, swallowed exceptions — all clear
+- CONVENTION: CLAUDE.md violations — all clear
+
+**Detailed review notes:**
+
+1. **env.ts** (Task 1): Clean implementation. `getRequiredEnv` correctly treats empty string as missing. `validateRequiredEnvVars` reports all missing vars at once. Tests cover all edge cases.
+
+2. **instrumentation.ts** (Tasks 2, 19): Env validation at startup, graceful shutdown with `shuttingDown` guard against double invocation. Both correct.
+
+3. **auth.ts** (Tasks 2, 3, 4): All 3 env var accesses use `getRequiredEnv`. Both `exchangeGoogleCode` and `getGoogleProfile` have AbortController timeouts and response field validation. Timeout cleanup in `finally` blocks is correct.
+
+4. **fitbit.ts** (Tasks 2, 3, 4, 14): Env vars validated, timeouts on `exchangeFitbitCode` and `refreshFitbitToken`, runtime validation on `createFood` and `logFood` responses. `ensureFreshToken` now accepts session with `save()` method and saves internally. All correct.
+
+5. **claude.ts** (Tasks 2, 5, 16): `validateFoodAnalysis` validates all fields with correct type/range checks. Amount must be positive (not just non-negative). Rate limit detection checks both `RateLimitError` name and `.status === 429`. Retry loop correctly continues on rate limit within `maxRetries`. All correct.
+
+6. **session.ts** (Task 6): `validateSession` correctly checks `!session.expiresAt ||` before comparison (fixes FOO-95). Optional `requireFitbit` parameter. Returns `Response | null` pattern is clean.
+
+7. **Routes** (Tasks 6, 7, 8): All three protected routes (`session`, `analyze-food`, `log-food`) use `validateSession`. Fitbit callback verifies `session.sessionId` before storing tokens. Both OAuth callback catch blocks now log errors with context. All correct.
+
+8. **cookies.ts** (Task 9): Simple extraction of `getCookieValue`. Both callbacks import from shared location. Tests cover all cases including empty headers.
+
+9. **confidence.ts** (Task 10): Constants extracted from both components. Both `analysis-result.tsx` and `nutrition-editor.tsx` import from shared location.
+
+10. **photo-capture.tsx** (Task 11): Uses `isHeicFile()` from `@/lib/image` instead of local `HEIC_EXTENSIONS`. Deduplication complete.
+
+11. **next.config.ts** (Task 12): Security headers correctly configured. CSP intentionally omitted per plan.
+
+12. **nutrition-editor.tsx** (Task 13): NaN guard added after `parseInt`. Test verifies non-numeric values are silently ignored.
+
+13. **log-food/route.ts** (Task 15): Date validation uses `new Date(year, month - 1, day)` round-trip to catch impossible dates. Time validation checks hours 0-23, minutes 0-59, seconds 0-59. Tests cover semantic invalids like `2024-02-30`, `9999-99-99`, `99:99:99`.
+
+14. **global-error.tsx** (Task 17, 20): `console.error` wrapped in `NODE_ENV === "development"` check. Uses standard Tailwind classes (not CSS custom properties) since standalone `<html>` has no `globals.css`. Correct decision documented by bug-hunter.
+
+15. **layout.tsx** (Task 18): Theme script validates localStorage value against `["dark", "light", "system"]` allowlist. Invalid values default to `"system"`.
+
+16. **Dark mode** (Task 20): `text-muted-foreground` used in `analysis-result.tsx`, `description-input.tsx`, `photo-capture.tsx`. Error display in `food-analyzer.tsx` uses `bg-destructive/10 border-destructive/20 text-destructive`. All correct.
+
+17. **Test fixtures** (Task 21): All instances of `wall.lucas@gmail.com` and `Lucas Wall` replaced with `test@example.com` and `Test User`. ALLOWED_EMAIL stubs updated. Grep confirms no remaining real data.
+
+18. **types/index.test.ts** (Task 22): Old type assertion test replaced with meaningful runtime tests for `FITBIT_UNITS`, `getUnitById`, and `getUnitLabel`. 9 new tests covering singular/plural, space/no-space, unknown unit fallback, and decimal amounts.
+
+No issues found — all implementations are correct and follow project conventions.
+
+### Linear Updates
+- FOO-90: Review → Merge
+- FOO-91: Review → Merge
+- FOO-92: Review → Merge
+- FOO-93: Review → Merge
+- FOO-94: Review → Merge
+- FOO-95: Review → Merge
+- FOO-96: Review → Merge
+- FOO-97: Review → Merge
+- FOO-98: Review → Merge
+- FOO-99: Review → Merge
+- FOO-100: Review → Merge
+- FOO-101: Review → Merge
+- FOO-102: Review → Merge
+- FOO-103: Review → Merge
+- FOO-104: Review → Merge
+- FOO-105: Review → Merge
+- FOO-106: Review → Merge
+- FOO-107: Review → Merge
+- FOO-108: Review → Merge
+- FOO-109: Review → Merge
+- FOO-110: Review → Merge
+- FOO-111: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
