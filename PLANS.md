@@ -1,252 +1,243 @@
-# Fix Plan: Protected pages render without valid DB session
+# Fix Plan: Fitbit API compatibility — DB overflow, wrong param name, wrong unit IDs
 
-**Issue:** FOO-155
+**Issue:** FOO-156
 **Date:** 2026-02-06
 **Status:** Planning
-**Branch:** fix/FOO-155-session-validation-on-pages
+**Branch:** fix/FOO-156-fitbit-api-compat
 
 ## Investigation
 
 ### Bug Report
-After migrating sessions to PostgreSQL, user remains "logged in" when refreshing the webapp despite the sessions table being empty. The old iron-session cookie (containing the pre-migration full session data) passes middleware because middleware only checks cookie existence. Protected pages render without validating the session against the DB.
+User logged a tea ("Te con leche alta en proteinas") via the app. It appeared in Fitbit but was NOT saved to the database. Investigation also requested to triple-check Fitbit API unit compatibility.
 
 ### Classification
-- **Type:** Auth Issue / Security
-- **Severity:** Critical
-- **Affected Area:** All protected pages (`/app`, `/settings`) and logout endpoint
+- **Type:** Data Issue + Integration
+- **Severity:** Critical (data loss) + High (wrong data sent to Fitbit)
+- **Affected Area:** Food logging pipeline (DB schema, Fitbit API client, Claude prompt unit IDs)
 
 ### Root Cause Analysis
 
-The middleware at `middleware.ts:8` is a fast-path cookie-existence check:
-```typescript
-if (!sessionCookie || !sessionCookie.value?.trim()) { /* deny */ }
+**4 bugs found:**
+
+#### Bug 1 (CRITICAL): `fitbit_log_id` integer overflow — food logs not saved to DB
+
+Railway logs at `2026-02-06T13:55:49.187Z`:
 ```
-This is acceptable **only if every protected route validates `getSession()` at the route level**. Three routes violate this contract:
+[ERRO] failed to insert food log to database action="food_log_db_error"
+params: ...,38042351280
+```
 
-#### Evidence
+The Fitbit log ID `38042351280` exceeds PostgreSQL `integer` max of `2,147,483,647`. The `fitbit_log_id` column in `food_logs` table is defined as `integer` (`src/db/schema.ts:48`), causing the insert to fail. The error is caught by the try/catch at `src/app/api/log-food/route.ts:177`, so the response still succeeds but the DB row is never created.
 
-1. **`src/app/app/page.tsx:8-30`** — CRITICAL
-   - Calls `getSession()` but never checks if result is `null`
-   - Renders `<FoodAnalyzer />` (the entire app UI) regardless
-   - `{session?.email}` silently renders empty string on null session
+`fitbit_food_id` (also `integer`, line 47) currently holds values like `828644295` — under the limit but approaching it. Should also be upgraded for safety.
 
-2. **`src/app/api/auth/logout/route.ts:5-15`** — MODERATE
-   - No session validation; always returns `200 { success: true }`
-   - Test at line 45-52 explicitly asserts this broken behavior: "returns success even when no session exists"
+#### Bug 2 (MODERATE): `fiber` Fitbit API parameter should be `dietaryFiber`
 
-3. **`src/app/settings/page.tsx:25-133`** — MODERATE
-   - Client component with SWR fetch to `/api/auth/session`
-   - Full page shell (including "Reconnect Fitbit" form, "Logout" button) renders before auth check completes
-   - On auth failure, shows error text but does NOT redirect to login
+At `src/lib/fitbit.ts:130`, the Create Food API call sends:
+```typescript
+fiber: food.fiber_g.toString(),
+```
+
+The Fitbit API docs list the parameter as `dietaryFiber`, not `fiber`. The response `nutritionalValues` object also uses `dietaryFiber` as the key. Other nutrition params (`protein`, `totalCarbohydrate`, `totalFat`, `sodium`) are correct — confirmed both by API docs and by the fact that macros appear in Fitbit.
+
+The `fiber` param is silently ignored by Fitbit, meaning fiber data is lost. The tea log had fiber=0 so it wasn't noticeable, but any food with fiber > 0 would lose that data.
+
+#### Bug 3 (HIGH): Unit ID 256 is "pint", not "piece"
+
+The Fitbit Get Food API response example explicitly shows:
+```json
+{ "id": 256, "name": "pint", "plural": "pints" }
+```
+with a serving multiplier of 2 relative to cup — consistent with pint = 2 cups.
+
+Our code at `src/types/index.ts:25` and `src/lib/claude.ts:40` maps `256=piece`, which is **wrong**. If Claude selects unit_id 256 for a food item (e.g., "1 piece of fruit"), it would tell Fitbit "1 pint" — causing wildly incorrect nutritional scaling.
+
+Additionally, the following unit IDs cannot be verified from public documentation alone and need validation against the live API:
+- `364` — claimed as "tsp" (very likely correct: appears alongside tbsp=349 in peanut butter context)
+- `211` — claimed as "ml" (unverified)
+- `311` — claimed as "slice" (unverified)
+
+**Action needed:** Call `GET https://api.fitbit.com/1/foods/units.json` with a valid Fitbit access token to get the authoritative unit list. Create a one-time utility or API route to dump the full list.
+
+#### Bug 4 (LOW): Missing `formType` and `description` on Create Food
+
+The Fitbit Create Food API docs mark `formType` (LIQUID/DRY) and `description` as required parameters. Our `createFood()` function at `src/lib/fitbit.ts:122-132` doesn't send them. Fitbit currently accepts the request without them, but for full API compliance they should be included.
 
 ### Impact
-- User sees full protected UI without valid authentication
-- FoodAnalyzer component mounts and is interactive (API calls from it would fail with 401, but UI exposure is the issue)
-- Settings page shows action buttons (Reconnect Fitbit, Logout) before validating session
-- Logout endpoint callable without authentication (low impact but violates API contract)
+- **Bug 1:** Every food log with a Fitbit log ID > 2.1B silently fails to save to the database. This is happening NOW in production.
+- **Bug 2:** Fiber nutritional data is never saved to Fitbit for any food.
+- **Bug 3:** If Claude ever picks unit_id 256 for "piece", the food would be logged as "pint" in Fitbit with wrong nutritional scaling.
+- **Bug 4:** No current impact (Fitbit accepts without them), but non-compliant with documented API contract.
 
 ## Fix Plan (TDD Approach)
 
-### Step 1: Fix `/app` page — add redirect on null session
+### Step 1: Fetch and verify Fitbit unit IDs
 
-#### 1a: Write failing test
+Before writing any code fixes, we need the authoritative unit list.
 
-**File:** `src/app/app/__tests__/page.test.tsx`
+- **Action:** Create a temporary script or use the existing Fitbit token to call `GET /1/foods/units.json`
+- **Alternative:** Add a temporary API route at `/api/debug/fitbit-units` that dumps the full units list
+- **Goal:** Get the correct unit IDs for: gram, cup, oz, tbsp, tsp, ml, slice, piece, serving
 
-Add test that verifies `redirect("/")` is called when `getSession()` returns null:
+After getting the correct IDs, update the plan below with verified values.
+
+### Step 2: Write failing tests for Bug 1 (integer overflow)
+
+- **File:** `src/lib/__tests__/food-log.test.ts`
+- **Test:** Verify that `insertFoodLog` correctly passes large Fitbit IDs (> 2^31) to the DB layer
 
 ```typescript
-import { redirect } from "next/navigation";
+it("handles large fitbitLogId values (bigint range)", async () => {
+  const loggedAt = new Date();
+  mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
 
-vi.mock("next/navigation", () => ({
-  redirect: vi.fn(),
-}));
+  await insertFoodLog("test@example.com", {
+    foodName: "Tea",
+    amount: 1,
+    unitId: 91,
+    calories: 22,
+    proteinG: 2.8,
+    carbsG: 2.8,
+    fatG: 0,
+    fiberG: 0,
+    sodiumMg: 32,
+    confidence: "medium",
+    notes: "Test",
+    mealTypeId: 2,
+    date: "2026-02-06",
+    fitbitFoodId: 828644295,
+    fitbitLogId: 38042351280,
+  });
 
-it("redirects to / when session is null", async () => {
-  mockGetSession.mockResolvedValue(null);
-  await AppPage();
-  expect(redirect).toHaveBeenCalledWith("/");
+  expect(mockValues).toHaveBeenCalledWith(
+    expect.objectContaining({
+      fitbitLogId: 38042351280,
+    }),
+  );
 });
 ```
 
-#### 1b: Implement fix
+### Step 3: Fix Bug 1 — Change `fitbit_food_id` and `fitbit_log_id` to `bigint`
 
-**File:** `src/app/app/page.tsx`
-
-Add `redirect` import and null check:
+- **File:** `src/db/schema.ts`
+- **Change:** Replace `integer` with `bigint` for both columns:
 
 ```typescript
-import { redirect } from "next/navigation";
+// Before (line 47-48):
+fitbitFoodId: integer("fitbit_food_id"),
+fitbitLogId: integer("fitbit_log_id"),
 
-export default async function AppPage() {
-  const session = await getSession();
-
-  if (!session) {
-    redirect("/");
-  }
-
-  // ... rest of component (session is now guaranteed non-null)
-}
+// After:
+fitbitFoodId: bigint("fitbit_food_id", { mode: "number" }),
+fitbitLogId: bigint("fitbit_log_id", { mode: "number" }),
 ```
 
-After the fix, remove optional chaining on `session?.email` since session is guaranteed non-null after the guard.
+Note: `mode: "number"` keeps the TypeScript type as `number` (safe up to `Number.MAX_SAFE_INTEGER` = 9,007,199,254,740,991). The Fitbit IDs at ~38B are well within this range.
 
-### Step 2: Fix `/api/auth/logout` — require valid session
+- **Migration:** Run `npx drizzle-kit generate` to create the ALTER TABLE migration (integer -> bigint is non-destructive in PostgreSQL, no data loss).
 
-#### 2a: Write failing test / update existing
+- **File:** `src/lib/food-log.ts` — No changes needed, the `FoodLogInput` interface already types these as `number`.
 
-**File:** `src/app/api/auth/logout/__tests__/route.test.ts`
+### Step 4: Write failing test for Bug 2 (fiber param name)
 
-Change the existing "returns success even when no session exists" test to expect 401:
+- **File:** `src/lib/__tests__/fitbit.test.ts`
+- **Test:** Verify `createFood` sends `dietaryFiber` instead of `fiber`:
 
 ```typescript
-it("returns 401 when no session exists", async () => {
-  mockGetSession.mockResolvedValue(null);
-  const response = await POST();
-  expect(response.status).toBe(401);
-  const body = await response.json();
-  expect(body.success).toBe(false);
-  expect(body.error.code).toBe("AUTH_MISSING_SESSION");
+it("sends dietaryFiber parameter name to Fitbit API", async () => {
+  const food = { ...mockFoodAnalysis, fiber_g: 7 };
+  const mockResponse = { food: { foodId: 789, name: "Test" } };
+
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    new Response(JSON.stringify(mockResponse), { status: 201 }),
+  );
+
+  await createFood("test-token", food);
+
+  const fetchCall = vi.mocked(fetch).mock.calls[0];
+  const body = fetchCall[1]?.body as string;
+  expect(body).toContain("dietaryFiber=7");
+  expect(body).not.toContain("fiber=");
+
+  vi.restoreAllMocks();
 });
 ```
 
-#### 2b: Implement fix
+### Step 5: Fix Bug 2 — Rename `fiber` to `dietaryFiber`
 
-**File:** `src/app/api/auth/logout/route.ts`
-
-Add `validateSession` import and check:
+- **File:** `src/lib/fitbit.ts:130`
+- **Change:**
 
 ```typescript
-import { getSession, validateSession } from "@/lib/session";
+// Before:
+fiber: food.fiber_g.toString(),
 
-export async function POST() {
-  const session = await getSession();
-  const validationError = validateSession(session);
-  if (validationError) return validationError;
-
-  await session!.destroy();
-
-  logger.info({ action: "logout" }, "user logged out");
-  return successResponse({ message: "Logged out" });
-}
+// After:
+dietaryFiber: food.fiber_g.toString(),
 ```
 
-### Step 3: Fix `/settings` page — convert to server component with redirect
+### Step 6: Write failing test for Bug 3 (unit IDs)
 
-#### 3a: Write failing test
-
-**File:** `src/app/settings/__tests__/page.test.tsx`
-
-The settings page needs a fundamental redesign: convert from client component to a server component wrapper that validates the session and redirects, with the client UI as a child. However, to keep the change minimal and focused on security:
-
-**Option chosen:** Add a server-component wrapper (`settings/page.tsx` becomes server component) that validates session and redirects. Extract the current client UI into a `settings-content.tsx` client component.
-
-New test for server wrapper:
+- **File:** `src/types/__tests__/index.test.ts`
+- **Test:** Update the unit ID assertions with correct verified values:
 
 ```typescript
-// In a new describe block or updated test file
-it("redirects to / when session is null", async () => {
-  mockGetSession.mockResolvedValue(null);
-  await SettingsPage();
-  expect(redirect).toHaveBeenCalledWith("/");
+it("has correct well-known Fitbit unit IDs", () => {
+  expect(FITBIT_UNITS.g.id).toBe(147);
+  expect(FITBIT_UNITS.oz.id).toBe(226);
+  expect(FITBIT_UNITS.cup.id).toBe(91);
+  expect(FITBIT_UNITS.tbsp.id).toBe(349);
+  expect(FITBIT_UNITS.tsp.id).toBe(VERIFIED_TSP_ID);      // verify: likely 364
+  expect(FITBIT_UNITS.ml.id).toBe(VERIFIED_ML_ID);         // verify: claimed 211
+  expect(FITBIT_UNITS.slice.id).toBe(VERIFIED_SLICE_ID);   // verify: claimed 311
+  expect(FITBIT_UNITS.piece.id).toBe(VERIFIED_PIECE_ID);   // NOT 256 (that's pint)
+  expect(FITBIT_UNITS.serving.id).toBe(304);
 });
 ```
 
-#### 3b: Implement fix
+### Step 7: Fix Bug 3 — Update unit IDs
 
-**File:** `src/app/settings/page.tsx` — becomes server component wrapper:
+- **File:** `src/types/index.ts` — Update `FITBIT_UNITS` with verified IDs
+- **File:** `src/lib/claude.ts:40` — Update the Claude prompt unit_id description
+- **File:** `src/types/__tests__/index.test.ts` — Update test assertions
+
+### Step 8: Fix Bug 4 — Add `formType` and `description` to Create Food
+
+- **File:** `src/lib/fitbit.ts:122-132`
+- **Change:** Add `formType` and `description` params:
 
 ```typescript
-import { redirect } from "next/navigation";
-import { getSession } from "@/lib/session";
-import { SettingsContent } from "@/components/settings-content";
-
-export default async function SettingsPage() {
-  const session = await getSession();
-
-  if (!session) {
-    redirect("/");
-  }
-
-  return <SettingsContent />;
-}
+const params = new URLSearchParams({
+  name: food.food_name,
+  defaultFoodMeasurementUnitId: food.unit_id.toString(),
+  defaultServingSize: food.amount.toString(),
+  calories: food.calories.toString(),
+  protein: food.protein_g.toString(),
+  totalCarbohydrate: food.carbs_g.toString(),
+  totalFat: food.fat_g.toString(),
+  dietaryFiber: food.fiber_g.toString(),
+  sodium: food.sodium_mg.toString(),
+  formType: "DRY",   // default; could be smarter based on food type
+  description: food.food_name,
+});
 ```
 
-**File:** `src/components/settings-content.tsx` — extracted client component (move current settings page content here)
+- **Test:** Add test verifying `formType` and `description` are included in request body.
 
-Existing settings page tests that test the client component UI (SWR fetch, dark mode, logout) move to test `SettingsContent` instead.
+### Step 9: Verify
 
-### Step 4: Verify
-
-- [ ] New failing tests written for all 3 fixes
-- [ ] `/app` page redirects to `/` when session is null
-- [ ] `/api/auth/logout` returns 401 when session is null
-- [ ] `/settings` page redirects to `/` when session is null (server-side)
-- [ ] All existing tests pass (with adjustments for logout behavior change)
-- [ ] `npm run typecheck` passes
-- [ ] `npm run lint` passes
-- [ ] `npm run build` passes with zero warnings
+- [ ] All new tests pass
+- [ ] All existing tests pass (`npm test`)
+- [ ] TypeScript compiles without errors (`npm run typecheck`)
+- [ ] Lint passes (`npm run lint`)
+- [ ] Build succeeds (`npm run build`)
+- [ ] Migration generated and committed
+- [ ] Manual test: log a food with fiber > 0 and verify fiber shows in Fitbit
+- [ ] Manual test: verify DB row is created with correct fitbitLogId
 
 ## Notes
 
-- The middleware cookie-existence check remains as-is — it's a valid performance optimization. The security contract is: middleware rejects no-cookie requests, route-level `getSession()` validates everything else.
-- The settings page SWR fetch to `/api/auth/session` remains in the extracted client component for session display data (email, Fitbit status). The server wrapper only handles the auth gate.
-- FOO-128 (middleware cookie check) was previously marked Done as "acceptable pattern if routes validate" — this fix ensures all routes actually do validate.
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-06
-
-### Tasks Completed This Iteration
-- Step 1: Fix `/app` page — added `redirect("/")` when `getSession()` returns null, removed optional chaining on `session.email`
-- Step 2: Fix `/api/auth/logout` — made idempotent: valid session → destroy + 200, no session → clear stale cookie via `getRawSession().destroy()` + 200
-- Step 3: Fix `/settings` page — converted to server component wrapper with `redirect("/")` on null session, extracted client UI to `src/components/settings-content.tsx`
-- Step 4: Full verification passed
-
-### Bug Hunter Findings (Fixed)
-- **HIGH: Logout 401 regression** — Original plan used `validateSession()` to return 401 on no session, which would leave zombie iron-session cookies. Fixed by making logout idempotent: always clears cookie and returns 200, uses `getRawSession()` to destroy stale cookies when no DB session exists.
-
-### Files Modified
-- `src/app/app/page.tsx` — Added redirect import, null session guard, removed optional chaining
-- `src/app/app/__tests__/page.test.tsx` — Added redirect mock and null session redirect test
-- `src/app/api/auth/logout/route.ts` — Idempotent logout: destroy DB+cookie session or clear stale cookie
-- `src/app/api/auth/logout/__tests__/route.test.ts` — Updated tests for idempotent behavior, stale cookie cleanup
-- `src/app/settings/page.tsx` — Converted to server component with session redirect
-- `src/app/settings/__tests__/page.test.tsx` — Added server component tests, updated client tests to use SettingsContent
-- `src/components/settings-content.tsx` — New: extracted settings client UI
-
-### Linear Updates
-- FOO-155: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 1 HIGH bug (logout 401 regression), fixed before proceeding
-- verifier: All 559 tests pass, zero warnings, typecheck/lint/build clean
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 7
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Highlights:**
-- Logout idempotent design (deviation from plan) correctly prevents zombie cookies — better than original 401 approach
-- Server component wrappers for `/app` and `/settings` provide server-side auth gates before any UI renders
-- `getRawSession().destroy()` correctly clears stale iron-session cookies when no DB session exists
-- All tests properly simulate Next.js redirect behavior with throw pattern
-
-### Linear Updates
-- FOO-155: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Bug 1 is the direct cause of the reported issue (tea not saved to DB).
+- Bug 3 requires calling the live Fitbit API to get verified unit IDs before implementation.
+- The `formType` for Bug 4 could be made smarter (detect LIQUID vs DRY based on unit — e.g., cup/ml -> LIQUID), but a simple default of "DRY" is acceptable as a first pass.
+- The existing test at `food-log.test.ts:118` uses `unitId: 256` for an Apple (piece) — this will need updating once the correct piece unit ID is known.
