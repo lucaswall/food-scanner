@@ -12,6 +12,11 @@
         "@railway/mcp-server"
       ],
       "env": {}
+    },
+    "fitbit": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["tsx", "mcp-fitbit/index.ts"]
     }
   }
 }

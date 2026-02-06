@@ -51,7 +51,15 @@
       "mcp__linear__get_team",
       "mcp__linear__list_users",
       "mcp__linear__get_user",
-      "mcp__linear__search_documentation"
+      "mcp__linear__search_documentation",
+      "mcp__fitbit__fitbit_authenticate",
+      "mcp__fitbit__fitbit_get_profile",
+      "mcp__fitbit__fitbit_get_food_log",
+      "mcp__fitbit__fitbit_get_water_log",
+      "mcp__fitbit__fitbit_get_activity_summary",
+      "mcp__fitbit__fitbit_get_sleep_log",
+      "mcp__fitbit__fitbit_get_devices",
+      "mcp__fitbit__fitbit_get_time_series"
     ],
     "deny": [
       "Bash(rm -rf *)",
