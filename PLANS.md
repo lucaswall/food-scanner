@@ -143,3 +143,28 @@ export async function runMigrations(): Promise<void> {
 - Total max wait before final failure: 1+2+4+8+16 = 31 seconds. This is reasonable for a startup hook.
 - The `setTimeout` in the retry loop is fine for instrumentation hooks — they run once at server start, not in request hot paths.
 - Railway's restart policy (max 10 retries) provides an outer retry layer, but it's coarse-grained. In-process retry with backoff is more effective for transient DNS issues.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-06
+
+### Tasks Completed This Iteration
+- Task 1: Write failing tests for retry behavior — Created `src/db/__tests__/migrate.test.ts` with 5 tests covering success, retry+succeed, exhaust retries, log verification, and connection pool reset ordering. Used `vi.useFakeTimers()` with `advanceTimersByTimeAsync` for proper timer control.
+- Task 2: Implement exponential backoff retry in runMigrations — Added retry loop (5 attempts, 1s/2s/4s/8s/16s backoff), `closeDb()` before each retry to reset stale connection pool, structured warn/error logging with attempt numbers.
+- Task 3: Verify — All tests pass, typecheck clean, lint clean, build succeeds.
+
+### Files Modified
+- `src/db/migrate.ts` — Added retry loop with exponential backoff, imported `closeDb`
+- `src/db/__tests__/migrate.test.ts` — New test file (5 tests)
+
+### Linear Updates
+- FOO-124: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 medium test issues (module caching, setTimeout mock), fixed before proceeding. Production code clean.
+- verifier: All 466 tests pass, zero warnings. Typecheck, lint, build all clean.
+
+### Continuation Status
+All tasks completed.
