@@ -371,5 +371,38 @@
 - bug-hunter: Found 10 issues (3 HIGH, 7 MEDIUM). Fixed 7 before proceeding: env test DATABASE_URL (Bug 3), pool closeDb (Bug 2), getRequiredEnv in getDb (Bug 5), createSession guard (Bug 7), sanitized error logging (Bug 8), localhost Docker bind (Bug 10), image.test.ts pre-existing TS error. Remaining: Bug 1 (token encryption) and Bug 9 (indexes) deferred to Task 6+ when fitbit_tokens/food_logs are actually used.
 - verifier: All 459 tests pass, zero typecheck errors, 2 pre-existing lint warnings (img optimization)
 
+### Review Findings
+
+Files reviewed: 16
+Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions, Edge Cases
+
+No issues found — all implementations are correct and follow project conventions.
+
+**Details:**
+- `drizzle.config.ts` — Correct Drizzle Kit config with schema/output paths
+- `src/lib/env.ts` — DATABASE_URL properly added to required vars
+- `src/db/schema.ts` — All three tables match agreed schema. `withTimezone: true` on all timestamps, `unique()` on fitbitTokens.email, nullable fields correct
+- `src/db/index.ts` — Singleton pattern correct, uses `getRequiredEnv()`, `closeDb()` properly nulls both pool and db
+- `src/db/migrate.ts` — Error logging sanitized (message only), re-throws after logging
+- `src/db/__tests__/schema.test.ts` — Verifies all column definitions for all three tables
+- `src/db/__tests__/index.test.ts` — Properly mocks pg, tests singleton behavior with `vi.resetModules()`
+- `src/lib/session-db.ts` — UUID via DB default, expiration check in query, guard on empty insert result
+- `src/lib/__tests__/session-db.test.ts` — Covers create, get (exists + not found), touch, delete with proper mocking
+- `src/instrumentation.ts` — Migrations at startup, graceful shutdown with `closeDb()`, best-effort catch is appropriate
+- `docker-compose.yml` — Localhost-bound (127.0.0.1:5432), named volume for persistence
+- `drizzle/0000_cute_mimic.sql` — Migration SQL matches schema exactly, unique constraint present
+- `src/lib/__tests__/env.test.ts` — DATABASE_URL properly added to test setup
+- `src/lib/__tests__/image.test.ts` — Pre-existing TS error fix (duplicate identifier), file is clean
+- `package.json` — Correct dep placement: drizzle-orm + pg in deps, drizzle-kit + @types/pg in devDeps
+
+### Linear Updates
+- FOO-112: Review → Merge
+- FOO-113: Review → Merge
+- FOO-114: Review → Merge
+- FOO-115: Review → Merge
+- FOO-116: Stays In Progress (partial — DB functions done, session.ts refactor remaining)
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
 Point budget reached (~119 points consumed). More tasks remain.
