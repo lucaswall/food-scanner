@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { runMigrations } from "@/db/migrate";
 
-const mockMigrate = vi.fn();
-const mockGetDb = vi.fn(() => ({}));
-const mockCloseDb = vi.fn();
-const mockLogger = {
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-};
+const { mockMigrate, mockGetDb, mockCloseDb, mockLogger } = vi.hoisted(() => ({
+  mockMigrate: vi.fn(),
+  mockGetDb: vi.fn(() => ({})),
+  mockCloseDb: vi.fn(),
+  mockLogger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
+}));
 
 vi.mock("drizzle-orm/node-postgres/migrator", () => ({
   migrate: mockMigrate,
@@ -20,6 +21,8 @@ vi.mock("@/db/index", () => ({
 vi.mock("@/lib/logger", () => ({
   logger: mockLogger,
 }));
+
+const { runMigrations } = await import("@/db/migrate");
 
 describe("runMigrations", () => {
   beforeEach(() => {
@@ -75,11 +78,12 @@ describe("runMigrations", () => {
     mockMigrate.mockRejectedValue(error);
 
     const promise = runMigrations();
+    const rejectPromise = expect(promise).rejects.toThrow("ENOTFOUND");
     await vi.advanceTimersByTimeAsync(1000);
     await vi.advanceTimersByTimeAsync(2000);
     await vi.advanceTimersByTimeAsync(4000);
     await vi.advanceTimersByTimeAsync(8000);
-    await expect(promise).rejects.toThrow("ENOTFOUND");
+    await rejectPromise;
 
     expect(mockMigrate).toHaveBeenCalledTimes(5);
     expect(mockCloseDb).toHaveBeenCalledTimes(4);
