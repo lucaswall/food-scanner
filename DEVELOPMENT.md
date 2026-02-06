@@ -33,38 +33,36 @@ docker compose down -v     # Stop and delete all data
 
 ### 3. Environment Variables
 
-Create `.env.local`:
+The fastest way to set up your `.env.local` is to pull variables from Railway and override the ones that differ locally.
+
+**Option A: Pull from Railway (recommended)**
 
 ```bash
-# Database
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/food_scanner
-
-# Session (iron-session password, min 32 characters)
-# Generate with: openssl rand -base64 32
-SESSION_SECRET=at-least-32-characters-long-random-string
-
-# App URL (must match OAuth redirect URIs)
-APP_URL=http://localhost:3000
-
-# Auth
-ALLOWED_EMAIL=wall.lucas@gmail.com
-
-# Google OAuth (see OAuth Setup for Local Development section below)
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-
-# Fitbit OAuth (see OAuth Setup for Local Development section below)
-FITBIT_CLIENT_ID=your-fitbit-client-id
-FITBIT_CLIENT_SECRET=your-fitbit-client-secret
-
-# Anthropic (see Anthropic API Setup section below)
-ANTHROPIC_API_KEY=your-anthropic-api-key
-
-# Logging (optional, defaults to debug in development)
-LOG_LEVEL=debug
+# Requires Railway CLI linked to the project (see Railway CLI Setup below)
+railway variables --kv > .env.local
 ```
 
-Google and Fitbit OAuth credentials are required for the auth flow. See the **OAuth Setup for Local Development** section below. Anthropic API key is required for food analysis — see the **Anthropic API Setup** section below.
+Then edit `.env.local` and override these values for local development:
+
+| Variable | Change to | Why |
+|----------|-----------|-----|
+| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/food_scanner` | Use local Docker Postgres instead of Railway Postgres |
+| `APP_URL` | `http://localhost:3000` | Local dev server, not production domain |
+| `LOG_LEVEL` | `debug` (optional) | More verbose logging during development |
+
+Remove any Railway-internal variables (e.g., `RAILWAY_*`, `PORT`) — they're not needed locally.
+
+**Option B: Start from sample file**
+
+```bash
+cp .env.sample .env.local
+```
+
+Then fill in the secrets. See `.env.sample` for all required variables with comments. You'll need to provide:
+- `SESSION_SECRET` — generate with `openssl rand -base64 32`
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — see **OAuth Setup for Local Development** below
+- `FITBIT_CLIENT_ID` / `FITBIT_CLIENT_SECRET` — see **OAuth Setup for Local Development** below
+- `ANTHROPIC_API_KEY` — see **Anthropic API Setup** below
 
 > **Note:** Migrations run automatically when you start the dev server (`npm run dev`).
 
