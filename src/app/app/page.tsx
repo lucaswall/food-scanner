@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { FoodAnalyzer } from "@/components/food-analyzer";
 import { SkipLink } from "@/components/skip-link";
@@ -7,6 +8,10 @@ import { Settings } from "lucide-react";
 
 export default async function AppPage() {
   const session = await getSession();
+
+  if (!session) {
+    redirect("/");
+  }
 
   return (
     <div className="min-h-screen px-4 py-6">
@@ -21,7 +26,7 @@ export default async function AppPage() {
           </Button>
         </div>
 
-        <p className="text-sm text-muted-foreground">{session?.email}</p>
+        <p className="text-sm text-muted-foreground">{session.email}</p>
 
         <FoodAnalyzer />
       </main>

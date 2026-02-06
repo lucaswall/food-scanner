@@ -192,3 +192,37 @@ Existing settings page tests that test the client component UI (SWR fetch, dark 
 - The middleware cookie-existence check remains as-is — it's a valid performance optimization. The security contract is: middleware rejects no-cookie requests, route-level `getSession()` validates everything else.
 - The settings page SWR fetch to `/api/auth/session` remains in the extracted client component for session display data (email, Fitbit status). The server wrapper only handles the auth gate.
 - FOO-128 (middleware cookie check) was previously marked Done as "acceptable pattern if routes validate" — this fix ensures all routes actually do validate.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-06
+
+### Tasks Completed This Iteration
+- Step 1: Fix `/app` page — added `redirect("/")` when `getSession()` returns null, removed optional chaining on `session.email`
+- Step 2: Fix `/api/auth/logout` — made idempotent: valid session → destroy + 200, no session → clear stale cookie via `getRawSession().destroy()` + 200
+- Step 3: Fix `/settings` page — converted to server component wrapper with `redirect("/")` on null session, extracted client UI to `src/components/settings-content.tsx`
+- Step 4: Full verification passed
+
+### Bug Hunter Findings (Fixed)
+- **HIGH: Logout 401 regression** — Original plan used `validateSession()` to return 401 on no session, which would leave zombie iron-session cookies. Fixed by making logout idempotent: always clears cookie and returns 200, uses `getRawSession()` to destroy stale cookies when no DB session exists.
+
+### Files Modified
+- `src/app/app/page.tsx` — Added redirect import, null session guard, removed optional chaining
+- `src/app/app/__tests__/page.test.tsx` — Added redirect mock and null session redirect test
+- `src/app/api/auth/logout/route.ts` — Idempotent logout: destroy DB+cookie session or clear stale cookie
+- `src/app/api/auth/logout/__tests__/route.test.ts` — Updated tests for idempotent behavior, stale cookie cleanup
+- `src/app/settings/page.tsx` — Converted to server component with session redirect
+- `src/app/settings/__tests__/page.test.tsx` — Added server component tests, updated client tests to use SettingsContent
+- `src/components/settings-content.tsx` — New: extracted settings client UI
+
+### Linear Updates
+- FOO-155: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 HIGH bug (logout 401 regression), fixed before proceeding
+- verifier: All 559 tests pass, zero warnings, typecheck/lint/build clean
+
+### Continuation Status
+All tasks completed.

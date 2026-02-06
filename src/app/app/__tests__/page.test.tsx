@@ -7,6 +7,14 @@ vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
 }));
 
+const mockRedirect = vi.fn();
+vi.mock("next/navigation", () => ({
+  redirect: (...args: unknown[]) => {
+    mockRedirect(...args);
+    throw new Error("NEXT_REDIRECT");
+  },
+}));
+
 const { default: AppPage } = await import("@/app/app/page");
 
 const validSession: FullSession = {
@@ -18,6 +26,12 @@ const validSession: FullSession = {
 };
 
 describe("/app page", () => {
+  it("redirects to / when session is null", async () => {
+    mockGetSession.mockResolvedValue(null);
+    await expect(AppPage()).rejects.toThrow("NEXT_REDIRECT");
+    expect(mockRedirect).toHaveBeenCalledWith("/");
+  });
+
   it("renders 'Food Scanner' heading", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
