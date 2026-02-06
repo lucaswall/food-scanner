@@ -190,5 +190,4 @@ And re-validate after normalization that we still have at least 1 keyword.
 
 ## Notes
 
-- **Backward compatibility with existing DB data:** Existing foods with multi-word keywords (like `"sin alcohol"`) will NOT be retroactively fixed in the database. However, new analyses will produce `"sin-alcohol"` which won't match `"sin alcohol"` via exact `Set.has()`. A future improvement (separate issue) could: (a) run a one-time migration to normalize existing keywords, or (b) make `computeMatchRatio` normalize both sides before comparing. Recommend option (b) as a defensive measure in this fix.
-- **`computeMatchRatio` normalization (defensive):** Add normalization inside `computeMatchRatio` so both the new and existing keywords are normalized before comparison. This handles the transition period where old DB entries have multi-word keywords. This is a small addition to `src/lib/food-matching.ts`.
+- **No backward compatibility needed.** Project is in development; existing DB data will be wiped. No changes needed to `computeMatchRatio` or existing DB entries.
