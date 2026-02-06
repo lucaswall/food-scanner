@@ -115,7 +115,7 @@ describe("insertFoodLog", () => {
     const result = await insertFoodLog("test@example.com", {
       foodName: "Apple",
       amount: 1,
-      unitId: 256,
+      unitId: 304,
       calories: 95,
       proteinG: 0.5,
       carbsG: 25,
@@ -138,6 +138,36 @@ describe("insertFoodLog", () => {
         time: null,
         fitbitFoodId: null,
         fitbitLogId: null,
+      }),
+    );
+  });
+
+  it("handles large fitbitLogId values (bigint range)", async () => {
+    const loggedAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+
+    await insertFoodLog("test@example.com", {
+      foodName: "Tea",
+      amount: 1,
+      unitId: 91,
+      calories: 22,
+      proteinG: 2.8,
+      carbsG: 2.8,
+      fatG: 0,
+      fiberG: 0,
+      sodiumMg: 32,
+      confidence: "medium",
+      notes: "Test",
+      mealTypeId: 2,
+      date: "2026-02-06",
+      fitbitFoodId: 828644295,
+      fitbitLogId: 38042351280,
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fitbitLogId: 38042351280,
+        fitbitFoodId: 828644295,
       }),
     );
   });

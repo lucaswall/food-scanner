@@ -435,6 +435,41 @@ describe("createFood", () => {
     vi.restoreAllMocks();
   });
 
+  it("sends dietaryFiber parameter name to Fitbit API", async () => {
+    const food = { ...mockFoodAnalysis, fiber_g: 7 };
+    const mockResponse = { food: { foodId: 789, name: "Test" } };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await createFood("test-token", food);
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).toContain("dietaryFiber=7");
+    expect(body).not.toContain("fiber=");
+
+    vi.restoreAllMocks();
+  });
+
+  it("sends formType and description parameters to Fitbit API", async () => {
+    const mockResponse = { food: { foodId: 789, name: "Homemade Oatmeal" } };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await createFood("test-token", mockFoodAnalysis);
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).toContain("formType=DRY");
+    expect(body).toContain("description=Homemade+Oatmeal");
+
+    vi.restoreAllMocks();
+  });
+
   it("throws FITBIT_TOKEN_INVALID on 401", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 401 }),

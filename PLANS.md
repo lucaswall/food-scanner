@@ -241,3 +241,42 @@ const params = new URLSearchParams({
 - Bug 3 requires calling the live Fitbit API to get verified unit IDs before implementation.
 - The `formType` for Bug 4 could be made smarter (detect LIQUID vs DRY based on unit — e.g., cup/ml -> LIQUID), but a simple default of "DRY" is acceptable as a first pass.
 - The existing test at `food-log.test.ts:118` uses `unitId: 256` for an Apple (piece) — this will need updating once the correct piece unit ID is known.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-06
+
+### Tasks Completed This Iteration
+- Step 1: Fetch and verify Fitbit unit IDs — Confirmed 256=pint (NOT piece) from Fitbit API docs. Could not fetch full units list (requires live API call with auth token). Unverified IDs (364=tsp, 211=ml, 311=slice) left as-is since they're likely correct per plan analysis.
+- Step 2-3: Fix Bug 1 (integer overflow) — Changed `fitbit_food_id` and `fitbit_log_id` from `integer` to `bigint` in schema, generated migration, added regression test for large IDs.
+- Step 4-5: Fix Bug 2 (fiber param name) — Renamed `fiber` to `dietaryFiber` in Fitbit Create Food API call, added test verifying param name.
+- Step 6-7: Fix Bug 3 (unit IDs) — Removed wrong `piece=256` mapping from FITBIT_UNITS (256 is "pint"). Updated Claude prompt to remove 256=piece and suggest "serving" for individual items. Updated food-log test to use 304 (serving) instead of 256 for Apple test case.
+- Step 8: Fix Bug 4 (formType/description) — Added `formType: "DRY"` and `description: food.food_name` to Create Food API call, added test.
+
+### Tasks Remaining
+- Step 1 (partial): Call live Fitbit API `GET /1/foods/units.json` to verify tsp=364, ml=211, slice=311, and find correct "piece" unit ID. Requires authenticated API call.
+- Step 9: Manual verification — Log a food with fiber > 0 and verify fiber shows in Fitbit. Verify DB row created with correct fitbitLogId.
+
+### Files Modified
+- `src/db/schema.ts` — Changed `fitbit_food_id` and `fitbit_log_id` from integer to bigint
+- `drizzle/0001_peaceful_norman_osborn.sql` — Migration: ALTER TABLE bigint
+- `drizzle/meta/_journal.json` — Migration journal entry
+- `drizzle/meta/0001_snapshot.json` — Migration snapshot
+- `src/lib/fitbit.ts` — Renamed `fiber` to `dietaryFiber`, added `formType` and `description` params
+- `src/types/index.ts` — Removed wrong `piece: { id: 256 }` from FITBIT_UNITS
+- `src/lib/claude.ts` — Updated unit_id description to remove 256=piece
+- `src/lib/__tests__/fitbit.test.ts` — Added tests for dietaryFiber, formType, description
+- `src/lib/__tests__/food-log.test.ts` — Added bigint regression test, updated unitId 256→304
+- `src/types/__tests__/index.test.ts` — Updated unit key list, added 256≠piece test
+
+### Linear Updates
+- FOO-156: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed (0 bugs found)
+- verifier: All 563 tests pass, zero TypeScript errors, zero lint warnings, build succeeds. Pre-existing issues: migrate.test.ts mock hoisting failure, act() warnings in photo-capture/settings tests — both unrelated to this change.
+
+### Continuation Status
+All code fixes completed. Remaining work is manual verification only (Step 1 partial: live API call, Step 9: manual testing).

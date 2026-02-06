@@ -127,8 +127,10 @@ export async function createFood(
     protein: food.protein_g.toString(),
     totalCarbohydrate: food.carbs_g.toString(),
     totalFat: food.fat_g.toString(),
-    fiber: food.fiber_g.toString(),
+    dietaryFiber: food.fiber_g.toString(),
     sodium: food.sodium_mg.toString(),
+    formType: "DRY",
+    description: food.food_name,
   });
 
   const response = await fetchWithRetry(
