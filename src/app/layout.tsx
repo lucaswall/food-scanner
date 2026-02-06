@@ -17,7 +17,7 @@ const themeScript = `
     } else {
       root.classList.add(stored);
     }
-  } catch (e) {}
+  } catch (e) { /* Intentional: theme detection must never block page load */ }
 })();
 `;
 
@@ -62,6 +62,8 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {/* SECURITY: themeScript is a static string constant defined in this file.
+            No user input flows into it. dangerouslySetInnerHTML is safe here. */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body

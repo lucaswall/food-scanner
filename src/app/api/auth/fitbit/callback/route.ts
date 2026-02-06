@@ -1,10 +1,8 @@
-import { cookies } from "next/headers";
 import { exchangeFitbitCode } from "@/lib/fitbit";
 import { errorResponse } from "@/lib/api-response";
 import { getRawSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
-import { getCookieValue } from "@/lib/cookies";
 import { getSessionById } from "@/lib/session-db";
 import { upsertFitbitTokens } from "@/lib/fitbit-tokens";
 
@@ -12,7 +10,10 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  const storedState = getCookieValue(request, "fitbit-oauth-state");
+
+  // Read OAuth state from iron-session instead of plain cookie
+  const rawSession = await getRawSession();
+  const storedState = rawSession.oauthState;
 
   if (!code || !state || state !== storedState) {
     logger.warn({ action: "fitbit_callback_invalid_state" }, "invalid fitbit oauth state");
@@ -41,9 +42,6 @@ export async function GET(request: Request) {
     );
   }
 
-  // Read session ID from cookie and look up session in DB
-  const rawSession = await getRawSession();
-
   if (!rawSession.sessionId) {
     logger.warn({ action: "fitbit_callback_no_session" }, "fitbit callback without authenticated session");
     return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
@@ -63,9 +61,9 @@ export async function GET(request: Request) {
     expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
   });
 
-  // Clear the OAuth state cookie
-  const cookieStore = await cookies();
-  cookieStore.delete("fitbit-oauth-state");
+  // Clear the OAuth state from session
+  delete rawSession.oauthState;
+  await rawSession.save();
 
   logger.info({ action: "fitbit_connect_success" }, "fitbit connected successfully");
 

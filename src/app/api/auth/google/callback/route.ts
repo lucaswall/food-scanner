@@ -1,18 +1,31 @@
-import { cookies } from "next/headers";
 import { exchangeGoogleCode, getGoogleProfile } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
 import { getRawSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
-import { getCookieValue } from "@/lib/cookies";
 import { createSession } from "@/lib/session-db";
 import { getFitbitTokens } from "@/lib/fitbit-tokens";
+import { getRequiredEnv } from "@/lib/env";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export async function GET(request: Request) {
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const { allowed } = checkRateLimit(`google-callback:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  if (!allowed) {
+    logger.warn({ action: "rate_limit_exceeded", ip, endpoint: "google_callback" }, "rate limit exceeded");
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests", 429);
+  }
+
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
-  const storedState = getCookieValue(request, "google-oauth-state");
+
+  // Read OAuth state from iron-session instead of plain cookie
+  const rawSession = await getRawSession();
+  const storedState = rawSession.oauthState;
 
   if (!code || !state || state !== storedState) {
     logger.warn({ action: "google_callback_invalid_state" }, "invalid oauth state");
@@ -43,20 +56,18 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Failed to fetch user profile", 400);
   }
 
-  if (profile.email !== process.env.ALLOWED_EMAIL) {
-    logger.warn({ action: "google_unauthorized_email", email: profile.email }, "unauthorized email attempted login");
+  const allowedEmail = getRequiredEnv("ALLOWED_EMAIL");
+  if (profile.email !== allowedEmail) {
+    logger.warn({ action: "google_unauthorized_email", email: profile.email.replace(/^(.)(.*)(@.*)$/, "$1***$3") }, "unauthorized email attempted login");
     return errorResponse("AUTH_INVALID_EMAIL", "Unauthorized email address", 403);
   }
 
   // Create DB session and store session ID in cookie
   const sessionId = await createSession(profile.email);
-  const rawSession = await getRawSession();
   rawSession.sessionId = sessionId;
+  // Clear the OAuth state from session
+  delete rawSession.oauthState;
   await rawSession.save();
-
-  // Clear the OAuth state cookie
-  const cookieStore = await cookies();
-  cookieStore.delete("google-oauth-state");
 
   logger.info({ action: "google_login_success", email: profile.email }, "google login successful");
 

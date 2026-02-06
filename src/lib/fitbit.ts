@@ -28,6 +28,38 @@ interface FindOrCreateResult {
   reused: boolean;
 }
 
+export function sanitizeErrorBody(body: unknown): unknown {
+  if (typeof body === "string") {
+    return body.replace(/<[^>]*>/g, "").slice(0, 500);
+  }
+  return body;
+}
+
+export async function parseErrorBody(response: Response): Promise<unknown> {
+  const bodyText = await response.text().catch(() => "unable to read body");
+  try {
+    return JSON.parse(bodyText);
+  } catch {
+    return bodyText;
+  }
+}
+
+export async function jsonWithTimeout<T>(response: Response, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const jsonPromise = response.json().then((v) => v as T);
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("Response body read timed out")), timeoutMs);
+  });
+  // Attach noop catch handlers to prevent unhandled rejection from losing promise
+  jsonPromise.catch(() => {});
+  timeoutPromise.catch(() => {});
+  try {
+    return await Promise.race([jsonPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timeoutId!);
+  }
+}
+
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
@@ -54,6 +86,19 @@ async function fetchWithRetry(
       logger.warn(
         { action: "fitbit_rate_limit", retryCount, delay },
         "rate limited, retrying",
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return fetchWithRetry(url, options, retryCount + 1);
+    }
+
+    if (response.status >= 500) {
+      if (retryCount >= MAX_RETRIES) {
+        return response;
+      }
+      const delay = Math.pow(2, retryCount) * 1000;
+      logger.warn(
+        { action: "fitbit_server_error", status: response.status, retryCount, delay },
+        "server error, retrying",
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
       return fetchWithRetry(url, options, retryCount + 1);
@@ -99,13 +144,8 @@ export async function createFood(
   );
 
   if (!response.ok) {
-    const bodyText = await response.text().catch(() => "unable to read body");
-    let errorBody: unknown;
-    try {
-      errorBody = JSON.parse(bodyText);
-    } catch {
-      errorBody = bodyText;
-    }
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
     logger.error(
       { action: "fitbit_create_food_failed", status: response.status, errorBody },
       "food creation failed",
@@ -113,11 +153,12 @@ export async function createFood(
     throw new Error("FITBIT_API_ERROR");
   }
 
-  const data = await response.json();
-  if (typeof data.food?.foodId !== "number") {
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const foodEntry = data.food as Record<string, unknown> | undefined;
+  if (typeof foodEntry?.foodId !== "number") {
     throw new Error("Invalid Fitbit create food response: missing food.foodId");
   }
-  return data as CreateFoodResponse;
+  return data as unknown as CreateFoodResponse;
 }
 
 export async function logFood(
@@ -159,13 +200,8 @@ export async function logFood(
   );
 
   if (!response.ok) {
-    const bodyText = await response.text().catch(() => "unable to read body");
-    let errorBody: unknown;
-    try {
-      errorBody = JSON.parse(bodyText);
-    } catch {
-      errorBody = bodyText;
-    }
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
     logger.error(
       { action: "fitbit_log_food_failed", status: response.status, errorBody },
       "food logging failed",
@@ -173,11 +209,12 @@ export async function logFood(
     throw new Error("FITBIT_API_ERROR");
   }
 
-  const data = await response.json();
-  if (typeof data.foodLog?.logId !== "number") {
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const foodLog = data.foodLog as Record<string, unknown> | undefined;
+  if (typeof foodLog?.logId !== "number") {
     throw new Error("Invalid Fitbit log food response: missing foodLog.logId");
   }
-  return data as LogFoodResponse;
+  return data as unknown as LogFoodResponse;
 }
 
 export async function findOrCreateFood(
@@ -248,7 +285,8 @@ export async function exchangeFitbitCode(
       throw new Error(`Fitbit token exchange failed: ${response.status}`);
     }
 
-    const data = await response.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await jsonWithTimeout(response);
     if (typeof data.access_token !== "string") {
       throw new Error("Invalid Fitbit token response: missing access_token");
     }
@@ -306,7 +344,8 @@ export async function refreshFitbitToken(
       throw new Error("FITBIT_TOKEN_INVALID");
     }
 
-    const data = await response.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await jsonWithTimeout(response);
     if (typeof data.access_token !== "string") {
       throw new Error("Invalid Fitbit token response: missing access_token");
     }
@@ -325,6 +364,8 @@ export async function refreshFitbitToken(
   }
 }
 
+let refreshInFlight: Promise<string> | null = null;
+
 export async function ensureFreshToken(email: string): Promise<string> {
   const tokenRow = await getFitbitTokens(email);
   if (!tokenRow) {
@@ -333,14 +374,26 @@ export async function ensureFreshToken(email: string): Promise<string> {
 
   // If token expires within 1 hour, refresh it
   if (tokenRow.expiresAt.getTime() < Date.now() + 60 * 60 * 1000) {
-    const tokens = await refreshFitbitToken(tokenRow.refreshToken);
-    await upsertFitbitTokens(email, {
-      fitbitUserId: tokens.user_id,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-    });
-    return tokens.access_token;
+    if (refreshInFlight) {
+      return refreshInFlight;
+    }
+
+    refreshInFlight = (async () => {
+      try {
+        const tokens = await refreshFitbitToken(tokenRow.refreshToken);
+        await upsertFitbitTokens(email, {
+          fitbitUserId: tokens.user_id,
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+        });
+        return tokens.access_token;
+      } finally {
+        refreshInFlight = null;
+      }
+    })();
+
+    return refreshInFlight;
   }
 
   return tokenRow.accessToken;

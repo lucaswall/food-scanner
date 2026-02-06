@@ -144,6 +144,20 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.code).toBe("FITBIT_NOT_CONNECTED");
   });
 
+  it("returns 400 VALIDATION_ERROR for malformed request body", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = {
+      formData: () => Promise.reject(new Error("Invalid form data")),
+    } as unknown as Request;
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("Invalid form data");
+  });
+
   it("returns 400 VALIDATION_ERROR for no images", async () => {
     mockGetSession.mockResolvedValue(validSession);
 

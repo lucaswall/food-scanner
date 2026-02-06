@@ -27,6 +27,9 @@
     "swr": "^2.4.0",
     "tailwind-merge": "^3.4.0"
   },
+  "overrides": {
+    "esbuild": ">=0.25.0"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",

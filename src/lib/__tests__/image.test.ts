@@ -243,6 +243,34 @@ describe("Image utilities", () => {
     });
   });
 
+  describe("createResizedCanvas FileReader type check", () => {
+    it("rejects when FileReader result is not a string", async () => {
+      // Override FileReader to return ArrayBuffer instead of string
+      interface FileReaderThis {
+        onload?: (e: ProgressEvent) => void;
+        onerror?: (e: ProgressEvent) => void;
+        result: ArrayBuffer | null;
+      }
+
+      global.FileReader = class {
+        readAsDataURL = vi.fn(function (this: FileReaderThis) {
+          setTimeout(() => {
+            this.onload?.({
+              target: { result: new ArrayBuffer(10) },
+            } as unknown as ProgressEvent);
+          }, 0);
+        });
+
+        onload: ((e: ProgressEvent) => void) | null = null;
+        onerror: ((e: ProgressEvent) => void) | null = null;
+        result: ArrayBuffer | null = null;
+      } as unknown as typeof FileReader;
+
+      const file = new File(["image data"], "test.jpg", { type: "image/jpeg" });
+      await expect(compressImage(file)).rejects.toThrow("FileReader did not return a data URL string");
+    });
+  });
+
   describe("convertHeicToJpeg", () => {
     it("returns single Blob directly (heic-to does not return arrays)", async () => {
       const { heicTo } = await import("heic-to");

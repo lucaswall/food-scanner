@@ -23,6 +23,7 @@ const mockUpdate = vi.fn();
 const mockSet = vi.fn();
 const mockDelete = vi.fn();
 const mockDeleteWhere = vi.fn();
+const mockDeleteReturning = vi.fn();
 
 vi.mock("@/db/index", () => ({
   getDb: vi.fn(() => ({
@@ -40,6 +41,7 @@ vi.mock("@/db/schema", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((col, val) => ({ col, val, _type: "eq" })),
   gt: vi.fn((col, val) => ({ col, val, _type: "gt" })),
+  lt: vi.fn((col, val) => ({ col, val, _type: "lt" })),
   and: vi.fn((...args: unknown[]) => ({ args, _type: "and" })),
 }));
 
@@ -51,8 +53,13 @@ beforeEach(() => {
   mockFrom.mockReturnValue({ where: mockWhere });
   mockUpdate.mockReturnValue({ set: mockSet });
   mockSet.mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+  mockDeleteReturning.mockResolvedValue([]);
   mockDelete.mockReturnValue({ where: mockDeleteWhere });
-  mockDeleteWhere.mockResolvedValue(undefined);
+  mockDeleteWhere.mockImplementation(() => {
+    const result = Promise.resolve(undefined);
+    (result as unknown as Record<string, unknown>).returning = mockDeleteReturning;
+    return result;
+  });
 });
 
 describe("createSession", () => {
@@ -114,5 +121,31 @@ describe("deleteSession", () => {
     await deleteSession("abc-123");
     expect(mockDelete).toHaveBeenCalled();
     expect(mockDeleteWhere).toHaveBeenCalled();
+  });
+});
+
+describe("cleanExpiredSessions", () => {
+  it("deletes expired sessions and returns count", async () => {
+    const { cleanExpiredSessions } = await import("@/lib/session-db");
+    mockDeleteReturning.mockResolvedValue([
+      { id: "expired-1" },
+      { id: "expired-2" },
+    ]);
+
+    const count = await cleanExpiredSessions();
+
+    expect(count).toBe(2);
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockDeleteWhere).toHaveBeenCalled();
+    expect(mockDeleteReturning).toHaveBeenCalledWith({ id: expect.anything() });
+  });
+
+  it("returns 0 when no expired sessions exist", async () => {
+    const { cleanExpiredSessions } = await import("@/lib/session-db");
+    mockDeleteReturning.mockResolvedValue([]);
+
+    const count = await cleanExpiredSessions();
+
+    expect(count).toBe(0);
   });
 });

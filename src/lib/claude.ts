@@ -80,6 +80,9 @@ class ClaudeApiError extends Error {
 }
 
 function validateFoodAnalysis(input: unknown): FoodAnalysis {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    throw new ClaudeApiError("Invalid food analysis: input must be an object");
+  }
   const data = input as Record<string, unknown>;
 
   if (typeof data.food_name !== "string" || data.food_name.length === 0) {
@@ -113,7 +116,19 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
     throw new ClaudeApiError("Invalid food analysis: missing notes");
   }
 
-  return data as unknown as FoodAnalysis;
+  return {
+    food_name: data.food_name as string,
+    amount: data.amount as number,
+    unit_id: data.unit_id as number,
+    calories: data.calories as number,
+    protein_g: data.protein_g as number,
+    carbs_g: data.carbs_g as number,
+    fat_g: data.fat_g as number,
+    fiber_g: data.fiber_g as number,
+    sodium_mg: data.sodium_mg as number,
+    confidence: data.confidence as FoodAnalysis["confidence"],
+    notes: data.notes as string,
+  };
 }
 
 function isTimeoutError(error: unknown): boolean {
@@ -129,7 +144,7 @@ function isRateLimitError(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error.name === "RateLimitError" ||
-      (error as { status?: number }).status === 429)
+      ("status" in error && (error as { status?: number }).status === 429))
   );
 }
 
@@ -209,8 +224,10 @@ export async function analyzeFood(
       }
 
       if (isRateLimitError(error) && attempt < maxRetries) {
-        logger.warn({ attempt }, "Claude API rate limited, retrying");
+        const delay = Math.pow(2, attempt) * 1000;
+        logger.warn({ attempt, delay }, "Claude API rate limited, retrying");
         lastError = error as Error;
+        await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
 

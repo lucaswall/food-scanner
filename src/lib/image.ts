@@ -89,7 +89,12 @@ async function createResizedCanvas(file: File): Promise<HTMLCanvasElement> {
         resolve(canvas);
       };
       img.onerror = () => reject(new Error("Failed to load image for resizing"));
-      img.src = e.target?.result as string;
+      const result = e.target?.result;
+      if (typeof result !== "string") {
+        reject(new Error("FileReader did not return a data URL string"));
+        return;
+      }
+      img.src = result;
     };
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsDataURL(file);

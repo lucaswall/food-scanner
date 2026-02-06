@@ -10,6 +10,9 @@ export function getDb(): NodePgDatabase<typeof schema> {
   if (!db) {
     pool = new Pool({
       connectionString: getRequiredEnv("DATABASE_URL"),
+      max: 5,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
     });
     db = drizzle(pool, { schema });
   }

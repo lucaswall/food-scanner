@@ -1,6 +1,7 @@
 /** Cookie-only session data (stored in iron-session encrypted cookie) */
 export interface SessionData {
   sessionId: string;
+  oauthState?: string;
 }
 
 /** Full session data combining cookie + database */
@@ -90,7 +91,8 @@ export type ErrorCode =
   | "FITBIT_TOKEN_INVALID"
   | "CLAUDE_API_ERROR"
   | "FITBIT_API_ERROR"
-  | "VALIDATION_ERROR";
+  | "VALIDATION_ERROR"
+  | "RATE_LIMIT_EXCEEDED";
 
 export interface ApiSuccessResponse<T> {
   success: true;

@@ -1,4 +1,4 @@
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, lt } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { sessions } from "@/db/schema";
 
@@ -41,4 +41,13 @@ export async function touchSession(id: string): Promise<void> {
 export async function deleteSession(id: string): Promise<void> {
   const db = getDb();
   await db.delete(sessions).where(eq(sessions.id, id));
+}
+
+export async function cleanExpiredSessions(): Promise<number> {
+  const db = getDb();
+  const result = await db
+    .delete(sessions)
+    .where(lt(sessions.expiresAt, new Date()))
+    .returning({ id: sessions.id });
+  return result.length;
 }

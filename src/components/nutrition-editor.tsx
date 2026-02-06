@@ -4,21 +4,13 @@ import type { FoodAnalysis } from "@/types";
 import { FITBIT_UNITS, type FitbitUnitKey } from "@/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { CheckCircle, AlertTriangle } from "lucide-react";
+import { ConfidenceBadge } from "@/components/confidence-badge";
 
 interface NutritionEditorProps {
   value: FoodAnalysis;
   onChange: (analysis: FoodAnalysis) => void;
   disabled?: boolean;
 }
-
-import { confidenceColors, confidenceExplanations } from "@/lib/confidence";
 
 export function NutritionEditor({
   value,
@@ -48,42 +40,7 @@ export function NutritionEditor({
       {/* Header with confidence indicator */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Edit Nutrition</h3>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                data-testid="confidence-trigger"
-                className="flex items-center gap-2 cursor-help"
-              >
-                {value.confidence === "high" ? (
-                  <CheckCircle
-                    data-testid="confidence-icon-check"
-                    className="w-4 h-4 text-green-500"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <AlertTriangle
-                    data-testid="confidence-icon-alert"
-                    className={`w-4 h-4 ${value.confidence === "medium" ? "text-yellow-500" : "text-red-500"}`}
-                    aria-hidden="true"
-                  />
-                )}
-                <div
-                  data-testid="confidence-indicator"
-                  aria-label={`Confidence: ${value.confidence}`}
-                  className={`w-3 h-3 rounded-full ${confidenceColors[value.confidence]}`}
-                />
-                <span className="text-sm text-muted-foreground capitalize">
-                  {value.confidence}
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs">
-              <p>{confidenceExplanations[value.confidence]}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <ConfidenceBadge confidence={value.confidence} />
       </div>
 
       {/* Food name */}

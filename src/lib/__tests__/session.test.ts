@@ -191,6 +191,121 @@ describe("getSession", () => {
 
     expect(mockTouchSession).not.toHaveBeenCalled();
   });
+
+  it("escalates touchSession failures from warn to error after threshold", async () => {
+    const { logger } = await import("@/lib/logger");
+    const twentyDaysMs = 20 * 24 * 60 * 60 * 1000;
+
+    // Reset the internal counter by calling with a successful touch first
+    mockTouchSession.mockResolvedValueOnce(undefined);
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "abc-123",
+      save: vi.fn(),
+      destroy: vi.fn(),
+    });
+    mockGetSessionById.mockResolvedValue({
+      id: "abc-123",
+      email: "test@example.com",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + twentyDaysMs),
+    });
+    await getSession();
+    // Wait for the fire-and-forget promise to settle
+    await new Promise((r) => setTimeout(r, 10));
+    vi.clearAllMocks();
+
+    // Now trigger 3 consecutive failures (threshold)
+    const dbError = new Error("DB connection lost");
+    mockTouchSession.mockRejectedValue(dbError);
+
+    for (let i = 0; i < 3; i++) {
+      mockGetIronSession.mockResolvedValue({
+        sessionId: "abc-123",
+        save: vi.fn(),
+        destroy: vi.fn(),
+      });
+      mockGetSessionById.mockResolvedValue({
+        id: "abc-123",
+        email: "test@example.com",
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + twentyDaysMs),
+      });
+      await getSession();
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // First two failures should log at warn, third at error
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "touch_session_error", consecutiveFailures: 3 }),
+      "persistent session touch failures detected",
+    );
+  });
+
+  it("resets failure counter on successful touchSession", async () => {
+    const { logger } = await import("@/lib/logger");
+    const twentyDaysMs = 20 * 24 * 60 * 60 * 1000;
+    const dbError = new Error("DB connection lost");
+
+    // Trigger 2 failures
+    mockTouchSession.mockRejectedValue(dbError);
+    for (let i = 0; i < 2; i++) {
+      mockGetIronSession.mockResolvedValue({
+        sessionId: "abc-123",
+        save: vi.fn(),
+        destroy: vi.fn(),
+      });
+      mockGetSessionById.mockResolvedValue({
+        id: "abc-123",
+        email: "test@example.com",
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + twentyDaysMs),
+      });
+      await getSession();
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // Now succeed — should reset counter
+    vi.clearAllMocks();
+    mockTouchSession.mockResolvedValue(undefined);
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "abc-123",
+      save: vi.fn(),
+      destroy: vi.fn(),
+    });
+    mockGetSessionById.mockResolvedValue({
+      id: "abc-123",
+      email: "test@example.com",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + twentyDaysMs),
+    });
+    mockGetFitbitTokens.mockResolvedValue(null);
+    await getSession();
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Now trigger 2 more failures — should be back to warn (counter was reset)
+    vi.clearAllMocks();
+    mockTouchSession.mockRejectedValue(dbError);
+    for (let i = 0; i < 2; i++) {
+      mockGetIronSession.mockResolvedValue({
+        sessionId: "abc-123",
+        save: vi.fn(),
+        destroy: vi.fn(),
+      });
+      mockGetSessionById.mockResolvedValue({
+        id: "abc-123",
+        email: "test@example.com",
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + twentyDaysMs),
+      });
+      await getSession();
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    // Should only see warn, no error (counter was reset by success)
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
 });
 
 describe("validateSession", () => {

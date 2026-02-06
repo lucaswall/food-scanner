@@ -42,6 +42,7 @@ const validAnalysis: FoodAnalysis = {
 describe("analyzeFood", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCreate.mockReset();
   });
 
   afterEach(() => {
@@ -407,5 +408,126 @@ describe("analyzeFood", () => {
     await expect(
       analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("throws when validateFoodAnalysis input is null", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: null,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("throws when validateFoodAnalysis input is a string", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: "not an object",
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("returns properly typed FoodAnalysis with all fields", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    // Verify each field is explicitly present (not just a cast)
+    expect(result.food_name).toBe("Empanada de carne");
+    expect(result.amount).toBe(150);
+    expect(result.unit_id).toBe(147);
+    expect(result.calories).toBe(320);
+    expect(result.protein_g).toBe(12);
+    expect(result.carbs_g).toBe(28);
+    expect(result.fat_g).toBe(18);
+    expect(result.fiber_g).toBe(2);
+    expect(result.sodium_mg).toBe(450);
+    expect(result.confidence).toBe("high");
+    expect(result.notes).toBe("Standard Argentine beef empanada, baked style");
+  });
+
+  it("isRateLimitError returns false for non-Error objects", async () => {
+    // A non-Error with status 429 should not trigger rate limit retry
+    mockCreate
+      .mockRejectedValueOnce({ status: 429, message: "rate limited" })
+      .mockRejectedValueOnce(new Error("second call should not happen"));
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    // Should throw without retrying since it's not an Error instance
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+
+    // Should only be called once (no retry for non-Error objects)
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("rate limited request retries with delay", { timeout: 20000 }, async () => {
+    vi.useFakeTimers();
+
+    const rateLimitError = new Error("rate limit exceeded");
+    rateLimitError.name = "RateLimitError";
+    Object.assign(rateLimitError, { status: 429 });
+
+    mockCreate
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "tool_use",
+            id: "tool_123",
+            name: "report_nutrition",
+            input: validAnalysis,
+          },
+        ],
+      });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const promise = analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    // The retry should wait for backoff delay (2^0 * 1000 = 1000ms)
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const result = await promise;
+    expect(result).toEqual(validAnalysis);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
   });
 });
