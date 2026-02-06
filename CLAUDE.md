@@ -208,6 +208,7 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 - All DB access through `src/lib/` modules (`session-db.ts`, `fitbit-tokens.ts`, `food-log.ts`) — route handlers never import from `src/db/` directly
 - Schema changes: edit `src/db/schema.ts`, then run `npx drizzle-kit generate` to create migration
 - Migration files in `drizzle/` must be committed to git
+- **Never hand-write migration files or snapshots** — always run `npx drizzle-kit generate`. It does NOT need a live database; it diffs `src/db/schema.ts` against the previous snapshot locally.
 
 ---
 

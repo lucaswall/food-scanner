@@ -59,6 +59,18 @@ Group tasks into **work units** where:
 - The lead handles coordination and verification only
 - This still benefits from the team structure (dedicated implementation context)
 
+### Reserve Generated-File Tasks for the Lead
+
+Some tasks involve running CLI tools that **generate** files (e.g., `npx drizzle-kit generate` for database migrations). These tasks MUST NOT be assigned to workers because:
+- Workers tend to hand-write generated files instead of running the command, producing corrupt output
+- Generated files (snapshots, lock files, migration metadata) are complex and error-prone to write manually
+
+**How to handle:**
+1. During partitioning, identify any task whose steps include running a generator command (e.g., `drizzle-kit generate`, `prisma generate`, `openapi-generator`, etc.)
+2. Remove those tasks from worker assignments
+3. The lead runs these tasks directly in the Post-Implementation Verification phase, after all workers have completed their source file changes
+4. In the partition log, note: "Task N: [title] — reserved for lead (generated files)"
+
 ### Verify Partition Correctness
 
 Before spawning workers, verify:
@@ -66,6 +78,7 @@ Before spawning workers, verify:
 - [ ] No file appears in more than one work unit
 - [ ] Task ordering within each work unit respects dependencies
 - [ ] Each work unit has a clear, non-overlapping scope description
+- [ ] No work unit contains tasks that run file-generation CLI tools
 
 **Log the partition plan** — output to the user so they can see how work is divided.
 
@@ -116,6 +129,7 @@ RULES:
 - Report progress to the lead after completing each task
 - Report the FINAL summary to the lead when ALL your tasks are done
 - Do NOT attempt to update Linear issues — the lead handles all Linear state transitions
+- NEVER hand-write generated files (migrations, snapshots, lock files). If a task requires running a CLI generator (e.g., `npx drizzle-kit generate`), report it as a blocker — the lead will handle it.
 
 WORKFLOW FOR EACH TASK:
 1. Send progress message to lead: "Starting Task N: [title] [FOO-XXX]" (include issue ID)
@@ -199,7 +213,14 @@ After each worker completion message:
 
 Once ALL workers have reported completion:
 
-### 1. Run Full Verification
+### 1. Run Lead-Reserved Tasks (Generated Files)
+
+If any tasks were reserved for the lead during partitioning (e.g., Drizzle migration generation):
+1. Run the CLI command as specified in PLANS.md (e.g., `npx drizzle-kit generate`)
+2. Verify the output files are correct (review generated SQL, snapshots, etc.)
+3. If the generator produces no changes or errors, investigate — workers may have missed a schema change
+
+### 2. Run Full Verification
 
 Run the `bug-hunter` agent to review all changes:
 ```
@@ -208,7 +229,7 @@ Use Task tool with subagent_type "bug-hunter"
 
 If bugs found → message the relevant worker to fix, or fix directly if the worker has shut down.
 
-### 2. Run Full Test Suite
+### 3. Run Full Test Suite
 
 Run the `verifier` agent to confirm everything passes together:
 ```
@@ -217,7 +238,7 @@ Use Task tool with subagent_type "verifier"
 
 If failures → identify which worker's code is failing, message them to fix, or fix directly.
 
-### 3. Fix Any Integration Issues
+### 4. Fix Any Integration Issues
 
 Workers implement in isolation. When their code comes together, there may be integration issues:
 - Import mismatches
@@ -373,3 +394,4 @@ If `TeamCreate` fails (agent teams unavailable), implement the plan sequentially
 - **Lead updates Linear in real-time** — Workers do NOT have MCP access. Lead moves issues Todo→In Progress when worker reports starting a task, In Progress→Review when worker reports completing it.
 - **Cap at 4 workers** — More workers = more overhead, diminishing returns
 - **Lead does NOT implement** — Delegate all implementation to workers. Lead only coordinates, verifies, and documents. (Does not apply in single-agent fallback mode.)
+- **Lead runs all CLI generators** — Tasks involving `drizzle-kit generate`, `prisma generate`, or similar CLI tools that produce generated files (migrations, snapshots) are reserved for the lead in the post-implementation phase. Workers must never hand-write these files.

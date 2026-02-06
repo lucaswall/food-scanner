@@ -59,7 +59,8 @@
       "mcp__fitbit__fitbit_get_activity_summary",
       "mcp__fitbit__fitbit_get_sleep_log",
       "mcp__fitbit__fitbit_get_devices",
-      "mcp__fitbit__fitbit_get_time_series"
+      "mcp__fitbit__fitbit_get_time_series",
+      "Bash(DATABASE_URL=* npx drizzle-kit generate:*)"
     ],
     "deny": [
       "Bash(rm -rf *)",
