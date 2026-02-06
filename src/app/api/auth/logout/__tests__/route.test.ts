@@ -3,8 +3,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
 const mockGetSession = vi.fn();
+const mockGetRawSession = vi.fn();
 vi.mock("@/lib/session", () => ({
   getSession: () => mockGetSession(),
+  getRawSession: () => mockGetRawSession(),
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -42,16 +44,19 @@ describe("POST /api/auth/logout", () => {
     expect(destroyFn).toHaveBeenCalled();
   });
 
-  it("returns success even when no session exists", async () => {
+  it("clears stale cookie and returns success when no DB session exists", async () => {
     mockGetSession.mockResolvedValue(null);
+    const rawDestroyFn = vi.fn();
+    mockGetRawSession.mockResolvedValue({ destroy: rawDestroyFn });
 
     const response = await POST();
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
+    expect(rawDestroyFn).toHaveBeenCalled();
   });
 
-  it("logs info on logout", async () => {
+  it("logs info on logout with valid session", async () => {
     const destroyFn = vi.fn();
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
@@ -64,6 +69,17 @@ describe("POST /api/auth/logout", () => {
     await POST();
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({ action: "logout" }),
+      expect.any(String),
+    );
+  });
+
+  it("logs stale session cleanup when no DB session exists", async () => {
+    mockGetSession.mockResolvedValue(null);
+    mockGetRawSession.mockResolvedValue({ destroy: vi.fn() });
+
+    await POST();
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "logout", stale: true }),
       expect.any(String),
     );
   });

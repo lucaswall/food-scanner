@@ -2,11 +2,34 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
+import type { FullSession } from "@/types";
+
+const mockGetSession = vi.fn();
+vi.mock("@/lib/session", () => ({
+  getSession: () => mockGetSession(),
+}));
+
+const mockRedirect = vi.fn();
+vi.mock("next/navigation", () => ({
+  redirect: (...args: unknown[]) => {
+    mockRedirect(...args);
+    throw new Error("NEXT_REDIRECT");
+  },
+}));
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
 const { default: SettingsPage } = await import("@/app/settings/page");
+const { SettingsContent } = await import("@/components/settings-content");
+
+const validSession: FullSession = {
+  sessionId: "test-session",
+  email: "test@example.com",
+  expiresAt: Date.now() + 86400000,
+  fitbitConnected: true,
+  destroy: vi.fn(),
+};
 
 // Wrapper to provide fresh SWR cache for each test
 function renderWithSWR(ui: React.ReactNode) {
@@ -21,7 +44,35 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("Settings page", () => {
+describe("Settings page (server component)", () => {
+  it("redirects to / when session is null", async () => {
+    mockGetSession.mockResolvedValue(null);
+    await expect(SettingsPage()).rejects.toThrow("NEXT_REDIRECT");
+    expect(mockRedirect).toHaveBeenCalledWith("/");
+  });
+
+  it("renders when session is valid", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            email: "test@example.com",
+            fitbitConnected: true,
+            expiresAt: Date.now() + 86400000,
+          },
+        }),
+    });
+
+    const jsx = await SettingsPage();
+    renderWithSWR(jsx);
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+  });
+});
+
+describe("Settings content (client component)", () => {
   describe("back navigation", () => {
     it("renders back button that links to /app", async () => {
       mockFetch.mockResolvedValue({
@@ -37,7 +88,7 @@ describe("Settings page", () => {
           }),
       });
 
-      renderWithSWR(<SettingsPage />);
+      renderWithSWR(<SettingsContent />);
 
       const backButton = screen.getByRole("link", { name: /back to food scanner/i });
       expect(backButton).toBeInTheDocument();
@@ -58,7 +109,7 @@ describe("Settings page", () => {
           }),
       });
 
-      renderWithSWR(<SettingsPage />);
+      renderWithSWR(<SettingsContent />);
 
       const backButton = screen.getByRole("link", { name: /back to food scanner/i });
       expect(backButton).toHaveClass("min-h-[44px]");
@@ -80,7 +131,7 @@ describe("Settings page", () => {
         }),
     });
 
-    renderWithSWR(<SettingsPage />);
+    renderWithSWR(<SettingsContent />);
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
 
@@ -98,7 +149,7 @@ describe("Settings page", () => {
         }),
     });
 
-    renderWithSWR(<SettingsPage />);
+    renderWithSWR(<SettingsContent />);
     expect(
       screen.getByRole("button", { name: /reconnect fitbit/i }),
     ).toBeInTheDocument();
@@ -118,7 +169,7 @@ describe("Settings page", () => {
         }),
     });
 
-    renderWithSWR(<SettingsPage />);
+    renderWithSWR(<SettingsContent />);
     expect(
       screen.getByRole("button", { name: /logout/i }),
     ).toBeInTheDocument();
@@ -127,7 +178,7 @@ describe("Settings page", () => {
   it("displays error message when session fetch fails with network error", async () => {
     mockFetch.mockRejectedValue(new Error("Network error"));
 
-    renderWithSWR(<SettingsPage />);
+    renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
       // The error message will be "Network error" since that's what the Error contains
@@ -142,7 +193,7 @@ describe("Settings page", () => {
       json: () => Promise.resolve({ success: false }),
     });
 
-    renderWithSWR(<SettingsPage />);
+    renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument();
@@ -159,7 +210,7 @@ describe("Settings page", () => {
         }),
     });
 
-    renderWithSWR(<SettingsPage />);
+    renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
       expect(screen.getByText(/failed to load|session expired/i)).toBeInTheDocument();
@@ -188,7 +239,7 @@ describe("Settings page", () => {
           }),
       });
 
-      renderWithSWR(<SettingsPage />);
+      renderWithSWR(<SettingsContent />);
 
       // Should show the Appearance section
       await waitFor(() => {
@@ -217,7 +268,7 @@ describe("Settings page", () => {
 
       const user = userEvent.setup();
 
-      renderWithSWR(<SettingsPage />);
+      renderWithSWR(<SettingsContent />);
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /dark/i })).toBeInTheDocument();
@@ -246,7 +297,7 @@ describe("Settings page", () => {
 
       const user = userEvent.setup();
 
-      renderWithSWR(<SettingsPage />);
+      renderWithSWR(<SettingsContent />);
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /dark/i })).toBeInTheDocument();
@@ -284,7 +335,7 @@ describe("Settings page", () => {
         writable: true,
       });
 
-      renderWithSWR(<SettingsPage />);
+      renderWithSWR(<SettingsContent />);
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /logout/i })).toBeInTheDocument();
@@ -322,7 +373,7 @@ describe("Settings page", () => {
         writable: true,
       });
 
-      renderWithSWR(<SettingsPage />);
+      renderWithSWR(<SettingsContent />);
 
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /logout/i })).toBeInTheDocument();
@@ -352,7 +403,7 @@ describe("Settings page", () => {
         json: () => Promise.resolve({ success: true, data: sessionData }),
       });
 
-      renderWithSWR(<SettingsPage />);
+      renderWithSWR(<SettingsContent />);
 
       // Wait for data to load
       await waitFor(() => {
@@ -375,7 +426,7 @@ describe("Settings page", () => {
         json: () => Promise.resolve({ success: true, data: sessionData }),
       });
 
-      renderWithSWR(<SettingsPage />);
+      renderWithSWR(<SettingsContent />);
 
       // Wait for session data to display
       await waitFor(() => {
