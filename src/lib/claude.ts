@@ -50,6 +50,11 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
         type: "string",
         description: "Brief explanation of assumptions made",
       },
+      keywords: {
+        type: "array",
+        items: { type: "string" },
+        description: "Lowercase, normalized, language-agnostic tokens identifying this food. Include the food type, key distinguishing ingredients, and preparation method. Example: 'Tostadas con casancrem y huevos fritos' → ['tostada', 'casancrem', 'huevo', 'frito']",
+      },
     },
     required: [
       "food_name",
@@ -63,6 +68,7 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       "sodium_mg",
       "confidence",
       "notes",
+      "keywords",
     ],
   },
 };
@@ -116,6 +122,16 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
     throw new ClaudeApiError("Invalid food analysis: missing notes");
   }
 
+  if (!Array.isArray(data.keywords)) {
+    throw new ClaudeApiError("Invalid food analysis: keywords must be an array");
+  }
+  if (data.keywords.length === 0) {
+    throw new ClaudeApiError("Invalid food analysis: keywords must have at least 1 element");
+  }
+  if (!data.keywords.every((k: unknown) => typeof k === "string")) {
+    throw new ClaudeApiError("Invalid food analysis: all keywords must be strings");
+  }
+
   return {
     food_name: data.food_name as string,
     amount: data.amount as number,
@@ -128,6 +144,7 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
     sodium_mg: data.sodium_mg as number,
     confidence: data.confidence as FoodAnalysis["confidence"],
     notes: data.notes as string,
+    keywords: data.keywords as string[],
   };
 }
 

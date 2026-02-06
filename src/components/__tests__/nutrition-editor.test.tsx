@@ -30,6 +30,7 @@ const mockAnalysis: FoodAnalysis = {
   sodium_mg: 200,
   confidence: "high",
   notes: "Test notes for the food item",
+  keywords: ["test", "food"],
 };
 
 describe("NutritionEditor", () => {

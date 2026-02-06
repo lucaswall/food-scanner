@@ -37,6 +37,7 @@ const validAnalysis: FoodAnalysis = {
   sodium_mg: 450,
   confidence: "high",
   notes: "Standard Argentine beef empanada, baked style",
+  keywords: ["empanada", "carne", "horno"],
 };
 
 describe("analyzeFood", () => {
@@ -529,5 +530,126 @@ describe("analyzeFood", () => {
     expect(mockCreate).toHaveBeenCalledTimes(2);
 
     vi.useRealTimers();
+  });
+
+  it("validates keywords array of strings in Claude response", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.keywords).toEqual(["empanada", "carne", "horno"]);
+  });
+
+  it("throws when keywords is not an array", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            keywords: "empanada",
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("throws when keywords contains non-string values", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            keywords: ["empanada", 123, "carne"],
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("throws when keywords is an empty array", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            keywords: [],
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("includes keywords in tool schema required fields", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            name: "report_nutrition",
+            input_schema: expect.objectContaining({
+              required: expect.arrayContaining(["keywords"]),
+              properties: expect.objectContaining({
+                keywords: expect.objectContaining({
+                  type: "array",
+                  items: { type: "string" },
+                }),
+              }),
+            }),
+          }),
+        ]),
+      })
+    );
   });
 });

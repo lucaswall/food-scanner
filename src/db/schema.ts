@@ -43,6 +43,7 @@ export const customFoods = pgTable("custom_foods", {
   fitbitFoodId: bigint("fitbit_food_id", { mode: "number" }),
   confidence: text("confidence").notNull(),
   notes: text("notes"),
+  keywords: text("keywords").array(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

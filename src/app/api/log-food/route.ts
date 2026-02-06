@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood } from "@/lib/fitbit";
-import { insertCustomFood, insertFoodLogEntry } from "@/lib/food-log";
+import { insertCustomFood, insertFoodLogEntry, getCustomFoodById } from "@/lib/food-log";
 import type { FoodLogRequest, FoodLogResponse } from "@/types";
 import { FitbitMealType } from "@/types";
 
@@ -19,30 +19,46 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   if (!body || typeof body !== "object") return false;
   const req = body as Record<string, unknown>;
 
-  return (
-    typeof req.food_name === "string" &&
-    req.food_name.length > 0 &&
-    typeof req.amount === "number" &&
-    req.amount > 0 &&
-    typeof req.unit_id === "number" &&
-    typeof req.calories === "number" &&
-    req.calories >= 0 &&
-    typeof req.protein_g === "number" &&
-    req.protein_g >= 0 &&
-    typeof req.carbs_g === "number" &&
-    req.carbs_g >= 0 &&
-    typeof req.fat_g === "number" &&
-    req.fat_g >= 0 &&
-    typeof req.fiber_g === "number" &&
-    req.fiber_g >= 0 &&
-    typeof req.sodium_mg === "number" &&
-    req.sodium_mg >= 0 &&
-    typeof req.mealTypeId === "number" &&
-    typeof req.notes === "string" &&
-    (req.confidence === "high" ||
-      req.confidence === "medium" ||
-      req.confidence === "low")
-  );
+  if (
+    typeof req.food_name !== "string" ||
+    req.food_name.length === 0 ||
+    typeof req.amount !== "number" ||
+    req.amount <= 0 ||
+    typeof req.unit_id !== "number" ||
+    typeof req.calories !== "number" ||
+    req.calories < 0 ||
+    typeof req.protein_g !== "number" ||
+    req.protein_g < 0 ||
+    typeof req.carbs_g !== "number" ||
+    req.carbs_g < 0 ||
+    typeof req.fat_g !== "number" ||
+    req.fat_g < 0 ||
+    typeof req.fiber_g !== "number" ||
+    req.fiber_g < 0 ||
+    typeof req.sodium_mg !== "number" ||
+    req.sodium_mg < 0 ||
+    typeof req.mealTypeId !== "number" ||
+    typeof req.notes !== "string" ||
+    (req.confidence !== "high" &&
+      req.confidence !== "medium" &&
+      req.confidence !== "low")
+  ) {
+    return false;
+  }
+
+  // Validate keywords if present: must be an array of strings
+  if (req.keywords !== undefined) {
+    if (!Array.isArray(req.keywords) || !req.keywords.every((k: unknown) => typeof k === "string")) {
+      return false;
+    }
+  }
+
+  // Validate reuseCustomFoodId if present: must be a number
+  if (req.reuseCustomFoodId !== undefined && typeof req.reuseCustomFoodId !== "number") {
+    return false;
+  }
+
+  return true;
 }
 
 function formatDate(date: Date): string {
@@ -137,11 +153,82 @@ export async function POST(request: Request) {
     // Ensure token is fresh (refreshes and saves to DB if needed)
     const accessToken = await ensureFreshToken(session!.email);
 
-    // Find or create the food
-    const { foodId, reused } = await findOrCreateFood(accessToken, body);
+    const date = body.date || formatDate(new Date());
+    let foodId: number;
+    let reused: boolean;
+    let foodLogId: number | undefined;
+
+    if (body.reuseCustomFoodId) {
+      // Reuse flow: skip food creation, use existing custom food
+      const existingFood = await getCustomFoodById(body.reuseCustomFoodId);
+      if (!existingFood || !existingFood.fitbitFoodId) {
+        return errorResponse(
+          "VALIDATION_ERROR",
+          "Custom food not found or has no Fitbit food ID",
+          400
+        );
+      }
+
+      foodId = existingFood.fitbitFoodId;
+      reused = true;
+
+      const logResult = await logFood(
+        accessToken,
+        foodId,
+        body.mealTypeId,
+        Number(existingFood.amount),
+        existingFood.unitId,
+        date,
+        body.time
+      );
+
+      // Log entry only (no new custom_food)
+      try {
+        const logEntryResult = await insertFoodLogEntry(session!.email, {
+          customFoodId: existingFood.id,
+          mealTypeId: body.mealTypeId,
+          amount: Number(existingFood.amount),
+          unitId: existingFood.unitId,
+          date,
+          time: body.time ?? null,
+          fitbitLogId: logResult.foodLog.logId,
+        });
+        foodLogId = logEntryResult.id;
+      } catch (dbError) {
+        logger.error(
+          { action: "food_log_db_error", error: dbError instanceof Error ? dbError.message : String(dbError) },
+          "failed to insert food log entry to database"
+        );
+      }
+
+      const response: FoodLogResponse = {
+        success: true,
+        fitbitFoodId: foodId,
+        fitbitLogId: logResult.foodLog.logId,
+        reusedFood: reused,
+        foodLogId,
+      };
+
+      logger.info(
+        {
+          action: "log_food_success",
+          foodId,
+          logId: logResult.foodLog.logId,
+          reused,
+          foodLogId,
+        },
+        "food logged successfully (reused)"
+      );
+
+      return successResponse(response);
+    }
+
+    // New food flow
+    const createResult = await findOrCreateFood(accessToken, body);
+    foodId = createResult.foodId;
+    reused = createResult.reused;
 
     // Log the food
-    const date = body.date || formatDate(new Date());
     const logResult = await logFood(
       accessToken,
       foodId,
@@ -153,7 +240,6 @@ export async function POST(request: Request) {
     );
 
     // Log to database (non-fatal — Fitbit is the primary operation)
-    let foodLogId: number | undefined;
     try {
       const customFoodResult = await insertCustomFood(session!.email, {
         foodName: body.food_name,
@@ -168,6 +254,7 @@ export async function POST(request: Request) {
         confidence: body.confidence,
         notes: body.notes,
         fitbitFoodId: foodId,
+        keywords: body.keywords,
       });
 
       const logEntryResult = await insertFoodLogEntry(session!.email, {

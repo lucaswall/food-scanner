@@ -56,12 +56,14 @@ export interface FoodAnalysis {
   sodium_mg: number;
   confidence: "high" | "medium" | "low";
   notes: string;
+  keywords: string[];
 }
 
 export interface FoodLogRequest extends FoodAnalysis {
   mealTypeId: number; // 1,2,3,4,5,7
   date?: string; // YYYY-MM-DD
   time?: string; // HH:mm:ss
+  reuseCustomFoodId?: number;
 }
 
 export interface FoodLogResponse {
@@ -110,3 +112,17 @@ export interface ApiErrorResponse {
 }
 
 export type ApiResponse<T> = ApiSuccessResponse<T> | ApiErrorResponse;
+
+export interface FoodMatch {
+  customFoodId: number;
+  foodName: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fitbitFoodId: number;
+  matchRatio: number;
+  lastLoggedAt: Date;
+  amount: number;
+  unitId: number;
+}

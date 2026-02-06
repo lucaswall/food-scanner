@@ -29,6 +29,7 @@ const mockAnalysis: FoodAnalysis = {
   sodium_mg: 450,
   confidence: "high",
   notes: "Standard Argentine beef empanada, baked style",
+  keywords: ["empanada", "carne", "horno"],
 };
 
 describe("AnalysisResult", () => {
