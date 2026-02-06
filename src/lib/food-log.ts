@@ -1,7 +1,7 @@
 import { getDb } from "@/db/index";
-import { foodLogs } from "@/db/schema";
+import { customFoods, foodLogEntries } from "@/db/schema";
 
-export interface FoodLogInput {
+export interface CustomFoodInput {
   foodName: string;
   amount: number;
   unitId: number;
@@ -13,20 +13,26 @@ export interface FoodLogInput {
   sodiumMg: number;
   confidence: "high" | "medium" | "low";
   notes: string | null;
+  fitbitFoodId?: number | null;
+}
+
+export interface FoodLogEntryInput {
+  customFoodId: number;
   mealTypeId: number;
+  amount: number;
+  unitId: number;
   date: string;
   time?: string | null;
-  fitbitFoodId?: number | null;
   fitbitLogId?: number | null;
 }
 
-export async function insertFoodLog(
+export async function insertCustomFood(
   email: string,
-  data: FoodLogInput,
-): Promise<{ id: number; loggedAt: Date }> {
+  data: CustomFoodInput,
+): Promise<{ id: number; createdAt: Date }> {
   const db = getDb();
   const rows = await db
-    .insert(foodLogs)
+    .insert(customFoods)
     .values({
       email,
       foodName: data.foodName,
@@ -40,15 +46,35 @@ export async function insertFoodLog(
       sodiumMg: String(data.sodiumMg),
       confidence: data.confidence,
       notes: data.notes,
-      mealTypeId: data.mealTypeId,
-      date: data.date,
-      time: data.time ?? null,
       fitbitFoodId: data.fitbitFoodId ?? null,
-      fitbitLogId: data.fitbitLogId ?? null,
     })
-    .returning({ id: foodLogs.id, loggedAt: foodLogs.loggedAt });
+    .returning({ id: customFoods.id, createdAt: customFoods.createdAt });
 
   const row = rows[0];
-  if (!row) throw new Error("Failed to insert food log: no row returned");
+  if (!row) throw new Error("Failed to insert custom food: no row returned");
+  return row;
+}
+
+export async function insertFoodLogEntry(
+  email: string,
+  data: FoodLogEntryInput,
+): Promise<{ id: number; loggedAt: Date }> {
+  const db = getDb();
+  const rows = await db
+    .insert(foodLogEntries)
+    .values({
+      email,
+      customFoodId: data.customFoodId,
+      mealTypeId: data.mealTypeId,
+      amount: String(data.amount),
+      unitId: data.unitId,
+      date: data.date,
+      time: data.time ?? null,
+      fitbitLogId: data.fitbitLogId ?? null,
+    })
+    .returning({ id: foodLogEntries.id, loggedAt: foodLogEntries.loggedAt });
+
+  const row = rows[0];
+  if (!row) throw new Error("Failed to insert food log entry: no row returned");
   return row;
 }

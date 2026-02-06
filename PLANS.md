@@ -1,303 +1,464 @@
-# Fix Plan: Fitbit API compatibility — DB overflow, wrong param name, wrong unit IDs
+# Implementation Plan
 
-**Issue:** FOO-156
-**Date:** 2026-02-06
-**Status:** Planning
-**Branch:** fix/FOO-156-fitbit-api-compat
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-159-tsconfig-and-schema-split
+**Issues:** FOO-159, FOO-157
+**Created:** 2026-02-06
+**Last Updated:** 2026-02-06
 
-## Investigation
+## Summary
 
-### Bug Report
-User logged a tea ("Te con leche alta en proteinas") via the app. It appeared in Fitbit but was NOT saved to the database. Investigation also requested to triple-check Fitbit API unit compatibility.
+Two issues: (1) Fix broken Railway deployment by excluding the standalone `mcp-fitbit/` directory from TypeScript compilation, and (2) split the denormalized `food_logs` table into two properly normalized tables (`custom_foods` + `food_log_entries`) matching the Fitbit API's data model.
 
-### Classification
-- **Type:** Data Issue + Integration
-- **Severity:** Critical (data loss) + High (wrong data sent to Fitbit)
-- **Affected Area:** Food logging pipeline (DB schema, Fitbit API client, Claude prompt unit IDs)
+## Issues
 
-### Root Cause Analysis
+### FOO-159: Next.js build fails on Railway due to mcp-fitbit TypeScript inclusion
 
-**4 bugs found:**
+**Priority:** Urgent
+**Labels:** Bug
+**Description:** `tsconfig.json` includes `**/*.ts` which causes Next.js to type-check the standalone `mcp-fitbit/` directory during `next build`. On Railway, only the root `package.json` dependencies are installed — `mcp-fitbit/node_modules` doesn't exist, so the `dotenv` import in `mcp-fitbit/index.ts` fails type checking. Production deployment is blocked.
 
-#### Bug 1 (CRITICAL): `fitbit_log_id` integer overflow — food logs not saved to DB
+**Acceptance Criteria:**
+- [ ] `mcp-fitbit` directory excluded from `tsconfig.json`
+- [ ] `npm run build` succeeds locally
+- [ ] `npm run typecheck` succeeds locally
+- [ ] Railway deployment unblocked
 
-Railway logs at `2026-02-06T13:55:49.187Z`:
-```
-[ERRO] failed to insert food log to database action="food_log_db_error"
-params: ...,38042351280
-```
+### FOO-157: DB schema: separate custom foods table from food log entries
 
-The Fitbit log ID `38042351280` exceeds PostgreSQL `integer` max of `2,147,483,647`. The `fitbit_log_id` column in `food_logs` table is defined as `integer` (`src/db/schema.ts:48`), causing the insert to fail. The error is caught by the try/catch at `src/app/api/log-food/route.ts:177`, so the response still succeeds but the DB row is never created.
+**Priority:** High
+**Labels:** Improvement
+**Description:** The current `food_logs` table conflates two distinct Fitbit API entities: the food definition (nutrition data, created via `POST /1/user/-/foods.json`) and the log entry (date/meal/amount, created via `POST /1/user/-/foods/log.json`). Every log duplicates the full nutritional data even when the same food is logged repeatedly. Split into `custom_foods` (reusable food definitions) and `food_log_entries` (instances of eating a food).
 
-`fitbit_food_id` (also `integer`, line 47) currently holds values like `828644295` — under the limit but approaching it. Should also be upgraded for safety.
+**Acceptance Criteria:**
+- [ ] New `custom_foods` table with nutrition data + `fitbit_food_id`
+- [ ] New `food_log_entries` table with FK to `custom_foods` + meal metadata
+- [ ] Old `food_logs` table removed from schema
+- [ ] Drizzle migration generated
+- [ ] `src/lib/food-log.ts` updated with `insertCustomFood()` and `insertFoodLogEntry()`
+- [ ] `src/app/api/log-food/route.ts` updated to use two-step insert
+- [ ] All existing tests updated and passing
+- [ ] `npm run build`, `npm run lint`, `npm run typecheck` all pass with zero warnings
 
-#### Bug 2 (MODERATE): `fiber` Fitbit API parameter should be `dietaryFiber`
+## Prerequisites
 
-At `src/lib/fitbit.ts:130`, the Create Food API call sends:
-```typescript
-fiber: food.fiber_g.toString(),
-```
+- [ ] On `main` branch with clean working tree
+- [ ] Local Postgres running (`docker compose up -d`)
+- [ ] Dependencies installed (`npm install`)
 
-The Fitbit API docs list the parameter as `dietaryFiber`, not `fiber`. The response `nutritionalValues` object also uses `dietaryFiber` as the key. Other nutrition params (`protein`, `totalCarbohydrate`, `totalFat`, `sodium`) are correct — confirmed both by API docs and by the fact that macros appear in Fitbit.
+## Implementation Tasks
 
-The `fiber` param is silently ignored by Fitbit, meaning fiber data is lost. The tea log had fiber=0 so it wasn't noticeable, but any food with fiber > 0 would lose that data.
+### Task 1: Exclude mcp-fitbit from tsconfig.json
 
-#### Bug 3 (HIGH): Unit ID 256 is "pint", not "piece"
+**Issue:** FOO-159
+**Files:**
+- `tsconfig.json` (modify)
 
-The Fitbit Get Food API response example explicitly shows:
-```json
-{ "id": 256, "name": "pint", "plural": "pints" }
-```
-with a serving multiplier of 2 relative to cup — consistent with pint = 2 cups.
+**TDD Steps:**
 
-Our code at `src/types/index.ts:25` and `src/lib/claude.ts:40` maps `256=piece`, which is **wrong**. If Claude selects unit_id 256 for a food item (e.g., "1 piece of fruit"), it would tell Fitbit "1 pint" — causing wildly incorrect nutritional scaling.
+1. **RED** — Verify the problem exists:
+   - Run: `npm run typecheck`
+   - Expect: Should pass locally (you have `mcp-fitbit/node_modules`), but confirm `mcp-fitbit/` files are being included
+   - Run: `npx tsc --listFiles 2>/dev/null | grep mcp-fitbit | head -5`
+   - Verify: mcp-fitbit TypeScript files appear in the output
 
-Additionally, the following unit IDs cannot be verified from public documentation alone and need validation against the live API:
-- `364` — claimed as "tsp" (very likely correct: appears alongside tbsp=349 in peanut butter context)
-- `211` — claimed as "ml" (unverified)
-- `311` — claimed as "slice" (unverified)
+2. **GREEN** — Add exclusion:
+   - Edit `tsconfig.json` line 33: change `"exclude": ["node_modules"]` to `"exclude": ["node_modules", "mcp-fitbit"]`
+   - Run: `npx tsc --listFiles 2>/dev/null | grep mcp-fitbit | head -5`
+   - Verify: No mcp-fitbit files in output
+   - Run: `npm run typecheck`
+   - Verify: Still passes (no regressions)
 
-**Action needed:** Call `GET https://api.fitbit.com/1/foods/units.json` with a valid Fitbit access token to get the authoritative unit list. Create a one-time utility or API route to dump the full list.
+3. **REFACTOR** — Verify build:
+   - Run: `npm run build`
+   - Verify: Build succeeds with zero warnings
+   - Run: `npm run lint`
+   - Verify: Lint passes
 
-#### Bug 4 (LOW): Missing `formType` and `description` on Create Food
+**Notes:**
+- Single-line change. No code logic changes needed.
+- This unblocks Railway deployment immediately.
 
-The Fitbit Create Food API docs mark `formType` (LIQUID/DRY) and `description` as required parameters. Our `createFood()` function at `src/lib/fitbit.ts:122-132` doesn't send them. Fitbit currently accepts the request without them, but for full API compliance they should be included.
+---
 
-### Impact
-- **Bug 1:** Every food log with a Fitbit log ID > 2.1B silently fails to save to the database. This is happening NOW in production.
-- **Bug 2:** Fiber nutritional data is never saved to Fitbit for any food.
-- **Bug 3:** If Claude ever picks unit_id 256 for "piece", the food would be logged as "pint" in Fitbit with wrong nutritional scaling.
-- **Bug 4:** No current impact (Fitbit accepts without them), but non-compliant with documented API contract.
+### Task 2: Define new DB schema tables
 
-## Fix Plan (TDD Approach)
+**Issue:** FOO-157
+**Files:**
+- `src/db/schema.ts` (modify)
 
-### Step 1: Fetch and verify Fitbit unit IDs
+**TDD Steps:**
 
-Before writing any code fixes, we need the authoritative unit list.
+1. **RED** — Write tests for the new schema:
+   - Create `src/db/__tests__/schema.test.ts`
+   - Import the new `customFoods` and `foodLogEntries` table definitions
+   - Test that `customFoods` has the expected columns: `id`, `email`, `foodName`, `amount`, `unitId`, `calories`, `proteinG`, `carbsG`, `fatG`, `fiberG`, `sodiumMg`, `fitbitFoodId` (unique), `confidence`, `notes`, `createdAt`
+   - Test that `foodLogEntries` has the expected columns: `id`, `email`, `customFoodId` (FK), `fitbitLogId`, `mealTypeId`, `amount`, `unitId`, `date`, `time`, `loggedAt`
+   - Test that `foodLogs` export no longer exists
+   - Run: `npm test -- schema`
+   - Verify: Tests fail (tables don't exist yet)
 
-- **Action:** Create a temporary script or use the existing Fitbit token to call `GET /1/foods/units.json`
-- **Alternative:** Add a temporary API route at `/api/debug/fitbit-units` that dumps the full units list
-- **Goal:** Get the correct unit IDs for: gram, cup, oz, tbsp, tsp, ml, slice, piece, serving
+2. **GREEN** — Create the new tables in `src/db/schema.ts`:
+   - Add `customFoods` table:
+     ```
+     custom_foods: id (serial PK), email (text, not null), food_name (text, not null),
+     amount (numeric, not null), unit_id (integer, not null), calories (integer, not null),
+     protein_g (numeric, not null), carbs_g (numeric, not null), fat_g (numeric, not null),
+     fiber_g (numeric, not null), sodium_mg (numeric, not null),
+     fitbit_food_id (bigint, unique), confidence (text, not null), notes (text),
+     created_at (timestamp with tz, default now, not null)
+     ```
+   - Add `foodLogEntries` table:
+     ```
+     food_log_entries: id (serial PK), email (text, not null),
+     custom_food_id (integer, not null, references custom_foods.id),
+     fitbit_log_id (bigint), meal_type_id (integer, not null),
+     amount (numeric, not null), unit_id (integer, not null),
+     date (date, not null), time (time),
+     logged_at (timestamp with tz, default now, not null)
+     ```
+   - Remove the old `foodLogs` table definition entirely
+   - Run: `npm test -- schema`
+   - Verify: Tests pass
 
-After getting the correct IDs, update the plan below with verified values.
+3. **REFACTOR** — Clean up:
+   - Ensure column naming follows existing patterns (camelCase Drizzle names, snake_case DB columns)
+   - Reference existing tables (`sessions`, `fitbitTokens`) for conventions
+   - Run: `npm run typecheck`
+   - Verify: Type errors appear in `food-log.ts` and `route.ts` (expected — they still reference removed `foodLogs`)
 
-### Step 2: Write failing tests for Bug 1 (integer overflow)
+**Notes:**
+- The FK from `food_log_entries.custom_food_id` → `custom_foods.id` uses Drizzle's `.references()` syntax
+- `fitbit_food_id` on `custom_foods` should be unique (one Fitbit food per custom food definition)
+- `amount` and `unit_id` on `food_log_entries` allow logging a different portion than the food's default serving
+- The old `food_logs` table is deleted outright (dev status, no backward compat per CLAUDE.md)
 
-- **File:** `src/lib/__tests__/food-log.test.ts`
-- **Test:** Verify that `insertFoodLog` correctly passes large Fitbit IDs (> 2^31) to the DB layer
+---
 
-```typescript
-it("handles large fitbitLogId values (bigint range)", async () => {
-  const loggedAt = new Date();
-  mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+### Task 3: Update food-log.ts with new insert functions
 
-  await insertFoodLog("test@example.com", {
-    foodName: "Tea",
-    amount: 1,
-    unitId: 91,
-    calories: 22,
-    proteinG: 2.8,
-    carbsG: 2.8,
-    fatG: 0,
-    fiberG: 0,
-    sodiumMg: 32,
-    confidence: "medium",
-    notes: "Test",
-    mealTypeId: 2,
-    date: "2026-02-06",
-    fitbitFoodId: 828644295,
-    fitbitLogId: 38042351280,
-  });
+**Issue:** FOO-157
+**Files:**
+- `src/lib/food-log.ts` (modify)
+- `src/lib/__tests__/food-log.test.ts` (modify)
 
-  expect(mockValues).toHaveBeenCalledWith(
-    expect.objectContaining({
-      fitbitLogId: 38042351280,
-    }),
-  );
-});
-```
+**TDD Steps:**
 
-### Step 3: Fix Bug 1 — Change `fitbit_food_id` and `fitbit_log_id` to `bigint`
+1. **RED** — Rewrite tests for new functions:
+   - Update `src/lib/__tests__/food-log.test.ts`:
+   - Remove all tests for `insertFoodLog` (it no longer exists)
+   - Add tests for `insertCustomFood(email, data)`:
+     - Test it inserts into `customFoods` table with correct fields
+     - Test numeric fields are converted to strings (same pattern as before)
+     - Test it returns `{ id, createdAt }`
+     - Test nullable fields (`notes`, `fitbitFoodId`)
+     - Test large `fitbitFoodId` values (bigint range)
+   - Add tests for `insertFoodLogEntry(email, data)`:
+     - Test it inserts into `foodLogEntries` table with correct fields
+     - Test it returns `{ id, loggedAt }`
+     - Test nullable fields (`time`, `fitbitLogId`)
+     - Test numeric `amount` is converted to string
+   - Update mocks: mock `@/db/schema` to export `customFoods` and `foodLogEntries` instead of `foodLogs`
+   - Run: `npm test -- food-log`
+   - Verify: Tests fail (functions don't exist yet)
 
-- **File:** `src/db/schema.ts`
-- **Change:** Replace `integer` with `bigint` for both columns:
+2. **GREEN** — Implement new functions:
+   - Replace `FoodLogInput` interface with two new interfaces:
+     ```typescript
+     export interface CustomFoodInput {
+       foodName: string;
+       amount: number;
+       unitId: number;
+       calories: number;
+       proteinG: number;
+       carbsG: number;
+       fatG: number;
+       fiberG: number;
+       sodiumMg: number;
+       confidence: "high" | "medium" | "low";
+       notes: string | null;
+       fitbitFoodId?: number | null;
+     }
 
-```typescript
-// Before (line 47-48):
-fitbitFoodId: integer("fitbit_food_id"),
-fitbitLogId: integer("fitbit_log_id"),
+     export interface FoodLogEntryInput {
+       customFoodId: number;
+       mealTypeId: number;
+       amount: number;
+       unitId: number;
+       date: string;
+       time?: string | null;
+       fitbitLogId?: number | null;
+     }
+     ```
+   - Implement `insertCustomFood(email, data)`:
+     - Insert into `customFoods` table
+     - Convert numeric fields to strings for Drizzle `numeric` columns
+     - Return `{ id: number; createdAt: Date }`
+   - Implement `insertFoodLogEntry(email, data)`:
+     - Insert into `foodLogEntries` table
+     - Convert `amount` to string
+     - Return `{ id: number; loggedAt: Date }`
+   - Remove old `insertFoodLog` function and `FoodLogInput` interface
+   - Run: `npm test -- food-log`
+   - Verify: Tests pass
 
-// After:
-fitbitFoodId: bigint("fitbit_food_id", { mode: "number" }),
-fitbitLogId: bigint("fitbit_log_id", { mode: "number" }),
-```
+3. **REFACTOR** — Verify types:
+   - Run: `npm run typecheck`
+   - Verify: Only `log-food/route.ts` has remaining type errors (expected — updated in Task 4)
 
-Note: `mode: "number"` keeps the TypeScript type as `number` (safe up to `Number.MAX_SAFE_INTEGER` = 9,007,199,254,740,991). The Fitbit IDs at ~38B are well within this range.
+**Notes:**
+- Follow the exact same DB mock pattern from the existing tests (see `mockInsert`, `mockValues`, `mockReturning`)
+- The mock setup needs to handle two different table references now (one mock for each table)
 
-- **Migration:** Run `npx drizzle-kit generate` to create the ALTER TABLE migration (integer -> bigint is non-destructive in PostgreSQL, no data loss).
+---
 
-- **File:** `src/lib/food-log.ts` — No changes needed, the `FoodLogInput` interface already types these as `number`.
+### Task 4: Update log-food route handler
 
-### Step 4: Write failing test for Bug 2 (fiber param name)
+**Issue:** FOO-157
+**Files:**
+- `src/app/api/log-food/route.ts` (modify)
+- `src/app/api/log-food/__tests__/route.test.ts` (modify)
 
-- **File:** `src/lib/__tests__/fitbit.test.ts`
-- **Test:** Verify `createFood` sends `dietaryFiber` instead of `fiber`:
+**TDD Steps:**
 
-```typescript
-it("sends dietaryFiber parameter name to Fitbit API", async () => {
-  const food = { ...mockFoodAnalysis, fiber_g: 7 };
-  const mockResponse = { food: { foodId: 789, name: "Test" } };
+1. **RED** — Update route tests for new two-step flow:
+   - Update `src/app/api/log-food/__tests__/route.test.ts`:
+   - Replace `mockInsertFoodLog` with two mocks: `mockInsertCustomFood` and `mockInsertFoodLogEntry`
+   - Update mock for `@/lib/food-log`:
+     ```typescript
+     const mockInsertCustomFood = vi.fn();
+     const mockInsertFoodLogEntry = vi.fn();
+     vi.mock("@/lib/food-log", () => ({
+       insertCustomFood: (...args: unknown[]) => mockInsertCustomFood(...args),
+       insertFoodLogEntry: (...args: unknown[]) => mockInsertFoodLogEntry(...args),
+     }));
+     ```
+   - Update `beforeEach` to set default mock returns:
+     ```typescript
+     mockInsertCustomFood.mockResolvedValue({ id: 1, createdAt: new Date() });
+     mockInsertFoodLogEntry.mockResolvedValue({ id: 1, loggedAt: new Date() });
+     ```
+   - Update "calls insertFoodLog after successful Fitbit logging" test → split into two assertions:
+     - `mockInsertCustomFood` called with email and food data (name, nutrition, fitbitFoodId)
+     - `mockInsertFoodLogEntry` called with email, `customFoodId` from first insert, and log data (mealTypeId, amount, unitId, date, time, fitbitLogId)
+   - Update "returns success even if DB insert fails (non-fatal)" → test both failure modes:
+     - Custom food insert fails → still returns success (Fitbit is primary)
+     - Food log entry insert fails → still returns success
+   - Keep all validation tests unchanged (session, mealTypeId, date, time)
+   - Run: `npm test -- log-food`
+   - Verify: Tests fail (route still uses old function)
 
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(JSON.stringify(mockResponse), { status: 201 }),
-  );
+2. **GREEN** — Update route handler:
+   - Import `insertCustomFood` and `insertFoodLogEntry` instead of `insertFoodLog`
+   - Replace the single `insertFoodLog` call with two calls:
+     ```typescript
+     // Step 1: Save custom food to DB
+     const customFoodResult = await insertCustomFood(session!.email, {
+       foodName: body.food_name,
+       amount: body.amount,
+       unitId: body.unit_id,
+       calories: body.calories,
+       proteinG: body.protein_g,
+       carbsG: body.carbs_g,
+       fatG: body.fat_g,
+       fiberG: body.fiber_g,
+       sodiumMg: body.sodium_mg,
+       confidence: body.confidence,
+       notes: body.notes,
+       fitbitFoodId: foodId,
+     });
 
-  await createFood("test-token", food);
+     // Step 2: Save food log entry to DB
+     const logEntryResult = await insertFoodLogEntry(session!.email, {
+       customFoodId: customFoodResult.id,
+       mealTypeId: body.mealTypeId,
+       amount: body.amount,
+       unitId: body.unit_id,
+       date,
+       time: body.time ?? null,
+       fitbitLogId: logResult.foodLog.logId,
+     });
+     foodLogId = logEntryResult.id;
+     ```
+   - Both inserts remain in the non-fatal try/catch block (Fitbit is primary)
+   - The `FoodLogResponse` shape stays the same (`foodLogId` now refers to the log entry ID)
+   - Run: `npm test -- log-food`
+   - Verify: Tests pass
 
-  const fetchCall = vi.mocked(fetch).mock.calls[0];
-  const body = fetchCall[1]?.body as string;
-  expect(body).toContain("dietaryFiber=7");
-  expect(body).not.toContain("fiber=");
+3. **REFACTOR** — Clean up:
+   - Verify error handling wraps both inserts
+   - Run: `npm run typecheck`
+   - Verify: No type errors
 
-  vi.restoreAllMocks();
-});
-```
+**Notes:**
+- The route handler's public API (`FoodLogRequest` → `FoodLogResponse`) does NOT change — no frontend updates needed
+- `FoodLogResponse.foodLogId` now refers to `food_log_entries.id` instead of `food_logs.id`
+- Both DB inserts are non-fatal — if custom food insert fails, skip log entry too
 
-### Step 5: Fix Bug 2 — Rename `fiber` to `dietaryFiber`
+---
 
-- **File:** `src/lib/fitbit.ts:130`
-- **Change:**
+### Task 5: Generate Drizzle migration
 
-```typescript
-// Before:
-fiber: food.fiber_g.toString(),
+**Issue:** FOO-157
+**Files:**
+- `drizzle/` (new migration file generated)
 
-// After:
-dietaryFiber: food.fiber_g.toString(),
-```
+**Steps:**
 
-### Step 6: Write failing test for Bug 3 (unit IDs)
+1. Run migration generation:
+   - Run: `npx drizzle-kit generate`
+   - Verify: A new migration SQL file is created in `drizzle/`
+   - Read the generated SQL and verify it:
+     - Creates `custom_foods` table with correct columns
+     - Creates `food_log_entries` table with FK constraint to `custom_foods`
+     - Drops `food_logs` table
+   - If the migration SQL doesn't look right, manually adjust and re-run
 
-- **File:** `src/types/__tests__/index.test.ts`
-- **Test:** Update the unit ID assertions with correct verified values:
+2. Verify migration applies locally:
+   - Run: `docker compose up -d` (ensure local Postgres is running)
+   - Run: `npm run dev` (triggers migration at startup via `src/db/migrate.ts`)
+   - Verify: No migration errors in console output
 
-```typescript
-it("has correct well-known Fitbit unit IDs", () => {
-  expect(FITBIT_UNITS.g.id).toBe(147);
-  expect(FITBIT_UNITS.oz.id).toBe(226);
-  expect(FITBIT_UNITS.cup.id).toBe(91);
-  expect(FITBIT_UNITS.tbsp.id).toBe(349);
-  expect(FITBIT_UNITS.tsp.id).toBe(VERIFIED_TSP_ID);      // verify: likely 364
-  expect(FITBIT_UNITS.ml.id).toBe(VERIFIED_ML_ID);         // verify: claimed 211
-  expect(FITBIT_UNITS.slice.id).toBe(VERIFIED_SLICE_ID);   // verify: claimed 311
-  expect(FITBIT_UNITS.piece.id).toBe(VERIFIED_PIECE_ID);   // NOT 256 (that's pint)
-  expect(FITBIT_UNITS.serving.id).toBe(304);
-});
-```
+**Notes:**
+- Migration files in `drizzle/` must be committed to git
+- The migration will DROP the `food_logs` table — this is intentional (dev status, no data to preserve)
+- Drizzle Kit generates the migration based on diff between schema and existing migrations
 
-### Step 7: Fix Bug 3 — Update unit IDs
+---
 
-- **File:** `src/types/index.ts` — Update `FITBIT_UNITS` with verified IDs
-- **File:** `src/lib/claude.ts:40` — Update the Claude prompt unit_id description
-- **File:** `src/types/__tests__/index.test.ts` — Update test assertions
+### Task 6: Integration & Verification
 
-### Step 8: Fix Bug 4 — Add `formType` and `description` to Create Food
+**Issue:** FOO-159, FOO-157
+**Files:**
+- Various files from previous tasks
 
-- **File:** `src/lib/fitbit.ts:122-132`
-- **Change:** Add `formType` and `description` params:
+**Steps:**
 
-```typescript
-const params = new URLSearchParams({
-  name: food.food_name,
-  defaultFoodMeasurementUnitId: food.unit_id.toString(),
-  defaultServingSize: food.amount.toString(),
-  calories: food.calories.toString(),
-  protein: food.protein_g.toString(),
-  totalCarbohydrate: food.carbs_g.toString(),
-  totalFat: food.fat_g.toString(),
-  dietaryFiber: food.fiber_g.toString(),
-  sodium: food.sodium_mg.toString(),
-  formType: "DRY",   // default; could be smarter based on food type
-  description: food.food_name,
-});
-```
+1. Run full test suite:
+   - Run: `npm test`
+   - Verify: All tests pass
 
-- **Test:** Add test verifying `formType` and `description` are included in request body.
+2. Run linter:
+   - Run: `npm run lint`
+   - Verify: No errors, no warnings
 
-### Step 9: Verify
+3. Run type checker:
+   - Run: `npm run typecheck`
+   - Verify: No type errors
 
-- [ ] All new tests pass
-- [ ] All existing tests pass (`npm test`)
-- [ ] TypeScript compiles without errors (`npm run typecheck`)
-- [ ] Lint passes (`npm run lint`)
-- [ ] Build succeeds (`npm run build`)
-- [ ] Migration generated and committed
-- [ ] Manual test: log a food with fiber > 0 and verify fiber shows in Fitbit
-- [ ] Manual test: verify DB row is created with correct fitbitLogId
+4. Run build:
+   - Run: `npm run build`
+   - Verify: Build succeeds with zero warnings
 
-## Notes
+5. Manual verification:
+   - [ ] Start local dev server: `npm run dev`
+   - [ ] Verify migration applies without errors
+   - [ ] Verify `/api/health` responds
+   - [ ] Verify no `mcp-fitbit/` files in TypeScript compilation
 
-- Bug 1 is the direct cause of the reported issue (tea not saved to DB).
-- Bug 3 requires calling the live Fitbit API to get verified unit IDs before implementation.
-- The `formType` for Bug 4 could be made smarter (detect LIQUID vs DRY based on unit — e.g., cup/ml -> LIQUID), but a simple default of "DRY" is acceptable as a first pass.
-- The existing test at `food-log.test.ts:118` uses `unitId: 256` for an Apple (piece) — this will need updating once the correct piece unit ID is known.
+## MCP Usage During Implementation
+
+| MCP Server | Tool | Purpose |
+|------------|------|---------|
+| Linear | `update_issue` | Move FOO-159 and FOO-157 to "In Progress" when starting, "Done" when complete |
+
+## Error Handling
+
+| Error Scenario | Expected Behavior | Test Coverage |
+|---------------|-------------------|---------------|
+| Custom food DB insert fails | Log error, skip log entry, return Fitbit success | Unit test (route.test.ts) |
+| Food log entry DB insert fails | Log error, return Fitbit success | Unit test (route.test.ts) |
+| Fitbit API fails | Return FITBIT_API_ERROR 500 | Unit test (route.test.ts) |
+| Invalid request body | Return VALIDATION_ERROR 400 | Unit test (route.test.ts) |
+
+## Risks & Open Questions
+
+- [ ] Risk: Migration drops `food_logs` — any manually inserted test data will be lost. Mitigation: Dev status, no backward compat needed per CLAUDE.md.
+- [ ] Risk: `findOrCreateFood` in `fitbit.ts` currently always creates new foods. This plan does NOT change that behavior — food reuse is a separate feature. The DB schema enables it for future work.
+
+## Scope Boundaries
+
+**In Scope:**
+- Exclude `mcp-fitbit` from tsconfig.json (FOO-159)
+- Create `custom_foods` and `food_log_entries` tables (FOO-157)
+- Drop `food_logs` table (FOO-157)
+- Update `food-log.ts` insert functions (FOO-157)
+- Update `log-food/route.ts` to use new functions (FOO-157)
+- Update all tests (FOO-157)
+- Generate Drizzle migration (FOO-157)
+
+**Out of Scope:**
+- Implementing food reuse/search logic in `findOrCreateFood` (separate feature)
+- Frontend changes (API contract is unchanged)
+- Data migration from existing `food_logs` rows (dev status, no data to preserve)
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-02-06
+**Method:** Agent team (2 workers)
 
 ### Tasks Completed This Iteration
-- Step 1: Fetch and verify Fitbit unit IDs — Confirmed 256=pint (NOT piece) from Fitbit API docs. Could not fetch full units list (requires live API call with auth token). Unverified IDs (364=tsp, 211=ml, 311=slice) left as-is since they're likely correct per plan analysis.
-- Step 2-3: Fix Bug 1 (integer overflow) — Changed `fitbit_food_id` and `fitbit_log_id` from `integer` to `bigint` in schema, generated migration, added regression test for large IDs.
-- Step 4-5: Fix Bug 2 (fiber param name) — Renamed `fiber` to `dietaryFiber` in Fitbit Create Food API call, added test verifying param name.
-- Step 6-7: Fix Bug 3 (unit IDs) — Removed wrong `piece=256` mapping from FITBIT_UNITS (256 is "pint"). Updated Claude prompt to remove 256=piece and suggest "serving" for individual items. Updated food-log test to use 304 (serving) instead of 256 for Apple test case.
-- Step 8: Fix Bug 4 (formType/description) — Added `formType: "DRY"` and `description: food.food_name` to Create Food API call, added test.
-
-### Tasks Remaining
-- Step 1 (partial): Call live Fitbit API `GET /1/foods/units.json` to verify tsp=364, ml=211, slice=311, and find correct "piece" unit ID. Requires authenticated API call.
-- Step 9: Manual verification — Log a food with fiber > 0 and verify fiber shows in Fitbit. Verify DB row created with correct fitbitLogId.
+- Task 1: Exclude mcp-fitbit from tsconfig.json - Added "mcp-fitbit" to exclude array (worker-1)
+- Task 2: Define new DB schema tables - Replaced foodLogs with customFoods and foodLogEntries tables (worker-2)
+- Task 3: Update food-log.ts with new insert functions - Replaced insertFoodLog with insertCustomFood and insertFoodLogEntry (worker-2)
+- Task 4: Update log-food route handler - Two-step DB insert flow: customFood then logEntry with FK (worker-2)
+- Task 5: Generate Drizzle migration - Created 0002_schema_split.sql (worker-2)
+- Task 6: Integration & Verification - All checks pass (lead)
 
 ### Files Modified
-- `src/db/schema.ts` — Changed `fitbit_food_id` and `fitbit_log_id` from integer to bigint
-- `drizzle/0001_peaceful_norman_osborn.sql` — Migration: ALTER TABLE bigint
-- `drizzle/meta/_journal.json` — Migration journal entry
-- `drizzle/meta/0001_snapshot.json` — Migration snapshot
-- `src/lib/fitbit.ts` — Renamed `fiber` to `dietaryFiber`, added `formType` and `description` params
-- `src/types/index.ts` — Removed wrong `piece: { id: 256 }` from FITBIT_UNITS
-- `src/lib/claude.ts` — Updated unit_id description to remove 256=piece
-- `src/lib/__tests__/fitbit.test.ts` — Added tests for dietaryFiber, formType, description
-- `src/lib/__tests__/food-log.test.ts` — Added bigint regression test, updated unitId 256→304
-- `src/types/__tests__/index.test.ts` — Updated unit key list, added 256≠piece test
+- `tsconfig.json` - Added "mcp-fitbit" to exclude array
+- `src/db/schema.ts` - Removed foodLogs, added customFoods (15 columns) and foodLogEntries (10 columns, FK to customFoods.id)
+- `src/db/__tests__/schema.test.ts` - Updated tests for new tables, added test confirming foodLogs removed
+- `src/lib/food-log.ts` - Replaced insertFoodLog/FoodLogInput with insertCustomFood/CustomFoodInput and insertFoodLogEntry/FoodLogEntryInput
+- `src/lib/__tests__/food-log.test.ts` - Rewrote 9 tests for new functions
+- `src/app/api/log-food/route.ts` - Updated to call insertCustomFood then insertFoodLogEntry in non-fatal try/catch
+- `src/app/api/log-food/__tests__/route.test.ts` - Updated mocks, added tests for two-step flow and failure modes
+- `drizzle/0002_schema_split.sql` - Migration: CREATE custom_foods, CREATE food_log_entries with FK, DROP food_logs CASCADE
+- `drizzle/meta/0002_snapshot.json` - Updated snapshot
+- `drizzle/meta/_journal.json` - Updated journal entry
+- `CLAUDE.md` - Updated table names and function references
 
 ### Linear Updates
-- FOO-156: Todo → In Progress → Review
+- FOO-159: Todo → In Progress → Review
+- FOO-157: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Passed (0 bugs found)
-- verifier: All 563 tests pass, zero TypeScript errors, zero lint warnings, build succeeds. Pre-existing issues: migrate.test.ts mock hoisting failure, act() warnings in photo-capture/settings tests — both unrelated to this change.
+- bug-hunter: Found 1 HIGH bug (unique constraint on fitbit_food_id incompatible with per-log-request inserts), fixed before proceeding. 3 MEDIUM findings: CLAUDE.md staleness (fixed), test coverage gap (skipped — over-engineering), migration data loss (intentional).
+- verifier: 570 tests pass, zero warnings. Pre-existing failure in migrate.test.ts (not in changeset).
+
+### Work Partition
+- Worker 1: Task 1 (tsconfig.json)
+- Worker 2: Tasks 2, 3, 4, 5 (schema, food-log.ts, route handler, migration)
 
 ### Continuation Status
-All code fixes completed. Remaining work is manual verification only (Step 1 partial: live API call, Step 9: manual testing).
+All tasks completed.
 
 ### Review Findings
 
-Files reviewed: 10
-Checks applied: Security, Logic, Async, Resources, Type Safety, Edge Cases, Error Handling, Conventions
+Files reviewed: 11
+Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
 
 No issues found - all implementations are correct and follow project conventions.
 
-**Detailed review:**
-- **Bug 1 (bigint):** Schema correctly uses `bigint({ mode: "number" })` — safe for values up to `Number.MAX_SAFE_INTEGER` (9,007,199,254,740,991), well above Fitbit's ~38B range. Migration is non-destructive ALTER TABLE. Regression test covers the exact production value (38042351280).
-- **Bug 2 (dietaryFiber):** Rename is correct per Fitbit API docs. Test verifies both positive (`dietaryFiber=7`) and negative (`not.toContain("fiber=")`) conditions.
-- **Bug 3 (unit IDs):** `piece: { id: 256 }` correctly removed. Claude prompt updated to suggest "serving" for individual items. Test explicitly verifies `getUnitById(256)` returns undefined.
-- **Bug 4 (formType/description):** Correctly added as `formType: "DRY"` and `description: food.food_name`. Test verifies both params present in request body.
-- **No security issues:** No injection risks, auth patterns untouched, no secrets exposed.
-- **No convention violations:** All files follow CLAUDE.md patterns.
+**Details:**
+- `tsconfig.json` — Correctly excludes `mcp-fitbit` from compilation
+- `src/db/schema.ts` — Proper table definitions, correct column types, FK constraint, follows existing naming conventions
+- `src/lib/food-log.ts` — Clean insert functions, proper numeric-to-string conversion for Drizzle `numeric` columns, defensive null handling
+- `src/app/api/log-food/route.ts` — Two-step DB insert with FK linkage, non-fatal error handling preserved, API contract unchanged
+- `drizzle/0002_schema_split.sql` — Correct CREATE/DROP/FK migration
+- All test files — Good coverage of happy paths, error paths, null handling, and bigint edge cases
+
+**Verification results:**
+- Tests: 570 passed (1 pre-existing failure in migrate.test.ts — not in changeset)
+- Typecheck: Passed
+- Lint: Passed (zero warnings)
+- Build: Passed (zero warnings)
 
 ### Linear Updates
-- FOO-156: Review → Merge
+- FOO-159: Review → Merge
+- FOO-157: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 
