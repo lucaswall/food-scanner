@@ -133,8 +133,8 @@ export async function POST(request: Request) {
   );
 
   try {
-    // Ensure token is fresh (refreshes and saves session if needed)
-    const accessToken = await ensureFreshToken(session);
+    // Ensure token is fresh (refreshes and saves to DB if needed)
+    const accessToken = await ensureFreshToken(session!.email);
 
     // Find or create the food
     const { foodId, reused } = await findOrCreateFood(accessToken, body);

@@ -1,10 +1,12 @@
 import { cookies } from "next/headers";
 import { exchangeGoogleCode, getGoogleProfile } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
-import { getSession } from "@/lib/session";
+import { getRawSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
 import { getCookieValue } from "@/lib/cookies";
+import { createSession } from "@/lib/session-db";
+import { getFitbitTokens } from "@/lib/fitbit-tokens";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -46,14 +48,11 @@ export async function GET(request: Request) {
     return errorResponse("AUTH_INVALID_EMAIL", "Unauthorized email address", 403);
   }
 
-  // Create session using cookies() store
-  const session = await getSession();
-
-  session.sessionId = crypto.randomUUID();
-  session.email = profile.email;
-  session.createdAt = Date.now();
-  session.expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30 days
-  await session.save();
+  // Create DB session and store session ID in cookie
+  const sessionId = await createSession(profile.email);
+  const rawSession = await getRawSession();
+  rawSession.sessionId = sessionId;
+  await rawSession.save();
 
   // Clear the OAuth state cookie
   const cookieStore = await cookies();
@@ -61,7 +60,8 @@ export async function GET(request: Request) {
 
   logger.info({ action: "google_login_success", email: profile.email }, "google login successful");
 
-  // Redirect: if no Fitbit tokens, go to Fitbit OAuth; otherwise /app
-  const redirectTo = session.fitbit ? "/app" : "/api/auth/fitbit";
+  // Redirect: if no Fitbit tokens in DB, go to Fitbit OAuth; otherwise /app
+  const fitbitTokens = await getFitbitTokens(profile.email);
+  const redirectTo = fitbitTokens ? "/app" : "/api/auth/fitbit";
   return Response.redirect(buildUrl(redirectTo), 302);
 }

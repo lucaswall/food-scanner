@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.stubEnv("FITBIT_CLIENT_ID", "test-fitbit-client-id");
 vi.stubEnv("FITBIT_CLIENT_SECRET", "test-fitbit-client-secret");
+vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
 
 vi.mock("@/lib/logger", () => ({
   logger: {
@@ -11,6 +12,13 @@ vi.mock("@/lib/logger", () => ({
     debug: vi.fn(),
     child: vi.fn(),
   },
+}));
+
+const mockGetFitbitTokens = vi.fn();
+const mockUpsertFitbitTokens = vi.fn();
+vi.mock("@/lib/fitbit-tokens", () => ({
+  getFitbitTokens: (...args: unknown[]) => mockGetFitbitTokens(...args),
+  upsertFitbitTokens: (...args: unknown[]) => mockUpsertFitbitTokens(...args),
 }));
 
 const {
@@ -95,28 +103,26 @@ describe("buildFitbitAuthUrl", () => {
 
 describe("ensureFreshToken", () => {
   it("returns existing token if not expiring within 1 hour", async () => {
-    const session = {
-      fitbit: {
-        accessToken: "valid-token",
-        refreshToken: "refresh-token",
-        userId: "user-123",
-        expiresAt: Date.now() + 2 * 60 * 60 * 1000, // 2 hours from now
-      },
-    };
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "valid-token",
+      refreshToken: "refresh-token",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+    });
 
-    const token = await ensureFreshToken(session as never);
+    const token = await ensureFreshToken("test@example.com");
     expect(token).toBe("valid-token");
   });
 
   it("throws FITBIT_TOKEN_INVALID if no fitbit tokens exist", async () => {
-    const session = {};
+    mockGetFitbitTokens.mockResolvedValue(null);
 
-    await expect(ensureFreshToken(session as never)).rejects.toThrow(
+    await expect(ensureFreshToken("test@example.com")).rejects.toThrow(
       "FITBIT_TOKEN_INVALID",
     );
   });
 
-  it("calls session.save() after refreshing tokens", async () => {
+  it("upserts tokens in DB after refreshing", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({
         access_token: "new-token",
@@ -126,34 +132,38 @@ describe("ensureFreshToken", () => {
       })),
     );
 
-    const session = {
-      fitbit: {
-        accessToken: "old-token",
-        refreshToken: "old-refresh",
-        userId: "user-123",
-        expiresAt: Date.now() - 1000, // already expired
-      },
-      save: vi.fn().mockResolvedValue(undefined),
-    };
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000), // already expired
+    });
+    mockUpsertFitbitTokens.mockResolvedValue(undefined);
 
-    const token = await ensureFreshToken(session as never);
+    const token = await ensureFreshToken("test@example.com");
     expect(token).toBe("new-token");
-    expect(session.save).toHaveBeenCalledOnce();
+    expect(mockUpsertFitbitTokens).toHaveBeenCalledWith(
+      "test@example.com",
+      expect.objectContaining({
+        accessToken: "new-token",
+        refreshToken: "new-refresh",
+        fitbitUserId: "user-123",
+      }),
+    );
+
+    vi.restoreAllMocks();
   });
 
-  it("does not call session.save() when token is still fresh", async () => {
-    const session = {
-      fitbit: {
-        accessToken: "valid-token",
-        refreshToken: "refresh-token",
-        userId: "user-123",
-        expiresAt: Date.now() + 2 * 60 * 60 * 1000,
-      },
-      save: vi.fn(),
-    };
+  it("does not upsert tokens when token is still fresh", async () => {
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "valid-token",
+      refreshToken: "refresh-token",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+    });
 
-    await ensureFreshToken(session as never);
-    expect(session.save).not.toHaveBeenCalled();
+    await ensureFreshToken("test@example.com");
+    expect(mockUpsertFitbitTokens).not.toHaveBeenCalled();
   });
 });
 

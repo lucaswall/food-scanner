@@ -1,6 +1,7 @@
-import type { SessionData, FoodAnalysis } from "@/types";
+import type { FoodAnalysis } from "@/types";
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
+import { getFitbitTokens, upsertFitbitTokens } from "@/lib/fitbit-tokens";
 
 const FITBIT_API_BASE = "https://api.fitbit.com";
 const MAX_RETRIES = 3;
@@ -324,24 +325,23 @@ export async function refreshFitbitToken(
   }
 }
 
-export async function ensureFreshToken(
-  session: SessionData & { save: () => Promise<void> },
-): Promise<string> {
-  if (!session.fitbit) {
+export async function ensureFreshToken(email: string): Promise<string> {
+  const tokenRow = await getFitbitTokens(email);
+  if (!tokenRow) {
     throw new Error("FITBIT_TOKEN_INVALID");
   }
 
   // If token expires within 1 hour, refresh it
-  if (session.fitbit.expiresAt < Date.now() + 60 * 60 * 1000) {
-    const tokens = await refreshFitbitToken(session.fitbit.refreshToken);
-    session.fitbit = {
+  if (tokenRow.expiresAt.getTime() < Date.now() + 60 * 60 * 1000) {
+    const tokens = await refreshFitbitToken(tokenRow.refreshToken);
+    await upsertFitbitTokens(email, {
+      fitbitUserId: tokens.user_id,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
-      userId: tokens.user_id,
-      expiresAt: Date.now() + tokens.expires_in * 1000,
-    };
-    await session.save();
+      expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+    });
+    return tokens.access_token;
   }
 
-  return session.fitbit.accessToken;
+  return tokenRow.accessToken;
 }

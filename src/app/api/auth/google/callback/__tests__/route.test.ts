@@ -13,19 +13,31 @@ vi.mock("@/lib/auth", () => ({
   getGoogleProfile: vi.fn(),
 }));
 
-// Mock session module
-const mockSession = {
+// Mock session module — getRawSession returns mutable iron-session object
+const mockRawSession = {
   save: vi.fn(),
   destroy: vi.fn(),
 } as Record<string, unknown>;
 
 vi.mock("@/lib/session", () => ({
-  getSession: vi.fn().mockResolvedValue(mockSession),
+  getRawSession: vi.fn().mockResolvedValue(mockRawSession),
   sessionOptions: {
     password: "a-test-secret-that-is-at-least-32-characters-long",
     cookieName: "food-scanner-session",
     cookieOptions: { httpOnly: true, secure: true, sameSite: "lax", maxAge: 2592000, path: "/" },
   },
+}));
+
+// Mock session-db
+const mockCreateSession = vi.fn();
+vi.mock("@/lib/session-db", () => ({
+  createSession: (...args: unknown[]) => mockCreateSession(...args),
+}));
+
+// Mock fitbit-tokens
+const mockGetFitbitTokens = vi.fn();
+vi.mock("@/lib/fitbit-tokens", () => ({
+  getFitbitTokens: (...args: unknown[]) => mockGetFitbitTokens(...args),
 }));
 
 // Mock next/headers cookies()
@@ -47,23 +59,22 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 const { exchangeGoogleCode, getGoogleProfile } = await import("@/lib/auth");
-const { getSession } = await import("@/lib/session");
 const { GET } = await import("@/app/api/auth/google/callback/route");
 const { logger } = await import("@/lib/logger");
 
 const mockExchangeGoogleCode = vi.mocked(exchangeGoogleCode);
 const mockGetGoogleProfile = vi.mocked(getGoogleProfile);
-const mockGetSession = vi.mocked(getSession);
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("APP_URL", "http://localhost:3000");
-  Object.keys(mockSession).forEach((key) => {
-    if (key !== "save" && key !== "destroy") delete mockSession[key];
+  Object.keys(mockRawSession).forEach((key) => {
+    if (key !== "save" && key !== "destroy") delete mockRawSession[key];
   });
-  mockSession.save = vi.fn();
-  mockSession.destroy = vi.fn();
-  mockGetSession.mockResolvedValue(mockSession as never);
+  mockRawSession.save = vi.fn();
+  mockRawSession.destroy = vi.fn();
+  mockCreateSession.mockResolvedValue("new-session-uuid");
+  mockGetFitbitTokens.mockResolvedValue(null);
 });
 
 function makeCallbackRequest(
@@ -82,7 +93,7 @@ function makeCallbackRequest(
 }
 
 describe("GET /api/auth/google/callback", () => {
-  it("creates session via getSession() and redirects on valid code + allowed email", async () => {
+  it("creates DB session, stores sessionId in cookie, and redirects on valid code + allowed email", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
       email: "test@example.com",
@@ -91,10 +102,9 @@ describe("GET /api/auth/google/callback", () => {
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
     expect(response.status).toBe(302);
-    expect(mockGetSession).toHaveBeenCalled();
-    expect(mockSession.save).toHaveBeenCalled();
-    expect(mockSession.email).toBe("test@example.com");
-    expect(mockSession.sessionId).toBeDefined();
+    expect(mockCreateSession).toHaveBeenCalledWith("test@example.com");
+    expect(mockRawSession.sessionId).toBe("new-session-uuid");
+    expect(mockRawSession.save).toHaveBeenCalled();
   });
 
   it("returns 403 for disallowed email", async () => {
@@ -186,12 +196,13 @@ describe("GET /api/auth/google/callback", () => {
     expect(mockCookieStore.delete).toHaveBeenCalledWith("google-oauth-state");
   });
 
-  it("redirects to /api/auth/fitbit when no fitbit tokens in session", async () => {
+  it("redirects to /api/auth/fitbit when no Fitbit tokens in DB", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
       email: "test@example.com",
       name: "Test User",
     });
+    mockGetFitbitTokens.mockResolvedValue(null);
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
     expect(response.headers.get("location")).toBe(
@@ -199,13 +210,13 @@ describe("GET /api/auth/google/callback", () => {
     );
   });
 
-  it("redirects to /app when fitbit tokens exist in session", async () => {
+  it("redirects to /app when Fitbit tokens exist in DB", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
       email: "test@example.com",
       name: "Test User",
     });
-    mockSession.fitbit = { accessToken: "existing" };
+    mockGetFitbitTokens.mockResolvedValue({ accessToken: "existing" });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
     expect(response.headers.get("location")).toBe(

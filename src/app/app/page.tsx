@@ -21,7 +21,7 @@ export default async function AppPage() {
           </Button>
         </div>
 
-        <p className="text-sm text-muted-foreground">{session.email}</p>
+        <p className="text-sm text-muted-foreground">{session?.email}</p>
 
         <FoodAnalyzer />
       </main>

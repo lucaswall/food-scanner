@@ -1,10 +1,12 @@
 import { cookies } from "next/headers";
 import { exchangeFitbitCode } from "@/lib/fitbit";
 import { errorResponse } from "@/lib/api-response";
-import { getSession } from "@/lib/session";
+import { getRawSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
 import { getCookieValue } from "@/lib/cookies";
+import { getSessionById } from "@/lib/session-db";
+import { upsertFitbitTokens } from "@/lib/fitbit-tokens";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -39,21 +41,27 @@ export async function GET(request: Request) {
     );
   }
 
-  // Read and update session using cookies() store
-  const session = await getSession();
+  // Read session ID from cookie and look up session in DB
+  const rawSession = await getRawSession();
 
-  if (!session.sessionId) {
+  if (!rawSession.sessionId) {
     logger.warn({ action: "fitbit_callback_no_session" }, "fitbit callback without authenticated session");
     return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
   }
 
-  session.fitbit = {
+  const dbSession = await getSessionById(rawSession.sessionId);
+  if (!dbSession) {
+    logger.warn({ action: "fitbit_callback_no_session" }, "fitbit callback with expired/invalid session");
+    return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
+  }
+
+  // Store Fitbit tokens in database
+  await upsertFitbitTokens(dbSession.email, {
+    fitbitUserId: tokens.user_id,
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
-    userId: tokens.user_id,
-    expiresAt: Date.now() + tokens.expires_in * 1000,
-  };
-  await session.save();
+    expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+  });
 
   // Clear the OAuth state cookie
   const cookieStore = await cookies();

@@ -13,20 +13,31 @@ vi.mock("@/lib/fitbit", () => ({
   ensureFreshToken: vi.fn(),
 }));
 
-// Mock session module
-const mockSession = {
-  email: "test@example.com",
+// Mock session module — getRawSession returns mutable iron-session object
+const mockRawSession = {
   sessionId: "test-session",
   save: vi.fn(),
 } as Record<string, unknown>;
 
 vi.mock("@/lib/session", () => ({
-  getSession: vi.fn().mockResolvedValue(mockSession),
+  getRawSession: vi.fn().mockResolvedValue(mockRawSession),
   sessionOptions: {
     password: "a-test-secret-that-is-at-least-32-characters-long",
     cookieName: "food-scanner-session",
     cookieOptions: { httpOnly: true, secure: true, sameSite: "lax", maxAge: 2592000, path: "/" },
   },
+}));
+
+// Mock session-db
+const mockGetSessionById = vi.fn();
+vi.mock("@/lib/session-db", () => ({
+  getSessionById: (...args: unknown[]) => mockGetSessionById(...args),
+}));
+
+// Mock fitbit-tokens
+const mockUpsertFitbitTokens = vi.fn();
+vi.mock("@/lib/fitbit-tokens", () => ({
+  upsertFitbitTokens: (...args: unknown[]) => mockUpsertFitbitTokens(...args),
 }));
 
 // Mock next/headers cookies()
@@ -48,23 +59,29 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 const { exchangeFitbitCode } = await import("@/lib/fitbit");
-const { getSession } = await import("@/lib/session");
+const { getRawSession } = await import("@/lib/session");
 const { GET } = await import("@/app/api/auth/fitbit/callback/route");
 const { logger } = await import("@/lib/logger");
 
 const mockExchangeFitbitCode = vi.mocked(exchangeFitbitCode);
-const mockGetSession = vi.mocked(getSession);
+const mockGetRawSession = vi.mocked(getRawSession);
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("APP_URL", "http://localhost:3000");
-  Object.keys(mockSession).forEach((key) => {
-    if (key !== "save" && key !== "email" && key !== "sessionId") delete mockSession[key];
+  Object.keys(mockRawSession).forEach((key) => {
+    if (key !== "save" && key !== "sessionId") delete mockRawSession[key];
   });
-  mockSession.email = "test@example.com";
-  mockSession.sessionId = "test-session";
-  mockSession.save = vi.fn();
-  mockGetSession.mockResolvedValue(mockSession as never);
+  mockRawSession.sessionId = "test-session";
+  mockRawSession.save = vi.fn();
+  mockGetRawSession.mockResolvedValue(mockRawSession as never);
+  mockGetSessionById.mockResolvedValue({
+    id: "test-session",
+    email: "test@example.com",
+    createdAt: new Date(),
+    expiresAt: new Date(Date.now() + 86400000),
+  });
+  mockUpsertFitbitTokens.mockResolvedValue(undefined);
 });
 
 function makeCallbackRequest(
@@ -88,7 +105,7 @@ function makeCallbackRequest(
 }
 
 describe("GET /api/auth/fitbit/callback", () => {
-  it("stores tokens in session and redirects to /app on valid code", async () => {
+  it("stores tokens in DB and redirects to /app on valid code", async () => {
     mockExchangeFitbitCode.mockResolvedValue({
       access_token: "fitbit-access-token",
       refresh_token: "fitbit-refresh-token",
@@ -99,13 +116,12 @@ describe("GET /api/auth/fitbit/callback", () => {
     const response = await GET(makeCallbackRequest("valid-fitbit-code", "test-state", "test-state"));
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toContain("/app");
-    expect(mockGetSession).toHaveBeenCalled();
-    expect(mockSession.save).toHaveBeenCalled();
-    expect(mockSession.fitbit).toEqual(
+    expect(mockUpsertFitbitTokens).toHaveBeenCalledWith(
+      "test@example.com",
       expect.objectContaining({
+        fitbitUserId: "fitbit-user-123",
         accessToken: "fitbit-access-token",
         refreshToken: "fitbit-refresh-token",
-        userId: "fitbit-user-123",
       }),
     );
   });
@@ -175,21 +191,32 @@ describe("GET /api/auth/fitbit/callback", () => {
     expect(mockCookieStore.delete).toHaveBeenCalledWith("fitbit-oauth-state");
   });
 
-  it("uses a single getSession() call instead of double getIronSession", async () => {
+  it("returns 401 when no authenticated session exists", async () => {
+    mockRawSession.sessionId = undefined;
+    mockGetRawSession.mockResolvedValue(mockRawSession as never);
+
     mockExchangeFitbitCode.mockResolvedValue({
-      access_token: "fitbit-access-token",
-      refresh_token: "fitbit-refresh-token",
-      user_id: "fitbit-user-123",
+      access_token: "token",
+      refresh_token: "refresh",
+      user_id: "user1",
       expires_in: 28800,
     });
 
-    await GET(makeCallbackRequest("valid-fitbit-code", "test-state", "test-state"));
-    expect(mockGetSession).toHaveBeenCalledTimes(1);
+    const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
+    expect(response.status).toBe(401);
+    const body = await response.json();
+    expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 401 when no authenticated session exists", async () => {
-    delete mockSession.sessionId;
-    mockGetSession.mockResolvedValue(mockSession as never);
+  it("returns 401 when DB session is expired", async () => {
+    mockGetSessionById.mockResolvedValue(null);
+
+    mockExchangeFitbitCode.mockResolvedValue({
+      access_token: "token",
+      refresh_token: "refresh",
+      user_id: "user1",
+      expires_in: 28800,
+    });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
     expect(response.status).toBe(401);

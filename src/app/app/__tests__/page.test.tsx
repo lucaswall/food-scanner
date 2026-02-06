@@ -1,35 +1,32 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import type { FullSession } from "@/types";
 
-vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
-
-// Mock iron-session
-vi.mock("iron-session", () => ({
-  getIronSession: vi.fn().mockResolvedValue({
-    sessionId: "test-session",
-    email: "test@example.com",
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 86400000,
-  }),
-}));
-
-// Mock next/headers
-vi.mock("next/headers", () => ({
-  cookies: vi.fn().mockResolvedValue({
-    get: vi.fn(),
-  }),
+const mockGetSession = vi.fn();
+vi.mock("@/lib/session", () => ({
+  getSession: () => mockGetSession(),
 }));
 
 const { default: AppPage } = await import("@/app/app/page");
 
+const validSession: FullSession = {
+  sessionId: "test-session",
+  email: "test@example.com",
+  expiresAt: Date.now() + 86400000,
+  fitbitConnected: true,
+  destroy: vi.fn(),
+};
+
 describe("/app page", () => {
   it("renders 'Food Scanner' heading", async () => {
+    mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
     expect(screen.getByText("Food Scanner")).toBeInTheDocument();
   });
 
   it("renders link to /settings", async () => {
+    mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
     const link = screen.getByRole("link", { name: /settings/i });
@@ -38,6 +35,7 @@ describe("/app page", () => {
   });
 
   it("settings button has proper aria-label", async () => {
+    mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
     const button = screen.getByRole("link", { name: /settings/i });
@@ -45,6 +43,7 @@ describe("/app page", () => {
   });
 
   it("settings button meets 44px touch target", async () => {
+    mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
     const button = screen.getByRole("link", { name: /settings/i });
@@ -54,6 +53,7 @@ describe("/app page", () => {
 
   describe("skip link", () => {
     it("renders skip link that is focusable", async () => {
+      mockGetSession.mockResolvedValue(validSession);
       const jsx = await AppPage();
       render(jsx);
       const skipLink = screen.getByRole("link", { name: /skip to main content/i });
@@ -62,15 +62,16 @@ describe("/app page", () => {
     });
 
     it("skip link is visually hidden but focusable", async () => {
+      mockGetSession.mockResolvedValue(validSession);
       const jsx = await AppPage();
       render(jsx);
       const skipLink = screen.getByRole("link", { name: /skip to main content/i });
-      // Check for sr-only class (visually hidden) but it should become visible on focus
       expect(skipLink).toHaveClass("sr-only");
       expect(skipLink).toHaveClass("focus:not-sr-only");
     });
 
     it("main content has correct id for skip link target", async () => {
+      mockGetSession.mockResolvedValue(validSession);
       const jsx = await AppPage();
       render(jsx);
       const mainElement = screen.getByRole("main");
