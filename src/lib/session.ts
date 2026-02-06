@@ -7,22 +7,29 @@ import { logger } from "@/lib/logger";
 import { getSessionById, deleteSession, touchSession } from "@/lib/session-db";
 import { getFitbitTokens } from "@/lib/fitbit-tokens";
 
-export const sessionOptions: SessionOptions = {
-  password: getRequiredEnv("SESSION_SECRET"),
-  cookieName: "food-scanner-session",
-  cookieOptions: {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax", // Must be "lax" for OAuth redirect flows
-    maxAge: 30 * 24 * 60 * 60, // 30 days
-    path: "/",
-  },
-};
+let _sessionOptions: SessionOptions | null = null;
+
+function getSessionOptions(): SessionOptions {
+  if (!_sessionOptions) {
+    _sessionOptions = {
+      password: getRequiredEnv("SESSION_SECRET"),
+      cookieName: "food-scanner-session",
+      cookieOptions: {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax", // Must be "lax" for OAuth redirect flows
+        maxAge: 30 * 24 * 60 * 60, // 30 days
+        path: "/",
+      },
+    };
+  }
+  return _sessionOptions;
+}
 
 /** Returns raw iron-session object for write operations (OAuth callbacks) */
 export async function getRawSession() {
   const cookieStore = await cookies();
-  return getIronSession<SessionData>(cookieStore, sessionOptions);
+  return getIronSession<SessionData>(cookieStore, getSessionOptions());
 }
 
 const TWENTY_NINE_DAYS_MS = 29 * 24 * 60 * 60 * 1000;

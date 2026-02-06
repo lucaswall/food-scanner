@@ -3,10 +3,17 @@ import type { FoodAnalysis } from "@/types";
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 
-const client = new Anthropic({
-  apiKey: getRequiredEnv("ANTHROPIC_API_KEY"),
-  timeout: 30000, // 30 second timeout as per ROADMAP.md
-});
+let _client: Anthropic | null = null;
+
+function getClient(): Anthropic {
+  if (!_client) {
+    _client = new Anthropic({
+      apiKey: getRequiredEnv("ANTHROPIC_API_KEY"),
+      timeout: 30000, // 30 second timeout as per ROADMAP.md
+    });
+  }
+  return _client;
+}
 
 const SYSTEM_PROMPT = `You are a nutrition analyst specializing in Argentine and Latin American cuisine.
 Analyze food images and descriptions to provide accurate nutritional information.
@@ -140,7 +147,7 @@ export async function analyzeFood(
         "calling Claude API for food analysis"
       );
 
-      const response = await client.messages.create({
+      const response = await getClient().messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 1024,
         system: SYSTEM_PROMPT,

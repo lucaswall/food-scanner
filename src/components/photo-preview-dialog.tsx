@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Dialog as DialogPrimitive } from "radix-ui";
+import Image from "next/image";
 import { X } from "lucide-react";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 
@@ -37,11 +38,13 @@ export function PhotoPreviewDialog({
           <VisuallyHidden>
             <DialogTitle>Photo Preview</DialogTitle>
           </VisuallyHidden>
-          <div className="relative flex items-center justify-center w-full h-full">
-            <img
+          <div className="relative flex items-center justify-center w-[95vw] h-[90vh]">
+            <Image
               src={imageUrl}
               alt={imageAlt}
-              className="max-w-full max-h-[90vh] object-contain rounded-lg"
+              fill
+              unoptimized
+              className="object-contain rounded-lg"
             />
             <Button
               variant="secondary"

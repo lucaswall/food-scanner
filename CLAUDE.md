@@ -315,3 +315,4 @@ LOG_LEVEL=info
 - **Same-origin deployment** — No CORS, no cross-domain cookie issues
 - **Keep documentation current** — When making changes that affect project structure, APIs, environment variables, setup steps, or deployment, update all relevant documentation files (`CLAUDE.md`, `README.md`, `DEVELOPMENT.md`) in the same changeset. Documentation must never drift from the actual codebase.
 - **No co-author attribution in commits** — Commit messages must NOT include `Co-Authored-By` tags. This applies to all commits created by agents (commit-bot, pr-creator) and skills.
+- **Zero warnings policy** — Build and lint must produce zero warnings. Fix all warnings immediately, including pre-existing ones. Use framework-appropriate solutions (e.g., `next/image` instead of `<img>`).
