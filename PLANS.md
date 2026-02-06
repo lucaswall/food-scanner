@@ -191,3 +191,32 @@ And re-validate after normalization that we still have at least 1 keyword.
 ## Notes
 
 - **No backward compatibility needed.** Project is in development; existing DB data will be wiped. No changes needed to `computeMatchRatio` or existing DB entries.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-06
+**Method:** Agent team (1 worker)
+
+### Tasks Completed This Iteration
+- Step 1: Write failing tests for keyword validation (FOO-172) - Added 5 new tests: multi-word normalization, trim/lowercase, deduplication, cap at 5, remove empty keywords (worker-1)
+- Step 2: Improve Claude prompt (FOO-172) - Replaced generic keywords description with constrained spec: 3-5 single-word tokens, priority order, hyphen compounds, brand/packaging exclusions (worker-1)
+- Step 3: Add server-side keyword normalization (FOO-172) - Added `normalizeKeywords()` function (trim, lowercase, spaces→hyphens, dedup, cap at 5), wired into `validateFoodAnalysis()` with post-normalization empty check (worker-1)
+
+### Files Modified
+- `src/lib/claude.ts` - Added `normalizeKeywords()` function, updated keywords prompt description, wired normalization into `validateFoodAnalysis()`
+- `src/lib/__tests__/claude.test.ts` - Added 5 new tests for keyword normalization behavior
+
+### Linear Updates
+- FOO-172: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 636 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Steps 1-3 (all files tightly coupled — single work unit)
+
+### Continuation Status
+All tasks completed.

@@ -53,7 +53,7 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       keywords: {
         type: "array",
         items: { type: "string" },
-        description: "Lowercase, normalized, language-agnostic tokens identifying this food. Include the food type, key distinguishing ingredients, and preparation method. Example: 'Tostadas con casancrem y huevos fritos' → ['tostada', 'casancrem', 'huevo', 'frito']",
+        description: "3 to 5 lowercase single-word tokens (no spaces) identifying this food for matching against previously logged foods. Priority order: (1) food type (e.g., cerveza, pizza, ensalada), (2) key modifiers that affect nutrition (e.g., integral, descremado, light), (3) main ingredients not implied by food type (e.g., jamon, queso), (4) preparation method if nutritionally relevant (e.g., frito, hervido). For compound concepts use hyphens: sin-alcohol, sin-tacc. Use singular form. Exclude: brand names, packaging (lata, botella), country of origin, marketing terms (original, clasico). Example: 'Clausthaler Original cerveza sin alcohol en lata' → ['cerveza', 'sin-alcohol']. Example: 'Pizza de jamón y muzzarella' → ['pizza', 'jamon', 'muzzarella'].",
       },
     },
     required: [
@@ -83,6 +83,20 @@ class ClaudeApiError extends Error {
     super(message);
     this.name = "CLAUDE_API_ERROR";
   }
+}
+
+function normalizeKeywords(raw: string[]): string[] {
+  const normalized = raw
+    .flatMap(k => {
+      const trimmed = k.trim().toLowerCase();
+      if (trimmed.length === 0) return [];
+      // Replace spaces with hyphens for compound concepts
+      return [trimmed.replace(/\s+/g, "-")];
+    })
+    .filter((k, i, arr) => arr.indexOf(k) === i) // deduplicate
+    .slice(0, 5); // cap at 5
+
+  return normalized;
 }
 
 function validateFoodAnalysis(input: unknown): FoodAnalysis {
@@ -132,6 +146,11 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
     throw new ClaudeApiError("Invalid food analysis: all keywords must be strings");
   }
 
+  const keywords = normalizeKeywords(data.keywords as string[]);
+  if (keywords.length === 0) {
+    throw new ClaudeApiError("Invalid food analysis: keywords must have at least 1 element");
+  }
+
   return {
     food_name: data.food_name as string,
     amount: data.amount as number,
@@ -144,7 +163,7 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
     sodium_mg: data.sodium_mg as number,
     confidence: data.confidence as FoodAnalysis["confidence"],
     notes: data.notes as string,
-    keywords: data.keywords as string[],
+    keywords,
   };
 }
 

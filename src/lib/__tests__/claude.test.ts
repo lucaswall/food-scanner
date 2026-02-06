@@ -618,6 +618,121 @@ describe("analyzeFood", () => {
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
+  it("normalizes multi-word keywords by splitting on spaces", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            keywords: ["cerveza", "sin alcohol", "clausthaler"],
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.keywords).toEqual(["cerveza", "sin-alcohol", "clausthaler"]);
+  });
+
+  it("trims and lowercases keywords", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            keywords: [" Cerveza ", "SIN-ALCOHOL"],
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
+  });
+
+  it("deduplicates keywords after normalization", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            keywords: ["cerveza", "cerveza", "sin-alcohol"],
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
+  });
+
+  it("caps keywords at 5 items keeping first 5", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            keywords: ["a", "b", "c", "d", "e", "f", "g"],
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.keywords).toHaveLength(5);
+  });
+
+  it("removes empty keywords after trimming", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            keywords: ["cerveza", "", "  ", "sin-alcohol"],
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
+  });
+
   it("includes keywords in tool schema required fields", async () => {
     mockCreate.mockResolvedValueOnce({
       content: [
