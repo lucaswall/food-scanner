@@ -22,7 +22,6 @@ export const FITBIT_UNITS = {
   tsp:     { id: 364, name: "tsp",     plural: "tsp" },
   ml:      { id: 211, name: "ml",      plural: "ml" },
   slice:   { id: 311, name: "slice",   plural: "slices" },
-  piece:   { id: 256, name: "piece",   plural: "pieces" },
   serving: { id: 304, name: "serving", plural: "servings" },
 } as const;
 

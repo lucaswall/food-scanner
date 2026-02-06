@@ -9,7 +9,7 @@ import type { FitbitUnitKey } from "@/types";
 describe("FITBIT_UNITS", () => {
   it("contains all expected unit keys", () => {
     const expectedKeys: FitbitUnitKey[] = [
-      "g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "piece", "serving",
+      "g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "serving",
     ];
     for (const key of expectedKeys) {
       expect(FITBIT_UNITS[key]).toBeDefined();
@@ -33,8 +33,13 @@ describe("FITBIT_UNITS", () => {
     expect(FITBIT_UNITS.tsp.id).toBe(364);
     expect(FITBIT_UNITS.ml.id).toBe(211);
     expect(FITBIT_UNITS.slice.id).toBe(311);
-    expect(FITBIT_UNITS.piece.id).toBe(256);
     expect(FITBIT_UNITS.serving.id).toBe(304);
+  });
+
+  it("does not map unit ID 256 as piece (256 is pint)", () => {
+    const unit = getUnitById(256);
+    // 256 is "pint" in Fitbit API, not "piece" — it should not be in our unit map
+    expect(unit).toBeUndefined();
   });
 });
 

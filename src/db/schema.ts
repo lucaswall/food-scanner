@@ -6,6 +6,7 @@ import {
   serial,
   numeric,
   integer,
+  bigint,
   date,
   time,
 } from "drizzle-orm/pg-core";
@@ -44,7 +45,7 @@ export const foodLogs = pgTable("food_logs", {
   mealTypeId: integer("meal_type_id").notNull(),
   date: date("date").notNull(),
   time: time("time"),
-  fitbitFoodId: integer("fitbit_food_id"),
-  fitbitLogId: integer("fitbit_log_id"),
+  fitbitFoodId: bigint("fitbit_food_id", { mode: "number" }),
+  fitbitLogId: bigint("fitbit_log_id", { mode: "number" }),
   loggedAt: timestamp("logged_at", { withTimezone: true }).defaultNow().notNull(),
 });

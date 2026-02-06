@@ -37,7 +37,7 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       },
       unit_id: {
         type: "number",
-        description: "Fitbit measurement unit ID. Use: 147=gram, 91=cup, 226=oz, 349=tbsp, 364=tsp, 211=ml, 311=slice, 256=piece, 304=serving. Choose the most natural unit for the food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).",
+        description: "Fitbit measurement unit ID. Use: 147=gram, 91=cup, 226=oz, 349=tbsp, 364=tsp, 211=ml, 311=slice, 304=serving. Choose the most natural unit for the food (e.g., cups for beverages, grams for solid food, slices for pizza/bread, serving for individual items).",
       },
       calories: { type: "number" },
       protein_g: { type: "number" },
