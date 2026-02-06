@@ -4,7 +4,7 @@ import type { SessionData, FullSession } from "@/types";
 import { getRequiredEnv } from "@/lib/env";
 import { errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
-import { getSessionById, deleteSession } from "@/lib/session-db";
+import { getSessionById, deleteSession, touchSession } from "@/lib/session-db";
 import { getFitbitTokens } from "@/lib/fitbit-tokens";
 
 export const sessionOptions: SessionOptions = {
@@ -25,6 +25,8 @@ export async function getRawSession() {
   return getIronSession<SessionData>(cookieStore, sessionOptions);
 }
 
+const TWENTY_NINE_DAYS_MS = 29 * 24 * 60 * 60 * 1000;
+
 /** Returns full session data from cookie + DB, or null if no valid session */
 export async function getSession(): Promise<FullSession | null> {
   const rawSession = await getRawSession();
@@ -36,6 +38,18 @@ export async function getSession(): Promise<FullSession | null> {
   const dbSession = await getSessionById(rawSession.sessionId);
   if (!dbSession) {
     return null;
+  }
+
+  // Sliding expiration: extend session if it expires in less than 29 days.
+  // This debounces to at most once per day of active use (30 - 29 = 1 day window).
+  const msUntilExpiry = dbSession.expiresAt.getTime() - Date.now();
+  if (msUntilExpiry < TWENTY_NINE_DAYS_MS) {
+    touchSession(dbSession.id).catch((err) => {
+      logger.warn(
+        { action: "touch_session_error", error: err instanceof Error ? err.message : String(err) },
+        "failed to extend session expiration",
+      );
+    });
   }
 
   const fitbitTokens = await getFitbitTokens(dbSession.email);

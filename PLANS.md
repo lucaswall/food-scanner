@@ -490,3 +490,43 @@ No issues found — all implementations are correct and follow project conventio
 
 ### Continuation Status
 Point budget reached (~160 points consumed). More tasks remain.
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Task 8: Add sliding session expiration — touchSession() called in getSession() when expiresAt < 29 days from now, fire-and-forget with error logging
+- Task 9: Add food logging to database — created src/lib/food-log.ts with insertFoodLog(), updated log-food route to insert after Fitbit success (non-fatal), added foodLogId to FoodLogResponse
+- Task 11: Update DEVELOPMENT.md with Docker Postgres setup — added Docker prerequisite, "Start Database" step, DATABASE_URL in env template, database commands table
+- Task 12: Update CLAUDE.md with database conventions — updated tech stack, structure, added DATABASE section, added DATABASE_URL to env vars
+- Task 13: Integration & Verification — 469 tests pass, typecheck clean, lint clean (2 pre-existing warnings), build compiles successfully
+
+### Tasks Remaining
+None — all tasks complete.
+
+### Files Modified
+- `src/lib/session.ts` — Added sliding expiration (touchSession call with debounce)
+- `src/lib/__tests__/session.test.ts` — Added sliding expiration tests, added touchSession mock
+- `src/lib/food-log.ts` — Created: insertFoodLog with FoodLogInput interface
+- `src/lib/__tests__/food-log.test.ts` — Created: 4 tests for insertFoodLog
+- `src/app/api/log-food/route.ts` — Added insertFoodLog call after Fitbit success, non-fatal catch
+- `src/app/api/log-food/__tests__/route.test.ts` — Added insertFoodLog mock, 2 new tests (DB success + DB failure)
+- `src/types/index.ts` — Added foodLogId to FoodLogResponse
+- `DEVELOPMENT.md` — Docker prerequisite, database setup steps, DATABASE_URL, commands table
+- `CLAUDE.md` — Tech stack, structure, DATABASE section, DATABASE_URL env var
+
+### Linear Updates
+- FOO-119: Todo → In Progress → Review
+- FOO-120: Todo → In Progress → Review
+- FOO-122: Todo → In Progress → Review
+- FOO-123: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 issues (0 HIGH, 3 MEDIUM, 1 LOW). Fixed 3: Bug 1 (silent catch in touchSession → added logger.warn), Bug 3 (missing insertFoodLog mock in existing tests → added to beforeEach), Bug 4 (loose confidence type → tightened to union). Bug 2 (test fragility for fire-and-forget mock assertion) deferred — test is correct due to synchronous mock recording.
+- verifier: All 469 tests pass, zero typecheck errors, zero lint errors (2 pre-existing warnings)
+
+### Continuation Status
+All tasks completed.

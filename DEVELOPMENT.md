@@ -5,6 +5,7 @@
 - Node.js 20+
 - npm
 - Git
+- Docker (via [Docker Desktop](https://www.docker.com/products/docker-desktop/) or [OrbStack](https://orbstack.dev/)) — for local PostgreSQL
 - [Railway CLI](https://docs.railway.com/guides/cli) (for deployment monitoring)
 
 ## Local Setup
@@ -17,11 +18,27 @@ cd food-scanner
 npm install
 ```
 
-### 2. Environment Variables
+### 2. Start Database
+
+```bash
+docker compose up -d
+```
+
+This starts a local PostgreSQL instance on port 5432. To stop it:
+
+```bash
+docker compose down        # Stop (data persisted)
+docker compose down -v     # Stop and delete all data
+```
+
+### 3. Environment Variables
 
 Create `.env.local`:
 
 ```bash
+# Database
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/food_scanner
+
 # Session (iron-session password, min 32 characters)
 # Generate with: openssl rand -base64 32
 SESSION_SECRET=at-least-32-characters-long-random-string
@@ -49,7 +66,9 @@ LOG_LEVEL=debug
 
 Google and Fitbit OAuth credentials are required for the auth flow. See the **OAuth Setup for Local Development** section below. Anthropic API key is required for food analysis — see the **Anthropic API Setup** section below.
 
-### 3. Run Development Server
+> **Note:** Migrations run automatically when you start the dev server (`npm run dev`).
+
+### 4. Run Development Server
 
 ```bash
 npm run dev
@@ -57,7 +76,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### 4. Verify
+### 5. Verify
 
 ```bash
 curl http://localhost:3000/api/health
@@ -77,6 +96,10 @@ Should return `{ "success": true, "data": { "status": "ok" }, "timestamp": ... }
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript type checking |
 | `npm test` | Run tests |
+| `docker compose up -d` | Start local PostgreSQL |
+| `docker compose down` | Stop local PostgreSQL |
+| `npx drizzle-kit generate` | Generate migration from schema changes |
+| `npx drizzle-kit studio` | Open Drizzle Studio (DB browser) |
 
 ---
 

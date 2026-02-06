@@ -24,9 +24,11 @@ vi.mock("next/headers", () => ({
 
 const mockGetSessionById = vi.fn();
 const mockDeleteSession = vi.fn();
+const mockTouchSession = vi.fn();
 vi.mock("@/lib/session-db", () => ({
   getSessionById: (...args: unknown[]) => mockGetSessionById(...args),
   deleteSession: (...args: unknown[]) => mockDeleteSession(...args),
+  touchSession: (...args: unknown[]) => mockTouchSession(...args),
 }));
 
 const mockGetFitbitTokens = vi.fn();
@@ -37,6 +39,7 @@ vi.mock("@/lib/fitbit-tokens", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mockDeleteSession.mockResolvedValue(undefined);
+  mockTouchSession.mockResolvedValue(undefined);
   mockGetFitbitTokens.mockResolvedValue(null);
 });
 
@@ -167,6 +170,46 @@ describe("getSession", () => {
 
     expect(mockDeleteSession).toHaveBeenCalledWith("abc-123");
     expect(mockCookieDestroy).toHaveBeenCalled();
+  });
+
+  it("calls touchSession when expiresAt is less than 29 days from now", async () => {
+    // Session expires in 20 days — that's less than 29 days, so it should be touched
+    const twentyDaysMs = 20 * 24 * 60 * 60 * 1000;
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "abc-123",
+      save: vi.fn(),
+      destroy: vi.fn(),
+    });
+    mockGetSessionById.mockResolvedValue({
+      id: "abc-123",
+      email: "test@example.com",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + twentyDaysMs),
+    });
+
+    await getSession();
+
+    expect(mockTouchSession).toHaveBeenCalledWith("abc-123");
+  });
+
+  it("does NOT call touchSession when expiresAt is more than 29 days from now", async () => {
+    // Session expires in 29.5 days — recently touched, no need to extend
+    const twentyNineAndHalfDaysMs = 29.5 * 24 * 60 * 60 * 1000;
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "abc-123",
+      save: vi.fn(),
+      destroy: vi.fn(),
+    });
+    mockGetSessionById.mockResolvedValue({
+      id: "abc-123",
+      email: "test@example.com",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + twentyNineAndHalfDaysMs),
+    });
+
+    await getSession();
+
+    expect(mockTouchSession).not.toHaveBeenCalled();
   });
 });
 

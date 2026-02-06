@@ -11,7 +11,7 @@ Breaking changes OK. No backward compatibility required. Delete unused code imme
 Single-user web application for logging food to Fitbit using AI-powered nutritional analysis. User takes photos of food, adds optional text description, Claude Sonnet analyzes nutrition information via tool_use, user confirms/edits, and data is posted directly to Fitbit API.
 
 **Single authorized user:** wall.lucas@gmail.com
-**No database:** All state managed via encrypted browser cookies (iron-session).
+**Database:** PostgreSQL via Drizzle ORM — sessions, Fitbit tokens, and food logs stored in DB. iron-session cookies used for session ID transport only.
 
 ---
 
@@ -23,7 +23,8 @@ Single-user web application for logging food to Fitbit using AI-powered nutritio
 | Language | TypeScript (strict mode) |
 | Styling | Tailwind CSS + shadcn/ui |
 | Testing | Vitest + Testing Library |
-| Session | iron-session (encrypted httpOnly cookies) |
+| Database | PostgreSQL + Drizzle ORM |
+| Session | iron-session (cookie transport) + PostgreSQL (session data) |
 | Auth | Google OAuth 2.0 + Fitbit OAuth 2.0 |
 | AI | Anthropic Claude API (tool_use) |
 | Logging | pino (structured JSON, Railway-optimized) |
@@ -73,8 +74,15 @@ food-scanner/
 │   ├── hooks/
 │   │   ├── use-keyboard-shortcuts.ts     # Keyboard shortcuts (Ctrl+Enter, Escape)
 │   │   └── use-theme.ts                  # Dark mode with localStorage persistence
+│   ├── db/
+│   │   ├── schema.ts                     # Drizzle schema (source of truth for DB tables)
+│   │   ├── index.ts                      # Singleton DB connection (getDb)
+│   │   └── migrate.ts                    # Migration runner (called at startup)
 │   ├── lib/
-│   │   ├── session.ts                    # iron-session config + getSession()
+│   │   ├── session.ts                    # iron-session config + getSession() (DB-backed)
+│   │   ├── session-db.ts                 # Session CRUD (createSession, getSessionById, touchSession, deleteSession)
+│   │   ├── fitbit-tokens.ts              # Fitbit token CRUD (getFitbitTokens, upsertFitbitTokens, deleteFitbitTokens)
+│   │   ├── food-log.ts                   # Food log insert (insertFoodLog)
 │   │   ├── api-response.ts              # Standardized API response helpers
 │   │   ├── url.ts                        # APP_URL helper + buildUrl()
 │   │   ├── logger.ts                     # pino structured logging
@@ -85,6 +93,9 @@ food-scanner/
 │   │   └── haptics.ts                    # Mobile haptic feedback (Vibration API)
 │   ├── types/                            # Shared TypeScript types
 │   └── test-setup.ts                     # Vitest global test setup
+├── drizzle/                              # Generated SQL migration files
+├── drizzle.config.ts                     # Drizzle Kit configuration
+├── docker-compose.yml                    # Local Postgres for development
 ├── middleware.ts                          # Auth enforcement for protected routes
 ├── ROADMAP.md                            # Full project specification
 ├── CLAUDE.md                             # This file
@@ -183,6 +194,24 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 
 ---
 
+## DATABASE
+
+- **ORM:** Drizzle ORM with `pg` driver
+- **Schema:** Defined in TypeScript at `src/db/schema.ts` (source of truth for DB tables)
+- **Tables:** `sessions`, `fitbit_tokens`, `food_logs`
+- **Migrations:** Generated via `npx drizzle-kit generate`, applied at startup via programmatic `migrate()` in `src/db/migrate.ts`
+- **Connection:** Singleton via `getDb()` in `src/db/index.ts`
+- **Local dev:** Docker Compose Postgres (`docker compose up -d`)
+- **Production:** Railway Postgres (`DATABASE_URL` reference variable)
+
+### Conventions
+- Use Drizzle query builder — **never raw SQL**
+- All DB access through `src/lib/` modules (`session-db.ts`, `fitbit-tokens.ts`, `food-log.ts`) — route handlers never import from `src/db/` directly
+- Schema changes: edit `src/db/schema.ts`, then run `npx drizzle-kit generate` to create migration
+- Migration files in `drizzle/` must be committed to git
+
+---
+
 ## SUBAGENTS
 
 | Agent | Model | Purpose | Trigger |
@@ -246,6 +275,9 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 # Server
 PORT=3000
 NODE_ENV=production
+
+# Database
+DATABASE_URL=
 
 # Google OAuth
 GOOGLE_CLIENT_ID=

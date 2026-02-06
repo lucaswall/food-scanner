@@ -46,6 +46,12 @@ vi.mock("@/lib/fitbit", () => ({
   ensureFreshToken: mockEnsureFreshToken,
 }));
 
+// Mock food-log DB module
+const mockInsertFoodLog = vi.fn();
+vi.mock("@/lib/food-log", () => ({
+  insertFoodLog: (...args: unknown[]) => mockInsertFoodLog(...args),
+}));
+
 const { POST } = await import("@/app/api/log-food/route");
 
 const validSession: FullSession = {
@@ -79,6 +85,7 @@ function createMockRequest(body: Partial<FoodLogRequest>): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockInsertFoodLog.mockResolvedValue({ id: 1, loggedAt: new Date() });
 });
 
 describe("POST /api/log-food", () => {
@@ -377,6 +384,7 @@ describe("POST /api/log-food", () => {
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
+    mockInsertFoodLog.mockResolvedValue({ id: 1, loggedAt: new Date() });
 
     const request = createMockRequest({
       ...validFoodLogRequest,
@@ -395,5 +403,61 @@ describe("POST /api/log-food", () => {
       "2024-01-15",
       "12:30:00"
     );
+  });
+
+  it("calls insertFoodLog after successful Fitbit logging", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+    mockInsertFoodLog.mockResolvedValue({ id: 42, loggedAt: new Date() });
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(mockInsertFoodLog).toHaveBeenCalledWith(
+      "test@example.com",
+      expect.objectContaining({
+        foodName: "Test Food",
+        amount: 100,
+        unitId: 147,
+        calories: 150,
+        proteinG: 10,
+        carbsG: 20,
+        fatG: 5,
+        fiberG: 3,
+        sodiumMg: 200,
+        confidence: "high",
+        notes: "Test notes",
+        mealTypeId: 1,
+        fitbitFoodId: 123,
+        fitbitLogId: 456,
+      }),
+    );
+    const body = await response.json();
+    expect(body.data.foodLogId).toBe(42);
+  });
+
+  it("returns success even if DB insert fails (non-fatal)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+    mockInsertFoodLog.mockRejectedValue(new Error("DB connection failed"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.fitbitFoodId).toBe(123);
+    expect(body.data.fitbitLogId).toBe(456);
+    expect(body.data.foodLogId).toBeUndefined();
   });
 });

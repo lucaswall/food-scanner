@@ -2,6 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood } from "@/lib/fitbit";
+import { insertFoodLog } from "@/lib/food-log";
 import type { FoodLogRequest, FoodLogResponse } from "@/types";
 import { FitbitMealType } from "@/types";
 
@@ -151,11 +152,41 @@ export async function POST(request: Request) {
       body.time
     );
 
+    // Log to database (non-fatal — Fitbit is the primary operation)
+    let foodLogId: number | undefined;
+    try {
+      const dbResult = await insertFoodLog(session!.email, {
+        foodName: body.food_name,
+        amount: body.amount,
+        unitId: body.unit_id,
+        calories: body.calories,
+        proteinG: body.protein_g,
+        carbsG: body.carbs_g,
+        fatG: body.fat_g,
+        fiberG: body.fiber_g,
+        sodiumMg: body.sodium_mg,
+        confidence: body.confidence,
+        notes: body.notes,
+        mealTypeId: body.mealTypeId,
+        date: date,
+        time: body.time ?? null,
+        fitbitFoodId: foodId,
+        fitbitLogId: logResult.foodLog.logId,
+      });
+      foodLogId = dbResult.id;
+    } catch (dbError) {
+      logger.error(
+        { action: "food_log_db_error", error: dbError instanceof Error ? dbError.message : String(dbError) },
+        "failed to insert food log to database"
+      );
+    }
+
     const response: FoodLogResponse = {
       success: true,
       fitbitFoodId: foodId,
       fitbitLogId: logResult.foodLog.logId,
       reusedFood: reused,
+      foodLogId,
     };
 
     logger.info(
@@ -164,6 +195,7 @@ export async function POST(request: Request) {
         foodId,
         logId: logResult.foodLog.logId,
         reused,
+        foodLogId,
       },
       "food logged successfully"
     );
