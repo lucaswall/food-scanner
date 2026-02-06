@@ -1,18 +1,29 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { FoodLogRequest, SessionData } from "@/types";
+import type { FoodLogRequest, FullSession } from "@/types";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
-// Mock iron-session
-vi.mock("iron-session", () => ({
-  getIronSession: vi.fn(),
-}));
-
-// Mock next/headers
-vi.mock("next/headers", () => ({
-  cookies: vi.fn().mockResolvedValue({
-    get: vi.fn(),
-  }),
+const mockGetSession = vi.fn();
+vi.mock("@/lib/session", () => ({
+  getSession: () => mockGetSession(),
+  validateSession: (
+    session: FullSession | null,
+    options?: { requireFitbit?: boolean },
+  ): Response | null => {
+    if (!session) {
+      return Response.json(
+        { success: false, error: { code: "AUTH_MISSING_SESSION", message: "No active session" }, timestamp: Date.now() },
+        { status: 401 },
+      );
+    }
+    if (options?.requireFitbit && !session.fitbitConnected) {
+      return Response.json(
+        { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
+        { status: 400 },
+      );
+    }
+    return null;
+  },
 }));
 
 // Mock logger
@@ -35,22 +46,20 @@ vi.mock("@/lib/fitbit", () => ({
   ensureFreshToken: mockEnsureFreshToken,
 }));
 
-const { getIronSession } = await import("iron-session");
+// Mock food-log DB module
+const mockInsertFoodLog = vi.fn();
+vi.mock("@/lib/food-log", () => ({
+  insertFoodLog: (...args: unknown[]) => mockInsertFoodLog(...args),
+}));
+
 const { POST } = await import("@/app/api/log-food/route");
 
-const mockGetIronSession = vi.mocked(getIronSession);
-
-const validSession: SessionData = {
+const validSession: FullSession = {
   sessionId: "test-session",
   email: "test@example.com",
-  createdAt: Date.now(),
   expiresAt: Date.now() + 86400000,
-  fitbit: {
-    accessToken: "token",
-    refreshToken: "refresh",
-    userId: "user-123",
-    expiresAt: Date.now() + 28800000,
-  },
+  fitbitConnected: true,
+  destroy: vi.fn(),
 };
 
 const validFoodLogRequest: FoodLogRequest = {
@@ -76,13 +85,12 @@ function createMockRequest(body: Partial<FoodLogRequest>): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockInsertFoodLog.mockResolvedValue({ id: 1, loggedAt: new Date() });
 });
 
 describe("POST /api/log-food", () => {
   it("returns 401 for missing session", async () => {
-    mockGetIronSession.mockResolvedValue({
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(null);
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
@@ -92,37 +100,11 @@ describe("POST /api/log-food", () => {
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 401 AUTH_SESSION_EXPIRED for expired session", async () => {
-    mockGetIronSession.mockResolvedValue({
-      sessionId: "test-session",
-      email: "test@example.com",
-      createdAt: Date.now() - 86400000,
-      expiresAt: Date.now() - 1000, // Expired 1 second ago
-      fitbit: {
-        accessToken: "token",
-        refreshToken: "refresh",
-        userId: "user-123",
-        expiresAt: Date.now() + 28800000,
-      },
-      save: vi.fn(),
-    } as never);
-
-    const request = createMockRequest(validFoodLogRequest);
-    const response = await POST(request);
-
-    expect(response.status).toBe(401);
-    const body = await response.json();
-    expect(body.error.code).toBe("AUTH_SESSION_EXPIRED");
-  });
-
   it("returns 400 FITBIT_NOT_CONNECTED if no Fitbit tokens", async () => {
-    mockGetIronSession.mockResolvedValue({
-      sessionId: "test-session",
-      email: "test@example.com",
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 86400000,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue({
+      ...validSession,
+      fitbitConnected: false,
+    });
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
@@ -133,14 +115,11 @@ describe("POST /api/log-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR for invalid mealTypeId", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest({
       ...validFoodLogRequest,
-      mealTypeId: 6, // Invalid - 6 is not a valid meal type (valid: 1,2,3,4,5,7)
+      mealTypeId: 6,
     });
     const response = await POST(request);
 
@@ -151,10 +130,7 @@ describe("POST /api/log-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR for missing unit_id", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { unit_id, ...requestWithoutUnitId } = validFoodLogRequest;
@@ -167,14 +143,10 @@ describe("POST /api/log-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR for missing required FoodAnalysis fields", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest({
       mealTypeId: 1,
-      // Missing food_name, calories, etc.
     });
     const response = await POST(request);
 
@@ -184,11 +156,7 @@ describe("POST /api/log-food", () => {
   });
 
   it("returns 200 with FoodLogResponse on success", async () => {
-    const mockSave = vi.fn();
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: mockSave,
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
@@ -206,11 +174,22 @@ describe("POST /api/log-food", () => {
     expect(body.data.reusedFood).toBe(false);
   });
 
+  it("passes email to ensureFreshToken", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+
+    const request = createMockRequest(validFoodLogRequest);
+    await POST(request);
+
+    expect(mockEnsureFreshToken).toHaveBeenCalledWith("test@example.com");
+  });
+
   it("returns 500 FITBIT_API_ERROR on Fitbit failure", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockRejectedValue(new Error("FITBIT_API_ERROR"));
 
@@ -223,10 +202,7 @@ describe("POST /api/log-food", () => {
   });
 
   it("returns 401 FITBIT_TOKEN_INVALID triggers reconnect prompt", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
 
     const request = createMockRequest(validFoodLogRequest);
@@ -239,10 +215,7 @@ describe("POST /api/log-food", () => {
   });
 
   it("returns reusedFood=false when food is logged", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 111, reused: false });
     mockLogFood.mockResolvedValue({
@@ -262,10 +235,7 @@ describe("POST /api/log-food", () => {
 
     for (const mealTypeId of validMealTypeIds) {
       vi.clearAllMocks();
-      mockGetIronSession.mockResolvedValue({
-        ...validSession,
-        save: vi.fn(),
-      } as never);
+      mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
       mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
       mockLogFood.mockResolvedValue({
@@ -283,10 +253,7 @@ describe("POST /api/log-food", () => {
   });
 
   it("uses provided date in logFood call", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
@@ -303,18 +270,15 @@ describe("POST /api/log-food", () => {
       "fresh-token",
       123,
       1,
-      100, // amount from validFoodLogRequest
-      147, // unit_id from validFoodLogRequest
+      100,
+      147,
       "2024-01-15",
       undefined
     );
   });
 
   it("uses current date when date not provided", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
@@ -324,28 +288,23 @@ describe("POST /api/log-food", () => {
     const request = createMockRequest(validFoodLogRequest);
     await POST(request);
 
-    // Should use today's date format YYYY-MM-DD
     expect(mockLogFood).toHaveBeenCalledWith(
       "fresh-token",
       123,
       1,
-      100, // amount from validFoodLogRequest
-      147, // unit_id from validFoodLogRequest
+      100,
+      147,
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       undefined
     );
   });
 
   it("returns 400 VALIDATION_ERROR for invalid date format", async () => {
-    // Test formats that don't match YYYY-MM-DD pattern
     const invalidDates = ["invalid-date", "01-15-2024", "2024/01/15", "2024-1-15", "24-01-15"];
 
     for (const date of invalidDates) {
       vi.clearAllMocks();
-      mockGetIronSession.mockResolvedValue({
-        ...validSession,
-        save: vi.fn(),
-      } as never);
+      mockGetSession.mockResolvedValue(validSession);
 
       const request = createMockRequest({
         ...validFoodLogRequest,
@@ -361,15 +320,11 @@ describe("POST /api/log-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR for invalid time format", async () => {
-    // Test formats that don't match HH:mm:ss pattern
     const invalidTimes = ["invalid-time", "12:00", "12:00:00:00", "1:00:00", "12:0:00"];
 
     for (const time of invalidTimes) {
       vi.clearAllMocks();
-      mockGetIronSession.mockResolvedValue({
-        ...validSession,
-        save: vi.fn(),
-      } as never);
+      mockGetSession.mockResolvedValue(validSession);
 
       const request = createMockRequest({
         ...validFoodLogRequest,
@@ -389,10 +344,7 @@ describe("POST /api/log-food", () => {
 
     for (const date of invalidDates) {
       vi.clearAllMocks();
-      mockGetIronSession.mockResolvedValue({
-        ...validSession,
-        save: vi.fn(),
-      } as never);
+      mockGetSession.mockResolvedValue(validSession);
 
       const request = createMockRequest({
         ...validFoodLogRequest,
@@ -411,10 +363,7 @@ describe("POST /api/log-food", () => {
 
     for (const time of invalidTimes) {
       vi.clearAllMocks();
-      mockGetIronSession.mockResolvedValue({
-        ...validSession,
-        save: vi.fn(),
-      } as never);
+      mockGetSession.mockResolvedValue(validSession);
 
       const request = createMockRequest({
         ...validFoodLogRequest,
@@ -429,15 +378,13 @@ describe("POST /api/log-food", () => {
   });
 
   it("accepts valid date and time formats", async () => {
-    mockGetIronSession.mockResolvedValue({
-      ...validSession,
-      save: vi.fn(),
-    } as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
+    mockInsertFoodLog.mockResolvedValue({ id: 1, loggedAt: new Date() });
 
     const request = createMockRequest({
       ...validFoodLogRequest,
@@ -451,10 +398,66 @@ describe("POST /api/log-food", () => {
       "fresh-token",
       123,
       1,
-      100, // amount from validFoodLogRequest
-      147, // unit_id from validFoodLogRequest
+      100,
+      147,
       "2024-01-15",
       "12:30:00"
     );
+  });
+
+  it("calls insertFoodLog after successful Fitbit logging", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+    mockInsertFoodLog.mockResolvedValue({ id: 42, loggedAt: new Date() });
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(mockInsertFoodLog).toHaveBeenCalledWith(
+      "test@example.com",
+      expect.objectContaining({
+        foodName: "Test Food",
+        amount: 100,
+        unitId: 147,
+        calories: 150,
+        proteinG: 10,
+        carbsG: 20,
+        fatG: 5,
+        fiberG: 3,
+        sodiumMg: 200,
+        confidence: "high",
+        notes: "Test notes",
+        mealTypeId: 1,
+        fitbitFoodId: 123,
+        fitbitLogId: 456,
+      }),
+    );
+    const body = await response.json();
+    expect(body.data.foodLogId).toBe(42);
+  });
+
+  it("returns success even if DB insert fails (non-fatal)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+    mockInsertFoodLog.mockRejectedValue(new Error("DB connection failed"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.fitbitFoodId).toBe(123);
+    expect(body.data.fitbitLogId).toBe(456);
+    expect(body.data.foodLogId).toBeUndefined();
   });
 });

@@ -4,7 +4,10 @@ import { logger } from "@/lib/logger";
 
 export async function POST() {
   const session = await getSession();
-  await session.destroy();
+
+  if (session) {
+    await session.destroy();
+  }
 
   logger.info({ action: "logout" }, "user logged out");
 

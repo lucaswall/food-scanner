@@ -1,19 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { FoodAnalysis } from "@/types";
+import type { FoodAnalysis, FullSession } from "@/types";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
 
-// Mock iron-session
-vi.mock("iron-session", () => ({
-  getIronSession: vi.fn(),
-}));
-
-// Mock next/headers
-vi.mock("next/headers", () => ({
-  cookies: vi.fn().mockResolvedValue({
-    get: vi.fn(),
-  }),
+const mockGetSession = vi.fn();
+vi.mock("@/lib/session", () => ({
+  getSession: () => mockGetSession(),
+  validateSession: (
+    session: FullSession | null,
+    options?: { requireFitbit?: boolean },
+  ): Response | null => {
+    if (!session) {
+      return Response.json(
+        { success: false, error: { code: "AUTH_MISSING_SESSION", message: "No active session" }, timestamp: Date.now() },
+        { status: 401 },
+      );
+    }
+    if (options?.requireFitbit && !session.fitbitConnected) {
+      return Response.json(
+        { success: false, error: { code: "FITBIT_NOT_CONNECTED", message: "Fitbit account not connected" }, timestamp: Date.now() },
+        { status: 400 },
+      );
+    }
+    return null;
+  },
 }));
 
 // Mock logger
@@ -32,23 +43,15 @@ vi.mock("@/lib/claude", () => ({
   analyzeFood: mockAnalyzeFood,
 }));
 
-const { getIronSession } = await import("iron-session");
 const { POST } = await import("@/app/api/analyze-food/route");
 const { logger } = await import("@/lib/logger");
 
-const mockGetIronSession = vi.mocked(getIronSession);
-
-const validSession = {
+const validSession: FullSession = {
   sessionId: "test-session",
   email: "test@example.com",
-  createdAt: Date.now(),
   expiresAt: Date.now() + 86400000,
-  fitbit: {
-    accessToken: "token",
-    refreshToken: "refresh",
-    userId: "user-123",
-    expiresAt: Date.now() + 28800000,
-  },
+  fitbitConnected: true,
+  destroy: vi.fn(),
 };
 
 const validAnalysis: FoodAnalysis = {
@@ -113,7 +116,7 @@ beforeEach(() => {
 
 describe("POST /api/analyze-food", () => {
   it("returns 401 for missing session", async () => {
-    mockGetIronSession.mockResolvedValue({} as never);
+    mockGetSession.mockResolvedValue(null);
 
     const request = createMockRequest([
       createMockFile("test.jpg", "image/jpeg", 1000),
@@ -125,37 +128,11 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 401 AUTH_SESSION_EXPIRED for expired session", async () => {
-    mockGetIronSession.mockResolvedValue({
-      sessionId: "test-session",
-      email: "test@example.com",
-      createdAt: Date.now() - 86400000,
-      expiresAt: Date.now() - 1000, // Expired 1 second ago
-      fitbit: {
-        accessToken: "token",
-        refreshToken: "refresh",
-        userId: "user-123",
-        expiresAt: Date.now() + 28800000,
-      },
-    } as never);
-
-    const request = createMockRequest([
-      createMockFile("test.jpg", "image/jpeg", 1000),
-    ]);
-
-    const response = await POST(request);
-    expect(response.status).toBe(401);
-    const body = await response.json();
-    expect(body.error.code).toBe("AUTH_SESSION_EXPIRED");
-  });
-
-  it("returns 400 FITBIT_NOT_CONNECTED when session.fitbit is missing", async () => {
-    mockGetIronSession.mockResolvedValue({
-      sessionId: "test-session",
-      email: "test@example.com",
-      createdAt: Date.now(),
-      expiresAt: Date.now() + 86400000,
-    } as never);
+  it("returns 400 FITBIT_NOT_CONNECTED when fitbit is not connected", async () => {
+    mockGetSession.mockResolvedValue({
+      ...validSession,
+      fitbitConnected: false,
+    });
 
     const request = createMockRequest([
       createMockFile("test.jpg", "image/jpeg", 1000),
@@ -168,7 +145,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR for no images", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest([]);
 
@@ -180,7 +157,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR for more than 3 images", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest([
       createMockFile("test1.jpg", "image/jpeg", 1000),
@@ -197,7 +174,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("accepts GIF images (image/gif)", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockAnalyzeFood.mockResolvedValue(validAnalysis);
 
     const request = createMockRequest([
@@ -211,7 +188,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("accepts WebP images (image/webp)", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockAnalyzeFood.mockResolvedValue(validAnalysis);
 
     const request = createMockRequest([
@@ -225,7 +202,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR for unsupported image type", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest([
       createMockFile("test.bmp", "image/bmp", 1000),
@@ -239,7 +216,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR for image over 10MB", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest([
       createMockFile("test.jpg", "image/jpeg", 11 * 1024 * 1024),
@@ -253,7 +230,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("returns 200 with FoodAnalysis for valid request", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockAnalyzeFood.mockResolvedValue(validAnalysis);
 
     const request = createMockRequest(
@@ -269,7 +246,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("returns 500 CLAUDE_API_ERROR on Claude failure", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
     const error = new Error("Claude API failed");
     error.name = "CLAUDE_API_ERROR";
     mockAnalyzeFood.mockRejectedValue(error);
@@ -285,7 +262,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("logs appropriate actions", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockAnalyzeFood.mockResolvedValue(validAnalysis);
 
     const request = createMockRequest(
@@ -302,7 +279,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("supports PNG images", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockAnalyzeFood.mockResolvedValue(validAnalysis);
 
     const request = createMockRequest([
@@ -314,7 +291,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("supports multiple images", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockAnalyzeFood.mockResolvedValue(validAnalysis);
 
     const request = createMockRequest([
@@ -335,7 +312,7 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("passes description to analyzeFood", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
     mockAnalyzeFood.mockResolvedValue(validAnalysis);
 
     const request = createMockRequest(
@@ -352,9 +329,8 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR when images contains non-File values", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
 
-    // Create a request where getAll("images") returns a mix of strings and files
     const mockFile = createMockFile("test.jpg", "image/jpeg", 1000);
     const formData = {
       getAll: (key: string) =>
@@ -373,9 +349,8 @@ describe("POST /api/analyze-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR when description is a File", async () => {
-    mockGetIronSession.mockResolvedValue(validSession as never);
+    mockGetSession.mockResolvedValue(validSession);
 
-    // Create a request where get("description") returns a File object
     const mockFile = createMockFile("test.jpg", "image/jpeg", 1000);
     const descriptionFile = createMockFile("desc.txt", "text/plain", 100);
     const formData = {

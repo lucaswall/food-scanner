@@ -5,6 +5,7 @@
 - Node.js 20+
 - npm
 - Git
+- Docker (via [Docker Desktop](https://www.docker.com/products/docker-desktop/) or [OrbStack](https://orbstack.dev/)) — for local PostgreSQL
 - [Railway CLI](https://docs.railway.com/guides/cli) (for deployment monitoring)
 
 ## Local Setup
@@ -17,39 +18,55 @@ cd food-scanner
 npm install
 ```
 
-### 2. Environment Variables
-
-Create `.env.local`:
+### 2. Start Database
 
 ```bash
-# Session (iron-session password, min 32 characters)
-# Generate with: openssl rand -base64 32
-SESSION_SECRET=at-least-32-characters-long-random-string
-
-# App URL (must match OAuth redirect URIs)
-APP_URL=http://localhost:3000
-
-# Auth
-ALLOWED_EMAIL=wall.lucas@gmail.com
-
-# Google OAuth (see OAuth Setup for Local Development section below)
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-
-# Fitbit OAuth (see OAuth Setup for Local Development section below)
-FITBIT_CLIENT_ID=your-fitbit-client-id
-FITBIT_CLIENT_SECRET=your-fitbit-client-secret
-
-# Anthropic (see Anthropic API Setup section below)
-ANTHROPIC_API_KEY=your-anthropic-api-key
-
-# Logging (optional, defaults to debug in development)
-LOG_LEVEL=debug
+docker compose up -d
 ```
 
-Google and Fitbit OAuth credentials are required for the auth flow. See the **OAuth Setup for Local Development** section below. Anthropic API key is required for food analysis — see the **Anthropic API Setup** section below.
+This starts a local PostgreSQL instance on port 5432. To stop it:
 
-### 3. Run Development Server
+```bash
+docker compose down        # Stop (data persisted)
+docker compose down -v     # Stop and delete all data
+```
+
+### 3. Environment Variables
+
+The fastest way to set up your `.env.local` is to pull variables from Railway and override the ones that differ locally.
+
+**Option A: Pull from Railway (recommended)**
+
+```bash
+# Requires Railway CLI linked to the project (see Railway CLI Setup below)
+railway variables --kv > .env.local
+```
+
+Then edit `.env.local` and override these values for local development:
+
+| Variable | Change to | Why |
+|----------|-----------|-----|
+| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/food_scanner` | Use local Docker Postgres instead of Railway Postgres |
+| `APP_URL` | `http://localhost:3000` | Local dev server, not production domain |
+| `LOG_LEVEL` | `debug` (optional) | More verbose logging during development |
+
+Remove any Railway-internal variables (e.g., `RAILWAY_*`, `PORT`) — they're not needed locally.
+
+**Option B: Start from sample file**
+
+```bash
+cp .env.sample .env.local
+```
+
+Then fill in the secrets. See `.env.sample` for all required variables with comments. You'll need to provide:
+- `SESSION_SECRET` — generate with `openssl rand -base64 32`
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — see **OAuth Setup for Local Development** below
+- `FITBIT_CLIENT_ID` / `FITBIT_CLIENT_SECRET` — see **OAuth Setup for Local Development** below
+- `ANTHROPIC_API_KEY` — see **Anthropic API Setup** below
+
+> **Note:** Migrations run automatically when you start the dev server (`npm run dev`).
+
+### 4. Run Development Server
 
 ```bash
 npm run dev
@@ -57,7 +74,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### 4. Verify
+### 5. Verify
 
 ```bash
 curl http://localhost:3000/api/health
@@ -77,6 +94,10 @@ Should return `{ "success": true, "data": { "status": "ok" }, "timestamp": ... }
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript type checking |
 | `npm test` | Run tests |
+| `docker compose up -d` | Start local PostgreSQL |
+| `docker compose down` | Stop local PostgreSQL |
+| `npx drizzle-kit generate` | Generate migration from schema changes |
+| `npx drizzle-kit studio` | Open Drizzle Studio (DB browser) |
 
 ---
 

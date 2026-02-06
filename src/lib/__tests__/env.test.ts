@@ -46,6 +46,7 @@ describe("env", () => {
       process.env.ANTHROPIC_API_KEY = "anthropic-key";
       process.env.APP_URL = "https://food.example.com";
       process.env.ALLOWED_EMAIL = "test@example.com";
+      process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
 
       const { validateRequiredEnvVars } = await import("@/lib/env");
       expect(() => validateRequiredEnvVars()).not.toThrow();
@@ -76,6 +77,7 @@ describe("env", () => {
       delete process.env.ANTHROPIC_API_KEY;
       process.env.APP_URL = "https://food.example.com";
       delete process.env.ALLOWED_EMAIL;
+      process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
 
       const { validateRequiredEnvVars } = await import("@/lib/env");
       expect(() => validateRequiredEnvVars()).toThrow(

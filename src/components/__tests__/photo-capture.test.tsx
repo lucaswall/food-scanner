@@ -2,6 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { PhotoCapture } from "../photo-capture";
 
+// Mock next/image to render a plain <img> in tests
+vi.mock("next/image", () => ({
+  default: (props: React.ImgHTMLAttributes<HTMLImageElement> & { fill?: boolean; unoptimized?: boolean }) => {
+    const { fill, unoptimized, ...rest } = props;
+    void fill;
+    void unoptimized;
+    // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+    return <img {...rest} />;
+  },
+}));
+
 // Mock the image module
 const mockIsHeicFile = vi.fn();
 const mockConvertHeicToJpeg = vi.fn();
@@ -10,13 +21,11 @@ vi.mock("@/lib/image", () => ({
   convertHeicToJpeg: (...args: unknown[]) => mockConvertHeicToJpeg(...args),
 }));
 
-// Mock URL.createObjectURL
+// Mock URL.createObjectURL and revokeObjectURL (preserve URL constructor for next/image)
 const mockCreateObjectURL = vi.fn();
 const mockRevokeObjectURL = vi.fn();
-vi.stubGlobal("URL", {
-  createObjectURL: mockCreateObjectURL,
-  revokeObjectURL: mockRevokeObjectURL,
-});
+globalThis.URL.createObjectURL = mockCreateObjectURL;
+globalThis.URL.revokeObjectURL = mockRevokeObjectURL;
 
 function createMockFile(
   name: string,

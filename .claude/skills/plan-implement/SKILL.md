@@ -166,11 +166,11 @@ You cannot measure context usage directly. Track a **point budget** as a proxy.
 
 | Cumulative points | Action |
 |-------------------|--------|
-| **< 100** | Continue to next task |
-| **100–120** | Continue only if next task is small (≤ 3 files) |
-| **> 120** | **STOP** — run pre-stop checklist immediately |
+| **< 200** | Continue to next task |
+| **200–230** | Continue only if next task is small (≤ 3 files) |
+| **> 230** | **STOP** — run pre-stop checklist immediately |
 
-**Why 120:** The pre-stop checklist (bug-hunter + verifier + fixes + iteration block + commit + push) costs ~30–50 points. Total session capacity is ~195 points. Stopping at 120 leaves ~75 points (~38% of capacity) as buffer.
+**Why 230:** The context window has ~38.5k tokens of fixed overhead (system prompt, tools, MCP, memory) and ~33k autocompact buffer, leaving ~128.5k tokens for messages. Calibration shows 1 point ≈ 422 message tokens, so max capacity ≈ 304 points. The pre-stop checklist costs ~25 points. Stopping at 230 leaves ~74 points (~24%) as buffer for the checklist plus safety margin before autocompact.
 
 **When reaching the threshold or completing all tasks:** Run the Pre-Stop Checklist, then Document Results, then Termination.
 
@@ -225,8 +225,8 @@ This happens AFTER writing the Iteration block to PLANS.md.
 
 ## Rules
 
-- **Track point budget after EACH task** - Stop when cumulative points > 120
-- **Continue if budget allows** - If cumulative points < 100, proceed to next task
+- **Track point budget after EACH task** - Stop when cumulative points > 230
+- **Continue if budget allows** - If cumulative points < 200, proceed to next task
 - **Follow TDD strictly** - Test before implementation, always
 - **Fix failures immediately** - Do not proceed with failing tests or warnings
 - **Never modify previous sections** - Only append new Iteration section

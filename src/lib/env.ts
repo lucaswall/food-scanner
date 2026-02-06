@@ -7,6 +7,7 @@ const REQUIRED_ENV_VARS = [
   "ANTHROPIC_API_KEY",
   "APP_URL",
   "ALLOWED_EMAIL",
+  "DATABASE_URL",
 ] as const;
 
 export function getRequiredEnv(name: string): string {

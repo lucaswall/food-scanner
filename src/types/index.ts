@@ -1,14 +1,16 @@
+/** Cookie-only session data (stored in iron-session encrypted cookie) */
 export interface SessionData {
   sessionId: string;
+}
+
+/** Full session data combining cookie + database */
+export interface FullSession {
+  sessionId: string;
   email: string;
-  createdAt: number;
   expiresAt: number;
-  fitbit?: {
-    accessToken: string;
-    refreshToken: string;
-    userId: string;
-    expiresAt: number;
-  };
+  fitbitConnected: boolean;
+  /** Call to destroy both cookie and DB session */
+  destroy: () => Promise<void>;
 }
 
 export const FITBIT_UNITS = {
@@ -67,6 +69,7 @@ export interface FoodLogResponse {
   fitbitFoodId: number;
   fitbitLogId: number;
   reusedFood: boolean;
+  foodLogId?: number;
   error?: string;
 }
 

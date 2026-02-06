@@ -11,8 +11,8 @@ export async function GET() {
   logger.debug({ action: "session_check" }, "session valid");
 
   return successResponse({
-    email: session.email,
-    fitbitConnected: !!session.fitbit,
-    expiresAt: session.expiresAt,
+    email: session!.email,
+    fitbitConnected: session!.fitbitConnected,
+    expiresAt: session!.expiresAt,
   });
 }

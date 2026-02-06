@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { PhotoPreviewDialog } from "@/components/photo-preview-dialog";
+import Image from "next/image";
 import { Camera, ImageIcon } from "lucide-react";
 import { isHeicFile, convertHeicToJpeg } from "@/lib/image";
 
@@ -268,10 +269,12 @@ export function PhotoCapture({
                 onClick={() => handlePreviewClick(index)}
                 aria-label={`View full-size preview ${index + 1}`}
               >
-                <img
+                <Image
                   src={preview}
                   alt={`Preview ${index + 1}`}
-                  className="w-full h-full object-cover rounded-md"
+                  fill
+                  unoptimized
+                  className="object-cover rounded-md"
                 />
               </button>
             ))}
