@@ -82,7 +82,7 @@ food-scanner/
 │   │   ├── session.ts                    # iron-session config + getSession() (DB-backed)
 │   │   ├── session-db.ts                 # Session CRUD (createSession, getSessionById, touchSession, deleteSession)
 │   │   ├── fitbit-tokens.ts              # Fitbit token CRUD (getFitbitTokens, upsertFitbitTokens, deleteFitbitTokens)
-│   │   ├── food-log.ts                   # Food log insert (insertFoodLog)
+│   │   ├── food-log.ts                   # Food log insert (insertCustomFood, insertFoodLogEntry)
 │   │   ├── api-response.ts              # Standardized API response helpers
 │   │   ├── url.ts                        # APP_URL helper + buildUrl()
 │   │   ├── logger.ts                     # pino structured logging
@@ -197,7 +197,7 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 
 - **ORM:** Drizzle ORM with `pg` driver
 - **Schema:** Defined in TypeScript at `src/db/schema.ts` (source of truth for DB tables)
-- **Tables:** `sessions`, `fitbit_tokens`, `food_logs`
+- **Tables:** `sessions`, `fitbit_tokens`, `custom_foods`, `food_log_entries`
 - **Migrations:** Generated via `npx drizzle-kit generate`, applied at startup via programmatic `migrate()` in `src/db/migrate.ts`
 - **Connection:** Singleton via `getDb()` in `src/db/index.ts`
 - **Local dev:** Docker Compose Postgres (`docker compose up -d`)

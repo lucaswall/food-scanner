@@ -33,14 +33,16 @@ beforeEach(() => {
   mockValues.mockReturnValue({ returning: mockReturning });
 });
 
-const { insertFoodLog } = await import("@/lib/food-log");
+const { insertCustomFood, insertFoodLogEntry } = await import(
+  "@/lib/food-log"
+);
 
-describe("insertFoodLog", () => {
-  it("inserts a row with all fields and returns id and loggedAt", async () => {
-    const loggedAt = new Date("2026-02-05T12:00:00Z");
-    mockReturning.mockResolvedValue([{ id: 42, loggedAt }]);
+describe("insertCustomFood", () => {
+  it("inserts a row with all fields and returns id and createdAt", async () => {
+    const createdAt = new Date("2026-02-05T12:00:00Z");
+    mockReturning.mockResolvedValue([{ id: 42, createdAt }]);
 
-    const result = await insertFoodLog("test@example.com", {
+    const result = await insertCustomFood("test@example.com", {
       foodName: "Grilled Chicken",
       amount: 150,
       unitId: 147,
@@ -52,14 +54,10 @@ describe("insertFoodLog", () => {
       sodiumMg: 400,
       confidence: "high",
       notes: "With herbs",
-      mealTypeId: 5,
-      date: "2026-02-05",
-      time: "12:30:00",
       fitbitFoodId: 123,
-      fitbitLogId: 456,
     });
 
-    expect(result).toEqual({ id: 42, loggedAt });
+    expect(result).toEqual({ id: 42, createdAt });
     expect(mockInsert).toHaveBeenCalled();
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -75,20 +73,16 @@ describe("insertFoodLog", () => {
         sodiumMg: "400",
         confidence: "high",
         notes: "With herbs",
-        mealTypeId: 5,
-        date: "2026-02-05",
-        time: "12:30:00",
         fitbitFoodId: 123,
-        fitbitLogId: 456,
       }),
     );
   });
 
-  it("returns id and loggedAt from DB", async () => {
-    const loggedAt = new Date("2026-02-05T18:00:00Z");
-    mockReturning.mockResolvedValue([{ id: 99, loggedAt }]);
+  it("returns id and createdAt from DB", async () => {
+    const createdAt = new Date("2026-02-05T18:00:00Z");
+    mockReturning.mockResolvedValue([{ id: 99, createdAt }]);
 
-    const result = await insertFoodLog("test@example.com", {
+    const result = await insertCustomFood("test@example.com", {
       foodName: "Salad",
       amount: 200,
       unitId: 147,
@@ -100,19 +94,17 @@ describe("insertFoodLog", () => {
       sodiumMg: 150,
       confidence: "medium",
       notes: "Caesar salad",
-      mealTypeId: 3,
-      date: "2026-02-05",
     });
 
     expect(result.id).toBe(99);
-    expect(result.loggedAt).toEqual(loggedAt);
+    expect(result.createdAt).toEqual(createdAt);
   });
 
-  it("handles nullable fields (time, fitbitFoodId, fitbitLogId) with null", async () => {
-    const loggedAt = new Date();
-    mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+  it("handles nullable fields (notes, fitbitFoodId) with null", async () => {
+    const createdAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 1, createdAt }]);
 
-    const result = await insertFoodLog("test@example.com", {
+    const result = await insertCustomFood("test@example.com", {
       foodName: "Apple",
       amount: 1,
       unitId: 304,
@@ -124,29 +116,23 @@ describe("insertFoodLog", () => {
       sodiumMg: 2,
       confidence: "high",
       notes: null,
-      mealTypeId: 2,
-      date: "2026-02-05",
-      time: null,
       fitbitFoodId: null,
-      fitbitLogId: null,
     });
 
     expect(result.id).toBe(1);
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
         notes: null,
-        time: null,
         fitbitFoodId: null,
-        fitbitLogId: null,
       }),
     );
   });
 
-  it("handles large fitbitLogId values (bigint range)", async () => {
-    const loggedAt = new Date();
-    mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+  it("handles large fitbitFoodId values (bigint range)", async () => {
+    const createdAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 1, createdAt }]);
 
-    await insertFoodLog("test@example.com", {
+    await insertCustomFood("test@example.com", {
       foodName: "Tea",
       amount: 1,
       unitId: 91,
@@ -158,25 +144,21 @@ describe("insertFoodLog", () => {
       sodiumMg: 32,
       confidence: "medium",
       notes: "Test",
-      mealTypeId: 2,
-      date: "2026-02-06",
       fitbitFoodId: 828644295,
-      fitbitLogId: 38042351280,
     });
 
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
-        fitbitLogId: 38042351280,
         fitbitFoodId: 828644295,
       }),
     );
   });
 
   it("stores numeric fields as strings for Drizzle numeric columns", async () => {
-    const loggedAt = new Date();
-    mockReturning.mockResolvedValue([{ id: 7, loggedAt }]);
+    const createdAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 7, createdAt }]);
 
-    await insertFoodLog("test@example.com", {
+    await insertCustomFood("test@example.com", {
       foodName: "Rice",
       amount: 0.5,
       unitId: 91,
@@ -188,8 +170,6 @@ describe("insertFoodLog", () => {
       sodiumMg: 1.5,
       confidence: "low",
       notes: null,
-      mealTypeId: 5,
-      date: "2026-02-05",
     });
 
     expect(mockValues).toHaveBeenCalledWith(
@@ -200,6 +180,96 @@ describe("insertFoodLog", () => {
         fatG: "0.2",
         fiberG: "0.6",
         sodiumMg: "1.5",
+      }),
+    );
+  });
+});
+
+describe("insertFoodLogEntry", () => {
+  it("inserts a row with all fields and returns id and loggedAt", async () => {
+    const loggedAt = new Date("2026-02-05T12:00:00Z");
+    mockReturning.mockResolvedValue([{ id: 10, loggedAt }]);
+
+    const result = await insertFoodLogEntry("test@example.com", {
+      customFoodId: 42,
+      mealTypeId: 5,
+      amount: 150,
+      unitId: 147,
+      date: "2026-02-05",
+      time: "12:30:00",
+      fitbitLogId: 456,
+    });
+
+    expect(result).toEqual({ id: 10, loggedAt });
+    expect(mockInsert).toHaveBeenCalled();
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "test@example.com",
+        customFoodId: 42,
+        mealTypeId: 5,
+        amount: "150",
+        unitId: 147,
+        date: "2026-02-05",
+        time: "12:30:00",
+        fitbitLogId: 456,
+      }),
+    );
+  });
+
+  it("returns id and loggedAt from DB", async () => {
+    const loggedAt = new Date("2026-02-05T18:00:00Z");
+    mockReturning.mockResolvedValue([{ id: 77, loggedAt }]);
+
+    const result = await insertFoodLogEntry("test@example.com", {
+      customFoodId: 1,
+      mealTypeId: 3,
+      amount: 200,
+      unitId: 147,
+      date: "2026-02-05",
+    });
+
+    expect(result.id).toBe(77);
+    expect(result.loggedAt).toEqual(loggedAt);
+  });
+
+  it("handles nullable fields (time, fitbitLogId) with null", async () => {
+    const loggedAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+
+    const result = await insertFoodLogEntry("test@example.com", {
+      customFoodId: 5,
+      mealTypeId: 2,
+      amount: 1,
+      unitId: 304,
+      date: "2026-02-05",
+      time: null,
+      fitbitLogId: null,
+    });
+
+    expect(result.id).toBe(1);
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        time: null,
+        fitbitLogId: null,
+      }),
+    );
+  });
+
+  it("converts numeric amount to string", async () => {
+    const loggedAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+
+    await insertFoodLogEntry("test@example.com", {
+      customFoodId: 1,
+      mealTypeId: 5,
+      amount: 0.5,
+      unitId: 91,
+      date: "2026-02-05",
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: "0.5",
       }),
     );
   });

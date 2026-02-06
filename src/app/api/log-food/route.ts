@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood } from "@/lib/fitbit";
-import { insertFoodLog } from "@/lib/food-log";
+import { insertCustomFood, insertFoodLogEntry } from "@/lib/food-log";
 import type { FoodLogRequest, FoodLogResponse } from "@/types";
 import { FitbitMealType } from "@/types";
 
@@ -155,7 +155,7 @@ export async function POST(request: Request) {
     // Log to database (non-fatal — Fitbit is the primary operation)
     let foodLogId: number | undefined;
     try {
-      const dbResult = await insertFoodLog(session!.email, {
+      const customFoodResult = await insertCustomFood(session!.email, {
         foodName: body.food_name,
         amount: body.amount,
         unitId: body.unit_id,
@@ -167,13 +167,19 @@ export async function POST(request: Request) {
         sodiumMg: body.sodium_mg,
         confidence: body.confidence,
         notes: body.notes,
-        mealTypeId: body.mealTypeId,
-        date: date,
-        time: body.time ?? null,
         fitbitFoodId: foodId,
+      });
+
+      const logEntryResult = await insertFoodLogEntry(session!.email, {
+        customFoodId: customFoodResult.id,
+        mealTypeId: body.mealTypeId,
+        amount: body.amount,
+        unitId: body.unit_id,
+        date,
+        time: body.time ?? null,
         fitbitLogId: logResult.foodLog.logId,
       });
-      foodLogId = dbResult.id;
+      foodLogId = logEntryResult.id;
     } catch (dbError) {
       logger.error(
         { action: "food_log_db_error", error: dbError instanceof Error ? dbError.message : String(dbError) },

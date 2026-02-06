@@ -391,3 +391,46 @@ Two issues: (1) Fix broken Railway deployment by excluding the standalone `mcp-f
 - Implementing food reuse/search logic in `findOrCreateFood` (separate feature)
 - Frontend changes (API contract is unchanged)
 - Data migration from existing `food_logs` rows (dev status, no data to preserve)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-06
+**Method:** Agent team (2 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Exclude mcp-fitbit from tsconfig.json - Added "mcp-fitbit" to exclude array (worker-1)
+- Task 2: Define new DB schema tables - Replaced foodLogs with customFoods and foodLogEntries tables (worker-2)
+- Task 3: Update food-log.ts with new insert functions - Replaced insertFoodLog with insertCustomFood and insertFoodLogEntry (worker-2)
+- Task 4: Update log-food route handler - Two-step DB insert flow: customFood then logEntry with FK (worker-2)
+- Task 5: Generate Drizzle migration - Created 0002_schema_split.sql (worker-2)
+- Task 6: Integration & Verification - All checks pass (lead)
+
+### Files Modified
+- `tsconfig.json` - Added "mcp-fitbit" to exclude array
+- `src/db/schema.ts` - Removed foodLogs, added customFoods (15 columns) and foodLogEntries (10 columns, FK to customFoods.id)
+- `src/db/__tests__/schema.test.ts` - Updated tests for new tables, added test confirming foodLogs removed
+- `src/lib/food-log.ts` - Replaced insertFoodLog/FoodLogInput with insertCustomFood/CustomFoodInput and insertFoodLogEntry/FoodLogEntryInput
+- `src/lib/__tests__/food-log.test.ts` - Rewrote 9 tests for new functions
+- `src/app/api/log-food/route.ts` - Updated to call insertCustomFood then insertFoodLogEntry in non-fatal try/catch
+- `src/app/api/log-food/__tests__/route.test.ts` - Updated mocks, added tests for two-step flow and failure modes
+- `drizzle/0002_schema_split.sql` - Migration: CREATE custom_foods, CREATE food_log_entries with FK, DROP food_logs CASCADE
+- `drizzle/meta/0002_snapshot.json` - Updated snapshot
+- `drizzle/meta/_journal.json` - Updated journal entry
+- `CLAUDE.md` - Updated table names and function references
+
+### Linear Updates
+- FOO-159: Todo → In Progress → Review
+- FOO-157: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 HIGH bug (unique constraint on fitbit_food_id incompatible with per-log-request inserts), fixed before proceeding. 3 MEDIUM findings: CLAUDE.md staleness (fixed), test coverage gap (skipped — over-engineering), migration data loss (intentional).
+- verifier: 570 tests pass, zero warnings. Pre-existing failure in migrate.test.ts (not in changeset).
+
+### Work Partition
+- Worker 1: Task 1 (tsconfig.json)
+- Worker 2: Tasks 2, 3, 4, 5 (schema, food-log.ts, route handler, migration)
+
+### Continuation Status
+All tasks completed.

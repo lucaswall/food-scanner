@@ -15,6 +15,13 @@
       "when": 1770387594328,
       "tag": "0001_peaceful_norman_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770403146650,
+      "tag": "0002_schema_split",
+      "breakpoints": true
     }
   ]
 }

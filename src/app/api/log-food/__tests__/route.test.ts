@@ -47,9 +47,11 @@ vi.mock("@/lib/fitbit", () => ({
 }));
 
 // Mock food-log DB module
-const mockInsertFoodLog = vi.fn();
+const mockInsertCustomFood = vi.fn();
+const mockInsertFoodLogEntry = vi.fn();
 vi.mock("@/lib/food-log", () => ({
-  insertFoodLog: (...args: unknown[]) => mockInsertFoodLog(...args),
+  insertCustomFood: (...args: unknown[]) => mockInsertCustomFood(...args),
+  insertFoodLogEntry: (...args: unknown[]) => mockInsertFoodLogEntry(...args),
 }));
 
 const { POST } = await import("@/app/api/log-food/route");
@@ -85,7 +87,8 @@ function createMockRequest(body: Partial<FoodLogRequest>): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockInsertFoodLog.mockResolvedValue({ id: 1, loggedAt: new Date() });
+  mockInsertCustomFood.mockResolvedValue({ id: 1, createdAt: new Date() });
+  mockInsertFoodLogEntry.mockResolvedValue({ id: 1, loggedAt: new Date() });
 });
 
 describe("POST /api/log-food", () => {
@@ -384,7 +387,6 @@ describe("POST /api/log-food", () => {
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
-    mockInsertFoodLog.mockResolvedValue({ id: 1, loggedAt: new Date() });
 
     const request = createMockRequest({
       ...validFoodLogRequest,
@@ -405,20 +407,21 @@ describe("POST /api/log-food", () => {
     );
   });
 
-  it("calls insertFoodLog after successful Fitbit logging", async () => {
+  it("calls insertCustomFood and insertFoodLogEntry after successful Fitbit logging", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
-    mockInsertFoodLog.mockResolvedValue({ id: 42, loggedAt: new Date() });
+    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
+    mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
     expect(response.status).toBe(200);
-    expect(mockInsertFoodLog).toHaveBeenCalledWith(
+    expect(mockInsertCustomFood).toHaveBeenCalledWith(
       "test@example.com",
       expect.objectContaining({
         foodName: "Test Food",
@@ -432,23 +435,53 @@ describe("POST /api/log-food", () => {
         sodiumMg: 200,
         confidence: "high",
         notes: "Test notes",
-        mealTypeId: 1,
         fitbitFoodId: 123,
+      }),
+    );
+    expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
+      "test@example.com",
+      expect.objectContaining({
+        customFoodId: 42,
+        mealTypeId: 1,
+        amount: 100,
+        unitId: 147,
         fitbitLogId: 456,
       }),
     );
     const body = await response.json();
-    expect(body.data.foodLogId).toBe(42);
+    expect(body.data.foodLogId).toBe(10);
   });
 
-  it("returns success even if DB insert fails (non-fatal)", async () => {
+  it("returns success even if insertCustomFood fails (non-fatal)", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
-    mockInsertFoodLog.mockRejectedValue(new Error("DB connection failed"));
+    mockInsertCustomFood.mockRejectedValue(new Error("DB connection failed"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.fitbitFoodId).toBe(123);
+    expect(body.data.fitbitLogId).toBe(456);
+    expect(body.data.foodLogId).toBeUndefined();
+    expect(mockInsertFoodLogEntry).not.toHaveBeenCalled();
+  });
+
+  it("returns success even if insertFoodLogEntry fails (non-fatal)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
+    mockInsertFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
