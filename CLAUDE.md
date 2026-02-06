@@ -97,7 +97,6 @@ food-scanner/
 ├── drizzle.config.ts                     # Drizzle Kit configuration
 ├── docker-compose.yml                    # Local Postgres for development
 ├── middleware.ts                          # Auth enforcement for protected routes
-├── ROADMAP.md                            # Full project specification
 ├── CLAUDE.md                             # This file
 ├── DEVELOPMENT.md                        # Local setup guide
 ├── README.md                             # Deployment & operations guide
@@ -138,7 +137,7 @@ food-scanner/
   // Error
   { success: false, error: { code: string, message: string }, timestamp: number }
   ```
-- Use error codes from ROADMAP.md (AUTH_MISSING_SESSION, FITBIT_TOKEN_INVALID, etc.)
+- Use error codes defined in `src/types/index.ts` (`ErrorCode` type)
 
 ---
 
@@ -188,7 +187,7 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 - Apple touch icon for iOS
 - Theme color integration
 
-**Not included:** Service worker, offline support (per ROADMAP spec)
+**Not included:** Service worker, offline support
 
 **Icon replacement:** The placeholder icons can be replaced with branded icons. Maintain the same filenames and dimensions.
 
