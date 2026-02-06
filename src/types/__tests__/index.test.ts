@@ -31,7 +31,7 @@ describe("FITBIT_UNITS", () => {
     expect(FITBIT_UNITS.cup.id).toBe(91);
     expect(FITBIT_UNITS.tbsp.id).toBe(349);
     expect(FITBIT_UNITS.tsp.id).toBe(364);
-    expect(FITBIT_UNITS.ml.id).toBe(211);
+    expect(FITBIT_UNITS.ml.id).toBe(209);
     expect(FITBIT_UNITS.slice.id).toBe(311);
     expect(FITBIT_UNITS.serving.id).toBe(304);
   });
@@ -72,7 +72,7 @@ describe("getUnitLabel", () => {
   });
 
   it("formats ml without space", () => {
-    expect(getUnitLabel(211, 250)).toBe("250ml");
+    expect(getUnitLabel(209, 250)).toBe("250ml");
   });
 
   it("formats oz without space", () => {

@@ -20,7 +20,7 @@ export const FITBIT_UNITS = {
   cup:     { id: 91,  name: "cup",     plural: "cups" },
   tbsp:    { id: 349, name: "tbsp",    plural: "tbsp" },
   tsp:     { id: 364, name: "tsp",     plural: "tsp" },
-  ml:      { id: 211, name: "ml",      plural: "ml" },
+  ml:      { id: 209, name: "ml",      plural: "ml" },
   slice:   { id: 311, name: "slice",   plural: "slices" },
   serving: { id: 304, name: "serving", plural: "servings" },
 } as const;
