@@ -10,12 +10,13 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Log error to console (client-side)
-    console.error("Global error:", {
-      message: error.message,
-      digest: error.digest,
-      stack: error.stack,
-    });
+    if (process.env.NODE_ENV === "development") {
+      console.error("Global error:", {
+        message: error.message,
+        digest: error.digest,
+        stack: error.stack,
+      });
+    }
   }, [error]);
 
   return (
@@ -31,7 +32,7 @@ export default function GlobalError({
             )}
             <button
               onClick={() => reset()}
-              className="mt-4 rounded bg-zinc-900 px-4 py-2 text-white"
+              className="mt-4 rounded bg-zinc-900 px-4 py-2 text-white dark:bg-zinc-100 dark:text-zinc-900"
             >
               Try again
             </button>

@@ -115,9 +115,74 @@ describe("ensureFreshToken", () => {
       "FITBIT_TOKEN_INVALID",
     );
   });
+
+  it("calls session.save() after refreshing tokens", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+
+    const session = {
+      fitbit: {
+        accessToken: "old-token",
+        refreshToken: "old-refresh",
+        userId: "user-123",
+        expiresAt: Date.now() - 1000, // already expired
+      },
+      save: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const token = await ensureFreshToken(session as never);
+    expect(token).toBe("new-token");
+    expect(session.save).toHaveBeenCalledOnce();
+  });
+
+  it("does not call session.save() when token is still fresh", async () => {
+    const session = {
+      fitbit: {
+        accessToken: "valid-token",
+        refreshToken: "refresh-token",
+        userId: "user-123",
+        expiresAt: Date.now() + 2 * 60 * 60 * 1000,
+      },
+      save: vi.fn(),
+    };
+
+    await ensureFreshToken(session as never);
+    expect(session.save).not.toHaveBeenCalled();
+  });
 });
 
 describe("exchangeFitbitCode", () => {
+  it("aborts after timeout", { timeout: 20000 }, async () => {
+    vi.useFakeTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_, opts: RequestInit | undefined) => {
+        return new Promise((_, reject) => {
+          if (opts?.signal) {
+            opts.signal.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          }
+        });
+      }
+    );
+
+    const promise = exchangeFitbitCode("code", "http://localhost:3000/callback");
+
+    await vi.advanceTimersByTimeAsync(10000);
+
+    await expect(promise).rejects.toThrow();
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("logs error on token exchange HTTP failure", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 401 }),
@@ -137,9 +202,58 @@ describe("exchangeFitbitCode", () => {
 
     vi.restoreAllMocks();
   });
+
+  it("throws when response is missing access_token", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ refresh_token: "rt", user_id: "uid", expires_in: 3600 }), { status: 200 }),
+    );
+
+    await expect(
+      exchangeFitbitCode("code", "http://localhost:3000/callback"),
+    ).rejects.toThrow("Invalid Fitbit token response: missing access_token");
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws when response is missing expires_in", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "at", refresh_token: "rt", user_id: "uid" }), { status: 200 }),
+    );
+
+    await expect(
+      exchangeFitbitCode("code", "http://localhost:3000/callback"),
+    ).rejects.toThrow("Invalid Fitbit token response: missing expires_in");
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe("refreshFitbitToken", () => {
+  it("aborts after timeout", { timeout: 20000 }, async () => {
+    vi.useFakeTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_, opts: RequestInit | undefined) => {
+        return new Promise((_, reject) => {
+          if (opts?.signal) {
+            opts.signal.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          }
+        });
+      }
+    );
+
+    const promise = refreshFitbitToken("refresh-token");
+
+    await vi.advanceTimersByTimeAsync(10000);
+
+    await expect(promise).rejects.toThrow();
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("logs error on token refresh HTTP failure", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 401 }),
@@ -168,6 +282,18 @@ describe("refreshFitbitToken", () => {
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ action: "fitbit_token_refresh_start" }),
       expect.any(String),
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws when response is missing required fields", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "at" }), { status: 200 }),
+    );
+
+    await expect(refreshFitbitToken("token")).rejects.toThrow(
+      "Invalid Fitbit token response: missing refresh_token",
     );
 
     vi.restoreAllMocks();
@@ -241,6 +367,18 @@ describe("createFood", () => {
 
     await expect(createFood("bad-token", mockFoodAnalysis)).rejects.toThrow(
       "FITBIT_TOKEN_INVALID",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws when response is missing food.foodId", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ food: { name: "Oatmeal" } }), { status: 201 }),
+    );
+
+    await expect(createFood("test-token", mockFoodAnalysis)).rejects.toThrow(
+      "Invalid Fitbit create food response: missing food.foodId",
     );
 
     vi.restoreAllMocks();
@@ -353,6 +491,18 @@ describe("logFood", () => {
 
     await expect(logFood("bad-token", 789, 1, 100, 147, "2024-01-15")).rejects.toThrow(
       "FITBIT_TOKEN_INVALID",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws when response is missing foodLog.logId", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ foodLog: {} }), { status: 201 }),
+    );
+
+    await expect(logFood("test-token", 789, 1, 250, 147, "2024-01-15")).rejects.toThrow(
+      "Invalid Fitbit log food response: missing foodLog.logId",
     );
 
     vi.restoreAllMocks();

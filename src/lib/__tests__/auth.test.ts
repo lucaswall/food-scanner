@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.stubEnv("GOOGLE_CLIENT_ID", "test-google-client-id");
 vi.stubEnv("GOOGLE_CLIENT_SECRET", "test-google-client-secret");
-vi.stubEnv("ALLOWED_EMAIL", "wall.lucas@gmail.com");
+vi.stubEnv("ALLOWED_EMAIL", "test@example.com");
 
 vi.mock("@/lib/logger", () => ({
   logger: {
@@ -90,6 +90,31 @@ describe("buildGoogleAuthUrl", () => {
 });
 
 describe("exchangeGoogleCode", () => {
+  it("aborts after timeout", { timeout: 20000 }, async () => {
+    vi.useFakeTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_, opts: RequestInit | undefined) => {
+        return new Promise((_, reject) => {
+          if (opts?.signal) {
+            opts.signal.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          }
+        });
+      }
+    );
+
+    const promise = exchangeGoogleCode("code", "http://localhost:3000/callback");
+
+    await vi.advanceTimersByTimeAsync(10000);
+
+    await expect(promise).rejects.toThrow();
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("logs error on token exchange HTTP failure", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 400 }),
@@ -109,9 +134,46 @@ describe("exchangeGoogleCode", () => {
 
     vi.restoreAllMocks();
   });
+
+  it("throws when response is missing access_token", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ token_type: "Bearer" }), { status: 200 }),
+    );
+
+    await expect(
+      exchangeGoogleCode("code", "http://localhost:3000/callback"),
+    ).rejects.toThrow("Invalid Google token response: missing access_token");
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe("getGoogleProfile", () => {
+  it("aborts after timeout", { timeout: 20000 }, async () => {
+    vi.useFakeTimers();
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_, opts: RequestInit | undefined) => {
+        return new Promise((_, reject) => {
+          if (opts?.signal) {
+            opts.signal.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            });
+          }
+        });
+      }
+    );
+
+    const promise = getGoogleProfile("test-token");
+
+    await vi.advanceTimersByTimeAsync(10000);
+
+    await expect(promise).rejects.toThrow();
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("calls the v3 userinfo endpoint", async () => {
     const mockProfile = { email: "test@example.com", name: "Test User" };
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -143,6 +205,30 @@ describe("getGoogleProfile", () => {
         status: 403,
       }),
       expect.any(String),
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws when response is missing email", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ name: "Test User" }), { status: 200 }),
+    );
+
+    await expect(getGoogleProfile("test-token")).rejects.toThrow(
+      "Invalid Google profile response: missing email",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws when response is missing name", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ email: "test@example.com" }), { status: 200 }),
+    );
+
+    await expect(getGoogleProfile("test-token")).rejects.toThrow(
+      "Invalid Google profile response: missing name",
     );
 
     vi.restoreAllMocks();

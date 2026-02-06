@@ -38,7 +38,7 @@ describe("GET /api/auth/session", () => {
   it("returns session info for valid session", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       createdAt: Date.now(),
       expiresAt: Date.now() + 86400000,
       fitbit: {
@@ -53,14 +53,14 @@ describe("GET /api/auth/session", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data.email).toBe("wall.lucas@gmail.com");
+    expect(body.data.email).toBe("test@example.com");
     expect(body.data.fitbitConnected).toBe(true);
   });
 
   it("returns 401 for expired session", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       createdAt: Date.now() - 86400000 * 31,
       expiresAt: Date.now() - 1000,
     } as never);
@@ -84,7 +84,7 @@ describe("GET /api/auth/session", () => {
   it("logs debug on session check", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       createdAt: Date.now(),
       expiresAt: Date.now() + 86400000,
     } as never);
@@ -112,7 +112,7 @@ describe("GET /api/auth/session", () => {
   it("logs warn on expired session", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       createdAt: Date.now() - 86400000 * 31,
       expiresAt: Date.now() - 1000,
     } as never);

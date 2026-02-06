@@ -1,4 +1,7 @@
 export async function register() {
+  const { validateRequiredEnvVars } = await import("@/lib/env");
+  validateRequiredEnvVars();
+
   const { logger } = await import("@/lib/logger");
   logger.info(
     {
@@ -8,4 +11,17 @@ export async function register() {
     },
     "server started",
   );
+
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info({ action: "server_shutdown", signal }, "graceful shutdown initiated");
+    setTimeout(() => {
+      logger.info({ action: "server_exit" }, "server exiting");
+      process.exit(0);
+    }, 5000);
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }

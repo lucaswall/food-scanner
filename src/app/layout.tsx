@@ -8,6 +8,8 @@ const themeScript = `
 (function() {
   try {
     var stored = localStorage.getItem("theme") || "system";
+    var allowed = ["dark", "light", "system"];
+    if (allowed.indexOf(stored) === -1) stored = "system";
     var root = document.documentElement;
     if (stored === "system") {
       var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;

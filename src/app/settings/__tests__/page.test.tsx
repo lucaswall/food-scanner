@@ -30,7 +30,7 @@ describe("Settings page", () => {
           Promise.resolve({
             success: true,
             data: {
-              email: "wall.lucas@gmail.com",
+              email: "test@example.com",
               fitbitConnected: true,
               expiresAt: Date.now() + 86400000,
             },
@@ -51,7 +51,7 @@ describe("Settings page", () => {
           Promise.resolve({
             success: true,
             data: {
-              email: "wall.lucas@gmail.com",
+              email: "test@example.com",
               fitbitConnected: true,
               expiresAt: Date.now() + 86400000,
             },
@@ -73,7 +73,7 @@ describe("Settings page", () => {
         Promise.resolve({
           success: true,
           data: {
-            email: "wall.lucas@gmail.com",
+            email: "test@example.com",
             fitbitConnected: true,
             expiresAt: Date.now() + 86400000,
           },
@@ -91,7 +91,7 @@ describe("Settings page", () => {
         Promise.resolve({
           success: true,
           data: {
-            email: "wall.lucas@gmail.com",
+            email: "test@example.com",
             fitbitConnected: true,
             expiresAt: Date.now() + 86400000,
           },
@@ -111,7 +111,7 @@ describe("Settings page", () => {
         Promise.resolve({
           success: true,
           data: {
-            email: "wall.lucas@gmail.com",
+            email: "test@example.com",
             fitbitConnected: true,
             expiresAt: Date.now() + 86400000,
           },
@@ -181,7 +181,7 @@ describe("Settings page", () => {
           Promise.resolve({
             success: true,
             data: {
-              email: "wall.lucas@gmail.com",
+              email: "test@example.com",
               fitbitConnected: true,
               expiresAt: Date.now() + 86400000,
             },
@@ -208,7 +208,7 @@ describe("Settings page", () => {
           Promise.resolve({
             success: true,
             data: {
-              email: "wall.lucas@gmail.com",
+              email: "test@example.com",
               fitbitConnected: true,
               expiresAt: Date.now() + 86400000,
             },
@@ -237,7 +237,7 @@ describe("Settings page", () => {
           Promise.resolve({
             success: true,
             data: {
-              email: "wall.lucas@gmail.com",
+              email: "test@example.com",
               fitbitConnected: true,
               expiresAt: Date.now() + 86400000,
             },
@@ -263,7 +263,7 @@ describe("Settings page", () => {
   describe("session caching", () => {
     it("uses SWR for session fetching", async () => {
       const sessionData = {
-        email: "wall.lucas@gmail.com",
+        email: "test@example.com",
         fitbitConnected: true,
         expiresAt: Date.now() + 86400000,
       };
@@ -286,7 +286,7 @@ describe("Settings page", () => {
 
     it("displays session data after fetch completes", async () => {
       const sessionData = {
-        email: "wall.lucas@gmail.com",
+        email: "test@example.com",
         fitbitConnected: true,
         expiresAt: Date.now() + 86400000,
       };

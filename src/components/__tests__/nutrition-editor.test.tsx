@@ -267,6 +267,16 @@ describe("NutritionEditor", () => {
     });
   });
 
+  it("ignores non-numeric unit values (NaN guard)", () => {
+    const onChange = vi.fn();
+    render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);
+
+    const unitSelect = screen.getByLabelText(/unit/i);
+    fireEvent.change(unitSelect, { target: { value: "invalid" } });
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("does not render Small/Medium/Large preset buttons", () => {
     const onChange = vi.fn();
     render(<NutritionEditor value={mockAnalysis} onChange={onChange} />);

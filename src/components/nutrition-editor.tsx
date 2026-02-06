@@ -18,17 +18,7 @@ interface NutritionEditorProps {
   disabled?: boolean;
 }
 
-const confidenceColors = {
-  high: "bg-green-500",
-  medium: "bg-yellow-500",
-  low: "bg-red-500",
-} as const;
-
-const confidenceExplanations = {
-  high: "High confidence: Claude is certain about this analysis based on clear visual information.",
-  medium: "Medium confidence: The analysis is likely accurate but some details may need verification.",
-  low: "Low confidence: Claude is uncertain. Please verify the nutritional values before logging.",
-} as const;
+import { confidenceColors, confidenceExplanations } from "@/lib/confidence";
 
 export function NutritionEditor({
   value,
@@ -48,7 +38,9 @@ export function NutritionEditor({
   };
 
   const handleUnitChange = (newUnitId: string) => {
-    onChange({ ...value, unit_id: parseInt(newUnitId, 10) });
+    const parsed = parseInt(newUnitId, 10);
+    if (isNaN(parsed)) return;
+    onChange({ ...value, unit_id: parsed });
   };
 
   return (
@@ -82,7 +74,7 @@ export function NutritionEditor({
                   aria-label={`Confidence: ${value.confidence}`}
                   className={`w-3 h-3 rounded-full ${confidenceColors[value.confidence]}`}
                 />
-                <span className="text-sm text-gray-500 capitalize">
+                <span className="text-sm text-muted-foreground capitalize">
                   {value.confidence}
                 </span>
               </button>
@@ -228,7 +220,7 @@ export function NutritionEditor({
       {/* Notes section (read-only) */}
       {value.notes && (
         <div className="pt-2 border-t">
-          <p className="text-xs text-gray-500 italic">{value.notes}</p>
+          <p className="text-xs text-muted-foreground italic">{value.notes}</p>
         </div>
       )}
     </div>

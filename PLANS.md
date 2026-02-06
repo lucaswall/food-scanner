@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Branch:** feat/FOO-90-backlog-audit-fixes
 **Issues:** FOO-90, FOO-91, FOO-92, FOO-93, FOO-94, FOO-95, FOO-96, FOO-97, FOO-98, FOO-99, FOO-100, FOO-101, FOO-102, FOO-103, FOO-104, FOO-105, FOO-106, FOO-107, FOO-108, FOO-109, FOO-110, FOO-111
 **Created:** 2026-02-05
@@ -823,3 +823,38 @@ Tasks are grouped into logical phases. Earlier phases create shared utilities th
 - Zod or other validation library (project doesn't use one; keep inline validation)
 - Refactoring fetchWithRetry to be truly shared (would require more refactoring than warranted)
 - Any new features not mentioned in the issues
+
+---
+
+## Iteration Log
+
+### Iteration 1 (2026-02-05) — All 22 Tasks + Integration
+
+**Tasks completed:** 1–23 (all)
+
+**Summary:** All 22 backlog audit issues implemented following strict TDD workflow. Each Linear issue moved through Todo → In Progress → Review.
+
+**Key implementation decisions:**
+- `getRequiredEnv()` uses module-level calls (not lazy) — trade-off: simpler API, but requires env stubs in tests. Validated at startup via `validateRequiredEnvVars()` in instrumentation.ts.
+- `ensureFreshToken()` now accepts `SessionData & { save: () => Promise<void> }` and saves internally after token refresh, removing fragile caller-saves contract.
+- Date validation uses `new Date(year, month - 1, day)` round-trip check to catch impossible dates like Feb 30.
+- Rate limit handling for Claude API detects both `RateLimitError` name and `.status === 429`.
+- Security headers omit CSP (complex with Next.js inline scripts — separate task).
+- `global-error.tsx` uses standard Tailwind classes (not CSS custom properties) since it renders its own `<html>` without `globals.css`.
+
+**Bug-hunter findings addressed:**
+- Bug 3: Reverted global-error.tsx from `bg-primary text-primary-foreground` to `bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900` (standalone `<html>` has no access to CSS custom properties)
+- Bug 4: Replaced remaining `text-red-600`/`text-red-700` in food-analyzer.tsx with `text-destructive`
+- Bug 5: Added `shuttingDown` guard to prevent double shutdown invocation
+
+**Bug-hunter findings deferred (low risk):**
+- Bug 1: Cookie name regex injection in getCookieValue — latent risk, not exploitable today
+- Bug 2: getRequiredEnv at module level — design trade-off, documented above
+- Bug 6: Removed log-food save test — covered by fitbit.test.ts
+- Bug 7: Confidence indicator colors (bg-green/yellow/red-500) — semantic status dots, render correctly in both modes
+
+**Verification:**
+- 449 tests pass across 40 test files
+- 0 lint errors (2 pre-existing warnings: img vs Image in photo-capture, photo-preview-dialog)
+- 2 pre-existing TS errors in image.test.ts (duplicate identifier in mock — not from our changes)
+- All 22 Linear issues in Review state

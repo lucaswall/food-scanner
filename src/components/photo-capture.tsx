@@ -25,8 +25,6 @@ const ALLOWED_TYPES = [
   "image/heic",
   "image/heif",
 ];
-const HEIC_EXTENSIONS = [".heic", ".heif"];
-
 interface PhotoCaptureProps {
   onPhotosChange: (files: File[]) => void;
   maxPhotos?: number;
@@ -47,15 +45,10 @@ export function PhotoCapture({
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const validateFile = (file: File): string | null => {
-    // Check MIME type first
+    // Check MIME type first, then fallback to HEIC extension check
     const isValidType = ALLOWED_TYPES.includes(file.type);
 
-    // Fallback: check file extension for HEIC (Android sometimes reports empty MIME)
-    const dotIndex = file.name.lastIndexOf(".");
-    const extension = dotIndex !== -1 ? file.name.toLowerCase().slice(dotIndex) : "";
-    const isHeicByExtension = HEIC_EXTENSIONS.includes(extension);
-
-    if (!isValidType && !isHeicByExtension) {
+    if (!isValidType && !isHeicFile(file)) {
       return "Only JPEG, PNG, GIF, WebP, and HEIC images are allowed";
     }
     if (file.size > MAX_FILE_SIZE) {
@@ -237,7 +230,7 @@ export function PhotoCapture({
         </Button>
       </div>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-xs text-muted-foreground">
         {photos.length}/{maxPhotos} photos selected
       </p>
 

@@ -19,17 +19,7 @@ interface AnalysisResultProps {
   loadingStep?: string;
 }
 
-const confidenceColors = {
-  high: "bg-green-500",
-  medium: "bg-yellow-500",
-  low: "bg-red-500",
-} as const;
-
-const confidenceExplanations = {
-  high: "High confidence: Claude is certain about this analysis based on clear visual information.",
-  medium: "Medium confidence: The analysis is likely accurate but some details may need verification.",
-  low: "Low confidence: Claude is uncertain. Please verify the nutritional values before logging.",
-} as const;
+import { confidenceColors, confidenceExplanations } from "@/lib/confidence";
 
 export function AnalysisResult({
   analysis,
@@ -49,7 +39,7 @@ export function AnalysisResult({
           data-testid="loading-spinner"
           className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"
         />
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           {loadingStep || "Analyzing your food..."}
         </p>
       </div>
@@ -105,7 +95,7 @@ export function AnalysisResult({
                   aria-label={`Confidence: ${analysis.confidence}`}
                   className={`w-3 h-3 rounded-full ${confidenceColors[analysis.confidence]}`}
                 />
-                <span className="text-sm text-gray-500 capitalize">
+                <span className="text-sm text-muted-foreground capitalize">
                   {analysis.confidence}
                 </span>
               </button>
@@ -118,7 +108,7 @@ export function AnalysisResult({
       </div>
 
       {/* Portion size */}
-      <p className="text-sm text-gray-600">Portion: {getUnitLabel(analysis.unit_id, analysis.amount)}</p>
+      <p className="text-sm text-muted-foreground">Portion: {getUnitLabel(analysis.unit_id, analysis.amount)}</p>
 
       {/* Main nutrition grid */}
       <div className="grid grid-cols-2 gap-4">
@@ -133,7 +123,7 @@ export function AnalysisResult({
       {/* Notes section */}
       {analysis.notes && (
         <div className="pt-2 border-t">
-          <p className="text-xs text-gray-500 italic">{analysis.notes}</p>
+          <p className="text-xs text-muted-foreground italic">{analysis.notes}</p>
         </div>
       )}
     </div>
@@ -149,7 +139,7 @@ interface NutritionItemProps {
 function NutritionItem({ label, value, unit }: NutritionItemProps) {
   return (
     <div className="flex justify-between items-center">
-      <span className="text-sm text-gray-600">{label}</span>
+      <span className="text-sm text-muted-foreground">{label}</span>
       <span className="text-sm font-medium">
         {value}
         {unit}

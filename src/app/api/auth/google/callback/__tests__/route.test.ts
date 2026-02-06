@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.stubEnv("GOOGLE_CLIENT_ID", "test-google-client-id");
 vi.stubEnv("GOOGLE_CLIENT_SECRET", "test-google-client-secret");
-vi.stubEnv("ALLOWED_EMAIL", "wall.lucas@gmail.com");
+vi.stubEnv("ALLOWED_EMAIL", "test@example.com");
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("APP_URL", "http://localhost:3000");
 
@@ -85,15 +85,15 @@ describe("GET /api/auth/google/callback", () => {
   it("creates session via getSession() and redirects on valid code + allowed email", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
-      email: "wall.lucas@gmail.com",
-      name: "Lucas Wall",
+      email: "test@example.com",
+      name: "Test User",
     });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
     expect(response.status).toBe(302);
     expect(mockGetSession).toHaveBeenCalled();
     expect(mockSession.save).toHaveBeenCalled();
-    expect(mockSession.email).toBe("wall.lucas@gmail.com");
+    expect(mockSession.email).toBe("test@example.com");
     expect(mockSession.sessionId).toBeDefined();
   });
 
@@ -114,8 +114,8 @@ describe("GET /api/auth/google/callback", () => {
     vi.stubEnv("APP_URL", "https://food.lucaswall.me");
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
-      email: "wall.lucas@gmail.com",
-      name: "Lucas Wall",
+      email: "test@example.com",
+      name: "Test User",
     });
 
     const url = new URL("http://internal:8080/api/auth/google/callback");
@@ -146,11 +146,40 @@ describe("GET /api/auth/google/callback", () => {
     expect(body.success).toBe(false);
   });
 
+  it("logs error when code exchange fails", async () => {
+    mockExchangeGoogleCode.mockRejectedValue(new Error("Token exchange failed"));
+
+    await GET(makeCallbackRequest("bad-code", "test-state", "test-state"));
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "google_token_exchange_error",
+        error: "Token exchange failed",
+      }),
+      expect.any(String),
+    );
+  });
+
+  it("logs error when profile fetch fails", async () => {
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
+    mockGetGoogleProfile.mockRejectedValue(new Error("Profile fetch failed"));
+
+    await GET(makeCallbackRequest("code", "test-state", "test-state"));
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "google_profile_fetch_error",
+        error: "Profile fetch failed",
+      }),
+      expect.any(String),
+    );
+  });
+
   it("clears the google-oauth-state cookie after successful auth", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
-      email: "wall.lucas@gmail.com",
-      name: "Lucas Wall",
+      email: "test@example.com",
+      name: "Test User",
     });
 
     await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
@@ -160,8 +189,8 @@ describe("GET /api/auth/google/callback", () => {
   it("redirects to /api/auth/fitbit when no fitbit tokens in session", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
-      email: "wall.lucas@gmail.com",
-      name: "Lucas Wall",
+      email: "test@example.com",
+      name: "Test User",
     });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
@@ -173,8 +202,8 @@ describe("GET /api/auth/google/callback", () => {
   it("redirects to /app when fitbit tokens exist in session", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
-      email: "wall.lucas@gmail.com",
-      name: "Lucas Wall",
+      email: "test@example.com",
+      name: "Test User",
     });
     mockSession.fitbit = { accessToken: "existing" };
 
@@ -209,14 +238,14 @@ describe("GET /api/auth/google/callback", () => {
   it("logs info on successful login", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
     mockGetGoogleProfile.mockResolvedValue({
-      email: "wall.lucas@gmail.com",
-      name: "Lucas Wall",
+      email: "test@example.com",
+      name: "Test User",
     });
     await GET(makeCallbackRequest("code", "test-state", "test-state"));
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "google_login_success",
-        email: "wall.lucas@gmail.com",
+        email: "test@example.com",
       }),
       expect.any(String),
     );

@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/session";
+import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { analyzeFood } from "@/lib/claude";
@@ -23,24 +23,8 @@ function isFileLike(value: unknown): value is File {
 export async function POST(request: Request) {
   const session = await getSession();
 
-  if (!session.sessionId) {
-    logger.warn({ action: "analyze_food_unauthorized" }, "no active session");
-    return errorResponse("AUTH_MISSING_SESSION", "No active session", 401);
-  }
-
-  if (!session.expiresAt || session.expiresAt < Date.now()) {
-    logger.warn({ action: "analyze_food_unauthorized" }, "session expired");
-    return errorResponse("AUTH_SESSION_EXPIRED", "Session has expired", 401);
-  }
-
-  if (!session.fitbit) {
-    logger.warn({ action: "analyze_food_no_fitbit" }, "Fitbit not connected");
-    return errorResponse(
-      "FITBIT_NOT_CONNECTED",
-      "Fitbit account not connected",
-      400
-    );
-  }
+  const validationError = validateSession(session, { requireFitbit: true });
+  if (validationError) return validationError;
 
   let formData: FormData;
   try {

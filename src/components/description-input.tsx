@@ -27,7 +27,7 @@ export function DescriptionInput({ value, onChange, disabled = false }: Descript
         disabled={disabled}
         className="w-full px-3 py-2 text-sm border rounded-md border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       />
-      <p className="text-xs text-gray-500 text-right">
+      <p className="text-xs text-muted-foreground text-right">
         {value.length}/{MAX_LENGTH}
       </p>
     </div>

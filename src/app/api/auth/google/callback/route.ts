@@ -4,12 +4,7 @@ import { errorResponse } from "@/lib/api-response";
 import { getSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
-
-function getCookieValue(request: Request, name: string): string | undefined {
-  const cookieHeader = request.headers.get("cookie") ?? "";
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
-  return match?.[1];
-}
+import { getCookieValue } from "@/lib/cookies";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -27,14 +22,22 @@ export async function GET(request: Request) {
   let tokens: { access_token: string };
   try {
     tokens = await exchangeGoogleCode(code, redirectUri);
-  } catch {
+  } catch (error) {
+    logger.error(
+      { action: "google_token_exchange_error", error: error instanceof Error ? error.message : String(error) },
+      "failed to exchange google authorization code",
+    );
     return errorResponse("VALIDATION_ERROR", "Failed to exchange authorization code", 400);
   }
 
   let profile: { email: string; name: string };
   try {
     profile = await getGoogleProfile(tokens.access_token);
-  } catch {
+  } catch (error) {
+    logger.error(
+      { action: "google_profile_fetch_error", error: error instanceof Error ? error.message : String(error) },
+      "failed to fetch google user profile",
+    );
     return errorResponse("VALIDATION_ERROR", "Failed to fetch user profile", 400);
   }
 

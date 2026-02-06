@@ -4,7 +4,7 @@ import {
   getUnitById,
   getUnitLabel,
 } from "@/types";
-import type { FitbitUnitKey, FoodAnalysis } from "@/types";
+import type { FitbitUnitKey } from "@/types";
 
 describe("FITBIT_UNITS", () => {
   it("contains all expected unit keys", () => {
@@ -87,22 +87,3 @@ describe("getUnitLabel", () => {
   });
 });
 
-describe("FoodAnalysis type", () => {
-  it("accepts amount and unit_id fields", () => {
-    const analysis: FoodAnalysis = {
-      food_name: "Test",
-      amount: 150,
-      unit_id: 147,
-      calories: 100,
-      protein_g: 10,
-      carbs_g: 20,
-      fat_g: 5,
-      fiber_g: 3,
-      sodium_mg: 200,
-      confidence: "high",
-      notes: "test",
-    };
-    expect(analysis.amount).toBe(150);
-    expect(analysis.unit_id).toBe(147);
-  });
-});

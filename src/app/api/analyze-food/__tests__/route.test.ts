@@ -40,7 +40,7 @@ const mockGetIronSession = vi.mocked(getIronSession);
 
 const validSession = {
   sessionId: "test-session",
-  email: "wall.lucas@gmail.com",
+  email: "test@example.com",
   createdAt: Date.now(),
   expiresAt: Date.now() + 86400000,
   fitbit: {
@@ -128,7 +128,7 @@ describe("POST /api/analyze-food", () => {
   it("returns 401 AUTH_SESSION_EXPIRED for expired session", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       createdAt: Date.now() - 86400000,
       expiresAt: Date.now() - 1000, // Expired 1 second ago
       fitbit: {
@@ -152,7 +152,7 @@ describe("POST /api/analyze-food", () => {
   it("returns 400 FITBIT_NOT_CONNECTED when session.fitbit is missing", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       createdAt: Date.now(),
       expiresAt: Date.now() + 86400000,
     } as never);

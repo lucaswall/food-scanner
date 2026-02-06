@@ -336,14 +336,14 @@ export function FoodAnalyzer() {
           {logError && (
             <div
               data-testid="log-error"
-              className="p-3 bg-red-50 border border-red-200 rounded-lg"
+              className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
               aria-live="polite"
             >
-              <p className="text-sm text-red-600">{logError}</p>
+              <p className="text-sm text-destructive">{logError}</p>
               {logError.includes("reconnect") && (
                 <a
                   href="/settings"
-                  className="text-sm text-red-700 underline mt-1 inline-block"
+                  className="text-sm text-destructive underline mt-1 inline-block"
                 >
                   Go to Settings
                 </a>
