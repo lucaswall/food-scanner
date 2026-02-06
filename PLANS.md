@@ -317,3 +317,59 @@
 - `ensureFreshToken()` signature changes from accepting session object to accepting email string — breaking change but project policy allows it
 - Migration files in `drizzle/` folder must be committed to git — they are the source of truth for DB state
 - Docker must be installed for local dev — new prerequisite
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-05
+
+### Tasks Completed This Iteration
+- Task 1: Install Drizzle ORM and PostgreSQL driver — installed drizzle-orm, pg, drizzle-kit, @types/pg; created drizzle.config.ts; added DATABASE_URL to required env vars
+- Task 2: Define database schema — created src/db/schema.ts with sessions, fitbitTokens, foodLogs tables; wrote schema structure tests
+- Task 3: Create database connection module and migration runner — created src/db/index.ts (singleton getDb + closeDb), src/db/migrate.ts (programmatic migrations), wired into instrumentation.ts, generated initial migration
+- Task 4: Create docker-compose.yml — postgres:17-alpine bound to localhost:5432
+- Task 5 (partial): Refactor session management — created src/lib/session-db.ts with createSession, getSessionById, touchSession, deleteSession; DB functions tested. Remaining: update SessionData type, refactor session.ts to use DB functions, update validateSession
+
+### Tasks Remaining
+- Task 5 (continued): Update SessionData type in types/index.ts, refactor session.ts to call session-db functions, update validateSession
+- Task 6: Move Fitbit token storage to database
+- Task 7: Update OAuth callbacks for DB-backed sessions and tokens
+- Task 8: Add sliding session expiration
+- Task 9: Add food logging to database
+- Task 10: Update session validation across all route handlers
+- Task 11: Update DEVELOPMENT.md with Docker Postgres setup
+- Task 12: Update CLAUDE.md with database conventions
+- Task 13: Integration & Verification
+
+### Files Modified
+- `package.json` — Added drizzle-orm, pg, drizzle-kit, @types/pg
+- `drizzle.config.ts` — Created Drizzle Kit configuration
+- `src/lib/env.ts` — Added DATABASE_URL to required env vars
+- `src/db/schema.ts` — Created table definitions (sessions, fitbitTokens, foodLogs)
+- `src/db/index.ts` — Created singleton getDb() and closeDb()
+- `src/db/migrate.ts` — Created programmatic migration runner
+- `src/db/__tests__/schema.test.ts` — Schema structure tests
+- `src/db/__tests__/index.test.ts` — getDb singleton tests
+- `src/lib/session-db.ts` — DB-backed session CRUD functions
+- `src/lib/__tests__/session-db.test.ts` — Session DB function tests
+- `src/instrumentation.ts` — Wired migrations at startup, closeDb on shutdown
+- `docker-compose.yml` — Created local Postgres dev setup
+- `drizzle/0000_cute_mimic.sql` — Initial migration SQL
+- `drizzle/meta/` — Drizzle migration metadata
+- `src/lib/__tests__/env.test.ts` — Fixed: added DATABASE_URL to test setup
+- `src/lib/__tests__/image.test.ts` — Fixed: pre-existing duplicate identifier TS error
+
+### Linear Updates
+- FOO-112: Todo → In Progress → Review
+- FOO-113: Todo → In Progress → Review
+- FOO-114: Todo → In Progress → Review
+- FOO-115: Todo → In Progress → Review
+- FOO-116: Todo → In Progress (partial — DB functions done, session.ts refactor remaining)
+
+### Pre-commit Verification
+- bug-hunter: Found 10 issues (3 HIGH, 7 MEDIUM). Fixed 7 before proceeding: env test DATABASE_URL (Bug 3), pool closeDb (Bug 2), getRequiredEnv in getDb (Bug 5), createSession guard (Bug 7), sanitized error logging (Bug 8), localhost Docker bind (Bug 10), image.test.ts pre-existing TS error. Remaining: Bug 1 (token encryption) and Bug 9 (indexes) deferred to Task 6+ when fitbit_tokens/food_logs are actually used.
+- verifier: All 459 tests pass, zero typecheck errors, 2 pre-existing lint warnings (img optimization)
+
+### Continuation Status
+Point budget reached (~119 points consumed). More tasks remain.

@@ -12,11 +12,20 @@ export async function register() {
     "server started",
   );
 
+  const { runMigrations } = await import("@/db/migrate");
+  await runMigrations();
+
   let shuttingDown = false;
-  const shutdown = (signal: string) => {
+  const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info({ action: "server_shutdown", signal }, "graceful shutdown initiated");
+    try {
+      const { closeDb } = await import("@/db/index");
+      await closeDb();
+    } catch {
+      // Best-effort cleanup
+    }
     setTimeout(() => {
       logger.info({ action: "server_exit" }, "server exiting");
       process.exit(0);

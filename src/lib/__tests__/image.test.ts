@@ -27,11 +27,16 @@ const mockContext = {
 class MockImage {
   width = 0;
   height = 0;
-  src = "";
+  private _src = "";
   onload: (() => void) | null = null;
   onerror: ((err: Error) => void) | null = null;
 
+  get src() {
+    return this._src;
+  }
+
   set src(value: string) {
+    this._src = value;
     // Simulate async image loading
     setTimeout(() => {
       this.onload?.();
