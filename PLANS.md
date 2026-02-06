@@ -1282,3 +1282,25 @@ All tasks completed.
 2. In `fetchWithRetry 5xx > throws after exhausting retries on persistent 5xx` test: set up `expect(promise).rejects.toThrow("FITBIT_API_ERROR")` BEFORE `vi.advanceTimersByTimeAsync(20000)`
 3. In `jsonWithTimeout > rejects when response.json() exceeds timeout` test: set up `expect(promise).rejects.toThrow("Response body read timed out")` BEFORE `vi.advanceTimersByTimeAsync(5000)`
 4. Verify: `npm test -- fitbit` passes with zero unhandled rejections
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-06
+
+### Tasks Completed This Iteration
+- Fix 1: Unhandled promise rejections in fitbit.test.ts — Reordered `expect(promise).rejects.toThrow()` BEFORE `vi.advanceTimersByTimeAsync()` in all 4 affected tests (exchangeFitbitCode abort, refreshFitbitToken abort, fetchWithRetry 5xx exhaustion, jsonWithTimeout timeout)
+
+### Files Modified
+- `src/lib/__tests__/fitbit.test.ts` — Fixed 4 unhandled promise rejection patterns
+
+### Linear Updates
+- FOO-154: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found in changes
+- verifier: 555 tests pass, zero lint warnings, zero type errors, build succeeds. 1 pre-existing test file (migrate.test.ts) has mock hoisting bug — not from this changeset.
+
+### Continuation Status
+All tasks completed.

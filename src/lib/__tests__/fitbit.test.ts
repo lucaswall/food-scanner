@@ -250,9 +250,9 @@ describe("exchangeFitbitCode", () => {
 
     const promise = exchangeFitbitCode("code", "http://localhost:3000/callback");
 
+    const rejection = expect(promise).rejects.toThrow();
     await vi.advanceTimersByTimeAsync(10000);
-
-    await expect(promise).rejects.toThrow();
+    await rejection;
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -321,9 +321,9 @@ describe("refreshFitbitToken", () => {
 
     const promise = refreshFitbitToken("refresh-token");
 
+    const rejection = expect(promise).rejects.toThrow();
     await vi.advanceTimersByTimeAsync(10000);
-
-    await expect(promise).rejects.toThrow();
+    await rejection;
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -675,11 +675,11 @@ describe("fetchWithRetry 5xx handling", () => {
 
     const promise = createFood("test-token", mockFoodAnalysis);
 
+    // Set up rejection expectation BEFORE advancing timers to avoid unhandled rejections
+    const rejection = expect(promise).rejects.toThrow("FITBIT_API_ERROR");
     // Advance through all retry delays: 1s, 2s, 4s, 8s
     await vi.advanceTimersByTimeAsync(20000);
-
-    // Should eventually return the 500 response which triggers FITBIT_API_ERROR
-    await expect(promise).rejects.toThrow("FITBIT_API_ERROR");
+    await rejection;
 
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -727,9 +727,10 @@ describe("jsonWithTimeout", () => {
     vi.spyOn(response, "json").mockImplementation(() => new Promise(() => {})); // never resolves
 
     const promise = jsonWithTimeout(response, 5000);
-    await vi.advanceTimersByTimeAsync(5000);
 
-    await expect(promise).rejects.toThrow("Response body read timed out");
+    const rejection = expect(promise).rejects.toThrow("Response body read timed out");
+    await vi.advanceTimersByTimeAsync(5000);
+    await rejection;
 
     vi.useRealTimers();
   });
