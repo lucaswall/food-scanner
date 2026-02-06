@@ -1,152 +1,262 @@
 ---
 name: code-audit
-description: Audits codebase for bugs, security issues, memory leaks, and CLAUDE.md violations. Creates Linear issues in Backlog state for findings. Use when user says "audit", "find bugs", "check security", or "review codebase". Analysis only.
+description: Audits codebase using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Creates Linear issues in Backlog state for findings. Use when user says "audit", "find bugs", "check security", "review codebase", or "team audit". Higher token cost, faster and deeper analysis. Falls back to single-agent mode if agent teams unavailable.
 argument-hint: [optional: specific area like "lib" or "api"]
-allowed-tools: Read, Glob, Grep, Task, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
-Perform a comprehensive code audit and create Linear issues in Backlog for findings.
+Perform a comprehensive code audit using an agent team with domain-specialized reviewers. You are the **team lead/coordinator**. You orchestrate 3 reviewer teammates who scan the codebase in parallel, then you merge findings and create Linear issues.
+
+**If agent teams are unavailable** (TeamCreate fails), fall back to single-agent mode — see "Fallback: Single-Agent Mode" section.
 
 ## Pre-flight
 
 1. **Verify Linear MCP** — Call `mcp__linear__list_teams`. If unavailable, STOP and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
-2. **Read CLAUDE.md** - Load project-specific rules to audit against (if exists)
-3. **Query Linear Backlog** - Get existing issues using `mcp__linear__list_issues` with:
+2. **Read CLAUDE.md** — Load project-specific rules to audit against (if exists)
+3. **Query Linear Backlog** — Get existing issues using `mcp__linear__list_issues` with:
    - `team`: "Food Scanner"
    - `state`: "Backlog"
    - For each issue, record: ID, title, labels, priority, description
    - **Audit issues** (labels: Bug, Security, Performance, Convention, Technical Debt) → mark as `pending_validation`
    - **Non-audit issues** (labels: Feature, Improvement) → mark as `preserve` (skip validation)
-4. **Read project config** - `tsconfig.json`, `package.json`, `.gitignore` for structure discovery
-
-## Audit Process
-
-Copy this checklist and track progress:
-
-```
-Audit Progress:
-- [ ] Step 1: Discover project structure
-- [ ] Step 2: Validate existing Linear Backlog issues
-- [ ] Step 3: Explore discovered areas systematically
-- [ ] Step 4: Check CLAUDE.md compliance
-- [ ] Step 5: Check dependency vulnerabilities
-- [ ] Step 6: Merge, deduplicate, and reprioritize
-- [ ] Step 7: Create Linear Issues
-```
-
-### Step 1: Discover Project Structure
-
-Dynamically discover the project structure (do NOT hardcode paths):
-
-1. **Read configuration files** (in parallel):
-   - `tsconfig.json` - check `include`/`exclude` for source patterns
-   - `package.json` - check `main`, `types`, `scripts` for entry points
-   - `.gitignore` - identify directories to skip
-
-2. **Identify source directories**:
-   - Use Glob with patterns from tsconfig.json `include`
+4. **Discover project structure** — Read `tsconfig.json`, `package.json`, `.gitignore` in parallel
+   - Use Glob with patterns from tsconfig.json `include` to identify source directories
    - If no tsconfig, use conventions: `src/`, `lib/`, `app/`, `packages/`
+5. **Run `npm audit`** — Capture critical/high dependency vulnerabilities for later
 
-3. **Map the codebase structure**:
-   - Use Task tool with `subagent_type=Explore` to understand architecture
-   - If `$ARGUMENTS` specifies a focus area, prioritize that
+## Team Setup
 
-### Step 2: Validate Existing Linear Backlog Issues
+### Create the team
 
-For each existing issue marked `pending_validation`:
+Use `TeamCreate`:
+- `team_name`: "code-audit"
+- `description`: "Parallel code audit with domain-specialized reviewers"
 
-1. **Check if the issue still exists:**
-   - Read the referenced file path and line numbers from issue description
-   - Verify the problematic code is still present
-   - Check git history if needed to see if it was fixed
+**If TeamCreate fails**, switch to Fallback: Single-Agent Mode (see below).
 
-2. **Classify as `fixed` or `pending`:**
+### Create tasks
 
-   | Status | Criteria | Action |
-   |--------|----------|--------|
-   | `fixed` | Code corrected or file removed | Close issue with comment |
-   | `pending` | Issue appears to still exist | Carry forward to Step 6 for final classification |
+Use `TaskCreate` to create 3 review tasks (these track progress for each reviewer):
 
-3. **Track validation results** - Log which issues were closed as fixed
+1. **"Security audit"** — Security & auth review of the codebase
+2. **"Reliability audit"** — Bugs, async, resources, memory leaks, timeouts
+3. **"Quality audit"** — Type safety, conventions, logging, tests, dead code
 
-Note: Final classification (`still_valid`, `needs_update`, `superseded`) happens in Step 6 after new findings are known.
+### Spawn 3 reviewer teammates
 
-### Step 3: Systematic Exploration
+Use the `Task` tool with `team_name: "code-audit"` and `subagent_type: "general-purpose"` to spawn each reviewer. Give each a `name` and a detailed `prompt` (see Reviewer Prompts below).
 
-Use Task tool with `subagent_type=Explore` to examine each discovered area.
+Spawn all 3 reviewers in parallel (3 concurrent Task calls in one message).
 
-**Look for:**
-- Logic errors, null handling, race conditions
-- Security vulnerabilities (injection, missing auth, exposed secrets)
-- Unhandled edge cases and boundary conditions
-- Type safety issues (unsafe casts, unvalidated external data)
-- Dead or duplicate code
-- Memory leaks (unbounded collections, event listeners, unclosed streams)
-- Resource leaks (connections, file handles, timers not cleared)
-- Async issues (unhandled promises, missing try/catch)
-- Timeout/hang scenarios (API calls without timeouts)
-- Graceful shutdown issues (cleanup not performed)
-- Logging issues (wrong levels, missing logs, log overflow, insufficient debug coverage)
+**IMPORTANT:** Each reviewer prompt MUST include:
+- Their specific domain checklist (copied from the Reviewer Prompts section)
+- The focus area if `$ARGUMENTS` specifies one
+- The list of existing `pending_validation` issues relevant to their domain (so they can validate them)
+- Instructions to report findings as a structured message to the lead
 
-**AI-Generated Code Risks:**
-When code shows AI patterns (repetitive structure, unusual APIs), apply extra scrutiny for:
-- Logic errors (75% more common in AI code)
-- XSS vulnerabilities (2.74x higher frequency)
-- Code duplication
-- Hallucinated APIs (non-existent methods/libraries)
-- Missing business context
+### Assign tasks
 
-See [references/compliance-checklist.md](references/compliance-checklist.md) for detailed checks.
+After spawning, use `TaskUpdate` to assign each task to its reviewer by name.
 
-### Step 4: CLAUDE.md Compliance
+## Reviewer Prompts
 
-If CLAUDE.md exists, check project-specific rules defined there (imports, logging, patterns, TDD).
+Each reviewer gets a tailored prompt. Include the full text below in each reviewer's spawn prompt, substituting the domain-specific section.
 
-### Step 5: Dependency Vulnerabilities
+### Common Preamble (include in ALL reviewer prompts)
 
-Run the appropriate audit command:
-- **Node.js**: `npm audit` or `yarn audit`
-- **Rust**: `cargo audit`
-- **Python**: `pip-audit` or `safety check`
-- **Go**: `govulncheck`
+```
+You are a code audit reviewer for the Food Scanner project. Your job is to scan the ENTIRE codebase and find issues in your assigned domain.
 
-Include critical/high vulnerabilities in findings.
+RULES:
+- Analysis only — do NOT modify any source code
+- Do NOT create Linear issues — report findings to the team lead
+- No solutions — document problems only, not fixes
+- Be specific — include file paths and approximate line numbers
+- Be thorough — check every file in scope
+- Focus area: {$ARGUMENTS or "entire codebase"}
 
-### Step 6: Merge, Deduplicate, and Reprioritize
+WORKFLOW:
+1. Read CLAUDE.md for project-specific rules
+2. Read .claude/skills/code-audit/references/compliance-checklist.md for detailed audit checks in your domain
+3. Discover all source files using Glob (check tsconfig.json include patterns)
+4. Read each source file systematically
+5. Use Grep to search for specific patterns (see your checklist AND the compliance checklist)
+6. Validate any existing issues assigned to you (check if code still has the problem)
+7. When done, send your findings to the lead using SendMessage
 
-Now that you have both `pending` existing issues and new findings, perform final classification:
+EXISTING ISSUES TO VALIDATE:
+{list of pending_validation issues relevant to this reviewer's domain}
+For each, check if the referenced code still has the problem. Report as:
+- FIXED: [issue ID] - [reason]
+- STILL EXISTS: [issue ID]
 
-1. **Classify pending existing issues:**
+FINDINGS FORMAT - Send a message to the lead with this structure:
+---
+DOMAIN: {domain name}
+VALIDATED EXISTING ISSUES:
+- FIXED: FOO-XX - [reason]
+- STILL EXISTS: FOO-YY
 
-   | Status | Criteria | Action |
-   |--------|----------|--------|
-   | `superseded` | New finding covers same issue | Close issue (new finding wins) |
-   | `needs_update` | Issue exists but line numbers or severity changed | Update issue description/priority |
-   | `still_valid` | Issue unchanged, no overlapping new finding | Keep as-is |
+NEW FINDINGS:
+1. [category-tag] [priority-tag] [file-path:line] - [description]
+2. [category-tag] [priority-tag] [file-path:line] - [description]
+...
 
-2. **Merge sources:**
-   - `still_valid` and `needs_update` existing issues
-   - New findings from Steps 3-5
+Category tags: [security], [bug], [async], [memory-leak], [resource-leak], [timeout], [shutdown], [edge-case], [type], [convention], [logging], [dependency], [rate-limit], [dead-code], [duplicate], [test], [practice], [docs], [chore]
+Priority tags: [critical], [high], [medium], [low]
+---
+```
 
-3. **Deduplicate:**
-   - Same code location → merge into the one with higher priority
+### Security Reviewer Prompt (name: "security-reviewer")
 
-4. **Reassess priorities** for the entire combined list:
-   - See [references/priority-assessment.md](references/priority-assessment.md) for impact x likelihood matrix
-   - Document priority changes with reason
+Append to the common preamble:
 
-**For category tags and label mapping, see [references/category-tags.md](references/category-tags.md).**
+```
+YOUR DOMAIN: Security & Authentication
 
-**For each new finding, prepare:**
-- File path and approximate location
-- Clear problem description
-- Linear label (mapped from category tag)
-- Linear priority (1=Urgent, 2=High, 3=Medium, 4=Low)
+Check for:
+- OWASP A01: Broken Access Control — public endpoints intentional? Auth middleware on protected routes? IDOR prevention?
+- OWASP A02: Secrets & Credentials — hardcoded secrets? Secrets in git? Sensitive data logged? Error messages leaking internals?
+- OWASP A03: Injection — user input sanitized? Command injection? Path traversal? XSS in rendered content?
+- OWASP A07: Authentication — tokens validated on every request? Auth middleware consistent? Session handling secure?
+- HTTPS & Transport — external calls use HTTPS? Certificate validation not disabled?
+- Rate limiting — API quotas handled? Backoff for 429s?
+- Cookie security — httpOnly, secure, sameSite flags?
 
-**Do NOT document solutions.** Identify problems only.
+Search patterns (use Grep):
+- `password|secret|api.?key|token` (case insensitive) — potential hardcoded secrets
+- `eval\(|new Function\(` — dangerous code execution
+- `exec\(|spawn\(` with variable input — command injection
+- Log statements containing `password|secret|token|key|auth|headers|req\.body`
 
-### Step 7: Create Linear Issues
+AI-Generated Code Risks:
+- XSS vulnerabilities (2.74x higher in AI code)
+- Missing input validation
+- Hallucinated security APIs
+```
+
+### Reliability Reviewer Prompt (name: "reliability-reviewer")
+
+Append to the common preamble:
+
+```
+YOUR DOMAIN: Bugs, Async, Resources & Reliability
+
+Check for:
+- Logic errors — off-by-one, empty array/object edge cases, wrong comparisons, assignment vs comparison
+- Null handling — nullable types without explicit handling, missing null checks
+- Race conditions — shared state mutations, concurrent access without locks
+- Async issues — promises without .catch(), async functions without try/catch, unhandled rejections, Promise.all error handling
+- Memory leaks — unbounded arrays/Maps/Sets, event listeners without cleanup (.on without .off), timers without clearInterval, closures capturing large objects
+- Resource leaks — connections not returned to pool, file handles not closed, streams not destroyed on error
+- Timeout/hang scenarios — HTTP requests without timeout, API calls that could hang (Claude, Fitbit, Google), no circuit breaker
+- Graceful shutdown — SIGTERM/SIGINT handlers? Cleanup on shutdown? Pending requests handled?
+- Boundary conditions — empty inputs, single-element collections, max-size inputs, negative/zero values
+
+Search patterns (use Grep):
+- `\.then\(` without `.catch` nearby — unhandled promise
+- `async ` functions — verify try/catch coverage
+- `Promise\.all` — verify error handling
+- `\.on\(` — event listeners (check for cleanup)
+- `setInterval` — timers (check for clearInterval)
+- `setTimeout` in loops — potential accumulation
+- `new Map\(|new Set\(|\[\]` at module level — potential unbounded growth
+```
+
+### Quality Reviewer Prompt (name: "quality-reviewer")
+
+Append to the common preamble:
+
+```
+YOUR DOMAIN: Type Safety, Conventions, Logging & Test Quality
+
+Check for:
+TYPE SAFETY:
+- Unsafe `any` casts without justification
+- Type assertions (`as Type`) that may be wrong
+- Union types without exhaustive handling
+- External data used without validation (API responses, AI outputs, file parsing)
+- Missing runtime validation for API inputs
+
+CLAUDE.md COMPLIANCE (read CLAUDE.md first!):
+- Import path conventions (@/ alias)
+- Naming conventions (files: kebab-case, components: PascalCase, etc.)
+- Error response format compliance
+- Server vs client component usage
+- Any other project-specific rules
+
+LOGGING:
+- console.log/warn/error instead of proper logger
+- Wrong log levels (errors at INFO, critical at DEBUG)
+- Missing logs in error paths (empty catch blocks)
+- Log overflow risks (logging in tight loops, large objects)
+- Sensitive data in logs
+- Missing structured logging fields
+
+DEAD CODE & DUPLICATION:
+- Unused functions, unreachable code
+- Repeated logic that could be a single function
+- Commented-out code blocks
+
+TEST QUALITY (if tests exist):
+- Tests with no meaningful assertions
+- Tests that always pass
+- Duplicate tests
+- Mocks that hide real bugs
+- No real customer data in tests
+
+Search patterns (use Grep):
+- `as any` — unsafe type cast
+- `as unknown as` — double cast
+- `@ts-ignore|@ts-expect-error` — suppressed type errors
+- `console\.log|console\.warn|console\.error` — should use proper logger
+- `catch\s*\([^)]*\)\s*\{[^}]*\}` — empty catch blocks
+```
+
+## Coordination (while reviewers work)
+
+While waiting for reviewer messages:
+1. Reviewer messages are **automatically delivered** to you — do NOT poll or manually check inbox
+2. Teammates go idle after each turn — this is normal. An idle notification does NOT mean they are done. They are done when they send their findings message.
+3. Track progress via `TaskList` — check which tasks are in progress vs completed
+4. As each reviewer sends findings, acknowledge receipt
+5. Wait until ALL 3 reviewers have reported before proceeding to merge
+
+**If a reviewer gets stuck or stops without reporting:** Send them a message asking for their findings. If they don't respond, note that domain as "incomplete" in the final report.
+
+## Merge & Deduplicate
+
+Once all reviewer findings are collected:
+
+### Validate existing issues
+
+Combine validation results from all 3 reviewers:
+- Issues reported as FIXED by any reviewer → close in Linear with comment
+- Issues reported as STILL EXISTS → carry forward
+
+### Classify pending existing issues
+
+| Status | Criteria | Action |
+|--------|----------|--------|
+| `superseded` | New finding covers same issue | Close issue (new finding wins) |
+| `needs_update` | Issue exists but line numbers or severity changed | Update issue description/priority |
+| `still_valid` | Issue unchanged, no overlapping new finding | Keep as-is |
+
+### Deduplicate new findings
+
+- Same code location reported by multiple reviewers → merge into the one with higher priority
+- Same root cause manifesting in multiple locations → create one issue covering all locations
+
+### Reassess priorities
+
+| | High Likelihood | Medium Likelihood | Low Likelihood |
+|---|---|---|---|
+| **High Impact** | Critical | Critical | High |
+| **Medium Impact** | High | Medium | Medium |
+| **Low Impact** | Medium | Low | Low |
+
+## Create Linear Issues
 
 For each new finding, use `mcp__linear__create_issue`:
 
@@ -159,7 +269,7 @@ priority: [1|2|3|4] (mapped from critical/high/medium/low)
 labels: [Mapped label(s)]
 ```
 
-**Label Mapping (from category tags):**
+**Label Mapping:**
 
 | Category Tags | Linear Label |
 |---------------|--------------|
@@ -168,8 +278,6 @@ labels: [Mapped label(s)]
 | `[memory-leak]`, `[resource-leak]`, `[timeout]`, `[rate-limit]` | Performance |
 | `[convention]` | Convention |
 | `[dead-code]`, `[duplicate]`, `[test]`, `[practice]`, `[docs]`, `[chore]` | Technical Debt |
-| `[feature]` | Feature |
-| `[improvement]`, `[enhancement]`, `[refactor]` | Improvement |
 
 **Priority Mapping:**
 - `[critical]` → 1 (Urgent)
@@ -178,9 +286,36 @@ labels: [Mapped label(s)]
 - `[low]` → 4 (Low)
 
 **Rules:**
-- NO solutions in issue descriptions - identify problems only
+- NO solutions in issue descriptions — identify problems only
 - Include file paths in description
 - One issue per distinct finding
+
+## Shutdown Team
+
+After all Linear issues are created:
+1. Send shutdown requests to all 3 reviewers using `SendMessage` with `type: "shutdown_request"`
+2. Wait for shutdown confirmations
+3. Use `TeamDelete` to remove team resources
+
+## Fallback: Single-Agent Mode
+
+If `TeamCreate` fails (agent teams unavailable), perform the audit sequentially as a single agent:
+
+1. **Inform user:** "Agent teams unavailable. Running audit in single-agent mode."
+2. **Validate existing issues** — For each `pending_validation` issue, check if the referenced code still has the problem. Close fixed issues, carry forward valid ones.
+3. **Systematic exploration** — Use Task tool with `subagent_type=Explore` to examine each discovered area. Look for:
+   - Logic errors, null handling, race conditions
+   - Security vulnerabilities (injection, missing auth, exposed secrets)
+   - Unhandled edge cases and boundary conditions
+   - Type safety issues (unsafe casts, unvalidated external data)
+   - Dead or duplicate code
+   - Memory leaks, resource leaks, async issues
+   - Timeout/hang scenarios, graceful shutdown issues
+   - Logging issues
+   See [references/compliance-checklist.md](references/compliance-checklist.md) for detailed checks.
+4. **CLAUDE.md compliance** — Check project-specific rules
+5. **Merge, deduplicate, reprioritize** — Same process as team mode (see Merge & Deduplicate section)
+6. **Create Linear issues** — Same process as team mode (see Create Linear Issues section)
 
 ## Error Handling
 
@@ -188,21 +323,23 @@ labels: [Mapped label(s)]
 |-----------|--------|
 | Linear MCP not connected | STOP — tell user to run `/mcp` |
 | No tsconfig.json or package.json | Use conventions: `src/`, `lib/`, `app/` |
-| npm audit fails | Note skip, continue with code audit |
-| CLAUDE.md doesn't exist | Skip project-specific checks |
-| Linear Backlog query fails | Continue with fresh audit (no existing issues to validate) |
-| No existing Backlog issues | Start fresh (skip validation step) |
+| npm audit fails | Note skip, continue |
+| CLAUDE.md doesn't exist | Skip project-specific checks (tell quality-reviewer) |
+| Linear Backlog query fails | Continue with fresh audit (no existing issues) |
+| No existing Backlog issues | Start fresh (skip validation in reviewer prompts) |
+| TeamCreate fails | Switch to single-agent fallback mode |
+| Reviewer stops without reporting | Send follow-up message, note domain as incomplete |
 | Referenced file no longer exists | Mark issue as `fixed`, close in Linear |
 | Cannot determine if issue is fixed | Keep as `still_valid` |
-| Explore agent times out | Continue with Glob/Grep |
-| Large codebase (>1000 files) | Focus on `$ARGUMENTS` area or entry points |
+| Large codebase (>1000 files) | Tell reviewers to focus on `$ARGUMENTS` area or entry points |
 
 ## Rules
 
-- **Analysis only** - Do NOT modify source code
-- **No solutions** - Document problems, not fixes
-- **Be thorough** - Check every file in scope
-- **Be specific** - Include file paths
+- **Analysis only** — Do NOT modify source code
+- **No solutions** — Document problems, not fixes
+- **Lead handles all Linear writes** — Reviewers NEVER create issues directly
+- **Deduplicate before creating** — No duplicate issues in Linear
+- **Be thorough** — Every file in scope must be checked
 
 ## Termination
 
@@ -211,6 +348,8 @@ Output this message and STOP:
 ```
 Audit complete. Findings created as Linear issues in Backlog.
 
+Team: 3 reviewers (security, reliability, quality)
+[OR: Mode: single-agent (team unavailable)]
 Preserved: P non-audit issues (features, improvements)
 
 Existing Backlog issues:
@@ -219,6 +358,10 @@ Existing Backlog issues:
 - C updated (description/priority changed)
 
 New issues created: D
+- Security reviewer: X findings
+- Reliability reviewer: Y findings
+- Quality reviewer: Z findings
+- Duplicates merged: M
 
 Linear Backlog summary:
 - X Urgent/High priority issues
