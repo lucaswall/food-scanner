@@ -21,6 +21,7 @@ Single-user application for wall.lucas@gmail.com.
 - **Google OAuth 2.0** for authentication
 - **Fitbit Web API** for food logging
 - **Anthropic Claude API** for nutrition analysis (tool_use)
+- **PostgreSQL** via Railway (Drizzle ORM)
 - **Railway** for deployment
 
 ---
@@ -97,6 +98,32 @@ curl https://food-scanner-production-XXXX.up.railway.app/api/health
 ```
 
 Should return `{ "success": true, "data": { "status": "ok" }, "timestamp": ... }`.
+
+### Step 8: Add PostgreSQL Database
+
+1. Open your project in the [Railway dashboard](https://railway.com/dashboard)
+2. Click **"+ New"** on the Project Canvas
+3. Select **"Database"** → **"PostgreSQL"**
+4. Railway creates a Postgres service with auto-generated credentials
+
+#### Connect the database to your app service
+
+1. Click on the **food-scanner** service in the canvas
+2. Go to the **Variables** tab
+3. Click **"+ New Variable"**
+4. Add `DATABASE_URL` with value `${{Postgres.DATABASE_URL}}`
+   — This uses Railway's [reference variable syntax](https://docs.railway.com/guides/variables#referencing-another-services-variable) to dynamically resolve the Postgres connection string
+5. Railway will redeploy automatically after saving
+
+#### Verify the connection
+
+After the redeploy completes:
+
+```bash
+railway logs
+```
+
+Look for successful startup with no database connection errors. The app runs migrations automatically on startup — no manual migration step is needed.
 
 ### Build & Start
 
@@ -222,7 +249,7 @@ No service worker or offline support — the app requires an internet connection
 
 | Service | Monthly Cost |
 |---------|-------------|
-| Railway (Hobby) | ~$5 |
+| Railway (Hobby + Postgres) | ~$6 |
 | Claude API (~300 req/mo) | ~$0.60 |
 | Fitbit API | Free |
 | Custom domain | ~$1/mo |
