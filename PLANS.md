@@ -1,561 +1,185 @@
-# Implementation Plan
+# Fix Plan: Add exponential backoff retry to database migration at startup
 
-**Created:** 2026-02-05
-**Source:** Inline request: Integrate PostgreSQL database with Drizzle ORM. Add food_logs, sessions, and fitbit_tokens tables. Log food to database on each POST /api/log-food. Move session and Fitbit token persistence from cookie-only to DB-backed. Add sliding session expiration. Update DEVELOPMENT.md with Docker Postgres setup. Update CLAUDE.md with database conventions.
-**Linear Issues:** [FOO-112](https://linear.app/lw-claude/issue/FOO-112), [FOO-113](https://linear.app/lw-claude/issue/FOO-113), [FOO-114](https://linear.app/lw-claude/issue/FOO-114), [FOO-115](https://linear.app/lw-claude/issue/FOO-115), [FOO-116](https://linear.app/lw-claude/issue/FOO-116), [FOO-117](https://linear.app/lw-claude/issue/FOO-117), [FOO-118](https://linear.app/lw-claude/issue/FOO-118), [FOO-119](https://linear.app/lw-claude/issue/FOO-119), [FOO-120](https://linear.app/lw-claude/issue/FOO-120), [FOO-121](https://linear.app/lw-claude/issue/FOO-121), [FOO-122](https://linear.app/lw-claude/issue/FOO-122), [FOO-123](https://linear.app/lw-claude/issue/FOO-123)
+**Issue:** [FOO-124](https://linear.app/lw-claude/issue/FOO-124/add-exponential-backoff-retry-to-database-migration-at-startup)
+**Date:** 2026-02-06
+**Status:** Planning
+**Branch:** fix/FOO-124-migration-retry-backoff
 
-## Context Gathered
+## Investigation
 
-### Codebase Analysis
-- **Session management:** `src/lib/session.ts` — iron-session with `getSession()`, `validateSession()`. Cookie holds all data: sessionId, email, createdAt, expiresAt, fitbit tokens.
-- **Session consumers:** 8 files import from session.ts — all OAuth callbacks, analyze-food, log-food, auth/session, logout, app/page.tsx, landing page.
-- **Food logging:** `src/app/api/log-food/route.ts` → validates body → `ensureFreshToken()` → `findOrCreateFood()` → `logFood()` → returns Fitbit IDs. No local record kept.
-- **Token refresh:** `ensureFreshToken()` in `src/lib/fitbit.ts:327-347` mutates session and calls `session.save()`.
-- **Middleware:** `middleware.ts` only checks cookie presence (does NOT decrypt/validate).
-- **Tests:** All 35+ test files mock `getSession()` directly — migration-safe as long as `getSession()` interface is preserved.
-- **No database deps:** No ORM, no DB driver, no Docker files exist.
-- **Instrumentation:** `src/instrumentation.ts` — validates env vars at startup, handles graceful shutdown.
+### Bug Report
+The food-scanner site (food.lucaswall.me) shows an internal server error. Railway deploy logs reveal the Next.js server crash-loops because the database migration fails on startup — DNS resolution for `Postgres.railway.internal` fails with `ENOTFOUND`. The server crashes, Railway restarts it, and it fails again in an infinite loop.
 
-### Schema (agreed with user)
+### Classification
+- **Type:** Deployment Failure / Reliability
+- **Severity:** Critical (production down, site completely unreachable)
+- **Affected Area:** `src/db/migrate.ts`, `src/instrumentation.ts`
 
-**`sessions`** — id (uuid PK), email (text), created_at (timestamp), expires_at (timestamp)
+### Root Cause Analysis
+`runMigrations()` in `src/db/migrate.ts` attempts a single database connection with zero retry logic. When Railway's private DNS is not immediately available (which can happen due to service boot ordering, DNS propagation delays, or transient networking issues), the migration fails and the thrown error crashes the Next.js instrumentation hook, taking down the entire server.
 
-**`fitbit_tokens`** — id (serial PK), email (text), fitbit_user_id (text), access_token (text), refresh_token (text), expires_at (timestamp), updated_at (timestamp)
+Railway's restart policy (`ON_FAILURE`, max 10 retries) restarts the process, but each restart happens too quickly — DNS may still not be available, so it burns through all retries and the service stays down.
 
-**`food_logs`** — id (serial PK), email (text), food_name (text), amount (numeric), unit_id (integer), calories (integer), protein_g (numeric), carbs_g (numeric), fat_g (numeric), fiber_g (numeric), sodium_mg (numeric), confidence (text), notes (text), meal_type_id (integer), date (date), time (time nullable), fitbit_food_id (integer), fitbit_log_id (integer), logged_at (timestamp)
+#### Evidence
+- **File:** `src/db/migrate.ts:5-17` — `runMigrations()` has try/catch but re-throws on any error, no retry
+- **File:** `src/instrumentation.ts:15-16` — `await runMigrations()` called with no error handling; thrown error crashes the hook
+- **Logs:** Deployment `c871c1fc` shows continuous `ENOTFOUND Postgres.railway.internal` from 02:21 through 02:28+ (7+ min crash loop)
+- **Logs:** Postgres service is healthy — `database system is ready to accept connections` at 01:09:10
 
-## Original Plan
+#### Related Code
+```typescript
+// src/db/migrate.ts — current (no retry)
+export async function runMigrations(): Promise<void> {
+  logger.info({ action: "migrations_start" }, "running database migrations");
+  try {
+    await migrate(getDb(), { migrationsFolder: "./drizzle" });
+    logger.info({ action: "migrations_success" }, "database migrations completed");
+  } catch (error) {
+    logger.error(
+      { action: "migrations_failed", error: error instanceof Error ? error.message : String(error) },
+      "database migrations failed",
+    );
+    throw error;
+  }
+}
+```
 
-### Task 1: Install Drizzle ORM and PostgreSQL driver
-**Linear Issue:** [FOO-112](https://linear.app/lw-claude/issue/FOO-112)
+### Impact
+- Site is completely down (500 on every request)
+- No workaround — requires code fix and redeploy
+- Affects single user (wall.lucas@gmail.com) but blocks all functionality
 
-1. Install production deps: `drizzle-orm`, `pg`
-2. Install dev deps: `drizzle-kit`, `@types/pg`
-3. Create `drizzle.config.ts` at project root:
-   - dialect: "postgresql"
-   - schema: "./src/db/schema.ts"
-   - out: "./drizzle"
-   - dbCredentials.url from `DATABASE_URL` env var
-4. Add `DATABASE_URL` to `src/lib/env.ts` required vars list
-5. Add `DATABASE_URL` to `.env.local` template in DEVELOPMENT.md
-6. Run verifier (expect pass — no functional changes yet)
+## Fix Plan (TDD Approach)
 
-### Task 2: Define database schema
-**Linear Issue:** [FOO-113](https://linear.app/lw-claude/issue/FOO-113)
+### Task 1: Write failing tests for retry behavior
+- **File:** `src/db/__tests__/migrate.test.ts` (new file)
+- **Tests:**
+  1. Test succeeds on first attempt — no retry needed
+  2. Test retries on transient failure then succeeds (e.g., fails twice, succeeds third)
+  3. Test throws after all retries exhausted (5 attempts)
+  4. Test logs each retry attempt with attempt number and delay
+  5. Test uses exponential backoff delays (1s, 2s, 4s, 8s, 16s)
 
-1. Write test in `src/db/__tests__/schema.test.ts`:
-   - Import schema tables and verify column definitions exist
-   - Verify sessions table has id, email, createdAt, expiresAt
-   - Verify fitbitTokens table has id, email, fitbitUserId, accessToken, refreshToken, expiresAt, updatedAt
-   - Verify foodLogs table has all expected columns
-2. Run verifier (expect fail)
-3. Create `src/db/schema.ts`:
-   - `sessions` table: id (uuid, defaultRandom, PK), email (text, notNull), createdAt (timestamp, defaultNow), expiresAt (timestamp, notNull)
-   - `fitbitTokens` table: id (serial, PK), email (text, notNull), fitbitUserId (text, notNull), accessToken (text, notNull), refreshToken (text, notNull), expiresAt (timestamp, notNull), updatedAt (timestamp, defaultNow)
-   - `foodLogs` table: id (serial, PK), email (text, notNull), foodName (text, notNull), amount (numeric, notNull), unitId (integer, notNull), calories (integer, notNull), proteinG (numeric, notNull), carbsG (numeric, notNull), fatG (numeric, notNull), fiberG (numeric, notNull), sodiumMg (numeric, notNull), confidence (text, notNull), notes (text), mealTypeId (integer, notNull), date (date, notNull), time (time), fitbitFoodId (integer), fitbitLogId (integer), loggedAt (timestamp, defaultNow)
-4. Run verifier (expect pass)
+```typescript
+// Test outline
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-### Task 3: Create database connection module and migration runner
-**Linear Issue:** [FOO-114](https://linear.app/lw-claude/issue/FOO-114)
+vi.mock("drizzle-orm/node-postgres/migrator", () => ({
+  migrate: vi.fn(),
+}));
+vi.mock("@/db/index", () => ({
+  getDb: vi.fn(() => ({})),
+  closeDb: vi.fn(),
+}));
+vi.mock("@/lib/logger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 
-1. Write test in `src/db/__tests__/index.test.ts`:
-   - Test `getDb()` returns a Drizzle instance (mock pg Pool)
-   - Test calling `getDb()` twice returns the same instance (singleton)
-2. Run verifier (expect fail)
-3. Create `src/db/index.ts`:
-   - Create a singleton Drizzle client using `drizzle(new Pool({ connectionString: DATABASE_URL }))`
-   - Export `getDb()` function
-   - Import schema for type-safe queries
-4. Create `src/db/migrate.ts`:
-   - Import `migrate` from `drizzle-orm/node-postgres/migrator`
-   - Export `runMigrations()` that runs migrations from `./drizzle` folder
-   - Log migration start/success/failure via pino
-5. Wire into `src/instrumentation.ts`:
-   - After env validation, call `runMigrations()`
-   - If migration fails, log error and exit
-6. Run verifier (expect pass)
-7. Generate initial migration: `npx drizzle-kit generate`
-8. Verify migration SQL files created in `drizzle/` folder
+describe("runMigrations", () => {
+  it("succeeds on first attempt without retrying");
+  it("retries on transient error and succeeds");
+  it("throws after exhausting all retries");
+  it("logs retry attempts with attempt number and delay");
+  it("resets db singleton before retrying to get a fresh connection");
+});
+```
 
-### Task 4: Create docker-compose.yml for local development
-**Linear Issue:** [FOO-115](https://linear.app/lw-claude/issue/FOO-115)
+### Task 2: Implement exponential backoff retry in runMigrations
+- **File:** `src/db/migrate.ts`
+- **Changes:**
+  - Add retry loop with max 5 attempts
+  - Exponential backoff: 1s, 2s, 4s, 8s, 16s (base 1s, factor 2x)
+  - Call `closeDb()` before each retry to reset the connection pool (the failed pool/connection may be cached in the singleton)
+  - Log a warning on each retry with attempt number and next delay
+  - Throw original error after all retries exhausted
 
-1. Create `docker-compose.yml` at project root:
-   ```yaml
-   services:
-     db:
-       image: postgres:17-alpine
-       ports:
-         - "5432:5432"
-       environment:
-         POSTGRES_USER: postgres
-         POSTGRES_PASSWORD: postgres
-         POSTGRES_DB: food_scanner
-       volumes:
-         - pgdata:/var/lib/postgresql/data
-   volumes:
-     pgdata:
-   ```
-2. Add to `.gitignore` if not already: no changes needed (docker volumes are not committed)
-3. Update `.env.local` template to include:
-   ```
-   DATABASE_URL=postgresql://postgres:postgres@localhost:5432/food_scanner
-   ```
-4. Run verifier (expect pass)
+```typescript
+// Implementation outline
+const MAX_RETRIES = 5;
+const BASE_DELAY_MS = 1000;
 
-### Task 5: Refactor session management to DB-backed sessions
-**Linear Issue:** [FOO-116](https://linear.app/lw-claude/issue/FOO-116)
+export async function runMigrations(): Promise<void> {
+  logger.info({ action: "migrations_start" }, "running database migrations");
 
-1. Write tests in `src/lib/__tests__/session.test.ts`:
-   - Test `createSession(email)` inserts a row in sessions table and returns session ID
-   - Test `getSessionById(id)` returns session data from DB
-   - Test `getSessionById(id)` returns null for expired sessions
-   - Test `getSessionById(id)` returns null for non-existent sessions
-   - Test `touchSession(id)` extends expiresAt by 30 days from now
-   - Test `deleteSession(id)` removes the session row
-   - Test `validateSession()` still returns correct error responses (preserve existing interface)
-2. Run verifier (expect fail)
-3. Refactor `src/lib/session.ts`:
-   - Keep iron-session for cookie transport (cookie now only holds `{ sessionId: string }`)
-   - Add `createSession(email: string): Promise<string>` — inserts into sessions table, returns UUID
-   - Add `getSessionById(id: string): Promise<SessionRow | null>` — queries DB, returns null if expired
-   - Add `touchSession(id: string): Promise<void>` — updates expiresAt to now + 30 days
-   - Add `deleteSession(id: string): Promise<void>` — deletes row from sessions table
-   - Modify `getSession()` to: read sessionId from cookie → query DB → return combined data
-   - Keep `validateSession()` interface unchanged — it still checks sessionId, expiresAt, fitbit presence
-4. Update `SessionData` type in `src/types/index.ts`:
-   - Cookie now only stores: `{ sessionId: string }`
-   - Full session data (email, expiresAt, fitbit) comes from DB
-   - Create `FullSessionData` interface combining cookie + DB data for route handlers
-5. Run verifier (expect pass)
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      await migrate(getDb(), { migrationsFolder: "./drizzle" });
+      logger.info({ action: "migrations_success" }, "database migrations completed");
+      return;
+    } catch (error) {
+      const isLastAttempt = attempt === MAX_RETRIES;
 
-### Task 6: Move Fitbit token storage to database
-**Linear Issue:** [FOO-117](https://linear.app/lw-claude/issue/FOO-117)
+      if (isLastAttempt) {
+        logger.error(
+          { action: "migrations_failed", error: error instanceof Error ? error.message : String(error), attempt },
+          "database migrations failed after all retries",
+        );
+        throw error;
+      }
 
-1. Write tests in `src/lib/__tests__/fitbit-tokens.test.ts`:
-   - Test `upsertFitbitTokens(email, tokens)` inserts new row when none exists
-   - Test `upsertFitbitTokens(email, tokens)` updates existing row for same email
-   - Test `getFitbitTokens(email)` returns tokens from DB
-   - Test `getFitbitTokens(email)` returns null when no tokens exist
-   - Test `deleteFitbitTokens(email)` removes the row
-2. Run verifier (expect fail)
-3. Create `src/lib/fitbit-tokens.ts`:
-   - `upsertFitbitTokens(email, data)` — insert or update (ON CONFLICT email)
-   - `getFitbitTokens(email)` — query by email
-   - `deleteFitbitTokens(email)` — delete by email
-4. Refactor `ensureFreshToken()` in `src/lib/fitbit.ts`:
-   - Instead of reading/writing `session.fitbit`, read/write from `fitbit_tokens` table via `getFitbitTokens()` / `upsertFitbitTokens()`
-   - Remove `session.save()` call — tokens are now DB-persisted
-   - Accept `email: string` parameter instead of full session object
-5. Update callers of `ensureFreshToken()`:
-   - `src/app/api/log-food/route.ts`: pass `session.email` instead of session object
-   - `src/app/api/analyze-food/route.ts`: same change if applicable
-6. Run verifier (expect pass)
+      const delay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      logger.warn(
+        { action: "migrations_retry", attempt, nextDelay: delay, error: error instanceof Error ? error.message : String(error) },
+        `database migration attempt ${attempt} failed, retrying in ${delay}ms`,
+      );
 
-### Task 7: Update OAuth callbacks for DB-backed sessions and tokens
-**Linear Issue:** [FOO-118](https://linear.app/lw-claude/issue/FOO-118)
+      // Reset connection pool — the cached connection may be stale
+      await closeDb();
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+```
 
-1. Write tests in `src/app/api/auth/google/callback/__tests__/route.test.ts`:
-   - Test that Google callback calls `createSession(email)` on successful login
-   - Test that the cookie is set with only the session ID
-   - Test that existing Fitbit tokens are detected via `getFitbitTokens(email)`
-2. Write tests in `src/app/api/auth/fitbit/callback/__tests__/route.test.ts`:
-   - Test that Fitbit callback calls `upsertFitbitTokens(email, tokens)`
-   - Test that session cookie is NOT modified (only DB is updated)
-3. Run verifier (expect fail)
-4. Update `src/app/api/auth/google/callback/route.ts`:
-   - After validating Google profile, call `createSession(email)` instead of setting all session fields
-   - Set cookie to `{ sessionId }` only
-   - Check `getFitbitTokens(email)` to decide redirect destination (instead of `session.fitbit`)
-5. Update `src/app/api/auth/fitbit/callback/route.ts`:
-   - Call `upsertFitbitTokens(session.email, { ... })` instead of setting `session.fitbit`
-   - No need to call `session.save()` for token changes
-6. Update `src/app/api/auth/logout/route.ts`:
-   - Call `deleteSession(sessionId)` to remove DB row
-   - Keep `session.destroy()` to clear cookie
-7. Run verifier (expect pass)
+### Task 3: Verify
+- [ ] New tests pass
+- [ ] Existing tests still pass (`npm test`)
+- [ ] TypeScript compiles (`npm run typecheck`)
+- [ ] Lint passes (`npm run lint`)
+- [ ] Build succeeds (`npm run build`)
 
-### Task 8: Add sliding session expiration
-**Linear Issue:** [FOO-119](https://linear.app/lw-claude/issue/FOO-119)
-
-1. Write test in `src/lib/__tests__/session.test.ts`:
-   - Test that `getSession()` (or a wrapper) calls `touchSession()` to extend expiry
-   - Test that touch only happens if session is older than 1 hour since last touch (avoid DB write on every request)
-2. Run verifier (expect fail)
-3. Implement sliding expiration in `src/lib/session.ts`:
-   - In `getSession()` (after fetching session from DB): if session exists and `expiresAt` is more than 1 hour closer than 30 days from now, call `touchSession(id)` to reset to 30 days
-   - This means: session is extended on any request, but at most once per hour
-   - The 1-hour debounce avoids a DB write on every single request
-4. Run verifier (expect pass)
-
-### Task 9: Add food logging to database
-**Linear Issue:** [FOO-120](https://linear.app/lw-claude/issue/FOO-120)
-
-1. Write tests in `src/lib/__tests__/food-log.test.ts`:
-   - Test `insertFoodLog(email, data)` inserts a row with all fields
-   - Test returned row has id and loggedAt
-   - Test all numeric fields are stored correctly
-   - Test nullable fields (time, fitbitFoodId, fitbitLogId) work with null
-2. Run verifier (expect fail)
-3. Create `src/lib/food-log.ts`:
-   - `insertFoodLog(email, data): Promise<{ id: number; loggedAt: Date }>` — inserts into food_logs table
-   - Accepts `FoodLogRequest` plus fitbit response data (fitbitFoodId, fitbitLogId)
-4. Update `src/app/api/log-food/route.ts`:
-   - After successful Fitbit logging, call `insertFoodLog(session.email, { ...body, fitbitFoodId, fitbitLogId })`
-   - If DB insert fails, log error but still return success (Fitbit logging succeeded — the primary operation)
-   - Include `foodLogId` in the response
-5. Run verifier (expect pass)
-
-### Task 10: Update session validation across all route handlers
-**Linear Issue:** [FOO-121](https://linear.app/lw-claude/issue/FOO-121)
-
-1. Update `src/app/api/auth/session/route.ts`:
-   - Use new `getSession()` that reads from DB
-   - Response should include whether Fitbit is connected (query `getFitbitTokens(email)`)
-2. Update `src/app/api/analyze-food/route.ts`:
-   - Use new session with `requireFitbit` check querying DB for tokens
-3. Update `src/app/app/page.tsx`:
-   - Use new `getSession()` to read email from DB-backed session
-4. Update `src/app/page.tsx` (landing page):
-   - Check session via new `getSession()`
-5. Run verifier (expect pass for each file)
-
-### Task 11: Update DEVELOPMENT.md with Docker Postgres setup
-**Linear Issue:** [FOO-122](https://linear.app/lw-claude/issue/FOO-122)
-
-1. Add "Database (PostgreSQL)" section to DEVELOPMENT.md Prerequisites:
-   - Docker (via Docker Desktop or OrbStack)
-2. Add new step between "Install" and "Environment Variables":
-   - Step 2: Start Database
-   - `docker compose up -d` to start Postgres
-   - `docker compose down` to stop
-   - `docker compose down -v` to stop and delete data
-3. Update `.env.local` template to include `DATABASE_URL`
-4. Add note: migrations run automatically on `npm run dev` startup
-5. Add "Database Commands" to Available Commands table:
-   - `docker compose up -d` — Start local Postgres
-   - `docker compose down` — Stop local Postgres
-   - `npx drizzle-kit generate` — Generate migration from schema changes
-   - `npx drizzle-kit studio` — Open Drizzle Studio (DB browser)
-6. Run verifier (expect pass)
-
-### Task 12: Update CLAUDE.md with database conventions
-**Linear Issue:** [FOO-123](https://linear.app/lw-claude/issue/FOO-123)
-
-1. Update Tech Stack table to include PostgreSQL + Drizzle ORM
-2. Update STRUCTURE section to include:
-   - `src/db/` — Database schema, connection, and migration runner
-   - `src/db/schema.ts` — Drizzle schema (source of truth for DB tables)
-   - `src/db/index.ts` — Singleton DB connection
-   - `src/db/migrate.ts` — Migration runner (called at startup)
-   - `drizzle/` — Generated SQL migration files
-   - `drizzle.config.ts` — Drizzle Kit configuration
-   - `docker-compose.yml` — Local Postgres for development
-3. Add "DATABASE" section:
-   - ORM: Drizzle ORM with `pg` driver
-   - Schema defined in TypeScript (`src/db/schema.ts`)
-   - Migrations generated via `npx drizzle-kit generate`, applied at startup via programmatic `migrate()`
-   - Connection: singleton via `getDb()` in `src/db/index.ts`
-   - Local dev: Docker Compose Postgres
-   - Production: Railway Postgres (DATABASE_URL reference variable)
-   - Convention: use Drizzle query builder, NOT raw SQL
-   - Convention: all DB access through `src/lib/` modules, never import `getDb()` directly in route handlers
-4. Update ENVIRONMENT VARIABLES section to include `DATABASE_URL`
-5. Update COMMANDS section if any new scripts are added
-6. Run verifier (expect pass)
-
-### Task 13: Integration & Verification
-**Issues:** All
-
-**Steps:**
-
-1. Run full test suite: `npm test`
-2. Run linter: `npm run lint`
-3. Run type checker: `npm run typecheck`
-4. Build check: `npm run build`
-5. Verify migration files exist in `drizzle/` folder
-6. Manual verification:
-   - [ ] `docker compose up -d` starts Postgres
-   - [ ] `npm run dev` runs migrations and starts server
-   - [ ] Login flow works (Google OAuth → session in DB)
-   - [ ] Fitbit connection stores tokens in DB (not cookie)
-   - [ ] Food logging writes to both Fitbit AND food_logs table
-   - [ ] Session extends on use (sliding expiration)
-   - [ ] Logout deletes session from DB
-
-## Post-Implementation Checklist
-1. Run `bug-hunter` agent - Review changes for bugs
-2. Run `verifier` agent - Verify all tests pass and zero warnings
-
----
-
-## Plan Summary
-
-**Objective:** Integrate PostgreSQL database via Drizzle ORM for food logging, session management, and Fitbit token storage.
-
-**Request:** Add PostgreSQL with three tables (sessions, fitbit_tokens, food_logs). Move session and token persistence from cookie-only to DB-backed. Log food entries locally. Add sliding session expiration. Set up Docker for local dev. Update DEVELOPMENT.md and CLAUDE.md.
-
-**Linear Issues:** FOO-112, FOO-113, FOO-114, FOO-115, FOO-116, FOO-117, FOO-118, FOO-119, FOO-120, FOO-121, FOO-122, FOO-123
-
-**Approach:** Install Drizzle ORM + pg driver. Define schema in TypeScript. Run migrations at app startup via programmatic `migrate()`. Refactor session.ts to use DB as source of truth while keeping iron-session as cookie transport (cookie shrinks to just sessionId). Extract Fitbit token CRUD to its own module backed by DB. Add `insertFoodLog()` to the log-food route. Add Docker Compose for local Postgres. Sliding session expiration via `touchSession()` debounced to once per hour.
-
-**Scope:**
-- Tasks: 13
-- Files affected: ~20
-- New tests: yes
-
-**Key Decisions:**
-- Keep iron-session for cookie transport — cookie only holds `{ sessionId }`, all data lives in DB
-- Programmatic `migrate()` at startup (not CLI in start script) — avoids drizzle-kit as production dep
-- Sliding expiration debounced to 1 hour — avoids DB write on every request
-- Food log DB insert failure is non-fatal — Fitbit is the primary operation, local log is secondary
-- `getDb()` singleton pattern — single connection pool shared across all requests
-- All DB access through `src/lib/` modules — route handlers never import from `src/db/` directly
-
-**Risks/Considerations:**
-- Tests will need DB mocking strategy — mock at the `src/lib/` module level (same pattern as current `getSession()` mocks)
-- `ensureFreshToken()` signature changes from accepting session object to accepting email string — breaking change but project policy allows it
-- Migration files in `drizzle/` folder must be committed to git — they are the source of truth for DB state
-- Docker must be installed for local dev — new prerequisite
+## Notes
+- The `closeDb()` call before retry is important because `getDb()` is a singleton — if the Pool was created with a bad connection, it will keep failing unless we reset it.
+- Total max wait before final failure: 1+2+4+8+16 = 31 seconds. This is reasonable for a startup hook.
+- The `setTimeout` in the retry loop is fine for instrumentation hooks — they run once at server start, not in request hot paths.
+- Railway's restart policy (max 10 retries) provides an outer retry layer, but it's coarse-grained. In-process retry with backoff is more effective for transient DNS issues.
 
 ---
 
 ## Iteration 1
 
-**Implemented:** 2026-02-05
+**Implemented:** 2026-02-06
 
 ### Tasks Completed This Iteration
-- Task 1: Install Drizzle ORM and PostgreSQL driver — installed drizzle-orm, pg, drizzle-kit, @types/pg; created drizzle.config.ts; added DATABASE_URL to required env vars
-- Task 2: Define database schema — created src/db/schema.ts with sessions, fitbitTokens, foodLogs tables; wrote schema structure tests
-- Task 3: Create database connection module and migration runner — created src/db/index.ts (singleton getDb + closeDb), src/db/migrate.ts (programmatic migrations), wired into instrumentation.ts, generated initial migration
-- Task 4: Create docker-compose.yml — postgres:17-alpine bound to localhost:5432
-- Task 5 (partial): Refactor session management — created src/lib/session-db.ts with createSession, getSessionById, touchSession, deleteSession; DB functions tested. Remaining: update SessionData type, refactor session.ts to use DB functions, update validateSession
-
-### Tasks Remaining
-- Task 5 (continued): Update SessionData type in types/index.ts, refactor session.ts to call session-db functions, update validateSession
-- Task 6: Move Fitbit token storage to database
-- Task 7: Update OAuth callbacks for DB-backed sessions and tokens
-- Task 8: Add sliding session expiration
-- Task 9: Add food logging to database
-- Task 10: Update session validation across all route handlers
-- Task 11: Update DEVELOPMENT.md with Docker Postgres setup
-- Task 12: Update CLAUDE.md with database conventions
-- Task 13: Integration & Verification
+- Task 1: Write failing tests for retry behavior — Created `src/db/__tests__/migrate.test.ts` with 5 tests covering success, retry+succeed, exhaust retries, log verification, and connection pool reset ordering. Used `vi.useFakeTimers()` with `advanceTimersByTimeAsync` for proper timer control.
+- Task 2: Implement exponential backoff retry in runMigrations — Added retry loop (5 attempts, 1s/2s/4s/8s/16s backoff), `closeDb()` before each retry to reset stale connection pool, structured warn/error logging with attempt numbers.
+- Task 3: Verify — All tests pass, typecheck clean, lint clean, build succeeds.
 
 ### Files Modified
-- `package.json` — Added drizzle-orm, pg, drizzle-kit, @types/pg
-- `drizzle.config.ts` — Created Drizzle Kit configuration
-- `src/lib/env.ts` — Added DATABASE_URL to required env vars
-- `src/db/schema.ts` — Created table definitions (sessions, fitbitTokens, foodLogs)
-- `src/db/index.ts` — Created singleton getDb() and closeDb()
-- `src/db/migrate.ts` — Created programmatic migration runner
-- `src/db/__tests__/schema.test.ts` — Schema structure tests
-- `src/db/__tests__/index.test.ts` — getDb singleton tests
-- `src/lib/session-db.ts` — DB-backed session CRUD functions
-- `src/lib/__tests__/session-db.test.ts` — Session DB function tests
-- `src/instrumentation.ts` — Wired migrations at startup, closeDb on shutdown
-- `docker-compose.yml` — Created local Postgres dev setup
-- `drizzle/0000_cute_mimic.sql` — Initial migration SQL
-- `drizzle/meta/` — Drizzle migration metadata
-- `src/lib/__tests__/env.test.ts` — Fixed: added DATABASE_URL to test setup
-- `src/lib/__tests__/image.test.ts` — Fixed: pre-existing duplicate identifier TS error
+- `src/db/migrate.ts` — Added retry loop with exponential backoff, imported `closeDb`
+- `src/db/__tests__/migrate.test.ts` — New test file (5 tests)
 
 ### Linear Updates
-- FOO-112: Todo → In Progress → Review
-- FOO-113: Todo → In Progress → Review
-- FOO-114: Todo → In Progress → Review
-- FOO-115: Todo → In Progress → Review
-- FOO-116: Todo → In Progress (partial — DB functions done, session.ts refactor remaining)
+- FOO-124: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 10 issues (3 HIGH, 7 MEDIUM). Fixed 7 before proceeding: env test DATABASE_URL (Bug 3), pool closeDb (Bug 2), getRequiredEnv in getDb (Bug 5), createSession guard (Bug 7), sanitized error logging (Bug 8), localhost Docker bind (Bug 10), image.test.ts pre-existing TS error. Remaining: Bug 1 (token encryption) and Bug 9 (indexes) deferred to Task 6+ when fitbit_tokens/food_logs are actually used.
-- verifier: All 459 tests pass, zero typecheck errors, 2 pre-existing lint warnings (img optimization)
-
-### Review Findings
-
-Files reviewed: 16
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions, Edge Cases
-
-No issues found — all implementations are correct and follow project conventions.
-
-**Details:**
-- `drizzle.config.ts` — Correct Drizzle Kit config with schema/output paths
-- `src/lib/env.ts` — DATABASE_URL properly added to required vars
-- `src/db/schema.ts` — All three tables match agreed schema. `withTimezone: true` on all timestamps, `unique()` on fitbitTokens.email, nullable fields correct
-- `src/db/index.ts` — Singleton pattern correct, uses `getRequiredEnv()`, `closeDb()` properly nulls both pool and db
-- `src/db/migrate.ts` — Error logging sanitized (message only), re-throws after logging
-- `src/db/__tests__/schema.test.ts` — Verifies all column definitions for all three tables
-- `src/db/__tests__/index.test.ts` — Properly mocks pg, tests singleton behavior with `vi.resetModules()`
-- `src/lib/session-db.ts` — UUID via DB default, expiration check in query, guard on empty insert result
-- `src/lib/__tests__/session-db.test.ts` — Covers create, get (exists + not found), touch, delete with proper mocking
-- `src/instrumentation.ts` — Migrations at startup, graceful shutdown with `closeDb()`, best-effort catch is appropriate
-- `docker-compose.yml` — Localhost-bound (127.0.0.1:5432), named volume for persistence
-- `drizzle/0000_cute_mimic.sql` — Migration SQL matches schema exactly, unique constraint present
-- `src/lib/__tests__/env.test.ts` — DATABASE_URL properly added to test setup
-- `src/lib/__tests__/image.test.ts` — Pre-existing TS error fix (duplicate identifier), file is clean
-- `package.json` — Correct dep placement: drizzle-orm + pg in deps, drizzle-kit + @types/pg in devDeps
-
-### Linear Updates
-- FOO-112: Review → Merge
-- FOO-113: Review → Merge
-- FOO-114: Review → Merge
-- FOO-115: Review → Merge
-- FOO-116: Stays In Progress (partial — DB functions done, session.ts refactor remaining)
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-Point budget reached (~119 points consumed). More tasks remain.
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-02-05
-
-### Tasks Completed This Iteration
-- Task 5 (continued): Updated SessionData type to cookie-only `{ sessionId }`, added FullSession interface, refactored session.ts with getRawSession()/getSession()/validateSession(), updated all 8+ consumer files and all test files
-- Task 6: Created src/lib/fitbit-tokens.ts with getFitbitTokens/upsertFitbitTokens/deleteFitbitTokens, refactored ensureFreshToken() to accept `email: string` and read/write tokens from DB, updated fitbit.test.ts
-- Task 7: Updated Google OAuth callback to use createSession()/getFitbitTokens(), Fitbit callback to use getSessionById()/upsertFitbitTokens(), logout to use session.destroy() (DB + cookie), rewrote both callback test files
-- Task 10: Updated auth/session, analyze-food, log-food, app/page.tsx, landing page to use new FullSession interface, rewrote app page test to mock @/lib/session
-
-### Tasks Remaining
-- Task 8: Add sliding session expiration
-- Task 9: Add food logging to database
-- Task 11: Update DEVELOPMENT.md with Docker Postgres setup
-- Task 12: Update CLAUDE.md with database conventions
-- Task 13: Integration & Verification
-
-### Files Modified
-- `src/types/index.ts` — SessionData shrunk to `{ sessionId }`, added FullSession interface
-- `src/lib/session.ts` — Complete rewrite: getRawSession(), getSession() (DB-backed), validateSession(FullSession | null)
-- `src/lib/fitbit-tokens.ts` — Created: getFitbitTokens, upsertFitbitTokens, deleteFitbitTokens
-- `src/lib/fitbit.ts` — ensureFreshToken() now accepts `email: string`, reads/writes DB tokens
-- `src/app/api/auth/google/callback/route.ts` — Uses getRawSession(), createSession(), getFitbitTokens()
-- `src/app/api/auth/fitbit/callback/route.ts` — Uses getRawSession(), getSessionById(), upsertFitbitTokens()
-- `src/app/api/auth/session/route.ts` — Uses FullSession fields
-- `src/app/api/auth/logout/route.ts` — Uses session.destroy() (DB + cookie)
-- `src/app/api/log-food/route.ts` — Passes session.email to ensureFreshToken
-- `src/app/page.tsx` — Checks `if (session)` instead of `if (session.sessionId)`
-- `src/app/app/page.tsx` — Uses session?.email
-- `src/lib/__tests__/session.test.ts` — Rewrote for DB-backed getSession/validateSession
-- `src/lib/__tests__/fitbit.test.ts` — Updated ensureFreshToken tests for email-based signature
-- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Rewrote for getRawSession/createSession/getFitbitTokens mocks
-- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Rewrote for getRawSession/getSessionById/upsertFitbitTokens mocks
-- `src/app/api/auth/session/__tests__/route.test.ts` — Rewrote for FullSession mock
-- `src/app/api/auth/logout/__tests__/route.test.ts` — Rewrote for FullSession with destroy()
-- `src/app/api/analyze-food/__tests__/route.test.ts` — Rewrote for FullSession/validateSession mock
-- `src/app/api/log-food/__tests__/route.test.ts` — Rewrote for FullSession, email passed to ensureFreshToken
-- `src/app/app/__tests__/page.test.tsx` — Rewrote to mock @/lib/session instead of iron-session
-
-### Linear Updates
-- FOO-116: In Progress → Review
-- FOO-117: Todo → Review
-- FOO-118: Todo → Review
-- FOO-121: Todo → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 10 issues (3 HIGH, 7 MEDIUM). Fixed Bug 5 (double Date in upsertFitbitTokens). Bug 1 (plaintext tokens in DB — accepted risk for single-user app, was also plaintext in cookie payload before encryption), Bug 2 (validateSession no longer returns AUTH_SESSION_EXPIRED — by design, getSession returns null for expired), Bug 3 (2 DB queries per getSession — acceptable for single-user app). Remaining medium issues deferred: Bug 4 (non-null assertions after validateSession), Bug 6 (missing food_logs index — Task 9), Bug 7 (getSession swallows DB errors — acceptable, returns null), Bug 8 (drizzle.config.ts env assertion), Bug 9 (relative migration path), Bug 10 (test dynamic imports).
-- verifier: All 461 tests pass, zero typecheck errors, zero lint errors (2 pre-existing warnings)
-
-### Review Findings
-
-Files reviewed: 20
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions, Edge Cases, Test Quality
-
-No issues found — all implementations are correct and follow project conventions.
-
-**Details:**
-- `src/types/index.ts` — SessionData correctly shrunk to `{ sessionId }`, FullSession interface combines cookie + DB data with destroy() method. Clean separation of concerns.
-- `src/lib/session.ts` — Complete rewrite: getRawSession() for write operations, getSession() combines cookie → DB → fitbit tokens lookup. validateSession() simplified correctly (expiresAt filtering done in DB query). destroy() properly clears both DB row and cookie.
-- `src/lib/fitbit-tokens.ts` — Clean CRUD module: getFitbitTokens, upsertFitbitTokens (ON CONFLICT email), deleteFitbitTokens. All use Drizzle query builder. No raw SQL.
-- `src/lib/fitbit.ts` — ensureFreshToken() correctly accepts `email: string`, reads/writes tokens via DB module. Token refresh logic preserved (1-hour expiry threshold). upsertFitbitTokens called with correct Date object.
-- `src/app/api/auth/google/callback/route.ts` — Uses createSession() for DB row, stores only sessionId in cookie, checks getFitbitTokens() for redirect destination. Clean separation from iron-session internals.
-- `src/app/api/auth/fitbit/callback/route.ts` — Reads raw session → validates DB session → upserts tokens to DB. Proper 401 handling for missing/expired sessions. No cookie modification for token storage.
-- `src/app/api/auth/logout/route.ts` — Calls session.destroy() which handles both DB deletion and cookie destruction. Graceful handling of no-session case.
-- `src/app/api/auth/session/route.ts` — Returns FullSession fields (email, fitbitConnected, expiresAt). Non-null assertions after validateSession() are safe (validateSession returns early if null).
-- `src/app/api/analyze-food/route.ts` — No changes to analysis logic, just uses new FullSession interface via getSession/validateSession. Correct.
-- `src/app/api/log-food/route.ts` — Passes session.email to ensureFreshToken (was session object before). All other logic unchanged.
-- `src/app/page.tsx` — Checks `if (session)` for redirect. Correct (getSession returns null or FullSession).
-- `src/app/app/page.tsx` — Uses `session?.email` for display. Correct.
-- All 8 test files — Properly mock new interfaces (FullSession with destroy, getRawSession, session-db, fitbit-tokens). Tests verify actual DB integration contract. No mocks hiding real bugs. Test data is fictional.
-
-### Linear Updates
-- FOO-116: Review → Merge
-- FOO-117: Review → Merge
-- FOO-118: Review → Merge
-- FOO-121: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-Point budget reached (~160 points consumed). More tasks remain.
-
----
-
-## Iteration 3
-
-**Implemented:** 2026-02-05
-
-### Tasks Completed This Iteration
-- Task 8: Add sliding session expiration — touchSession() called in getSession() when expiresAt < 29 days from now, fire-and-forget with error logging
-- Task 9: Add food logging to database — created src/lib/food-log.ts with insertFoodLog(), updated log-food route to insert after Fitbit success (non-fatal), added foodLogId to FoodLogResponse
-- Task 11: Update DEVELOPMENT.md with Docker Postgres setup — added Docker prerequisite, "Start Database" step, DATABASE_URL in env template, database commands table
-- Task 12: Update CLAUDE.md with database conventions — updated tech stack, structure, added DATABASE section, added DATABASE_URL to env vars
-- Task 13: Integration & Verification — 469 tests pass, typecheck clean, lint clean (2 pre-existing warnings), build compiles successfully
-
-### Tasks Remaining
-None — all tasks complete.
-
-### Files Modified
-- `src/lib/session.ts` — Added sliding expiration (touchSession call with debounce)
-- `src/lib/__tests__/session.test.ts` — Added sliding expiration tests, added touchSession mock
-- `src/lib/food-log.ts` — Created: insertFoodLog with FoodLogInput interface
-- `src/lib/__tests__/food-log.test.ts` — Created: 4 tests for insertFoodLog
-- `src/app/api/log-food/route.ts` — Added insertFoodLog call after Fitbit success, non-fatal catch
-- `src/app/api/log-food/__tests__/route.test.ts` — Added insertFoodLog mock, 2 new tests (DB success + DB failure)
-- `src/types/index.ts` — Added foodLogId to FoodLogResponse
-- `DEVELOPMENT.md` — Docker prerequisite, database setup steps, DATABASE_URL, commands table
-- `CLAUDE.md` — Tech stack, structure, DATABASE section, DATABASE_URL env var
-
-### Linear Updates
-- FOO-119: Todo → In Progress → Review
-- FOO-120: Todo → In Progress → Review
-- FOO-122: Todo → In Progress → Review
-- FOO-123: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 4 issues (0 HIGH, 3 MEDIUM, 1 LOW). Fixed 3: Bug 1 (silent catch in touchSession → added logger.warn), Bug 3 (missing insertFoodLog mock in existing tests → added to beforeEach), Bug 4 (loose confidence type → tightened to union). Bug 2 (test fragility for fire-and-forget mock assertion) deferred — test is correct due to synchronous mock recording.
-- verifier: All 469 tests pass, zero typecheck errors, zero lint errors (2 pre-existing warnings)
-
-### Review Findings
-
-Files reviewed: 9
-Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions, Edge Cases, Test Quality
-
-No issues found — all implementations are correct and follow project conventions.
-
-**Details:**
-- `src/lib/session.ts` — Sliding expiration correctly implemented: `TWENTY_NINE_DAYS_MS` constant, `touchSession()` fire-and-forget with `.catch()` logging warning. Debounce triggers when session expires in < 29 days (meaning > 1 day since last touch). Correct and efficient.
-- `src/lib/__tests__/session.test.ts` — Two boundary tests: 20-day (triggers touch) and 29.5-day (skips touch). Clean mock setup for touchSession.
-- `src/lib/food-log.ts` — Clean insert module: `FoodLogInput` with typed confidence union, numeric fields converted to `String()` for Drizzle numeric columns, nullable fields use `?? null`, guard on empty insert result.
-- `src/lib/__tests__/food-log.test.ts` — 4 tests: all fields, returned id/loggedAt, nullable fields with null, numeric-to-string conversion. Thorough mock chain verification.
-- `src/app/api/log-food/route.ts` — `insertFoodLog` called after successful Fitbit logging, wrapped in non-fatal try/catch with sanitized error logging. Field mapping from snake_case request to camelCase FoodLogInput is correct. `foodLogId` undefined on DB failure.
-- `src/app/api/log-food/__tests__/route.test.ts` — 2 new tests: verifies insertFoodLog call with correct field mapping + foodLogId in response, and verifies non-fatal DB failure (success returned, foodLogId undefined). Default mock in beforeEach.
-- `src/types/index.ts` — `foodLogId?: number` added to FoodLogResponse (optional since DB insert can fail). Correct.
-- `DEVELOPMENT.md` — Docker prerequisite, "Start Database" step, DATABASE_URL in env template, database commands table, auto-migration note. Complete and accurate.
-- `CLAUDE.md` — Tech stack updated (PostgreSQL + Drizzle ORM, session description), structure section includes db/drizzle/docker-compose, DATABASE section with conventions, DATABASE_URL in env vars. Complete and accurate.
-
-### Linear Updates
-- FOO-119: Review → Merge
-- FOO-120: Review → Merge
-- FOO-122: Review → Merge
-- FOO-123: Review → Merge
-
-<!-- REVIEW COMPLETE -->
+- bug-hunter: Found 2 medium test issues (module caching, setTimeout mock), fixed before proceeding. Production code clean.
+- verifier: All 466 tests pass, zero warnings. Typecheck, lint, build all clean.
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Files reviewed: 2 (`src/db/migrate.ts`, `src/db/__tests__/migrate.test.ts`)
+Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Edge Cases, Conventions
+
+No issues found - all implementations are correct and follow project conventions.
+
+### Linear Updates
+- FOO-124: Review → Merge
+
+<!-- REVIEW COMPLETE -->
 
 ---
 
