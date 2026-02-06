@@ -1242,5 +1242,43 @@ This task is merged into Task 11. No separate action needed.
 - Worker 3 (6 tasks): Tasks 8, 9, 11, 13, 18, 19 — core infrastructure
 - Worker 4 (4 tasks): Tasks 10, 12, 20, 21 — UI components, test coverage, dependency audit
 
+### Review Findings
+
+Files reviewed: 40+
+Checks applied: Security, Logic, Async, Resources, Type Safety, Error Handling, Conventions
+
+Summary: 1 issue found
+- HIGH: 1
+- MEDIUM: 0 (documented only)
+
+**Issues requiring fix:**
+- [HIGH] ASYNC: Unhandled promise rejections in `src/lib/__tests__/fitbit.test.ts` — 4 unhandled rejections causing test file failure. Tests in `refreshFitbitToken > aborts after timeout`, `fetchWithRetry 5xx > throws after exhausting retries on persistent 5xx`, and `jsonWithTimeout > rejects when response.json() exceeds timeout` leak unhandled promises when using fake timers with AbortController/Promise.race. The `expect(promise).rejects` pattern must be set up BEFORE `vi.advanceTimersByTimeAsync()` to avoid unhandled rejections. The test file reports 4 errors despite all 555 tests passing.
+
+**Documented (no fix needed):**
+- [LOW] CONVENTION: `eslint-disable-next-line @typescript-eslint/no-explicit-any` comments in `src/lib/fitbit.ts:288,347` for `data: any` in `exchangeFitbitCode` and `refreshFitbitToken`. The `any` is immediately validated with field-by-field type checks, so it's acceptable. Could be replaced with `Record<string, unknown>` + `jsonWithTimeout<Record<string, unknown>>` for full type safety, but the risk is minimal given the validation.
+- [LOW] CONVENTION: `auth.ts:50` uses `response.json()` directly without `jsonWithTimeout` wrapper (unlike fitbit.ts calls). Low risk since Google OAuth token exchange is a one-off call, not a retry-sensitive path.
+- [LOW] CONVENTION: Pre-existing `migrate.test.ts` file has mock hoisting bug causing 0 tests to run — not from this changeset.
+
+### Linear Updates
+- FOO-125 through FOO-153: Review → Merge
+- FOO-154: Created in Todo (Fix: unhandled promise rejections in fitbit.test.ts)
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
 All tasks completed.
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** FOO-154
+
+### Fix 1: Unhandled promise rejections in fitbit.test.ts
+**Linear Issue:** FOO-154
+
+1. In `refreshFitbitToken > aborts after timeout` test: set up `expect(promise).rejects.toThrow()` BEFORE calling `vi.advanceTimersByTimeAsync(10000)`, same pattern as auth.test.ts
+2. In `fetchWithRetry 5xx > throws after exhausting retries on persistent 5xx` test: set up `expect(promise).rejects.toThrow("FITBIT_API_ERROR")` BEFORE `vi.advanceTimersByTimeAsync(20000)`
+3. In `jsonWithTimeout > rejects when response.json() exceeds timeout` test: set up `expect(promise).rejects.toThrow("Response body read timed out")` BEFORE `vi.advanceTimersByTimeAsync(5000)`
+4. Verify: `npm test -- fitbit` passes with zero unhandled rejections
