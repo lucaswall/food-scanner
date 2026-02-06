@@ -111,21 +111,17 @@ RULES:
 - Use the verifier agent (Task tool with subagent_type "verifier") after each task to confirm tests pass
 - Report progress to the lead after completing each task
 - Report the FINAL summary to the lead when ALL your tasks are done
-
-LINEAR ISSUE MANAGEMENT:
-For each task that has a Linear issue link:
-- At task START: move issue to "In Progress" using mcp__linear__update_issue
-- At task END (tests passing): move issue to "Review" using mcp__linear__update_issue
-If a task has no Linear issue link, skip state updates.
+- Do NOT attempt to update Linear issues — the lead handles all Linear state transitions
 
 WORKFLOW FOR EACH TASK:
-1. Read relevant existing source files to understand patterns
-2. Write failing test(s) in the appropriate __tests__/ directory
-3. Run tests with verifier agent — confirm test fails
-4. Implement the minimal code to make test pass
-5. Run tests with verifier agent — confirm test passes
-6. Send progress message to lead: "Completed Task N: [title]"
-7. Move to next task
+1. Send progress message to lead: "Starting Task N: [title] [FOO-XXX]" (include issue ID)
+2. Read relevant existing source files to understand patterns
+3. Write failing test(s) in the appropriate __tests__/ directory
+4. Run tests with verifier agent — confirm test fails
+5. Implement the minimal code to make test pass
+6. Run tests with verifier agent — confirm test passes
+7. Send progress message to lead: "Completed Task N: [title] [FOO-XXX]" (include issue ID)
+8. Move to next task
 
 WHEN ALL TASKS ARE DONE:
 Send a final summary message to the lead with:
@@ -134,22 +130,41 @@ WORKER: {worker name}
 STATUS: COMPLETE
 
 TASKS COMPLETED:
-- Task N: [title] - [brief description of what was done]
+- Task N: [title] (FOO-XXX) - [brief description of what was done]
 
 FILES MODIFIED:
 - path/to/file.ts - [what changed]
 - path/to/test.ts - [what was tested]
-
-LINEAR UPDATES:
-- FOO-XX: Todo → In Progress → Review
 ---
 
 If you encounter a blocker (dependency on another worker's output, unclear requirements), send a message to the lead describing the blocker. Do NOT guess or work around it.
 ```
 
-### Assign tasks
+### Assign tasks and label issues
 
-After spawning, use `TaskUpdate` to assign each task to its worker by name.
+After spawning, for each work unit:
+1. Use `TaskUpdate` to assign each task to its worker by name
+2. **Label all Linear issues** in the work unit with the worker label using `mcp__linear__update_issue`:
+   - Worker 1 issues get label "Worker 1"
+   - Worker 2 issues get label "Worker 2"
+   - Worker 3 issues get label "Worker 3"
+   - Worker 4 issues get label "Worker 4"
+   - Add the worker label to the issue's existing labels (do not replace them)
+
+## Linear State Management
+
+**CRITICAL:** Workers do NOT have access to Linear MCP tools. The lead is responsible for ALL Linear state transitions, triggered by worker progress messages.
+
+**When a worker REPORTS starting a task:**
+1. Parse the issue ID from the worker's message (e.g., "Starting Task N: [title] [FOO-XXX]")
+2. IMMEDIATELY move the issue to "In Progress" using `mcp__linear__update_issue`
+
+**When a worker REPORTS completing a task:**
+1. Parse the issue ID from the worker's message (e.g., "Completed Task N: [title] [FOO-XXX]")
+2. IMMEDIATELY move the issue to "Review" using `mcp__linear__update_issue`
+3. Acknowledge the worker's completion
+
+**If a task has no Linear issue link**, skip state updates for that task.
 
 ## Coordination (while workers work)
 
@@ -172,8 +187,9 @@ After spawning, use `TaskUpdate` to assign each task to its worker by name.
 
 ### Progress Tracking
 
-After each worker completion message, update the task:
-- Mark completed work units via `TaskUpdate` with `status: "completed"`
+After each worker completion message:
+1. **Move completed Linear issues to "Review"** using `mcp__linear__update_issue`
+2. Mark completed work units via `TaskUpdate` with `status: "completed"`
 
 ## Post-Implementation Verification
 
@@ -307,6 +323,6 @@ After documenting results:
 - **Never modify previous sections** — Only append new Iteration section
 - **Always commit and push at termination** — Never end without committing progress
 - **Document completed AND remaining tasks** — So next iteration knows where to resume
-- **Update Linear in real-time** — Workers move issues Todo→In Progress→Review
+- **Lead updates Linear in real-time** — Workers do NOT have MCP access. Lead moves issues Todo→In Progress when worker reports starting a task, In Progress→Review when worker reports completing it.
 - **Cap at 4 workers** — More workers = more overhead, diminishing returns
 - **Lead does NOT implement** — Delegate all implementation to workers. Lead only coordinates, verifies, and documents.
