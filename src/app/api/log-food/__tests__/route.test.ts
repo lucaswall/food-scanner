@@ -42,7 +42,7 @@ const mockGetIronSession = vi.mocked(getIronSession);
 
 const validSession: SessionData = {
   sessionId: "test-session",
-  email: "wall.lucas@gmail.com",
+  email: "test@example.com",
   createdAt: Date.now(),
   expiresAt: Date.now() + 86400000,
   fitbit: {
@@ -95,7 +95,7 @@ describe("POST /api/log-food", () => {
   it("returns 401 AUTH_SESSION_EXPIRED for expired session", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       createdAt: Date.now() - 86400000,
       expiresAt: Date.now() - 1000, // Expired 1 second ago
       fitbit: {
@@ -118,7 +118,7 @@ describe("POST /api/log-food", () => {
   it("returns 400 FITBIT_NOT_CONNECTED if no Fitbit tokens", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       createdAt: Date.now(),
       expiresAt: Date.now() + 86400000,
       save: vi.fn(),
@@ -236,26 +236,6 @@ describe("POST /api/log-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("FITBIT_TOKEN_INVALID");
     expect(body.error.message).toContain("reconnect");
-  });
-
-  it("saves session after token refresh", async () => {
-    const mockSave = vi.fn();
-    const sessionWithSave = {
-      ...validSession,
-      save: mockSave,
-    };
-    mockGetIronSession.mockResolvedValue(sessionWithSave as never);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-
-    const request = createMockRequest(validFoodLogRequest);
-    await POST(request);
-
-    // Session should be saved to persist any token refresh
-    expect(mockSave).toHaveBeenCalled();
   });
 
   it("returns reusedFood=false when food is logged", async () => {
@@ -401,6 +381,50 @@ describe("POST /api/log-food", () => {
       const body = await response.json();
       expect(body.error.code).toBe("VALIDATION_ERROR");
       expect(body.error.message).toContain("time");
+    }
+  });
+
+  it("returns 400 for semantically invalid dates", async () => {
+    const invalidDates = ["9999-99-99", "2024-02-30", "2024-13-01", "2024-00-15"];
+
+    for (const date of invalidDates) {
+      vi.clearAllMocks();
+      mockGetIronSession.mockResolvedValue({
+        ...validSession,
+        save: vi.fn(),
+      } as never);
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        date,
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    }
+  });
+
+  it("returns 400 for semantically invalid times", async () => {
+    const invalidTimes = ["99:99:99", "24:00:00", "12:60:00", "12:00:60"];
+
+    for (const time of invalidTimes) {
+      vi.clearAllMocks();
+      mockGetIronSession.mockResolvedValue({
+        ...validSession,
+        save: vi.fn(),
+      } as never);
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        time,
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
     }
   });
 

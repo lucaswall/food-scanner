@@ -8,7 +8,7 @@ vi.stubEnv("APP_URL", "http://localhost:3000");
 // Mock iron-session
 vi.mock("iron-session", () => ({
   getIronSession: vi.fn().mockResolvedValue({
-    email: "wall.lucas@gmail.com",
+    email: "test@example.com",
     sessionId: "test-session",
   }),
 }));

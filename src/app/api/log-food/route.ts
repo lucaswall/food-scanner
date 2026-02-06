@@ -1,4 +1,4 @@
-import { getSession } from "@/lib/session";
+import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood } from "@/lib/fitbit";
@@ -52,34 +52,24 @@ function formatDate(date: Date): string {
 }
 
 function isValidDateFormat(date: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const [year, month, day] = date.split("-").map(Number);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
 }
 
 function isValidTimeFormat(time: string): boolean {
-  return /^\d{2}:\d{2}:\d{2}$/.test(time);
+  if (!/^\d{2}:\d{2}:\d{2}$/.test(time)) return false;
+  const [hours, minutes, seconds] = time.split(":").map(Number);
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 && seconds >= 0 && seconds <= 59;
 }
 
 export async function POST(request: Request) {
   const session = await getSession();
 
-  if (!session.sessionId) {
-    logger.warn({ action: "log_food_unauthorized" }, "no active session");
-    return errorResponse("AUTH_MISSING_SESSION", "No active session", 401);
-  }
-
-  if (!session.expiresAt || session.expiresAt < Date.now()) {
-    logger.warn({ action: "log_food_unauthorized" }, "session expired");
-    return errorResponse("AUTH_SESSION_EXPIRED", "Session has expired", 401);
-  }
-
-  if (!session.fitbit) {
-    logger.warn({ action: "log_food_no_fitbit" }, "Fitbit not connected");
-    return errorResponse(
-      "FITBIT_NOT_CONNECTED",
-      "Fitbit account not connected",
-      400
-    );
-  }
+  const validationError = validateSession(session, { requireFitbit: true });
+  if (validationError) return validationError;
 
   let body: unknown;
   try {
@@ -143,11 +133,8 @@ export async function POST(request: Request) {
   );
 
   try {
-    // Ensure token is fresh (may update session.fitbit)
+    // Ensure token is fresh (refreshes and saves session if needed)
     const accessToken = await ensureFreshToken(session);
-
-    // Save session after token refresh (persists any updated tokens)
-    await session.save();
 
     // Find or create the food
     const { foodId, reused } = await findOrCreateFood(accessToken, body);

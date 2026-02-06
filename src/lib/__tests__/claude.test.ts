@@ -278,4 +278,134 @@ describe("analyzeFood", () => {
 
     expect(mockCreate).toHaveBeenCalledTimes(2);
   });
+
+  it("throws when tool_use output has missing fields", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: { food_name: "Test" }, // missing most fields
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("throws when numeric fields are strings", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            calories: "320", // string instead of number
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("throws when numeric fields are negative", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            calories: -10,
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("retries on rate limit (429) error", async () => {
+    const rateLimitError = new Error("rate limit exceeded");
+    rateLimitError.name = "RateLimitError";
+    Object.assign(rateLimitError, { status: 429 });
+
+    mockCreate
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "tool_use",
+            id: "tool_123",
+            name: "report_nutrition",
+            input: validAnalysis,
+          },
+        ],
+      });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(validAnalysis);
+  });
+
+  it("throws after retry exhausted on persistent rate limit", async () => {
+    const rateLimitError = new Error("rate limit exceeded");
+    rateLimitError.name = "RateLimitError";
+    Object.assign(rateLimitError, { status: 429 });
+
+    mockCreate
+      .mockRejectedValueOnce(rateLimitError)
+      .mockRejectedValueOnce(rateLimitError);
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws when confidence is not a valid enum value", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            confidence: "very_high",
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
 });

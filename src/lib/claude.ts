@@ -1,9 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { FoodAnalysis } from "@/types";
 import { logger } from "@/lib/logger";
+import { getRequiredEnv } from "@/lib/env";
 
 const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+  apiKey: getRequiredEnv("ANTHROPIC_API_KEY"),
   timeout: 30000, // 30 second timeout as per ROADMAP.md
 });
 
@@ -71,12 +72,57 @@ class ClaudeApiError extends Error {
   }
 }
 
+function validateFoodAnalysis(input: unknown): FoodAnalysis {
+  const data = input as Record<string, unknown>;
+
+  if (typeof data.food_name !== "string" || data.food_name.length === 0) {
+    throw new ClaudeApiError("Invalid food analysis: missing food_name");
+  }
+
+  const numericFields = [
+    "amount", "unit_id", "calories", "protein_g",
+    "carbs_g", "fat_g", "fiber_g", "sodium_mg",
+  ] as const;
+
+  for (const field of numericFields) {
+    if (typeof data[field] !== "number") {
+      throw new ClaudeApiError(`Invalid food analysis: ${field} must be a number`);
+    }
+    if ((data[field] as number) < 0) {
+      throw new ClaudeApiError(`Invalid food analysis: ${field} must not be negative`);
+    }
+  }
+
+  if (data.amount === 0) {
+    throw new ClaudeApiError("Invalid food analysis: amount must be positive");
+  }
+
+  const validConfidence = ["high", "medium", "low"];
+  if (!validConfidence.includes(data.confidence as string)) {
+    throw new ClaudeApiError("Invalid food analysis: confidence must be high, medium, or low");
+  }
+
+  if (typeof data.notes !== "string") {
+    throw new ClaudeApiError("Invalid food analysis: missing notes");
+  }
+
+  return data as unknown as FoodAnalysis;
+}
+
 function isTimeoutError(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error.name === "APIConnectionTimeoutError" ||
       error.message.includes("timed out") ||
       error.message.includes("timeout"))
+  );
+}
+
+function isRateLimitError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "RateLimitError" ||
+      (error as { status?: number }).status === 429)
   );
 }
 
@@ -137,7 +183,7 @@ export async function analyzeFood(
         throw new ClaudeApiError("No tool_use block in response");
       }
 
-      const analysis = toolUseBlock.input as FoodAnalysis;
+      const analysis = validateFoodAnalysis(toolUseBlock.input);
       logger.info(
         { foodName: analysis.food_name, confidence: analysis.confidence },
         "food analysis completed"
@@ -151,6 +197,12 @@ export async function analyzeFood(
 
       if (isTimeoutError(error) && attempt < maxRetries) {
         logger.warn({ attempt }, "Claude API timeout, retrying");
+        lastError = error as Error;
+        continue;
+      }
+
+      if (isRateLimitError(error) && attempt < maxRetries) {
+        logger.warn({ attempt }, "Claude API rate limited, retrying");
         lastError = error as Error;
         continue;
       }

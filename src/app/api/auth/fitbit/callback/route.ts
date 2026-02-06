@@ -4,12 +4,7 @@ import { errorResponse } from "@/lib/api-response";
 import { getSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
-
-function getCookieValue(request: Request, name: string): string | undefined {
-  const cookieHeader = request.headers.get("cookie") ?? "";
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
-  return match?.[1];
-}
+import { getCookieValue } from "@/lib/cookies";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -32,7 +27,11 @@ export async function GET(request: Request) {
   };
   try {
     tokens = await exchangeFitbitCode(code, redirectUri);
-  } catch {
+  } catch (error) {
+    logger.error(
+      { action: "fitbit_token_exchange_error", error: error instanceof Error ? error.message : String(error) },
+      "failed to exchange fitbit authorization code",
+    );
     return errorResponse(
       "FITBIT_TOKEN_INVALID",
       "Failed to exchange Fitbit authorization code",
@@ -42,6 +41,11 @@ export async function GET(request: Request) {
 
   // Read and update session using cookies() store
   const session = await getSession();
+
+  if (!session.sessionId) {
+    logger.warn({ action: "fitbit_callback_no_session" }, "fitbit callback without authenticated session");
+    return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
+  }
 
   session.fitbit = {
     accessToken: tokens.access_token,

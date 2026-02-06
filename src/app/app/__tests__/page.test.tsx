@@ -7,7 +7,7 @@ vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long"
 vi.mock("iron-session", () => ({
   getIronSession: vi.fn().mockResolvedValue({
     sessionId: "test-session",
-    email: "wall.lucas@gmail.com",
+    email: "test@example.com",
     createdAt: Date.now(),
     expiresAt: Date.now() + 86400000,
   }),

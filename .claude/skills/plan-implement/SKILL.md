@@ -78,14 +78,14 @@ For each task in the plan:
 
 ### Pre-Stop Checklist
 
-Run this checklist when stopping (either context low OR all tasks done):
+Run this checklist when stopping (either point budget reached OR all tasks done):
 
 1. **Run `bug-hunter` agent** - Review changes for bugs
    - If bugs found → Fix immediately before writing iteration block
 2. **Run `verifier` agent** - Verify all tests pass and zero warnings
    - If failures or warnings → Fix immediately before writing iteration block
 
-**IMPORTANT:** Always run this checklist before documenting the iteration, even if stopping mid-plan due to context limits.
+**IMPORTANT:** Always run this checklist before documenting the iteration, even if stopping mid-plan due to point budget.
 
 ## Handling Failures
 
@@ -131,7 +131,7 @@ After completing tasks (either all tasks or stopping due to context), append a n
 - verifier: All N tests pass, zero warnings
 
 ### Continuation Status
-[Context running low (~35% remaining). More tasks remain.]
+[Point budget reached (~N points consumed). More tasks remain.]
 OR
 [All tasks completed.]
 ```
@@ -139,43 +139,40 @@ OR
 **IMPORTANT:**
 - Do NOT add "Review Findings" or "Notes" sections - reserved for `plan-review-implementation`
 - Always list completed tasks in "Tasks Completed This Iteration"
-- If stopping early due to context limits, also list remaining tasks in "Tasks Remaining"
+- If stopping early due to point budget, also list remaining tasks in "Tasks Remaining"
 - If ALL tasks are complete, OMIT the "Tasks Remaining" section entirely
 - The "Continuation Status" clearly indicates whether more work remains:
-  - Stopping early: "Context running low (~X% remaining). More tasks remain."
+  - Stopping early: "Point budget reached (~N points consumed). More tasks remain."
   - All done: "All tasks completed."
 
 **Note:** The presence of "Tasks Remaining" does NOT prevent review. `plan-review-implementation` will review the completed tasks in this iteration regardless. Remaining tasks will be implemented and reviewed in future iterations.
 
-## Context Management & Task-by-Task Continuation
+## Context Management — Point Budget
 
-**Evaluate context AFTER EACH TASK, not after the whole plan.**
+You cannot measure context usage directly. Track a **point budget** as a proxy.
 
-After completing each task's TDD cycle (steps 1-6), estimate remaining context:
+**Point costs per tool call:**
 
-**Rough estimation heuristics:**
-- Each large file read (~500 lines): ~2-3% context
-- Each file written/edited: ~1-2% context
-- Each verifier/bug-hunter invocation: ~2-4% context
-- Conversation messages accumulate over time
+| Tool call type | Points |
+|----------------|--------|
+| Glob, Grep, Edit, MCP call (Linear etc.) | 1 |
+| Read, Write | 2 |
+| Bash (test run, build, git) | 3 |
+| Task subagent (verifier, bug-hunter) | 5 |
+
+**Keep a running total after each task.** After completing a task's TDD cycle, add up all tool calls made during that task and update your cumulative total.
 
 **Decision logic after each task:**
-- If estimated remaining context **> 40%** → Continue to next task
-- If estimated remaining context **≤ 40%** → STOP and write iteration block
 
-**Why 40% threshold:** Leaves buffer for:
-- Running bug-hunter and verifier before stopping
-- Documenting the iteration
-- Committing and pushing changes
-- User interactions in next session
-- Unexpected issues
+| Cumulative points | Action |
+|-------------------|--------|
+| **< 100** | Continue to next task |
+| **100–120** | Continue only if next task is small (≤ 3 files) |
+| **> 120** | **STOP** — run pre-stop checklist immediately |
 
-**When reaching the threshold or completing all tasks:**
-1. Run `bug-hunter` agent on completed work
-2. Run `verifier` agent to confirm all tests pass
-3. Write the `## Iteration N` block documenting what was done
-4. **Commit and push all changes** (see Termination section)
-5. **Always end with:** "Run `/plan-review-implementation` to review completed work."
+**Why 120:** The pre-stop checklist (bug-hunter + verifier + fixes + iteration block + commit + push) costs ~30–50 points. Total session capacity is ~195 points. Stopping at 120 leaves ~75 points (~38% of capacity) as buffer.
+
+**When reaching the threshold or completing all tasks:** Run the Pre-Stop Checklist, then Document Results, then Termination.
 
 ## Error Handling
 
@@ -228,8 +225,8 @@ This happens AFTER writing the Iteration block to PLANS.md.
 
 ## Rules
 
-- **Evaluate context after EACH task** - Stop when context ≤ 40%, don't wait until all tasks done
-- **Continue if context allows** - If > 40% context remains after a task, proceed to next task
+- **Track point budget after EACH task** - Stop when cumulative points > 120
+- **Continue if budget allows** - If cumulative points < 100, proceed to next task
 - **Follow TDD strictly** - Test before implementation, always
 - **Fix failures immediately** - Do not proceed with failing tests or warnings
 - **Never modify previous sections** - Only append new Iteration section

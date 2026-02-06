@@ -39,7 +39,7 @@ describe("POST /api/auth/logout", () => {
     const destroyFn = vi.fn();
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       destroy: destroyFn,
     } as never);
 
@@ -54,7 +54,7 @@ describe("POST /api/auth/logout", () => {
     const destroyFn = vi.fn();
     mockGetIronSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "wall.lucas@gmail.com",
+      email: "test@example.com",
       destroy: destroyFn,
     } as never);
 

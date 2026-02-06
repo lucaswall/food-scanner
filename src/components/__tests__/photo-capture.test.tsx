@@ -360,6 +360,8 @@ describe("PhotoCapture", () => {
 
     it("accepts .heic files with empty MIME type (Android fallback)", async () => {
       const onPhotosChange = vi.fn();
+      // isHeicFile handles extension-based detection for empty MIME types
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
       render(<PhotoCapture onPhotosChange={onPhotosChange} />);
 
       const galleryInput = screen.getByTestId("gallery-input");

@@ -15,7 +15,7 @@ vi.mock("@/lib/fitbit", () => ({
 
 // Mock session module
 const mockSession = {
-  email: "wall.lucas@gmail.com",
+  email: "test@example.com",
   sessionId: "test-session",
   save: vi.fn(),
 } as Record<string, unknown>;
@@ -61,7 +61,7 @@ beforeEach(() => {
   Object.keys(mockSession).forEach((key) => {
     if (key !== "save" && key !== "email" && key !== "sessionId") delete mockSession[key];
   });
-  mockSession.email = "wall.lucas@gmail.com";
+  mockSession.email = "test@example.com";
   mockSession.sessionId = "test-session";
   mockSession.save = vi.fn();
   mockGetSession.mockResolvedValue(mockSession as never);
@@ -149,6 +149,20 @@ describe("GET /api/auth/fitbit/callback", () => {
     expect(body.success).toBe(false);
   });
 
+  it("logs error when code exchange fails", async () => {
+    mockExchangeFitbitCode.mockRejectedValue(new Error("Token exchange failed"));
+
+    await GET(makeCallbackRequest("bad-code", "test-state", "test-state"));
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "fitbit_token_exchange_error",
+        error: "Token exchange failed",
+      }),
+      expect.any(String),
+    );
+  });
+
   it("clears the fitbit-oauth-state cookie after successful auth", async () => {
     mockExchangeFitbitCode.mockResolvedValue({
       access_token: "fitbit-access-token",
@@ -171,6 +185,16 @@ describe("GET /api/auth/fitbit/callback", () => {
 
     await GET(makeCallbackRequest("valid-fitbit-code", "test-state", "test-state"));
     expect(mockGetSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 401 when no authenticated session exists", async () => {
+    delete mockSession.sessionId;
+    mockGetSession.mockResolvedValue(mockSession as never);
+
+    const response = await GET(makeCallbackRequest("valid-code", "test-state", "test-state"));
+    expect(response.status).toBe(401);
+    const body = await response.json();
+    expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
   // Logging tests
