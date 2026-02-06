@@ -19,6 +19,15 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   if (!body || typeof body !== "object") return false;
   const req = body as Record<string, unknown>;
 
+  // mealTypeId is always required
+  if (typeof req.mealTypeId !== "number") return false;
+
+  // Reuse flow: only reuseCustomFoodId + mealTypeId needed
+  if (req.reuseCustomFoodId !== undefined) {
+    return typeof req.reuseCustomFoodId === "number";
+  }
+
+  // New food flow: all FoodAnalysis fields required
   if (
     typeof req.food_name !== "string" ||
     req.food_name.length === 0 ||
@@ -37,7 +46,6 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
     req.fiber_g < 0 ||
     typeof req.sodium_mg !== "number" ||
     req.sodium_mg < 0 ||
-    typeof req.mealTypeId !== "number" ||
     typeof req.notes !== "string" ||
     (req.confidence !== "high" &&
       req.confidence !== "medium" &&
@@ -51,11 +59,6 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
     if (!Array.isArray(req.keywords) || !req.keywords.every((k: unknown) => typeof k === "string")) {
       return false;
     }
-  }
-
-  // Validate reuseCustomFoodId if present: must be a number
-  if (req.reuseCustomFoodId !== undefined && typeof req.reuseCustomFoodId !== "number") {
-    return false;
   }
 
   return true;

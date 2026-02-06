@@ -64,4 +64,15 @@ describe("FoodMatchCard", () => {
     const button = screen.getByRole("button", { name: /use this/i });
     expect(button).toBeDisabled();
   });
+
+  it("handles string lastLoggedAt from JSON deserialization", () => {
+    const matchWithStringDate = {
+      ...mockMatch,
+      lastLoggedAt: "2026-02-05T12:00:00.000Z" as unknown as Date,
+    };
+    render(<FoodMatchCard match={matchWithStringDate} onSelect={vi.fn()} />);
+
+    // Should not show "NaN" — should render a valid relative date
+    expect(screen.getByText(/last logged/i).textContent).not.toContain("NaN");
+  });
 });

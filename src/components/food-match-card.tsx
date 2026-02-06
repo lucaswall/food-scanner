@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button";
 import type { FoodMatch } from "@/types";
 import { getUnitLabel } from "@/types";
 
-function formatRelativeDate(date: Date): string {
+function formatRelativeDate(date: Date | string): string {
   const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
+  const parsed = typeof date === "string" ? new Date(date) : date;
+  const diffMs = now.getTime() - parsed.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
   if (diffDays === 0) return "today";

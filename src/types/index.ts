@@ -93,7 +93,8 @@ export type ErrorCode =
   | "CLAUDE_API_ERROR"
   | "FITBIT_API_ERROR"
   | "VALIDATION_ERROR"
-  | "RATE_LIMIT_EXCEEDED";
+  | "RATE_LIMIT_EXCEEDED"
+  | "INTERNAL_ERROR";
 
 export interface ApiSuccessResponse<T> {
   success: true;

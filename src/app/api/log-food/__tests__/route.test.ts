@@ -660,6 +660,27 @@ describe("POST /api/log-food", () => {
       expect(body.error.code).toBe("VALIDATION_ERROR");
     });
 
+    it("accepts minimal body with only reuseCustomFoodId and mealTypeId", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockGetCustomFoodById.mockResolvedValue(existingFood);
+      mockLogFood.mockResolvedValue({
+        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
+      });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+      } as Partial<FoodLogRequest>);
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.data.reusedFood).toBe(true);
+      expect(mockFindOrCreateFood).not.toHaveBeenCalled();
+    });
+
     it("without reuseCustomFoodId, flow is unchanged", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");

@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       "failed to find matching foods",
     );
     return errorResponse(
-      "FITBIT_API_ERROR",
+      "INTERNAL_ERROR",
       "Failed to find matching foods",
       500,
     );
