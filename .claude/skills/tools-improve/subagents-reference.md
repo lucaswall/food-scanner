@@ -36,6 +36,8 @@
 | `Stop` | (none) | Subagent finishes |
 | `SubagentStart` | Agent name | Subagent begins (settings.json only) |
 | `SubagentStop` | (none) | Any subagent completes (settings.json only) |
+| `TeammateIdle` | (none) | Teammate goes idle after a turn (v2.1.33+) |
+| `TaskCompleted` | (none) | A task is marked completed (v2.1.33+) |
 
 ### Hook Input (stdin JSON)
 ```json

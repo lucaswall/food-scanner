@@ -2,7 +2,7 @@
 name: code-audit-team
 description: Audits codebase using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Creates Linear issues in Backlog state. Use when user says "team audit" or "audit with team". Requires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS. Higher token cost, faster and deeper analysis.
 argument-hint: [optional: specific area like "lib" or "api"]
-allowed-tools: Read, Glob, Grep, Task, Bash, Teammate, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -27,7 +27,7 @@ Perform a comprehensive code audit using an agent team with domain-specialized r
 
 ### Create the team
 
-Use `Teammate` with `operation: "spawnTeam"`:
+Use `TeamCreate`:
 - `team_name`: "code-audit"
 - `description`: "Parallel code audit with domain-specialized reviewers"
 
@@ -213,9 +213,11 @@ Search patterns (use Grep):
 ## Coordination (while reviewers work)
 
 While waiting for reviewer messages:
-1. Track progress via `TaskList` — check which tasks are in progress vs completed
-2. As each reviewer sends findings, acknowledge receipt
-3. Wait until ALL 3 reviewers have reported before proceeding to merge
+1. Reviewer messages are **automatically delivered** to you — do NOT poll or manually check inbox
+2. Teammates go idle after each turn — this is normal. An idle notification does NOT mean they are done. They are done when they send their findings message.
+3. Track progress via `TaskList` — check which tasks are in progress vs completed
+4. As each reviewer sends findings, acknowledge receipt
+5. Wait until ALL 3 reviewers have reported before proceeding to merge
 
 **If a reviewer gets stuck or stops without reporting:** Send them a message asking for their findings. If they don't respond, note that domain as "incomplete" in the final report.
 
@@ -289,7 +291,7 @@ labels: [Mapped label(s)]
 After all Linear issues are created:
 1. Send shutdown requests to all 3 reviewers using `SendMessage` with `type: "shutdown_request"`
 2. Wait for shutdown confirmations
-3. Use `Teammate` with `operation: "cleanup"` to remove team resources
+3. Use `TeamDelete` to remove team resources
 
 ## Error Handling
 
@@ -304,7 +306,7 @@ After all Linear issues are created:
 | Reviewer stops without reporting | Send follow-up message, note domain as incomplete |
 | Referenced file no longer exists | Mark issue as `fixed`, close in Linear |
 | Cannot determine if issue is fixed | Keep as `still_valid` |
-| Team spawn fails | STOP — tell user to check `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is enabled in settings |
+| TeamCreate fails | STOP — tell user to check `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` is enabled in settings |
 | Large codebase (>1000 files) | Tell reviewers to focus on `$ARGUMENTS` area or entry points |
 
 ## Rules
