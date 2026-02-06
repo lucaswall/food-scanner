@@ -15,22 +15,25 @@ export async function register() {
   const { runMigrations } = await import("@/db/migrate");
   await runMigrations();
 
-  let shuttingDown = false;
-  const shutdown = async (signal: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logger.info({ action: "server_shutdown", signal }, "graceful shutdown initiated");
-    try {
-      const { closeDb } = await import("@/db/index");
-      await closeDb();
-    } catch {
-      // Best-effort cleanup
-    }
-    setTimeout(() => {
-      logger.info({ action: "server_exit" }, "server exiting");
-      process.exit(0);
-    }, 5000);
-  };
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGINT", () => shutdown("SIGINT"));
+  if (typeof globalThis.process?.on === "function") {
+    let shuttingDown = false;
+    const proc = globalThis.process;
+    const shutdown = async (signal: string) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      logger.info({ action: "server_shutdown", signal }, "graceful shutdown initiated");
+      try {
+        const { closeDb } = await import("@/db/index");
+        await closeDb();
+      } catch {
+        // Best-effort cleanup
+      }
+      setTimeout(() => {
+        logger.info({ action: "server_exit" }, "server exiting");
+        proc.exit(0);
+      }, 5000);
+    };
+    proc.on("SIGTERM", () => shutdown("SIGTERM"));
+    proc.on("SIGINT", () => shutdown("SIGINT"));
+  }
 }
