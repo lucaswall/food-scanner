@@ -229,6 +229,7 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 | Skill | Trigger | What It Does |
 |-------|---------|--------------|
 | **plan-implement** | "implement the plan" | Execute PLANS.md tasks following TDD |
+| **plan-implement-team** | "team implement" | Agent team parallel PLANS.md execution with file-partitioned workers |
 | **plan-todo** | "plan FOO-123" | Convert Linear Backlog issues to Todo state |
 | **plan-inline** | Direct feature request | Create issues in Todo state from free-form requests |
 | **plan-fix** | Bug report | Investigate and create fix plan |
@@ -239,7 +240,7 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 | **plan-review-implementation** | After plan-implement | QA review, create fix issues or mark COMPLETE |
 | **tools-improve** | Before modifying skills/agents | Best practices for Claude Code extensibility |
 
-**Skill workflow:** `code-audit`/`add-to-backlog` → `plan-todo` → `plan-implement` → `plan-review-implementation` (repeat)
+**Skill workflow:** `code-audit`/`add-to-backlog` → `plan-todo` → `plan-implement` or `plan-implement-team` → `plan-review-implementation` (repeat)
 
 ---
 
