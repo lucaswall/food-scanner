@@ -186,6 +186,7 @@ export async function getFoodLogHistory(
           lt(foodLogEntries.date, lastDate),
           and(eq(foodLogEntries.date, lastDate), gt(foodLogEntries.time, lastTime)),
           and(eq(foodLogEntries.date, lastDate), eq(foodLogEntries.time, lastTime), gt(foodLogEntries.id, lastId)),
+          and(eq(foodLogEntries.date, lastDate), isNull(foodLogEntries.time)),
         )
       : or(
           lt(foodLogEntries.date, lastDate),

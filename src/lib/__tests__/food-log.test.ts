@@ -734,6 +734,29 @@ describe("getFoodLogHistory", () => {
     expect(mockWhere).toHaveBeenCalled();
   });
 
+  it("includes NULL-time entries on the same date when cursor has non-null time", async () => {
+    // Bug fix: when lastTime is non-null, the cursor condition must also match
+    // (date = lastDate, time IS NULL). In ORDER BY date DESC, time ASC,
+    // NULLs sort last (PostgreSQL NULLS LAST default for ASC), so NULL-time
+    // entries appear AFTER all non-null time entries on the same date and
+    // must be included when paginating from a non-null time cursor.
+    const rows = [
+      makeHistoryRow({ id: 99, foodName: "No-time entry", date: "2026-02-05", time: null }),
+    ];
+    mockLimit.mockResolvedValue(rows);
+
+    const result = await getFoodLogHistory("test@example.com", {
+      cursor: { lastDate: "2026-02-05", lastTime: "14:00:00", lastId: 50 },
+      limit: 20,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].foodName).toBe("No-time entry");
+    expect(result[0].time).toBeNull();
+    // Verify cursor conditions were applied (where was called with condition)
+    expect(mockWhere).toHaveBeenCalled();
+  });
+
   it("does not use afterId parameter (removed in favor of cursor)", async () => {
     mockLimit.mockResolvedValue([]);
 
