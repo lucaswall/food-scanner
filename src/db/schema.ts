@@ -56,6 +56,6 @@ export const foodLogEntries = pgTable("food_log_entries", {
   amount: numeric("amount").notNull(),
   unitId: integer("unit_id").notNull(),
   date: date("date").notNull(),
-  time: time("time"),
+  time: time("time").notNull(),
   loggedAt: timestamp("logged_at", { withTimezone: true }).defaultNow().notNull(),
 });
