@@ -74,14 +74,15 @@
 
 1. Update `## STATUS` section:
    - Change from `## STATUS: DEVELOPMENT` to `## STATUS: PRODUCTION`
-   - Replace breaking changes policy with: "Breaking changes require migration or backward compatibility. User must be informed of any breaking changes before implementation."
+   - Replace breaking changes policy with production-appropriate wording
 2. Update `## DEVELOPMENT POLICIES` section:
    - Remove: "Breaking changes OK — No backward compatibility required"
    - Remove: "Delete unused code immediately — No deprecation warnings"
    - Remove: "No 'for compatibility' code — When changing APIs, update ALL references"
-   - Add: "Breaking changes require migration — Database schema changes must include migration scripts. API changes must maintain backward compatibility or include migration path."
-   - Add: "Inform user of breaking changes — Before implementing any breaking change, clearly communicate what will break, what migration is needed, and get explicit approval."
+   - Add: "Database schema changes require migrations — Always use Drizzle Kit to generate migration files. Never modify production data without a migration path."
+   - Add: "Inform user of breaking changes — Before implementing changes that alter user-facing behavior, require new environment variables, or modify the database schema, clearly communicate what will change and get explicit approval."
    - Add: "Delete unused code after verification — Confirm code is truly unused before deletion."
+   - Note: API backward compatibility is NOT required — the API is consumed only by the same app, frontend and backend deploy together from the same commit.
 3. Update `## ENVIRONMENT VARIABLES` section:
    - Add `FITBIT_DRY_RUN` with description (optional, staging-only)
    - Add note about MCP env vars: `MCP_FITBIT_CLIENT_ID` and `MCP_FITBIT_CLIENT_SECRET` (set in shell, not in Railway)
@@ -101,7 +102,7 @@
    - Each environment has its own Postgres, variables, domain
    - Staging uses `FITBIT_DRY_RUN=true`
    - Promotion: merge `main` → `release` to deploy to production
-3. Update cost estimates to include staging Postgres
+3. Remove the "Cost Estimates" section entirely
 4. Update OAuth Setup sections to mention both environments' redirect URIs
 
 ### Task 6: Update DEVELOPMENT.md for production status
@@ -109,8 +110,9 @@
 
 1. Update "Development Status" section:
    - Change from "active development, breaking changes expected" to "production"
-   - Document that breaking changes now require migration/compatibility
-   - Document that user must be informed before breaking changes
+   - Document that DB schema changes require migrations
+   - Document that user must be informed before breaking behavioral/env changes
+   - Note: API backward compatibility is not a concern (single-app, co-deployed)
 2. Add note about `FITBIT_DRY_RUN` in environment variables section
 3. Add section about branch workflow:
    - `main` — development branch, deploys to staging
@@ -142,8 +144,7 @@
 - Dry-run stores `null` for `fitbitLogId` (no schema change, no sentinel strings)
 - `FoodLogResponse.fitbitLogId` becomes optional, plus `dryRun?: boolean` flag
 - MCP uses `MCP_FITBIT_CLIENT_ID`/`MCP_FITBIT_CLIENT_SECRET` to avoid collision with app's `FITBIT_CLIENT_ID`
-- Production status means breaking changes require migration and user notification
+- Production status means DB schema changes need migrations and user-facing/env changes need notification (API compatibility is not a concern — single co-deployed app)
 
 **Risks/Considerations:**
-- `FoodLogResponse.fitbitLogId` changing from required to optional is technically a breaking API change — but the client already handles undefined (optional chaining). Last pre-production change.
-- Dry-run mode in new food flow: `insertCustomFood` receives `fitbitFoodId: null` — the `custom_foods.fitbit_food_id` column must be nullable (need to verify).
+- Dry-run mode in new food flow: `insertCustomFood` receives `fitbitFoodId: null` — verified the column is nullable, no schema change needed.
