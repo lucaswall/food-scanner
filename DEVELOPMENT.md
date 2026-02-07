@@ -177,7 +177,7 @@ This project uses Claude Code with custom agents and skills for development:
 - **bug-hunter** — Reviews code for bugs (use proactively before commits)
 
 ### Skills (invoke with `/skill-name`)
-- `/plan-todo FOO-123` — Plan implementation of a backlog issue
+- `/plan-backlog FOO-123` — Plan implementation of a backlog issue
 - `/plan-inline <description>` — Plan from a direct description
 - `/plan-implement` — Execute the current plan
 - `/plan-review-implementation` — Review completed implementation
@@ -187,7 +187,7 @@ This project uses Claude Code with custom agents and skills for development:
 - `/add-to-backlog <items>` — Add issues to Linear backlog
 
 ### Typical Workflow
-1. `/plan-todo FOO-123` or `/plan-inline <feature>` — Create plan
+1. `/plan-backlog FOO-123` or `/plan-inline <feature>` — Create plan
 2. `/plan-implement` — Execute the plan with TDD
 3. `/plan-review-implementation` — Review the implementation
 4. Ask for commit and PR when ready

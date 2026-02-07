@@ -14,7 +14,7 @@ Add issues to Linear Backlog from user input. Interprets free-form descriptions 
 - Parse multiple items from a single input
 - Reference conversation context or investigation findings
 - Write problem-focused descriptions (what, not how)
-- Include implementation hints for `plan-todo` to use later
+- Include implementation hints for `plan-backlog` to use later
 
 ## Input Modes
 
@@ -72,7 +72,7 @@ Structure:
 [Why this matters - user impact, data quality, errors]
 
 **Implementation Hints:** (optional)
-[Suggestions for plan-todo, patterns to follow, related code]
+[Suggestions for plan-backlog, patterns to follow, related code]
 ```
 
 ### Labels
@@ -184,7 +184,7 @@ labels: [Mapped label]
 - Focus on the problem, not the solution
 - Include context about where/when the issue occurs
 - Explain impact to help prioritization
-- Add implementation hints for plan-todo
+- Add implementation hints for plan-backlog
 - Reference related files or code if known
 
 ### DON'T:
@@ -229,7 +229,7 @@ Add rate limiting. Use upstash ratelimit library. Create a middleware that check
 
 - **Always confirm before creating** - Show proposed issues first
 - **Problem-focused** - Describe what's wrong, not how to fix
-- **Include hints** - Help plan-todo with implementation suggestions
+- **Include hints** - Help plan-backlog with implementation suggestions
 - **Check duplicates** - Avoid cluttering backlog
 - **One problem per issue** - Split combined issues
 
@@ -249,8 +249,8 @@ Skipped:
 
 Next steps:
 - Review issues in Linear Backlog
-- Use `plan-todo` to create implementation plans
-- Use `plan-todo FOO-123` to plan a specific issue
+- Use `plan-backlog` to create implementation plans
+- Use `plan-backlog FOO-123` to plan a specific issue
 ```
 
 Do not ask follow-up questions. Do not offer to plan or implement.

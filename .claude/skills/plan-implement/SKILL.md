@@ -363,7 +363,7 @@ If `TeamCreate` fails (agent teams unavailable), implement the plan sequentially
 
 | Situation | Action |
 |-----------|--------|
-| PLANS.md doesn't exist or is empty | STOP — "No plan found. Run plan-todo or plan-inline first." |
+| PLANS.md doesn't exist or is empty | STOP — "No plan found. Run plan-backlog or plan-inline first." |
 | PLANS.md has "Status: COMPLETE" | STOP — "Plan already complete. Create a new plan first." |
 | TeamCreate fails | Switch to single-agent fallback mode |
 | All tasks share files (1 work unit) | Use 1 worker — still valid, benefits from dedicated context |

@@ -370,7 +370,7 @@ Linear Backlog summary:
 
 Issue IDs: FOO-N1, FOO-N2, ...
 
-Next step: Review Backlog in Linear and use `plan-todo` to create implementation plans.
+Next step: Review Backlog in Linear and use `plan-backlog` to create implementation plans.
 ```
 
 Do not ask follow-up questions. Do not offer to fix issues.

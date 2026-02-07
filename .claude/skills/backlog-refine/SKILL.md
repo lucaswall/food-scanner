@@ -72,7 +72,7 @@ Check for these common problems in Backlog issues:
 - **Wrong/missing labels** — Does the label correctly categorize the issue?
 - **Duplicate or overlapping** — Does another Backlog issue cover the same ground?
 - **Outdated** — Has the referenced code changed since the issue was created?
-- **Missing implementation hints** — Could helpful pointers be added for `plan-todo`?
+- **Missing implementation hints** — Could helpful pointers be added for `plan-backlog`?
 
 ### Codebase Cross-Reference
 - If the issue mentions specific files/areas, read them to verify the problem still exists
@@ -183,7 +183,7 @@ Use this structure for updated descriptions:
 - [ ] [Another criterion]
 
 **Implementation Hints:** (optional)
-[Pointers for plan-todo: patterns to follow, related code, constraints]
+[Pointers for plan-backlog: patterns to follow, related code, constraints]
 ```
 
 ## Processing Multiple Issues
@@ -230,7 +230,7 @@ Created Y issues (from splits):
 Unchanged:
 - FOO-125: Already well-specified
 
-Next step: Use `plan-todo FOO-123` to create an implementation plan.
+Next step: Use `plan-backlog FOO-123` to create an implementation plan.
 ```
 
 Do not ask follow-up questions after termination.

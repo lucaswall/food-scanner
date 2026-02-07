@@ -1,6 +1,6 @@
 ---
 name: plan-inline
-description: Create TDD implementation plans from direct feature requests. Use when user provides a task description like "add X feature", "create Y function", or "implement Z". Creates Linear issues in Todo state. Faster than plan-todo for ad-hoc requests that don't need backlog tracking.
+description: Create TDD implementation plans from direct feature requests. Use when user provides a task description like "add X feature", "create Y function", or "implement Z". Creates Linear issues in Todo state. Faster than plan-backlog for ad-hoc requests that don't need backlog tracking.
 argument-hint: <task description>
 allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
@@ -34,12 +34,12 @@ Only proceed to PLANS.md check if git state is clean.
 
 ## When to Use
 
-Use `plan-inline` instead of `plan-todo` when:
+Use `plan-inline` instead of `plan-backlog` when:
 - The user provides a clear feature request or task description directly
 - The task doesn't need to go through Linear Backlog first
 - Quick planning without backlog management overhead
 
-Use `plan-todo` instead when:
+Use `plan-backlog` instead when:
 - Working from existing backlog items
 - Managing multiple items that should be tracked
 

@@ -260,7 +260,7 @@ This skill is specifically for:
 
 This skill is NOT for:
 - Actually implementing fixes (use plan-implement for that)
-- Adding new features (use plan-todo or add-to-backlog)
+- Adding new features (use plan-backlog or add-to-backlog)
 - Code reviews (use code-audit)
 - General investigation without a fix intent (use investigate)
 - Refactoring (create a separate task)
