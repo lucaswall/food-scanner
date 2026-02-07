@@ -289,7 +289,8 @@ describe("POST /api/log-food", () => {
   it("returns 400 when date is missing", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
-    const { date: _, ...requestWithoutDate } = validFoodLogRequest;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { date: _date, ...requestWithoutDate } = validFoodLogRequest;
     const request = createMockRequest(requestWithoutDate as Partial<FoodLogRequest>);
     const response = await POST(request);
 
@@ -301,7 +302,8 @@ describe("POST /api/log-food", () => {
   it("returns 400 when time is missing", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
-    const { time: _, ...requestWithoutTime } = validFoodLogRequest;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { time: _time, ...requestWithoutTime } = validFoodLogRequest;
     const request = createMockRequest(requestWithoutTime as Partial<FoodLogRequest>);
     const response = await POST(request);
 
