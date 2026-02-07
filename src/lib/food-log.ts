@@ -121,7 +121,7 @@ export async function getCommonFoods(
     .where(
       and(
         eq(foodLogEntries.email, email),
-        isNotNull(customFoods.fitbitFoodId),
+        ...(process.env.FITBIT_DRY_RUN !== "true" ? [isNotNull(customFoods.fitbitFoodId)] : []),
         gte(foodLogEntries.date, cutoffDate),
       ),
     );
@@ -161,7 +161,7 @@ export async function getCommonFoods(
     fatG: Number(row.custom_foods.fatG),
     fiberG: Number(row.custom_foods.fiberG),
     sodiumMg: Number(row.custom_foods.sodiumMg),
-    fitbitFoodId: row.custom_foods.fitbitFoodId!,
+    fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
     mealTypeId: row.food_log_entries.mealTypeId,
   }));
 }

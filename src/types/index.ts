@@ -135,7 +135,7 @@ export interface CommonFood {
   fatG: number;
   fiberG: number;
   sodiumMg: number;
-  fitbitFoodId: number;
+  fitbitFoodId: number | null;
   mealTypeId: number;
 }
 
@@ -163,7 +163,7 @@ export interface FoodMatch {
   proteinG: number;
   carbsG: number;
   fatG: number;
-  fitbitFoodId: number;
+  fitbitFoodId: number | null;
   matchRatio: number;
   lastLoggedAt: Date;
   amount: number;

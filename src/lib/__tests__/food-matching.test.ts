@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
 
@@ -37,6 +37,10 @@ beforeEach(() => {
   mockLeftJoin.mockReturnValue({ where: mockWhere });
   mockWhere.mockReturnValue({ groupBy: mockGroupBy });
   mockGroupBy.mockResolvedValue([]);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 const { computeMatchRatio, checkNutrientTolerance, findMatchingFoods } =
@@ -386,5 +390,48 @@ describe("findMatchingFoods", () => {
     });
 
     expect(result).toEqual([]);
+  });
+
+  describe("FITBIT_DRY_RUN=true", () => {
+    it("includes foods with null fitbitFoodId", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGroupBy.mockResolvedValue([
+        {
+          custom_foods: {
+            id: 1,
+            foodName: "Tea with milk",
+            calories: 50,
+            proteinG: "2",
+            carbsG: "5",
+            fatG: "2",
+            fitbitFoodId: null,
+            keywords: ["tea", "milk"],
+            createdAt: new Date("2026-01-01"),
+            amount: "1",
+            unitId: 91,
+          },
+          lastLoggedAt: new Date("2026-01-15"),
+        },
+      ]);
+
+      const result = await findMatchingFoods("test@example.com", {
+        food_name: "Tea with milk",
+        amount: 1,
+        unit_id: 91,
+        calories: 50,
+        protein_g: 2,
+        carbs_g: 5,
+        fat_g: 2,
+        fiber_g: 0,
+        sodium_mg: 10,
+        confidence: "high",
+        notes: "",
+        keywords: ["tea", "milk"],
+      });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].foodName).toBe("Tea with milk");
+      expect(result[0].fitbitFoodId).toBeNull();
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
 
@@ -53,6 +53,10 @@ beforeEach(() => {
   mockWhere.mockReturnValue({ orderBy: mockOrderBy });
   mockOrderBy.mockReturnValue({ limit: mockLimit });
   mockDeleteWhere.mockReturnValue({ returning: mockDeleteReturning });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 const {
@@ -580,6 +584,21 @@ describe("getCommonFoods", () => {
     expect(result).toHaveLength(2);
     expect(result[0].foodName).toBe("Timeless Food"); // 30 min diff
     expect(result[1].foodName).toBe("Noon Food");     // 690 min diff
+  });
+
+  describe("FITBIT_DRY_RUN=true", () => {
+    it("includes foods with null fitbitFoodId", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockWhere.mockResolvedValue([
+        makeRow({ customFoodId: 1, foodName: "Dry Run Food", time: "12:00:00", date: "2026-02-05", fitbitFoodId: null as unknown as number, mealTypeId: 3 }),
+      ]);
+
+      const result = await getCommonFoods("test@example.com", "12:00:00");
+
+      expect(result).toHaveLength(1);
+      expect(result[0].foodName).toBe("Dry Run Food");
+      expect(result[0].fitbitFoodId).toBeNull();
+    });
   });
 });
 
