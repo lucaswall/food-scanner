@@ -49,6 +49,7 @@ Then edit `.env.local` and override these values for local development:
 | `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/food_scanner` | Use local Docker Postgres instead of Railway Postgres |
 | `APP_URL` | `http://localhost:3000` | Local dev server, not production domain |
 | `LOG_LEVEL` | `debug` (optional) | More verbose logging during development |
+| `FITBIT_DRY_RUN` | `true` (optional) | Skip Fitbit API calls, log to DB only |
 
 Remove any Railway-internal variables (e.g., `RAILWAY_*`, `PORT`) — they're not needed locally.
 
@@ -147,12 +148,26 @@ Examples:
 
 ## Development Status
 
-This project is in **active development**. Breaking changes are expected and acceptable.
+This project is in **production**. When changes affect existing data (DB schema, session format, token format), document the migration path and inform the user in the commit/PR — no approval gate, just transparency.
 
-- No backward compatibility required
 - Delete unused code immediately
 - No deprecation warnings needed
-- When changing APIs/configs, update ALL references
+
+---
+
+## Branch Workflow
+
+| Branch | Deploys To | Purpose |
+|--------|-----------|---------|
+| `main` | Staging | Development branch, auto-deploys |
+| `release` | Production | Stable branch, auto-deploys |
+
+**Feature workflow:**
+1. Create feature branch from `main`
+2. PR to `main` → merge → staging auto-deploys
+3. Merge `main` → `release` → production auto-deploys
+
+**Staging** uses `FITBIT_DRY_RUN=true` to skip Fitbit API calls while preserving local DB logging.
 
 ---
 

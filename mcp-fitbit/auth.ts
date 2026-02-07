@@ -31,11 +31,11 @@ interface StoredTokens {
 let cachedTokens: StoredTokens | null = null;
 
 function getClientCredentials(): { clientId: string; clientSecret: string } {
-  const clientId = process.env.FITBIT_CLIENT_ID;
-  const clientSecret = process.env.FITBIT_CLIENT_SECRET;
+  const clientId = process.env.MCP_FITBIT_CLIENT_ID;
+  const clientSecret = process.env.MCP_FITBIT_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     throw new Error(
-      'FITBIT_CLIENT_ID and FITBIT_CLIENT_SECRET environment variables must be set',
+      'MCP_FITBIT_CLIENT_ID and MCP_FITBIT_CLIENT_SECRET environment variables must be set',
     );
   }
   return { clientId, clientSecret };

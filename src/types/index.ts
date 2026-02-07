@@ -68,10 +68,11 @@ export interface FoodLogRequest extends FoodAnalysis {
 
 export interface FoodLogResponse {
   success: boolean;
-  fitbitFoodId: number;
-  fitbitLogId: number;
+  fitbitFoodId?: number;
+  fitbitLogId?: number;
   reusedFood: boolean;
   foodLogId?: number;
+  dryRun?: boolean;
   error?: string;
 }
 
@@ -134,7 +135,7 @@ export interface CommonFood {
   fatG: number;
   fiberG: number;
   sodiumMg: number;
-  fitbitFoodId: number;
+  fitbitFoodId: number | null;
   mealTypeId: number;
 }
 
@@ -162,7 +163,7 @@ export interface FoodMatch {
   proteinG: number;
   carbsG: number;
   fatG: number;
-  fitbitFoodId: number;
+  fitbitFoodId: number | null;
   matchRatio: number;
   lastLoggedAt: Date;
   amount: number;

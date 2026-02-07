@@ -95,7 +95,7 @@ export async function findMatchingFoods(
       and(
         eq(customFoods.email, email),
         isNotNull(customFoods.keywords),
-        isNotNull(customFoods.fitbitFoodId),
+        ...(process.env.FITBIT_DRY_RUN !== "true" ? [isNotNull(customFoods.fitbitFoodId)] : []),
       ),
     )
     .groupBy(customFoods.id);
@@ -104,7 +104,8 @@ export async function findMatchingFoods(
 
   for (const row of rows) {
     const food = row.custom_foods;
-    if (!food.keywords || !food.fitbitFoodId) continue;
+    if (!food.keywords) continue;
+    if (process.env.FITBIT_DRY_RUN !== "true" && !food.fitbitFoodId) continue;
 
     const matchRatio = computeMatchRatio(newAnalysis.keywords, food.keywords);
     if (matchRatio < 0.5) continue;
@@ -134,7 +135,7 @@ export async function findMatchingFoods(
       proteinG: Number(food.proteinG),
       carbsG: Number(food.carbsG),
       fatG: Number(food.fatG),
-      fitbitFoodId: food.fitbitFoodId,
+      fitbitFoodId: food.fitbitFoodId ?? null,
       matchRatio,
       lastLoggedAt,
       amount: Number(food.amount),
@@ -155,7 +156,7 @@ export async function findMatchingFoods(
     proteinG: m.proteinG,
     carbsG: m.carbsG,
     fatG: m.fatG,
-    fitbitFoodId: m.fitbitFoodId,
+    fitbitFoodId: m.fitbitFoodId ?? null,
     matchRatio: m.matchRatio,
     lastLoggedAt: m.lastLoggedAt,
     amount: m.amount,

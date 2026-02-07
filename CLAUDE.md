@@ -1,8 +1,8 @@
 # Food Scanner - Technical Reference
 
-## STATUS: DEVELOPMENT
+## STATUS: PRODUCTION
 
-Breaking changes OK. No backward compatibility required. Delete unused code immediately.
+Delete unused code immediately. No deprecation warnings needed.
 
 ---
 
@@ -333,15 +333,41 @@ ALLOWED_EMAIL=wall.lucas@gmail.com
 
 # Logging (optional, defaults to info in production, debug in development)
 LOG_LEVEL=info
+
+# Dry-run mode (optional, staging only — skips Fitbit API calls)
+FITBIT_DRY_RUN=true
 ```
+
+**MCP Fitbit credentials** (set in shell environment, not in Railway):
+```
+MCP_FITBIT_CLIENT_ID=    # Separate Fitbit app for MCP server
+MCP_FITBIT_CLIENT_SECRET=
+```
+
+---
+
+## ENVIRONMENTS
+
+| Environment | Branch | URL | Fitbit API |
+|-------------|--------|-----|------------|
+| Production | `release` | `food.lucaswall.me` | Live |
+| Staging | `main` | Railway-generated staging URL | Dry-run (`FITBIT_DRY_RUN=true`) |
+
+**Branch strategy:**
+- `main` — development branch, auto-deploys to staging
+- `release` — stable branch, auto-deploys to production
+- Feature branches → PR to `main` → merge to staging → merge `main` to `release` for production
+
+**Each environment** has its own Railway Postgres, environment variables, and domain.
+
+**Promotion flow:** Merge `main` → `release` to deploy to production.
 
 ---
 
 ## DEVELOPMENT POLICIES
 
-- **Breaking changes OK** — No backward compatibility required
+- **Migration-aware changes** — When a change requires data migration (DB schema, session format, token format, etc.), document what existing data is affected and how it will be migrated. Inform the user in the commit/PR — no approval needed, just transparency.
 - **Delete unused code immediately** — No deprecation warnings
-- **No "for compatibility" code** — When changing APIs, update ALL references
 - **Mobile-first design** — All UI components must work on mobile
 - **Touch targets** — All interactive elements (buttons, links) must be at least 44px x 44px
 - **Same-origin deployment** — No CORS, no cross-domain cookie issues
