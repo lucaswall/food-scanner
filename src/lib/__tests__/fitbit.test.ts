@@ -892,9 +892,28 @@ describe("deleteFoodLog", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs error on non-ok response", async () => {
+  it("treats 404 as success (already deleted on Fitbit)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ errors: [{ message: "not found" }] }), { status: 404 }),
+    );
+
+    const result = await deleteFoodLog("test-token", 12345);
+    expect(result).toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "fitbit_delete_food_log_not_found",
+        fitbitLogId: 12345,
+      }),
+      expect.any(String),
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("logs error on non-ok response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: [{ message: "bad request" }] }), { status: 400 }),
     );
 
     await expect(deleteFoodLog("test-token", 12345)).rejects.toThrow(
@@ -904,7 +923,7 @@ describe("deleteFoodLog", () => {
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "fitbit_delete_food_log_failed",
-        status: 404,
+        status: 400,
       }),
       expect.any(String),
     );

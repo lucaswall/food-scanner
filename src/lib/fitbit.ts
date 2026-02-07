@@ -238,6 +238,14 @@ export async function deleteFoodLog(
     },
   );
 
+  if (response.status === 404) {
+    logger.warn(
+      { action: "fitbit_delete_food_log_not_found", fitbitLogId },
+      "food log not found on Fitbit, treating as already deleted",
+    );
+    return;
+  }
+
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
