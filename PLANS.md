@@ -742,3 +742,58 @@ This plan implements multi-user support for the food scanner app and fixes the p
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 2 issue(s) found requiring fix (Team: security, reliability, quality reviewers)
+- CRITICAL: 0
+- HIGH: 2
+- MEDIUM: 4 (documented only)
+- LOW: 2 (documented only)
+
+**Issues requiring fix:**
+- [HIGH] BUG: refreshInFlight cross-user token contamination (`src/lib/fitbit.ts:412`) - Module-level singleton shared across all users; User B can receive User A's refreshed Fitbit access token during concurrent refresh
+- [HIGH] BUG: getOrCreateUser race condition on concurrent login (`src/lib/users.ts:6-19`) - SELECT-then-INSERT without atomicity; concurrent logins for same new email cause unique constraint violation (500 error)
+
+**Documented (no fix needed):**
+- [MEDIUM] BUG: touchFailCount shared across users (`src/lib/session.ts:10`) - Module-level counter affects escalation for all users; logging-only impact, acceptable limitation
+- [MEDIUM] SECURITY: Email logging inconsistency (`src/app/api/auth/google/callback/route.ts:73`) - Success path logs full email while rejection path masks it; minor info leak
+- [MEDIUM] TYPE: Fitbit API response double cast (`src/lib/fitbit.ts:170,226`) - Pre-existing pattern, not introduced by this PR
+- [MEDIUM] TYPE: find-matches type assertion skips runtime validation (`src/app/api/find-matches/route.ts:58`) - Pre-existing pattern, minimal impact
+- [LOW] SECURITY: Email case normalization (`src/lib/env.ts:37`, `src/lib/users.ts:8`) - Google returns consistent case in practice
+- [LOW] CONVENTION: FK ON DELETE no action (`drizzle/0005_clever_calypso.sql:14-17`) - No user deletion feature exists
+
+### Linear Updates
+- FOO-212: Review → Merge (original task completed)
+- FOO-213: Review → Merge (original task completed)
+- FOO-214: Review → Merge (original task completed)
+- FOO-215: Review → Merge (original task completed)
+- FOO-216: Review → Merge (original task completed)
+- FOO-217: Created in Todo (Fix: refreshInFlight cross-user token contamination)
+- FOO-218: Created in Todo (Fix: getOrCreateUser race condition on concurrent login)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-217](https://linear.app/lw-claude/issue/FOO-217/fix-refreshinflight-cross-user-token-contamination), [FOO-218](https://linear.app/lw-claude/issue/FOO-218/fix-getorcreateuser-race-condition-on-concurrent-login)
+
+### Fix 1: refreshInFlight cross-user token contamination
+**Linear Issue:** [FOO-217](https://linear.app/lw-claude/issue/FOO-217/fix-refreshinflight-cross-user-token-contamination)
+
+1. Write test in `src/lib/__tests__/fitbit.test.ts` for cross-user token isolation: two different userIds refreshing concurrently must each get their own token
+2. Change `refreshInFlight` from `Promise<string> | null` to `Map<string, Promise<string>>` in `src/lib/fitbit.ts`
+3. Update the guard in `ensureFreshToken` to check `refreshInFlight.get(userId)` instead of the singleton
+4. Clean up the map entry in the `.finally()` block
+5. Verify existing deduplication test still passes (same user concurrent refresh)
+
+### Fix 2: getOrCreateUser race condition on concurrent login
+**Linear Issue:** [FOO-218](https://linear.app/lw-claude/issue/FOO-218/fix-getorcreateuser-race-condition-on-concurrent-login)
+
+1. Write test in `src/lib/__tests__/users.test.ts` simulating concurrent creation (mock INSERT to throw unique constraint, verify re-query succeeds)
+2. Refactor `getOrCreateUser` in `src/lib/users.ts` to use `INSERT ... ON CONFLICT (email) DO UPDATE SET updated_at = NOW() ... RETURNING *` for atomic upsert
+3. Remove the separate SELECT-then-INSERT pattern
+4. Verify existing tests still pass
