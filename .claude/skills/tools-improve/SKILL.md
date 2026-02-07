@@ -22,6 +22,7 @@ You create and optimize Claude Code subagents and skills.
 For detailed information beyond this file:
 - [skills-reference.md](skills-reference.md) - Invocation control matrix, context budget, hooks, nested discovery
 - [subagents-reference.md](subagents-reference.md) - Built-in agents, permission modes, hook events, resume
+- [agent-teams-reference.md](agent-teams-reference.md) - Team orchestration, task coordination, best practices
 
 ## Decision: Skill vs Subagent
 
@@ -38,6 +39,8 @@ For detailed information beyond this file:
 - Quick reference or style guides
 
 **Default to skill** - simpler, runs in main context.
+
+**When a skill needs parallel workers**, it can orchestrate an **agent team** internally. See "Agent Teams in Skills" under Best Practices and [agent-teams-reference.md](agent-teams-reference.md) for the full guide.
 
 ## Templates
 
@@ -159,6 +162,23 @@ Legacy payment system uses SOAP API, XML config, stored procedures.
 Key files: src/payments/legacy-adapter.ts
 ```
 
+### Team-Orchestrating Skill
+```yaml
+---
+name: parallel-review
+description: Parallel code review with specialized reviewers
+allowed-tools: Read, Glob, Grep, Task, Bash, TeamCreate, TeamDelete,
+  SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet
+disable-model-invocation: true
+---
+
+1. TeamCreate → TaskCreate (one per reviewer) → spawn teammates
+2. Wait for findings messages (auto-delivered)
+3. Merge, deduplicate, act on results
+4. Shutdown teammates → TeamDelete
+Fallback: if TeamCreate fails, use sequential Task subagents
+```
+
 ### Hook Validation (Subagent)
 ```yaml
 ---
@@ -235,6 +255,39 @@ Match model to task complexity:
 
 **Max 3-4 custom subagents** - Too many reduces productivity and confuses delegation.
 
+### Agent Teams in Skills
+
+When a skill needs parallel workers (code review, parallel implementation, competing hypotheses), it can orchestrate an agent team. Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`. See [agent-teams-reference.md](agent-teams-reference.md) for full guide.
+
+**When to use teams inside a skill:**
+- Workers need to communicate with each other (not just report back to lead)
+- Work benefits from domain specialization (security vs reliability vs quality)
+- Parallel implementation across non-overlapping file sets
+- Higher token cost is justified by speed or depth
+
+**Key rules for team-orchestrating skills:**
+1. **Partition by file ownership** — Never assign the same file to multiple teammates
+2. **Lead handles external writes** — Teammates lack MCP access; lead does Linear/Railway/etc.
+3. **Domain specialization** — Assign distinct domains, not "review the code" to everyone
+4. **Structured reporting** — Define a findings format so lead can merge and deduplicate
+5. **Always include fallback** — If `TeamCreate` fails, fall back to sequential subagents
+6. **Cap at ~4 teammates** — Diminishing returns beyond that for most tasks
+7. **Don't let workers hand-write generated files** — Reserve CLI generators for the lead
+
+**Required `allowed-tools` for team skills:**
+```
+TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, Task
+```
+
+**Skill lifecycle with teams:**
+1. Pre-flight (verify dependencies)
+2. `TeamCreate` → `TaskCreate` (one per work unit) → spawn teammates via `Task` with `team_name`
+3. Assign tasks via `TaskUpdate`
+4. Wait for teammate messages (auto-delivered, don't poll)
+5. Merge/synthesize findings
+6. Act on results (lead handles all external writes)
+7. Shutdown teammates → `TeamDelete`
+
 ## File Locations
 
 | Type | Project | User (all projects) |
@@ -249,5 +302,6 @@ Priority: CLI flag > project > user > plugin
 For complete reference, see:
 - Skills: https://code.claude.com/docs/en/skills
 - Subagents: https://code.claude.com/docs/en/sub-agents
+- Agent Teams: https://code.claude.com/docs/en/agent-teams
 
-**Local references:** See [skills-reference.md](skills-reference.md) and [subagents-reference.md](subagents-reference.md) for quick lookup tables.
+**Local references:** See [skills-reference.md](skills-reference.md), [subagents-reference.md](subagents-reference.md), and [agent-teams-reference.md](agent-teams-reference.md) for quick lookup tables.
