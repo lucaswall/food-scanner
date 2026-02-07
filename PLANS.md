@@ -1018,3 +1018,44 @@ Summary: 1 issue requiring fix, 5 documented (Team: security, reliability, quali
 - Worker 1: Steps 1, 2 (data layer: food-log.ts + test)
 - Worker 2: Steps 3, 4 (API route: food-history/route.ts + test)
 - Worker 3: Steps 5, 6, 7 (UI component: food-history.tsx + test)
+
+### Review Findings
+
+Summary: 1 issue requiring fix, 8 documented (Team: security, reliability, quality reviewers)
+- CRITICAL: 0
+- HIGH: 1
+- MEDIUM: 4 (documented only)
+- LOW: 4 (documented only)
+
+**Issues requiring fix:**
+- [HIGH] BUG: Cursor pagination skips NULL-time entries when paginating from non-null time — `or()` condition in `getFoodLogHistory` covers `(date < lastDate)`, `(date = lastDate, time > lastTime)`, `(date = lastDate, time = lastTime, id > lastId)` but never matches `(date = lastDate, time IS NULL)`, causing null-time entries on the same date to be lost (`src/lib/food-log.ts:184-196`)
+
+**Documented (no fix needed):**
+- [MEDIUM] EDGE CASE: No lower bound on `limit` param — `Math.min(parsedLimit, 50)` allows negative/zero values (`src/app/api/food-history/route.ts:32`)
+- [MEDIUM] ERROR: `fetchEntries` silently swallows all errors — no user feedback on network/server failures (`src/components/food-history.tsx:107-108`)
+- [MEDIUM] TYPE: Non-null assertion `!` on `fitbitFoodId` — safe since WHERE clause filters, but TypeScript doesn't see it (`src/lib/food-log.ts:164`)
+- [MEDIUM] TYPE: Unsafe `as FoodLogHistoryEntry[]` cast on API response — internal API, same app (`src/components/food-history.tsx:99`)
+- [LOW] EDGE CASE: `deletingId` tracks only one at a time — mitigated by `window.confirm` blocking (`src/components/food-history.tsx:129-153`)
+- [LOW] CONVENTION: No-op mock `vi.mock("@/db/schema", ...)` that imports original unchanged (`src/lib/__tests__/food-log.test.ts:44-46`)
+- [LOW] SECURITY: `lastTime` cursor param not format-validated — no injection risk via Drizzle, cosmetic only (`src/app/api/food-history/route.ts:22-27`)
+- [LOW] SECURITY: `getCustomFoodById` has no email filter — pre-existing, single-user app, not used in changed files (`src/lib/food-log.ts:86-94`)
+
+### Linear Updates
+- FOO-174: Review → Merge
+- FOO-175: Created in Todo (Fix: cursor pagination skipping NULL-time entries)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 2
+**Linear Issues:** [FOO-175](https://linear.app/lw-claude/issue/FOO-175/fix-cursor-pagination-skipping-null-time-entries-on-same-date)
+
+### Fix 1: Cursor pagination skipping NULL-time entries on same date
+**Linear Issue:** [FOO-175](https://linear.app/lw-claude/issue/FOO-175/fix-cursor-pagination-skipping-null-time-entries-on-same-date)
+
+1. Write test in `src/lib/__tests__/food-log.test.ts` for composite cursor with non-null `lastTime` that verifies NULL-time entries on the same date are included in results
+2. Fix `getFoodLogHistory` in `src/lib/food-log.ts:184-196` — add 4th branch to the `lastTime !== null` cursor `or()`: `and(eq(foodLogEntries.date, lastDate), isNull(foodLogEntries.time))`
+3. Verify existing tests still pass
