@@ -1,19 +1,21 @@
 ---
 name: plan-review-implementation
-description: QA review of completed implementation. Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Merge. Creates new issues in Todo for bugs found. Identifies bugs, edge cases, security issues (OWASP-based), type safety, resource leaks, and async issues. Creates fix plans for issues found or marks COMPLETE.
-allowed-tools: Read, Edit, Glob, Grep, Bash, Task, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+description: QA review of completed implementation using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Merge. Creates new issues in Todo for bugs found. Falls back to single-agent mode if agent teams unavailable.
+allowed-tools: Read, Edit, Glob, Grep, Bash, Task, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
-Review **ALL** implementation iterations that need review, then mark complete or create fix plans. Moves Linear issues Review→Merge.
+Review **ALL** implementation iterations that need review using an agent team with domain-specialized reviewers. You are the **team lead/coordinator**. You orchestrate 3 reviewer teammates who review changed files in parallel through different lenses, then you merge findings, document them, and handle Linear/git.
+
+**If agent teams are unavailable** (TeamCreate fails), fall back to single-agent mode — see "Fallback: Single-Agent Mode" section.
 
 **Reference:** See [references/code-review-checklist.md](references/code-review-checklist.md) for comprehensive checklist.
 
 ## Pre-flight Check
 
-1. **Read PLANS.md** - Understand the full plan and iteration history
-2. **Read CLAUDE.md** - Understand project standards and conventions
-3. **Assess AI-generated code risk** - If implementation is large or shows AI patterns, apply extra scrutiny
+1. **Read PLANS.md** — Understand the full plan and iteration history
+2. **Read CLAUDE.md** — Understand project standards and conventions
+3. **Assess AI-generated code risk** — If implementation is large or shows AI patterns, apply extra scrutiny
 
 ## Linear State Management
 
@@ -47,89 +49,67 @@ This skill moves issues from **Review → Merge** (preparing for PR).
 
 **Iteration detection:** A plan has iterations if it contains `## Iteration` (with or without number).
 
-**Ready for review vs partial iteration:**
-
-An iteration is **READY FOR REVIEW** when:
-- It has "Tasks Completed This Iteration" (or legacy "### Completed") section
-- It does NOT have `<!-- REVIEW COMPLETE -->` marker yet
-- The presence of `### Tasks Remaining` does NOT affect review readiness
-
-An iteration should be reviewed even if it has `### Tasks Remaining`. The review covers only the **completed tasks** in that iteration. Remaining tasks will be implemented in a future iteration.
-
-**Example - iteration ready for review:**
-```markdown
-## Iteration 1
-
-### Tasks Completed This Iteration
-- Task 1: Added validation
-- Task 2: Fixed parser
-
-### Tasks Remaining
-- Task 3: Add error handling
-- Task 4: Update tests
-
-### Continuation Status
-Context running low (~35% remaining). More tasks remain.
-```
---> This iteration IS ready for review. Review Tasks 1 and 2. Tasks 3-4 will be in a future iteration.
-
-**Example - iteration already reviewed:**
-```markdown
-## Iteration 1
-
-### Tasks Completed This Iteration
-- Task 1: Added validation
-
-### Review Findings
-No issues found...
-
-<!-- REVIEW COMPLETE -->
-```
---> This iteration is NOT ready for review (already reviewed).
+An iteration is **READY FOR REVIEW** when it has "Tasks Completed This Iteration" (or legacy "### Completed") section and does NOT have `<!-- REVIEW COMPLETE -->` marker yet. The presence of `### Tasks Remaining` does NOT affect review readiness — review covers only the **completed tasks**.
 
 If no iteration/plan needs review → Inform user and stop.
 
 **Important:** Review ALL pending iterations in a single session, not just one.
 
-## Review Process
+## Collect Changed Files
 
-**For EACH iteration needing review (in order):**
+From each iteration's "Tasks Completed This Iteration" (or legacy "Completed") section, list all files that were created, modified, or had tests added. This is the **review scope** — reviewers examine ONLY these files.
 
-### Step 1: Identify Implemented Code
+## Team Setup
 
-From the iteration's "Tasks Completed This Iteration" (or legacy "Completed") section, list all files that were:
-- Created
-- Modified
-- Added tests to
+### Create the team
 
-### Step 2: Thorough Code Review
+Use `TeamCreate`:
+- `team_name`: "plan-review"
+- `description`: "Parallel implementation review with domain-specialized reviewers"
 
-Read each implemented file and apply checks from [references/code-review-checklist.md](references/code-review-checklist.md).
+**If TeamCreate fails**, switch to Fallback: Single-Agent Mode (see below).
 
-**Core Categories:**
+### Create tasks
 
-| Category | What to Look For |
-|----------|------------------|
-| **SECURITY** | Input validation (SQL/XSS/command injection), auth bypass, IDOR, secrets exposure, missing auth middleware |
-| **BUG** | Logic errors, off-by-one, null handling, race conditions, boundary conditions |
-| **EDGE CASE** | Empty inputs, zero values, unicode, max sizes, deeply nested objects |
-| **ASYNC** | Unhandled promises, missing .catch, fire-and-forget, race conditions in shared state |
-| **RESOURCE** | Memory leaks (listeners, intervals, caches), resource leaks (connections, handles), missing cleanup |
-| **TYPE** | Unsafe casts, unvalidated external data, missing type guards, exhaustive checks |
-| **ERROR** | Missing error handling, swallowed exceptions, no error propagation |
-| **TIMEOUT** | External calls without timeout, potential hangs, missing circuit breakers |
-| **CONVENTION** | CLAUDE.md violations (imports, logging, patterns, TDD workflow) |
+Use `TaskCreate` to create 3 review tasks:
 
-**AI-Generated Code Risks (apply extra scrutiny):**
-- Logic errors (75% more common)
-- XSS vulnerabilities (2.74x higher)
-- Code duplication
-- Hallucinated APIs (non-existent methods)
-- Missing business context
+1. **"Security review"** — Security & auth review of changed files
+2. **"Reliability review"** — Bugs, async, resources, edge cases in changed files
+3. **"Quality review"** — Type safety, conventions, test quality in changed files
 
-### Step 3: Evaluate Severity
+### Spawn 3 reviewer teammates
 
-Use the Priority Tiers from code-review-checklist.md:
+Use the `Task` tool with `team_name: "plan-review"` and `subagent_type: "general-purpose"` to spawn each reviewer. Spawn all 3 in parallel (3 concurrent Task calls in one message).
+
+Each reviewer prompt MUST include:
+- The common preamble and their domain checklist from [references/reviewer-prompts.md](references/reviewer-prompts.md)
+- The **exact list of changed files** to review (from Collect Changed Files step)
+- Instructions to report findings as a structured message to the lead
+
+### Assign tasks
+
+After spawning, use `TaskUpdate` to assign each task to its reviewer by name.
+
+## Coordination
+
+While waiting for reviewer messages:
+1. Reviewer messages are **automatically delivered** — do NOT poll or manually check inbox
+2. Teammates go idle after each turn — this is normal, not an error. They're done when they send their findings message.
+3. Track progress via `TaskList`
+4. Acknowledge receipt as each reviewer reports
+5. Wait until ALL 3 reviewers have reported before proceeding to merge
+
+**If a reviewer gets stuck or stops without reporting:** Send them a message asking for their findings. If they don't respond, note that domain as "incomplete".
+
+## Merge & Evaluate Findings
+
+Once all reviewer findings are collected:
+
+### Deduplicate
+- Same code location reported by multiple reviewers → merge into the one with higher priority
+- Same root cause in multiple locations → combine into one finding
+
+### Evaluate Severity
 
 | Severity | Criteria | Action |
 |----------|----------|--------|
@@ -147,10 +127,9 @@ Use the Priority Tiers from code-review-checklist.md:
 - Violates CLAUDE.md critical rules
 
 **Document Only (MEDIUM/LOW):**
-- Edge cases that are unlikely to occur
+- Edge cases unlikely to occur
 - Style preferences not in CLAUDE.md
 - "Nice to have" improvements
-- Future enhancements
 
 ## Document Findings
 
@@ -161,7 +140,7 @@ Add Review Findings to the current Iteration section, then add Fix Plan at h2 le
 ```markdown
 ### Review Findings
 
-Summary: N issue(s) found
+Summary: N issue(s) found (Team: security, reliability, quality reviewers)
 - CRITICAL: X
 - HIGH: Y
 - MEDIUM: Z (documented only)
@@ -169,7 +148,6 @@ Summary: N issue(s) found
 **Issues requiring fix:**
 - [CRITICAL] SECURITY: SQL injection in query builder (`src/db.ts:45`) - OWASP A03:2021
 - [HIGH] BUG: Race condition in cache invalidation (`src/cache.ts:120`)
-- [HIGH] ASYNC: Unhandled promise rejection (`src/api.ts:78`)
 
 **Documented (no fix needed):**
 - [MEDIUM] EDGE CASE: Unicode filenames not tested (`src/upload.ts:30`)
@@ -178,7 +156,6 @@ Summary: N issue(s) found
 - FOO-123: Review → Merge (original task completed)
 - FOO-125: Created in Todo (Fix: SQL injection)
 - FOO-126: Created in Todo (Fix: Race condition)
-- FOO-127: Created in Todo (Fix: Unhandled promise)
 
 <!-- REVIEW COMPLETE -->
 
@@ -187,39 +164,30 @@ Summary: N issue(s) found
 ## Fix Plan
 
 **Source:** Review findings from Iteration N
-**Linear Issues:** [FOO-125](https://linear.app/...), [FOO-126](https://linear.app/...), [FOO-127](https://linear.app/...)
+**Linear Issues:** [FOO-125](...), [FOO-126](...)
 
 ### Fix 1: SQL injection in query builder
-**Linear Issue:** [FOO-125](https://linear.app/...)
+**Linear Issue:** [FOO-125](...)
 
 1. Write test in `src/db.test.ts` for malicious input escaping
 2. Use parameterized query in `src/db.ts:45`
 
 ### Fix 2: Race condition in cache invalidation
-**Linear Issue:** [FOO-126](https://linear.app/...)
+**Linear Issue:** [FOO-126](...)
 
 1. Write test in `src/cache.test.ts` for concurrent invalidation
 2. Add mutex/lock in `src/cache.ts:120`
-
-### Fix 3: Unhandled promise rejection
-**Linear Issue:** [FOO-127](https://linear.app/...)
-
-1. Write test in `src/api.test.ts` for error handling
-2. Add try/catch in `src/api.ts:78`
 ```
 
-**Note:** The `<!-- REVIEW COMPLETE -->` marker is added to the iteration even when issues are found, because the review itself is complete. The Fix Plan is at h2 level so `plan-implement` can find and execute it.
-
-**Linear workflow:** Original issues move to Merge (the original task was completed, ready for PR). Bug issues are created in Todo state for the fix plan.
+**Note:** `<!-- REVIEW COMPLETE -->` is added even when issues are found — the review itself is complete. Fix Plan is at h2 level so `plan-implement` can find it.
 
 ### If No Issues Found
-
-Add to the current Iteration section:
 
 ```markdown
 ### Review Findings
 
 Files reviewed: N
+Reviewers: security, reliability, quality (agent team)
 Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
 
 No issues found - all implementations are correct and follow project conventions.
@@ -233,25 +201,18 @@ No issues found - all implementations are correct and follow project conventions
 
 **Then continue to the next iteration needing review.**
 
-### When Stopping Due to Context Limits
+## Shutdown Team
 
-If context is low (<=60%) after completing an iteration review but MORE iterations remain:
+After documenting findings for the current batch of iterations:
+1. Send shutdown requests to all 3 reviewers using `SendMessage` with `type: "shutdown_request"`
+2. Wait for shutdown confirmations
+3. Use `TeamDelete` to remove team resources
 
-1. Document the completed iteration's findings (as normal)
-2. **Commit and push all changes** (see Termination section)
-3. Inform user about remaining iterations:
-   > "Iteration N review complete. Changes committed and pushed. Context is running low (~X% estimated remaining). Run `/plan-review-implementation` again to review the remaining iterations."
-
-This ensures work is preserved even if the session ends.
-
-### After ALL Iterations Reviewed
-
-When all pending iterations have been reviewed:
+## After ALL Iterations Reviewed
 
 - **If Fix Plan exists OR tasks remain unfinished** → Do NOT mark complete. More implementation needed.
-  1. **Commit and push all changes** (see Termination section)
-  2. Inform user:
-     > "Review complete. Changes committed and pushed. Run `/plan-implement` to continue implementation."
+  1. **Commit and push** (see Termination section)
+  2. Inform user: "Review complete. Changes committed and pushed. Run `/plan-implement` to continue implementation."
 
 - **If all tasks complete and no issues** → Append final status and create PR:
 
@@ -264,13 +225,33 @@ All tasks implemented and reviewed successfully. All Linear issues moved to Merg
 ```
 
 **Then create the PR:**
-1. **Commit any uncommitted changes** (review findings in PLANS.md)
-2. **Push to remote** if not already pushed
-3. **Create PR** using the `pr-creator` subagent
-4. Inform user with PR URL:
-   > "Plan complete! PR created: [URL]"
+1. Commit any uncommitted changes
+2. Push to remote
+3. Create PR using the `pr-creator` subagent
+4. Inform user with PR URL
 
-**Note:** When marking COMPLETE, all issues from the plan should be in Merge state. They will automatically move to Done when the PR is merged (via Linear's GitHub integration).
+## Fallback: Single-Agent Mode
+
+If `TeamCreate` fails, perform the review as a single agent:
+
+1. **Inform user:** "Agent teams unavailable. Running review in single-agent mode."
+2. For each iteration needing review:
+   a. Identify changed files from "Tasks Completed This Iteration"
+   b. Read each file and apply checks from [references/code-review-checklist.md](references/code-review-checklist.md)
+   c. Apply all domain checks (security, reliability, quality) sequentially
+   d. Document findings (same format as team mode)
+   e. Handle Linear updates (same as team mode)
+3. Continue with "After ALL Iterations Reviewed" section
+
+## Context Management & Continuation
+
+**Context is checked ONLY at iteration boundaries.** Never stop mid-iteration review.
+
+**After completing each iteration review**, estimate remaining context:
+- If **> 60%** → Continue to next pending iteration
+- If **<= 60%** → Stop, commit/push, inform user to re-run
+
+**Never stop mid-iteration** — once started, complete the full review for that iteration.
 
 ## Issue Categories Reference
 
@@ -286,106 +267,49 @@ All tasks implemented and reviewed successfully. All Linear issues moved to Merg
 | `ERROR` | Missing or incorrect error handling | MEDIUM |
 | `CONVENTION` | CLAUDE.md violations | LOW-MEDIUM |
 
-**Note:** Severity depends on context. A convention violation like missing auth middleware is CRITICAL.
-
 ## Error Handling
 
 | Situation | Action |
 |-----------|--------|
-| PLANS.md doesn't exist | Stop and tell user "No plan found." |
-| No iteration needs review | Stop and tell user "No iteration to review. Run plan-implement first." |
-| Plan has no iterations | Treat entire plan as single iteration (Iteration 1) |
-| Files in iteration don't exist | Note as issue - implementation may have failed |
-| CLAUDE.md doesn't exist | Use general coding best practices for review |
-| Unsure if issue is a bug | Document as "POTENTIAL" and explain uncertainty |
+| PLANS.md doesn't exist | Stop — "No plan found." |
+| No iteration needs review | Stop — "No iteration to review. Run plan-implement first." |
+| Plan has no iterations | Treat entire plan as single iteration |
+| Files in iteration don't exist | Note as issue — implementation may have failed |
+| CLAUDE.md doesn't exist | Use general coding best practices |
+| TeamCreate fails | Switch to single-agent fallback mode |
+| Reviewer stops without reporting | Send follow-up message, note domain as incomplete |
 | Too many issues found | Prioritize by severity, create fix plan for critical/high only |
-| Multiple iterations pending | Review ALL of them in order, don't stop after one |
 
 ## Termination: Commit, Push, and PR
 
 **MANDATORY:** Before ending, commit all local changes and push to remote.
 
-### For Incomplete Plans (Fix Plan exists OR tasks remain)
-
-**Steps:**
-1. Stage all modified files: `git add -A`
-2. Create commit with message format:
-   ```
-   plan: review iteration N - [issues found | no issues]
-   ```
-3. Push to current branch: `git push`
+### For Incomplete Plans
+1. `git add -A`
+2. Commit: `plan: review iteration N - [issues found | no issues]`
+3. `git push`
 4. Inform user to run `/plan-implement`
 
-### For Complete Plans (all tasks done, no issues)
-
-**Steps:**
-1. Stage all modified files: `git add -A`
-2. Create commit with message format:
-   ```
-   plan: mark [plan-name] complete
-
-   All tasks implemented and reviewed successfully.
-   ```
-3. Push to current branch: `git push`
-4. **Create PR** using the `pr-creator` subagent
+### For Complete Plans
+1. `git add -A`
+2. Commit: `plan: mark [plan-name] complete`
+3. `git push`
+4. Create PR using the `pr-creator` subagent
 5. Inform user with PR URL
 
-**Branch handling:**
-- This skill assumes plan-implement already created a feature branch
-- If somehow on `main`, create branch first: `git checkout -b feat/[plan-name]`
-
-**Why commit at termination:**
-- Preserves review findings for next session
-- Enables clean handoff between implement/review cycles
-- Complete plans get PRs automatically
+**Branch handling:** Assumes plan-implement already created a feature branch. If on `main`, create branch first.
 
 ## Rules
 
-- **Review ALL pending iterations** - Don't stop after one; process every iteration lacking `<!-- REVIEW COMPLETE -->`
-- **Do not modify source code** - Review only, document findings
-- **Be specific** - Include file paths and line numbers for every issue
-- **One fix per issue** - Each Review Finding must have a matching Fix task with Linear issue
-- **Fix Plan follows TDD** - Test first for each fix
-- **Never modify previous sections** - Only add to current iteration or append status
-- **Mark COMPLETE only when ALL iterations pass** - No fix plans pending, all reviewed
-- **Move issues to Merge** - All reviewed issues that pass go Review→Merge
-- **Create bug issues in Todo** - All bugs found create new issues in Todo state
-- **Always commit and push at termination** - Never end without committing progress
-- **Create PR when plan is complete** - Use pr-creator subagent for final PR
-- If no iteration needs review, inform the user and stop
-
-## Context Management & Continuation
-
-**CRITICAL:** Context is checked ONLY at iteration boundaries. Never stop mid-iteration review.
-
-**When to check context:**
-- AFTER completing each iteration's full review (Step 1-3 + documenting findings)
-- BEFORE starting the next iteration's review
-
-**After completing each iteration review**, estimate remaining context:
-
-**Rough estimation heuristics:**
-- Each file reviewed: ~1-2% context
-- Each iteration reviewed: ~3-5% context
-- Conversation messages accumulate over time
-
-**Decision logic:**
-- If estimated remaining context **> 60%** → Automatically continue to next pending iteration
-- If estimated remaining context **<= 60%** → Stop and inform user:
-  > "Iteration N review complete. Context is running low (~X% estimated remaining). Run `/plan-review-implementation` again to continue."
-
-**Why 60% threshold (vs 40% for plan-implement):**
-- Review is read-heavy (less context than writing code)
-- Documenting findings is lighter than writing tests + implementation
-- Fix plans (if created) are structured summaries
-- 60% leaves sufficient buffer for documenting and creating Linear issues
-
-**When to continue automatically:**
-1. Current iteration review FULLY completed (all files reviewed, findings documented)
-2. There are more pending iterations to review
-3. Estimated remaining context > 60%
-
-**Never stop mid-iteration:**
-- Once you start reviewing an iteration, you MUST complete it before stopping
-- This ensures each iteration has complete review findings documented
-- Partial reviews leave the plan in an inconsistent state
+- **Review ALL pending iterations** — Don't stop after one
+- **Do not modify source code** — Review only, document findings
+- **Be specific** — Include file paths and line numbers for every issue
+- **One fix per issue** — Each finding must have a matching Fix task with Linear issue
+- **Fix Plan follows TDD** — Test first for each fix
+- **Never modify previous sections** — Only add to current iteration or append status
+- **Mark COMPLETE only when ALL iterations pass** — No fix plans pending, all reviewed
+- **Move issues to Merge** — All reviewed issues that pass go Review→Merge
+- **Create bug issues in Todo** — All bugs found create new issues in Todo state
+- **Always commit and push at termination** — Never end without committing progress
+- **Create PR when plan is complete** — Use pr-creator subagent for final PR
+- **Lead handles all Linear/git writes** — Reviewers NEVER create issues or modify PLANS.md
