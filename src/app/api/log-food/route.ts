@@ -19,10 +19,12 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   if (!body || typeof body !== "object") return false;
   const req = body as Record<string, unknown>;
 
-  // mealTypeId is always required
+  // mealTypeId, date, and time are always required
   if (typeof req.mealTypeId !== "number") return false;
+  if (typeof req.date !== "string") return false;
+  if (typeof req.time !== "string") return false;
 
-  // Reuse flow: only reuseCustomFoodId + mealTypeId needed
+  // Reuse flow: only reuseCustomFoodId + mealTypeId + date + time needed
   if (req.reuseCustomFoodId !== undefined) {
     return typeof req.reuseCustomFoodId === "number";
   }
@@ -62,20 +64,6 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   }
 
   return true;
-}
-
-function formatDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function formatTime(date: Date): string {
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const seconds = String(date.getSeconds()).padStart(2, "0");
-  return `${hours}:${minutes}:${seconds}`;
 }
 
 function isValidDateFormat(date: string): boolean {
@@ -126,7 +114,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (body.date && !isValidDateFormat(body.date)) {
+  if (!isValidDateFormat(body.date)) {
     logger.warn(
       { action: "log_food_validation" },
       "invalid date format"
@@ -138,7 +126,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (body.time && !isValidTimeFormat(body.time)) {
+  if (!isValidTimeFormat(body.time)) {
     logger.warn(
       { action: "log_food_validation" },
       "invalid time format"
@@ -163,9 +151,7 @@ export async function POST(request: Request) {
     // Ensure token is fresh (refreshes and saves to DB if needed)
     const accessToken = await ensureFreshToken(session!.email);
 
-    const now = new Date();
-    const date = body.date || formatDate(now);
-    const time = body.time || formatTime(now);
+    const { date, time } = body;
     let foodId: number;
     let reused: boolean;
     let foodLogId: number | undefined;

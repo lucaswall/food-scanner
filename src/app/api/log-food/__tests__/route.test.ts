@@ -80,6 +80,8 @@ const validFoodLogRequest: FoodLogRequest = {
   notes: "Test notes",
   keywords: ["test", "food"],
   mealTypeId: 1,
+  date: "2026-02-07",
+  time: "12:30:00",
 };
 
 function createMockRequest(body: Partial<FoodLogRequest>): Request {
@@ -258,7 +260,7 @@ describe("POST /api/log-food", () => {
     }
   });
 
-  it("uses provided date in logFood call", async () => {
+  it("passes client-provided date and time to logFood", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
@@ -269,6 +271,7 @@ describe("POST /api/log-food", () => {
     const request = createMockRequest({
       ...validFoodLogRequest,
       date: "2024-01-15",
+      time: "20:30:00",
     });
     await POST(request);
 
@@ -279,30 +282,32 @@ describe("POST /api/log-food", () => {
       100,
       147,
       "2024-01-15",
-      expect.stringMatching(/^\d{2}:\d{2}:\d{2}$/)
+      "20:30:00"
     );
   });
 
-  it("uses current date when date not provided", async () => {
+  it("returns 400 when date is missing", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
 
-    const request = createMockRequest(validFoodLogRequest);
-    await POST(request);
+    const { date: _, ...requestWithoutDate } = validFoodLogRequest;
+    const request = createMockRequest(requestWithoutDate as Partial<FoodLogRequest>);
+    const response = await POST(request);
 
-    expect(mockLogFood).toHaveBeenCalledWith(
-      "fresh-token",
-      123,
-      1,
-      100,
-      147,
-      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-      expect.stringMatching(/^\d{2}:\d{2}:\d{2}$/)
-    );
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when time is missing", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const { time: _, ...requestWithoutTime } = validFoodLogRequest;
+    const request = createMockRequest(requestWithoutTime as Partial<FoodLogRequest>);
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("returns 400 VALIDATION_ERROR for invalid date format", async () => {
@@ -578,8 +583,8 @@ describe("POST /api/log-food", () => {
         1,
         Number(existingFood.amount),
         existingFood.unitId,
-        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-        expect.stringMatching(/^\d{2}:\d{2}:\d{2}$/),
+        "2026-02-07",
+        "12:30:00",
       );
     });
 
@@ -660,7 +665,7 @@ describe("POST /api/log-food", () => {
       expect(body.error.code).toBe("VALIDATION_ERROR");
     });
 
-    it("accepts minimal body with only reuseCustomFoodId and mealTypeId", async () => {
+    it("accepts minimal body with reuseCustomFoodId, mealTypeId, date, and time", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
       mockGetCustomFoodById.mockResolvedValue(existingFood);
@@ -672,6 +677,8 @@ describe("POST /api/log-food", () => {
       const request = createMockRequest({
         reuseCustomFoodId: 42,
         mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
       } as Partial<FoodLogRequest>);
       const response = await POST(request);
 
