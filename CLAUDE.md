@@ -243,7 +243,7 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 |-------|-------|---------|---------|
 | **verifier** | Haiku | Test + build validation | Proactively after code changes, "run tests" |
 | **pr-creator** | Sonnet | Full PR workflow | Only when explicitly requested |
-| **bug-hunter** | Opus | Code review for bugs | Proactively before commits |
+| **bug-hunter** | Sonnet | Code review for bugs | Proactively before commits |
 
 **Critical rule:** pr-creator only creates PRs when **explicitly requested** by the user. Never auto-commit or auto-PR.
 
