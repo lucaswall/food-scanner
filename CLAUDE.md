@@ -242,6 +242,7 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 | **add-to-backlog** | "add to backlog" | Convert ideas to structured Linear Backlog issues |
 | **backlog-refine** | "refine FOO-123" | Interactive refinement of vague Backlog issues via discussion |
 | **plan-review-implementation** | After plan-implement | Agent team (3 reviewers: security, reliability, quality) QA review, create fix issues or mark COMPLETE (falls back to single-agent) |
+| **frontend-review** | "review frontend", "check UI/UX" | Agent team (3 reviewers: accessibility, visual/UX, performance) → consolidated frontend report (falls back to single-agent) |
 | **tools-improve** | Before modifying skills/agents | Best practices for Claude Code extensibility |
 
 **Skill workflow:** `code-audit`/`add-to-backlog` → `backlog-refine` (optional) → `plan-backlog` → `plan-implement` → `plan-review-implementation` (repeat)
