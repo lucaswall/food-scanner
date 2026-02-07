@@ -13,6 +13,7 @@ RULES:
 - Be specific — include file paths and line numbers for every issue
 - Be thorough — check every changed file listed below
 - Read CLAUDE.md for project-specific rules before reviewing
+- Read the KNOWN ACCEPTED PATTERNS section in CLAUDE.md before flagging patterns. Do NOT flag patterns that are documented as accepted.
 - Read .claude/skills/plan-review-implementation/references/code-review-checklist.md for detailed checks
 
 CHANGED FILES TO REVIEW:
@@ -99,6 +100,7 @@ YOUR DOMAIN: Type Safety, Conventions, Logging & Test Quality
 Check the changed files for:
 
 TYPE SAFETY:
+- Before flagging `as unknown as` double casts, check CLAUDE.md KNOWN ACCEPTED PATTERNS — some are intentional with runtime validation.
 - Unsafe `any` casts without justification
 - Type assertions (`as Type`) that may be wrong
 - Union types without exhaustive handling
