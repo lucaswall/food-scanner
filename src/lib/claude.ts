@@ -73,7 +73,7 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   },
 };
 
-interface ImageInput {
+export interface ImageInput {
   base64: string;
   mimeType: string;
 }
@@ -278,6 +278,118 @@ export async function analyzeFood(
   }
 
   // This should only be reached if all retries exhausted due to timeouts
+  throw new ClaudeApiError(
+    `API request failed after retries: ${lastError?.message || "unknown error"}`
+  );
+}
+
+export async function refineAnalysis(
+  images: ImageInput[],
+  previousAnalysis: FoodAnalysis,
+  correction: string
+): Promise<FoodAnalysis> {
+  const maxRetries = 1;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      logger.info(
+        { imageCount: images.length, hasCorrection: !!correction, attempt },
+        "calling Claude API for food analysis refinement"
+      );
+
+      const refinementText = `I previously analyzed this food and got the following result:
+
+Food: ${previousAnalysis.food_name}
+Amount: ${previousAnalysis.amount} (unit_id: ${previousAnalysis.unit_id})
+Calories: ${previousAnalysis.calories}
+Protein: ${previousAnalysis.protein_g}g, Carbs: ${previousAnalysis.carbs_g}g, Fat: ${previousAnalysis.fat_g}g, Fiber: ${previousAnalysis.fiber_g}g, Sodium: ${previousAnalysis.sodium_mg}mg
+Confidence: ${previousAnalysis.confidence}
+Notes: ${previousAnalysis.notes}
+
+The user has provided this correction: "${correction}"
+
+Please re-analyze the food considering this correction and provide updated nutritional information.`;
+
+      const response = await getClient().messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        tools: [REPORT_NUTRITION_TOOL],
+        tool_choice: { type: "tool", name: "report_nutrition" },
+        messages: [
+          {
+            role: "user",
+            content: [
+              ...images.map((img) => ({
+                type: "image" as const,
+                source: {
+                  type: "base64" as const,
+                  media_type: img.mimeType as
+                    | "image/jpeg"
+                    | "image/png"
+                    | "image/gif"
+                    | "image/webp",
+                  data: img.base64,
+                },
+              })),
+              {
+                type: "text" as const,
+                text: refinementText,
+              },
+            ],
+          },
+        ],
+      });
+
+      const toolUseBlock = response.content.find(
+        (block) => block.type === "tool_use"
+      );
+
+      if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
+        logger.error(
+          { contentTypes: response.content.map((b) => b.type) },
+          "no tool_use block in Claude refinement response"
+        );
+        throw new ClaudeApiError("No tool_use block in response");
+      }
+
+      const analysis = validateFoodAnalysis(toolUseBlock.input);
+      logger.info(
+        { foodName: analysis.food_name, confidence: analysis.confidence },
+        "food analysis refinement completed"
+      );
+
+      return analysis;
+    } catch (error) {
+      if (error instanceof ClaudeApiError) {
+        throw error;
+      }
+
+      if (isTimeoutError(error) && attempt < maxRetries) {
+        logger.warn({ attempt }, "Claude API timeout during refinement, retrying");
+        lastError = error as Error;
+        continue;
+      }
+
+      if (isRateLimitError(error) && attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000;
+        logger.warn({ attempt, delay }, "Claude API rate limited during refinement, retrying");
+        lastError = error as Error;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      logger.error(
+        { error: error instanceof Error ? error.message : String(error) },
+        "Claude API refinement error"
+      );
+      throw new ClaudeApiError(
+        `API request failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
   throw new ClaudeApiError(
     `API request failed after retries: ${lastError?.message || "unknown error"}`
   );

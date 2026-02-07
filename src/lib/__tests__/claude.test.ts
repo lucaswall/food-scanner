@@ -40,10 +40,14 @@ const validAnalysis: FoodAnalysis = {
   keywords: ["empanada", "carne", "horno"],
 };
 
+function setupMocks() {
+  vi.clearAllMocks();
+  mockCreate.mockReset();
+}
+
 describe("analyzeFood", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mockCreate.mockReset();
+    setupMocks();
   });
 
   afterEach(() => {
@@ -766,5 +770,272 @@ describe("analyzeFood", () => {
         ]),
       })
     );
+  });
+});
+
+describe("refineAnalysis", () => {
+  beforeEach(() => {
+    setupMocks();
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("calls Claude API with images, previous analysis, and correction text", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "report_nutrition",
+          input: { ...validAnalysis, calories: 500 },
+        },
+      ],
+    });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Actually this is a larger portion, about 500 calories"
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    const call = mockCreate.mock.calls[0][0];
+
+    // Should include images in user message
+    const imageBlocks = call.messages[0].content.filter(
+      (block: { type: string }) => block.type === "image"
+    );
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0].source.data).toBe("abc123");
+
+    // Should include previous analysis and correction in text block
+    const textBlocks = call.messages[0].content.filter(
+      (block: { type: string }) => block.type === "text"
+    );
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0].text).toContain("Empanada de carne");
+    expect(textBlocks[0].text).toContain("320"); // calories
+    expect(textBlocks[0].text).toContain("Actually this is a larger portion, about 500 calories");
+  });
+
+  it("system prompt includes refinement instruction", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Make it 200 calories"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.system).toContain("nutrition analyst");
+  });
+
+  it("returns validated FoodAnalysis", async () => {
+    const refinedAnalysis: FoodAnalysis = {
+      ...validAnalysis,
+      calories: 500,
+      notes: "Larger portion as specified by user",
+    };
+
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "report_nutrition",
+          input: refinedAnalysis,
+        },
+      ],
+    });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    const result = await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Larger portion"
+    );
+
+    expect(result).toEqual(refinedAnalysis);
+  });
+
+  it("retries on timeout error", async () => {
+    const timeoutError = new Error("Request timed out");
+    timeoutError.name = "APIConnectionTimeoutError";
+
+    mockCreate
+      .mockRejectedValueOnce(timeoutError)
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "tool_use",
+            id: "tool_456",
+            name: "report_nutrition",
+            input: validAnalysis,
+          },
+        ],
+      });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    const result = await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Fix it"
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(validAnalysis);
+  });
+
+  it("retries on rate limit error", async () => {
+    const rateLimitError = new Error("rate limit exceeded");
+    rateLimitError.name = "RateLimitError";
+    Object.assign(rateLimitError, { status: 429 });
+
+    mockCreate
+      .mockRejectedValueOnce(rateLimitError)
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "tool_use",
+            id: "tool_456",
+            name: "report_nutrition",
+            input: validAnalysis,
+          },
+        ],
+      });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    const result = await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Fix it"
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(validAnalysis);
+  });
+
+  it("throws CLAUDE_API_ERROR on failure", async () => {
+    mockCreate.mockRejectedValueOnce(new Error("API connection failed"));
+
+    const { refineAnalysis } = await import("@/lib/claude");
+
+    await expect(
+      refineAnalysis(
+        [{ base64: "abc123", mimeType: "image/jpeg" }],
+        validAnalysis,
+        "Fix it"
+      )
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("uses same model and tool configuration as analyzeFood", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Correction"
+    );
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1024,
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: "report_nutrition" }),
+        ]),
+        tool_choice: { type: "tool", name: "report_nutrition" },
+      })
+    );
+  });
+
+  it("supports multiple images", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    await refineAnalysis(
+      [
+        { base64: "img1", mimeType: "image/jpeg" },
+        { base64: "img2", mimeType: "image/png" },
+      ],
+      validAnalysis,
+      "Correction"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    const imageBlocks = call.messages[0].content.filter(
+      (block: { type: string }) => block.type === "image"
+    );
+    expect(imageBlocks).toHaveLength(2);
+    expect(imageBlocks[0].source.data).toBe("img1");
+    expect(imageBlocks[1].source.data).toBe("img2");
+  });
+
+  it("includes all nutrition fields from previous analysis in prompt", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Correction"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    const textBlock = call.messages[0].content.find(
+      (block: { type: string }) => block.type === "text"
+    );
+    expect(textBlock.text).toContain("Empanada de carne"); // food_name
+    expect(textBlock.text).toContain("150"); // amount
+    expect(textBlock.text).toContain("320"); // calories
+    expect(textBlock.text).toContain("12"); // protein_g
+    expect(textBlock.text).toContain("28"); // carbs_g
+    expect(textBlock.text).toContain("18"); // fat_g
+    expect(textBlock.text).toContain("2"); // fiber_g (as string in context)
+    expect(textBlock.text).toContain("450"); // sodium_mg
+    expect(textBlock.text).toContain("high"); // confidence
   });
 });

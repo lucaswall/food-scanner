@@ -315,3 +315,55 @@
 - Re-prompts are more expensive than manual edits (full Claude API call with images each time)
 - Need to re-fetch food matches after re-prompt since keywords may change
 - The correction text input needs clear UX so users understand they can type natural language
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-07
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Add refineAnalysis function to Claude client (FOO-176) - Exported ImageInput, added refineAnalysis with same retry/validation as analyzeFood (worker-1)
+- Task 2: Create /api/refine-food endpoint (FOO-177) - POST handler with session auth, image validation, previousAnalysis JSON parsing, correction validation (worker-1)
+- Task 3: Replace NutritionEditor with re-prompt UI in FoodAnalyzer (FOO-178) - Removed editMode/editedAnalysis/NutritionEditor/AlertDialog, added correction input + send button + handleRefine + compressedImages state (worker-2)
+- Task 4: Delete NutritionEditor component and tests (FOO-179) - Deleted nutrition-editor.tsx and nutrition-editor.test.tsx (worker-2)
+- Task 5: Update documentation (FOO-180) - Added refine-food endpoint to CLAUDE.md structure and API table, ROADMAP.md already deleted (worker-3)
+- Task 6: Integration & Verification - Lead verified full test suite, typecheck, lint, build
+
+### Files Modified
+- `src/lib/claude.ts` - Exported `ImageInput` interface, added `refineAnalysis()` function
+- `src/lib/__tests__/claude.test.ts` - Added 9 tests for refineAnalysis
+- `src/app/api/refine-food/route.ts` - Created POST handler with full validation
+- `src/app/api/refine-food/__tests__/route.test.ts` - Created 13 tests
+- `src/components/food-analyzer.tsx` - Replaced edit mode with re-prompt flow (correction input, handleRefine, compressedImages)
+- `src/components/__tests__/food-analyzer.test.tsx` - Removed 13 edit/regenerate tests, 33 remaining pass
+- `src/components/__tests__/food-analyzer-reprompt.test.tsx` - Created 13 new re-prompt tests
+- `src/components/nutrition-editor.tsx` - Deleted
+- `src/components/__tests__/nutrition-editor.test.tsx` - Deleted
+- `src/hooks/use-keyboard-shortcuts.ts` - Removed dead editMode/Escape handling
+- `src/hooks/__tests__/use-keyboard-shortcuts.test.ts` - Removed 2 Escape edit mode tests
+- `CLAUDE.md` - Added refine-food to structure and API endpoints table
+
+### Linear Updates
+- FOO-176: Todo → In Progress → Review
+- FOO-177: Todo → In Progress → Review
+- FOO-178: Todo → In Progress → Review
+- FOO-179: Todo → In Progress → Review
+- FOO-180: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (3 medium, 1 low), all fixed before proceeding
+  - Fixed: user correction text logged in production (security)
+  - Fixed: stale keyboard shortcut dead code (convention)
+  - Fixed: refineError not cleared on new analysis (logic)
+  - Fixed: correction text logged in route handler (security)
+- verifier: All 745 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1-2 (Claude client + API endpoint files)
+- Worker 2: Tasks 3-4 (FoodAnalyzer component + NutritionEditor deletion)
+- Worker 3: Task 5 (documentation files)
+
+### Continuation Status
+All tasks completed.

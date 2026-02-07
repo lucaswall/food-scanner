@@ -74,6 +74,8 @@ food-scanner/
 │   │       │   ├── session/route.ts      # Validate session
 │   │       │   └── logout/route.ts       # Destroy session
 │   │       ├── analyze-food/route.ts     # Claude tool_use analysis
+│   │       ├── refine-food/
+│   │       │   └── route.ts              # Re-prompt food analysis
 │   │       ├── find-matches/route.ts     # Food matching (keyword + nutrient)
 │   │       ├── log-food/route.ts         # Fitbit search + create + log
 │   │       ├── common-foods/route.ts     # Common foods for quick select
@@ -171,6 +173,7 @@ food-scanner/
 | GET | `/api/auth/session` | Yes | Validate current session |
 | POST | `/api/auth/logout` | Yes | Destroy session cookie |
 | POST | `/api/analyze-food` | Yes | Claude analysis (multipart/form-data) |
+| POST | `/api/refine-food` | Yes | Re-prompt food analysis with correction |
 | POST | `/api/find-matches` | Yes | Find matching foods (keyword + nutrient) |
 | POST | `/api/log-food` | Yes | Post to Fitbit (requires `date` and `time` fields) |
 | GET | `/api/common-foods` | Yes | Common foods for quick select |
