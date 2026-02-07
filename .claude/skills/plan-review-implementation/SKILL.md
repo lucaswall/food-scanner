@@ -315,3 +315,4 @@ If `TeamCreate` fails, perform the review as a single agent:
 - **Lead handles all Linear/git writes** — Reviewers NEVER create issues or modify PLANS.md
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
+- **Check MIGRATIONS.md** — If implementation changed DB schema, column names, session/token formats, or env vars, verify that `MIGRATIONS.md` has a corresponding note. If missing, add it as a MEDIUM finding: "Missing MIGRATIONS.md entry for [change description]". The lead should append the missing note to `MIGRATIONS.md` before committing.

@@ -250,6 +250,7 @@ Create a Linear issue in the "Food Scanner" team with status "Todo":
   - **Low:** Minor UI issue, edge case, cosmetic problem
 - **DO NOT expose secrets, API keys, or sensitive environment variable values** in PLANS.md or Linear issues.
 - **DO NOT hallucinate code** - only reference code that actually exists in the codebase.
+- **Flag migration-relevant fixes** — If the fix changes DB schema, renames columns, changes identity models, renames env vars, or changes session/token formats, add a note in the fix plan: "**Migration note:** [what production data is affected]". The implementer will log this in `MIGRATIONS.md`.
 
 ## 10. Scope Boundaries
 

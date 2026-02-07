@@ -263,6 +263,7 @@ If CLAUDE.md doesn't list MCPs, skip MCP context gathering.
 - Always include post-implementation checklist
 - Create Linear issues in Todo state (bypasses Backlog)
 - Include Linear issue links in PLANS.md tasks
+- **Flag migration-relevant tasks** — If a task changes DB schema, renames columns, changes identity models, renames env vars, or changes session/token formats, add a note in the task: "**Migration note:** [what production data is affected]". The implementer will log this in `MIGRATIONS.md`.
 
 ## CRITICAL: Scope Boundaries
 

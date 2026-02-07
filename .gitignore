@@ -34,3 +34,6 @@ coverage/
 
 # Claude Code local settings (personal overrides)
 .claude/settings.local.json
+
+# Production migration backups
+_migrations/

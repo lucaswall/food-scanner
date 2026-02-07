@@ -123,7 +123,9 @@ food-scanner/
 ├── CLAUDE.md                             # This file
 ├── DEVELOPMENT.md                        # Local setup guide
 ├── README.md                             # Deployment & operations guide
-└── PLANS.md                              # Current implementation plan (when active)
+├── PLANS.md                              # Current implementation plan (when active)
+├── MIGRATIONS.md                         # Pending production data migration notes
+└── _migrations/                          # Production DB backups (gitignored)
 ```
 
 **Test file convention:** Tests are colocated with source files in `__tests__/` subdirectories (e.g., `src/lib/__tests__/session.test.ts`, `src/app/api/auth/google/__tests__/route.test.ts`).
@@ -242,6 +244,12 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 - Migration files in `drizzle/` must be committed to git
 - **Never hand-write migration files or snapshots** — always run `npx drizzle-kit generate`. It does NOT need a live database; it diffs `src/db/schema.ts` against the previous snapshot locally.
 
+### Production Migration Workflow
+- **During development:** Edit schema freely, use `drizzle-kit push` or reset staging DB. Log potential data migrations in `MIGRATIONS.md` (what changed, what data is affected — no migration code).
+- **At release time:** The `push-to-production` skill reads `MIGRATIONS.md`, diffs `release` vs `main`, writes one migration for the net change, validates it against a backup of production data, then merges `main` → `release`.
+- **Backups:** Production DB is dumped to `_migrations/` (gitignored) before each release via `/opt/homebrew/opt/libpq/bin/pg_dump` using `DATABASE_PUBLIC_URL`.
+- **No backward-compatibility code during development** — sessions can be invalidated (users re-login), API contracts change atomically (Railway deploys frontend+backend together), env vars are set before deploy.
+
 ---
 
 ## SUBAGENTS
@@ -271,8 +279,9 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 | **plan-review-implementation** | After plan-implement | Agent team (3 reviewers: security, reliability, quality) QA review, create fix issues or mark COMPLETE (falls back to single-agent) |
 | **frontend-review** | "review frontend", "check UI/UX" | Agent team (3 reviewers: accessibility, visual/UX, performance) → consolidated frontend report (falls back to single-agent) |
 | **tools-improve** | Before modifying skills/agents | Best practices for Claude Code extensibility |
+| **push-to-production** | "push to production", "release" | Backup prod DB, assess MIGRATIONS.md, write migration code, merge `main` → `release` |
 
-**Skill workflow:** `code-audit`/`add-to-backlog` → `backlog-refine` (optional) → `plan-backlog` → `plan-implement` → `plan-review-implementation` (repeat)
+**Skill workflow:** `code-audit`/`add-to-backlog` → `backlog-refine` (optional) → `plan-backlog` → `plan-implement` → `plan-review-implementation` (repeat) → `push-to-production`
 
 ---
 
@@ -366,7 +375,7 @@ MCP_FITBIT_CLIENT_SECRET=
 
 ## DEVELOPMENT POLICIES
 
-- **Migration-aware changes** — When a change requires data migration (DB schema, session format, token format, etc.), document what existing data is affected and how it will be migrated. Inform the user in the commit/PR — no approval needed, just transparency.
+- **Log migrations in MIGRATIONS.md** — When a change could require production data migration (DB schema changes, column renames, identity model changes, env var renames, session format changes), append a note to `MIGRATIONS.md` describing what changed and what data is affected. Do NOT write migration code — that is handled by `push-to-production` at release time. Staging DB is disposable; only production needs migrations.
 - **Delete unused code immediately** — No deprecation warnings
 - **Mobile-first design** — All UI components must work on mobile
 - **Touch targets** — All interactive elements (buttons, links) must be at least 44px x 44px

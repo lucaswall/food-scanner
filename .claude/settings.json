@@ -60,7 +60,10 @@
       "mcp__fitbit__fitbit_get_sleep_log",
       "mcp__fitbit__fitbit_get_devices",
       "mcp__fitbit__fitbit_get_time_series",
-      "Bash(DATABASE_URL=* npx drizzle-kit generate:*)"
+      "Bash(DATABASE_URL=* npx drizzle-kit generate:*)",
+      "Bash(/opt/homebrew/opt/libpq/bin/pg_dump *)",
+      "Bash(/opt/homebrew/opt/libpq/bin/pg_restore *)",
+      "Bash(railway run *)"
     ],
     "deny": [
       "Bash(rm -rf *)",

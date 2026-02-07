@@ -397,3 +397,4 @@ If `TeamCreate` fails (agent teams unavailable), implement the plan sequentially
 - **Lead runs all CLI generators** — Tasks involving `drizzle-kit generate`, `prisma generate`, or similar CLI tools that produce generated files (migrations, snapshots) are reserved for the lead in the post-implementation phase. Workers must never hand-write these files.
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
+- **Log migrations in MIGRATIONS.md** — If any task changes DB schema, renames columns, changes session/token formats, or renames env vars, append a note to `MIGRATIONS.md` describing what changed and what production data is affected. Workers should report migration-relevant changes to the lead; the lead appends to `MIGRATIONS.md` during post-implementation. Do NOT write migration code — only describe the change.

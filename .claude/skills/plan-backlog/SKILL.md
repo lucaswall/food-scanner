@@ -428,6 +428,7 @@ When planning, consider how MCPs will be used during implementation:
 10. **Plans must be self-contained.** An implementer should be able to follow the plan without needing to re-read the Linear issues.
 11. **Keep scope tight.** Only plan what the issues ask for. Do not add nice-to-haves.
 12. **Move valid issues to Todo.** After writing the plan, update the valid Linear issues to the "Todo" state.
+13. **Flag migration-relevant tasks.** If a task changes DB schema, renames columns, changes identity models, renames env vars, or changes session/token formats, add a note in the task: "**Migration note:** [what production data is affected]". The implementer will log this in `MIGRATIONS.md`.
 
 ---
 
