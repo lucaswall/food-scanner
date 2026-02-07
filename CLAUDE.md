@@ -157,9 +157,12 @@ food-scanner/
 | POST | `/api/auth/logout` | Yes | Destroy session cookie |
 | POST | `/api/analyze-food` | Yes | Claude analysis (multipart/form-data) |
 | POST | `/api/find-matches` | Yes | Find matching foods (keyword + nutrient) |
-| POST | `/api/log-food` | Yes | Post to Fitbit |
+| POST | `/api/log-food` | Yes | Post to Fitbit (requires `date` and `time` fields) |
 
 **Auth enforcement:** Next.js middleware (`middleware.ts`) checks for session cookie on all protected routes. Route handlers validate session contents via iron-session.
+
+**API request formats:** Type definitions in `src/types/index.ts` are the source of truth for API contracts. Key endpoints:
+- `POST /api/log-food` requires `date` (YYYY-MM-DD) and `time` (HH:mm:ss) fields representing client wall-clock time
 
 ---
 
