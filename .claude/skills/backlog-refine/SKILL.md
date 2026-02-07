@@ -25,10 +25,33 @@ Parse issue identifiers from `$ARGUMENTS` (e.g., `FOO-123`, `FOO-124`).
 
 If `$ARGUMENTS` is empty or doesn't contain issue identifiers:
 1. Fetch all Backlog issues: `mcp__linear__list_issues` with `team: "Food Scanner"`, `state: "Backlog"`
-2. Present numbered list to user using `AskUserQuestion`:
-   - Show issue ID, title, priority, and labels for each
+2. Score each issue's refinement readiness (see Refinement Score below)
+3. Display a markdown table with columns: #, Issue, Title, Priority, Labels, Score
+4. Present to user using `AskUserQuestion`:
+   - Include the score in each option's description (e.g., "Screen to show food logged by date — Feature — Score: 3/5")
    - Let user pick which issues to refine
-3. Fetch full details for selected issues
+5. Fetch full details for selected issues
+
+### Refinement Score
+
+Rate each issue 1–5 based **only** on the data returned from `list_issues` (title, description, priority, labels). Do NOT read source files or fetch full details for scoring — this is a quick triage.
+
+| Score | Meaning | Criteria |
+|-------|---------|----------|
+| 5 | Ready | Has problem statement, context, acceptance criteria, correct priority/labels |
+| 4 | Minor gaps | Missing one of: acceptance criteria, implementation hints, or specificity |
+| 3 | Needs work | Vague description, missing context or impact, but intent is clear |
+| 2 | Unclear | Very short description, no acceptance criteria, scope ambiguous |
+| 1 | Stub | Title only or single sentence, no useful detail |
+
+**Scoring checklist** (deduct 1 point from 5 for each gap):
+- Description is ≤1 sentence with no specifics → −1
+- No acceptance criteria or definition of done → −1
+- No affected files/routes/components mentioned → −1
+- Scope is ambiguous (could mean multiple things) → −1
+- Priority or labels seem mismatched with description → −1
+
+Minimum score is 1. Issues scoring 5 can still be selected — refinement may find minor improvements after reading full details and source code.
 
 ## Analysis Phase
 
