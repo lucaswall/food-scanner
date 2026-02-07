@@ -285,13 +285,6 @@ export function FoodAnalyzer() {
     }
   };
 
-  const handleReset = () => {
-    setPhotos([]);
-    setDescription("");
-    resetAnalysisState();
-    setMealTypeId(getDefaultMealType());
-  };
-
   // Register keyboard shortcuts
   useKeyboardShortcuts({
     onAnalyze: handleAnalyze,
@@ -378,7 +371,6 @@ export function FoodAnalyzer() {
             foodName={analysis?.food_name || "Food"}
             analysis={analysis ?? undefined}
             mealTypeId={mealTypeId}
-            onReset={handleReset}
           />
         </div>
       </div>

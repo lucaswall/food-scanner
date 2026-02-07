@@ -338,7 +338,7 @@ SESSION_SECRET=
 APP_URL=https://food.lucaswall.me
 
 # Auth
-ALLOWED_EMAIL=wall.lucas@gmail.com
+ALLOWED_EMAILS=wall.lucas@gmail.com
 
 # Logging (optional, defaults to info in production, debug in development)
 LOG_LEVEL=info

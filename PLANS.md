@@ -647,3 +647,98 @@ This plan implements multi-user support for the food scanner app and fixes the p
 - Role-based access control
 - User profile page
 - Email verification
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-07
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Change confirmation button to navigate home (FOO-212) - Changed "Log Another" to "Done" with router.push('/app') (worker-1)
+- Task 2: Add users table to schema (FOO-213) - Created users table with id, email, name, timestamps (worker-2)
+- Task 3: Add userId FK columns to all existing tables (FOO-213) - Added userId FK to sessions, fitbitTokens, customFoods, foodLogEntries (worker-2)
+- Task 4: Add user CRUD functions (FOO-213) - Created getOrCreateUser and getUserById in users.ts (worker-2)
+- Task 5: Convert ALLOWED_EMAIL to ALLOWED_EMAILS (FOO-214) - Comma-separated parsing, case-insensitive check (worker-2)
+- Task 6: Update Google OAuth callback for multi-user (FOO-214, FOO-213) - isEmailAllowed + getOrCreateUser (worker-2)
+- Task 7: Refactor session-db from email to userId (FOO-215) - createSession accepts userId (worker-2)
+- Task 8: Update Google OAuth callback to pass userId to createSession (FOO-213, FOO-214) - Combined with Task 6 (worker-2)
+- Task 9: Refactor fitbit-tokens from email to userId (FOO-215) - All 3 functions refactored (worker-3)
+- Task 10: Refactor food-log from email to userId (FOO-215) - All 7 functions refactored (worker-3)
+- Task 11: Refactor food-matching from email to userId (FOO-215) - findMatchingFoods refactored (worker-3)
+- Task 12: Update FullSession interface and getSession() (FOO-216) - userId primary, email removed (worker-4)
+- Task 13: Update all API routes from session.email to session.userId (FOO-216) - All 8 route handlers updated (worker-4)
+- Task 14: Drop email columns from schema (FOO-213) - Removed email from sessions, fitbitTokens, customFoods, foodLogEntries (lead)
+- Task 15: Integration & Verification (all issues) - Full test suite, typecheck, lint, build all pass (lead)
+
+### Files Modified
+- `src/db/schema.ts` - Added users table, userId FKs, dropped email columns
+- `src/db/__tests__/schema.test.ts` - Tests for users table and userId columns
+- `src/lib/users.ts` (new) - getOrCreateUser, getUserById
+- `src/lib/__tests__/users.test.ts` (new) - User CRUD tests
+- `src/types/index.ts` - Added User interface, FullSession.email→userId
+- `src/lib/env.ts` - ALLOWED_EMAIL→ALLOWED_EMAILS, getAllowedEmails(), isEmailAllowed()
+- `src/lib/__tests__/env.test.ts` (new) - Allowlist parsing tests
+- `src/lib/session-db.ts` - createSession(email)→createSession(userId)
+- `src/lib/__tests__/session-db.test.ts` - Updated for userId
+- `src/lib/session.ts` - getSession reads userId, calls getFitbitTokens(userId)
+- `src/lib/__tests__/session.test.ts` - Updated for userId
+- `src/lib/fitbit-tokens.ts` - All functions from email→userId
+- `src/lib/__tests__/fitbit-tokens.test.ts` - Updated for userId
+- `src/lib/food-log.ts` - All 7 functions from email→userId
+- `src/lib/__tests__/food-log.test.ts` - Updated for userId
+- `src/lib/food-matching.ts` - findMatchingFoods from email→userId
+- `src/lib/__tests__/food-matching.test.ts` - Updated for userId
+- `src/lib/fitbit.ts` - ensureFreshToken from email→userId
+- `src/lib/__tests__/fitbit.test.ts` - Updated for userId
+- `src/app/api/auth/google/callback/route.ts` - Multi-user OAuth, isEmailAllowed, getOrCreateUser, createSession(userId)
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` - Updated for ALLOWED_EMAILS, userId
+- `src/app/api/auth/session/route.ts` - Returns email from getUserById for display
+- `src/app/api/auth/session/__tests__/route.test.ts` - Updated for userId + getUserById mock
+- `src/app/api/analyze-food/route.ts` + test - session.email→session.userId
+- `src/app/api/refine-food/route.ts` + test - session.email→session.userId
+- `src/app/api/common-foods/route.ts` + test - session.email→session.userId
+- `src/app/api/find-matches/route.ts` + test - session.email→session.userId
+- `src/app/api/log-food/route.ts` + test - session.email→session.userId
+- `src/app/api/food-history/route.ts` + test - session.email→session.userId
+- `src/app/api/food-history/[id]/route.ts` + test - session.email→session.userId
+- `src/app/api/auth/fitbit/callback/route.ts` + test - session.email→session.userId
+- `src/app/api/auth/fitbit/__tests__/route.test.ts` - FullSession mock updated
+- `src/app/app/__tests__/page.test.tsx` - FullSession mock updated
+- `src/app/app/analyze/__tests__/page.test.tsx` - FullSession mock updated
+- `src/app/settings/__tests__/page.test.tsx` - FullSession mock updated
+- `src/components/food-log-confirmation.tsx` - Removed onReset, added useRouter, "Done" button
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Navigation tests
+- `src/components/food-analyzer.tsx` - Removed onReset prop
+- `src/components/__tests__/food-analyzer.test.tsx` - Updated mocks
+- `src/components/quick-select.tsx` - Removed onReset prop
+- `src/components/__tests__/quick-select.test.tsx` - Updated mocks
+- `src/components/settings-content.tsx` - email display from API (nullable)
+- `CLAUDE.md` - ALLOWED_EMAIL→ALLOWED_EMAILS
+- `README.md` - ALLOWED_EMAIL→ALLOWED_EMAILS
+- `.env.sample` - ALLOWED_EMAIL→ALLOWED_EMAILS
+- `MIGRATIONS.md` - Documented multi-user migration strategy
+- `drizzle/0005_clever_calypso.sql` - Add users table + userId columns
+- `drizzle/0006_silky_roughhouse.sql` - Drop email columns
+
+### Linear Updates
+- FOO-212: Todo → In Progress → Review
+- FOO-213: Todo → In Progress → Review
+- FOO-214: Todo → In Progress → Review
+- FOO-215: Todo → In Progress → Review
+- FOO-216: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 bugs (CRITICAL: wrong param to getFitbitTokens, HIGH: 4 test mocks with stale email), fixed before proceeding
+- verifier: All 830 tests pass, zero warnings, typecheck clean, build clean
+
+### Work Partition
+- Worker 1: Task 1 (confirmation button UX)
+- Worker 2: Tasks 2, 3, 4, 5, 6, 7, 8 (schema + CRUD + env + OAuth + session-db)
+- Worker 3: Tasks 9, 10, 11 + fitbit.ts (data-access refactors)
+- Worker 4: Tasks 12, 13 (session interface + API routes)
+- Lead: Task 3 migration gen, Task 14 (drop email columns + migration gen), Task 15 (verification), integration fixes
+
+### Continuation Status
+All tasks completed.

@@ -411,8 +411,8 @@ export async function refreshFitbitToken(
 
 let refreshInFlight: Promise<string> | null = null;
 
-export async function ensureFreshToken(email: string): Promise<string> {
-  const tokenRow = await getFitbitTokens(email);
+export async function ensureFreshToken(userId: string): Promise<string> {
+  const tokenRow = await getFitbitTokens(userId);
   if (!tokenRow) {
     throw new Error("FITBIT_TOKEN_INVALID");
   }
@@ -426,7 +426,7 @@ export async function ensureFreshToken(email: string): Promise<string> {
     refreshInFlight = (async () => {
       try {
         const tokens = await refreshFitbitToken(tokenRow.refreshToken);
-        await upsertFitbitTokens(email, {
+        await upsertFitbitTokens(userId, {
           fitbitUserId: tokens.user_id,
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,

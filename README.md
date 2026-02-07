@@ -80,7 +80,7 @@ Follow the **OAuth Setup** section below to create Google and Fitbit OAuth crede
 ```bash
 railway variables set \
   SESSION_SECRET="$(openssl rand -base64 32)" \
-  ALLOWED_EMAIL=wall.lucas@gmail.com \
+  ALLOWED_EMAILS=wall.lucas@gmail.com \
   APP_URL=https://food.lucaswall.me \
   GOOGLE_CLIENT_ID=your-google-client-id \
   GOOGLE_CLIENT_SECRET=your-google-client-secret \

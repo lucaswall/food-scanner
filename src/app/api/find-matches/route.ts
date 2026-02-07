@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 
   try {
     const matches = await findMatchingFoods(
-      session!.email,
+      session!.userId,
       body as Parameters<typeof findMatchingFoods>[1],
     );
 

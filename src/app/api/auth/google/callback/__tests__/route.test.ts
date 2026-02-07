@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.stubEnv("GOOGLE_CLIENT_ID", "test-google-client-id");
 vi.stubEnv("GOOGLE_CLIENT_SECRET", "test-google-client-secret");
-vi.stubEnv("ALLOWED_EMAIL", "test@example.com");
+vi.stubEnv("ALLOWED_EMAILS", "test@example.com");
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("APP_URL", "http://localhost:3000");
 
@@ -46,6 +46,12 @@ vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
 }));
 
+// Mock users module
+const mockGetOrCreateUser = vi.fn();
+vi.mock("@/lib/users", () => ({
+  getOrCreateUser: (...args: unknown[]) => mockGetOrCreateUser(...args),
+}));
+
 vi.mock("@/lib/logger", () => ({
   logger: {
     info: vi.fn(),
@@ -63,6 +69,8 @@ const { logger } = await import("@/lib/logger");
 const mockExchangeGoogleCode = vi.mocked(exchangeGoogleCode);
 const mockGetGoogleProfile = vi.mocked(getGoogleProfile);
 
+const fakeUser = { id: "user-uuid-123", email: "test@example.com", name: "Test User" };
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("APP_URL", "http://localhost:3000");
@@ -75,6 +83,7 @@ beforeEach(() => {
   mockCreateSession.mockResolvedValue("new-session-uuid");
   mockGetFitbitTokens.mockResolvedValue(null);
   mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 9 });
+  mockGetOrCreateUser.mockResolvedValue(fakeUser);
 });
 
 function makeCallbackRequest(code: string | null, state: string | null) {
@@ -85,7 +94,7 @@ function makeCallbackRequest(code: string | null, state: string | null) {
 }
 
 describe("GET /api/auth/google/callback", () => {
-  it("creates DB session, stores sessionId in cookie, and redirects on valid code + allowed email", async () => {
+  it("creates user record and DB session with userId, stores sessionId in cookie, and redirects", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
       email: "test@example.com",
@@ -94,9 +103,23 @@ describe("GET /api/auth/google/callback", () => {
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.status).toBe(302);
-    expect(mockCreateSession).toHaveBeenCalledWith("test@example.com");
+    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User");
+    expect(mockCreateSession).toHaveBeenCalledWith("user-uuid-123");
     expect(mockRawSession.sessionId).toBe("new-session-uuid");
     expect(mockRawSession.save).toHaveBeenCalled();
+  });
+
+  it("allows second email in allowlist", async () => {
+    vi.stubEnv("ALLOWED_EMAILS", "first@example.com, test@example.com");
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({
+      email: "test@example.com",
+      name: "Test User",
+    });
+
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(response.status).toBe(302);
+    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User");
   });
 
   it("reads OAuth state from iron-session, not plain cookie", async () => {
@@ -257,17 +280,17 @@ describe("GET /api/auth/google/callback", () => {
     );
   });
 
-  it("throws when ALLOWED_EMAIL env var is unset", async () => {
-    vi.stubEnv("ALLOWED_EMAIL", "");
+  it("throws when ALLOWED_EMAILS env var is unset", async () => {
+    vi.stubEnv("ALLOWED_EMAILS", "");
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
     mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test" });
 
     await expect(GET(makeCallbackRequest("code", "test-state"))).rejects.toThrow(
-      "Required environment variable ALLOWED_EMAIL is not set",
+      "Required environment variable ALLOWED_EMAILS is not set",
     );
 
     // Restore env for subsequent tests
-    vi.stubEnv("ALLOWED_EMAIL", "test@example.com");
+    vi.stubEnv("ALLOWED_EMAILS", "test@example.com");
   });
 
   it("logs info on successful login", async () => {

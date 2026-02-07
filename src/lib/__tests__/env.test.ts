@@ -45,7 +45,7 @@ describe("env", () => {
       process.env.FITBIT_CLIENT_SECRET = "fitbit-secret";
       process.env.ANTHROPIC_API_KEY = "anthropic-key";
       process.env.APP_URL = "https://food.example.com";
-      process.env.ALLOWED_EMAIL = "test@example.com";
+      process.env.ALLOWED_EMAILS = "test@example.com";
       process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
 
       const { validateRequiredEnvVars } = await import("@/lib/env");
@@ -60,7 +60,7 @@ describe("env", () => {
       delete process.env.FITBIT_CLIENT_SECRET;
       delete process.env.ANTHROPIC_API_KEY;
       delete process.env.APP_URL;
-      delete process.env.ALLOWED_EMAIL;
+      delete process.env.ALLOWED_EMAILS;
 
       const { validateRequiredEnvVars } = await import("@/lib/env");
       expect(() => validateRequiredEnvVars()).toThrow(
@@ -76,13 +76,59 @@ describe("env", () => {
       process.env.FITBIT_CLIENT_SECRET = "fitbit-secret";
       delete process.env.ANTHROPIC_API_KEY;
       process.env.APP_URL = "https://food.example.com";
-      delete process.env.ALLOWED_EMAIL;
+      delete process.env.ALLOWED_EMAILS;
       process.env.DATABASE_URL = "postgresql://test:test@localhost:5432/test";
 
       const { validateRequiredEnvVars } = await import("@/lib/env");
       expect(() => validateRequiredEnvVars()).toThrow(
-        "Missing required environment variables: ANTHROPIC_API_KEY, ALLOWED_EMAIL"
+        "Missing required environment variables: ANTHROPIC_API_KEY, ALLOWED_EMAILS"
       );
+    });
+  });
+
+  describe("getAllowedEmails", () => {
+    it("parses single email", async () => {
+      process.env.ALLOWED_EMAILS = "a@b.com";
+      const { getAllowedEmails } = await import("@/lib/env");
+      expect(getAllowedEmails()).toEqual(["a@b.com"]);
+    });
+
+    it("parses multiple comma-separated emails", async () => {
+      process.env.ALLOWED_EMAILS = "a@b.com, c@d.com";
+      const { getAllowedEmails } = await import("@/lib/env");
+      expect(getAllowedEmails()).toEqual(["a@b.com", "c@d.com"]);
+    });
+
+    it("trims whitespace", async () => {
+      process.env.ALLOWED_EMAILS = "  a@b.com ,  c@d.com  ";
+      const { getAllowedEmails } = await import("@/lib/env");
+      expect(getAllowedEmails()).toEqual(["a@b.com", "c@d.com"]);
+    });
+
+    it("filters empty strings", async () => {
+      process.env.ALLOWED_EMAILS = "a@b.com,,c@d.com,";
+      const { getAllowedEmails } = await import("@/lib/env");
+      expect(getAllowedEmails()).toEqual(["a@b.com", "c@d.com"]);
+    });
+  });
+
+  describe("isEmailAllowed", () => {
+    it("returns true for listed email", async () => {
+      process.env.ALLOWED_EMAILS = "a@b.com, c@d.com";
+      const { isEmailAllowed } = await import("@/lib/env");
+      expect(isEmailAllowed("a@b.com")).toBe(true);
+    });
+
+    it("returns false for unlisted email", async () => {
+      process.env.ALLOWED_EMAILS = "a@b.com";
+      const { isEmailAllowed } = await import("@/lib/env");
+      expect(isEmailAllowed("hacker@evil.com")).toBe(false);
+    });
+
+    it("performs case-insensitive comparison", async () => {
+      process.env.ALLOWED_EMAILS = "Test@Example.COM";
+      const { isEmailAllowed } = await import("@/lib/env");
+      expect(isEmailAllowed("test@example.com")).toBe(true);
     });
   });
 });

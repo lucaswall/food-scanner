@@ -53,7 +53,7 @@ const { POST } = await import("@/app/api/refine-food/route");
 
 const validSession: FullSession = {
   sessionId: "test-session",
-  email: "test@example.com",
+  userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: true,
   destroy: vi.fn(),
@@ -339,7 +339,7 @@ describe("POST /api/refine-food", () => {
     expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
   });
 
-  it("calls checkRateLimit with session email as key", async () => {
+  it("calls checkRateLimit with session userId as key", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockRefineAnalysis.mockResolvedValue(validAnalysis);
 
@@ -352,7 +352,7 @@ describe("POST /api/refine-food", () => {
     await POST(request);
 
     expect(mockCheckRateLimit).toHaveBeenCalledWith(
-      "refine-food:test@example.com",
+      "refine-food:user-uuid-123",
       30,
       15 * 60 * 1000,
     );

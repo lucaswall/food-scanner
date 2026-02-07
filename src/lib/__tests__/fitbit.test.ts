@@ -111,14 +111,14 @@ describe("ensureFreshToken", () => {
       expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
     });
 
-    const token = await ensureFreshToken("test@example.com");
+    const token = await ensureFreshToken("user-uuid-123");
     expect(token).toBe("valid-token");
   });
 
   it("throws FITBIT_TOKEN_INVALID if no fitbit tokens exist", async () => {
     mockGetFitbitTokens.mockResolvedValue(null);
 
-    await expect(ensureFreshToken("test@example.com")).rejects.toThrow(
+    await expect(ensureFreshToken("user-uuid-123")).rejects.toThrow(
       "FITBIT_TOKEN_INVALID",
     );
   });
@@ -141,10 +141,10 @@ describe("ensureFreshToken", () => {
     });
     mockUpsertFitbitTokens.mockResolvedValue(undefined);
 
-    const token = await ensureFreshToken("test@example.com");
+    const token = await ensureFreshToken("user-uuid-123");
     expect(token).toBe("new-token");
     expect(mockUpsertFitbitTokens).toHaveBeenCalledWith(
-      "test@example.com",
+      "user-uuid-123",
       expect.objectContaining({
         accessToken: "new-token",
         refreshToken: "new-refresh",
@@ -163,7 +163,7 @@ describe("ensureFreshToken", () => {
       expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
     });
 
-    await ensureFreshToken("test@example.com");
+    await ensureFreshToken("user-uuid-123");
     expect(mockUpsertFitbitTokens).not.toHaveBeenCalled();
   });
 
@@ -186,8 +186,8 @@ describe("ensureFreshToken", () => {
     mockUpsertFitbitTokens.mockResolvedValue(undefined);
 
     const [token1, token2] = await Promise.all([
-      ensureFreshToken("test@example.com"),
-      ensureFreshToken("test@example.com"),
+      ensureFreshToken("user-uuid-123"),
+      ensureFreshToken("user-uuid-123"),
     ]);
 
     expect(token1).toBe("new-token");
@@ -214,8 +214,8 @@ describe("ensureFreshToken", () => {
     });
     mockUpsertFitbitTokens.mockResolvedValue(undefined);
 
-    const promise1 = ensureFreshToken("test@example.com");
-    const promise2 = ensureFreshToken("test@example.com");
+    const promise1 = ensureFreshToken("user-uuid-123");
+    const promise2 = ensureFreshToken("user-uuid-123");
 
     // Resolve the refresh after both calls are in-flight
     resolveRefresh!(new Response(JSON.stringify({

@@ -34,21 +34,23 @@ vi.mock("../nutrition-facts-card", () => ({
   ),
 }));
 
+const mockPush = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
 // Mock food-log-confirmation
 vi.mock("../food-log-confirmation", () => ({
   FoodLogConfirmation: ({
     response,
     foodName,
-    onReset,
   }: {
     response: FoodLogResponse | null;
     foodName: string;
-    onReset: () => void;
   }) =>
     response ? (
       <div data-testid="food-log-confirmation">
         <span>Successfully logged {foodName}</span>
-        <button onClick={onReset}>Log Another</button>
       </div>
     ) : null,
 }));
@@ -256,47 +258,6 @@ describe("QuickSelect", () => {
     });
   });
 
-  it("Log Another returns to food list and refetches", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-      });
-
-    render(<QuickSelect />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByText("Empanada de carne"));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /log another/i }));
-
-    await waitFor(() => {
-      // Should refetch foods
-      expect(mockFetch).toHaveBeenCalledTimes(3);
-      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
-    });
-  });
 
   it("Take Photo buttons link to /app/analyze", async () => {
     mockFetch.mockResolvedValueOnce({

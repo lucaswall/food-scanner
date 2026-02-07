@@ -162,14 +162,6 @@ export function QuickSelect() {
     }
   };
 
-  const handleReset = () => {
-    setSelectedFood(null);
-    setLogResponse(null);
-    setLogError(null);
-    setMealTypeId(getDefaultMealType());
-    fetchFoods();
-  };
-
   // Resubmitting state
   if (resubmitting) {
     return (
@@ -191,7 +183,6 @@ export function QuickSelect() {
         foodName={selectedFood?.foodName ?? resubmitFoodName ?? "Food"}
         analysis={analysis}
         mealTypeId={mealTypeId}
-        onReset={handleReset}
       />
     );
   }

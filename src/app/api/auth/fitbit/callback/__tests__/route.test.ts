@@ -71,7 +71,7 @@ beforeEach(() => {
   mockGetRawSession.mockResolvedValue(mockRawSession as never);
   mockGetSessionById.mockResolvedValue({
     id: "test-session",
-    email: "test@example.com",
+    userId: "user-uuid-123",
     createdAt: new Date(),
     expiresAt: new Date(Date.now() + 86400000),
   });
@@ -98,7 +98,7 @@ describe("GET /api/auth/fitbit/callback", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toContain("/app");
     expect(mockUpsertFitbitTokens).toHaveBeenCalledWith(
-      "test@example.com",
+      "user-uuid-123",
       expect.objectContaining({
         fitbitUserId: "fitbit-user-123",
         accessToken: "fitbit-access-token",

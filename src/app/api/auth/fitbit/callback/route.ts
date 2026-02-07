@@ -54,7 +54,7 @@ export async function GET(request: Request) {
   }
 
   // Store Fitbit tokens in database
-  await upsertFitbitTokens(dbSession.email, {
+  await upsertFitbitTokens(dbSession.userId, {
     fitbitUserId: tokens.user_id,
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,

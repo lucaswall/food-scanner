@@ -64,7 +64,7 @@ export function checkNutrientTolerance(
  * Returns up to 3 matches sorted by match_ratio desc, then lastLoggedAt desc.
  */
 export async function findMatchingFoods(
-  email: string,
+  userId: string,
   newAnalysis: FoodAnalysis,
 ): Promise<FoodMatch[]> {
   const db = getDb();
@@ -93,7 +93,7 @@ export async function findMatchingFoods(
     )
     .where(
       and(
-        eq(customFoods.email, email),
+        eq(customFoods.userId, userId),
         isNotNull(customFoods.keywords),
         ...(process.env.FITBIT_DRY_RUN !== "true" ? [isNotNull(customFoods.fitbitFoodId)] : []),
       ),

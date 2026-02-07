@@ -32,7 +32,7 @@ vi.mock("@/db/index", () => ({
 
 vi.mock("@/db/schema", () => ({
   fitbitTokens: {
-    email: "email",
+    userId: "user_id",
     fitbitUserId: "fitbit_user_id",
     accessToken: "access_token",
     refreshToken: "refresh_token",
@@ -69,7 +69,7 @@ describe("getFitbitTokens", () => {
     const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
     mockWhere.mockResolvedValue([]);
 
-    const result = await getFitbitTokens("test@example.com");
+    const result = await getFitbitTokens("user-uuid-123");
     expect(result).toBeNull();
   });
 
@@ -77,7 +77,7 @@ describe("getFitbitTokens", () => {
     const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
     mockWhere.mockResolvedValue([{
       id: 1,
-      email: "test@example.com",
+      userId: "user-uuid-123",
       fitbitUserId: "user-123",
       accessToken: "encrypted:my-access-token",
       refreshToken: "encrypted:my-refresh-token",
@@ -85,7 +85,7 @@ describe("getFitbitTokens", () => {
       updatedAt: new Date(),
     }]);
 
-    const result = await getFitbitTokens("test@example.com");
+    const result = await getFitbitTokens("user-uuid-123");
 
     expect(result).not.toBeNull();
     expect(mockDecryptToken).toHaveBeenCalledWith("encrypted:my-access-token");
@@ -98,7 +98,7 @@ describe("getFitbitTokens", () => {
     const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
     mockWhere.mockResolvedValue([{
       id: 1,
-      email: "test@example.com",
+      userId: "user-uuid-123",
       fitbitUserId: "user-123",
       accessToken: "corrupted-data",
       refreshToken: "corrupted-data",
@@ -108,14 +108,14 @@ describe("getFitbitTokens", () => {
 
     mockDecryptToken.mockImplementation(() => { throw new Error("Invalid token format"); });
 
-    await expect(getFitbitTokens("test@example.com")).rejects.toThrow("Invalid token format");
+    await expect(getFitbitTokens("user-uuid-123")).rejects.toThrow("Invalid token format");
   });
 });
 
 describe("upsertFitbitTokens", () => {
   it("encrypts tokens when writing to DB", async () => {
     const { upsertFitbitTokens } = await import("@/lib/fitbit-tokens");
-    await upsertFitbitTokens("test@example.com", {
+    await upsertFitbitTokens("user-uuid-123", {
       fitbitUserId: "user-123",
       accessToken: "my-access-token",
       refreshToken: "my-refresh-token",
@@ -128,6 +128,7 @@ describe("upsertFitbitTokens", () => {
     // Verify that encrypted values were passed to insert
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
+        userId: "user-uuid-123",
         accessToken: "encrypted:my-access-token",
         refreshToken: "encrypted:my-refresh-token",
       }),

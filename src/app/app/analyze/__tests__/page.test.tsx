@@ -23,7 +23,7 @@ const { default: AnalyzePage } = await import("@/app/app/analyze/page");
 
 const validSession: FullSession = {
   sessionId: "test-session",
-  email: "test@example.com",
+  userId: "test-user-uuid",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: true,
   destroy: vi.fn(),

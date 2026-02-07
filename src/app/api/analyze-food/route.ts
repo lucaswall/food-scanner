@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   const validationError = validateSession(session, { requireFitbit: true });
   if (validationError) return validationError;
 
-  const { allowed } = checkRateLimit(`analyze-food:${session!.email}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  const { allowed } = checkRateLimit(`analyze-food:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   if (!allowed) {
     return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
   }

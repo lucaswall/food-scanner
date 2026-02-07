@@ -54,7 +54,7 @@ const { logger } = await import("@/lib/logger");
 
 const validSession: FullSession = {
   sessionId: "test-session",
-  email: "test@example.com",
+  userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: true,
   destroy: vi.fn(),
@@ -383,7 +383,7 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
   });
 
-  it("calls checkRateLimit with session email as key", async () => {
+  it("calls checkRateLimit with session userId as key", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockAnalyzeFood.mockResolvedValue(validAnalysis);
 
@@ -394,7 +394,7 @@ describe("POST /api/analyze-food", () => {
     await POST(request);
 
     expect(mockCheckRateLimit).toHaveBeenCalledWith(
-      "analyze-food:test@example.com",
+      "analyze-food:user-uuid-123",
       30,
       15 * 60 * 1000,
     );
