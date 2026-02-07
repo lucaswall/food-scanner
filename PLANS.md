@@ -928,5 +928,53 @@ Implement five features spanning UX improvements (nutrition card on success, aut
 - Worker 3: Task 7 (Fitbit delete API)
 - Worker 4: Task 8 (history API endpoints)
 
-### Continuation Status
-All tasks completed.
+### Review Findings
+
+Summary: 1 issue requiring fix, 5 documented (Team: security, reliability, quality reviewers)
+- CRITICAL: 0
+- HIGH: 0
+- MEDIUM: 6 (1 requiring fix, 5 documented only)
+- LOW: 6 (documented only)
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: Pagination cursor mismatch in `getFoodLogHistory` — `id < afterId` does not correlate with `(date DESC, time ASC)` sort order, can skip/duplicate entries (`src/lib/food-log.ts:189`). Combined with `hasMore` heuristic (`src/components/food-history.tsx:93`) and UTC "Today" header bug (`src/components/food-history.tsx:10-21`).
+
+**Documented (no fix needed):**
+- [MEDIUM] EDGE CASE: `refreshInFlight` in `fitbit.ts:399` not keyed by email — acceptable for single-user app
+- [MEDIUM] TYPE: `JSON.parse(stored) as PendingSubmission` unsafe cast (`src/lib/pending-submission.ts:24`) — sessionStorage is same-origin, server validates
+- [MEDIUM] TYPE: `result.data.entries as FoodLogHistoryEntry[]` unvalidated API response cast (`src/components/food-history.tsx:87`) — internal API, same app
+- [MEDIUM] TYPE: `data: any` in `exchangeFitbitCode`/`refreshFitbitToken` (`src/lib/fitbit.ts:320,379`) — followed by field-by-field validation
+- [LOW] CONVENTION: `getDefaultMealType()` duplicated in `quick-select.tsx:20` and `food-analyzer.tsx:32`
+- [LOW] CONVENTION: `endDate` query param not format-validated (`src/app/api/food-history/route.ts:14`)
+- [LOW] CONVENTION: `food-history` route missing success log (`src/app/api/food-history/route.ts`)
+- [LOW] EDGE CASE: `afterId=0` silently ignored due to falsy check (`src/app/api/food-history/route.ts:16`)
+- [LOW] EDGE CASE: `formatDateHeader` uses UTC for "today" comparison — off near midnight (included in FOO-174 fix)
+- [LOW] CONVENTION: `eslint-disable-line react-hooks/exhaustive-deps` suppressions justified
+
+### Linear Updates
+- FOO-169: Review → Merge
+- FOO-168: Review → Merge
+- FOO-170: Review → Merge
+- FOO-171: Review → Merge
+- FOO-173: Review → Merge
+- FOO-174: Created in Todo (Fix: pagination cursor + date header bug)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-174](https://linear.app/lw-claude/issue/FOO-174/fix-food-history-pagination-cursor-using-composite-date-time-id)
+
+### Fix 1: Pagination cursor mismatch + UTC date header bug
+**Linear Issue:** [FOO-174](https://linear.app/lw-claude/issue/FOO-174/fix-food-history-pagination-cursor-using-composite-date-time-id)
+
+1. Write test in `src/lib/__tests__/food-log.test.ts` for composite cursor pagination — entries with non-sequential ids should paginate correctly with `(date DESC, time ASC)` order
+2. Update `getFoodLogHistory` in `src/lib/food-log.ts` to accept composite cursor `{ lastDate, lastTime, lastId }` instead of `afterId`
+3. Update `src/app/api/food-history/route.ts` to parse new cursor params and validate `endDate` format
+4. Update `src/app/api/food-history/__tests__/route.test.ts` for new cursor params
+5. Write test in `src/components/__tests__/food-history.test.tsx` for "Today"/"Yesterday" labels near midnight
+6. Fix `formatDateHeader` in `src/components/food-history.tsx` to use local date methods instead of `toISOString()`
+7. Update `src/components/food-history.tsx` to send composite cursor on "Load More"
