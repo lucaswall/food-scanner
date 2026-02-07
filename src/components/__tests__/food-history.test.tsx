@@ -1,7 +1,16 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FoodHistory } from "../food-history";
 import type { FoodLogHistoryEntry } from "@/types";
+
+// Mock ResizeObserver for Radix UI Dialog
+beforeAll(() => {
+  global.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+});
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -324,6 +333,110 @@ describe("FoodHistory", () => {
       expect(url).toContain("lastId=20");
       // Should NOT contain afterId
       expect(url).not.toContain("afterId");
+    });
+  });
+
+  it("tapping an entry row opens a dialog with nutrition facts", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    render(<FoodHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Click the entry row button (aria-label includes calories, not "Delete")
+    const entryButton = screen.getByRole("button", { name: /empanada de carne, 320 calories/i });
+    fireEvent.click(entryButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
+      // Fiber and sodium should be visible in the dialog
+      expect(screen.getByText("2g")).toBeInTheDocument();
+      expect(screen.getByText("450mg")).toBeInTheDocument();
+    });
+  });
+
+  it("dialog shows correct data for the clicked entry", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    render(<FoodHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
+    });
+
+    // Click the second entry
+    const entryButton = screen.getByRole("button", { name: /cafe con leche, 120 calories/i });
+    fireEvent.click(entryButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
+      // Cafe con leche specific values
+      expect(screen.getByText("0g")).toBeInTheDocument(); // fiber
+      expect(screen.getByText("80mg")).toBeInTheDocument(); // sodium
+    });
+  });
+
+  it("clicking delete button does NOT open dialog", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true }),
+      });
+
+    render(<FoodHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Click the delete button
+    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+    fireEvent.click(deleteButtons[0]);
+
+    // Dialog should NOT open
+    await waitFor(() => {
+      expect(screen.queryByText("Nutrition Facts")).not.toBeInTheDocument();
+    });
+  });
+
+  it("dialog can be closed", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    render(<FoodHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Open dialog
+    const entryButton = screen.getByRole("button", { name: /empanada de carne, 320 calories/i });
+    fireEvent.click(entryButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
+    });
+
+    // Close dialog
+    const closeButton = screen.getByRole("button", { name: /close/i });
+    fireEvent.click(closeButton);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Nutrition Facts")).not.toBeInTheDocument();
     });
   });
 

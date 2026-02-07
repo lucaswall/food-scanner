@@ -166,6 +166,15 @@ food-scanner/
 
 ---
 
+## KNOWN ACCEPTED PATTERNS
+
+Patterns that have been reviewed and accepted — do NOT flag these in code reviews:
+
+- **Double casts on Fitbit API responses:** `data as unknown as Type` in `src/lib/fitbit.ts` — accepted because critical fields are runtime-validated immediately after the cast (e.g., checking `typeof foodEntry?.foodId !== "number"` before returning)
+- **String literals in Drizzle test mocks:** Using `{ email: "email" }` instead of real Drizzle column objects in test `where()` clauses — accepted because TypeScript catches column name typos at compile time, making additional mock fidelity redundant
+
+---
+
 ## API ENDPOINTS
 
 | Method | Path | Auth | Description |

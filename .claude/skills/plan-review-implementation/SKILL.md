@@ -210,19 +210,37 @@ After documenting findings for the current batch of iterations:
 
 ## After ALL Iterations Reviewed
 
+### Collect Skipped Findings
+
+Before determining final status, scan ALL `<!-- REVIEW COMPLETE -->` iteration sections for "Documented (no fix needed)" entries. These are findings that were evaluated as MEDIUM/LOW and documented but not fixed.
+
+If any documented-only findings exist across any iteration, prepare a **Skipped Findings Summary** to be appended just before `## Status: COMPLETE`.
+
 - **If Fix Plan exists OR tasks remain unfinished** → Do NOT mark complete. More implementation needed.
   1. **Commit and push** (see Termination section)
   2. Inform user: "Review complete. Changes committed and pushed. Run `/plan-implement` to continue implementation."
 
-- **If all tasks complete and no issues** → Append final status and create PR:
+- **If all tasks complete and no issues** → Append final status and create PR. If skipped findings exist, insert the summary before the status marker:
 
 ```markdown
+---
+
+## Skipped Findings Summary
+
+Findings documented but not fixed across all review iterations:
+
+| Severity | Category | File | Finding | Rationale |
+|----------|----------|------|---------|-----------|
+| MEDIUM | EDGE CASE | `src/upload.ts:30` | Unicode filenames not tested | Unlikely in current usage |
+
 ---
 
 ## Status: COMPLETE
 
 All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
 ```
+
+**Note:** The Skipped Findings Summary section is only added when documented-only findings actually exist. If all iterations passed clean, omit it entirely.
 
 **Then create the PR:**
 1. Commit any uncommitted changes
@@ -316,3 +334,4 @@ If `TeamCreate` fails, perform the review as a single agent:
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
 - **Check MIGRATIONS.md** — If implementation changed DB schema, column names, session/token formats, or env vars, verify that `MIGRATIONS.md` has a corresponding note. If missing, add it as a MEDIUM finding: "Missing MIGRATIONS.md entry for [change description]". The lead should append the missing note to `MIGRATIONS.md` before committing.
+- **Always append Skipped Findings Summary when documented-only findings exist** — Before marking a plan COMPLETE, scan all `<!-- REVIEW COMPLETE -->` sections for "Documented (no fix needed)" entries and include the summary table if any exist

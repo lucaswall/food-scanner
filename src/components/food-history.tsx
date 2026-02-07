@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { Trash2 } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
@@ -67,6 +69,7 @@ export function FoodHistory() {
   const [hasMore, setHasMore] = useState(true);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
   const [jumpDate, setJumpDate] = useState("");
 
   const fetchEntries = useCallback(async (
@@ -223,9 +226,14 @@ export function FoodHistory() {
           {group.entries.map((entry) => (
             <div
               key={entry.id}
-              className="flex items-center gap-3 p-3 rounded-lg border bg-card"
+              className="flex items-center gap-3 rounded-lg border bg-card"
             >
-              <div className="flex-1 min-w-0">
+              <button
+                type="button"
+                className="flex-1 min-w-0 p-3 text-left"
+                onClick={() => setSelectedEntry(entry)}
+                aria-label={`${entry.foodName}, ${entry.calories} calories`}
+              >
                 <div className="flex justify-between items-start">
                   <div className="min-w-0">
                     <p className="font-medium truncate">{entry.foodName}</p>
@@ -240,11 +248,11 @@ export function FoodHistory() {
                     </p>
                   </div>
                 </div>
-              </div>
+              </button>
               <Button
                 variant="ghost"
                 size="icon"
-                className="min-h-[44px] min-w-[44px] shrink-0 text-destructive hover:text-destructive"
+                className="min-h-[44px] min-w-[44px] shrink-0 text-destructive hover:text-destructive mr-3"
                 onClick={() => handleDelete(entry.id)}
                 disabled={deletingId === entry.id}
                 aria-label={`Delete ${entry.foodName}`}
@@ -267,6 +275,29 @@ export function FoodHistory() {
           {loadingMore ? "Loading..." : "Load More"}
         </Button>
       )}
+
+      {/* Entry detail dialog */}
+      <Dialog open={!!selectedEntry} onOpenChange={(open) => { if (!open) setSelectedEntry(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="sr-only">{selectedEntry?.foodName}</DialogTitle>
+          </DialogHeader>
+          {selectedEntry && (
+            <NutritionFactsCard
+              foodName={selectedEntry.foodName}
+              calories={selectedEntry.calories}
+              proteinG={selectedEntry.proteinG}
+              carbsG={selectedEntry.carbsG}
+              fatG={selectedEntry.fatG}
+              fiberG={selectedEntry.fiberG}
+              sodiumMg={selectedEntry.sodiumMg}
+              unitId={selectedEntry.unitId}
+              amount={selectedEntry.amount}
+              mealTypeId={selectedEntry.mealTypeId}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
