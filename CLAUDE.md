@@ -88,6 +88,7 @@ food-scanner/
 │   │   ├── food-log-confirmation.tsx     # Success screen with nutrition card
 │   │   ├── food-match-card.tsx           # Food match card (reuse suggestion)
 │   │   ├── quick-select.tsx              # Quick select common foods
+│   │   ├── nutrition-facts-card.tsx      # Reusable nutrition facts display
 │   │   └── ui/                           # shadcn/ui components
 │   ├── hooks/
 │   │   ├── use-keyboard-shortcuts.ts     # Keyboard shortcuts (Ctrl+Enter, Escape)
@@ -107,6 +108,8 @@ food-scanner/
 │   │   ├── url.ts                        # APP_URL helper + buildUrl()
 │   │   ├── logger.ts                     # pino structured logging
 │   │   ├── utils.ts                      # shadcn/ui cn() utility
+│   │   ├── image-validation.ts           # Image validation constants and type guard
+│   │   ├── meal-type.ts                  # Meal type helpers and date/time formatting
 │   │   ├── claude.ts                     # Claude API client (tool_use)
 │   │   ├── fitbit.ts                     # Fitbit API client (log, delete)
 │   │   ├── auth.ts                       # OAuth helpers (Google, Fitbit)
