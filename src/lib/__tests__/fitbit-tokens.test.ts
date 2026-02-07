@@ -94,43 +94,21 @@ describe("getFitbitTokens", () => {
     expect(result!.refreshToken).toBe("my-refresh-token");
   });
 
-  it("re-encrypts plaintext tokens when decryption fails", async () => {
+  it("throws when decryption fails", async () => {
     const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
-    const expiresAt = new Date("2026-12-01");
     mockWhere.mockResolvedValue([{
       id: 1,
       email: "test@example.com",
       fitbitUserId: "user-123",
-      accessToken: "plaintext-access",
-      refreshToken: "plaintext-refresh",
-      expiresAt,
+      accessToken: "corrupted-data",
+      refreshToken: "corrupted-data",
+      expiresAt: new Date("2026-12-01"),
       updatedAt: new Date(),
     }]);
 
-    // Make decryptToken throw to simulate plaintext tokens
     mockDecryptToken.mockImplementation(() => { throw new Error("Invalid token format"); });
 
-    const result = await getFitbitTokens("test@example.com");
-
-    // Should return plaintext tokens
-    expect(result).not.toBeNull();
-    expect(result!.accessToken).toBe("plaintext-access");
-    expect(result!.refreshToken).toBe("plaintext-refresh");
-
-    // Should trigger re-encryption via upsertFitbitTokens (fire-and-forget)
-    // Wait for the microtask queue to flush the fire-and-forget call
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(mockInsert).toHaveBeenCalled();
-    expect(mockValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        email: "test@example.com",
-        fitbitUserId: "user-123",
-        accessToken: "encrypted:plaintext-access",
-        refreshToken: "encrypted:plaintext-refresh",
-        expiresAt,
-      }),
-    );
+    await expect(getFitbitTokens("test@example.com")).rejects.toThrow("Invalid token format");
   });
 });
 

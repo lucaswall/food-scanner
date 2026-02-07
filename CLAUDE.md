@@ -196,6 +196,7 @@ food-scanner/
 - **Image validation:** Max 10MB per image, max 3 images, JPEG/PNG/GIF/WebP/HEIC supported
 - **HEIC conversion:** HEIC/HEIF images are converted to JPEG client-side via heic2any library before upload
 - **Client-side compression:** Resize to ~1024px, 80% JPEG quality before upload
+- **Client-side logging:** `console.error`/`console.warn` are correct for `'use client'` components — the pino logger is server-only
 - **Never log:** Cookie values, access tokens, images, user descriptions
 
 ---
