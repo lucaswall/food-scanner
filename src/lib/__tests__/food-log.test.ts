@@ -305,13 +305,14 @@ describe("insertFoodLogEntry", () => {
       amount: 200,
       unitId: 147,
       date: "2026-02-05",
+      time: "18:00:00",
     });
 
     expect(result.id).toBe(77);
     expect(result.loggedAt).toEqual(loggedAt);
   });
 
-  it("handles nullable fields (time, fitbitLogId) with null", async () => {
+  it("handles nullable fitbitLogId with null", async () => {
     const loggedAt = new Date();
     mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
 
@@ -321,14 +322,14 @@ describe("insertFoodLogEntry", () => {
       amount: 1,
       unitId: 304,
       date: "2026-02-05",
-      time: null,
+      time: "09:00:00",
       fitbitLogId: null,
     });
 
     expect(result.id).toBe(1);
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
-        time: null,
+        time: "09:00:00",
         fitbitLogId: null,
       }),
     );
@@ -344,6 +345,7 @@ describe("insertFoodLogEntry", () => {
       amount: 0.5,
       unitId: 91,
       date: "2026-02-05",
+      time: "19:30:00",
     });
 
     expect(mockValues).toHaveBeenCalledWith(

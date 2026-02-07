@@ -25,7 +25,7 @@ export interface FoodLogEntryInput {
   amount: number;
   unitId: number;
   date: string;
-  time?: string | null;
+  time: string;
   fitbitLogId?: number | null;
 }
 
@@ -73,7 +73,7 @@ export async function insertFoodLogEntry(
       amount: String(data.amount),
       unitId: data.unitId,
       date: data.date,
-      time: data.time ?? null,
+      time: data.time,
       fitbitLogId: data.fitbitLogId ?? null,
     })
     .returning({ id: foodLogEntries.id, loggedAt: foodLogEntries.loggedAt });

@@ -1,0 +1,1 @@
+ALTER TABLE "food_log_entries" ALTER COLUMN "time" SET NOT NULL;

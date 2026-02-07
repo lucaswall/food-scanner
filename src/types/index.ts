@@ -61,8 +61,8 @@ export interface FoodAnalysis {
 
 export interface FoodLogRequest extends FoodAnalysis {
   mealTypeId: number; // 1,2,3,4,5,7
-  date?: string; // YYYY-MM-DD
-  time?: string; // HH:mm:ss
+  date: string; // YYYY-MM-DD (client wall-clock)
+  time: string; // HH:mm:ss (client wall-clock)
   reuseCustomFoodId?: number;
 }
 

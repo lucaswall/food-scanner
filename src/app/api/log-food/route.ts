@@ -19,10 +19,12 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   if (!body || typeof body !== "object") return false;
   const req = body as Record<string, unknown>;
 
-  // mealTypeId is always required
+  // mealTypeId, date, and time are always required
   if (typeof req.mealTypeId !== "number") return false;
+  if (typeof req.date !== "string") return false;
+  if (typeof req.time !== "string") return false;
 
-  // Reuse flow: only reuseCustomFoodId + mealTypeId needed
+  // Reuse flow: only reuseCustomFoodId + mealTypeId + date + time needed
   if (req.reuseCustomFoodId !== undefined) {
     return typeof req.reuseCustomFoodId === "number";
   }
@@ -62,13 +64,6 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   }
 
   return true;
-}
-
-function formatDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function isValidDateFormat(date: string): boolean {
@@ -119,7 +114,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (body.date && !isValidDateFormat(body.date)) {
+  if (!isValidDateFormat(body.date)) {
     logger.warn(
       { action: "log_food_validation" },
       "invalid date format"
@@ -131,7 +126,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (body.time && !isValidTimeFormat(body.time)) {
+  if (!isValidTimeFormat(body.time)) {
     logger.warn(
       { action: "log_food_validation" },
       "invalid time format"
@@ -156,7 +151,7 @@ export async function POST(request: Request) {
     // Ensure token is fresh (refreshes and saves to DB if needed)
     const accessToken = await ensureFreshToken(session!.email);
 
-    const date = body.date || formatDate(new Date());
+    const { date, time } = body;
     let foodId: number;
     let reused: boolean;
     let foodLogId: number | undefined;
@@ -182,7 +177,7 @@ export async function POST(request: Request) {
         Number(existingFood.amount),
         existingFood.unitId,
         date,
-        body.time
+        time
       );
 
       // Log entry only (no new custom_food)
@@ -193,7 +188,7 @@ export async function POST(request: Request) {
           amount: Number(existingFood.amount),
           unitId: existingFood.unitId,
           date,
-          time: body.time ?? null,
+          time,
           fitbitLogId: logResult.foodLog.logId,
         });
         foodLogId = logEntryResult.id;
@@ -239,7 +234,7 @@ export async function POST(request: Request) {
       body.amount,
       body.unit_id,
       date,
-      body.time
+      time
     );
 
     // Log to database (non-fatal — Fitbit is the primary operation)
@@ -266,7 +261,7 @@ export async function POST(request: Request) {
         amount: body.amount,
         unitId: body.unit_id,
         date,
-        time: body.time ?? null,
+        time,
         fitbitLogId: logResult.foodLog.logId,
       });
       foodLogId = logEntryResult.id;
