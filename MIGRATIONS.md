@@ -17,11 +17,12 @@ Log potential production data migrations here during development. These notes ar
 **Production data migration required between 0005 and 0006:**
 - Before running 0005: existing tables have `email` columns with data
 - After 0005, before 0006: need to backfill `user_id` in all rows:
-  1. Create a user record in `users` table for the existing email (`wall.lucas@gmail.com`)
-  2. UPDATE `sessions` SET `user_id` = (user UUID) WHERE `email` = 'wall.lucas@gmail.com'
-  3. UPDATE `fitbit_tokens` SET `user_id` = (user UUID) WHERE `email` = 'wall.lucas@gmail.com'
-  4. UPDATE `custom_foods` SET `user_id` = (user UUID) WHERE `email` = 'wall.lucas@gmail.com'
-  5. UPDATE `food_log_entries` SET `user_id` = (user UUID) WHERE `email` = 'wall.lucas@gmail.com'
+  1. Create a user record in `users` table with **lowercased** email (new code normalizes to lowercase):
+     `INSERT INTO users (id, email) VALUES (gen_random_uuid(), LOWER('wall.lucas@gmail.com'))`
+  2. UPDATE `sessions` SET `user_id` = (user UUID) WHERE LOWER(`email`) = 'wall.lucas@gmail.com'
+  3. UPDATE `fitbit_tokens` SET `user_id` = (user UUID) WHERE LOWER(`email`) = 'wall.lucas@gmail.com'
+  4. UPDATE `custom_foods` SET `user_id` = (user UUID) WHERE LOWER(`email`) = 'wall.lucas@gmail.com'
+  5. UPDATE `food_log_entries` SET `user_id` = (user UUID) WHERE LOWER(`email`) = 'wall.lucas@gmail.com'
 - Then run 0006 to drop the now-redundant email columns
 
 **Environment variable rename:**

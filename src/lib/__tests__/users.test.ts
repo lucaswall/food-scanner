@@ -14,11 +14,11 @@ vi.mock("@/lib/logger", () => ({
 
 const mockInsert = vi.fn();
 const mockValues = vi.fn();
+const mockOnConflictDoUpdate = vi.fn();
 const mockReturning = vi.fn();
 const mockSelect = vi.fn();
 const mockFrom = vi.fn();
 const mockWhere = vi.fn();
-const mockOnConflictDoNothing = vi.fn();
 
 vi.mock("@/db/index", () => ({
   getDb: vi.fn(() => ({
@@ -44,8 +44,8 @@ vi.mock("drizzle-orm", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   mockInsert.mockReturnValue({ values: mockValues });
-  mockValues.mockReturnValue({ onConflictDoNothing: mockOnConflictDoNothing, returning: mockReturning });
-  mockOnConflictDoNothing.mockReturnValue({ returning: mockReturning });
+  mockValues.mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate });
+  mockOnConflictDoUpdate.mockReturnValue({ returning: mockReturning });
   mockSelect.mockReturnValue({ from: mockFrom });
   mockFrom.mockReturnValue({ where: mockWhere });
 });
@@ -59,11 +59,8 @@ const fakeUser = {
 };
 
 describe("getOrCreateUser", () => {
-  it("creates user when user does not exist", async () => {
+  it("uses atomic upsert (insert with onConflictDoUpdate) instead of select-then-insert", async () => {
     const { getOrCreateUser } = await import("@/lib/users");
-    // First select returns empty (user not found)
-    mockWhere.mockResolvedValue([]);
-    // Insert returns the new user
     mockReturning.mockResolvedValue([fakeUser]);
 
     const result = await getOrCreateUser("test@example.com", "Test User");
@@ -73,13 +70,43 @@ describe("getOrCreateUser", () => {
       email: fakeUser.email,
       name: fakeUser.name,
     });
+    // Must use insert + onConflictDoUpdate (atomic upsert), NOT select-then-insert
     expect(mockInsert).toHaveBeenCalled();
+    expect(mockOnConflictDoUpdate).toHaveBeenCalled();
+    expect(mockReturning).toHaveBeenCalled();
+    // Must NOT do a select first (the old race-prone pattern)
+    expect(mockSelect).not.toHaveBeenCalled();
   });
 
-  it("returns existing user without creating when user exists", async () => {
+  it("normalizes email to lowercase before upsert", async () => {
     const { getOrCreateUser } = await import("@/lib/users");
-    // Select returns existing user
-    mockWhere.mockResolvedValue([fakeUser]);
+    mockReturning.mockResolvedValue([{ ...fakeUser, email: "test@example.com" }]);
+
+    await getOrCreateUser("Test@Example.COM", "Test User");
+
+    // The values call should receive lowercase email
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "test@example.com" })
+    );
+  });
+
+  it("returns user for new email (insert path of upsert)", async () => {
+    const { getOrCreateUser } = await import("@/lib/users");
+    mockReturning.mockResolvedValue([fakeUser]);
+
+    const result = await getOrCreateUser("test@example.com", "Test User");
+
+    expect(result).toEqual({
+      id: fakeUser.id,
+      email: fakeUser.email,
+      name: fakeUser.name,
+    });
+  });
+
+  it("returns user for existing email (conflict path of upsert)", async () => {
+    const { getOrCreateUser } = await import("@/lib/users");
+    // onConflictDoUpdate returns the existing row with updatedAt bumped
+    mockReturning.mockResolvedValue([{ ...fakeUser, updatedAt: new Date("2025-06-01") }]);
 
     const result = await getOrCreateUser("test@example.com");
 
@@ -88,7 +115,15 @@ describe("getOrCreateUser", () => {
       email: fakeUser.email,
       name: fakeUser.name,
     });
-    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it("throws when upsert returns no rows", async () => {
+    const { getOrCreateUser } = await import("@/lib/users");
+    mockReturning.mockResolvedValue([]);
+
+    await expect(getOrCreateUser("test@example.com")).rejects.toThrow(
+      "Failed to create user"
+    );
   });
 });
 

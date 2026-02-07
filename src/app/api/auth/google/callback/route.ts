@@ -9,6 +9,12 @@ import { isEmailAllowed } from "@/lib/env";
 import { getOrCreateUser } from "@/lib/users";
 import { checkRateLimit } from "@/lib/rate-limit";
 
+function maskEmail(email: string): string {
+  const atIndex = email.indexOf("@");
+  if (atIndex <= 0) return "***";
+  return `${email[0]}***${email.slice(atIndex)}`;
+}
+
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
@@ -58,7 +64,7 @@ export async function GET(request: Request) {
   }
 
   if (!isEmailAllowed(profile.email)) {
-    logger.warn({ action: "google_unauthorized_email", email: profile.email.replace(/^(.)(.*)(@.*)$/, "$1***$3") }, "unauthorized email attempted login");
+    logger.warn({ action: "google_unauthorized_email", email: maskEmail(profile.email) }, "unauthorized email attempted login");
     return errorResponse("AUTH_INVALID_EMAIL", "Unauthorized email address", 403);
   }
 
@@ -70,7 +76,7 @@ export async function GET(request: Request) {
   delete rawSession.oauthState;
   await rawSession.save();
 
-  logger.info({ action: "google_login_success", email: profile.email }, "google login successful");
+  logger.info({ action: "google_login_success", email: maskEmail(profile.email) }, "google login successful");
 
   // Redirect: if no Fitbit tokens in DB, go to Fitbit OAuth; otherwise /app
   const fitbitTokens = await getFitbitTokens(user.id);

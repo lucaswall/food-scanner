@@ -814,3 +814,43 @@ Summary: 2 issue(s) found requiring fix (Team: security, reliability, quality re
    - Ensure `ALLOWED_EMAILS` env var is documented in local setup instructions
    - Update any "single-user" references
 4. Fix email logging inconsistency in `src/app/api/auth/google/callback/route.ts:73` — mask email on success path to match rejection path
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-07
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Fix 1: refreshInFlight cross-user token contamination (FOO-217) - Changed module-level singleton to Map<string, Promise<string>> keyed by userId (worker-1)
+- Fix 2: getOrCreateUser race condition (FOO-218) - Replaced SELECT-then-INSERT with atomic upsert via onConflictDoUpdate, added email lowercase normalization (worker-2)
+- Fix 3: Documentation + email logging fix - Updated CLAUDE.md/README.md from single-user to multi-user language, extracted maskEmail helper for robust email masking (worker-3 + lead)
+
+### Files Modified
+- `src/lib/fitbit.ts` - Changed `refreshInFlight` from `Promise<string> | null` to `Map<string, Promise<string>>` keyed by userId
+- `src/lib/__tests__/fitbit.test.ts` - Added cross-user token isolation test
+- `src/lib/users.ts` - Replaced SELECT-then-INSERT with atomic upsert via `onConflictDoUpdate`, added `.toLowerCase()` email normalization
+- `src/lib/__tests__/users.test.ts` - Rewrote tests for atomic upsert behavior (5 tests)
+- `src/app/api/auth/google/callback/route.ts` - Extracted `maskEmail()` helper, replaced inline regex in both log lines
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` - Updated success log test to verify masked email
+- `CLAUDE.md` - Updated single-user references to multi-user
+- `README.md` - Updated single-user references to multi-user
+- `MIGRATIONS.md` - Added LOWER() email normalization requirement to backfill instructions
+
+### Linear Updates
+- FOO-217: Todo → In Progress → Review
+- FOO-218: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 HIGH issues (email masking regex edge case, migration email normalization), fixed before proceeding
+- verifier: All 834 tests pass, zero warnings, typecheck clean, build clean
+
+### Work Partition
+- Worker 1: Fix 1 (fitbit.ts token isolation)
+- Worker 2: Fix 2 (users.ts atomic upsert)
+- Worker 3: Fix 3 (documentation + email logging)
+- Lead: Bug-hunter fixes (maskEmail helper, MIGRATIONS.md normalization), verification
+
+### Continuation Status
+All tasks completed.

@@ -9,7 +9,7 @@ AI-powered food logging for Fitbit. Take a photo of your meal, let Claude analyz
 3. **Review & edit** — Confirm or adjust the nutrition data
 4. **Log to Fitbit** — Post directly to your Fitbit food log
 
-Single-user application for wall.lucas@gmail.com.
+Multi-user application with email allowlist.
 
 ---
 

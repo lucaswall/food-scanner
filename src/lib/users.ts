@@ -5,14 +5,15 @@ import type { User } from "@/types";
 
 export async function getOrCreateUser(email: string, name?: string): Promise<User> {
   const db = getDb();
-  const existing = await db.select().from(users).where(eq(users.email, email));
-  if (existing[0]) {
-    return { id: existing[0].id, email: existing[0].email, name: existing[0].name };
-  }
+  const normalizedEmail = email.toLowerCase();
 
   const rows = await db
     .insert(users)
-    .values({ email, name: name ?? null })
+    .values({ email: normalizedEmail, name: name ?? null })
+    .onConflictDoUpdate({
+      target: users.email,
+      set: { updatedAt: new Date() },
+    })
     .returning();
   const row = rows[0];
   if (!row) throw new Error("Failed to create user: no row returned");

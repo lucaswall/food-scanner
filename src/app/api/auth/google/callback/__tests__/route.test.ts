@@ -293,7 +293,7 @@ describe("GET /api/auth/google/callback", () => {
     vi.stubEnv("ALLOWED_EMAILS", "test@example.com");
   });
 
-  it("logs info on successful login", async () => {
+  it("logs info on successful login with masked email", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "token" });
     mockGetGoogleProfile.mockResolvedValue({
       email: "test@example.com",
@@ -303,7 +303,7 @@ describe("GET /api/auth/google/callback", () => {
     expect(logger.info).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "google_login_success",
-        email: "test@example.com",
+        email: "t***@example.com",
       }),
       expect.any(String),
     );
