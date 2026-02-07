@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { FullSession } from "@/types";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
@@ -84,6 +84,10 @@ function createRequest(): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("DELETE /api/food-history/[id]", () => {
@@ -207,5 +211,64 @@ describe("DELETE /api/food-history/[id]", () => {
     await DELETE(request, { params: Promise.resolve({ id: "42" }) });
 
     expect(mockGetFoodLogEntry).toHaveBeenCalledWith("test@example.com", 42);
+  });
+
+  describe("FITBIT_DRY_RUN=true", () => {
+    it("skips Fitbit delete when entry has fitbitLogId", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+      mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+
+      const request = createRequest();
+      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data.deleted).toBe(true);
+      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+      expect(mockDeleteFoodLog).not.toHaveBeenCalled();
+      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("test@example.com", 42);
+    });
+
+    it("proceeds with DB delete when entry has null fitbitLogId", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetFoodLogEntry.mockResolvedValue({ ...sampleEntry, fitbitLogId: null });
+      mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+
+      const request = createRequest();
+      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data.deleted).toBe(true);
+      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+      expect(mockDeleteFoodLog).not.toHaveBeenCalled();
+      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("test@example.com", 42);
+    });
+  });
+
+  describe("FITBIT_DRY_RUN not set", () => {
+    it("existing Fitbit delete behavior works when entry has fitbitLogId", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockDeleteFoodLog.mockResolvedValue(undefined);
+      mockDeleteFoodLogEntry.mockResolvedValue(undefined);
+
+      const request = createRequest();
+      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data.deleted).toBe(true);
+      expect(mockEnsureFreshToken).toHaveBeenCalledWith("test@example.com");
+      expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789);
+      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("test@example.com", 42);
+    });
   });
 });

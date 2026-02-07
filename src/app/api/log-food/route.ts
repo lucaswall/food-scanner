@@ -147,38 +147,46 @@ export async function POST(request: Request) {
     "processing food log request"
   );
 
-  try {
-    // Ensure token is fresh (refreshes and saves to DB if needed)
-    const accessToken = await ensureFreshToken(session!.email);
+  const isDryRun = process.env.FITBIT_DRY_RUN === "true";
 
+  try {
     const { date, time } = body;
-    let foodId: number;
-    let reused: boolean;
     let foodLogId: number | undefined;
 
     if (body.reuseCustomFoodId) {
       // Reuse flow: skip food creation, use existing custom food
       const existingFood = await getCustomFoodById(session!.email, body.reuseCustomFoodId);
-      if (!existingFood || !existingFood.fitbitFoodId) {
+      if (!existingFood) {
         return errorResponse(
           "VALIDATION_ERROR",
-          "Custom food not found or has no Fitbit food ID",
+          "Custom food not found",
+          400
+        );
+      }
+      if (!isDryRun && !existingFood.fitbitFoodId) {
+        return errorResponse(
+          "VALIDATION_ERROR",
+          "Custom food has no Fitbit food ID",
           400
         );
       }
 
-      foodId = existingFood.fitbitFoodId;
-      reused = true;
+      const reused = true;
+      let fitbitLogId: number | undefined;
 
-      const logResult = await logFood(
-        accessToken,
-        foodId,
-        body.mealTypeId,
-        Number(existingFood.amount),
-        existingFood.unitId,
-        date,
-        time
-      );
+      if (!isDryRun) {
+        const accessToken = await ensureFreshToken(session!.email);
+        const logResult = await logFood(
+          accessToken,
+          existingFood.fitbitFoodId!,
+          body.mealTypeId,
+          Number(existingFood.amount),
+          existingFood.unitId,
+          date,
+          time
+        );
+        fitbitLogId = logResult.foodLog.logId;
+      }
 
       // Log entry only (no new custom_food)
       try {
@@ -189,7 +197,7 @@ export async function POST(request: Request) {
           unitId: existingFood.unitId,
           date,
           time,
-          fitbitLogId: logResult.foodLog.logId,
+          fitbitLogId: fitbitLogId ?? null,
         });
         foodLogId = logEntryResult.id;
       } catch (dbError) {
@@ -201,41 +209,50 @@ export async function POST(request: Request) {
 
       const response: FoodLogResponse = {
         success: true,
-        fitbitFoodId: foodId,
-        fitbitLogId: logResult.foodLog.logId,
+        fitbitFoodId: existingFood.fitbitFoodId ?? undefined,
+        fitbitLogId,
         reusedFood: reused,
         foodLogId,
+        ...(isDryRun && { dryRun: true }),
       };
 
       logger.info(
         {
           action: "log_food_success",
-          foodId,
-          logId: logResult.foodLog.logId,
+          foodId: existingFood.fitbitFoodId,
+          logId: fitbitLogId,
           reused,
           foodLogId,
+          dryRun: isDryRun || undefined,
         },
-        "food logged successfully (reused)"
+        isDryRun ? "food logged in dry-run mode (Fitbit API skipped)" : "food logged successfully (reused)"
       );
 
       return successResponse(response);
     }
 
     // New food flow
-    const createResult = await findOrCreateFood(accessToken, body);
-    foodId = createResult.foodId;
-    reused = createResult.reused;
+    let fitbitFoodId: number | undefined;
+    let fitbitLogId: number | undefined;
+    let reused = false;
 
-    // Log the food
-    const logResult = await logFood(
-      accessToken,
-      foodId,
-      body.mealTypeId,
-      body.amount,
-      body.unit_id,
-      date,
-      time
-    );
+    if (!isDryRun) {
+      const accessToken = await ensureFreshToken(session!.email);
+      const createResult = await findOrCreateFood(accessToken, body);
+      fitbitFoodId = createResult.foodId;
+      reused = createResult.reused;
+
+      const logResult = await logFood(
+        accessToken,
+        fitbitFoodId,
+        body.mealTypeId,
+        body.amount,
+        body.unit_id,
+        date,
+        time
+      );
+      fitbitLogId = logResult.foodLog.logId;
+    }
 
     // Log to database (non-fatal — Fitbit is the primary operation)
     try {
@@ -251,7 +268,7 @@ export async function POST(request: Request) {
         sodiumMg: body.sodium_mg,
         confidence: body.confidence,
         notes: body.notes,
-        fitbitFoodId: foodId,
+        fitbitFoodId: fitbitFoodId ?? null,
         keywords: body.keywords,
       });
 
@@ -262,7 +279,7 @@ export async function POST(request: Request) {
         unitId: body.unit_id,
         date,
         time,
-        fitbitLogId: logResult.foodLog.logId,
+        fitbitLogId: fitbitLogId ?? null,
       });
       foodLogId = logEntryResult.id;
     } catch (dbError) {
@@ -274,21 +291,23 @@ export async function POST(request: Request) {
 
     const response: FoodLogResponse = {
       success: true,
-      fitbitFoodId: foodId,
-      fitbitLogId: logResult.foodLog.logId,
+      fitbitFoodId,
+      fitbitLogId,
       reusedFood: reused,
       foodLogId,
+      ...(isDryRun && { dryRun: true }),
     };
 
     logger.info(
       {
         action: "log_food_success",
-        foodId,
-        logId: logResult.foodLog.logId,
+        foodId: fitbitFoodId,
+        logId: fitbitLogId,
         reused,
         foodLogId,
+        dryRun: isDryRun || undefined,
       },
-      "food logged successfully"
+      isDryRun ? "food logged in dry-run mode (Fitbit API skipped)" : "food logged successfully"
     );
 
     return successResponse(response);

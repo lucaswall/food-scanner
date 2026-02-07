@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { FoodLogRequest, FullSession } from "@/types";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
@@ -707,6 +707,183 @@ describe("POST /api/log-food", () => {
       expect(mockFindOrCreateFood).toHaveBeenCalled();
       expect(mockGetCustomFoodById).not.toHaveBeenCalled();
       expect(mockInsertCustomFood).toHaveBeenCalled();
+    });
+  });
+
+  describe("dry-run mode (FITBIT_DRY_RUN=true)", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("skips Fitbit API calls in new food flow", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+
+      const request = createMockRequest(validFoodLogRequest);
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+      expect(mockFindOrCreateFood).not.toHaveBeenCalled();
+      expect(mockLogFood).not.toHaveBeenCalled();
+    });
+
+    it("returns success with dryRun flag and no fitbitLogId in new food flow", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+
+      const request = createMockRequest(validFoodLogRequest);
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.data.success).toBe(true);
+      expect(body.data.dryRun).toBe(true);
+      expect(body.data.fitbitLogId).toBeUndefined();
+      expect(body.data.fitbitFoodId).toBeUndefined();
+    });
+
+    it("still calls insertCustomFood and insertFoodLogEntry in new food flow", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+
+      const request = createMockRequest(validFoodLogRequest);
+      await POST(request);
+
+      expect(mockInsertCustomFood).toHaveBeenCalledWith(
+        "test@example.com",
+        expect.objectContaining({
+          foodName: "Test Food",
+          fitbitFoodId: null,
+        }),
+      );
+      expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
+        "test@example.com",
+        expect.objectContaining({
+          customFoodId: 42,
+          fitbitLogId: null,
+        }),
+      );
+    });
+
+    it("insertFoodLogEntry receives fitbitLogId: null in new food flow", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+
+      const request = createMockRequest(validFoodLogRequest);
+      const response = await POST(request);
+
+      const body = await response.json();
+      expect(body.data.foodLogId).toBe(10);
+      expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
+        "test@example.com",
+        expect.objectContaining({
+          fitbitLogId: null,
+        }),
+      );
+    });
+
+    it("skips Fitbit API calls in reuse flow but still inserts log entry", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetCustomFoodById.mockResolvedValue({
+        id: 42,
+        email: "test@example.com",
+        foodName: "Tea with milk",
+        amount: "1",
+        unitId: 91,
+        calories: 50,
+        fitbitFoodId: null,
+        confidence: "high",
+        notes: null,
+        keywords: ["tea", "milk"],
+        createdAt: new Date("2026-02-05T12:00:00Z"),
+      });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+      } as Partial<FoodLogRequest>);
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      expect(mockEnsureFreshToken).not.toHaveBeenCalled();
+      expect(mockLogFood).not.toHaveBeenCalled();
+      expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
+        "test@example.com",
+        expect.objectContaining({
+          customFoodId: 42,
+          fitbitLogId: null,
+        }),
+      );
+      const body = await response.json();
+      expect(body.data.dryRun).toBe(true);
+      expect(body.data.fitbitLogId).toBeUndefined();
+    });
+
+    it("reuse flow allows food with null fitbitFoodId in dry-run", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetCustomFoodById.mockResolvedValue({
+        id: 42,
+        email: "test@example.com",
+        foodName: "Dry-run food",
+        amount: "1",
+        unitId: 91,
+        calories: 50,
+        fitbitFoodId: null,
+        confidence: "high",
+        notes: null,
+        keywords: [],
+        createdAt: new Date(),
+      });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 30, loggedAt: new Date() });
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+      } as Partial<FoodLogRequest>);
+      const response = await POST(request);
+
+      // Should NOT return 400 for missing fitbitFoodId in dry-run
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.data.success).toBe(true);
+    });
+
+    it("normal flow executes when FITBIT_DRY_RUN is not set", async () => {
+      // Ensure env is NOT set
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+      mockLogFood.mockResolvedValue({
+        foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+      });
+      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+
+      const request = createMockRequest(validFoodLogRequest);
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      expect(mockEnsureFreshToken).toHaveBeenCalled();
+      expect(mockFindOrCreateFood).toHaveBeenCalled();
+      expect(mockLogFood).toHaveBeenCalled();
+      const body = await response.json();
+      expect(body.data.dryRun).toBeUndefined();
     });
   });
 });

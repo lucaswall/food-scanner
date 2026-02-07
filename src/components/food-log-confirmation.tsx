@@ -48,11 +48,15 @@ export function FoodLogConfirmation({
           {foodName} logged successfully!
         </h3>
         <p className="text-sm text-gray-500">
-          {response.reusedFood
-            ? "Reused existing food from your Fitbit library"
-            : "Created new food in your Fitbit library"}
+          {response.dryRun
+            ? "Saved locally (Fitbit API skipped)"
+            : response.reusedFood
+              ? "Reused existing food from your Fitbit library"
+              : "Created new food in your Fitbit library"}
         </p>
-        <p className="text-xs text-gray-400">Log ID: {response.fitbitLogId}</p>
+        {response.fitbitLogId != null && (
+          <p className="text-xs text-gray-400">Log ID: {response.fitbitLogId}</p>
+        )}
       </div>
 
       {analysis && (

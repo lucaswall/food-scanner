@@ -26,6 +26,24 @@ Single-user application for wall.lucas@gmail.com.
 
 ---
 
+## Environments
+
+| Environment | Branch | URL | Fitbit API |
+|-------------|--------|-----|------------|
+| Production | `release` | `food.lucaswall.me` | Live |
+| Staging | `main` | Railway-generated staging URL | Dry-run (`FITBIT_DRY_RUN=true`) |
+
+**Branch strategy:**
+- `main` — development branch, auto-deploys to staging
+- `release` — stable branch, auto-deploys to production
+- Feature branches → PR to `main` → merge to staging → merge `main` to `release`
+
+Each environment has its own Railway Postgres, environment variables, and domain.
+
+**Promotion flow:** Merge `main` → `release` to deploy to production.
+
+---
+
 ## Deployment (Railway)
 
 ### Prerequisites
@@ -39,7 +57,7 @@ Single-user application for wall.lucas@gmail.com.
 1. Go to [railway.com/new](https://railway.com/new)
 2. Choose **"Deploy from GitHub Repo"**
 3. Select the `food-scanner` repository
-4. Railway creates the project and auto-deploys on every push to main
+4. Railway creates the project and auto-deploys
 
 Do **not** use `railway init` — that's for manual deploys, not GitHub-linked projects.
 
@@ -70,6 +88,11 @@ railway variables set \
   FITBIT_CLIENT_SECRET=your-fitbit-client-secret \
   ANTHROPIC_API_KEY=your-anthropic-api-key \
   LOG_LEVEL=info
+```
+
+For staging, also set:
+```bash
+railway variables set FITBIT_DRY_RUN=true
 ```
 
 Set real values for all credentials.
@@ -174,16 +197,20 @@ Claude Sonnet powers the AI food analysis feature.
 3. Navigate to **APIs & Services → Credentials**
 4. Click **Create Credentials → OAuth 2.0 Client ID**
 5. Select application type: **Web application**
-6. Under **Authorized redirect URIs**, add your production URL:
-   - `https://<your-railway-domain>/api/auth/google/callback`
+6. Under **Authorized redirect URIs**, add your environment URLs:
+   - Production: `https://food.lucaswall.me/api/auth/google/callback`
+   - Staging: `https://<staging-railway-domain>/api/auth/google/callback`
+   - Local: `http://localhost:3000/api/auth/google/callback`
 7. Copy the **Client ID** and **Client Secret**
 
 ### Fitbit OAuth
 
 1. Go to [dev.fitbit.com](https://dev.fitbit.com) → **Manage → Register an App**
 2. Set OAuth 2.0 Application Type: **Personal**
-3. Under **Redirect URIs**, add your production URL:
-   - `https://<your-railway-domain>/api/auth/fitbit/callback`
+3. Under **Redirect URIs**, add your environment URLs:
+   - Production: `https://food.lucaswall.me/api/auth/fitbit/callback`
+   - Staging: `https://<staging-railway-domain>/api/auth/fitbit/callback`
+   - Local: `http://localhost:3000/api/auth/fitbit/callback`
 4. Under **Default Access Type**, select **Read & Write**
 5. Copy the **Client ID** and **Client Secret**
 
@@ -243,14 +270,3 @@ No service worker or offline support — the app requires an internet connection
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local development setup |
 | [README.md](README.md) | This file — deployment and operations |
 
----
-
-## Cost Estimates
-
-| Service | Monthly Cost |
-|---------|-------------|
-| Railway (Hobby + Postgres) | ~$6 |
-| Claude API (~300 req/mo) | ~$0.60 |
-| Fitbit API | Free |
-| Custom domain | ~$1/mo |
-| **Total** | **~$7/mo** |

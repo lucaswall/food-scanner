@@ -68,10 +68,11 @@ export interface FoodLogRequest extends FoodAnalysis {
 
 export interface FoodLogResponse {
   success: boolean;
-  fitbitFoodId: number;
-  fitbitLogId: number;
+  fitbitFoodId?: number;
+  fitbitLogId?: number;
   reusedFood: boolean;
   foodLogId?: number;
+  dryRun?: boolean;
   error?: string;
 }
 

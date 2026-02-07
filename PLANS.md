@@ -144,3 +144,50 @@
 
 **Risks/Considerations:**
 - Dry-run mode in new food flow: `insertCustomFood` receives `fitbitFoodId: null` — verified the column is nullable, no schema change needed.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-07
+**Method:** Agent team (2 workers) + lead direct tasks
+
+### Tasks Completed This Iteration
+- Task 1: Add FITBIT_DRY_RUN support to log-food route (FOO-206) — dry-run mode for new food and reuse flows, type updates (worker-1)
+- Task 2: Add FITBIT_DRY_RUN support to food-history delete route (FOO-207) — dry-run mode for delete (worker-2)
+- Task 3: Rename MCP Fitbit env vars to avoid collision (FOO-208) — MCP_FITBIT_CLIENT_ID/SECRET (lead)
+- Task 4: Update CLAUDE.md for production status (FOO-209) — STATUS: PRODUCTION, ENVIRONMENTS section, env vars (lead)
+- Task 5: Update README.md for dual-environment deployment (FOO-210) — Environments section, OAuth URIs, removed Cost Estimates (lead)
+- Task 6: Update DEVELOPMENT.md for production status (FOO-211) — production status, branch workflow, FITBIT_DRY_RUN (lead)
+
+### Files Modified
+- `src/app/api/log-food/route.ts` — Added FITBIT_DRY_RUN support for both new food and reuse flows
+- `src/app/api/log-food/__tests__/route.test.ts` — Added 7 dry-run tests
+- `src/types/index.ts` — Made fitbitFoodId and fitbitLogId optional, added dryRun field
+- `src/app/api/food-history/[id]/route.ts` — Added FITBIT_DRY_RUN support for delete
+- `src/app/api/food-history/[id]/__tests__/route.test.ts` — Created with 12 tests (including 3 dry-run)
+- `src/components/food-log-confirmation.tsx` — Fixed UI for dry-run mode (conditional Log ID display)
+- `mcp-fitbit/auth.ts` — Renamed env vars to MCP_FITBIT_CLIENT_ID/SECRET
+- `CLAUDE.md` — Production status, ENVIRONMENTS section, env vars docs
+- `README.md` — Environments section, OAuth URIs for both envs, removed Cost Estimates
+- `DEVELOPMENT.md` — Production status, branch workflow section, FITBIT_DRY_RUN docs
+
+### Linear Updates
+- FOO-206: Todo → In Progress → Review
+- FOO-207: Todo → In Progress → Review
+- FOO-208: Todo → In Progress → Review
+- FOO-209: Todo → In Progress → Review
+- FOO-210: Todo → In Progress → Review
+- FOO-211: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 medium bug (UI fitbitLogId display), fixed before committing. 2 low bugs noted as acceptable.
+- verifier: All 812 tests pass (66 files), build + lint + typecheck zero warnings
+
+### Work Partition
+- Worker 1: Task 1 (log-food route + types)
+- Worker 2: Task 2 (food-history delete route)
+- Lead: Tasks 3-6 (MCP config + documentation)
+
+### Continuation Status
+All tasks completed.

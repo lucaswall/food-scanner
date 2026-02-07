@@ -25,18 +25,27 @@ export async function DELETE(
   }
 
   try {
+    const isDryRun = process.env.FITBIT_DRY_RUN === "true";
+
     // Delete from Fitbit first (if applicable), then local DB
-    if (entry.fitbitLogId) {
+    if (entry.fitbitLogId && !isDryRun) {
       const accessToken = await ensureFreshToken(session!.email);
       await deleteFoodLog(accessToken, entry.fitbitLogId);
     }
 
     await deleteFoodLogEntry(session!.email, id);
 
-    logger.info(
-      { action: "delete_food_log", entryId: id, fitbitLogId: entry.fitbitLogId },
-      "food log entry deleted",
-    );
+    if (isDryRun) {
+      logger.info(
+        { action: "delete_food_log", entryId: id, fitbitLogId: entry.fitbitLogId },
+        "food log entry deleted in dry-run mode (Fitbit API skipped)",
+      );
+    } else {
+      logger.info(
+        { action: "delete_food_log", entryId: id, fitbitLogId: entry.fitbitLogId },
+        "food log entry deleted",
+      );
+    }
 
     return successResponse({ deleted: true });
   } catch (error) {
