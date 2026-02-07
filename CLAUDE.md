@@ -55,8 +55,14 @@ food-scanner/
 │   │   ├── page.tsx                      # Landing page (public)
 │   │   ├── global-error.tsx              # Global error boundary
 │   │   ├── app/
-│   │   │   └── page.tsx                  # Protected food logging page
+│   │   │   ├── layout.tsx                # Shared app layout with bottom nav
+│   │   │   ├── page.tsx                  # Quick select home screen
+│   │   │   ├── analyze/
+│   │   │   │   └── page.tsx              # Photo analysis page
+│   │   │   └── history/
+│   │   │       └── page.tsx              # Food log history
 │   │   ├── settings/
+│   │   │   ├── layout.tsx                # Settings layout with bottom nav
 │   │   │   └── page.tsx                  # Settings (reconnect Fitbit, logout)
 │   │   └── api/
 │   │       ├── health/route.ts           # Health check (public)
@@ -69,9 +75,17 @@ food-scanner/
 │   │       │   └── logout/route.ts       # Destroy session
 │   │       ├── analyze-food/route.ts     # Claude tool_use analysis
 │   │       ├── find-matches/route.ts     # Food matching (keyword + nutrient)
-│   │       └── log-food/route.ts         # Fitbit search + create + log
+│   │       ├── log-food/route.ts         # Fitbit search + create + log
+│   │       ├── common-foods/route.ts     # Common foods for quick select
+│   │       ├── food-history/route.ts     # Food log history
+│   │       └── food-history/[id]/route.ts # Delete food log entry
 │   ├── components/                       # React components
+│   │   ├── bottom-nav.tsx                # Bottom navigation bar
+│   │   ├── food-analyzer.tsx             # Photo analysis flow
+│   │   ├── food-history.tsx              # History list with grouping/delete
+│   │   ├── food-log-confirmation.tsx     # Success screen with nutrition card
 │   │   ├── food-match-card.tsx           # Food match card (reuse suggestion)
+│   │   ├── quick-select.tsx              # Quick select common foods
 │   │   └── ui/                           # shadcn/ui components
 │   ├── hooks/
 │   │   ├── use-keyboard-shortcuts.ts     # Keyboard shortcuts (Ctrl+Enter, Escape)
@@ -84,14 +98,15 @@ food-scanner/
 │   │   ├── session.ts                    # iron-session config + getSession() (DB-backed)
 │   │   ├── session-db.ts                 # Session CRUD (createSession, getSessionById, touchSession, deleteSession)
 │   │   ├── fitbit-tokens.ts              # Fitbit token CRUD (getFitbitTokens, upsertFitbitTokens, deleteFitbitTokens)
-│   │   ├── food-log.ts                   # Food log insert (insertCustomFood, insertFoodLogEntry, getCustomFoodById)
+│   │   ├── food-log.ts                   # Food log CRUD (insert, query history, common foods, delete)
 │   │   ├── food-matching.ts              # Food matching engine (keyword ratio + nutrient tolerance)
+│   │   ├── pending-submission.ts         # sessionStorage for Fitbit reconnect flow
 │   │   ├── api-response.ts              # Standardized API response helpers
 │   │   ├── url.ts                        # APP_URL helper + buildUrl()
 │   │   ├── logger.ts                     # pino structured logging
 │   │   ├── utils.ts                      # shadcn/ui cn() utility
 │   │   ├── claude.ts                     # Claude API client (tool_use)
-│   │   ├── fitbit.ts                     # Fitbit API client
+│   │   ├── fitbit.ts                     # Fitbit API client (log, delete)
 │   │   ├── auth.ts                       # OAuth helpers (Google, Fitbit)
 │   │   └── haptics.ts                    # Mobile haptic feedback (Vibration API)
 │   ├── types/                            # Shared TypeScript types
@@ -158,6 +173,9 @@ food-scanner/
 | POST | `/api/analyze-food` | Yes | Claude analysis (multipart/form-data) |
 | POST | `/api/find-matches` | Yes | Find matching foods (keyword + nutrient) |
 | POST | `/api/log-food` | Yes | Post to Fitbit |
+| GET | `/api/common-foods` | Yes | Common foods for quick select |
+| GET | `/api/food-history` | Yes | Food log history (paginated) |
+| DELETE | `/api/food-history/[id]` | Yes | Delete food log entry |
 
 **Auth enforcement:** Next.js middleware (`middleware.ts`) checks for session cookie on all protected routes. Route handlers validate session contents via iron-session.
 

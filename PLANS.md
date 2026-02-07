@@ -854,3 +854,79 @@ Implement five features spanning UX improvements (nutrition card on success, aut
 - Editing existing food log entries
 - Sharing or export features
 - Multi-user support
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-07
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Add nutrition facts card to success screen (worker-1)
+- Task 2: Auto-reconnect Fitbit on token expiry (worker-1)
+- Task 3: Move photo analysis to /app/analyze (worker-1)
+- Task 4: Common foods DB query and API endpoint (worker-2)
+- Task 5: Quick select home screen UI (worker-1)
+- Task 6: Food history DB queries (worker-2)
+- Task 7: Fitbit delete food log API (worker-3)
+- Task 8: History API endpoints (worker-4)
+- Task 9: Food history page UI (worker-1)
+- Task 10: Add bottom navigation bar (worker-1)
+- Task 11: Update documentation (worker-1)
+
+### Files Modified
+- `src/types/index.ts` - Added FITBIT_MEAL_TYPE_LABELS, CommonFood, FoodLogHistoryEntry
+- `src/components/food-log-confirmation.tsx` - Added analysis/mealTypeId props, nutrition facts card
+- `src/components/__tests__/food-log-confirmation.test.tsx` - 16 tests
+- `src/lib/pending-submission.ts` - sessionStorage CRUD for reconnect flow
+- `src/lib/__tests__/pending-submission.test.ts` - 9 tests
+- `src/components/food-analyzer.tsx` - Added reconnect flow, pass nutrition props to confirmation
+- `src/components/__tests__/food-analyzer-reconnect.test.tsx` - 6 reconnect tests
+- `src/app/app/analyze/page.tsx` - New photo analysis page
+- `src/app/app/analyze/__tests__/page.test.tsx` - 3 tests
+- `src/app/app/page.tsx` - Rewritten to QuickSelect home screen
+- `src/components/quick-select.tsx` - Quick select with food cards, detail view, logging
+- `src/components/__tests__/quick-select.test.tsx` - 10 tests
+- `src/lib/food-log.ts` - Added getCommonFoods, getFoodLogHistory, getFoodLogEntry, deleteFoodLogEntry
+- `src/lib/__tests__/food-log.test.ts` - 14 new tests (29 total)
+- `src/app/api/common-foods/route.ts` - GET handler for common foods
+- `src/app/api/common-foods/__tests__/route.test.ts` - 4 tests
+- `src/lib/fitbit.ts` - Added deleteFoodLog function
+- `src/lib/__tests__/fitbit.test.ts` - 8 new tests (51 total)
+- `src/app/api/food-history/route.ts` - GET handler for food log history
+- `src/app/api/food-history/__tests__/route.test.ts` - 8 tests
+- `src/app/api/food-history/[id]/route.ts` - DELETE handler for food log entry
+- `src/app/api/food-history/[id]/__tests__/route.test.ts` - 9 tests
+- `src/app/app/history/page.tsx` - Food log history page
+- `src/components/food-history.tsx` - History with date grouping, delete, load more
+- `src/components/__tests__/food-history.test.tsx` - 8 tests
+- `src/components/bottom-nav.tsx` - Bottom navigation bar
+- `src/components/__tests__/bottom-nav.test.tsx` - 9 tests
+- `src/app/app/layout.tsx` - Shared app layout with bottom nav
+- `src/app/settings/layout.tsx` - Settings layout with bottom nav
+- `CLAUDE.md` - Updated STRUCTURE and API ENDPOINTS sections
+
+### Linear Updates
+- FOO-169: Todo → In Progress → Review
+- FOO-168: Todo → In Progress → Review
+- FOO-170: Todo → In Progress → Review
+- FOO-171: Todo → In Progress → Review
+- FOO-173: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (2 HIGH, 2 MEDIUM), all fixed before commit
+  - HIGH: Load more pagination duplicate entries — added afterId cursor
+  - HIGH: food-history route missing try/catch — added error handling
+  - MEDIUM: QuickSelect resubmit showed wrong mealTypeId — fixed
+  - MEDIUM: FoodAnalyzer resubmit showed wrong mealTypeId — fixed
+- verifier: All 732 tests pass, zero warnings, lint clean, typecheck clean, build clean
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3, 5, 9, 10, 11 (UI screens + navigation)
+- Worker 2: Tasks 4, 6 (data layer queries)
+- Worker 3: Task 7 (Fitbit delete API)
+- Worker 4: Task 8 (history API endpoints)
+
+### Continuation Status
+All tasks completed.

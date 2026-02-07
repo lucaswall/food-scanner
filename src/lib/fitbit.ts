@@ -219,6 +219,36 @@ export async function logFood(
   return data as unknown as LogFoodResponse;
 }
 
+export async function deleteFoodLog(
+  accessToken: string,
+  fitbitLogId: number,
+): Promise<void> {
+  logger.debug(
+    { action: "fitbit_delete_food_log", fitbitLogId },
+    "deleting food log",
+  );
+
+  const response = await fetchWithRetry(
+    `${FITBIT_API_BASE}/1/user/-/food/log/${fitbitLogId}.json`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    logger.error(
+      { action: "fitbit_delete_food_log_failed", status: response.status, errorBody },
+      "food log deletion failed",
+    );
+    throw new Error("FITBIT_API_ERROR");
+  }
+}
+
 export async function findOrCreateFood(
   accessToken: string,
   food: FoodAnalysis,

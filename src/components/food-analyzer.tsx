@@ -22,6 +22,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  savePendingSubmission,
+  getPendingSubmission,
+  clearPendingSubmission,
+} from "@/lib/pending-submission";
 import type { FoodAnalysis, FoodLogResponse, FoodMatch } from "@/types";
 
 function getDefaultMealType(): number {
@@ -54,6 +59,8 @@ export function FoodAnalyzer() {
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [matches, setMatches] = useState<FoodMatch[]>([]);
+  const [resubmitting, setResubmitting] = useState(false);
+  const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
 
   const currentAnalysis = editedAnalysis || analysis;
   const hasEdits = editedAnalysis !== null;
@@ -184,7 +191,13 @@ export function FoodAnalyzer() {
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
         if (errorCode === "FITBIT_TOKEN_INVALID") {
-          setLogError("Your Fitbit session has expired. Please reconnect your Fitbit account in Settings.");
+          savePendingSubmission({
+            analysis: currentAnalysis,
+            mealTypeId,
+            foodName: currentAnalysis.food_name,
+          });
+          window.location.href = "/api/auth/fitbit";
+          return;
         } else {
           setLogError(result.error?.message || "Failed to log food to Fitbit");
         }
@@ -221,7 +234,14 @@ export function FoodAnalyzer() {
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
         if (errorCode === "FITBIT_TOKEN_INVALID") {
-          setLogError("Your Fitbit session has expired. Please reconnect your Fitbit account in Settings.");
+          savePendingSubmission({
+            analysis: null,
+            mealTypeId,
+            foodName: match.foodName,
+            reuseCustomFoodId: match.customFoodId,
+          });
+          window.location.href = "/api/auth/fitbit";
+          return;
         } else {
           setLogError(result.error?.message || "Failed to log food to Fitbit");
         }
@@ -283,6 +303,57 @@ export function FoodAnalyzer() {
     }
   }, [logResponse]);
 
+  // Auto-resubmit pending submission after Fitbit reconnect
+  useEffect(() => {
+    const pending = getPendingSubmission();
+    if (!pending) return;
+
+    setResubmitting(true);
+    setResubmitFoodName(pending.foodName);
+    setMealTypeId(pending.mealTypeId);
+
+    const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId };
+    if (pending.reuseCustomFoodId) {
+      body.reuseCustomFoodId = pending.reuseCustomFoodId;
+    } else if (pending.analysis) {
+      Object.assign(body, pending.analysis);
+    }
+
+    fetch("/api/log-food", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        clearPendingSubmission();
+        if (result.success) {
+          setLogResponse(result.data);
+        } else {
+          setLogError(result.error?.message || "Failed to resubmit food log");
+        }
+      })
+      .catch(() => {
+        clearPendingSubmission();
+        setLogError("Failed to resubmit food log");
+      })
+      .finally(() => {
+        setResubmitting(false);
+      });
+  }, []);
+
+  // Show resubmitting state
+  if (resubmitting) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        <p className="text-sm text-muted-foreground">
+          Reconnected! Resubmitting {resubmitFoodName ?? "food"}...
+        </p>
+      </div>
+    );
+  }
+
   // Show confirmation if logged successfully
   if (logResponse) {
     return (
@@ -291,6 +362,8 @@ export function FoodAnalyzer() {
           <FoodLogConfirmation
             response={logResponse}
             foodName={currentAnalysis?.food_name || "Food"}
+            analysis={currentAnalysis ?? undefined}
+            mealTypeId={mealTypeId}
             onReset={handleReset}
           />
         </div>
@@ -300,6 +373,17 @@ export function FoodAnalyzer() {
 
   return (
     <div className="space-y-6">
+      {/* Resubmit error (shown when no analysis context) */}
+      {logError && !analysis && (
+        <div
+          data-testid="log-error"
+          className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
+          aria-live="polite"
+        >
+          <p className="text-sm text-destructive">{logError}</p>
+        </div>
+      )}
+
       <PhotoCapture onPhotosChange={handlePhotosChange} />
 
       <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging} />
