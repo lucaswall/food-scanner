@@ -145,9 +145,76 @@ Query relevant MCPs to gather context that will inform the plan. For example:
 
 ---
 
-### Phase 3: Generate the Plan
+### Phase 3: Triage Issues
 
-#### 3.1 Analyze Requirements
+Before planning, assess whether each backlog issue is **valid and actionable** in the current project context. Issues from code audits may flag theoretical problems that don't apply.
+
+#### 3.1 Validate Each Issue
+
+For each candidate issue, read the referenced code and ask:
+
+1. **Does the problem actually exist?** Read the file/line cited in the issue. Is the code actually there? Does it behave as the issue claims?
+2. **Is it relevant to the project context?** Consider:
+   - Project status (DEVELOPMENT = no legacy data, no backward compatibility)
+   - Single-user vs multi-user implications
+   - Client-side vs server-side distinctions
+   - Whether the "fix" is already the correct behavior
+3. **Is it a real risk or a theoretical concern?** A single-user app behind auth doesn't need the same defenses as a public API.
+4. **Is it already addressed?** Check if another issue or existing code already handles this.
+
+#### 3.2 Classify Issues
+
+Place each issue in one of two categories:
+
+| Category | Criteria | Action |
+|----------|----------|--------|
+| **Valid** | Problem is real, fix is actionable, applies to current context | Include in plan |
+| **Invalid** | Problem doesn't exist, is theoretical, or "fix" would be wrong | Cancel the issue |
+
+#### 3.3 Cancel Invalid Issues
+
+For each invalid issue, move it to **Canceled** state.
+
+**CRITICAL: Linear MCP same-type state bug.** "Duplicate" and "Canceled" are both `type: canceled` in Linear. Passing `state: "Canceled"` by name silently no-ops if the issue is already in another canceled-type state. To reliably cancel issues, first fetch the team's statuses to get the Canceled state UUID:
+
+```
+mcp__linear__list_issue_statuses(team: "Food Scanner")
+```
+
+Find the status with `name: "Canceled"` and use its `id` (UUID) in the update call:
+
+```
+mcp__linear__update_issue(id: "FOO-xxx", state: "<canceled-state-uuid>")
+```
+
+**Always use the UUID, never the name**, for canceled-type state transitions.
+
+#### 3.4 Report Triage Results
+
+Before proceeding, present the triage results to the user:
+
+```
+## Triage Results
+
+**Valid (will be planned):**
+- FOO-123: [title] — [brief reason it's valid]
+- FOO-456: [title] — [brief reason it's valid]
+
+**Canceled:**
+- FOO-789: [title] — [brief reason it's invalid]
+```
+
+Document canceled issues in the plan's **Scope Boundaries → Out of Scope** section with the cancellation reason.
+
+If ALL issues are invalid, STOP — inform the user that no issues need planning.
+
+If valid issues remain, proceed to Phase 4.
+
+---
+
+### Phase 4: Generate the Plan
+
+#### 4.1 Analyze Requirements
 
 For each issue being planned:
 1. Read the issue title, description, and any comments
@@ -156,7 +223,7 @@ For each issue being planned:
 4. Determine the scope of changes needed
 5. Identify which files will be created or modified
 
-#### 3.2 Design the Implementation
+#### 4.2 Design the Implementation
 
 For each issue:
 1. Break down into small, testable tasks
@@ -165,7 +232,7 @@ For each issue:
 4. Note any MCP tools that will be useful during implementation
 5. Identify potential risks or questions
 
-#### 3.3 Write PLANS.md
+#### 4.3 Write PLANS.md
 
 Write the plan to `PLANS.md` at the project root using the structure template below.
 
@@ -342,17 +409,19 @@ When planning, consider how MCPs will be used during implementation:
 4. **Always verify Linear state.** Confirm issues are in Backlog before planning them.
 5. **Always read CLAUDE.md.** The project configuration file contains critical context.
 6. **Always explore the codebase.** Plans must reference real files and real patterns from the project.
-7. **TDD is mandatory.** Every task must follow the Red-Green-Refactor cycle.
-8. **Plans must be self-contained.** An implementer should be able to follow the plan without needing to re-read the Linear issues.
-9. **Keep scope tight.** Only plan what the issues ask for. Do not add nice-to-haves.
-10. **Move issues to Todo.** After writing the plan, update the Linear issues to the "Todo" state.
+7. **Triage before planning.** Validate every issue against the actual codebase. Cancel issues that don't apply to the current project context.
+8. **Use state UUID for Canceled.** Never pass `state: "Canceled"` by name — use the UUID from `list_issue_statuses`. The Linear MCP silently no-ops same-type state transitions by name.
+9. **TDD is mandatory.** Every task must follow the Red-Green-Refactor cycle.
+10. **Plans must be self-contained.** An implementer should be able to follow the plan without needing to re-read the Linear issues.
+11. **Keep scope tight.** Only plan what the issues ask for. Do not add nice-to-haves.
+12. **Move valid issues to Todo.** After writing the plan, update the valid Linear issues to the "Todo" state.
 
 ---
 
 ## Scope Boundaries
 
 This skill:
-- **DOES**: Read Linear issues, explore codebase, read CLAUDE.md, write PLANS.md, move issues to Todo
+- **DOES**: Read Linear issues, explore codebase, read CLAUDE.md, triage issues (cancel invalid ones), write PLANS.md, move valid issues to Todo
 - **DOES NOT**: Write source code, write tests, run tests, deploy, create PRs, modify any file other than PLANS.md
 
 If the user asks to also implement the plan, tell them to use the `plan-implement` skill after this one completes.
@@ -371,6 +440,8 @@ If the user asks to also implement the plan, tell them to use the `plan-implemen
 | No CLAUDE.md found | WARN user. Continue with reduced context. |
 | MCP server unavailable | WARN user. Continue without that MCP's context. |
 | User specifies no issues | ASK user which issues to plan. |
+| All issues invalid after triage | STOP. Cancel all issues, inform user no plan needed. |
+| Some issues invalid after triage | Cancel invalid issues, plan only valid ones. |
 
 ---
 
