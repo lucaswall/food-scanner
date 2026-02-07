@@ -79,10 +79,8 @@
    - Remove: "Breaking changes OK — No backward compatibility required"
    - Remove: "Delete unused code immediately — No deprecation warnings"
    - Remove: "No 'for compatibility' code — When changing APIs, update ALL references"
-   - Add: "Database schema changes require migrations — Always use Drizzle Kit to generate migration files. Never modify production data without a migration path."
-   - Add: "Inform user of breaking changes — Before implementing changes that alter user-facing behavior, require new environment variables, or modify the database schema, clearly communicate what will change and get explicit approval."
-   - Add: "Delete unused code after verification — Confirm code is truly unused before deletion."
-   - Note: API backward compatibility is NOT required — the API is consumed only by the same app, frontend and backend deploy together from the same commit.
+   - Add: "Migration-aware changes — When a change requires data migration (DB schema, session format, token format, etc.), document what existing data is affected and how it will be migrated. Inform the user in the commit/PR — no approval needed, just transparency."
+   - Keep: "Delete unused code immediately" (still fine — no deprecation ceremony needed)
 3. Update `## ENVIRONMENT VARIABLES` section:
    - Add `FITBIT_DRY_RUN` with description (optional, staging-only)
    - Add note about MCP env vars: `MCP_FITBIT_CLIENT_ID` and `MCP_FITBIT_CLIENT_SECRET` (set in shell, not in Railway)
@@ -110,9 +108,7 @@
 
 1. Update "Development Status" section:
    - Change from "active development, breaking changes expected" to "production"
-   - Document that DB schema changes require migrations
-   - Document that user must be informed before breaking behavioral/env changes
-   - Note: API backward compatibility is not a concern (single-app, co-deployed)
+   - Document migration policy: when changes affect existing data (schema, session format, token format), document the migration path and inform the user — no approval gate, just transparency
 2. Add note about `FITBIT_DRY_RUN` in environment variables section
 3. Add section about branch workflow:
    - `main` — development branch, deploys to staging
@@ -144,7 +140,7 @@
 - Dry-run stores `null` for `fitbitLogId` (no schema change, no sentinel strings)
 - `FoodLogResponse.fitbitLogId` becomes optional, plus `dryRun?: boolean` flag
 - MCP uses `MCP_FITBIT_CLIENT_ID`/`MCP_FITBIT_CLIENT_SECRET` to avoid collision with app's `FITBIT_CLIENT_ID`
-- Production status means DB schema changes need migrations and user-facing/env changes need notification (API compatibility is not a concern — single co-deployed app)
+- Production status means migration-aware development: document migration path when existing data is affected, inform user (no approval gate)
 
 **Risks/Considerations:**
 - Dry-run mode in new food flow: `insertCustomFood` receives `fitbitFoodId: null` — verified the column is nullable, no schema change needed.
