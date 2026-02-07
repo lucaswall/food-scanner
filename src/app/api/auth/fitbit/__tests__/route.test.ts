@@ -35,7 +35,7 @@ const { logger } = await import("@/lib/logger");
 
 const validSession: FullSession = {
   sessionId: "test-session",
-  email: "test@example.com",
+  userId: "test-user-uuid",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: false,
   destroy: vi.fn(),

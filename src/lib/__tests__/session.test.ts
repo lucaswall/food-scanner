@@ -83,7 +83,7 @@ describe("getSession", () => {
     expect(mockGetSessionById).toHaveBeenCalledWith("abc-123");
   });
 
-  it("returns full session when cookie and DB session exist", async () => {
+  it("returns full session with userId when cookie and DB session exist", async () => {
     const mockDestroy = vi.fn();
     mockGetIronSession.mockResolvedValue({
       sessionId: "abc-123",
@@ -92,7 +92,7 @@ describe("getSession", () => {
     });
     mockGetSessionById.mockResolvedValue({
       id: "abc-123",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     });
@@ -102,9 +102,10 @@ describe("getSession", () => {
 
     expect(result).not.toBeNull();
     expect(result!.sessionId).toBe("abc-123");
-    expect(result!.email).toBe("test@example.com");
+    expect(result!.userId).toBe("user-uuid-123");
     expect(result!.fitbitConnected).toBe(false);
     expect(typeof result!.expiresAt).toBe("number");
+    expect(mockGetFitbitTokens).toHaveBeenCalledWith("user-uuid-123");
   });
 
   it("sets fitbitConnected to true when Fitbit tokens exist", async () => {
@@ -115,7 +116,7 @@ describe("getSession", () => {
     });
     mockGetSessionById.mockResolvedValue({
       id: "abc-123",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     });
@@ -140,7 +141,7 @@ describe("getSession", () => {
     });
     mockGetSessionById.mockResolvedValue({
       id: "abc-123",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     });
@@ -162,7 +163,7 @@ describe("getSession", () => {
     });
     mockGetSessionById.mockResolvedValue({
       id: "abc-123",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + twentyDaysMs),
     });
@@ -182,7 +183,7 @@ describe("getSession", () => {
     });
     mockGetSessionById.mockResolvedValue({
       id: "abc-123",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + twentyNineAndHalfDaysMs),
     });
@@ -205,7 +206,7 @@ describe("getSession", () => {
     });
     mockGetSessionById.mockResolvedValue({
       id: "abc-123",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + twentyDaysMs),
     });
@@ -226,7 +227,7 @@ describe("getSession", () => {
       });
       mockGetSessionById.mockResolvedValue({
         id: "abc-123",
-        email: "test@example.com",
+        userId: "user-uuid-123",
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + twentyDaysMs),
       });
@@ -257,7 +258,7 @@ describe("getSession", () => {
       });
       mockGetSessionById.mockResolvedValue({
         id: "abc-123",
-        email: "test@example.com",
+        userId: "user-uuid-123",
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + twentyDaysMs),
       });
@@ -275,7 +276,7 @@ describe("getSession", () => {
     });
     mockGetSessionById.mockResolvedValue({
       id: "abc-123",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + twentyDaysMs),
     });
@@ -294,7 +295,7 @@ describe("getSession", () => {
       });
       mockGetSessionById.mockResolvedValue({
         id: "abc-123",
-        email: "test@example.com",
+        userId: "user-uuid-123",
         createdAt: new Date(),
         expiresAt: new Date(Date.now() + twentyDaysMs),
       });
@@ -318,7 +319,7 @@ describe("validateSession", () => {
   it("returns error response when fitbit is not connected and requireFitbit is true", () => {
     const session = {
       sessionId: "abc",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       expiresAt: Date.now() + 60000,
       fitbitConnected: false,
       destroy: vi.fn(),
@@ -331,7 +332,7 @@ describe("validateSession", () => {
   it("returns null when session is valid without fitbit requirement", () => {
     const session = {
       sessionId: "abc",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       expiresAt: Date.now() + 60000,
       fitbitConnected: false,
       destroy: vi.fn(),
@@ -343,7 +344,7 @@ describe("validateSession", () => {
   it("returns null when session is valid with fitbit connected", () => {
     const session = {
       sessionId: "abc",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       expiresAt: Date.now() + 60000,
       fitbitConnected: true,
       destroy: vi.fn(),

@@ -19,7 +19,7 @@ export async function DELETE(
     return errorResponse("VALIDATION_ERROR", "Invalid entry ID", 400);
   }
 
-  const entry = await getFoodLogEntry(session!.email, id);
+  const entry = await getFoodLogEntry(session!.userId, id);
   if (!entry) {
     return errorResponse("VALIDATION_ERROR", "Food log entry not found", 404);
   }
@@ -29,11 +29,11 @@ export async function DELETE(
 
     // Delete from Fitbit first (if applicable), then local DB
     if (entry.fitbitLogId && !isDryRun) {
-      const accessToken = await ensureFreshToken(session!.email);
+      const accessToken = await ensureFreshToken(session!.userId);
       await deleteFoodLog(accessToken, entry.fitbitLogId);
     }
 
-    await deleteFoodLogEntry(session!.email, id);
+    await deleteFoodLogEntry(session!.userId, id);
 
     if (isDryRun) {
       logger.info(

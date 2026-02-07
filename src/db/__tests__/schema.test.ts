@@ -1,15 +1,48 @@
 import { describe, it, expect } from "vitest";
 import { getTableColumns } from "drizzle-orm";
-import { sessions, fitbitTokens, customFoods, foodLogEntries } from "@/db/schema";
+import { users, sessions, fitbitTokens, customFoods, foodLogEntries } from "@/db/schema";
 
 describe("database schema", () => {
+  describe("users table", () => {
+    it("has expected columns with correct types", () => {
+      const columns = getTableColumns(users);
+
+      expect(columns.id).toBeDefined();
+      expect(columns.id.dataType).toBe("string");
+      expect(columns.id.notNull).toBe(true);
+
+      expect(columns.email).toBeDefined();
+      expect(columns.email.dataType).toBe("string");
+      expect(columns.email.notNull).toBe(true);
+      expect(columns.email.isUnique).toBe(true);
+
+      expect(columns.name).toBeDefined();
+      expect(columns.name.dataType).toBe("string");
+      expect(columns.name.notNull).toBe(false);
+
+      expect(columns.createdAt).toBeDefined();
+      expect(columns.createdAt.dataType).toBe("date");
+      expect(columns.createdAt.notNull).toBe(true);
+
+      expect(columns.updatedAt).toBeDefined();
+      expect(columns.updatedAt.dataType).toBe("date");
+      expect(columns.updatedAt.notNull).toBe(true);
+    });
+  });
+
   describe("sessions table", () => {
     it("has expected columns", () => {
       const columns = getTableColumns(sessions);
       expect(columns).toHaveProperty("id");
-      expect(columns).toHaveProperty("email");
       expect(columns).toHaveProperty("createdAt");
       expect(columns).toHaveProperty("expiresAt");
+    });
+
+    it("has userId column referencing users", () => {
+      const columns = getTableColumns(sessions);
+      expect(columns.userId).toBeDefined();
+      expect(columns.userId.dataType).toBe("string");
+      expect(columns.userId.notNull).toBe(true);
     });
   });
 
@@ -17,12 +50,18 @@ describe("database schema", () => {
     it("has expected columns", () => {
       const columns = getTableColumns(fitbitTokens);
       expect(columns).toHaveProperty("id");
-      expect(columns).toHaveProperty("email");
       expect(columns).toHaveProperty("fitbitUserId");
       expect(columns).toHaveProperty("accessToken");
       expect(columns).toHaveProperty("refreshToken");
       expect(columns).toHaveProperty("expiresAt");
       expect(columns).toHaveProperty("updatedAt");
+    });
+
+    it("has userId column referencing users", () => {
+      const columns = getTableColumns(fitbitTokens);
+      expect(columns.userId).toBeDefined();
+      expect(columns.userId.dataType).toBe("string");
+      expect(columns.userId.notNull).toBe(true);
     });
   });
 
@@ -30,7 +69,6 @@ describe("database schema", () => {
     it("has expected columns", () => {
       const columns = getTableColumns(customFoods);
       expect(columns).toHaveProperty("id");
-      expect(columns).toHaveProperty("email");
       expect(columns).toHaveProperty("foodName");
       expect(columns).toHaveProperty("amount");
       expect(columns).toHaveProperty("unitId");
@@ -50,13 +88,19 @@ describe("database schema", () => {
       const columns = getTableColumns(customFoods);
       expect(columns).toHaveProperty("keywords");
     });
+
+    it("has userId column referencing users", () => {
+      const columns = getTableColumns(customFoods);
+      expect(columns.userId).toBeDefined();
+      expect(columns.userId.dataType).toBe("string");
+      expect(columns.userId.notNull).toBe(true);
+    });
   });
 
   describe("foodLogEntries table", () => {
     it("has expected columns", () => {
       const columns = getTableColumns(foodLogEntries);
       expect(columns).toHaveProperty("id");
-      expect(columns).toHaveProperty("email");
       expect(columns).toHaveProperty("customFoodId");
       expect(columns).toHaveProperty("fitbitLogId");
       expect(columns).toHaveProperty("mealTypeId");
@@ -65,6 +109,13 @@ describe("database schema", () => {
       expect(columns).toHaveProperty("date");
       expect(columns).toHaveProperty("time");
       expect(columns).toHaveProperty("loggedAt");
+    });
+
+    it("has userId column referencing users", () => {
+      const columns = getTableColumns(foodLogEntries);
+      expect(columns.userId).toBeDefined();
+      expect(columns.userId.dataType).toBe("string");
+      expect(columns.userId.notNull).toBe(true);
     });
   });
 

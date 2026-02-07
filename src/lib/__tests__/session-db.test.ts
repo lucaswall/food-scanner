@@ -35,7 +35,7 @@ vi.mock("@/db/index", () => ({
 }));
 
 vi.mock("@/db/schema", () => ({
-  sessions: { id: "id", email: "email", createdAt: "created_at", expiresAt: "expires_at" },
+  sessions: { id: "id", userId: "user_id", createdAt: "created_at", expiresAt: "expires_at" },
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -63,27 +63,27 @@ beforeEach(() => {
 });
 
 describe("createSession", () => {
-  it("inserts a session row and returns the session ID", async () => {
+  it("inserts a session row with userId and returns the session ID", async () => {
     const { createSession } = await import("@/lib/session-db");
     const fakeId = "550e8400-e29b-41d4-a716-446655440000";
     mockReturning.mockResolvedValue([{ id: fakeId }]);
 
-    const id = await createSession("test@example.com");
+    const id = await createSession("user-uuid-123");
 
     expect(mockInsert).toHaveBeenCalled();
     expect(mockValues).toHaveBeenCalledWith(
-      expect.objectContaining({ email: "test@example.com" }),
+      expect.objectContaining({ userId: "user-uuid-123" }),
     );
     expect(id).toBe(fakeId);
   });
 });
 
 describe("getSessionById", () => {
-  it("returns session data when session exists and is not expired", async () => {
+  it("returns session data with userId when session exists and is not expired", async () => {
     const { getSessionById } = await import("@/lib/session-db");
     const row = {
       id: "abc-123",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     };

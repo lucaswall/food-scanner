@@ -11,7 +11,7 @@ export async function GET() {
 
   try {
     const currentTime = new Date().toTimeString().slice(0, 8);
-    const foods = await getCommonFoods(session!.email, currentTime);
+    const foods = await getCommonFoods(session!.userId, currentTime);
 
     logger.debug(
       { action: "get_common_foods", count: foods.length },

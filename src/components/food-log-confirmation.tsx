@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import type { FoodAnalysis, FoodLogResponse } from "@/types";
 import { Button } from "@/components/ui/button";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
@@ -12,7 +13,6 @@ interface FoodLogConfirmationProps {
   foodName: string;
   analysis?: FoodAnalysis;
   mealTypeId?: number;
-  onReset: () => void;
 }
 
 export function FoodLogConfirmation({
@@ -20,8 +20,8 @@ export function FoodLogConfirmation({
   foodName,
   analysis,
   mealTypeId,
-  onReset,
 }: FoodLogConfirmationProps) {
+  const router = useRouter();
   // Trigger haptic feedback on mount
   useEffect(() => {
     if (response) {
@@ -77,11 +77,11 @@ export function FoodLogConfirmation({
       )}
 
       <Button
-        onClick={onReset}
+        onClick={() => router.push("/app")}
         variant="outline"
         className="min-h-[44px] min-w-[120px]"
       >
-        Log Another
+        Done
       </Button>
     </div>
   );

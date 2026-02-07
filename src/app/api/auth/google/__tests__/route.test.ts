@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.stubEnv("GOOGLE_CLIENT_ID", "test-google-client-id");
 vi.stubEnv("GOOGLE_CLIENT_SECRET", "test-google-client-secret");
-vi.stubEnv("ALLOWED_EMAIL", "test@example.com");
+vi.stubEnv("ALLOWED_EMAILS", "test@example.com");
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("APP_URL", "http://localhost:3000");
 

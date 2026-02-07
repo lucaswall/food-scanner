@@ -130,20 +130,22 @@ vi.mock("../food-match-card", () => ({
   ),
 }));
 
+const mockPush = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
 vi.mock("../food-log-confirmation", () => ({
   FoodLogConfirmation: ({
     response,
     foodName,
-    onReset,
   }: {
     response: FoodLogResponse | null;
     foodName: string;
-    onReset: () => void;
   }) =>
     response ? (
       <div data-testid="food-log-confirmation" tabIndex={-1}>
         <span>Successfully logged {foodName}</span>
-        <button onClick={onReset}>Log Another</button>
       </div>
     ) : null,
 }));
@@ -564,45 +566,6 @@ describe("FoodAnalyzer", () => {
     });
   });
 
-  it("resets state after Log Another is clicked", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
-      })
-      .mockResolvedValueOnce(emptyMatchesResponse())
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
-      });
-
-    render(<FoodAnalyzer />);
-
-    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
-    });
-    fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /log another/i }));
-
-    await waitFor(() => {
-      // Should not show confirmation anymore
-      expect(screen.queryByTestId("food-log-confirmation")).not.toBeInTheDocument();
-      // Analyze button should be disabled (no photos)
-      expect(screen.getByRole("button", { name: /analyze/i })).toBeDisabled();
-    });
-  });
 
 
   describe("image compression loading state", () => {

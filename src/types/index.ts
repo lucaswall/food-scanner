@@ -1,3 +1,10 @@
+/** User record from the users table */
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+}
+
 /** Cookie-only session data (stored in iron-session encrypted cookie) */
 export interface SessionData {
   sessionId: string;
@@ -7,7 +14,7 @@ export interface SessionData {
 /** Full session data combining cookie + database */
 export interface FullSession {
   sessionId: string;
-  email: string;
+  userId: string;
   expiresAt: number;
   fitbitConnected: boolean;
   /** Call to destroy both cookie and DB session */

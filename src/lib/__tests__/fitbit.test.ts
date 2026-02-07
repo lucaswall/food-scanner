@@ -111,14 +111,14 @@ describe("ensureFreshToken", () => {
       expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
     });
 
-    const token = await ensureFreshToken("test@example.com");
+    const token = await ensureFreshToken("user-uuid-123");
     expect(token).toBe("valid-token");
   });
 
   it("throws FITBIT_TOKEN_INVALID if no fitbit tokens exist", async () => {
     mockGetFitbitTokens.mockResolvedValue(null);
 
-    await expect(ensureFreshToken("test@example.com")).rejects.toThrow(
+    await expect(ensureFreshToken("user-uuid-123")).rejects.toThrow(
       "FITBIT_TOKEN_INVALID",
     );
   });
@@ -141,10 +141,10 @@ describe("ensureFreshToken", () => {
     });
     mockUpsertFitbitTokens.mockResolvedValue(undefined);
 
-    const token = await ensureFreshToken("test@example.com");
+    const token = await ensureFreshToken("user-uuid-123");
     expect(token).toBe("new-token");
     expect(mockUpsertFitbitTokens).toHaveBeenCalledWith(
-      "test@example.com",
+      "user-uuid-123",
       expect.objectContaining({
         accessToken: "new-token",
         refreshToken: "new-refresh",
@@ -163,7 +163,7 @@ describe("ensureFreshToken", () => {
       expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
     });
 
-    await ensureFreshToken("test@example.com");
+    await ensureFreshToken("user-uuid-123");
     expect(mockUpsertFitbitTokens).not.toHaveBeenCalled();
   });
 
@@ -186,14 +186,60 @@ describe("ensureFreshToken", () => {
     mockUpsertFitbitTokens.mockResolvedValue(undefined);
 
     const [token1, token2] = await Promise.all([
-      ensureFreshToken("test@example.com"),
-      ensureFreshToken("test@example.com"),
+      ensureFreshToken("user-uuid-123"),
+      ensureFreshToken("user-uuid-123"),
     ]);
 
     expect(token1).toBe("new-token");
     expect(token2).toBe("new-token");
     // refreshFitbitToken should only be called once (1 fetch call for refresh)
     expect(fetch).toHaveBeenCalledTimes(1);
+
+    vi.restoreAllMocks();
+  });
+
+  it("two different users refreshing concurrently get their own tokens", async () => {
+    let fetchCallCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      fetchCallCount++;
+      const userId = fetchCallCount === 1 ? "fitbit-user-A" : "fitbit-user-B";
+      const token = fetchCallCount === 1 ? "token-for-user-A" : "token-for-user-B";
+      return Promise.resolve(new Response(JSON.stringify({
+        access_token: token,
+        refresh_token: `refresh-${userId}`,
+        user_id: userId,
+        expires_in: 28800,
+      })));
+    });
+
+    mockGetFitbitTokens.mockImplementation((userId: string) => {
+      if (userId === "user-A") {
+        return Promise.resolve({
+          accessToken: "old-token-A",
+          refreshToken: "old-refresh-A",
+          fitbitUserId: "fitbit-user-A",
+          expiresAt: new Date(Date.now() - 1000), // expired
+        });
+      }
+      return Promise.resolve({
+        accessToken: "old-token-B",
+        refreshToken: "old-refresh-B",
+        fitbitUserId: "fitbit-user-B",
+        expiresAt: new Date(Date.now() - 1000), // expired
+      });
+    });
+    mockUpsertFitbitTokens.mockResolvedValue(undefined);
+
+    const [tokenA, tokenB] = await Promise.all([
+      ensureFreshToken("user-A"),
+      ensureFreshToken("user-B"),
+    ]);
+
+    // Each user must get their own token — NOT the other user's
+    expect(tokenA).toBe("token-for-user-A");
+    expect(tokenB).toBe("token-for-user-B");
+    // Two separate refresh calls must happen (one per user)
+    expect(fetch).toHaveBeenCalledTimes(2);
 
     vi.restoreAllMocks();
   });
@@ -214,8 +260,8 @@ describe("ensureFreshToken", () => {
     });
     mockUpsertFitbitTokens.mockResolvedValue(undefined);
 
-    const promise1 = ensureFreshToken("test@example.com");
-    const promise2 = ensureFreshToken("test@example.com");
+    const promise1 = ensureFreshToken("user-uuid-123");
+    const promise2 = ensureFreshToken("user-uuid-123");
 
     // Resolve the refresh after both calls are in-flight
     resolveRefresh!(new Response(JSON.stringify({

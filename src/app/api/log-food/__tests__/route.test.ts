@@ -60,7 +60,7 @@ const { POST } = await import("@/app/api/log-food/route");
 
 const validSession: FullSession = {
   sessionId: "test-session",
-  email: "test@example.com",
+  userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: true,
   destroy: vi.fn(),
@@ -182,7 +182,7 @@ describe("POST /api/log-food", () => {
     expect(body.data.reusedFood).toBe(false);
   });
 
-  it("passes email to ensureFreshToken", async () => {
+  it("passes userId to ensureFreshToken", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
@@ -193,7 +193,7 @@ describe("POST /api/log-food", () => {
     const request = createMockRequest(validFoodLogRequest);
     await POST(request);
 
-    expect(mockEnsureFreshToken).toHaveBeenCalledWith("test@example.com");
+    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123");
   });
 
   it("returns 500 FITBIT_API_ERROR on Fitbit failure", async () => {
@@ -432,7 +432,7 @@ describe("POST /api/log-food", () => {
 
     expect(response.status).toBe(200);
     expect(mockInsertCustomFood).toHaveBeenCalledWith(
-      "test@example.com",
+      "user-uuid-123",
       expect.objectContaining({
         foodName: "Test Food",
         amount: 100,
@@ -449,7 +449,7 @@ describe("POST /api/log-food", () => {
       }),
     );
     expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
-      "test@example.com",
+      "user-uuid-123",
       expect.objectContaining({
         customFoodId: 42,
         mealTypeId: 1,
@@ -476,7 +476,7 @@ describe("POST /api/log-food", () => {
     await POST(request);
 
     expect(mockInsertCustomFood).toHaveBeenCalledWith(
-      "test@example.com",
+      "user-uuid-123",
       expect.objectContaining({
         keywords: ["test", "food"],
       }),
@@ -528,7 +528,7 @@ describe("POST /api/log-food", () => {
   describe("reuse flow with reuseCustomFoodId", () => {
     const existingFood = {
       id: 42,
-      email: "test@example.com",
+      email: "user-uuid-123",
       foodName: "Tea with milk",
       amount: "1",
       unitId: 91,
@@ -561,7 +561,7 @@ describe("POST /api/log-food", () => {
       await POST(request);
 
       expect(mockFindOrCreateFood).not.toHaveBeenCalled();
-      expect(mockGetCustomFoodById).toHaveBeenCalledWith("test@example.com", 42);
+      expect(mockGetCustomFoodById).toHaveBeenCalledWith("user-uuid-123", 42);
     });
 
     it("calls logFood with existing food's fitbitFoodId", async () => {
@@ -607,7 +607,7 @@ describe("POST /api/log-food", () => {
 
       expect(mockInsertCustomFood).not.toHaveBeenCalled();
       expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
-        "test@example.com",
+        "user-uuid-123",
         expect.objectContaining({
           customFoodId: 42,
           fitbitLogId: 789,
@@ -757,14 +757,14 @@ describe("POST /api/log-food", () => {
       await POST(request);
 
       expect(mockInsertCustomFood).toHaveBeenCalledWith(
-        "test@example.com",
+        "user-uuid-123",
         expect.objectContaining({
           foodName: "Test Food",
           fitbitFoodId: null,
         }),
       );
       expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
-        "test@example.com",
+        "user-uuid-123",
         expect.objectContaining({
           customFoodId: 42,
           fitbitLogId: null,
@@ -784,7 +784,7 @@ describe("POST /api/log-food", () => {
       const body = await response.json();
       expect(body.data.foodLogId).toBe(10);
       expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
-        "test@example.com",
+        "user-uuid-123",
         expect.objectContaining({
           fitbitLogId: null,
         }),
@@ -796,7 +796,7 @@ describe("POST /api/log-food", () => {
       mockGetSession.mockResolvedValue(validSession);
       mockGetCustomFoodById.mockResolvedValue({
         id: 42,
-        email: "test@example.com",
+        email: "user-uuid-123",
         foodName: "Tea with milk",
         amount: "1",
         unitId: 91,
@@ -821,7 +821,7 @@ describe("POST /api/log-food", () => {
       expect(mockEnsureFreshToken).not.toHaveBeenCalled();
       expect(mockLogFood).not.toHaveBeenCalled();
       expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
-        "test@example.com",
+        "user-uuid-123",
         expect.objectContaining({
           customFoodId: 42,
           fitbitLogId: null,
@@ -837,7 +837,7 @@ describe("POST /api/log-food", () => {
       mockGetSession.mockResolvedValue(validSession);
       mockGetCustomFoodById.mockResolvedValue({
         id: 42,
-        email: "test@example.com",
+        email: "user-uuid-123",
         foodName: "Dry-run food",
         amount: "1",
         unitId: 91,

@@ -9,7 +9,7 @@ AI-powered food logging for Fitbit. Take a photo of your meal, let Claude analyz
 3. **Review & edit** — Confirm or adjust the nutrition data
 4. **Log to Fitbit** — Post directly to your Fitbit food log
 
-Single-user application for wall.lucas@gmail.com.
+Multi-user application with email allowlist.
 
 ---
 
@@ -80,7 +80,7 @@ Follow the **OAuth Setup** section below to create Google and Fitbit OAuth crede
 ```bash
 railway variables set \
   SESSION_SECRET="$(openssl rand -base64 32)" \
-  ALLOWED_EMAIL=wall.lucas@gmail.com \
+  ALLOWED_EMAILS=wall.lucas@gmail.com \
   APP_URL=https://food.lucaswall.me \
   GOOGLE_CLIENT_ID=your-google-client-id \
   GOOGLE_CLIENT_SECRET=your-google-client-secret \

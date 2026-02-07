@@ -6,7 +6,7 @@ const REQUIRED_ENV_VARS = [
   "FITBIT_CLIENT_SECRET",
   "ANTHROPIC_API_KEY",
   "APP_URL",
-  "ALLOWED_EMAIL",
+  "ALLOWED_EMAILS",
   "DATABASE_URL",
 ] as const;
 
@@ -24,4 +24,17 @@ export function validateRequiredEnvVars(): void {
     const message = `Missing required environment variables: ${missing.join(", ")}`;
     throw new Error(message);
   }
+}
+
+export function getAllowedEmails(): string[] {
+  const raw = getRequiredEnv("ALLOWED_EMAILS");
+  return raw
+    .split(",")
+    .map((email) => email.trim())
+    .filter((email) => email.length > 0);
+}
+
+export function isEmailAllowed(email: string): boolean {
+  const allowed = getAllowedEmails();
+  return allowed.some((a) => a.toLowerCase() === email.toLowerCase());
 }

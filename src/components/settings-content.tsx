@@ -7,7 +7,7 @@ import { Sun, Moon, Monitor, ArrowLeft } from "lucide-react";
 import useSWR from "swr";
 
 interface SessionInfo {
-  email: string;
+  email: string | null;
   fitbitConnected: boolean;
   expiresAt: number;
 }
@@ -61,7 +61,7 @@ export function SettingsContent() {
           )}
           {session && (
             <div className="flex flex-col gap-1 text-sm">
-              <p className="text-muted-foreground">{session.email}</p>
+              {session.email && <p className="text-muted-foreground">{session.email}</p>}
               <p>
                 Fitbit:{" "}
                 <span

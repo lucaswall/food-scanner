@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.stubEnv("GOOGLE_CLIENT_ID", "test-google-client-id");
 vi.stubEnv("GOOGLE_CLIENT_SECRET", "test-google-client-secret");
-vi.stubEnv("ALLOWED_EMAIL", "test@example.com");
+vi.stubEnv("ALLOWED_EMAILS", "test@example.com");
 
 vi.mock("@/lib/logger", () => ({
   logger: {

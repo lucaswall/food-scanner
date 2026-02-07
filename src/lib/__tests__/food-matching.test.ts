@@ -145,7 +145,7 @@ describe("findMatchingFoods", () => {
   it("returns empty array when no custom foods exist", async () => {
     mockGroupBy.mockResolvedValue([]);
 
-    const result = await findMatchingFoods("test@example.com", {
+    const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
       unit_id: 91,
@@ -183,7 +183,7 @@ describe("findMatchingFoods", () => {
       },
     ]);
 
-    const result = await findMatchingFoods("test@example.com", {
+    const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
       unit_id: 91,
@@ -221,7 +221,7 @@ describe("findMatchingFoods", () => {
       },
     ]);
 
-    const result = await findMatchingFoods("test@example.com", {
+    const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
       unit_id: 91,
@@ -291,7 +291,7 @@ describe("findMatchingFoods", () => {
       },
     ]);
 
-    const result = await findMatchingFoods("test@example.com", {
+    const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
       unit_id: 91,
@@ -336,7 +336,7 @@ describe("findMatchingFoods", () => {
     }));
     mockGroupBy.mockResolvedValue(foods);
 
-    const result = await findMatchingFoods("test@example.com", {
+    const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
       unit_id: 91,
@@ -374,7 +374,7 @@ describe("findMatchingFoods", () => {
       },
     ]);
 
-    const result = await findMatchingFoods("test@example.com", {
+    const result = await findMatchingFoods("user-uuid-123", {
       food_name: "Tea with milk",
       amount: 1,
       unit_id: 91,
@@ -414,7 +414,7 @@ describe("findMatchingFoods", () => {
         },
       ]);
 
-      const result = await findMatchingFoods("test@example.com", {
+      const result = await findMatchingFoods("user-uuid-123", {
         food_name: "Tea with milk",
         amount: 1,
         unit_id: 91,

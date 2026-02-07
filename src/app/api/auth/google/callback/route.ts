@@ -5,8 +5,15 @@ import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
 import { createSession } from "@/lib/session-db";
 import { getFitbitTokens } from "@/lib/fitbit-tokens";
-import { getRequiredEnv } from "@/lib/env";
+import { isEmailAllowed } from "@/lib/env";
+import { getOrCreateUser } from "@/lib/users";
 import { checkRateLimit } from "@/lib/rate-limit";
+
+function maskEmail(email: string): string {
+  const atIndex = email.indexOf("@");
+  if (atIndex <= 0) return "***";
+  return `${email[0]}***${email.slice(atIndex)}`;
+}
 
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
@@ -56,23 +63,23 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Failed to fetch user profile", 400);
   }
 
-  const allowedEmail = getRequiredEnv("ALLOWED_EMAIL");
-  if (profile.email !== allowedEmail) {
-    logger.warn({ action: "google_unauthorized_email", email: profile.email.replace(/^(.)(.*)(@.*)$/, "$1***$3") }, "unauthorized email attempted login");
+  if (!isEmailAllowed(profile.email)) {
+    logger.warn({ action: "google_unauthorized_email", email: maskEmail(profile.email) }, "unauthorized email attempted login");
     return errorResponse("AUTH_INVALID_EMAIL", "Unauthorized email address", 403);
   }
 
-  // Create DB session and store session ID in cookie
-  const sessionId = await createSession(profile.email);
+  // Create or find user record, then create DB session
+  const user = await getOrCreateUser(profile.email, profile.name);
+  const sessionId = await createSession(user.id);
   rawSession.sessionId = sessionId;
   // Clear the OAuth state from session
   delete rawSession.oauthState;
   await rawSession.save();
 
-  logger.info({ action: "google_login_success", email: profile.email }, "google login successful");
+  logger.info({ action: "google_login_success", email: maskEmail(profile.email) }, "google login successful");
 
   // Redirect: if no Fitbit tokens in DB, go to Fitbit OAuth; otherwise /app
-  const fitbitTokens = await getFitbitTokens(profile.email);
+  const fitbitTokens = await getFitbitTokens(user.id);
   const redirectTo = fitbitTokens ? "/app" : "/api/auth/fitbit";
   return Response.redirect(buildUrl(redirectTo), 302);
 }

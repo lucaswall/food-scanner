@@ -6,17 +6,17 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface SessionRow {
   id: string;
-  email: string;
+  userId: string;
   createdAt: Date;
   expiresAt: Date;
 }
 
-export async function createSession(email: string): Promise<string> {
+export async function createSession(userId: string): Promise<string> {
   const db = getDb();
   const expiresAt = new Date(Date.now() + THIRTY_DAYS_MS);
   const rows = await db
     .insert(sessions)
-    .values({ email, expiresAt })
+    .values({ userId, expiresAt })
     .returning({ id: sessions.id });
   const row = rows[0];
   if (!row) throw new Error("Failed to create session: no row returned");

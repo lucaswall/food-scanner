@@ -5,7 +5,7 @@ import { encryptToken, decryptToken } from "@/lib/token-encryption";
 
 export interface FitbitTokenRow {
   id: number;
-  email: string;
+  userId: string;
   fitbitUserId: string;
   accessToken: string;
   refreshToken: string;
@@ -13,9 +13,9 @@ export interface FitbitTokenRow {
   updatedAt: Date;
 }
 
-export async function getFitbitTokens(email: string): Promise<FitbitTokenRow | null> {
+export async function getFitbitTokens(userId: string): Promise<FitbitTokenRow | null> {
   const db = getDb();
-  const rows = await db.select().from(fitbitTokens).where(eq(fitbitTokens.email, email));
+  const rows = await db.select().from(fitbitTokens).where(eq(fitbitTokens.userId, userId));
   const row = rows[0];
   if (!row) return null;
   const accessToken = decryptToken(row.accessToken);
@@ -24,7 +24,7 @@ export async function getFitbitTokens(email: string): Promise<FitbitTokenRow | n
 }
 
 export async function upsertFitbitTokens(
-  email: string,
+  userId: string,
   data: {
     fitbitUserId: string;
     accessToken: string;
@@ -39,7 +39,7 @@ export async function upsertFitbitTokens(
   await db
     .insert(fitbitTokens)
     .values({
-      email,
+      userId,
       fitbitUserId: data.fitbitUserId,
       accessToken: encryptedAccessToken,
       refreshToken: encryptedRefreshToken,
@@ -47,7 +47,7 @@ export async function upsertFitbitTokens(
       updatedAt: now,
     })
     .onConflictDoUpdate({
-      target: fitbitTokens.email,
+      target: fitbitTokens.userId,
       set: {
         fitbitUserId: data.fitbitUserId,
         accessToken: encryptedAccessToken,
@@ -58,7 +58,7 @@ export async function upsertFitbitTokens(
     });
 }
 
-export async function deleteFitbitTokens(email: string): Promise<void> {
+export async function deleteFitbitTokens(userId: string): Promise<void> {
   const db = getDb();
-  await db.delete(fitbitTokens).where(eq(fitbitTokens.email, email));
+  await db.delete(fitbitTokens).where(eq(fitbitTokens.userId, userId));
 }

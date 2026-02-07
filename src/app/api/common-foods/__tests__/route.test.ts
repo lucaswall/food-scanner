@@ -37,7 +37,7 @@ describe("GET /api/common-foods", () => {
   it("returns common foods for authenticated user", async () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       fitbitConnected: true,
     });
 
@@ -66,7 +66,7 @@ describe("GET /api/common-foods", () => {
     expect(data.data.foods).toHaveLength(1);
     expect(data.data.foods[0].foodName).toBe("Chicken");
     expect(mockGetCommonFoods).toHaveBeenCalledWith(
-      "test@example.com",
+      "user-uuid-123",
       expect.stringMatching(/^\d{2}:\d{2}:\d{2}$/),
     );
   });
@@ -89,7 +89,7 @@ describe("GET /api/common-foods", () => {
   it("returns empty array when no history", async () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       fitbitConnected: true,
     });
 
@@ -106,7 +106,7 @@ describe("GET /api/common-foods", () => {
   it("returns 500 when getCommonFoods throws", async () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       fitbitConnected: true,
     });
 

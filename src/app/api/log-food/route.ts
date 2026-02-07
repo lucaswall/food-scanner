@@ -155,7 +155,7 @@ export async function POST(request: Request) {
 
     if (body.reuseCustomFoodId) {
       // Reuse flow: skip food creation, use existing custom food
-      const existingFood = await getCustomFoodById(session!.email, body.reuseCustomFoodId);
+      const existingFood = await getCustomFoodById(session!.userId, body.reuseCustomFoodId);
       if (!existingFood) {
         return errorResponse(
           "VALIDATION_ERROR",
@@ -175,7 +175,7 @@ export async function POST(request: Request) {
       let fitbitLogId: number | undefined;
 
       if (!isDryRun) {
-        const accessToken = await ensureFreshToken(session!.email);
+        const accessToken = await ensureFreshToken(session!.userId);
         const logResult = await logFood(
           accessToken,
           existingFood.fitbitFoodId!,
@@ -190,7 +190,7 @@ export async function POST(request: Request) {
 
       // Log entry only (no new custom_food)
       try {
-        const logEntryResult = await insertFoodLogEntry(session!.email, {
+        const logEntryResult = await insertFoodLogEntry(session!.userId, {
           customFoodId: existingFood.id,
           mealTypeId: body.mealTypeId,
           amount: Number(existingFood.amount),
@@ -237,7 +237,7 @@ export async function POST(request: Request) {
     let reused = false;
 
     if (!isDryRun) {
-      const accessToken = await ensureFreshToken(session!.email);
+      const accessToken = await ensureFreshToken(session!.userId);
       const createResult = await findOrCreateFood(accessToken, body);
       fitbitFoodId = createResult.foodId;
       reused = createResult.reused;
@@ -256,7 +256,7 @@ export async function POST(request: Request) {
 
     // Log to database (non-fatal — Fitbit is the primary operation)
     try {
-      const customFoodResult = await insertCustomFood(session!.email, {
+      const customFoodResult = await insertCustomFood(session!.userId, {
         foodName: body.food_name,
         amount: body.amount,
         unitId: body.unit_id,
@@ -272,7 +272,7 @@ export async function POST(request: Request) {
         keywords: body.keywords,
       });
 
-      const logEntryResult = await insertFoodLogEntry(session!.email, {
+      const logEntryResult = await insertFoodLogEntry(session!.userId, {
         customFoodId: customFoodResult.id,
         mealTypeId: body.mealTypeId,
         amount: body.amount,

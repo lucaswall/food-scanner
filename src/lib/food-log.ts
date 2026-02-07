@@ -30,14 +30,14 @@ export interface FoodLogEntryInput {
 }
 
 export async function insertCustomFood(
-  email: string,
+  userId: string,
   data: CustomFoodInput,
 ): Promise<{ id: number; createdAt: Date }> {
   const db = getDb();
   const rows = await db
     .insert(customFoods)
     .values({
-      email,
+      userId,
       foodName: data.foodName,
       amount: String(data.amount),
       unitId: data.unitId,
@@ -60,14 +60,14 @@ export async function insertCustomFood(
 }
 
 export async function insertFoodLogEntry(
-  email: string,
+  userId: string,
   data: FoodLogEntryInput,
 ): Promise<{ id: number; loggedAt: Date }> {
   const db = getDb();
   const rows = await db
     .insert(foodLogEntries)
     .values({
-      email,
+      userId,
       customFoodId: data.customFoodId,
       mealTypeId: data.mealTypeId,
       amount: String(data.amount),
@@ -83,12 +83,12 @@ export async function insertFoodLogEntry(
   return row;
 }
 
-export async function getCustomFoodById(email: string, id: number) {
+export async function getCustomFoodById(userId: string, id: number) {
   const db = getDb();
   const rows = await db
     .select()
     .from(customFoods)
-    .where(and(eq(customFoods.id, id), eq(customFoods.email, email)));
+    .where(and(eq(customFoods.id, id), eq(customFoods.userId, userId)));
 
   return rows[0] ?? null;
 }
@@ -105,7 +105,7 @@ function circularTimeDiff(a: number, b: number): number {
 }
 
 export async function getCommonFoods(
-  email: string,
+  userId: string,
   currentTime: string,
 ): Promise<CommonFood[]> {
   const db = getDb();
@@ -120,7 +120,7 @@ export async function getCommonFoods(
     .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
     .where(
       and(
-        eq(foodLogEntries.email, email),
+        eq(foodLogEntries.userId, userId),
         ...(process.env.FITBIT_DRY_RUN !== "true" ? [isNotNull(customFoods.fitbitFoodId)] : []),
         gte(foodLogEntries.date, cutoffDate),
       ),
@@ -167,13 +167,13 @@ export async function getCommonFoods(
 }
 
 export async function getFoodLogHistory(
-  email: string,
+  userId: string,
   options: { endDate?: string; cursor?: { lastDate: string; lastTime: string | null; lastId: number }; limit?: number },
 ): Promise<FoodLogHistoryEntry[]> {
   const db = getDb();
   const limit = options.limit ?? 20;
 
-  const conditions = [eq(foodLogEntries.email, email)];
+  const conditions = [eq(foodLogEntries.userId, userId)];
   if (options.endDate) {
     conditions.push(lte(foodLogEntries.date, options.endDate));
   }
@@ -223,25 +223,25 @@ export async function getFoodLogHistory(
   }));
 }
 
-export async function getFoodLogEntry(email: string, id: number) {
+export async function getFoodLogEntry(userId: string, id: number) {
   const db = getDb();
   const rows = await db
     .select()
     .from(foodLogEntries)
-    .where(and(eq(foodLogEntries.id, id), eq(foodLogEntries.email, email)));
+    .where(and(eq(foodLogEntries.id, id), eq(foodLogEntries.userId, userId)));
 
   return rows[0] ?? null;
 }
 
 export async function deleteFoodLogEntry(
-  email: string,
+  userId: string,
   entryId: number,
 ): Promise<{ fitbitLogId: number | null } | null> {
   const db = getDb();
   const rows = await db
     .delete(foodLogEntries)
     .where(
-      and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.email, email)),
+      and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)),
     )
     .returning({ fitbitLogId: foodLogEntries.fitbitLogId });
 

@@ -37,7 +37,7 @@ const { POST } = await import("@/app/api/find-matches/route");
 
 const validSession: FullSession = {
   sessionId: "test-session",
-  email: "test@example.com",
+  userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: true,
   destroy: vi.fn(),
@@ -172,7 +172,7 @@ describe("POST /api/find-matches", () => {
     expect(body.data.matches).toHaveLength(3);
     expect(body.data.matches[0].customFoodId).toBe(1);
     expect(body.data.matches[0].matchRatio).toBe(1.0);
-    expect(mockFindMatchingFoods).toHaveBeenCalledWith("test@example.com", validBody);
+    expect(mockFindMatchingFoods).toHaveBeenCalledWith("user-uuid-123", validBody);
   });
 
   it("returns 400 when keywords present but nutrient fields missing", async () => {

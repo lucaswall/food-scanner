@@ -74,7 +74,7 @@ describe("insertCustomFood", () => {
     const createdAt = new Date("2026-02-05T12:00:00Z");
     mockReturning.mockResolvedValue([{ id: 42, createdAt }]);
 
-    const result = await insertCustomFood("test@example.com", {
+    const result = await insertCustomFood("user-uuid-123", {
       foodName: "Grilled Chicken",
       amount: 150,
       unitId: 147,
@@ -93,7 +93,7 @@ describe("insertCustomFood", () => {
     expect(mockInsert).toHaveBeenCalled();
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: "test@example.com",
+        userId: "user-uuid-123",
         foodName: "Grilled Chicken",
         amount: "150",
         unitId: 147,
@@ -114,7 +114,7 @@ describe("insertCustomFood", () => {
     const createdAt = new Date("2026-02-05T18:00:00Z");
     mockReturning.mockResolvedValue([{ id: 99, createdAt }]);
 
-    const result = await insertCustomFood("test@example.com", {
+    const result = await insertCustomFood("user-uuid-123", {
       foodName: "Salad",
       amount: 200,
       unitId: 147,
@@ -136,7 +136,7 @@ describe("insertCustomFood", () => {
     const createdAt = new Date();
     mockReturning.mockResolvedValue([{ id: 1, createdAt }]);
 
-    const result = await insertCustomFood("test@example.com", {
+    const result = await insertCustomFood("user-uuid-123", {
       foodName: "Apple",
       amount: 1,
       unitId: 304,
@@ -164,7 +164,7 @@ describe("insertCustomFood", () => {
     const createdAt = new Date();
     mockReturning.mockResolvedValue([{ id: 1, createdAt }]);
 
-    await insertCustomFood("test@example.com", {
+    await insertCustomFood("user-uuid-123", {
       foodName: "Tea",
       amount: 1,
       unitId: 91,
@@ -190,7 +190,7 @@ describe("insertCustomFood", () => {
     const createdAt = new Date();
     mockReturning.mockResolvedValue([{ id: 50, createdAt }]);
 
-    await insertCustomFood("test@example.com", {
+    await insertCustomFood("user-uuid-123", {
       foodName: "Tea with milk",
       amount: 1,
       unitId: 91,
@@ -216,7 +216,7 @@ describe("insertCustomFood", () => {
     const createdAt = new Date();
     mockReturning.mockResolvedValue([{ id: 51, createdAt }]);
 
-    await insertCustomFood("test@example.com", {
+    await insertCustomFood("user-uuid-123", {
       foodName: "Apple",
       amount: 1,
       unitId: 304,
@@ -241,7 +241,7 @@ describe("insertCustomFood", () => {
     const createdAt = new Date();
     mockReturning.mockResolvedValue([{ id: 7, createdAt }]);
 
-    await insertCustomFood("test@example.com", {
+    await insertCustomFood("user-uuid-123", {
       foodName: "Rice",
       amount: 0.5,
       unitId: 91,
@@ -273,7 +273,7 @@ describe("insertFoodLogEntry", () => {
     const loggedAt = new Date("2026-02-05T12:00:00Z");
     mockReturning.mockResolvedValue([{ id: 10, loggedAt }]);
 
-    const result = await insertFoodLogEntry("test@example.com", {
+    const result = await insertFoodLogEntry("user-uuid-123", {
       customFoodId: 42,
       mealTypeId: 5,
       amount: 150,
@@ -287,7 +287,7 @@ describe("insertFoodLogEntry", () => {
     expect(mockInsert).toHaveBeenCalled();
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
-        email: "test@example.com",
+        userId: "user-uuid-123",
         customFoodId: 42,
         mealTypeId: 5,
         amount: "150",
@@ -303,7 +303,7 @@ describe("insertFoodLogEntry", () => {
     const loggedAt = new Date("2026-02-05T18:00:00Z");
     mockReturning.mockResolvedValue([{ id: 77, loggedAt }]);
 
-    const result = await insertFoodLogEntry("test@example.com", {
+    const result = await insertFoodLogEntry("user-uuid-123", {
       customFoodId: 1,
       mealTypeId: 3,
       amount: 200,
@@ -320,7 +320,7 @@ describe("insertFoodLogEntry", () => {
     const loggedAt = new Date();
     mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
 
-    const result = await insertFoodLogEntry("test@example.com", {
+    const result = await insertFoodLogEntry("user-uuid-123", {
       customFoodId: 5,
       mealTypeId: 2,
       amount: 1,
@@ -343,7 +343,7 @@ describe("insertFoodLogEntry", () => {
     const loggedAt = new Date();
     mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
 
-    await insertFoodLogEntry("test@example.com", {
+    await insertFoodLogEntry("user-uuid-123", {
       customFoodId: 1,
       mealTypeId: 5,
       amount: 0.5,
@@ -361,10 +361,10 @@ describe("insertFoodLogEntry", () => {
 });
 
 describe("getCustomFoodById", () => {
-  it("returns the food with correct fields for existing ID and matching email", async () => {
+  it("returns the food with correct fields for existing ID and matching userId", async () => {
     const mockFood = {
       id: 42,
-      email: "test@example.com",
+      userId: "user-uuid-123",
       foodName: "Tea with milk",
       amount: "1",
       unitId: 91,
@@ -382,7 +382,7 @@ describe("getCustomFoodById", () => {
     };
     mockWhere.mockResolvedValue([mockFood]);
 
-    const result = await getCustomFoodById("test@example.com", 42);
+    const result = await getCustomFoodById("user-uuid-123", 42);
 
     expect(result).toEqual(mockFood);
     expect(mockSelect).toHaveBeenCalled();
@@ -393,15 +393,15 @@ describe("getCustomFoodById", () => {
   it("returns null for non-existent ID", async () => {
     mockWhere.mockResolvedValue([]);
 
-    const result = await getCustomFoodById("test@example.com", 999);
+    const result = await getCustomFoodById("user-uuid-123", 999);
 
     expect(result).toBeNull();
   });
 
-  it("returns null for food belonging to a different email", async () => {
+  it("returns null for food belonging to a different userId", async () => {
     mockWhere.mockResolvedValue([]);
 
-    const result = await getCustomFoodById("other@example.com", 42);
+    const result = await getCustomFoodById("other-user-uuid", 42);
 
     expect(result).toBeNull();
   });
@@ -428,7 +428,7 @@ describe("getCommonFoods", () => {
     return {
       food_log_entries: {
         id: Math.floor(Math.random() * 1000),
-        email: "test@example.com",
+        userId: "user-uuid-123",
         customFoodId: overrides.customFoodId,
         mealTypeId: overrides.mealTypeId,
         amount: overrides.amount ?? "150",
@@ -440,7 +440,7 @@ describe("getCommonFoods", () => {
       },
       custom_foods: {
         id: overrides.customFoodId,
-        email: "test@example.com",
+        userId: "user-uuid-123",
         foodName: overrides.foodName,
         amount: overrides.amount ?? "150",
         unitId: overrides.unitId ?? 147,
@@ -470,7 +470,7 @@ describe("getCommonFoods", () => {
       makeRow({ customFoodId: 3, foodName: "Late Morning Snack", time: "11:00:00", date: "2026-02-05", fitbitFoodId: 102, mealTypeId: 2 }),
     ]);
 
-    const result = await getCommonFoods("test@example.com", "12:00:00");
+    const result = await getCommonFoods("user-uuid-123", "12:00:00");
 
     expect(result).toHaveLength(3);
     expect(result[0].foodName).toBe("Lunch Chicken");       // 30 min diff
@@ -489,7 +489,7 @@ describe("getCommonFoods", () => {
       makeRow({ customFoodId: 2, foodName: "Salad", time: "12:30:00", date: "2026-02-05", fitbitFoodId: 101, mealTypeId: 3 }),
     ]);
 
-    const result = await getCommonFoods("test@example.com", "12:00:00");
+    const result = await getCommonFoods("user-uuid-123", "12:00:00");
 
     expect(result).toHaveLength(2);
     // Chicken should use the 11:45 entry (15 min diff) with mealTypeId 3
@@ -511,7 +511,7 @@ describe("getCommonFoods", () => {
     );
     mockWhere.mockResolvedValue(rows);
 
-    const result = await getCommonFoods("test@example.com", "12:00:00");
+    const result = await getCommonFoods("user-uuid-123", "12:00:00");
 
     expect(result).toHaveLength(5);
   });
@@ -519,7 +519,7 @@ describe("getCommonFoods", () => {
   it("returns empty array when no entries exist", async () => {
     mockWhere.mockResolvedValue([]);
 
-    const result = await getCommonFoods("test@example.com", "12:00:00");
+    const result = await getCommonFoods("user-uuid-123", "12:00:00");
 
     expect(result).toEqual([]);
   });
@@ -533,7 +533,7 @@ describe("getCommonFoods", () => {
       makeRow({ customFoodId: 2, foodName: "Dinner", time: "20:00:00", date: "2026-02-05", fitbitFoodId: 101, mealTypeId: 5 }),
     ]);
 
-    const result = await getCommonFoods("test@example.com", "23:30:00");
+    const result = await getCommonFoods("user-uuid-123", "23:30:00");
 
     expect(result).toHaveLength(2);
     expect(result[0].foodName).toBe("Late Night Snack"); // 60 min circular
@@ -559,7 +559,7 @@ describe("getCommonFoods", () => {
       }),
     ]);
 
-    const result = await getCommonFoods("test@example.com", "12:00:00");
+    const result = await getCommonFoods("user-uuid-123", "12:00:00");
 
     expect(result[0].amount).toBe(0.5);
     expect(result[0].proteinG).toBe(5.5);
@@ -579,7 +579,7 @@ describe("getCommonFoods", () => {
       makeRow({ customFoodId: 2, foodName: "Noon Food", time: "12:00:00", date: "2026-02-05", fitbitFoodId: 101, mealTypeId: 3 }),
     ]);
 
-    const result = await getCommonFoods("test@example.com", "00:30:00");
+    const result = await getCommonFoods("user-uuid-123", "00:30:00");
 
     expect(result).toHaveLength(2);
     expect(result[0].foodName).toBe("Timeless Food"); // 30 min diff
@@ -593,7 +593,7 @@ describe("getCommonFoods", () => {
         makeRow({ customFoodId: 1, foodName: "Dry Run Food", time: "12:00:00", date: "2026-02-05", fitbitFoodId: null as unknown as number, mealTypeId: 3 }),
       ]);
 
-      const result = await getCommonFoods("test@example.com", "12:00:00");
+      const result = await getCommonFoods("user-uuid-123", "12:00:00");
 
       expect(result).toHaveLength(1);
       expect(result[0].foodName).toBe("Dry Run Food");
@@ -622,7 +622,7 @@ describe("getFoodLogHistory", () => {
     return {
       food_log_entries: {
         id: overrides.id,
-        email: "test@example.com",
+        userId: "user-uuid-123",
         customFoodId: overrides.id,
         mealTypeId: overrides.mealTypeId ?? 3,
         amount: overrides.amount ?? "150",
@@ -634,7 +634,7 @@ describe("getFoodLogHistory", () => {
       },
       custom_foods: {
         id: overrides.id,
-        email: "test@example.com",
+        userId: "user-uuid-123",
         foodName: overrides.foodName,
         amount: overrides.amount ?? "150",
         unitId: overrides.unitId ?? 147,
@@ -658,7 +658,7 @@ describe("getFoodLogHistory", () => {
       makeHistoryRow({ id: 1, foodName: "Chicken", date: "2026-02-05", time: "12:30:00", mealTypeId: 3, fitbitLogId: 456 }),
     ]);
 
-    const result = await getFoodLogHistory("test@example.com", {});
+    const result = await getFoodLogHistory("user-uuid-123", {});
 
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({
@@ -682,7 +682,7 @@ describe("getFoodLogHistory", () => {
   it("returns empty array when no entries exist", async () => {
     mockLimit.mockResolvedValue([]);
 
-    const result = await getFoodLogHistory("test@example.com", {});
+    const result = await getFoodLogHistory("user-uuid-123", {});
 
     expect(result).toEqual([]);
   });
@@ -702,7 +702,7 @@ describe("getFoodLogHistory", () => {
       }),
     ]);
 
-    const result = await getFoodLogHistory("test@example.com", {});
+    const result = await getFoodLogHistory("user-uuid-123", {});
 
     expect(result[0].amount).toBe(0.5);
     expect(result[0].proteinG).toBe(5.5);
@@ -717,7 +717,7 @@ describe("getFoodLogHistory", () => {
       makeHistoryRow({ id: 1, foodName: "Apple", date: "2026-02-05", time: null, fitbitLogId: null }),
     ]);
 
-    const result = await getFoodLogHistory("test@example.com", {});
+    const result = await getFoodLogHistory("user-uuid-123", {});
 
     expect(result[0].time).toBeNull();
     expect(result[0].fitbitLogId).toBeNull();
@@ -733,7 +733,7 @@ describe("getFoodLogHistory", () => {
     ];
     mockLimit.mockResolvedValue(page2Rows);
 
-    const result = await getFoodLogHistory("test@example.com", {
+    const result = await getFoodLogHistory("user-uuid-123", {
       cursor: { lastDate: "2026-02-05", lastTime: "14:00:00", lastId: 50 },
       limit: 20,
     });
@@ -753,7 +753,7 @@ describe("getFoodLogHistory", () => {
     ];
     mockLimit.mockResolvedValue(rows);
 
-    const result = await getFoodLogHistory("test@example.com", {
+    const result = await getFoodLogHistory("user-uuid-123", {
       cursor: { lastDate: "2026-02-05", lastTime: null, lastId: 10 },
       limit: 20,
     });
@@ -774,7 +774,7 @@ describe("getFoodLogHistory", () => {
     ];
     mockLimit.mockResolvedValue(rows);
 
-    const result = await getFoodLogHistory("test@example.com", {
+    const result = await getFoodLogHistory("user-uuid-123", {
       cursor: { lastDate: "2026-02-05", lastTime: "14:00:00", lastId: 50 },
       limit: 20,
     });
@@ -790,7 +790,7 @@ describe("getFoodLogHistory", () => {
     mockLimit.mockResolvedValue([]);
 
     // Calling with cursor instead of the old afterId
-    const result = await getFoodLogHistory("test@example.com", {
+    const result = await getFoodLogHistory("user-uuid-123", {
       cursor: { lastDate: "2026-02-05", lastTime: "12:00:00", lastId: 5 },
     });
 
@@ -799,11 +799,11 @@ describe("getFoodLogHistory", () => {
 });
 
 describe("getFoodLogEntry", () => {
-  it("returns the entry for existing id and matching email", async () => {
+  it("returns the entry for existing id and matching userId", async () => {
     mockWhere.mockResolvedValue([
       {
         id: 5,
-        email: "test@example.com",
+        userId: "user-uuid-123",
         customFoodId: 10,
         mealTypeId: 3,
         amount: "150",
@@ -815,7 +815,7 @@ describe("getFoodLogEntry", () => {
       },
     ]);
 
-    const result = await getFoodLogEntry("test@example.com", 5);
+    const result = await getFoodLogEntry("user-uuid-123", 5);
 
     expect(result).not.toBeNull();
     expect(result!.id).toBe(5);
@@ -825,7 +825,7 @@ describe("getFoodLogEntry", () => {
   it("returns null for non-existent id", async () => {
     mockWhere.mockResolvedValue([]);
 
-    const result = await getFoodLogEntry("test@example.com", 999);
+    const result = await getFoodLogEntry("user-uuid-123", 999);
 
     expect(result).toBeNull();
   });
@@ -837,7 +837,7 @@ describe("deleteFoodLogEntry", () => {
     mockWhere.mockResolvedValueOnce([
       {
         id: 5,
-        email: "test@example.com",
+        userId: "user-uuid-123",
         customFoodId: 10,
         mealTypeId: 3,
         amount: "150",
@@ -851,7 +851,7 @@ describe("deleteFoodLogEntry", () => {
     // Second call is the delete returning
     mockDeleteReturning.mockResolvedValue([{ fitbitLogId: 789 }]);
 
-    const result = await deleteFoodLogEntry("test@example.com", 5);
+    const result = await deleteFoodLogEntry("user-uuid-123", 5);
 
     expect(result).toEqual({ fitbitLogId: 789 });
     expect(mockDelete).toHaveBeenCalled();
@@ -860,7 +860,7 @@ describe("deleteFoodLogEntry", () => {
   it("returns null when entry not found", async () => {
     mockDeleteReturning.mockResolvedValue([]);
 
-    const result = await deleteFoodLogEntry("test@example.com", 999);
+    const result = await deleteFoodLogEntry("user-uuid-123", 999);
 
     expect(result).toBeNull();
   });
@@ -869,7 +869,7 @@ describe("deleteFoodLogEntry", () => {
     mockWhere.mockResolvedValueOnce([
       {
         id: 5,
-        email: "test@example.com",
+        userId: "user-uuid-123",
         customFoodId: 10,
         mealTypeId: 3,
         amount: "150",
@@ -882,7 +882,7 @@ describe("deleteFoodLogEntry", () => {
     ]);
     mockDeleteReturning.mockResolvedValue([{ fitbitLogId: null }]);
 
-    const result = await deleteFoodLogEntry("test@example.com", 5);
+    const result = await deleteFoodLogEntry("user-uuid-123", 5);
 
     expect(result).toEqual({ fitbitLogId: null });
   });

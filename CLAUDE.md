@@ -8,9 +8,9 @@ Delete unused code immediately. No deprecation warnings needed.
 
 ## PROJECT OVERVIEW
 
-Single-user web application for logging food to Fitbit using AI-powered nutritional analysis. User takes photos of food, adds optional text description, Claude Sonnet analyzes nutrition information via tool_use, user confirms/edits, and data is posted directly to Fitbit API.
+Multi-user web application for logging food to Fitbit using AI-powered nutritional analysis. User takes photos of food, adds optional text description, Claude Sonnet analyzes nutrition information via tool_use, user confirms/edits, and data is posted directly to Fitbit API.
 
-**Single authorized user:** wall.lucas@gmail.com
+**Authorized users:** configured via `ALLOWED_EMAILS` env var
 **Database:** PostgreSQL via Drizzle ORM — sessions, Fitbit tokens, and food logs stored in DB. iron-session cookies used for session ID transport only.
 
 ---
@@ -194,7 +194,7 @@ food-scanner/
 
 ## SECURITY
 
-- **Single user only:** wall.lucas@gmail.com — enforced at Google OAuth callback
+- **Authorized users only** — enforced via `ALLOWED_EMAILS` allowlist at Google OAuth callback
 - **iron-session:** Encrypted httpOnly cookies (AES-256-CBC + HMAC-SHA-256)
 - **Cookie flags:** httpOnly, secure, sameSite: lax, 30-day expiry
 - **No public API surface** for unauthenticated users (except landing page and health check)
@@ -338,7 +338,7 @@ SESSION_SECRET=
 APP_URL=https://food.lucaswall.me
 
 # Auth
-ALLOWED_EMAIL=wall.lucas@gmail.com
+ALLOWED_EMAILS=wall.lucas@gmail.com
 
 # Logging (optional, defaults to info in production, debug in development)
 LOG_LEVEL=info

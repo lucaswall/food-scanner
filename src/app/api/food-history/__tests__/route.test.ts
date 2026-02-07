@@ -37,7 +37,7 @@ const { GET } = await import("@/app/api/food-history/route");
 
 const validSession: FullSession = {
   sessionId: "test-session",
-  email: "test@example.com",
+  userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: true,
   destroy: vi.fn(),
@@ -109,7 +109,7 @@ describe("GET /api/food-history", () => {
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.data.entries).toEqual(sampleEntries);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
@@ -124,7 +124,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: "2026-02-05",
       cursor: undefined,
       limit: 20,
@@ -139,7 +139,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
@@ -154,7 +154,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
@@ -171,7 +171,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: "12:30:00", lastId: 1 },
       limit: 20,
@@ -188,7 +188,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 5 },
       limit: 20,
@@ -205,7 +205,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 5 },
       limit: 20,
@@ -222,7 +222,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
@@ -237,7 +237,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 10,
@@ -252,7 +252,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 50,
@@ -266,7 +266,7 @@ describe("GET /api/food-history", () => {
     const request = createRequest("http://localhost:3000/api/food-history");
     await GET(request);
 
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
@@ -293,7 +293,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
@@ -310,7 +310,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 1 },
       limit: 20,
@@ -327,7 +327,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 1 },
       limit: 20,
@@ -342,7 +342,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 1,
@@ -357,7 +357,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: undefined,
       cursor: undefined,
       limit: 1,
@@ -374,7 +374,7 @@ describe("GET /api/food-history", () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-uuid-123", {
       endDate: "2026-02-06",
       cursor: { lastDate: "2026-02-05", lastTime: "12:00:00", lastId: 2 },
       limit: 10,

@@ -68,11 +68,11 @@ export async function getSession(): Promise<FullSession | null> {
     });
   }
 
-  const fitbitTokens = await getFitbitTokens(dbSession.email);
+  const fitbitTokens = await getFitbitTokens(dbSession.userId);
 
   return {
     sessionId: dbSession.id,
-    email: dbSession.email,
+    userId: dbSession.userId,
     expiresAt: dbSession.expiresAt.getTime(),
     fitbitConnected: fitbitTokens !== null,
     destroy: async () => {

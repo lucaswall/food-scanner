@@ -26,6 +26,11 @@ vi.mock("@/lib/session", () => ({
   },
 }));
 
+const mockGetUserById = vi.fn();
+vi.mock("@/lib/users", () => ({
+  getUserById: (...args: unknown[]) => mockGetUserById(...args),
+}));
+
 vi.mock("@/lib/logger", () => ({
   logger: {
     info: vi.fn(),
@@ -41,13 +46,14 @@ const { logger } = await import("@/lib/logger");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetUserById.mockResolvedValue({ id: "user-uuid-123", email: "test@example.com", name: "Test User" });
 });
 
 describe("GET /api/auth/session", () => {
   it("returns session info for valid session", async () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
       fitbitConnected: true,
       destroy: vi.fn(),
@@ -73,7 +79,7 @@ describe("GET /api/auth/session", () => {
   it("logs debug on session check", async () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",
-      email: "test@example.com",
+      userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
       fitbitConnected: false,
       destroy: vi.fn(),
@@ -94,5 +100,21 @@ describe("GET /api/auth/session", () => {
     // The mock validateSession doesn't call logger, so we just verify the 401
     const response = await GET();
     expect(response.status).toBe(401);
+  });
+
+  it("returns null email when user not found", async () => {
+    mockGetUserById.mockResolvedValue(null);
+    mockGetSession.mockResolvedValue({
+      sessionId: "test-session",
+      userId: "user-uuid-123",
+      expiresAt: Date.now() + 86400000,
+      fitbitConnected: false,
+      destroy: vi.fn(),
+    });
+
+    const response = await GET();
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.email).toBeNull();
   });
 });

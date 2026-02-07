@@ -409,24 +409,25 @@ export async function refreshFitbitToken(
   }
 }
 
-let refreshInFlight: Promise<string> | null = null;
+const refreshInFlight = new Map<string, Promise<string>>();
 
-export async function ensureFreshToken(email: string): Promise<string> {
-  const tokenRow = await getFitbitTokens(email);
+export async function ensureFreshToken(userId: string): Promise<string> {
+  const tokenRow = await getFitbitTokens(userId);
   if (!tokenRow) {
     throw new Error("FITBIT_TOKEN_INVALID");
   }
 
   // If token expires within 1 hour, refresh it
   if (tokenRow.expiresAt.getTime() < Date.now() + 60 * 60 * 1000) {
-    if (refreshInFlight) {
-      return refreshInFlight;
+    const existing = refreshInFlight.get(userId);
+    if (existing) {
+      return existing;
     }
 
-    refreshInFlight = (async () => {
+    const promise = (async () => {
       try {
         const tokens = await refreshFitbitToken(tokenRow.refreshToken);
-        await upsertFitbitTokens(email, {
+        await upsertFitbitTokens(userId, {
           fitbitUserId: tokens.user_id,
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
@@ -434,11 +435,12 @@ export async function ensureFreshToken(email: string): Promise<string> {
         });
         return tokens.access_token;
       } finally {
-        refreshInFlight = null;
+        refreshInFlight.delete(userId);
       }
     })();
 
-    return refreshInFlight;
+    refreshInFlight.set(userId, promise);
+    return promise;
   }
 
   return tokenRow.accessToken;

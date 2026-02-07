@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     const parsedLimit = limitParam ? parseInt(limitParam, 10) : NaN;
     const limit = Number.isNaN(parsedLimit) ? 20 : Math.max(1, Math.min(parsedLimit, 50));
 
-    const entries = await getFoodLogHistory(session!.email, { endDate, cursor, limit });
+    const entries = await getFoodLogHistory(session!.userId, { endDate, cursor, limit });
 
     return successResponse({ entries });
   } catch (error) {
