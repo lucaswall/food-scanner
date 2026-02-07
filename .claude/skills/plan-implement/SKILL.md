@@ -341,8 +341,8 @@ If `TeamCreate` fails (agent teams unavailable), implement the plan sequentially
 **MANDATORY:** After team cleanup (or after documenting results in single-agent mode), commit all local changes and push to remote.
 
 **Steps:**
-1. Stage all modified files: `git add -A`
-2. Create commit with message format:
+1. Stage modified files: `git status --porcelain=v1`, then `git add <file> ...` for each changed file — **skip** files matching `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
+2. Create commit with message format (do **not** include `Co-Authored-By` tags):
    ```
    plan: implement iteration N - [brief summary]
 
@@ -395,3 +395,5 @@ If `TeamCreate` fails (agent teams unavailable), implement the plan sequentially
 - **Cap at 4 workers** — More workers = more overhead, diminishing returns
 - **Lead does NOT implement** — Delegate all implementation to workers. Lead only coordinates, verifies, and documents. (Does not apply in single-agent fallback mode.)
 - **Lead runs all CLI generators** — Tasks involving `drizzle-kit generate`, `prisma generate`, or similar CLI tools that produce generated files (migrations, snapshots) are reserved for the lead in the post-implementation phase. Workers must never hand-write these files.
+- **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
+- **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`

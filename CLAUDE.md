@@ -242,11 +242,10 @@ The app is configured as a Progressive Web App for "Add to Home Screen" function
 | Agent | Model | Purpose | Trigger |
 |-------|-------|---------|---------|
 | **verifier** | Haiku | Test + build validation | Proactively after code changes, "run tests" |
-| **commit-bot** | Sonnet | Create commits | Only when explicitly requested |
 | **pr-creator** | Sonnet | Full PR workflow | Only when explicitly requested |
 | **bug-hunter** | Opus | Code review for bugs | Proactively before commits |
 
-**Critical rule:** Git agents (commit-bot, pr-creator) only commit/PR when **explicitly requested** by the user. Never auto-commit.
+**Critical rule:** pr-creator only creates PRs when **explicitly requested** by the user. Never auto-commit or auto-PR.
 
 ---
 
@@ -340,5 +339,5 @@ LOG_LEVEL=info
 - **Touch targets** — All interactive elements (buttons, links) must be at least 44px x 44px
 - **Same-origin deployment** — No CORS, no cross-domain cookie issues
 - **Keep documentation current** — When making changes that affect project structure, APIs, environment variables, setup steps, or deployment, update all relevant documentation files (`CLAUDE.md`, `README.md`, `DEVELOPMENT.md`) in the same changeset. Documentation must never drift from the actual codebase.
-- **No co-author attribution in commits** — Commit messages must NOT include `Co-Authored-By` tags. This applies to all commits created by agents (commit-bot, pr-creator) and skills.
+- **No co-author attribution in commits** — Commit messages must NOT include `Co-Authored-By` tags. This applies to all commits created by agents (pr-creator) and skills.
 - **Zero warnings policy** — Build and lint must produce zero warnings. Fix all warnings immediately, including pre-existing ones. Use framework-appropriate solutions (e.g., `next/image` instead of `<img>`).

@@ -275,7 +275,7 @@ When investigation and planning are complete:
    - Files affected
    - Linear issue created (FOO-xxx)
 
-2. **Create branch, commit, and push:**
+2. **Create branch, commit (no `Co-Authored-By` tags), and push:**
    ```bash
    git checkout -b fix/FOO-xxx-brief-description && git add PLANS.md && git commit -m "plan(FOO-xxx): add fix plan for brief description" && git push -u origin fix/FOO-xxx-brief-description
    ```

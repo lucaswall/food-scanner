@@ -285,14 +285,14 @@ If `TeamCreate` fails, perform the review as a single agent:
 **MANDATORY:** Before ending, commit all local changes and push to remote.
 
 ### For Incomplete Plans
-1. `git add -A`
-2. Commit: `plan: review iteration N - [issues found | no issues]`
+1. Stage modified files: `git status --porcelain=v1`, then `git add <file> ...` — **skip** `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
+2. Commit (no `Co-Authored-By` tags): `plan: review iteration N - [issues found | no issues]`
 3. `git push`
 4. Inform user to run `/plan-implement`
 
 ### For Complete Plans
-1. `git add -A`
-2. Commit: `plan: mark [plan-name] complete`
+1. Stage modified files: `git status --porcelain=v1`, then `git add <file> ...` — **skip** `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
+2. Commit (no `Co-Authored-By` tags): `plan: mark [plan-name] complete`
 3. `git push`
 4. Create PR using the `pr-creator` subagent
 5. Inform user with PR URL
@@ -313,3 +313,5 @@ If `TeamCreate` fails, perform the review as a single agent:
 - **Always commit and push at termination** — Never end without committing progress
 - **Create PR when plan is complete** — Use pr-creator subagent for final PR
 - **Lead handles all Linear/git writes** — Reviewers NEVER create issues or modify PLANS.md
+- **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
+- **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`

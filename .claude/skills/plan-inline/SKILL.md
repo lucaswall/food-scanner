@@ -316,7 +316,7 @@ Create a feature branch and commit the plan.
    - Branch name should be kebab-case, derived from the plan objective
    - Example: `feat/nutritional-score-calculator`, `refactor/extract-common-scanner-utils`
 
-2. Stage, commit, and push:
+2. Stage, commit (no `Co-Authored-By` tags), and push:
 ```bash
 git checkout -b <type>/<task-description> && git add PLANS.md && git commit -m "plan: <task-description>" && git push -u origin <type>/<task-description>
 ```

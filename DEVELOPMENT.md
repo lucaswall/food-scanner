@@ -172,7 +172,6 @@ This project uses Claude Code with custom agents and skills for development:
 
 ### Agents
 - **verifier** — Runs tests and build validation (use proactively)
-- **commit-bot** — Creates commits (only when asked)
 - **pr-creator** — Full PR workflow (only when asked)
 - **bug-hunter** — Reviews code for bugs (use proactively before commits)
 

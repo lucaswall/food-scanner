@@ -384,7 +384,7 @@ After writing `PLANS.md` and moving issues to Todo in Linear, complete the sessi
    ```
    Use the primary issue key in the branch name. If multiple issues, use the first one.
 
-2. **Stage and commit the plan:**
+2. **Stage and commit the plan** (no `Co-Authored-By` tags):
    ```bash
    git add PLANS.md
    git commit -m "plan(FOO-123): add implementation plan for [short description]
