@@ -6,6 +6,7 @@ import { getFitbitTokens, upsertFitbitTokens } from "@/lib/fitbit-tokens";
 const FITBIT_API_BASE = "https://api.fitbit.com";
 const MAX_RETRIES = 3;
 const REQUEST_TIMEOUT_MS = 10000;
+const DEADLINE_MS = 30000;
 
 interface CreateFoodResponse {
   food: {
@@ -64,7 +65,13 @@ async function fetchWithRetry(
   url: string,
   options: RequestInit,
   retryCount = 0,
+  startTime = Date.now(),
 ): Promise<Response> {
+  const elapsed = Date.now() - startTime;
+  if (elapsed > DEADLINE_MS) {
+    throw new Error("FITBIT_TIMEOUT");
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
@@ -88,7 +95,7 @@ async function fetchWithRetry(
         "rate limited, retrying",
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
-      return fetchWithRetry(url, options, retryCount + 1);
+      return fetchWithRetry(url, options, retryCount + 1, startTime);
     }
 
     if (response.status >= 500) {
@@ -101,7 +108,7 @@ async function fetchWithRetry(
         "server error, retrying",
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
-      return fetchWithRetry(url, options, retryCount + 1);
+      return fetchWithRetry(url, options, retryCount + 1, startTime);
     }
 
     return response;
@@ -325,8 +332,7 @@ export async function exchangeFitbitCode(
       throw new Error(`Fitbit token exchange failed: ${response.status}`);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await jsonWithTimeout(response);
+    const data = await jsonWithTimeout<Record<string, unknown>>(response);
     if (typeof data.access_token !== "string") {
       throw new Error("Invalid Fitbit token response: missing access_token");
     }
@@ -339,7 +345,7 @@ export async function exchangeFitbitCode(
     if (typeof data.expires_in !== "number") {
       throw new Error("Invalid Fitbit token response: missing expires_in");
     }
-    return data as { access_token: string; refresh_token: string; user_id: string; expires_in: number };
+    return { access_token: data.access_token, refresh_token: data.refresh_token, user_id: data.user_id, expires_in: data.expires_in };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -384,8 +390,7 @@ export async function refreshFitbitToken(
       throw new Error("FITBIT_TOKEN_INVALID");
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await jsonWithTimeout(response);
+    const data = await jsonWithTimeout<Record<string, unknown>>(response);
     if (typeof data.access_token !== "string") {
       throw new Error("Invalid Fitbit token response: missing access_token");
     }
@@ -398,7 +403,7 @@ export async function refreshFitbitToken(
     if (typeof data.expires_in !== "number") {
       throw new Error("Invalid Fitbit token response: missing expires_in");
     }
-    return data as { access_token: string; refresh_token: string; user_id: string; expires_in: number };
+    return { access_token: data.access_token, refresh_token: data.refresh_token, user_id: data.user_id, expires_in: data.expires_in };
   } finally {
     clearTimeout(timeoutId);
   }

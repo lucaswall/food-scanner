@@ -699,3 +699,99 @@ Batch fix for 18 backlog issues covering: critical bugs (missing date/time in qu
 - Session secret documentation (FOO-195 — canceled)
 - Client-side structured logging (FOO-201 — canceled, console.error is correct for client)
 - Test date cast pattern (FOO-203 — canceled, intentional test design)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-07
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Delete dead code — cookies.ts (FOO-190) - Deleted both files, verified no production imports (worker-3)
+- Task 2: Fix food-history input validation (FOO-198, FOO-199) - Added TIME_REGEX validation, Math.max(1,...) limit clamping (worker-3)
+- Task 3: Fix common-foods log level (FOO-202) - Changed logger.info to logger.debug (worker-3)
+- Task 4: Extract getDefaultMealType to shared module (FOO-191) - Created src/lib/meal-type.ts, updated both components (worker-1)
+- Task 5: Extract isFileLike and image constants (FOO-192) - Created src/lib/image-validation.ts, updated both routes (worker-2)
+- Task 6: Extract NutritionFactsCard component (FOO-193) - Created reusable component, replaced inline markup (worker-1)
+- Task 7: Add getLocalDateTime to quick-select and pending resubmit (FOO-181) - Extracted getLocalDateTime, added date/time to all submission paths (worker-1)
+- Task 8: Add runtime validation to PendingSubmission (FOO-185) - Added isValidPendingSubmission validator (worker-1)
+- Task 9: Scope getCustomFoodById by email (FOO-183) - Added email parameter with and() filter (worker-3)
+- Task 10: Validate find-matches body fully (FOO-186) - Added validation for all 9 required FoodAnalysis fields (worker-3)
+- Task 11: Add rate limiting to Claude API endpoints (FOO-182) - Added checkRateLimit (30 req/15min) to both routes (worker-2)
+- Task 12: Remove any casts in Fitbit token exchange/refresh (FOO-184) - Replaced any with Record<string, unknown>, removed eslint-disable comments (worker-2)
+- Task 13: Add jsonWithTimeout to Google auth (FOO-187, FOO-189) - Replaced response.json() with jsonWithTimeout, validated fields with unknown type (worker-4)
+- Task 14: Add total deadline to fetchWithRetry (FOO-188) - Added 30s deadline with startTime tracking through recursive retries (worker-2)
+- Task 15: Force re-encryption of legacy plaintext Fitbit tokens (FOO-194) - Added fire-and-forget upsertFitbitTokens in catch block (worker-4)
+- Task 16: Fix photo-capture blob URL cleanup on unmount (FOO-200) - Added useEffect cleanup with ref pattern for unmount-only revocation (worker-4, lead fix)
+
+### Files Modified
+- `src/lib/cookies.ts` - DELETED (dead code)
+- `src/lib/__tests__/cookies.test.ts` - DELETED (dead code test)
+- `src/lib/meal-type.ts` - Created: getDefaultMealType() and getLocalDateTime()
+- `src/lib/__tests__/meal-type.test.ts` - Created: 10 tests
+- `src/lib/image-validation.ts` - Created: isFileLike, MAX_IMAGES, MAX_IMAGE_SIZE, ALLOWED_TYPES
+- `src/lib/__tests__/image-validation.test.ts` - Created: 10 tests
+- `src/components/nutrition-facts-card.tsx` - Created: reusable NutritionFactsCard component
+- `src/components/__tests__/nutrition-facts-card.test.tsx` - Created: 7 tests
+- `src/components/food-analyzer.tsx` - Removed local getDefaultMealType/getLocalDateTime, added date/time to resubmit
+- `src/components/quick-select.tsx` - Removed local getDefaultMealType, added NutritionFactsCard, added date/time
+- `src/components/food-log-confirmation.tsx` - Replaced inline nutrition markup with NutritionFactsCard
+- `src/components/photo-capture.tsx` - Added useEffect cleanup for blob URL revocation on unmount
+- `src/components/__tests__/quick-select.test.tsx` - Added date/time verification tests
+- `src/components/__tests__/food-analyzer-reconnect.test.tsx` - Added date/time verification tests
+- `src/components/__tests__/photo-capture.test.tsx` - Added unmount cleanup test
+- `src/lib/pending-submission.ts` - Added date/time fields, isValidPendingSubmission validator
+- `src/lib/__tests__/pending-submission.test.ts` - Added 11 validation tests
+- `src/lib/food-log.ts` - Added email parameter to getCustomFoodById
+- `src/lib/__tests__/food-log.test.ts` - Added cross-email rejection test
+- `src/lib/fitbit.ts` - Replaced any with unknown, added DEADLINE_MS to fetchWithRetry
+- `src/lib/__tests__/fitbit.test.ts` - Added user_id validation and deadline tests
+- `src/lib/auth.ts` - Added jsonWithTimeout, validated response fields with unknown type
+- `src/lib/__tests__/auth.test.ts` - Added json timeout tests
+- `src/lib/fitbit-tokens.ts` - Added fire-and-forget re-encryption in plaintext fallback
+- `src/lib/__tests__/fitbit-tokens.test.ts` - Added re-encryption test
+- `src/app/api/food-history/route.ts` - Added TIME_REGEX, fixed limit clamping
+- `src/app/api/food-history/__tests__/route.test.ts` - Added 4 validation tests
+- `src/app/api/common-foods/route.ts` - Changed logger.info to logger.debug
+- `src/app/api/analyze-food/route.ts` - Extracted image validation, added rate limiting
+- `src/app/api/analyze-food/__tests__/route.test.ts` - Added rate limit tests
+- `src/app/api/refine-food/route.ts` - Extracted image validation, added rate limiting
+- `src/app/api/refine-food/__tests__/route.test.ts` - Added rate limit tests
+- `src/app/api/log-food/route.ts` - Updated getCustomFoodById call with email
+- `src/app/api/log-food/__tests__/route.test.ts` - Updated test assertions
+- `src/app/api/find-matches/route.ts` - Added full body validation for 9 FoodAnalysis fields
+- `src/app/api/find-matches/__tests__/route.test.ts` - Added 4 validation tests
+
+### Linear Updates
+- FOO-181: Todo → In Progress → Review
+- FOO-182: Todo → In Progress → Review
+- FOO-183: Todo → In Progress → Review
+- FOO-184: Todo → In Progress → Review
+- FOO-185: Todo → In Progress → Review
+- FOO-186: Todo → In Progress → Review
+- FOO-187: Todo → In Progress → Review
+- FOO-188: Todo → In Progress → Review
+- FOO-189: Todo → In Progress → Review
+- FOO-190: Todo → In Progress → Review
+- FOO-191: Todo → In Progress → Review
+- FOO-192: Todo → In Progress → Review
+- FOO-193: Todo → In Progress → Review
+- FOO-194: Todo → In Progress → Review
+- FOO-198: Todo → In Progress → Review
+- FOO-199: Todo → In Progress → Review
+- FOO-200: Todo → In Progress → Review
+- FOO-202: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 real issue (PhotoCapture useEffect dependency), fixed before commit. 8 other findings triaged as false positives or acceptable for single-user app.
+- verifier: All 802 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Tasks 4, 6, 7, 8 (UI components, shared utilities, date/time fix, PendingSubmission validation)
+- Worker 2: Tasks 5, 11, 12, 14 (image validation extraction, rate limiting, Fitbit type safety, deadline)
+- Worker 3: Tasks 1, 2, 3, 9, 10 (dead code removal, input validation, IDOR fix, find-matches validation)
+- Worker 4: Tasks 13, 15, 16 (Google auth hardening, token re-encryption, blob URL cleanup)
+
+### Continuation Status
+All tasks completed.

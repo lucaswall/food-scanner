@@ -27,6 +27,13 @@ export async function getFitbitTokens(email: string): Promise<FitbitTokenRow | n
     // Plaintext tokens from before encryption was enabled — return as-is
     accessToken = row.accessToken;
     refreshToken = row.refreshToken;
+    // Fire-and-forget re-encryption so next read decrypts normally
+    void upsertFitbitTokens(email, {
+      fitbitUserId: row.fitbitUserId,
+      accessToken,
+      refreshToken,
+      expiresAt: row.expiresAt,
+    });
   }
   return { ...row, accessToken, refreshToken };
 }

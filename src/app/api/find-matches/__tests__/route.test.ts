@@ -175,6 +175,54 @@ describe("POST /api/find-matches", () => {
     expect(mockFindMatchingFoods).toHaveBeenCalledWith("test@example.com", validBody);
   });
 
+  it("returns 400 when keywords present but nutrient fields missing", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({ keywords: ["tea"] });
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("Missing required fields");
+  });
+
+  it("returns 400 when calories is not a number", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({ ...validBody, calories: "fifty" });
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when food_name is missing", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const bodyWithoutFoodName = { ...validBody };
+    delete (bodyWithoutFoodName as Record<string, unknown>).food_name;
+    const request = createMockRequest(bodyWithoutFoodName);
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("succeeds with all required fields present", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockFindMatchingFoods.mockResolvedValue([]);
+
+    const request = createMockRequest(validBody);
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+  });
+
   it("handles findMatchingFoods errors gracefully", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockFindMatchingFoods.mockRejectedValue(new Error("DB connection failed"));

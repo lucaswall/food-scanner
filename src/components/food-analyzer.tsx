@@ -18,31 +18,8 @@ import {
   getPendingSubmission,
   clearPendingSubmission,
 } from "@/lib/pending-submission";
+import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import type { FoodAnalysis, FoodLogResponse, FoodMatch } from "@/types";
-
-function getDefaultMealType(): number {
-  const hour = new Date().getHours();
-  if (hour >= 5 && hour < 10) return 1; // Breakfast
-  if (hour >= 10 && hour < 12) return 2; // Morning Snack
-  if (hour >= 12 && hour < 14) return 3; // Lunch
-  if (hour >= 14 && hour < 17) return 4; // Afternoon Snack
-  if (hour >= 17 && hour < 21) return 5; // Dinner
-  return 7; // Anytime
-}
-
-function getLocalDateTime(): { date: string; time: string } {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  const hours = String(now.getHours()).padStart(2, "0");
-  const minutes = String(now.getMinutes()).padStart(2, "0");
-  const seconds = String(now.getSeconds()).padStart(2, "0");
-  return {
-    date: `${year}-${month}-${day}`,
-    time: `${hours}:${minutes}:${seconds}`,
-  };
-}
 
 export function FoodAnalyzer() {
   const [photos, setPhotos] = useState<File[]>([]);
@@ -242,6 +219,7 @@ export function FoodAnalyzer() {
             analysis: analysis,
             mealTypeId,
             foodName: analysis.food_name,
+            ...getLocalDateTime(),
           });
           window.location.href = "/api/auth/fitbit";
           return;
@@ -287,6 +265,7 @@ export function FoodAnalyzer() {
             mealTypeId,
             foodName: match.foodName,
             reuseCustomFoodId: match.customFoodId,
+            ...getLocalDateTime(),
           });
           window.location.href = "/api/auth/fitbit";
           return;
@@ -344,7 +323,10 @@ export function FoodAnalyzer() {
     setResubmitFoodName(pending.foodName);
     setMealTypeId(pending.mealTypeId);
 
-    const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId };
+    const dateTime = pending.date && pending.time
+      ? { date: pending.date, time: pending.time }
+      : getLocalDateTime();
+    const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId, ...dateTime };
     if (pending.reuseCustomFoodId) {
       body.reuseCustomFoodId = pending.reuseCustomFoodId;
     } else if (pending.analysis) {

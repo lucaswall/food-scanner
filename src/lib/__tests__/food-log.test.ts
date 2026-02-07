@@ -357,7 +357,7 @@ describe("insertFoodLogEntry", () => {
 });
 
 describe("getCustomFoodById", () => {
-  it("returns the food with correct fields for existing ID", async () => {
+  it("returns the food with correct fields for existing ID and matching email", async () => {
     const mockFood = {
       id: 42,
       email: "test@example.com",
@@ -378,7 +378,7 @@ describe("getCustomFoodById", () => {
     };
     mockWhere.mockResolvedValue([mockFood]);
 
-    const result = await getCustomFoodById(42);
+    const result = await getCustomFoodById("test@example.com", 42);
 
     expect(result).toEqual(mockFood);
     expect(mockSelect).toHaveBeenCalled();
@@ -389,7 +389,15 @@ describe("getCustomFoodById", () => {
   it("returns null for non-existent ID", async () => {
     mockWhere.mockResolvedValue([]);
 
-    const result = await getCustomFoodById(999);
+    const result = await getCustomFoodById("test@example.com", 999);
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null for food belonging to a different email", async () => {
+    mockWhere.mockResolvedValue([]);
+
+    const result = await getCustomFoodById("other@example.com", 42);
 
     expect(result).toBeNull();
   });

@@ -8,10 +8,30 @@ const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 // Mock pending-submission
+const mockSavePending = vi.fn();
+const mockGetPending = vi.fn().mockReturnValue(null);
+const mockClearPending = vi.fn();
+
 vi.mock("@/lib/pending-submission", () => ({
-  savePendingSubmission: vi.fn(),
-  getPendingSubmission: vi.fn().mockReturnValue(null),
-  clearPendingSubmission: vi.fn(),
+  savePendingSubmission: (...args: unknown[]) => mockSavePending(...args),
+  getPendingSubmission: () => mockGetPending(),
+  clearPendingSubmission: () => mockClearPending(),
+}));
+
+// Mock meal-type
+vi.mock("@/lib/meal-type", () => ({
+  getDefaultMealType: () => 3,
+  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30:00" }),
+}));
+
+// Mock nutrition-facts-card
+vi.mock("../nutrition-facts-card", () => ({
+  NutritionFactsCard: ({ foodName }: { foodName: string }) => (
+    <div data-testid="nutrition-facts-card">
+      <span>Nutrition Facts</span>
+      <span>{foodName}</span>
+    </div>
+  ),
 }));
 
 // Mock food-log-confirmation
@@ -320,6 +340,141 @@ describe("QuickSelect", () => {
     await waitFor(() => {
       // Should be back on food list
       expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
+    });
+  });
+
+  it("logging sends date and time in request body", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+      });
+
+    render(<QuickSelect />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Empanada de carne"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      expect(logCall).toBeDefined();
+      const body = JSON.parse(logCall![1].body);
+      expect(body.date).toBe("2026-02-07");
+      expect(body.time).toBe("14:30:00");
+    });
+  });
+
+  it("saves date and time in pending submission on FITBIT_TOKEN_INVALID", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+          }),
+      });
+
+    // Prevent actual navigation
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { href: "", assign: vi.fn(), replace: vi.fn() },
+    });
+
+    render(<QuickSelect />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Empanada de carne"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      expect(mockSavePending).toHaveBeenCalledWith(
+        expect.objectContaining({
+          date: "2026-02-07",
+          time: "14:30:00",
+        })
+      );
+    });
+  });
+
+  it("pending resubmit sends date and time from pending data", async () => {
+    mockGetPending.mockReturnValue({
+      analysis: null,
+      mealTypeId: 3,
+      foodName: "Empanada de carne",
+      reuseCustomFoodId: 1,
+      date: "2026-02-06",
+      time: "12:00:00",
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+    });
+
+    render(<QuickSelect />);
+
+    await waitFor(() => {
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      expect(logCall).toBeDefined();
+      const body = JSON.parse(logCall![1].body);
+      expect(body.date).toBe("2026-02-06");
+      expect(body.time).toBe("12:00:00");
+    });
+  });
+
+  it("pending resubmit falls back to getLocalDateTime when no saved date/time", async () => {
+    mockGetPending.mockReturnValue({
+      analysis: null,
+      mealTypeId: 3,
+      foodName: "Empanada de carne",
+      reuseCustomFoodId: 1,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+    });
+
+    render(<QuickSelect />);
+
+    await waitFor(() => {
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      expect(logCall).toBeDefined();
+      const body = JSON.parse(logCall![1].body);
+      expect(body.date).toBe("2026-02-07");
+      expect(body.time).toBe("14:30:00");
     });
   });
 });

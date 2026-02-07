@@ -147,6 +147,25 @@ describe("exchangeGoogleCode", () => {
 
     vi.restoreAllMocks();
   });
+
+  it("throws when json parsing hangs", { timeout: 20000 }, async () => {
+    vi.useFakeTimers();
+
+    // Return a response whose .json() never resolves
+    const neverResolve = new Promise<string>(() => {});
+    const mockResponse = new Response(null, { status: 200 });
+    vi.spyOn(mockResponse, "json").mockReturnValue(neverResolve);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockResponse);
+
+    const promise = exchangeGoogleCode("code", "http://localhost:3000/callback");
+    const expectation = expect(promise).rejects.toThrow("Response body read timed out");
+
+    await vi.advanceTimersByTimeAsync(10000);
+    await expectation;
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 });
 
 describe("getGoogleProfile", () => {
@@ -251,6 +270,25 @@ describe("getGoogleProfile", () => {
     const errorBody = (errorCall![0] as Record<string, unknown>).errorBody as string;
     expect(errorBody.length).toBeLessThanOrEqual(500);
 
+    vi.restoreAllMocks();
+  });
+
+  it("throws when json parsing hangs", { timeout: 20000 }, async () => {
+    vi.useFakeTimers();
+
+    // Return a response whose .json() never resolves
+    const neverResolve = new Promise<string>(() => {});
+    const mockResponse = new Response(null, { status: 200 });
+    vi.spyOn(mockResponse, "json").mockReturnValue(neverResolve);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockResponse);
+
+    const promise = getGoogleProfile("test-token");
+    const expectation = expect(promise).rejects.toThrow("Response body read timed out");
+
+    await vi.advanceTimersByTimeAsync(10000);
+    await expectation;
+
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 

@@ -83,12 +83,12 @@ export async function insertFoodLogEntry(
   return row;
 }
 
-export async function getCustomFoodById(id: number) {
+export async function getCustomFoodById(email: string, id: number) {
   const db = getDb();
   const rows = await db
     .select()
     .from(customFoods)
-    .where(eq(customFoods.id, id));
+    .where(and(eq(customFoods.id, id), eq(customFoods.email, email)));
 
   return rows[0] ?? null;
 }

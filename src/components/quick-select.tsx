@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { MealTypeSelector } from "./meal-type-selector";
+import { NutritionFactsCard } from "./nutrition-facts-card";
 import { Button } from "@/components/ui/button";
 import { Camera, ArrowLeft } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
@@ -12,20 +13,9 @@ import {
   getPendingSubmission,
   clearPendingSubmission,
 } from "@/lib/pending-submission";
-import {
-  getUnitLabel,
-} from "@/types";
+import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
+import { getUnitLabel } from "@/types";
 import type { CommonFood, FoodAnalysis, FoodLogResponse } from "@/types";
-
-function getDefaultMealType(): number {
-  const hour = new Date().getHours();
-  if (hour >= 5 && hour < 10) return 1;
-  if (hour >= 10 && hour < 12) return 2;
-  if (hour >= 12 && hour < 14) return 3;
-  if (hour >= 14 && hour < 17) return 4;
-  if (hour >= 17 && hour < 21) return 5;
-  return 7;
-}
 
 function foodToAnalysis(food: CommonFood): FoodAnalysis {
   return {
@@ -78,7 +68,10 @@ export function QuickSelect() {
       setResubmitFoodName(pending.foodName);
       setMealTypeId(pending.mealTypeId);
 
-      const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId };
+      const dateTime = pending.date && pending.time
+        ? { date: pending.date, time: pending.time }
+        : getLocalDateTime();
+      const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId, ...dateTime };
       if (pending.reuseCustomFoodId) {
         body.reuseCustomFoodId = pending.reuseCustomFoodId;
       } else if (pending.analysis) {
@@ -136,6 +129,7 @@ export function QuickSelect() {
         body: JSON.stringify({
           reuseCustomFoodId: selectedFood.customFoodId,
           mealTypeId,
+          ...getLocalDateTime(),
         }),
       });
 
@@ -149,6 +143,7 @@ export function QuickSelect() {
             mealTypeId,
             foodName: selectedFood.foodName,
             reuseCustomFoodId: selectedFood.customFoodId,
+            ...getLocalDateTime(),
           });
           window.location.href = "/api/auth/fitbit";
           return;
@@ -214,43 +209,17 @@ export function QuickSelect() {
           Back
         </Button>
 
-        <div className="border-2 border-foreground rounded-lg p-4">
-          <h4 className="text-lg font-bold border-b border-foreground pb-1">
-            Nutrition Facts
-          </h4>
-          <p className="text-sm font-medium mt-1">{selectedFood.foodName}</p>
-          <p className="text-sm text-muted-foreground">
-            {getUnitLabel(selectedFood.unitId, selectedFood.amount)}
-          </p>
-          <div className="border-t-4 border-foreground mt-2 pt-2">
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm font-bold">Calories</span>
-              <span className="text-2xl font-bold">{selectedFood.calories}</span>
-            </div>
-          </div>
-          <div className="border-t border-foreground mt-1 pt-1 space-y-1">
-            <div className="flex justify-between text-sm">
-              <span className="font-bold">Protein</span>
-              <span>{selectedFood.proteinG}g</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="font-bold">Carbs</span>
-              <span>{selectedFood.carbsG}g</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="font-bold">Fat</span>
-              <span>{selectedFood.fatG}g</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="font-bold">Fiber</span>
-              <span>{selectedFood.fiberG}g</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="font-bold">Sodium</span>
-              <span>{selectedFood.sodiumMg}mg</span>
-            </div>
-          </div>
-        </div>
+        <NutritionFactsCard
+          foodName={selectedFood.foodName}
+          calories={selectedFood.calories}
+          proteinG={selectedFood.proteinG}
+          carbsG={selectedFood.carbsG}
+          fatG={selectedFood.fatG}
+          fiberG={selectedFood.fiberG}
+          sodiumMg={selectedFood.sodiumMg}
+          unitId={selectedFood.unitId}
+          amount={selectedFood.amount}
+        />
 
         <div className="space-y-2">
           <label className="text-sm font-medium">Meal Type</label>

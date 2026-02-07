@@ -13,7 +13,7 @@ export async function GET() {
     const currentTime = new Date().toTimeString().slice(0, 8);
     const foods = await getCommonFoods(session!.email, currentTime);
 
-    logger.info(
+    logger.debug(
       { action: "get_common_foods", count: foods.length },
       "common foods retrieved",
     );

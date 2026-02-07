@@ -302,6 +302,18 @@ describe("exchangeFitbitCode", () => {
 
     vi.restoreAllMocks();
   });
+
+  it("throws when response is missing user_id", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "at", refresh_token: "rt", expires_in: 3600 }), { status: 200 }),
+    );
+
+    await expect(
+      exchangeFitbitCode("code", "http://localhost:3000/callback"),
+    ).rejects.toThrow("Invalid Fitbit token response: missing user_id");
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe("refreshFitbitToken", () => {
@@ -370,6 +382,18 @@ describe("refreshFitbitToken", () => {
 
     await expect(refreshFitbitToken("token")).rejects.toThrow(
       "Invalid Fitbit token response: missing refresh_token",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws when response is missing user_id", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "at", refresh_token: "rt", expires_in: 3600 }), { status: 200 }),
+    );
+
+    await expect(refreshFitbitToken("token")).rejects.toThrow(
+      "Invalid Fitbit token response: missing user_id",
     );
 
     vi.restoreAllMocks();
@@ -717,6 +741,52 @@ describe("fetchWithRetry 5xx handling", () => {
     const rejection = expect(promise).rejects.toThrow("FITBIT_API_ERROR");
     // Advance through all retry delays: 1s, 2s, 4s, 8s
     await vi.advanceTimersByTimeAsync(20000);
+    await rejection;
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("fetchWithRetry deadline", () => {
+  const mockFoodAnalysis = {
+    food_name: "Test Food",
+    amount: 100,
+    unit_id: 147,
+    calories: 200,
+    protein_g: 10,
+    carbs_g: 20,
+    fat_g: 5,
+    fiber_g: 3,
+    sodium_mg: 100,
+    confidence: "high" as const,
+    notes: "Test",
+    keywords: ["test"],
+  };
+
+  it("throws FITBIT_TIMEOUT when total elapsed time exceeds deadline", async () => {
+    vi.useFakeTimers();
+
+    // Each fetch resolves with 500 after 9s (just under the 10s AbortController timeout).
+    // Timeline with retries:
+    //   Call 0: startTime=0, fetch takes 9s → 500 at t=9s, delay 1s → t=10s
+    //   Call 1: elapsed=10s < 30s ok, fetch takes 9s → 500 at t=19s, delay 2s → t=21s
+    //   Call 2: elapsed=21s < 30s ok, fetch takes 9s → 500 at t=30s, delay 4s → t=34s
+    //   Call 3: elapsed=34s > 30s → throws FITBIT_TIMEOUT
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      return new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(new Response(null, { status: 500 })), 9000);
+      });
+    });
+
+    const promise = createFood("test-token", mockFoodAnalysis);
+
+    // Set up rejection BEFORE advancing timers to avoid unhandled rejection
+    const rejection = expect(promise).rejects.toThrow("FITBIT_TIMEOUT");
+
+    // Advance through all the fetches + delays: 9s + 1s + 9s + 2s + 9s + 4s = 34s
+    await vi.advanceTimersByTimeAsync(40000);
+
     await rejection;
 
     vi.useRealTimers();
