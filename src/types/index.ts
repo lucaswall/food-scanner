@@ -114,6 +114,47 @@ export interface ApiErrorResponse {
 
 export type ApiResponse<T> = ApiSuccessResponse<T> | ApiErrorResponse;
 
+export const FITBIT_MEAL_TYPE_LABELS: Record<number, string> = {
+  1: "Breakfast",
+  2: "Morning Snack",
+  3: "Lunch",
+  4: "Afternoon Snack",
+  5: "Dinner",
+  7: "Anytime",
+};
+
+export interface CommonFood {
+  customFoodId: number;
+  foodName: string;
+  amount: number;
+  unitId: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sodiumMg: number;
+  fitbitFoodId: number;
+  mealTypeId: number;
+}
+
+export interface FoodLogHistoryEntry {
+  id: number;
+  foodName: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sodiumMg: number;
+  amount: number;
+  unitId: number;
+  mealTypeId: number;
+  date: string;
+  time: string | null;
+  fitbitLogId: number | null;
+}
+
 export interface FoodMatch {
   customFoodId: number;
   foodName: string;

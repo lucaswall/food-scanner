@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
+import type { CommonFood, FoodLogHistoryEntry } from "@/types";
 
 export interface CustomFoodInput {
   foodName: string;
@@ -90,4 +91,161 @@ export async function getCustomFoodById(id: number) {
     .where(eq(customFoods.id, id));
 
   return rows[0] ?? null;
+}
+
+function parseTimeToMinutes(time: string | null): number {
+  if (!time) return 0;
+  const parts = time.split(":");
+  return Number(parts[0]) * 60 + Number(parts[1]);
+}
+
+function circularTimeDiff(a: number, b: number): number {
+  const diff = Math.abs(a - b);
+  return Math.min(diff, 1440 - diff);
+}
+
+export async function getCommonFoods(
+  email: string,
+  currentTime: string,
+): Promise<CommonFood[]> {
+  const db = getDb();
+
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const cutoffDate = thirtyDaysAgo.toISOString().slice(0, 10);
+
+  const rows = await db
+    .select()
+    .from(foodLogEntries)
+    .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
+    .where(
+      and(
+        eq(foodLogEntries.email, email),
+        isNotNull(customFoods.fitbitFoodId),
+        gte(foodLogEntries.date, cutoffDate),
+      ),
+    );
+
+  const currentMinutes = parseTimeToMinutes(currentTime);
+
+  // Dedup by customFoodId, keeping entry with smallest time diff
+  const bestByFood = new Map<
+    number,
+    { row: (typeof rows)[number]; timeDiff: number }
+  >();
+
+  for (const row of rows) {
+    const entryMinutes = parseTimeToMinutes(row.food_log_entries.time);
+    const timeDiff = circularTimeDiff(currentMinutes, entryMinutes);
+    const foodId = row.custom_foods.id;
+
+    const existing = bestByFood.get(foodId);
+    if (!existing || timeDiff < existing.timeDiff) {
+      bestByFood.set(foodId, { row, timeDiff });
+    }
+  }
+
+  // Sort by ascending time diff, limit 5
+  const sorted = [...bestByFood.values()]
+    .sort((a, b) => a.timeDiff - b.timeDiff)
+    .slice(0, 5);
+
+  return sorted.map(({ row }) => ({
+    customFoodId: row.custom_foods.id,
+    foodName: row.custom_foods.foodName,
+    amount: Number(row.custom_foods.amount),
+    unitId: row.custom_foods.unitId,
+    calories: row.custom_foods.calories,
+    proteinG: Number(row.custom_foods.proteinG),
+    carbsG: Number(row.custom_foods.carbsG),
+    fatG: Number(row.custom_foods.fatG),
+    fiberG: Number(row.custom_foods.fiberG),
+    sodiumMg: Number(row.custom_foods.sodiumMg),
+    fitbitFoodId: row.custom_foods.fitbitFoodId!,
+    mealTypeId: row.food_log_entries.mealTypeId,
+  }));
+}
+
+export async function getFoodLogHistory(
+  email: string,
+  options: { endDate?: string; cursor?: { lastDate: string; lastTime: string | null; lastId: number }; limit?: number },
+): Promise<FoodLogHistoryEntry[]> {
+  const db = getDb();
+  const limit = options.limit ?? 20;
+
+  const conditions = [eq(foodLogEntries.email, email)];
+  if (options.endDate) {
+    conditions.push(lte(foodLogEntries.date, options.endDate));
+  }
+  if (options.cursor) {
+    const { lastDate, lastTime, lastId } = options.cursor;
+    // Composite cursor for (date DESC, time ASC) ordering.
+    // Next page entries come after the cursor in sort order.
+    const cursorCondition = lastTime !== null
+      ? or(
+          lt(foodLogEntries.date, lastDate),
+          and(eq(foodLogEntries.date, lastDate), gt(foodLogEntries.time, lastTime)),
+          and(eq(foodLogEntries.date, lastDate), eq(foodLogEntries.time, lastTime), gt(foodLogEntries.id, lastId)),
+          and(eq(foodLogEntries.date, lastDate), isNull(foodLogEntries.time)),
+        )
+      : or(
+          lt(foodLogEntries.date, lastDate),
+          and(eq(foodLogEntries.date, lastDate), isNull(foodLogEntries.time), gt(foodLogEntries.id, lastId)),
+        );
+    if (cursorCondition) {
+      conditions.push(cursorCondition);
+    }
+  }
+
+  const rows = await db
+    .select()
+    .from(foodLogEntries)
+    .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
+    .where(and(...conditions))
+    .orderBy(desc(foodLogEntries.date), asc(foodLogEntries.time), asc(foodLogEntries.id))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    id: row.food_log_entries.id,
+    foodName: row.custom_foods.foodName,
+    calories: row.custom_foods.calories,
+    proteinG: Number(row.custom_foods.proteinG),
+    carbsG: Number(row.custom_foods.carbsG),
+    fatG: Number(row.custom_foods.fatG),
+    fiberG: Number(row.custom_foods.fiberG),
+    sodiumMg: Number(row.custom_foods.sodiumMg),
+    amount: Number(row.food_log_entries.amount),
+    unitId: row.food_log_entries.unitId,
+    mealTypeId: row.food_log_entries.mealTypeId,
+    date: row.food_log_entries.date,
+    time: row.food_log_entries.time,
+    fitbitLogId: row.food_log_entries.fitbitLogId,
+  }));
+}
+
+export async function getFoodLogEntry(email: string, id: number) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(foodLogEntries)
+    .where(and(eq(foodLogEntries.id, id), eq(foodLogEntries.email, email)));
+
+  return rows[0] ?? null;
+}
+
+export async function deleteFoodLogEntry(
+  email: string,
+  entryId: number,
+): Promise<{ fitbitLogId: number | null } | null> {
+  const db = getDb();
+  const rows = await db
+    .delete(foodLogEntries)
+    .where(
+      and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.email, email)),
+    )
+    .returning({ fitbitLogId: foodLogEntries.fitbitLogId });
+
+  const row = rows[0];
+  if (!row) return null;
+  return { fitbitLogId: row.fitbitLogId };
 }

@@ -15,6 +15,10 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
+vi.mock("@/components/quick-select", () => ({
+  QuickSelect: () => <div data-testid="quick-select">QuickSelect</div>,
+}));
+
 const { default: AppPage } = await import("@/app/app/page");
 
 const validSession: FullSession = {
@@ -39,30 +43,11 @@ describe("/app page", () => {
     expect(screen.getByText("Food Scanner")).toBeInTheDocument();
   });
 
-  it("renders link to /settings", async () => {
+  it("renders QuickSelect component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
-    const link = screen.getByRole("link", { name: /settings/i });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/settings");
-  });
-
-  it("settings button has proper aria-label", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AppPage();
-    render(jsx);
-    const button = screen.getByRole("link", { name: /settings/i });
-    expect(button).toHaveAttribute("aria-label", "Settings");
-  });
-
-  it("settings button meets 44px touch target", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AppPage();
-    render(jsx);
-    const button = screen.getByRole("link", { name: /settings/i });
-    expect(button).toHaveClass("min-h-[44px]");
-    expect(button).toHaveClass("min-w-[44px]");
+    expect(screen.getByTestId("quick-select")).toBeInTheDocument();
   });
 
   describe("skip link", () => {

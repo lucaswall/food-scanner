@@ -16,6 +16,13 @@ beforeAll(() => {
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+// Mock pending-submission (returns null by default — no pending data)
+vi.mock("@/lib/pending-submission", () => ({
+  savePendingSubmission: vi.fn(),
+  getPendingSubmission: vi.fn().mockReturnValue(null),
+  clearPendingSubmission: vi.fn(),
+}));
+
 // Mock the child components
 vi.mock("../photo-capture", () => ({
   PhotoCapture: ({
@@ -571,7 +578,16 @@ describe("FoodAnalyzer", () => {
     });
   });
 
-  it("shows Fitbit reconnect prompt on FITBIT_TOKEN_INVALID", async () => {
+  it("saves pending and redirects on FITBIT_TOKEN_INVALID", async () => {
+    // Override window.location for this test
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...originalLocation, href: "" },
+    });
+
+    const { savePendingSubmission } = await import("@/lib/pending-submission");
+
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
@@ -602,7 +618,14 @@ describe("FoodAnalyzer", () => {
     fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/reconnect/i)).toBeInTheDocument();
+      expect(savePendingSubmission).toHaveBeenCalled();
+      expect(window.location.href).toBe("/api/auth/fitbit");
+    });
+
+    // Restore
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: originalLocation,
     });
   });
 

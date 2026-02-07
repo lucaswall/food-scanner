@@ -29,6 +29,7 @@ const {
   createFood,
   logFood,
   findOrCreateFood,
+  deleteFoodLog,
 } = await import("@/lib/fitbit");
 const { logger } = await import("@/lib/logger");
 
@@ -770,6 +771,145 @@ describe("jsonWithTimeout", () => {
     await rejection;
 
     vi.useRealTimers();
+  });
+});
+
+describe("deleteFoodLog", () => {
+  it("calls DELETE on correct Fitbit food log URL with Bearer token", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 204 }),
+    );
+
+    await deleteFoodLog("test-token", 12345);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.fitbit.com/1/user/-/food/log/12345.json",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+        }),
+      }),
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("returns void on 204 success", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 204 }),
+    );
+
+    const result = await deleteFoodLog("test-token", 12345);
+    expect(result).toBeUndefined();
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID on 401", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(deleteFoodLog("bad-token", 12345)).rejects.toThrow(
+      "FITBIT_TOKEN_INVALID",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("retries on 429", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount < 2) {
+        return Promise.resolve(new Response(null, { status: 429 }));
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+
+    const promise = deleteFoodLog("test-token", 12345);
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    expect(callCount).toBe(2);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("retries on 5xx", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount < 2) {
+        return Promise.resolve(new Response(null, { status: 500 }));
+      }
+      return Promise.resolve(new Response(null, { status: 204 }));
+    });
+
+    const promise = deleteFoodLog("test-token", 12345);
+    await vi.advanceTimersByTimeAsync(1000);
+    await promise;
+
+    expect(callCount).toBe(2);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_API_ERROR on other error status", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: [{ message: "bad request" }] }), { status: 400 }),
+    );
+
+    await expect(deleteFoodLog("test-token", 12345)).rejects.toThrow(
+      "FITBIT_API_ERROR",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("logs debug when starting delete", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 204 }),
+    );
+
+    await deleteFoodLog("test-token", 99999);
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "fitbit_delete_food_log",
+        fitbitLogId: 99999,
+      }),
+      expect.any(String),
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("logs error on non-ok response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: [{ message: "not found" }] }), { status: 404 }),
+    );
+
+    await expect(deleteFoodLog("test-token", 12345)).rejects.toThrow(
+      "FITBIT_API_ERROR",
+    );
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "fitbit_delete_food_log_failed",
+        status: 404,
+      }),
+      expect.any(String),
+    );
+
+    vi.restoreAllMocks();
   });
 });
 

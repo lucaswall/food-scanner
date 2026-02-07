@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { QuickSelect } from "@/components/quick-select";
+import { FoodAnalyzer } from "@/components/food-analyzer";
 import { SkipLink } from "@/components/skip-link";
 
-export default async function AppPage() {
+export default async function AnalyzePage() {
   const session = await getSession();
 
   if (!session) {
@@ -14,9 +14,9 @@ export default async function AppPage() {
     <div className="min-h-screen px-4 py-6">
       <SkipLink />
       <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
-        <h1 className="text-2xl font-bold">Food Scanner</h1>
+        <h1 className="text-2xl font-bold">Analyze Food</h1>
 
-        <QuickSelect />
+        <FoodAnalyzer />
       </main>
     </div>
   );
