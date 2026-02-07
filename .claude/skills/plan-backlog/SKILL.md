@@ -2,7 +2,7 @@
 name: plan-backlog
 description: Convert Linear Backlog issues into TDD implementation plans. Use when user says "plan FOO-123", "plan all bugs", "work on backlog", or wants to implement issues from Linear. Moves planned issues to Todo state. Explores codebase for patterns and discovers available MCPs from CLAUDE.md.
 argument-hint: [issue-selector] e.g., "FOO-123", "all Bug issues", "the auth issue"
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__create_comment, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -173,7 +173,20 @@ Place each issue in one of two categories:
 
 #### 3.3 Cancel Invalid Issues
 
-For each invalid issue, move it to **Canceled** state.
+For each invalid issue:
+
+1. **Add a comment** explaining why the issue is being canceled:
+
+```
+mcp__linear__create_comment(issueId: "FOO-xxx", body: "Canceled during triage: [reason]")
+```
+
+The reason should be specific, e.g.:
+- "Project is in DEVELOPMENT status with no legacy data — plaintext token migration path is dead code."
+- "console.error is the correct choice for client-side error boundaries — pino is server-only."
+- "Single-user app behind auth — x-forwarded-for spoofing is not a real risk."
+
+2. **Move to Canceled state.**
 
 **CRITICAL: Linear MCP same-type state bug.** "Duplicate" and "Canceled" are both `type: canceled` in Linear. Passing `state: "Canceled"` by name silently no-ops if the issue is already in another canceled-type state. To reliably cancel issues, first fetch the team's statuses to get the Canceled state UUID:
 
