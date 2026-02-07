@@ -71,6 +71,13 @@ function formatDate(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function formatTime(date: Date): string {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
+}
+
 function isValidDateFormat(date: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
   const [year, month, day] = date.split("-").map(Number);
@@ -156,7 +163,9 @@ export async function POST(request: Request) {
     // Ensure token is fresh (refreshes and saves to DB if needed)
     const accessToken = await ensureFreshToken(session!.email);
 
-    const date = body.date || formatDate(new Date());
+    const now = new Date();
+    const date = body.date || formatDate(now);
+    const time = body.time || formatTime(now);
     let foodId: number;
     let reused: boolean;
     let foodLogId: number | undefined;
@@ -182,7 +191,7 @@ export async function POST(request: Request) {
         Number(existingFood.amount),
         existingFood.unitId,
         date,
-        body.time
+        time
       );
 
       // Log entry only (no new custom_food)
@@ -193,7 +202,7 @@ export async function POST(request: Request) {
           amount: Number(existingFood.amount),
           unitId: existingFood.unitId,
           date,
-          time: body.time ?? null,
+          time,
           fitbitLogId: logResult.foodLog.logId,
         });
         foodLogId = logEntryResult.id;
@@ -239,7 +248,7 @@ export async function POST(request: Request) {
       body.amount,
       body.unit_id,
       date,
-      body.time
+      time
     );
 
     // Log to database (non-fatal — Fitbit is the primary operation)
@@ -266,7 +275,7 @@ export async function POST(request: Request) {
         amount: body.amount,
         unitId: body.unit_id,
         date,
-        time: body.time ?? null,
+        time,
         fitbitLogId: logResult.foodLog.logId,
       });
       foodLogId = logEntryResult.id;
