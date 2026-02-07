@@ -33,6 +33,25 @@ export async function POST(request: Request) {
     );
   }
 
+  const b = body as Record<string, unknown>;
+  if (
+    typeof b.food_name !== "string" ||
+    typeof b.amount !== "number" ||
+    typeof b.unit_id !== "number" ||
+    typeof b.calories !== "number" ||
+    typeof b.protein_g !== "number" ||
+    typeof b.carbs_g !== "number" ||
+    typeof b.fat_g !== "number" ||
+    typeof b.fiber_g !== "number" ||
+    typeof b.sodium_mg !== "number"
+  ) {
+    return errorResponse(
+      "VALIDATION_ERROR",
+      "Missing required fields: food_name, amount, unit_id, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg",
+      400,
+    );
+  }
+
   try {
     const matches = await findMatchingFoods(
       session!.email,

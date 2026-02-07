@@ -158,7 +158,7 @@ export async function POST(request: Request) {
 
     if (body.reuseCustomFoodId) {
       // Reuse flow: skip food creation, use existing custom food
-      const existingFood = await getCustomFoodById(body.reuseCustomFoodId);
+      const existingFood = await getCustomFoodById(session!.email, body.reuseCustomFoodId);
       if (!existingFood || !existingFood.fitbitFoodId) {
         return errorResponse(
           "VALIDATION_ERROR",

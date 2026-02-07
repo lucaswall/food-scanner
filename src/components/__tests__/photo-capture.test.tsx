@@ -998,6 +998,36 @@ describe("PhotoCapture", () => {
     });
   });
 
+  describe("blob URL cleanup on unmount", () => {
+    it("revokes all preview URLs when component unmounts", async () => {
+      const onPhotosChange = vi.fn();
+      const { unmount } = render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      const files = [
+        createMockFile("photo1.jpg", "image/jpeg", 1000),
+        createMockFile("photo2.jpg", "image/jpeg", 1000),
+      ];
+
+      fireEvent.change(galleryInput, { target: { files } });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(2);
+      });
+
+      // Clear mock counts so we only track unmount revocations
+      mockRevokeObjectURL.mockClear();
+
+      // Unmount the component
+      unmount();
+
+      // Should have revoked both preview URLs
+      expect(mockRevokeObjectURL).toHaveBeenCalledTimes(2);
+      expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:photo1.jpg");
+      expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:photo2.jpg");
+    });
+  });
+
   describe("photo preview zoom", () => {
     it("opens full-screen dialog when tapping preview", async () => {
       const onPhotosChange = vi.fn();

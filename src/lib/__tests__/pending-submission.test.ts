@@ -140,4 +140,114 @@ describe("pending-submission", () => {
       expect(result?.analysis).toBeNull();
     });
   });
+
+  describe("runtime validation", () => {
+    it("returns null for empty object", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({})
+      );
+      expect(getPendingSubmission()).toBeNull();
+    });
+
+    it("returns null when mealTypeId is missing", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({ analysis: null, foodName: "Test" })
+      );
+      expect(getPendingSubmission()).toBeNull();
+    });
+
+    it("returns null when mealTypeId is not a number", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({ analysis: null, mealTypeId: "three", foodName: "Test" })
+      );
+      expect(getPendingSubmission()).toBeNull();
+    });
+
+    it("returns null when foodName is not a string", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({ analysis: null, mealTypeId: 3, foodName: 123 })
+      );
+      expect(getPendingSubmission()).toBeNull();
+    });
+
+    it("returns null when analysis has wrong shape (missing food_name)", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({
+          analysis: { calories: 100 },
+          mealTypeId: 3,
+          foodName: "Test",
+        })
+      );
+      expect(getPendingSubmission()).toBeNull();
+    });
+
+    it("returns null when analysis has wrong shape (missing calories)", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({
+          analysis: { food_name: "Test" },
+          mealTypeId: 3,
+          foodName: "Test",
+        })
+      );
+      expect(getPendingSubmission()).toBeNull();
+    });
+
+    it("returns null when reuseCustomFoodId is present but not a number", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({
+          analysis: null,
+          mealTypeId: 3,
+          foodName: "Test",
+          reuseCustomFoodId: "abc",
+        })
+      );
+      expect(getPendingSubmission()).toBeNull();
+    });
+
+    it("accepts valid data with null analysis", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({
+          analysis: null,
+          mealTypeId: 3,
+          foodName: "Test",
+        })
+      );
+      const result = getPendingSubmission();
+      expect(result).not.toBeNull();
+      expect(result?.foodName).toBe("Test");
+    });
+
+    it("accepts valid data with full analysis", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify(mockPending)
+      );
+      const result = getPendingSubmission();
+      expect(result).not.toBeNull();
+      expect(result?.analysis?.food_name).toBe("Empanada de carne");
+    });
+
+    it("accepts valid data with date and time strings", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({
+          ...mockPending,
+          date: "2026-02-07",
+          time: "14:30:00",
+        })
+      );
+      const result = getPendingSubmission();
+      expect(result).not.toBeNull();
+      expect(result?.date).toBe("2026-02-07");
+      expect(result?.time).toBe("14:30:00");
+    });
+  });
 });

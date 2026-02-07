@@ -18,16 +18,8 @@ export async function getFitbitTokens(email: string): Promise<FitbitTokenRow | n
   const rows = await db.select().from(fitbitTokens).where(eq(fitbitTokens.email, email));
   const row = rows[0];
   if (!row) return null;
-  let accessToken: string;
-  let refreshToken: string;
-  try {
-    accessToken = decryptToken(row.accessToken);
-    refreshToken = decryptToken(row.refreshToken);
-  } catch {
-    // Plaintext tokens from before encryption was enabled — return as-is
-    accessToken = row.accessToken;
-    refreshToken = row.refreshToken;
-  }
+  const accessToken = decryptToken(row.accessToken);
+  const refreshToken = decryptToken(row.refreshToken);
   return { ...row, accessToken, refreshToken };
 }
 

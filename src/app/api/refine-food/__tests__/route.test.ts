@@ -27,6 +27,12 @@ vi.mock("@/lib/session", () => ({
   },
 }));
 
+// Mock rate limiter
+const mockCheckRateLimit = vi.fn().mockReturnValue({ allowed: true, remaining: 29 });
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 // Mock logger
 vi.mock("@/lib/logger", () => ({
   logger: {
@@ -315,6 +321,41 @@ describe("POST /api/refine-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(body.error.message).toContain("3");
+  });
+
+  it("returns 429 when rate limit exceeded", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockCheckRateLimit.mockReturnValueOnce({ allowed: false, remaining: 0 });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      JSON.stringify(validAnalysis),
+      "Make it 500 calories"
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(429);
+    const body = await response.json();
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+  });
+
+  it("calls checkRateLimit with session email as key", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockRefineAnalysis.mockResolvedValue(validAnalysis);
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      JSON.stringify(validAnalysis),
+      "Larger portion"
+    );
+
+    await POST(request);
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      "refine-food:test@example.com",
+      30,
+      15 * 60 * 1000,
+    );
   });
 
   it("passes correct arguments to refineAnalysis", async () => {

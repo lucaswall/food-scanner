@@ -561,7 +561,7 @@ describe("POST /api/log-food", () => {
       await POST(request);
 
       expect(mockFindOrCreateFood).not.toHaveBeenCalled();
-      expect(mockGetCustomFoodById).toHaveBeenCalledWith(42);
+      expect(mockGetCustomFoodById).toHaveBeenCalledWith("test@example.com", 42);
     });
 
     it("calls logFood with existing food's fitbitFoodId", async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -44,6 +44,17 @@ export function PhotoCapture({
   const [processingCount, setProcessingCount] = useState(0);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+
+  // Revoke blob URLs on unmount to prevent memory leaks
+  const previewsRef = useRef(previews);
+  useEffect(() => {
+    previewsRef.current = previews;
+  }, [previews]);
+  useEffect(() => {
+    return () => {
+      previewsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   const validateFile = (file: File): string | null => {
     // Check MIME type first, then fallback to HEIC extension check

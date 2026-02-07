@@ -2,29 +2,22 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { analyzeFood } from "@/lib/claude";
+import { isFileLike, MAX_IMAGES, MAX_IMAGE_SIZE, ALLOWED_TYPES } from "@/lib/image-validation";
+import { checkRateLimit } from "@/lib/rate-limit";
 
-const MAX_IMAGES = 3;
-const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
-// Note: HEIC not included - client converts HEIC to JPEG before upload
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-
-// Type guard for File-like objects (works with both real Files and test mocks)
-function isFileLike(value: unknown): value is File {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    typeof (value as File).name === "string" &&
-    typeof (value as File).type === "string" &&
-    typeof (value as File).size === "number" &&
-    typeof (value as File).arrayBuffer === "function"
-  );
-}
+const RATE_LIMIT_MAX = 30;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function POST(request: Request) {
   const session = await getSession();
 
   const validationError = validateSession(session, { requireFitbit: true });
   if (validationError) return validationError;
+
+  const { allowed } = checkRateLimit(`analyze-food:${session!.email}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  if (!allowed) {
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
+  }
 
   let formData: FormData;
   try {

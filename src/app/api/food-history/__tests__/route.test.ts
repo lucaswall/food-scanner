@@ -300,6 +300,70 @@ describe("GET /api/food-history", () => {
     });
   });
 
+  it("treats lastTime with invalid format as null", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest(
+      "http://localhost:3000/api/food-history?lastDate=2026-02-06&lastTime=invalid&lastId=1",
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 1 },
+      limit: 20,
+    });
+  });
+
+  it("treats lastTime with partial format as null", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest(
+      "http://localhost:3000/api/food-history?lastDate=2026-02-06&lastTime=12:30&lastId=1",
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 1 },
+      limit: 20,
+    });
+  });
+
+  it("clamps limit=0 to default", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest("http://localhost:3000/api/food-history?limit=0");
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: undefined,
+      limit: 1,
+    });
+  });
+
+  it("clamps negative limit to minimum of 1", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest("http://localhost:3000/api/food-history?limit=-5");
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: undefined,
+      limit: 1,
+    });
+  });
+
   it("supports all params together (endDate, cursor, limit)", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogHistory.mockResolvedValue(sampleEntries);

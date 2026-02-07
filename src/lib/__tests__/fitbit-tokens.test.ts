@@ -93,6 +93,23 @@ describe("getFitbitTokens", () => {
     expect(result!.accessToken).toBe("my-access-token");
     expect(result!.refreshToken).toBe("my-refresh-token");
   });
+
+  it("throws when decryption fails", async () => {
+    const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
+    mockWhere.mockResolvedValue([{
+      id: 1,
+      email: "test@example.com",
+      fitbitUserId: "user-123",
+      accessToken: "corrupted-data",
+      refreshToken: "corrupted-data",
+      expiresAt: new Date("2026-12-01"),
+      updatedAt: new Date(),
+    }]);
+
+    mockDecryptToken.mockImplementation(() => { throw new Error("Invalid token format"); });
+
+    await expect(getFitbitTokens("test@example.com")).rejects.toThrow("Invalid token format");
+  });
 });
 
 describe("upsertFitbitTokens", () => {

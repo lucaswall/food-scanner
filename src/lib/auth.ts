@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
-import { parseErrorBody, sanitizeErrorBody } from "@/lib/fitbit";
+import { parseErrorBody, sanitizeErrorBody, jsonWithTimeout } from "@/lib/fitbit";
 
 const OAUTH_TIMEOUT_MS = 10000;
 
@@ -47,11 +47,11 @@ export async function exchangeGoogleCode(
       throw new Error(`Google token exchange failed: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await jsonWithTimeout<Record<string, unknown>>(response);
     if (typeof data.access_token !== "string") {
       throw new Error("Invalid Google token response: missing access_token");
     }
-    return data as { access_token: string };
+    return { access_token: data.access_token };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -82,14 +82,14 @@ export async function getGoogleProfile(
       throw new Error(`Google profile fetch failed: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await jsonWithTimeout<Record<string, unknown>>(response);
     if (typeof data.email !== "string") {
       throw new Error("Invalid Google profile response: missing email");
     }
     if (typeof data.name !== "string") {
       throw new Error("Invalid Google profile response: missing name");
     }
-    return data as { email: string; name: string };
+    return { email: data.email, name: data.name };
   } finally {
     clearTimeout(timeoutId);
   }

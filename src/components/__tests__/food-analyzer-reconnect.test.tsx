@@ -141,6 +141,11 @@ vi.mock("@/lib/image", () => ({
   compressImage: vi.fn().mockResolvedValue(new Blob(["compressed"])),
 }));
 
+vi.mock("@/lib/meal-type", () => ({
+  getDefaultMealType: () => 3,
+  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30:00" }),
+}));
+
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
@@ -394,6 +399,98 @@ describe("FoodAnalyzer reconnect flow", () => {
       });
 
       expect(mockClearPending).toHaveBeenCalled();
+    });
+
+    it("resubmit uses saved date/time from pending data", async () => {
+      mockGetPending.mockReturnValue({
+        analysis: mockAnalysis,
+        mealTypeId: 3,
+        foodName: "Empanada de carne",
+        date: "2026-02-06",
+        time: "12:00:00",
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      await waitFor(() => {
+        const logCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logCall).toBeDefined();
+        const body = JSON.parse(logCall![1].body);
+        expect(body.date).toBe("2026-02-06");
+        expect(body.time).toBe("12:00:00");
+      });
+    });
+
+    it("resubmit falls back to getLocalDateTime when pending has no date/time", async () => {
+      mockGetPending.mockReturnValue({
+        analysis: mockAnalysis,
+        mealTypeId: 3,
+        foodName: "Empanada de carne",
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      await waitFor(() => {
+        const logCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logCall).toBeDefined();
+        const body = JSON.parse(logCall![1].body);
+        expect(body.date).toBe("2026-02-07");
+        expect(body.time).toBe("14:30:00");
+      });
+    });
+
+    it("savePendingSubmission includes date and time from FITBIT_TOKEN_INVALID flow", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () =>
+            Promise.resolve({
+              success: false,
+              error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+            }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(mockSavePending).toHaveBeenCalledWith(
+          expect.objectContaining({
+            date: "2026-02-07",
+            time: "14:30:00",
+          })
+        );
+      });
     });
   });
 });
