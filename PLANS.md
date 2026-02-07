@@ -762,6 +762,8 @@ Summary: 2 issue(s) found requiring fix (Team: security, reliability, quality re
 - [MEDIUM] TYPE: find-matches type assertion skips runtime validation (`src/app/api/find-matches/route.ts:58`) - Pre-existing pattern, minimal impact
 - [LOW] SECURITY: Email case normalization (`src/lib/env.ts:37`, `src/lib/users.ts:8`) - Google returns consistent case in practice
 - [LOW] CONVENTION: FK ON DELETE no action (`drizzle/0005_clever_calypso.sql:14-17`) - No user deletion feature exists
+- [MEDIUM] CONVENTION: Documentation still says "single-user" (`CLAUDE.md:11,13,197`, `README.md:12`) - Must update to reflect multi-user support
+- [MEDIUM] CONVENTION: DEVELOPMENT.md not updated (`DEVELOPMENT.md`) - Task 5 required updating but was missed entirely
 
 ### Linear Updates
 - FOO-212: Review → Merge (original task completed)
@@ -796,4 +798,19 @@ Summary: 2 issue(s) found requiring fix (Team: security, reliability, quality re
 1. Write test in `src/lib/__tests__/users.test.ts` simulating concurrent creation (mock INSERT to throw unique constraint, verify re-query succeeds)
 2. Refactor `getOrCreateUser` in `src/lib/users.ts` to use `INSERT ... ON CONFLICT (email) DO UPDATE SET updated_at = NOW() ... RETURNING *` for atomic upsert
 3. Remove the separate SELECT-then-INSERT pattern
-4. Verify existing tests still pass
+4. Add `.toLowerCase()` to email before query/insert (email case normalization)
+5. Verify existing tests still pass
+
+### Fix 3: Update documentation for multi-user support
+**Linear Issue:** None (documentation-only, bundled with FOO-213/FOO-214)
+
+1. Update `CLAUDE.md`:
+   - Line 11: Change "Single-user web application" to "Multi-user web application"
+   - Line 13: Replace "Single authorized user: wall.lucas@gmail.com" with "Authorized users: configured via `ALLOWED_EMAILS` env var"
+   - Line 197: Replace "Single user only: wall.lucas@gmail.com — enforced at Google OAuth callback" with "Authorized users only — enforced via `ALLOWED_EMAILS` allowlist at Google OAuth callback"
+2. Update `README.md`:
+   - Line 12: Replace "Single-user application for wall.lucas@gmail.com" with "Multi-user application with email allowlist"
+3. Update `DEVELOPMENT.md`:
+   - Ensure `ALLOWED_EMAILS` env var is documented in local setup instructions
+   - Update any "single-user" references
+4. Fix email logging inconsistency in `src/app/api/auth/google/callback/route.ts:73` — mask email on success path to match rejection path
