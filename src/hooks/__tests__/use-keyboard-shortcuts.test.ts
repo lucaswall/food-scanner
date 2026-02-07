@@ -6,14 +6,12 @@ describe("useKeyboardShortcuts", () => {
   let handlers: {
     onAnalyze?: () => void;
     onLogToFitbit?: () => void;
-    onExitEditMode?: () => void;
   };
 
   beforeEach(() => {
     handlers = {
       onAnalyze: vi.fn(),
       onLogToFitbit: vi.fn(),
-      onExitEditMode: vi.fn(),
     };
   });
 
@@ -42,7 +40,6 @@ describe("useKeyboardShortcuts", () => {
           ...handlers,
           canAnalyze: true,
           canLog: false,
-          isEditing: false,
         })
       );
 
@@ -57,7 +54,6 @@ describe("useKeyboardShortcuts", () => {
           ...handlers,
           canAnalyze: false,
           canLog: false,
-          isEditing: false,
         })
       );
 
@@ -72,7 +68,6 @@ describe("useKeyboardShortcuts", () => {
           ...handlers,
           canAnalyze: true,
           canLog: false,
-          isEditing: false,
         })
       );
 
@@ -89,7 +84,6 @@ describe("useKeyboardShortcuts", () => {
           ...handlers,
           canAnalyze: false,
           canLog: true,
-          isEditing: false,
         })
       );
 
@@ -104,7 +98,6 @@ describe("useKeyboardShortcuts", () => {
           ...handlers,
           canAnalyze: true,
           canLog: false,
-          isEditing: false,
         })
       );
 
@@ -119,45 +112,12 @@ describe("useKeyboardShortcuts", () => {
           ...handlers,
           canAnalyze: false,
           canLog: true,
-          isEditing: false,
         })
       );
 
       dispatchKeyboardEvent("Enter", { metaKey: true, shiftKey: true });
 
       expect(handlers.onLogToFitbit).toHaveBeenCalledTimes(1);
-    });
-  });
-
-  describe("Escape (exit edit mode)", () => {
-    it("triggers onExitEditMode when Escape pressed and isEditing is true", () => {
-      renderHook(() =>
-        useKeyboardShortcuts({
-          ...handlers,
-          canAnalyze: false,
-          canLog: false,
-          isEditing: true,
-        })
-      );
-
-      dispatchKeyboardEvent("Escape");
-
-      expect(handlers.onExitEditMode).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not trigger onExitEditMode when isEditing is false", () => {
-      renderHook(() =>
-        useKeyboardShortcuts({
-          ...handlers,
-          canAnalyze: false,
-          canLog: false,
-          isEditing: false,
-        })
-      );
-
-      dispatchKeyboardEvent("Escape");
-
-      expect(handlers.onExitEditMode).not.toHaveBeenCalled();
     });
   });
 
@@ -170,7 +130,6 @@ describe("useKeyboardShortcuts", () => {
           ...handlers,
           canAnalyze: true,
           canLog: false,
-          isEditing: false,
         })
       );
 

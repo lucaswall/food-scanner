@@ -5,23 +5,14 @@ import { PhotoCapture } from "./photo-capture";
 import { DescriptionInput } from "./description-input";
 import { AnalysisResult } from "./analysis-result";
 import { MealTypeSelector } from "./meal-type-selector";
-import { NutritionEditor } from "./nutrition-editor";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { FoodMatchCard } from "./food-match-card";
 import { compressImage } from "@/lib/image";
 import { vibrateError } from "@/lib/haptics";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Send, Loader2 } from "lucide-react";
 import {
   savePendingSubmission,
   getPendingSubmission,
@@ -61,23 +52,22 @@ export function FoodAnalyzer() {
   // Refs for focus management
   const analysisSectionRef = useRef<HTMLDivElement>(null);
   const confirmationRef = useRef<HTMLDivElement>(null);
-  const [editedAnalysis, setEditedAnalysis] = useState<FoodAnalysis | null>(null);
   const [compressing, setCompressing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
-  const [editMode, setEditMode] = useState(false);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
   const [logging, setLogging] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
-  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
   const [matches, setMatches] = useState<FoodMatch[]>([]);
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
+  const [correction, setCorrection] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState<string | null>(null);
+  const [compressedImages, setCompressedImages] = useState<Blob[] | null>(null);
 
-  const currentAnalysis = editedAnalysis || analysis;
-  const hasEdits = editedAnalysis !== null;
   const canAnalyze = photos.length > 0 && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
 
@@ -91,12 +81,13 @@ export function FoodAnalyzer() {
 
   const resetAnalysisState = () => {
     setAnalysis(null);
-    setEditedAnalysis(null);
     setError(null);
-    setEditMode(false);
     setLogError(null);
     setLogResponse(null);
     setMatches([]);
+    setCorrection("");
+    setRefineError(null);
+    setCompressedImages(null);
   };
 
   const handleAnalyze = async () => {
@@ -106,10 +97,12 @@ export function FoodAnalyzer() {
     setLoadingStep("Preparing images...");
     setError(null);
     setLogError(null);
+    setRefineError(null);
 
     try {
       // Compress all images
       const compressedBlobs = await Promise.all(photos.map(compressImage));
+      setCompressedImages(compressedBlobs);
 
       setCompressing(false);
       setLoading(true);
@@ -139,8 +132,6 @@ export function FoodAnalyzer() {
       }
 
       setAnalysis(result.data);
-      setEditedAnalysis(null);
-      setEditMode(false);
 
       // Fire async match search (non-blocking)
       fetch("/api/find-matches", {
@@ -171,21 +162,62 @@ export function FoodAnalyzer() {
     handleAnalyze();
   };
 
-  const handleRegenerateClick = () => {
-    if (hasEdits) {
-      setShowRegenerateConfirm(true);
-    } else {
-      handleAnalyze();
+  const handleRefine = async () => {
+    if (!analysis || !correction.trim() || !compressedImages) return;
+
+    setRefining(true);
+    setRefineError(null);
+
+    try {
+      const formData = new FormData();
+      compressedImages.forEach((blob, index) => {
+        formData.append("images", blob, `image-${index}.jpg`);
+      });
+      formData.append("previousAnalysis", JSON.stringify(analysis));
+      formData.append("correction", correction.trim());
+
+      const response = await fetch("/api/refine-food", {
+        method: "POST",
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        setRefineError(result.error?.message || "Failed to refine analysis");
+        return;
+      }
+
+      setAnalysis(result.data);
+      setCorrection("");
+      setRefineError(null);
+
+      // Re-fetch food matches since keywords may change
+      fetch("/api/find-matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(result.data),
+      })
+        .then((r) => r.json())
+        .then((matchResult) => {
+          if (matchResult.success && matchResult.data?.matches) {
+            setMatches(matchResult.data.matches);
+          }
+        })
+        .catch(() => {
+          // Silently ignore match errors — matching is optional
+        });
+    } catch (err) {
+      setRefineError(
+        err instanceof Error ? err.message : "An unexpected error occurred"
+      );
+    } finally {
+      setRefining(false);
     }
   };
 
-  const handleConfirmRegenerate = () => {
-    setShowRegenerateConfirm(false);
-    handleAnalyze();
-  };
-
   const handleLogToFitbit = async () => {
-    if (!currentAnalysis) return;
+    if (!analysis) return;
 
     setLogging(true);
     setLogError(null);
@@ -195,7 +227,7 @@ export function FoodAnalyzer() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...currentAnalysis,
+          ...analysis,
           mealTypeId,
           ...getLocalDateTime(),
         }),
@@ -207,9 +239,9 @@ export function FoodAnalyzer() {
         const errorCode = result.error?.code;
         if (errorCode === "FITBIT_TOKEN_INVALID") {
           savePendingSubmission({
-            analysis: currentAnalysis,
+            analysis: analysis,
             mealTypeId,
-            foodName: currentAnalysis.food_name,
+            foodName: analysis.food_name,
           });
           window.location.href = "/api/auth/fitbit";
           return;
@@ -281,28 +313,12 @@ export function FoodAnalyzer() {
     setMealTypeId(getDefaultMealType());
   };
 
-  const handleEditToggle = () => {
-    if (!editMode && analysis) {
-      // Entering edit mode - initialize editedAnalysis
-      setEditedAnalysis(analysis);
-    }
-    setEditMode(!editMode);
-  };
-
-  const handleExitEditMode = () => {
-    if (editMode) {
-      setEditMode(false);
-    }
-  };
-
   // Register keyboard shortcuts
   useKeyboardShortcuts({
     onAnalyze: handleAnalyze,
     onLogToFitbit: handleLogToFitbit,
-    onExitEditMode: handleExitEditMode,
     canAnalyze,
     canLog,
-    isEditing: editMode,
   });
 
   // Focus management: move focus to analysis section after analysis completes
@@ -377,8 +393,8 @@ export function FoodAnalyzer() {
         <div ref={confirmationRef} tabIndex={-1} className="outline-none">
           <FoodLogConfirmation
             response={logResponse}
-            foodName={currentAnalysis?.food_name || "Food"}
-            analysis={currentAnalysis ?? undefined}
+            foodName={analysis?.food_name || "Food"}
+            analysis={analysis ?? undefined}
             mealTypeId={mealTypeId}
             onReset={handleReset}
           />
@@ -435,23 +451,13 @@ export function FoodAnalyzer() {
         tabIndex={-1}
         key={analysis ? `analysis-${analysis.food_name}-${analysis.calories}` : "no-analysis"}
       >
-        {!editMode ? (
-          <AnalysisResult
-            analysis={analysis}
-            loading={loading}
-            error={error}
-            onRetry={handleRetry}
-            loadingStep={loadingStep}
-          />
-        ) : (
-          currentAnalysis && (
-            <NutritionEditor
-              value={currentAnalysis}
-              onChange={setEditedAnalysis}
-              disabled={logging}
-            />
-          )
-        )}
+        <AnalysisResult
+          analysis={analysis}
+          loading={loading}
+          error={error}
+          onRetry={handleRetry}
+          loadingStep={loadingStep}
+        />
       </div>
 
       {/* Food matches section */}
@@ -472,25 +478,60 @@ export function FoodAnalyzer() {
       {/* Post-analysis controls */}
       {analysis && !loading && (
         <div className="space-y-4">
-          {/* Edit/View toggle and Regenerate buttons */}
+          {/* Refining indicator */}
+          {refining && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Refining analysis...</span>
+            </div>
+          )}
+
+          {/* Correction input */}
           <div className="flex gap-2">
-            <Button
-              onClick={handleEditToggle}
-              variant="ghost"
+            <Input
+              placeholder="Correct something..."
+              value={correction}
+              onChange={(e) => setCorrection(e.target.value)}
+              disabled={logging || refining}
+              onKeyDown={(e) =>
+                e.key === "Enter" && correction.trim() && !refining && !logging && handleRefine()
+              }
               className="flex-1 min-h-[44px]"
-              disabled={logging}
-            >
-              {editMode ? "Done Editing" : "Edit Manually"}
-            </Button>
+            />
             <Button
-              onClick={handleRegenerateClick}
-              variant="ghost"
-              className="flex-1 min-h-[44px]"
-              disabled={logging}
+              onClick={handleRefine}
+              disabled={!correction.trim() || logging || refining}
+              variant="outline"
+              className="min-h-[44px]"
+              aria-label="Send correction"
             >
-              Regenerate
+              {refining ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
             </Button>
           </div>
+
+          {/* Refine error display */}
+          {refineError && (
+            <div
+              className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
+              aria-live="polite"
+            >
+              <p className="text-sm text-destructive">{refineError}</p>
+            </div>
+          )}
+
+          {/* Re-analyze button */}
+          <Button
+            onClick={handleAnalyze}
+            variant="ghost"
+            className="w-full min-h-[44px]"
+            disabled={logging || refining}
+          >
+            Re-analyze
+          </Button>
 
           {/* Meal type selector */}
           <div className="space-y-2">
@@ -531,21 +572,6 @@ export function FoodAnalyzer() {
           </Button>
         </div>
       )}
-
-      <AlertDialog open={showRegenerateConfirm} onOpenChange={setShowRegenerateConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Discard your edits?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Regenerating will discard your manual edits and create a new analysis from AI.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmRegenerate}>Confirm</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

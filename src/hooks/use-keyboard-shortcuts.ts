@@ -3,10 +3,8 @@ import { useEffect, useCallback } from "react";
 interface UseKeyboardShortcutsOptions {
   onAnalyze?: () => void;
   onLogToFitbit?: () => void;
-  onExitEditMode?: () => void;
   canAnalyze: boolean;
   canLog: boolean;
-  isEditing: boolean;
 }
 
 /**
@@ -15,15 +13,12 @@ interface UseKeyboardShortcutsOptions {
  * Shortcuts:
  * - Ctrl/Cmd + Enter: Trigger analysis (when photos are present)
  * - Ctrl/Cmd + Shift + Enter: Log to Fitbit (when analysis is present)
- * - Escape: Exit edit mode (when editing)
  */
 export function useKeyboardShortcuts({
   onAnalyze,
   onLogToFitbit,
-  onExitEditMode,
   canAnalyze,
   canLog,
-  isEditing,
 }: UseKeyboardShortcutsOptions): void {
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -46,21 +41,8 @@ export function useKeyboardShortcuts({
         }
         return;
       }
-
-      // Escape: Exit edit mode
-      if (event.key === "Escape") {
-        // Don't intercept Escape if a dialog/modal is open
-        const dialogOpen = document.querySelector('[role="alertdialog"], [role="dialog"]');
-        if (dialogOpen) return;
-
-        if (isEditing && onExitEditMode) {
-          event.preventDefault();
-          onExitEditMode();
-        }
-        return;
-      }
     },
-    [canAnalyze, canLog, isEditing, onAnalyze, onLogToFitbit, onExitEditMode]
+    [canAnalyze, canLog, onAnalyze, onLogToFitbit]
   );
 
   useEffect(() => {
