@@ -1,4 +1,4 @@
-import { eq, and, isNotNull, gte, lte, lt, desc, asc } from "drizzle-orm";
+import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
 import type { CommonFood, FoodLogHistoryEntry } from "@/types";
@@ -168,7 +168,7 @@ export async function getCommonFoods(
 
 export async function getFoodLogHistory(
   email: string,
-  options: { endDate?: string; afterId?: number; limit?: number },
+  options: { endDate?: string; cursor?: { lastDate: string; lastTime: string | null; lastId: number }; limit?: number },
 ): Promise<FoodLogHistoryEntry[]> {
   const db = getDb();
   const limit = options.limit ?? 20;
@@ -177,8 +177,23 @@ export async function getFoodLogHistory(
   if (options.endDate) {
     conditions.push(lte(foodLogEntries.date, options.endDate));
   }
-  if (options.afterId) {
-    conditions.push(lt(foodLogEntries.id, options.afterId));
+  if (options.cursor) {
+    const { lastDate, lastTime, lastId } = options.cursor;
+    // Composite cursor for (date DESC, time ASC) ordering.
+    // Next page entries come after the cursor in sort order.
+    const cursorCondition = lastTime !== null
+      ? or(
+          lt(foodLogEntries.date, lastDate),
+          and(eq(foodLogEntries.date, lastDate), gt(foodLogEntries.time, lastTime)),
+          and(eq(foodLogEntries.date, lastDate), eq(foodLogEntries.time, lastTime), gt(foodLogEntries.id, lastId)),
+        )
+      : or(
+          lt(foodLogEntries.date, lastDate),
+          and(eq(foodLogEntries.date, lastDate), isNull(foodLogEntries.time), gt(foodLogEntries.id, lastId)),
+        );
+    if (cursorCondition) {
+      conditions.push(cursorCondition);
+    }
   }
 
   const rows = await db
@@ -186,7 +201,7 @@ export async function getFoodLogHistory(
     .from(foodLogEntries)
     .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
     .where(and(...conditions))
-    .orderBy(desc(foodLogEntries.date), asc(foodLogEntries.time))
+    .orderBy(desc(foodLogEntries.date), asc(foodLogEntries.time), asc(foodLogEntries.id))
     .limit(limit);
 
   return rows.map((row) => ({

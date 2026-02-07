@@ -111,6 +111,7 @@ describe("GET /api/food-history", () => {
     expect(body.data.entries).toEqual(sampleEntries);
     expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
       endDate: undefined,
+      cursor: undefined,
       limit: 20,
     });
   });
@@ -125,6 +126,105 @@ describe("GET /api/food-history", () => {
     expect(response.status).toBe(200);
     expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
       endDate: "2026-02-05",
+      cursor: undefined,
+      limit: 20,
+    });
+  });
+
+  it("ignores endDate with invalid format", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest("http://localhost:3000/api/food-history?endDate=not-a-date");
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: undefined,
+      limit: 20,
+    });
+  });
+
+  it("ignores endDate with partial date format", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest("http://localhost:3000/api/food-history?endDate=2026-02");
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: undefined,
+      limit: 20,
+    });
+  });
+
+  it("supports composite cursor params (lastDate, lastTime, lastId)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([sampleEntries[1]]);
+
+    const request = createRequest(
+      "http://localhost:3000/api/food-history?lastDate=2026-02-06&lastTime=12:30:00&lastId=1",
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: { lastDate: "2026-02-06", lastTime: "12:30:00", lastId: 1 },
+      limit: 20,
+    });
+  });
+
+  it("supports cursor with null lastTime (missing param)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest(
+      "http://localhost:3000/api/food-history?lastDate=2026-02-06&lastId=5",
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 5 },
+      limit: 20,
+    });
+  });
+
+  it("supports cursor with empty lastTime", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest(
+      "http://localhost:3000/api/food-history?lastDate=2026-02-06&lastTime=&lastId=5",
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 5 },
+      limit: 20,
+    });
+  });
+
+  it("ignores incomplete cursor (lastDate without lastId)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest(
+      "http://localhost:3000/api/food-history?lastDate=2026-02-06",
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: undefined,
+      cursor: undefined,
       limit: 20,
     });
   });
@@ -139,6 +239,7 @@ describe("GET /api/food-history", () => {
     expect(response.status).toBe(200);
     expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
       endDate: undefined,
+      cursor: undefined,
       limit: 10,
     });
   });
@@ -153,6 +254,7 @@ describe("GET /api/food-history", () => {
     expect(response.status).toBe(200);
     expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
       endDate: undefined,
+      cursor: undefined,
       limit: 50,
     });
   });
@@ -166,6 +268,7 @@ describe("GET /api/food-history", () => {
 
     expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
       endDate: undefined,
+      cursor: undefined,
       limit: 20,
     });
   });
@@ -192,7 +295,25 @@ describe("GET /api/food-history", () => {
     expect(response.status).toBe(200);
     expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
       endDate: undefined,
+      cursor: undefined,
       limit: 20,
+    });
+  });
+
+  it("supports all params together (endDate, cursor, limit)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue(sampleEntries);
+
+    const request = createRequest(
+      "http://localhost:3000/api/food-history?endDate=2026-02-06&lastDate=2026-02-05&lastTime=12:00:00&lastId=2&limit=10",
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mockGetFoodLogHistory).toHaveBeenCalledWith("test@example.com", {
+      endDate: "2026-02-06",
+      cursor: { lastDate: "2026-02-05", lastTime: "12:00:00", lastId: 2 },
+      limit: 10,
     });
   });
 });

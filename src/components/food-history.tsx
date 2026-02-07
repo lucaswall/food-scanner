@@ -7,13 +7,17 @@ import { vibrateError } from "@/lib/haptics";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogHistoryEntry } from "@/types";
 
+function formatLocalDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function formatDateHeader(dateStr: string): string {
   const today = new Date();
   const date = new Date(dateStr + "T00:00:00");
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = formatLocalDate(today);
   const yesterdayDate = new Date(today);
   yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-  const yesterdayStr = yesterdayDate.toISOString().slice(0, 10);
+  const yesterdayStr = formatLocalDate(yesterdayDate);
 
   if (dateStr === todayStr) return "Today";
   if (dateStr === yesterdayStr) return "Yesterday";
@@ -65,7 +69,11 @@ export function FoodHistory() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [jumpDate, setJumpDate] = useState("");
 
-  const fetchEntries = useCallback(async (endDate?: string, append = false, afterId?: number) => {
+  const fetchEntries = useCallback(async (
+    endDate?: string,
+    append = false,
+    cursor?: { lastDate: string; lastTime: string | null; lastId: number },
+  ) => {
     if (append) {
       setLoadingMore(true);
     } else {
@@ -75,7 +83,11 @@ export function FoodHistory() {
     try {
       const params = new URLSearchParams();
       if (endDate) params.set("endDate", endDate);
-      if (afterId) params.set("afterId", String(afterId));
+      if (cursor) {
+        params.set("lastDate", cursor.lastDate);
+        if (cursor.lastTime) params.set("lastTime", cursor.lastTime);
+        params.set("lastId", String(cursor.lastId));
+      }
       params.set("limit", "20");
 
       const response = await fetch(`/api/food-history?${params}`, {
@@ -107,7 +119,11 @@ export function FoodHistory() {
   const handleLoadMore = () => {
     if (entries.length === 0) return;
     const oldestEntry = entries[entries.length - 1];
-    fetchEntries(oldestEntry.date, true, oldestEntry.id);
+    fetchEntries(undefined, true, {
+      lastDate: oldestEntry.date,
+      lastTime: oldestEntry.time,
+      lastId: oldestEntry.id,
+    });
   };
 
   const handleDelete = async (id: number) => {

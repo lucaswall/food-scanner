@@ -978,3 +978,43 @@ Summary: 1 issue requiring fix, 5 documented (Team: security, reliability, quali
 5. Write test in `src/components/__tests__/food-history.test.tsx` for "Today"/"Yesterday" labels near midnight
 6. Fix `formatDateHeader` in `src/components/food-history.tsx` to use local date methods instead of `toISOString()`
 7. Update `src/components/food-history.tsx` to send composite cursor on "Load More"
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-07
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Fix 1, Step 1: Write test for composite cursor pagination (worker-1)
+- Fix 1, Step 2: Update getFoodLogHistory to use composite cursor (worker-1)
+- Fix 1, Step 3: Update food-history route for new cursor params and endDate validation (worker-2)
+- Fix 1, Step 4: Update food-history route tests for composite cursor (worker-2)
+- Fix 1, Step 5: Write test for Today/Yesterday labels near midnight (worker-3)
+- Fix 1, Step 6: Fix formatDateHeader to use local date methods (worker-3)
+- Fix 1, Step 7: Update food-history.tsx to send composite cursor on Load More (worker-3)
+
+### Files Modified
+- `src/lib/food-log.ts` - Replaced `afterId` cursor with composite `{ lastDate, lastTime, lastId }`, fixed null-time cursor branch (removed duplicate-producing isNotNull condition), added `id ASC` tiebreak to ORDER BY
+- `src/lib/__tests__/food-log.test.ts` - Added 3 new tests for composite cursor pagination
+- `src/app/api/food-history/route.ts` - Replaced `afterId` param with `lastDate`/`lastTime`/`lastId`, added DATE_REGEX validation for both `endDate` and `lastDate`
+- `src/app/api/food-history/__tests__/route.test.ts` - Rewrote from 8 to 15 tests (composite cursor, null time, validation)
+- `src/components/food-history.tsx` - Added `formatLocalDate` helper, fixed `formatDateHeader` UTC bug, changed `fetchEntries` to accept composite cursor, removed redundant `endDate` from handleLoadMore
+- `src/components/__tests__/food-history.test.tsx` - Added midnight date header test, updated Load More tests for composite cursor, added null-time cursor test
+
+### Linear Updates
+- FOO-174: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (1 HIGH, 3 MEDIUM), all fixed before commit
+  - HIGH: Null-time cursor branch included already-seen entries (removed isNotNull line)
+  - MEDIUM: Missing `id` tiebreak in ORDER BY clause (added `asc(id)`)
+  - MEDIUM: Redundant `endDate` in handleLoadMore (removed)
+  - MEDIUM: `lastDate` cursor param not format-validated (added DATE_REGEX check)
+- verifier: All 744 tests pass, zero warnings, lint clean, typecheck clean, build clean
+
+### Work Partition
+- Worker 1: Steps 1, 2 (data layer: food-log.ts + test)
+- Worker 2: Steps 3, 4 (API route: food-history/route.ts + test)
+- Worker 3: Steps 5, 6, 7 (UI component: food-history.tsx + test)

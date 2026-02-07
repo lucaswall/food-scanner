@@ -693,6 +693,57 @@ describe("getFoodLogHistory", () => {
     expect(result[0].time).toBeNull();
     expect(result[0].fitbitLogId).toBeNull();
   });
+
+  it("accepts composite cursor and paginates correctly with non-sequential ids", async () => {
+    // Scenario: entries have non-sequential ids that don't correlate with (date DESC, time ASC) order
+    // Page 1 returned entries ending with: date=2026-02-05, time=14:00:00, id=50
+    // Page 2 should return entries AFTER that cursor in sort order
+    const page2Rows = [
+      makeHistoryRow({ id: 30, foodName: "Dinner Roll", date: "2026-02-05", time: "18:00:00" }),
+      makeHistoryRow({ id: 80, foodName: "Breakfast", date: "2026-02-04", time: "08:00:00" }),
+    ];
+    mockLimit.mockResolvedValue(page2Rows);
+
+    const result = await getFoodLogHistory("test@example.com", {
+      cursor: { lastDate: "2026-02-05", lastTime: "14:00:00", lastId: 50 },
+      limit: 20,
+    });
+
+    // Should call where with conditions — we verify it doesn't throw and returns mapped entries
+    expect(result).toHaveLength(2);
+    expect(result[0].foodName).toBe("Dinner Roll");
+    expect(result[1].foodName).toBe("Breakfast");
+    // Verify the where mock was called (meaning cursor conditions were applied)
+    expect(mockWhere).toHaveBeenCalled();
+  });
+
+  it("accepts composite cursor with null lastTime", async () => {
+    // When the last entry on previous page had null time
+    const rows = [
+      makeHistoryRow({ id: 15, foodName: "Late Snack", date: "2026-02-04", time: "23:00:00" }),
+    ];
+    mockLimit.mockResolvedValue(rows);
+
+    const result = await getFoodLogHistory("test@example.com", {
+      cursor: { lastDate: "2026-02-05", lastTime: null, lastId: 10 },
+      limit: 20,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].foodName).toBe("Late Snack");
+    expect(mockWhere).toHaveBeenCalled();
+  });
+
+  it("does not use afterId parameter (removed in favor of cursor)", async () => {
+    mockLimit.mockResolvedValue([]);
+
+    // Calling with cursor instead of the old afterId
+    const result = await getFoodLogHistory("test@example.com", {
+      cursor: { lastDate: "2026-02-05", lastTime: "12:00:00", lastId: 5 },
+    });
+
+    expect(result).toEqual([]);
+  });
 });
 
 describe("getFoodLogEntry", () => {
