@@ -88,6 +88,18 @@ Comprehensive checklist for frontend code review covering accessibility, visual 
 - [ ] Shadow/elevation hierarchy makes visual sense
 - [ ] Button variants (primary, secondary, ghost) used correctly per context
 - [ ] Typography scale consistent (no arbitrary font sizes)
+- [ ] Similar UI problems solved the same way everywhere
+
+### Visual Rhythm & Composition
+- [ ] Vertical rhythm: consistent cadence of elements down the page
+- [ ] Visual weight distribution: pages feel balanced, not lopsided
+- [ ] Whitespace used intentionally to group, separate, and create breathing room
+- [ ] Gestalt proximity: related elements grouped, unrelated separated
+- [ ] Gestalt similarity: same-purpose elements look the same
+- [ ] Gestalt continuity: eye follows a natural path without jarring breaks
+- [ ] Most important element on each screen is immediately obvious
+- [ ] Element proportions feel deliberate, sizes relate to each other
+- [ ] Elements aligned to a grid or to neighbors (no "almost aligned" sloppiness)
 
 ### Typography
 - [ ] Font sizes follow a consistent scale
@@ -96,6 +108,8 @@ Comprehensive checklist for frontend code review covering accessibility, visual 
 - [ ] Long text content handles overflow (truncation, wrapping)
 - [ ] Heading sizes visually match semantic hierarchy
 - [ ] Font weights distinguish hierarchy clearly
+- [ ] Letter spacing appropriate for headings vs body
+- [ ] Text line lengths comfortable (45–75 characters for body copy)
 
 ### Spacing & Layout
 - [ ] Consistent padding/margin within component types
@@ -103,6 +117,8 @@ Comprehensive checklist for frontend code review covering accessibility, visual 
 - [ ] Content has `max-width` for readability on large screens
 - [ ] Flex/grid layouts handle varying content lengths
 - [ ] No horizontal scroll at any viewport width
+- [ ] Spacing within groups tighter than spacing between groups
+- [ ] Cards/panels use consistent internal padding
 
 ### Color & Theme
 - [ ] All colors from theme (no `text-[#xxx]` or `bg-[#xxx]`)
@@ -129,6 +145,41 @@ Comprehensive checklist for frontend code review covering accessibility, visual 
 - [ ] Back/undo available at each step
 - [ ] Confirmation before committing (logging to Fitbit)
 - [ ] Success feedback after completing the flow
+
+### Cognitive Load & Information Architecture
+- [ ] Each screen has one clear primary action (no competing CTAs)
+- [ ] Progressive disclosure: advanced options hidden until needed
+- [ ] Manageable number of choices per screen (Hick's law)
+- [ ] Related information grouped logically
+- [ ] Next step always obvious (user never left wondering "what now?")
+- [ ] Complex forms broken into digestible steps
+- [ ] Recognition over recall: options visible, not hidden
+
+### Microcopy & Content Design
+- [ ] Button labels describe action outcome ("Log to Fitbit" not "Submit")
+- [ ] Error messages explain what went wrong AND what to do next
+- [ ] Empty states guide the user with specific next action
+- [ ] Loading messages set expectations where possible ("Analyzing your meal...")
+- [ ] Confirmations are specific ("Logged 450 cal lunch to Fitbit" not "Success!")
+- [ ] Terminology consistent throughout (don't mix "meal"/"food"/"entry" for same concept)
+- [ ] Tone appropriate for health/fitness context (helpful, not cutesy)
+
+### Emotional Design & Trust
+- [ ] AI confidence display calibrated (not overselling certainty)
+- [ ] Personal data not unnecessarily exposed on screen
+- [ ] Success moments feel rewarding
+- [ ] Error moments feel recoverable, not punishing
+- [ ] Interface feels calm and focused, not busy or anxious
+- [ ] Visual design communicates competence and reliability
+
+### Micro-interactions & Animation
+- [ ] State transitions feel smooth and intentional (no jarring jumps)
+- [ ] Easing curves appropriate (ease-out for entering, ease-in for exiting)
+- [ ] Animation duration appropriate (150–300ms for feedback, 300–500ms for transitions)
+- [ ] Animations communicate meaning (expand = reveal, slide = navigate, fade = appear)
+- [ ] No animations that block user from acting
+- [ ] Hover/focus/active states have subtle transitions
+- [ ] No flash of empty content before loading state appears
 
 ### Feedback & States
 - [ ] Loading states for all async operations > 500ms

@@ -136,11 +136,11 @@ Append to the common preamble:
 ```
 YOUR DOMAIN: Visual Design, UX Patterns & Responsive Design
 
-Category tags to use: [visual-consistency], [visual-spacing], [visual-typography], [visual-color], [ux-flow], [ux-feedback], [ux-error], [ux-loading], [ux-responsive], [ux-touch], [ux-dark-mode]
+Category tags to use: [visual-consistency], [visual-spacing], [visual-typography], [visual-color], [visual-rhythm], [visual-craft], [ux-flow], [ux-feedback], [ux-error], [ux-loading], [ux-responsive], [ux-touch], [ux-dark-mode], [ux-cognitive-load], [ux-microcopy], [ux-emotion], [ux-micro-interaction]
 
 Check the files for:
 
-VISUAL CONSISTENCY:
+VISUAL CONSISTENCY & DESIGN SYSTEM:
 - Consistent spacing scale (Tailwind spacing utilities follow a system, not random values)
 - Consistent border radius across similar components
 - Consistent shadow usage (elevation hierarchy makes sense)
@@ -148,6 +148,18 @@ VISUAL CONSISTENCY:
 - Button variants used appropriately (primary for main actions, ghost for secondary)
 - Color palette adheres to the theme variables in globals.css
 - No hardcoded color values — all colors via Tailwind theme or CSS variables
+- Consistent component patterns — similar UI problems solved the same way everywhere
+
+VISUAL RHYTHM & COMPOSITION:
+- Vertical rhythm: elements flow with a consistent cadence down the page (not random gaps)
+- Visual weight distribution: pages feel balanced, not lopsided or top-heavy
+- Whitespace used intentionally as a design element (to group, separate, and create breathing room) — not just "enough padding"
+- Gestalt proximity: related elements grouped tightly, unrelated elements separated with clear space
+- Gestalt similarity: elements that serve the same purpose look the same (color, size, shape)
+- Gestalt continuity: the eye follows a natural path through the interface without jarring breaks
+- Visual hierarchy communicates what matters — the most important element on each screen should be immediately obvious
+- Element proportions feel deliberate — sizes relate to each other, not arbitrary
+- Alignment: elements snap to a grid or align with neighboring elements (no "almost aligned" sloppiness)
 
 TYPOGRAPHY:
 - Font sizes follow a consistent scale (not random px values)
@@ -155,6 +167,9 @@ TYPOGRAPHY:
 - Text truncation handled for long content (overflow, text-ellipsis)
 - Minimum 16px for body text on mobile (prevents iOS zoom on focus)
 - Heading hierarchy visually matches semantic hierarchy
+- Font weight contrast creates clear hierarchy (not everything the same weight)
+- Letter spacing appropriate for headings vs body (headings can be tighter)
+- Text line lengths comfortable for reading (45-75 characters for body copy)
 
 SPACING & LAYOUT:
 - Consistent padding/margin within similar component types
@@ -162,6 +177,8 @@ SPACING & LAYOUT:
 - Content containers have max-width for readability on large screens
 - Grid/flex layouts handle varying content lengths gracefully
 - No content overflow causing horizontal scrolling
+- Spacing between elements within a group is tighter than spacing between groups (proximity principle)
+- Cards, panels, and containers use consistent internal padding
 
 RESPONSIVE DESIGN:
 - Mobile-first approach (base styles for mobile, breakpoints for larger screens)
@@ -195,6 +212,41 @@ USER FLOWS:
 - Empty states have helpful messages and calls to action
 - Confirmation dialogs for destructive or important actions
 
+COGNITIVE LOAD & INFORMATION ARCHITECTURE:
+- Each screen has one clear primary action (not competing calls to action)
+- Progressive disclosure: advanced options hidden until needed, not cluttering the default view
+- Number of choices per screen is manageable (Hick's law — fewer options = faster decisions)
+- Related information grouped logically, not scattered across the page
+- The user is never left wondering "what do I do next?" — the next step is always obvious
+- Complex forms broken into digestible steps rather than a single overwhelming form
+- Recognition over recall: options are visible, not hidden behind memorizable commands
+
+MICROCOPY & CONTENT DESIGN:
+- Button labels describe the action outcome, not generic labels ("Log to Fitbit" not "Submit")
+- Error messages explain what went wrong AND what to do ("Photo too large. Choose an image under 10MB." not "Error: validation failed")
+- Empty states have personality and guide the user ("Take a photo of your meal to get started" not "No data")
+- Loading messages set expectations where possible ("Analyzing your meal..." not just a spinner)
+- Confirmations are specific ("Logged 450 cal lunch to Fitbit" not "Success!")
+- Labels and terminology are consistent throughout (don't mix "meal", "food", "entry" for the same concept)
+- Tone is friendly and helpful but not cutesy — appropriate for a health/fitness tool
+
+EMOTIONAL DESIGN & TRUST:
+- AI confidence display calibrated: inspires appropriate trust (not overselling certainty, not undermining usefulness)
+- Personal data feels safe — no unnecessary exposure of email, tokens, or health data on screen
+- Success moments feel rewarding (subtle celebration when food is logged)
+- Error moments feel recoverable, not punishing
+- The interface feels calm and focused, not busy or anxious
+- Visual design communicates competence and reliability (clean, not cluttered)
+
+MICRO-INTERACTIONS & ANIMATION CRAFT:
+- Transitions between states feel smooth and intentional (not jarring jumps)
+- Easing curves are appropriate: ease-out for entering elements, ease-in for exiting
+- Animation duration is appropriate: 150-300ms for UI feedback, 300-500ms for transitions
+- Animations communicate meaning (expanding = revealing, sliding = navigating, fading = appearing/disappearing)
+- No animations that delay the user from acting (animation finishes before user can proceed)
+- Hover/focus/active states have subtle but noticeable transitions
+- Loading animations feel alive and responsive, not frozen or mechanical
+
 FEEDBACK & STATES:
 - Loading states shown for async operations (> 500ms)
 - Success confirmations for significant actions (food logged)
@@ -203,6 +255,7 @@ FEEDBACK & STATES:
 - Disabled states are visually distinct and explain why disabled
 - Progress indicators for multi-step processes
 - Skeleton screens or placeholders during content loading
+- State transitions are smooth — no flash of empty content before loading state appears
 
 Search patterns (use Grep on the listed files):
 - `className=` — audit Tailwind class usage for consistency
