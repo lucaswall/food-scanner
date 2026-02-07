@@ -23,7 +23,27 @@ git status --porcelain
 
 If any check fails, **STOP** and tell the user what to fix.
 
-### 1.2 Build & Tests
+### 1.2 Docker (OrbStack)
+
+Ensure OrbStack and Docker are available for migration validation:
+
+```bash
+orb status
+```
+
+- If **Running**: proceed
+- If **Stopped**: start it with `orb start`, then verify with `docker compose ps`
+- If `orb` command not found: **STOP** — "OrbStack is not installed. Install with `brew install orbstack`."
+
+Then ensure local Postgres is running:
+
+```bash
+docker compose ps
+```
+
+If the `db` service is not running, start it: `docker compose up -d`
+
+### 1.3 Build & Tests
 
 Run the `verifier` agent to confirm build and tests pass:
 
@@ -33,7 +53,7 @@ Use Task tool with subagent_type "verifier"
 
 If verifier reports failures, **STOP**. Do not proceed with a broken build.
 
-### 1.3 Release Branch Exists
+### 1.4 Release Branch Exists
 
 ```bash
 git rev-parse --verify origin/release
@@ -41,7 +61,7 @@ git rev-parse --verify origin/release
 
 If `release` branch doesn't exist, **STOP** and tell the user to create it.
 
-### 1.4 Diff Assessment
+### 1.5 Diff Assessment
 
 Check what's changing between `release` and `main`:
 
@@ -307,6 +327,9 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 | Merge conflicts | STOP — user resolves manually |
 | Railway CLI not available | STOP — install/login Railway CLI |
 | pg_dump not found | STOP — `brew install libpq` |
+| OrbStack not installed | STOP — `brew install orbstack` |
+| OrbStack stopped | Start with `orb start`, then continue |
+| Docker Compose db not running | Start with `docker compose up -d`, then continue |
 
 ## Rules
 
