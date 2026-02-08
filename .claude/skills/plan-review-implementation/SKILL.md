@@ -220,7 +220,10 @@ If any documented-only findings exist across any iteration, prepare a **Skipped 
   1. **Commit and push** (see Termination section)
   2. Inform user: "Review complete. Changes committed and pushed. Run `/plan-implement` to continue implementation."
 
-- **If all tasks complete and no issues** → Append final status and create PR. If skipped findings exist, insert the summary before the status marker:
+- **If all tasks complete and no issues** → Update header status and append final status, then create PR:
+  1. **Update the header** on line 3: change `**Status:** IN_PROGRESS` to `**Status:** COMPLETE`
+  2. **Append** the final status section at the bottom of the file
+  3. If skipped findings exist, insert the summary before the status marker:
 
 ```markdown
 ---

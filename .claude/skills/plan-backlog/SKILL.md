@@ -50,7 +50,11 @@ ls -la PLANS.md
 - If `PLANS.md` exists and its status is `COMPLETE`: OK, proceed (it will be overwritten).
 - If `PLANS.md` exists and its status is NOT `COMPLETE`: STOP. Tell the user there is an active plan that must be completed or removed first.
 
-To check status, read the file and look for `Status: COMPLETE` in the header section.
+To check status, read the file and look for EITHER:
+- `**Status:** COMPLETE` in the header (line 3), OR
+- `## Status: COMPLETE` anywhere in the file (appended by plan-review-implementation)
+
+If either marker is found, the plan is complete.
 
 ---
 
