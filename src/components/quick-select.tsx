@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { MealTypeSelector } from "./meal-type-selector";
 import { NutritionFactsCard } from "./nutrition-facts-card";
 import { Button } from "@/components/ui/button";
-import { Camera, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
 import {
   savePendingSubmission,
@@ -183,6 +182,12 @@ export function QuickSelect() {
         foodName={selectedFood?.foodName ?? resubmitFoodName ?? "Food"}
         analysis={analysis}
         mealTypeId={mealTypeId}
+        onDone={() => {
+          setLogResponse(null);
+          setSelectedFood(null);
+          setLogError(null);
+          fetchFoods();
+        }}
       />
     );
   }
@@ -242,13 +247,6 @@ export function QuickSelect() {
   if (loadingFoods) {
     return (
       <div className="space-y-4">
-        <Link
-          href="/app/analyze"
-          className="flex items-center justify-center gap-2 w-full min-h-[44px] rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-medium"
-        >
-          <Camera className="h-4 w-4" />
-          Take Photo
-        </Link>
         <p className="text-sm text-muted-foreground text-center">Loading recent foods...</p>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
@@ -264,13 +262,6 @@ export function QuickSelect() {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
         <p className="text-muted-foreground">No recent foods</p>
-        <Link
-          href="/app/analyze"
-          className="flex items-center justify-center gap-2 min-h-[44px] rounded-md bg-primary text-primary-foreground px-6 py-2 text-sm font-medium"
-        >
-          <Camera className="h-4 w-4" />
-          Take Photo
-        </Link>
       </div>
     );
   }
@@ -278,14 +269,6 @@ export function QuickSelect() {
   // Food list
   return (
     <div className="space-y-4">
-      <Link
-        href="/app/analyze"
-        className="flex items-center justify-center gap-2 w-full min-h-[44px] rounded-md bg-primary text-primary-foreground px-4 py-2 text-sm font-medium"
-      >
-        <Camera className="h-4 w-4" />
-        Take Photo
-      </Link>
-
       {logError && (
         <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
           <p className="text-sm text-destructive">{logError}</p>
@@ -316,14 +299,6 @@ export function QuickSelect() {
           </button>
         ))}
       </div>
-
-      <Link
-        href="/app/analyze"
-        className="flex items-center justify-center gap-2 w-full min-h-[44px] rounded-md border border-input bg-background px-4 py-2 text-sm font-medium"
-      >
-        <Camera className="h-4 w-4" />
-        Take Photo
-      </Link>
     </div>
   );
 }

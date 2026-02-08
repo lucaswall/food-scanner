@@ -13,6 +13,7 @@ interface FoodLogConfirmationProps {
   foodName: string;
   analysis?: FoodAnalysis;
   mealTypeId?: number;
+  onDone?: () => void;
 }
 
 export function FoodLogConfirmation({
@@ -20,6 +21,7 @@ export function FoodLogConfirmation({
   foodName,
   analysis,
   mealTypeId,
+  onDone,
 }: FoodLogConfirmationProps) {
   const router = useRouter();
   // Trigger haptic feedback on mount
@@ -77,7 +79,7 @@ export function FoodLogConfirmation({
       )}
 
       <Button
-        onClick={() => router.push("/app")}
+        onClick={() => (onDone ? onDone() : router.push("/app"))}
         variant="outline"
         className="min-h-[44px] min-w-[120px]"
       >

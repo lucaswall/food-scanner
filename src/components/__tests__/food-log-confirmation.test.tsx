@@ -77,7 +77,7 @@ describe("FoodLogConfirmation", () => {
     expect(screen.getByText(/67890/)).toBeInTheDocument();
   });
 
-  it("navigates to /app when Done button is clicked", () => {
+  it("navigates to /app when Done button is clicked and no onDone provided", () => {
     mockPush.mockClear();
     render(
       <FoodLogConfirmation
@@ -90,6 +90,24 @@ describe("FoodLogConfirmation", () => {
     fireEvent.click(button);
 
     expect(mockPush).toHaveBeenCalledWith("/app");
+  });
+
+  it("calls onDone callback when Done button is clicked and onDone is provided", () => {
+    mockPush.mockClear();
+    const onDone = vi.fn();
+    render(
+      <FoodLogConfirmation
+        response={mockResponse}
+        foodName="Test Food"
+        onDone={onDone}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: /done/i });
+    fireEvent.click(button);
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it("returns null when response is null", () => {

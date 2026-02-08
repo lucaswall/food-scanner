@@ -278,7 +278,7 @@ export function FoodHistory() {
 
       {/* Entry detail dialog */}
       <Dialog open={!!selectedEntry} onOpenChange={(open) => { if (!open) setSelectedEntry(null); }}>
-        <DialogContent>
+        <DialogContent className="data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom data-[state=open]:!animate-in data-[state=closed]:!animate-out fixed bottom-0 left-0 right-0 top-auto translate-x-0 translate-y-0 rounded-t-lg rounded-b-none sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg">
           <DialogHeader>
             <DialogTitle className="sr-only">{selectedEntry?.foodName}</DialogTitle>
           </DialogHeader>

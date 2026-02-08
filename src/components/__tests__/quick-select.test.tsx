@@ -155,7 +155,7 @@ describe("QuickSelect", () => {
     });
   });
 
-  it("renders empty state with Take Photo button when 0 results", async () => {
+  it("renders empty state when 0 results", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ success: true, data: { foods: [] } }),
@@ -166,10 +166,6 @@ describe("QuickSelect", () => {
     await waitFor(() => {
       expect(screen.getByText(/no recent foods/i)).toBeInTheDocument();
     });
-
-    const takePhotoLinks = screen.getAllByRole("link", { name: /take photo/i });
-    expect(takePhotoLinks.length).toBeGreaterThan(0);
-    expect(takePhotoLinks[0]).toHaveAttribute("href", "/app/analyze");
   });
 
   it("tapping a food card shows confirmation with Log to Fitbit button", async () => {
@@ -258,25 +254,6 @@ describe("QuickSelect", () => {
     });
   });
 
-
-  it("Take Photo buttons link to /app/analyze", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-    });
-
-    render(<QuickSelect />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
-    });
-
-    const takePhotoLinks = screen.getAllByRole("link", { name: /take photo/i });
-    expect(takePhotoLinks.length).toBeGreaterThanOrEqual(1);
-    takePhotoLinks.forEach((link) => {
-      expect(link).toHaveAttribute("href", "/app/analyze");
-    });
-  });
 
   it("has back button from detail view to food list", async () => {
     mockFetch.mockResolvedValueOnce({

@@ -465,3 +465,55 @@ Fix two UI bugs (Quick Select Done button no-op, History dialog animation) and r
 - Service worker for PWA
 - Any backend/API changes
 - Settings page restructuring
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-08
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Fix Quick Select "Done" button no-op (FOO-224) - Added `onDone` callback prop to FoodLogConfirmation, wired in QuickSelect to reset state and re-fetch foods (worker-1)
+- Task 2: Fix History dialog animation (FOO-225) - Added bottom-sheet animation classes to DialogContent with mobile positioning and desktop centered fallback (worker-2)
+- Task 3: Create standalone Quick Select page (FOO-227) - Created /app/quick-select page with session guard, removed all Take Photo links from QuickSelect (worker-1)
+- Task 4: Verify FoodLogConfirmation Done button for both flows (FOO-224+FOO-227) - Confirmed QuickSelect uses onDone callback, FoodAnalyzer keeps default router.push (worker-1)
+- Task 5: Restructure bottom nav to 5 tabs (FOO-226) - Expanded from 3 to 5 nav items with ListChecks and Camera icons, adjusted spacing for narrow viewports (worker-2)
+- Task 6: Update Home page to remove QuickSelect (FOO-227+FOO-228) - Replaced QuickSelect with two CTA Link cards and DashboardPreview component (worker-3)
+- Task 7: Create Home dashboard preview component (FOO-228) - Created DashboardPreview server component with blurred calorie ring, macro bars, and Coming Soon overlay (worker-3)
+- Task 8: Integration & Verification - Full test suite, typecheck, lint, build all pass
+
+### Files Modified
+- `src/components/food-log-confirmation.tsx` - Added optional `onDone` callback prop
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Added onDone callback tests
+- `src/components/quick-select.tsx` - Wired onDone callback, removed all Take Photo links and unused imports
+- `src/components/__tests__/quick-select.test.tsx` - Removed Take Photo tests, updated empty state test
+- `src/components/food-history.tsx` - Added bottom-sheet animation className to DialogContent
+- `src/components/__tests__/food-history.test.tsx` - Added bottom-sheet animation test
+- `src/components/bottom-nav.tsx` - Expanded to 5 nav items, adjusted spacing
+- `src/components/__tests__/bottom-nav.test.tsx` - Updated for 5 tabs with new route tests
+- `src/app/app/page.tsx` - Replaced QuickSelect with CTA buttons and DashboardPreview
+- `src/app/app/__tests__/page.test.tsx` - Updated for new Home page content
+- `src/components/dashboard-preview.tsx` - Created: blurred dashboard mockup with Coming Soon overlay
+- `src/components/__tests__/dashboard-preview.test.tsx` - Created: 4 tests
+- `src/app/app/quick-select/page.tsx` - Created: standalone Quick Select page
+- `src/app/app/quick-select/__tests__/page.test.tsx` - Created: 5 tests
+
+### Linear Updates
+- FOO-224: Todo → In Progress → Review
+- FOO-225: Todo → In Progress → Review
+- FOO-226: Todo → In Progress → Review
+- FOO-227: Todo → In Progress → Review
+- FOO-228: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed (0 critical/high, 1 medium pre-existing accessibility note, 3 low edge cases)
+- verifier: All 865 tests pass, zero warnings, build succeeds
+
+### Work Partition
+- Worker 1: Tasks 1, 3, 4 (food-log-confirmation, quick-select, quick-select page)
+- Worker 2: Tasks 2, 5 (food-history dialog, bottom-nav)
+- Worker 3: Tasks 6, 7 (home page, dashboard-preview)
+
+### Continuation Status
+All tasks completed.

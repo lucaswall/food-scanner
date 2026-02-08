@@ -15,8 +15,10 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-vi.mock("@/components/quick-select", () => ({
-  QuickSelect: () => <div data-testid="quick-select">QuickSelect</div>,
+vi.mock("@/components/dashboard-preview", () => ({
+  DashboardPreview: () => (
+    <div data-testid="dashboard-preview">DashboardPreview</div>
+  ),
 }));
 
 const { default: AppPage } = await import("@/app/app/page");
@@ -43,11 +45,39 @@ describe("/app page", () => {
     expect(screen.getByText("Food Scanner")).toBeInTheDocument();
   });
 
-  it("renders QuickSelect component", async () => {
+  it("renders Take Photo CTA button linking to /app/analyze", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
-    expect(screen.getByTestId("quick-select")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /take photo/i });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/app/analyze");
+  });
+
+  it("renders Quick Select CTA button linking to /app/quick-select", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const jsx = await AppPage();
+    render(jsx);
+    const link = screen.getByRole("link", { name: /quick select/i });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/app/quick-select");
+  });
+
+  it("renders blurred dashboard preview with Coming Soon text", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const jsx = await AppPage();
+    render(jsx);
+    expect(screen.getByTestId("dashboard-preview")).toBeInTheDocument();
+  });
+
+  it("CTA buttons have min touch target size (44px)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const jsx = await AppPage();
+    render(jsx);
+    const takePhoto = screen.getByRole("link", { name: /take photo/i });
+    const quickSelect = screen.getByRole("link", { name: /quick select/i });
+    expect(takePhoto).toHaveClass("min-h-[44px]");
+    expect(quickSelect).toHaveClass("min-h-[44px]");
   });
 
   describe("skip link", () => {
@@ -55,7 +85,9 @@ describe("/app page", () => {
       mockGetSession.mockResolvedValue(validSession);
       const jsx = await AppPage();
       render(jsx);
-      const skipLink = screen.getByRole("link", { name: /skip to main content/i });
+      const skipLink = screen.getByRole("link", {
+        name: /skip to main content/i,
+      });
       expect(skipLink).toBeInTheDocument();
       expect(skipLink).toHaveAttribute("href", "#main-content");
     });
@@ -64,7 +96,9 @@ describe("/app page", () => {
       mockGetSession.mockResolvedValue(validSession);
       const jsx = await AppPage();
       render(jsx);
-      const skipLink = screen.getByRole("link", { name: /skip to main content/i });
+      const skipLink = screen.getByRole("link", {
+        name: /skip to main content/i,
+      });
       expect(skipLink).toHaveClass("sr-only");
       expect(skipLink).toHaveClass("focus:not-sr-only");
     });

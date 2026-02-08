@@ -1,0 +1,23 @@
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/session";
+import { QuickSelect } from "@/components/quick-select";
+import { SkipLink } from "@/components/skip-link";
+
+export default async function QuickSelectPage() {
+  const session = await getSession();
+
+  if (!session) {
+    redirect("/");
+  }
+
+  return (
+    <div className="min-h-screen px-4 py-6">
+      <SkipLink />
+      <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
+        <h1 className="text-2xl font-bold">Quick Select</h1>
+
+        <QuickSelect />
+      </main>
+    </div>
+  );
+}
