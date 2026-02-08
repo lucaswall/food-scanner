@@ -188,6 +188,47 @@ describe("useSpeechRecognition", () => {
     expect(result.current.isListening).toBe(false);
   });
 
+  it("creates a fresh instance on each start() call", () => {
+    (window as unknown as Record<string, unknown>).SpeechRecognition = MockSpeechRecognition;
+
+    const { result } = renderHook(() =>
+      useSpeechRecognition({ onResult: vi.fn() })
+    );
+
+    act(() => {
+      result.current.start();
+    });
+    expect(mockInstances).toHaveLength(1);
+
+    // Simulate end, then start again
+    act(() => {
+      mockInstances[0].onend?.();
+    });
+
+    act(() => {
+      result.current.start();
+    });
+    expect(mockInstances).toHaveLength(2);
+    expect(mockInstances[1].start).toHaveBeenCalled();
+  });
+
+  it("sets isListening to false when start() throws", () => {
+    const ThrowingSpeechRecognition = class extends MockSpeechRecognition {
+      start = vi.fn(() => { throw new Error("InvalidStateError"); });
+    };
+    (window as unknown as Record<string, unknown>).SpeechRecognition = ThrowingSpeechRecognition;
+
+    const { result } = renderHook(() =>
+      useSpeechRecognition({ onResult: vi.fn() })
+    );
+
+    act(() => {
+      result.current.start();
+    });
+
+    expect(result.current.isListening).toBe(false);
+  });
+
   it("does nothing when start() called on unsupported browser", () => {
     delete (window as unknown as Record<string, unknown>).SpeechRecognition;
     delete (window as unknown as Record<string, unknown>).webkitSpeechRecognition;

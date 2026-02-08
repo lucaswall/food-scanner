@@ -68,34 +68,49 @@ export function useSpeechRecognition({
   const start = useCallback(() => {
     if (!SpeechRecognitionCtor) return;
 
-    if (!recognitionRef.current) {
-      const recognition = new SpeechRecognitionCtor();
-      recognitionRef.current = recognition;
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = lang;
-
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        const transcript = event.results[0][0].transcript;
-        onResultRef.current(transcript);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognition.onerror = () => {
-        setIsListening(false);
-      };
+    // Always create a fresh instance — reusing a stopped instance throws
+    // InvalidStateError on Chrome Android
+    if (recognitionRef.current) {
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.onend = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current = null;
     }
 
-    recognitionRef.current.start();
-    setIsListening(true);
+    const recognition = new SpeechRecognitionCtor();
+    recognitionRef.current = recognition;
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = lang;
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const transcript = event.results[0][0].transcript;
+      onResultRef.current(transcript);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    try {
+      recognition.start();
+      setIsListening(true);
+    } catch {
+      setIsListening(false);
+    }
   }, [SpeechRecognitionCtor, lang]);
 
   const stop = useCallback(() => {
     if (recognitionRef.current) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch {
+        // Already stopped
+      }
     }
     setIsListening(false);
   }, []);
