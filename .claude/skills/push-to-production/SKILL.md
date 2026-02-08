@@ -313,22 +313,40 @@ Log potential production data migrations here during development. These notes ar
 
 ### 5.3 Update Version and Changelog
 
-**Determine version:**
+**Determine version** (follows [Semantic Versioning 2.0.0](https://semver.org/)):
+
 1. Read `CHANGELOG.md` and extract the current version from the first `## [x.y.z]` header
 2. If `<arguments>` contains a version (e.g., `2.0.0`):
    - Validate it's valid semver (X.Y.Z)
    - Validate it's strictly higher than current version
    - If invalid, **STOP**: "Invalid version. Must be higher than current [current]."
-3. If no argument, auto-increment patch: `x.y.z` → `x.y.(z+1)`
+3. If no argument, **deduce the bump from the commits being promoted** (from Phase 1.6):
+   - **MAJOR** (`x+1.0.0`): Incompatible/breaking changes — removed or renamed API routes, changed API response shapes, DB schema changes that break existing clients, removed features
+   - **MINOR** (`x.y+1.0`): Backward-compatible new functionality — new screens, new API endpoints, new features, significant UI additions
+   - **PATCH** (`x.y.z+1`): Backward-compatible bug fixes — bug fixes, UI tweaks, refactoring, performance improvements, documentation, dependency updates
+   - When commits span multiple categories, use the **highest** bump level (MAJOR > MINOR > PATCH)
+   - Show the user which bump level was chosen and why, so they can override if they disagree
 
-**Write changelog entry:**
+**Write changelog entry** (follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/)):
+
 1. Review the commit list from Phase 1.6
-2. Write a `## [version] - YYYY-MM-DD` entry with user-friendly descriptions:
-   - Focus on what changed for the user, not implementation details
-   - Group minor fixes into single items ("Minor bug fixes", "Minor UI improvements")
-   - Lead with new features, then improvements, then fixes
-   - Keep the list concise — aim for 3-8 items
-3. Prepend the new entry after the header in `CHANGELOG.md` (before existing entries)
+2. Move any items from the `## [Unreleased]` section into the new version entry
+3. Write a `## [version] - YYYY-MM-DD` entry, grouping changes under these section headers (omit empty sections):
+   - `### Added` — new features, new screens, new API endpoints
+   - `### Changed` — changes to existing functionality, UI improvements, refactoring
+   - `### Deprecated` — features that will be removed in a future release
+   - `### Removed` — removed features, deleted routes or components
+   - `### Fixed` — bug fixes
+   - `### Security` — security-related changes, vulnerability fixes
+4. Write user-friendly descriptions — focus on what changed for the user, not implementation details
+5. Group minor fixes into single items (e.g., "Minor bug fixes" or "Minor UI polish")
+6. Keep each section concise — aim for 3-8 items total across all sections
+7. Insert the new entry between `## [Unreleased]` and the previous version (keep Unreleased section empty)
+8. Update the comparison links at the bottom of the file:
+   - `[Unreleased]` link: compare new version tag to HEAD
+   - New version link: compare previous version tag to new version tag
+   - Format: `[Unreleased]: https://github.com/lucaswall/food-scanner/compare/vNEW...HEAD`
+   - Format: `[NEW]: https://github.com/lucaswall/food-scanner/compare/vOLD...vNEW`
 
 **Update package.json:**
 
@@ -351,12 +369,21 @@ git checkout release
 git pull origin release
 git merge origin/main --no-edit
 git push origin release
-git checkout main
 ```
 
 If merge conflicts occur, **STOP** and tell the user to resolve them manually.
 
 **Note:** Pushing to `release` triggers Railway auto-deploy. If the service was stopped in Phase 4.3, the deploy will bring it back up automatically. Drizzle runs at startup, sees the covered migrations already in `__drizzle_migrations`, and skips them.
+
+### 5.6 Tag Release
+
+Create an annotated git tag on the `release` branch and push it:
+
+```bash
+git tag -a "v<version>" -m "v<version>"
+git push origin "v<version>"
+git checkout main
+```
 
 ## Phase 6: Post-Release
 
@@ -425,5 +452,5 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 - **Never force-push** — Use normal merge only
 - **Backup files stay local** — `_migrations/` is gitignored
 - **Never hardcode user data in SQL** — Derive from existing DB content (SELECT DISTINCT, JOINs), never hardcode emails, names, or personal data
-- **Version and changelog always updated** — Every release gets a CHANGELOG.md entry and matching package.json version
+- **Semantic Versioning 2.0.0** — Version bumps follow semver rules: MAJOR for breaking changes, MINOR for new features, PATCH for bug fixes. Every release gets a CHANGELOG.md entry and matching package.json version
 - **Stop on any failure** — Better to abort than corrupt production
