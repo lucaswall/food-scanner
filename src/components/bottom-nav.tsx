@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Clock, Settings } from "lucide-react";
+import { Home, ListChecks, Camera, Clock, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -10,7 +10,19 @@ const navItems = [
     label: "Home",
     href: "/app",
     icon: Home,
-    isActive: (pathname: string) => pathname === "/app" || pathname === "/app/analyze",
+    isActive: (pathname: string) => pathname === "/app",
+  },
+  {
+    label: "Quick Select",
+    href: "/app/quick-select",
+    icon: ListChecks,
+    isActive: (pathname: string) => pathname === "/app/quick-select",
+  },
+  {
+    label: "Take Photo",
+    href: "/app/analyze",
+    icon: Camera,
+    isActive: (pathname: string) => pathname === "/app/analyze",
   },
   {
     label: "History",
@@ -39,13 +51,13 @@ export function BottomNav() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex flex-col items-center justify-center min-h-[44px] min-w-[44px] px-3 py-2 text-muted-foreground transition-colors",
+                "flex flex-col items-center justify-center min-h-[44px] min-w-[44px] px-1 py-2 text-muted-foreground transition-colors",
                 active && "text-primary"
               )}
               aria-current={active ? "page" : undefined}
             >
               <item.icon className="h-5 w-5" />
-              <span className="text-xs mt-0.5">{item.label}</span>
+              <span className="text-[10px] mt-0.5">{item.label}</span>
             </Link>
           );
         })}

@@ -336,6 +336,27 @@ describe("FoodHistory", () => {
     });
   });
 
+  it("dialog has aria-describedby={undefined} to suppress Radix warning", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    render(<FoodHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    const entryButton = screen.getByRole("button", { name: /empanada de carne, 320 calories/i });
+    fireEvent.click(entryButton);
+
+    await waitFor(() => {
+      const dialogContent = screen.getByRole("dialog");
+      expect(dialogContent).not.toHaveAttribute("aria-describedby");
+    });
+  });
+
   it("tapping an entry row opens a dialog with nutrition facts", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -438,6 +459,38 @@ describe("FoodHistory", () => {
     await waitFor(() => {
       expect(screen.queryByText("Nutrition Facts")).not.toBeInTheDocument();
     });
+  });
+
+  it("entry detail dialog has bottom-sheet animation classes on mobile", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    render(<FoodHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Open dialog
+    const entryButton = screen.getByRole("button", { name: /empanada de carne, 320 calories/i });
+    fireEvent.click(entryButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
+    });
+
+    // The DialogContent renders as role="dialog"
+    const dialog = screen.getByRole("dialog");
+    const classes = dialog.className;
+    // Should have bottom-sheet animation class for mobile
+    expect(classes).toContain("data-[state=open]:slide-in-from-bottom");
+    expect(classes).toContain("data-[state=closed]:slide-out-to-bottom");
+    // Should be positioned at bottom on mobile
+    expect(dialog).toHaveClass("bottom-0");
+    // Should have rounded top corners
+    expect(dialog).toHaveClass("rounded-t-lg");
   });
 
   it("Load more omits lastTime when entry time is null", async () => {
