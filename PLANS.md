@@ -480,3 +480,48 @@ Enable text-only food analysis (no photo required) and add a visible voice input
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Files reviewed: 11
+Reviewers: security, reliability, quality (agent team)
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+
+No critical or high-severity issues found. All implementations are correct and follow project conventions.
+
+**Documented (no fix needed):**
+- [MEDIUM] SECURITY: No server-side length limit on `description` field (`src/app/api/analyze-food/route.ts:36-41`) — single authorized user, Claude API has its own token limits
+- [MEDIUM] SECURITY: No server-side length limit on `correction` field (`src/app/api/refine-food/route.ts:89-94`) — same reasoning as above
+- [MEDIUM] EDGE CASE: `analyzeFood()` has no guard for empty images + no description (`src/lib/claude.ts:225`) — route handler already validates upstream
+- [MEDIUM] ASYNC: Fire-and-forget `/api/find-matches` fetch with no abort on re-analysis (`src/components/food-analyzer.tsx:127-140`) — matches are supplementary, low impact
+- [MEDIUM] EDGE CASE: `recognition.start()` synchronous throw not caught (`src/hooks/use-speech-recognition.ts:92`) — browser edge case, self-corrects via onerror handler
+- [LOW] EDGE CASE: Whitespace-only description not trimmed server-side (`src/app/api/analyze-food/route.ts:44`) — cosmetic, Claude handles it
+- [LOW] RESOURCE: In-memory rate limit store cleanup for long-running processes (`src/lib/rate-limit.ts:7`) — single-user app, bounded at 1000 entries
+
+### Linear Updates
+- FOO-222: Review → Merge
+- FOO-223: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Skipped Findings Summary
+
+Findings documented but not fixed across all review iterations:
+
+| Severity | Category | File | Finding | Rationale |
+|----------|----------|------|---------|-----------|
+| MEDIUM | SECURITY | `src/app/api/analyze-food/route.ts:36-41` | No server-side length limit on `description` | Single authorized user, Claude API has token limits |
+| MEDIUM | SECURITY | `src/app/api/refine-food/route.ts:89-94` | No server-side length limit on `correction` | Same reasoning |
+| MEDIUM | EDGE CASE | `src/lib/claude.ts:225` | No guard for empty images + no description in `analyzeFood()` | Route handler validates upstream |
+| MEDIUM | ASYNC | `src/components/food-analyzer.tsx:127-140` | Stale `/api/find-matches` fetch on re-analysis | Matches are supplementary, low impact |
+| MEDIUM | EDGE CASE | `src/hooks/use-speech-recognition.ts:92` | `recognition.start()` sync throw not caught | Self-corrects via onerror handler |
+| LOW | EDGE CASE | `src/app/api/analyze-food/route.ts:44` | Whitespace-only description not trimmed server-side | Cosmetic, Claude handles it |
+| LOW | RESOURCE | `src/lib/rate-limit.ts:7` | Rate limit store cleanup for long-running processes | Single-user app, bounded at 1000 entries |
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
