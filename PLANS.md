@@ -1,171 +1,384 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-219-accepted-patterns-and-history-detail
-**Issues:** FOO-219, FOO-220, FOO-221
-**Created:** 2026-02-07
-**Last Updated:** 2026-02-07
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-222-text-only-analysis-and-voice-input
+**Issues:** FOO-222, FOO-223
+**Created:** 2026-02-08
+**Last Updated:** 2026-02-08
 
 ## Summary
 
-Three improvements: (1) add a nutrition facts detail overlay to the History screen, (2) document accepted code patterns in CLAUDE.md and reviewer prompts to reduce review noise, and (3) add a skipped-findings summary report to the plan-review-implementation skill.
+Enable text-only food analysis (no photo required) and add a visible voice input button to the description textarea. Together these features create a fast "speak and log" path — users can describe food by voice without needing a photo.
 
 ## Issues
 
-### FOO-221: History: tap entry to show nutrition facts in bottom sheet
+### FOO-222: Make photo optional in food analysis flow
 
 **Priority:** Medium
 **Labels:** Improvement
-**Description:** The History screen hides fiber and sodium. Tapping an entry row should open a dialog overlay displaying the full `NutritionFactsCard`. All data is already in `FoodLogHistoryEntry` — no new API calls needed.
+**Description:** The analyze food flow requires at least one photo — the API returns 400 and the UI disables the Analyze button when no images are attached. Users who want to log food from a text description (e.g., "2 medialunas y un cortado") cannot use the analysis feature without taking a photo. Claude already receives a description field alongside images, so the AI path works with text only.
 
 **Acceptance Criteria:**
-- [ ] Tapping an entry row (anywhere except the delete button) opens a dialog overlay
-- [ ] The overlay displays a `NutritionFactsCard` with all fields: food name, amount, unit, calories, protein, carbs, fat, fiber, sodium, meal type
-- [ ] The overlay has a close/dismiss mechanism (tap outside, swipe down, or close button)
-- [ ] The overlay works well on mobile (44px touch targets)
-- [ ] No new API calls needed — all data is already in `FoodLogHistoryEntry`
+- [ ] API accepts requests with description-only (no images) — returns valid FoodAnalysis
+- [ ] API still rejects requests with neither images nor description (400)
+- [ ] UI enables Analyze button when description has text, even with no photos
+- [ ] UI skips image compression step when no photos are present
+- [ ] Claude `analyzeFood()` works with empty `imageInputs` array (text-only message)
+- [ ] Refine flow works for text-only analyses (no images to re-send)
+- [ ] First-time guidance updated to reflect optional photos
 
-### FOO-219: Review noise: CLAUDE.md missing guidance on accepted patterns
+### FOO-223: Add voice input button to description textarea
 
 **Priority:** Low
-**Labels:** Convention
-**Description:** Reviewers repeatedly flag double casts on Fitbit API responses and string literals in Drizzle test mocks. Both are accepted patterns with valid rationale. Adding documentation to CLAUDE.md and updating reviewer prompts will reduce noise.
+**Labels:** Feature
+**Description:** The description textarea supports voice input via the OS keyboard's mic button, but there's no visible affordance. Add a mic icon button using the Web Speech API (`SpeechRecognition`) with progressive enhancement — hide the button if the browser doesn't support it. Set language to `es-AR` for Argentine Spanish recognition. Append transcribed text (don't replace).
 
 **Acceptance Criteria:**
-- [ ] CLAUDE.md has a "Known Accepted Patterns" section listing accepted patterns with rationale
-- [ ] Reviewer prompts reference this section so reviewers check it before flagging
-
-### FOO-220: Plan-review-implementation: add skipped-findings summary report
-
-**Priority:** Low
-**Labels:** Improvement
-**Description:** When plan-review-implementation documents MEDIUM/LOW findings as "no fix needed", the reasoning is scattered across iteration sections. Add a consolidated summary at plan completion.
-
-**Acceptance Criteria:**
-- [ ] After all iterations reviewed and plan marked COMPLETE, a "Skipped Findings Summary" section is appended
-- [ ] The summary table includes: finding, severity, file, rationale for skipping
-- [ ] Placed just before the `## Status: COMPLETE` line
+- [ ] Mic button visible adjacent to or inside the textarea when Web Speech API is supported
+- [ ] Button hidden on browsers without SpeechRecognition support
+- [ ] Clicking mic starts listening, shows animated indicator
+- [ ] Transcribed text appended to existing textarea content
+- [ ] Language set to `es-AR` for Argentine Spanish
+- [ ] Tapping mic again or speech end stops listening
+- [ ] Touch target meets 44px minimum
+- [ ] Works correctly with disabled prop
 
 ## Prerequisites
 
-- [ ] shadcn/ui Dialog component installed (already at `src/components/ui/dialog.tsx`)
-- [ ] `NutritionFactsCard` component exists (already at `src/components/nutrition-facts-card.tsx`)
-- [ ] `FoodLogHistoryEntry` type includes fiberG and sodiumMg (already in `src/types/index.ts`)
+- [ ] Database migrations are up to date (no schema changes in this plan)
+- [ ] Dependencies are installed (no new npm packages needed)
 
 ## Implementation Tasks
 
-### Task 1: Add dialog overlay to FoodHistory component
+### Task 1: Make `analyzeFood()` accept empty images array
 
-**Issue:** FOO-221
+**Issue:** FOO-222
 **Files:**
-- `src/components/food-history.tsx` (modify)
-- `src/components/__tests__/food-history.test.tsx` (modify)
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** - Write failing tests for dialog behavior:
-   - Create test: "tapping an entry row opens a dialog with nutrition facts"
-     - Render `FoodHistory`, wait for entries to load
-     - Click on the entry row (the `div` wrapping entry content, not the delete button)
-     - Assert `NutritionFactsCard` content appears in a dialog: `screen.getByText("Nutrition Facts")`
-     - Assert the food's fiber (`2g`) and sodium (`450mg`) are visible
-   - Create test: "dialog shows correct data for the clicked entry"
-     - Click a different entry, verify its specific nutrition values appear
-   - Create test: "clicking delete button does NOT open dialog"
-     - Click the delete button, verify dialog does NOT open (no "Nutrition Facts" text)
-   - Create test: "dialog can be closed"
-     - Open dialog, click close button, verify dialog content disappears
-   - Add `ResizeObserver` mock in `beforeAll` (same pattern as `food-analyzer.test.tsx`)
-   - Run: `npm test -- food-history`
-   - Verify: Tests fail (no dialog functionality exists)
+1. **RED** - Write failing test:
+   - Add test to `src/lib/__tests__/claude.test.ts`: `"works with text-only (no images)"`
+   - Call `analyzeFood([], "2 medialunas y un cortado")`
+   - Mock `mockCreate` to return valid tool_use response
+   - Assert: result equals expected FoodAnalysis
+   - Assert: the Claude API message content has only a text block (no image blocks)
+   - Run: `npm test -- claude.test`
+   - Verify: Test fails because `analyzeFood` currently requires images (the spread `...images.map(...)` produces empty array but this should still work — verify the actual behavior)
 
-2. **GREEN** - Implement dialog in `food-history.tsx`:
-   - Import `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle` from `@/components/ui/dialog`
-   - Import `NutritionFactsCard` from `@/components/nutrition-facts-card`
-   - Add state: `const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null)`
-   - Wrap entry row content (excluding delete button) in a clickable `<button>` with `role="button"` and `onClick={() => setSelectedEntry(entry)}`
-   - Ensure the entry row click target is at least 44px tall (already is via `p-3`)
-   - Add `<Dialog open={!!selectedEntry} onOpenChange={(open) => { if (!open) setSelectedEntry(null); }}>` with `<DialogContent>` containing `<NutritionFactsCard>` passing all entry fields
-   - Map `FoodLogHistoryEntry` fields to `NutritionFactsCard` props (camelCase to camelCase — they match)
-   - Pass `mealTypeId={selectedEntry.mealTypeId}` so meal type shows in the card
-   - The delete button already has its own `onClick` — it won't bubble to the row because it's a separate button element outside the clickable area. Restructure the row so the clickable area and delete button are siblings, not nested.
-   - Run: `npm test -- food-history`
-   - Verify: All tests pass
+2. **GREEN** - Make it pass:
+   - In `src/lib/claude.ts`, modify `analyzeFood()`:
+     - Build `content` array: only include image blocks if `images.length > 0`
+     - Text block: if no images and description is provided, use description directly; if no images and no description, this should not be called (validation happens upstream)
+   - Run: `npm test -- claude.test`
+   - Verify: Test passes
 
-3. **REFACTOR** - Clean up:
-   - Ensure dialog close button has 44px touch target
-   - Verify no duplicate food name display (dialog title vs card)
-   - Use `DialogTitle` with `className="sr-only"` to satisfy Radix a11y requirement without visual duplication (the card already shows the food name)
+3. **REFACTOR** - Add another test:
+   - Test `"text-only uses description as the sole content block"` — verify no image blocks in the API call when images is empty
+   - Run: `npm test -- claude.test`
 
 **Notes:**
-- The `Dialog` component from shadcn/ui already handles overlay dismiss on outside click and has a close X button
-- `NutritionFactsCard` is a server component (no `'use client'`) but can be rendered inside a client component
-- Reference: `src/components/food-log-confirmation.tsx` for how `NutritionFactsCard` is used with mapped props
-- `ResizeObserver` mock is needed for Radix Dialog in tests — see `src/components/__tests__/food-analyzer.test.tsx:7-13`
+- The current code at `src/lib/claude.ts:211` spreads `images.map(...)` which produces `[]` for empty array — the content array would be `[{ type: "text", text: description }]`. This may already work, but we need to verify and add explicit tests.
+- Reference: `src/lib/claude.ts:200-230` for the message construction pattern
 
-### Task 2: Add "Known Accepted Patterns" section to CLAUDE.md
+---
 
-**Issue:** FOO-219
+### Task 2: Make `refineAnalysis()` accept empty images array
+
+**Issue:** FOO-222
 **Files:**
-- `CLAUDE.md` (modify)
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Add test to `refineAnalysis` describe block: `"works with text-only refinement (no images)"`
+   - Call `refineAnalysis([], validAnalysis, "Actually it was 3 medialunas")`
+   - Mock `mockCreate` to return valid tool_use response
+   - Assert: result equals expected FoodAnalysis
+   - Assert: the Claude API message content has only a text block (no image blocks)
+   - Run: `npm test -- claude.test`
+
+2. **GREEN** - Make it pass:
+   - In `src/lib/claude.ts`, modify `refineAnalysis()`:
+     - Build `content` array: only include image blocks if `images.length > 0`
+   - Run: `npm test -- claude.test`
+   - Verify: Test passes
+
+**Notes:**
+- Same pattern as Task 1 but for the `refineAnalysis` function at `src/lib/claude.ts:286-396`
+- The refine prompt text already contains the previous analysis context, so text-only refinement works naturally
+
+---
+
+### Task 3: Relax API route validation — allow description-only requests
+
+**Issue:** FOO-222
+**Files:**
+- `src/app/api/analyze-food/route.ts` (modify)
+- `src/app/api/analyze-food/__tests__/route.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Add test: `"returns 200 for description-only request (no images)"`
+   - Create request with empty images array and description "2 medialunas"
+   - Mock `analyzeFood` to return `validAnalysis`
+   - Assert: response status 200, body has `success: true`
+   - Assert: `mockAnalyzeFood` called with `([], "2 medialunas")`
+   - Run: `npm test -- analyze-food`
+   - Verify: Test fails (current code returns 400 "At least one image is required")
+
+2. **GREEN** - Make it pass:
+   - In `src/app/api/analyze-food/route.ts`:
+     - Change the `images.length === 0` guard (lines 44-51) to check: if `images.length === 0 AND (!description || description.trim().length === 0)` then return 400 with message "At least one image or a description is required"
+     - Skip image validation loop when `images.length === 0`
+   - Run: `npm test -- analyze-food`
+   - Verify: Test passes
+
+3. **RED** - Write another failing test:
+   - Add test: `"returns 400 when neither images nor description provided"`
+   - Create request with no images and no description
+   - Assert: response status 400, error code "VALIDATION_ERROR"
+   - Run: `npm test -- analyze-food`
+
+4. **GREEN** - Should already pass with the new guard logic
+
+5. **REFACTOR** - Update existing test:
+   - The existing test `"returns 400 VALIDATION_ERROR for no images"` — update it to also have no description, and update the expected error message to match the new wording
+   - Run: `npm test -- analyze-food`
+
+**Notes:**
+- Reference: `src/app/api/analyze-food/route.ts:29-51` for current validation flow
+- The `description` variable is extracted at line 41 before the image check — we can use it in the combined guard
+
+---
+
+### Task 4: Relax refine-food API route — allow image-less refinement
+
+**Issue:** FOO-222
+**Files:**
+- `src/app/api/refine-food/route.ts` (modify)
+- `src/app/api/refine-food/__tests__/route.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Add test: `"returns 200 for refinement without images"`
+   - Create request with no images, valid `previousAnalysis`, and correction text
+   - Mock `refineAnalysis` to return updated analysis
+   - Assert: response status 200, `refineAnalysis` called with `([], previousAnalysis, correction)`
+   - Run: `npm test -- refine-food`
+   - Verify: Test fails (current code returns 400 "At least one image is required")
+
+2. **GREEN** - Make it pass:
+   - In `src/app/api/refine-food/route.ts`:
+     - Remove the `images.length === 0` guard at lines 58-61
+     - Keep the `images.length > MAX_IMAGES` check and per-image validation — these only run when images are present
+   - Run: `npm test -- refine-food`
+   - Verify: Test passes
+
+3. **REFACTOR** - Update existing test if any assert the 400 for no images
+
+**Notes:**
+- Reference: `src/app/api/refine-food/route.ts:58-61`
+- Refinement always has a previous analysis and correction text — images are supplementary context
+
+---
+
+### Task 5: Update UI — enable Analyze button without photos
+
+**Issue:** FOO-222
+**Files:**
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Add test: `"enables Analyze button when description has text and no photos"`
+   - Render `FoodAnalyzer`, type text into description input (via mock), don't add photos
+   - Assert: Analyze Food button is NOT disabled
+   - Run: `npm test -- food-analyzer.test`
+   - Verify: Test fails (current `canAnalyze` requires `photos.length > 0`)
+
+2. **GREEN** - Make it pass:
+   - In `src/components/food-analyzer.tsx`:
+     - Change line 48: `const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;`
+     - Change line 414: Update `disabled` prop on Analyze button to use `!canAnalyze` (currently uses `photos.length === 0 || compressing || loading || logging` — replace with `!canAnalyze`)
+     - Update `handleAnalyze`: skip compression step when `photos.length === 0` — go directly to the API call with empty FormData images
+   - Run: `npm test -- food-analyzer.test`
+   - Verify: Test passes
+
+3. **REFACTOR** - Handle edge cases in `handleAnalyze`:
+   - When `photos.length === 0`: skip `compressImage`, set `compressedImages` to `[]`, go straight to API call
+   - The FormData should not append any images, just the description
+   - Update `handleRefine` similarly: when `compressedImages` is `[]` (empty array), don't append images to the refine FormData
+
+4. **Additional tests:**
+   - `"sends description-only to API when no photos"` — verify fetch is called with FormData that has description but no images
+   - `"disables Analyze button when neither photos nor description present"` — verify button is disabled when both are empty
+   - Update the "how it works" guidance text test if the message changes
+
+**Notes:**
+- Reference: `src/components/food-analyzer.tsx:48` for `canAnalyze`
+- Reference: `src/components/food-analyzer.tsx:70-136` for `handleAnalyze`
+- The mock for `DescriptionInput` in the test file needs to support triggering onChange so we can simulate text entry without photos
+- The `compressedImages` state (line 46) holds compressed blobs for the refine flow — when text-only, store `[]`
+- Update `handleRefine` (line 142) guard: `if (!analysis || !correction.trim())` — remove the `!compressedImages` check since text-only analyses have `compressedImages = []` (not null)
+
+---
+
+### Task 6: Update first-time guidance text
+
+**Issue:** FOO-222
+**Files:**
+- `src/components/food-analyzer.tsx` (modify)
 
 **Steps:**
 
-1. Add a new section "## KNOWN ACCEPTED PATTERNS" after the "## STYLE GUIDE" section in CLAUDE.md
-2. Document the two accepted patterns:
-   - **Double casts on Fitbit API responses:** `data as unknown as Type` in `src/lib/fitbit.ts` — accepted because critical fields are runtime-validated immediately after the cast (e.g., checking `typeof foodEntry?.foodId !== "number"` before returning)
-   - **String literals in Drizzle test mocks:** Using `{ email: "email" }` instead of real Drizzle column objects in test `where()` clauses — accepted because TypeScript catches column name typos at compile time, making additional mock fidelity redundant
-3. Keep each entry concise: pattern + file reference + one-line rationale
+1. Update the guidance text at lines 398-410:
+   - Change "How it works:" steps to reflect that photos are optional:
+     - Step 1: "Take a photo or describe your food"
+     - Step 2: "Add details (optional)"
+     - Step 3: "Log to Fitbit"
+   - The guidance should show when `photos.length === 0 && !description.trim() && !analysis`
+2. Update the condition at line 398: `photos.length === 0 && !analysis` → `photos.length === 0 && !description.trim() && !analysis` — hide guidance once the user starts typing a description
+3. Run: `npm test -- food-analyzer.test`
+4. Update any test that asserts the guidance text content
 
 **Notes:**
-- No tests needed — this is documentation only
-- Reference: `src/lib/fitbit.ts:170` and `src/lib/fitbit.ts:226` for the double cast pattern
+- Reference: `src/components/food-analyzer.tsx:397-410`
 
-### Task 3: Update reviewer prompts to reference accepted patterns
+---
 
-**Issue:** FOO-219
+### Task 7: Create `useSpeechRecognition` hook
+
+**Issue:** FOO-223
 **Files:**
-- `.claude/skills/plan-review-implementation/references/reviewer-prompts.md` (modify)
+- `src/hooks/use-speech-recognition.ts` (create)
+- `src/hooks/__tests__/use-speech-recognition.test.ts` (create)
 
-**Steps:**
+**TDD Steps:**
 
-1. In the **Common Preamble** section, add a rule: "Read the KNOWN ACCEPTED PATTERNS section in CLAUDE.md before flagging patterns. Do NOT flag patterns that are documented as accepted."
-2. In the **Quality Reviewer** section under `TYPE SAFETY`, add: "Before flagging `as unknown as` double casts, check CLAUDE.md KNOWN ACCEPTED PATTERNS — some are intentional with runtime validation."
+1. **RED** - Write failing test:
+   - Create `src/hooks/__tests__/use-speech-recognition.test.ts`
+   - Test: `"returns isSupported: false when SpeechRecognition is not available"`
+   - Mock `window.SpeechRecognition` and `window.webkitSpeechRecognition` as undefined
+   - Render hook via `renderHook(() => useSpeechRecognition({ onResult: vi.fn() }))`
+   - Assert: `result.current.isSupported === false`
+   - Assert: `result.current.isListening === false`
+   - Run: `npm test -- use-speech-recognition`
+   - Verify: Test fails (module doesn't exist)
+
+2. **GREEN** - Create the hook:
+   - Create `src/hooks/use-speech-recognition.ts`
+   - Interface:
+     ```typescript
+     interface UseSpeechRecognitionOptions {
+       lang?: string;          // default: 'es-AR'
+       onResult: (transcript: string) => void;
+     }
+     interface UseSpeechRecognitionReturn {
+       isSupported: boolean;
+       isListening: boolean;
+       start: () => void;
+       stop: () => void;
+       toggle: () => void;
+     }
+     ```
+   - Implementation:
+     - Check `window.SpeechRecognition || window.webkitSpeechRecognition` for support
+     - Create recognition instance lazily (on first `start()`)
+     - Set `continuous = false`, `interimResults = false`, `lang = options.lang`
+     - On `result` event: extract `event.results[0][0].transcript`, call `onResult`
+     - On `end` event: set `isListening = false`
+     - On `error` event: set `isListening = false`
+     - `start()`: call `recognition.start()`, set `isListening = true`
+     - `stop()`: call `recognition.stop()`, set `isListening = false`
+     - `toggle()`: call start or stop based on current state
+   - Run: `npm test -- use-speech-recognition`
+
+3. **RED** - More tests:
+   - `"returns isSupported: true when SpeechRecognition is available"` — mock `window.SpeechRecognition` as a class
+   - `"starts listening when start() is called"` — call `start()`, verify `isListening === true`
+   - `"stops listening when stop() is called"` — call `stop()`, verify `isListening === false`
+   - `"calls onResult with transcript text"` — simulate recognition result event
+   - `"sets isListening to false on end event"` — simulate end event
+   - `"sets isListening to false on error event"` — simulate error event
+   - `"toggle() starts if not listening, stops if listening"`
+   - `"does nothing when start() called on unsupported browser"`
+
+4. **GREEN** - Implement each case, run tests after each
 
 **Notes:**
-- No tests needed — this is skill prompt documentation
-- The security and reliability reviewers don't need changes since the flagged patterns are type-safety related
+- Reference: `src/hooks/use-keyboard-shortcuts.ts` for hook pattern
+- The hook should NOT import or use any browser-specific globals at module level — check support inside the hook body
+- TypeScript: `SpeechRecognition` is not in the default lib types. Add a minimal type declaration at the top of the hook file or in a `.d.ts` file:
+  ```typescript
+  interface SpeechRecognitionEvent extends Event {
+    results: SpeechRecognitionResultList;
+  }
+  ```
+  Or use `// eslint-disable-next-line` with `any` for the Web Speech API types since they're non-standard
 
-### Task 4: Add skipped-findings summary to plan-review-implementation skill
+---
 
-**Issue:** FOO-220
+### Task 8: Add mic button to DescriptionInput
+
+**Issue:** FOO-223
 **Files:**
-- `.claude/skills/plan-review-implementation/SKILL.md` (modify)
+- `src/components/description-input.tsx` (modify)
+- `src/components/__tests__/description-input.test.tsx` (modify)
 
-**Steps:**
+**TDD Steps:**
 
-1. In the "## After ALL Iterations Reviewed" section, add a new step before the "If all tasks complete and no issues" path:
-   - **Collect skipped findings:** Scan all `<!-- REVIEW COMPLETE -->` iteration sections for "Documented (no fix needed)" entries
-   - If any exist, append a "## Skipped Findings Summary" section just before `## Status: COMPLETE`
-2. Define the summary format:
-   ```markdown
-   ## Skipped Findings Summary
+1. **RED** - Write failing test:
+   - Add test: `"shows mic button when SpeechRecognition is supported"`
+   - Mock the `useSpeechRecognition` hook to return `isSupported: true`
+   - Render `DescriptionInput`
+   - Assert: button with `aria-label` matching "voice input" or "mic" is visible
+   - Run: `npm test -- description-input.test`
+   - Verify: Test fails (no mic button exists)
 
-   Findings documented but not fixed across all review iterations:
+2. **GREEN** - Add the mic button:
+   - In `src/components/description-input.tsx`:
+     - Import `useSpeechRecognition` hook
+     - Import `Mic`, `MicOff` (or `Loader2`) from `lucide-react`
+     - Call `useSpeechRecognition({ lang: 'es-AR', onResult: (text) => onChange(value + text) })`
+     - Wrap textarea in a relative container
+     - Add mic button positioned at bottom-right of textarea (or adjacent to it)
+     - Button: `aria-label="Start voice input"` / `aria-label="Stop voice input"` based on `isListening`
+     - Show pulsing animation on mic icon when `isListening`
+     - Hide button when `!isSupported`
+     - Disable button when `disabled` prop is true
+     - Min touch target: 44px x 44px
+   - Run: `npm test -- description-input.test`
+   - Verify: Test passes
 
-   | Severity | Category | File | Finding | Rationale |
-   |----------|----------|------|---------|-----------|
-   | MEDIUM | EDGE CASE | `src/upload.ts:30` | Unicode filenames not tested | Unlikely in current usage |
-   ```
-3. Add to the Rules section: "Always append Skipped Findings Summary when documented-only findings exist across any iteration"
+3. **RED** - More tests:
+   - `"hides mic button when SpeechRecognition is not supported"` — mock `isSupported: false`, assert button not in DOM
+   - `"calls toggle when mic button clicked"` — assert toggle function was called
+   - `"shows listening indicator when isListening is true"` — mock `isListening: true`, assert aria-label changes
+   - `"disables mic button when disabled prop is true"`
+   - `"appends transcript to existing value"` — simulate `onResult` callback, assert `onChange` called with `value + transcript`
+
+4. **GREEN** - Implement each, run tests
 
 **Notes:**
-- No tests needed — this is skill configuration
-- The summary is only added when there are actually skipped findings (not when all iterations pass clean)
+- Reference: `src/components/description-input.tsx` for current component structure
+- The mic button should append a space before the transcript if `value` doesn't end with a space and is non-empty
+- Use `Mic` icon from lucide-react (already used in the project via lucide-react)
+- For the pulsing animation: use Tailwind `animate-pulse` on the icon or a red dot indicator
 
-### Task 5: Integration & Verification
+---
 
-**Issue:** FOO-219, FOO-220, FOO-221
+### Task 9: Integration & Verification
+
+**Issue:** FOO-222, FOO-223
 **Files:**
 - Various files from previous tasks
 
@@ -175,113 +388,47 @@ Three improvements: (1) add a nutrition facts detail overlay to the History scre
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
-5. Manual verification:
-   - [ ] CLAUDE.md has "Known Accepted Patterns" section with 2 entries
-   - [ ] Reviewer prompts reference accepted patterns
-   - [ ] plan-review-implementation SKILL.md has skipped-findings summary instructions
-   - [ ] food-history.tsx has dialog that opens on entry tap
-   - [ ] Dialog shows all nutrition data including fiber and sodium
+5. Manual verification checklist:
+   - [ ] Text-only analysis: type "2 medialunas y un cortado", no photo, click Analyze — should work
+   - [ ] Photo-only analysis: take photo, no description, click Analyze — should still work
+   - [ ] Photo + description: both present — should work
+   - [ ] Neither present: button disabled
+   - [ ] Refinement works for text-only analysis
+   - [ ] Mic button visible on mobile Safari / Chrome
+   - [ ] Mic button hidden on Firefox (no Web Speech API)
+   - [ ] Voice transcript appends to existing text
+   - [ ] Listening indicator shows while speaking
+   - [ ] All touch targets >= 44px
 
 ## MCP Usage During Implementation
 
 | MCP Server | Tool | Purpose |
 |------------|------|---------|
-| Linear | `update_issue` | Move FOO-219, FOO-220, FOO-221 to "In Progress" when starting, "Done" when complete |
+| Linear | `update_issue` | Move FOO-222, FOO-223 to "In Progress" when starting, "Done" when complete |
+
+## Error Handling
+
+| Error Scenario | Expected Behavior | Test Coverage |
+|---------------|-------------------|---------------|
+| No images AND no description | Return 400 VALIDATION_ERROR | Unit test (Task 3) |
+| Speech recognition error | Stop listening, no crash | Unit test (Task 7) |
+| Browser without SpeechRecognition | Mic button hidden | Unit test (Task 8) |
+| Speech recognition permission denied | Stop listening gracefully | Unit test (Task 7) |
 
 ## Risks & Open Questions
 
-- [ ] Radix Dialog accessibility: The dialog should have a proper title for screen readers. Use `DialogTitle` with `sr-only` class to avoid visual duplication since `NutritionFactsCard` already shows the food name.
-- [ ] Dialog animation on mobile: The default shadcn/ui Dialog animates from center. This is acceptable for mobile — a true bottom sheet (Drawer) would require installing `vaul` dependency. The standard Dialog is sufficient for this use case.
+- [ ] Web Speech API requires internet on some browsers (Chrome sends audio to Google servers) — acceptable for this app since it already requires network for API calls
+- [ ] `es-AR` locale may not be available on all devices — fallback to `es` if needed (can be addressed in a follow-up)
 
 ## Scope Boundaries
 
 **In Scope:**
-- Dialog overlay on history entry tap (FOO-221)
-- CLAUDE.md accepted patterns section (FOO-219)
-- Reviewer prompt updates (FOO-219)
-- Skipped-findings summary in plan-review-implementation (FOO-220)
+- Relaxing photo requirement in API and UI
+- Adding visible mic button with Web Speech API
+- Tests for all changes
 
 **Out of Scope:**
-- Bottom sheet / drawer pattern (would need new dependency)
-- Swipe gestures for dialog dismiss
-- Editing nutrition data from the dialog
-- Service worker or offline support
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-07
-**Method:** Agent team (3 workers)
-
-### Tasks Completed This Iteration
-- Task 1: Add dialog overlay to FoodHistory component - Added Dialog with NutritionFactsCard, restructured entry rows as clickable buttons, 4 new tests (worker-1)
-- Task 2: Add "Known Accepted Patterns" section to CLAUDE.md - Documented double casts and Drizzle mock string literals as accepted patterns (worker-2)
-- Task 3: Update reviewer prompts to reference accepted patterns - Added accepted-patterns rule to common preamble and quality reviewer section (worker-2)
-- Task 4: Add skipped-findings summary to plan-review-implementation skill - Added collect step, summary table format, and rule (worker-3)
-
-### Files Modified
-- `src/components/food-history.tsx` - Added Dialog overlay with NutritionFactsCard for entry detail view
-- `src/components/__tests__/food-history.test.tsx` - Added ResizeObserver mock and 4 dialog tests
-- `CLAUDE.md` - Added "Known Accepted Patterns" section after Style Guide
-- `.claude/skills/plan-review-implementation/references/reviewer-prompts.md` - Added accepted-patterns references to preamble and quality reviewer
-- `.claude/skills/plan-review-implementation/SKILL.md` - Added skipped-findings summary collection and formatting
-
-### Linear Updates
-- FOO-221: Todo → In Progress → Review
-- FOO-219: Todo → In Progress → Review
-- FOO-220: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Passed — no bugs found across all 5 changed files
-- verifier: All 838 tests pass, lint clean, typecheck clean, build successful
-
-### Work Partition
-- Worker 1: Task 1 (food-history component + tests)
-- Worker 2: Tasks 2, 3 (CLAUDE.md + reviewer prompts)
-- Worker 3: Task 4 (plan-review-implementation SKILL.md)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 5
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-No CRITICAL or HIGH issues found. All implementations are correct and follow project conventions.
-
-**Documented (no fix needed):**
-- [MEDIUM] EDGE CASE: `formatTime` doesn't validate malformed non-null time strings (`src/components/food-history.tsx:31`) — DB/API controls format; theoretical only
-- [MEDIUM] TYPE: `result.data.entries as FoodLogHistoryEntry[]` cast without runtime validation (`src/components/food-history.tsx:102`) — common pattern in client components; API contract is typed end-to-end
-- [MEDIUM] ERROR: `fetchEntries` catch block silently swallows errors, showing empty state instead of error feedback (`src/components/food-history.tsx:110-111`) — pre-existing pattern, not introduced in this iteration
-- [LOW] EDGE CASE: No fetch timeout/AbortController on client-side API calls (`src/components/food-history.tsx:96,139`) — user can navigate away; pre-existing pattern
-- [LOW] CONVENTION: Hardcoded date strings in tests (`src/components/__tests__/food-history.test.tsx:18-19`) — tests use constants consistently; timezone test properly mocks Date
-
-### Linear Updates
-- FOO-219: Review → Merge
-- FOO-220: Review → Merge
-- FOO-221: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | EDGE CASE | `src/components/food-history.tsx:31` | formatTime doesn't validate malformed non-null time strings | DB/API controls format; theoretical only |
-| MEDIUM | TYPE | `src/components/food-history.tsx:102` | API response cast without runtime validation | Common client-component pattern; API typed end-to-end |
-| MEDIUM | ERROR | `src/components/food-history.tsx:110-111` | fetchEntries silently swallows errors | Pre-existing pattern, not introduced in this iteration |
-| LOW | EDGE CASE | `src/components/food-history.tsx:96,139` | No fetch timeout on client-side API calls | User can navigate away; pre-existing pattern |
-| LOW | CONVENTION | `src/components/__tests__/food-history.test.tsx:18-19` | Hardcoded date strings in tests | Constants used consistently; timezone test mocks Date |
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Offline speech recognition
+- Multi-language support beyond `es-AR`
+- Streaming/interim results display
+- Service worker or PWA offline capabilities
