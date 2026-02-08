@@ -770,4 +770,36 @@ Comprehensive performance and UX improvement batch: add loading skeletons to all
 ### Continuation Status
 All tasks completed.
 
-## Status: COMPLETE
+### Review Findings
+
+Summary: 1 issue found (Team: security, reliability, quality reviewers)
+- CRITICAL: 0
+- HIGH: 1
+- MEDIUM: 0 (documented only)
+
+**Issues requiring fix:**
+- [HIGH] BUG: SWR `initialData` useEffect overwrites paginated entries when SWR revalidates (`src/components/food-history.tsx:84-89`) — When user clicks "Load More" to paginate, local `entries` state grows beyond the first page. If SWR revalidates in the background, the `useEffect` resets `entries` to just the first page, wiping out paginated data.
+
+### Linear Updates
+- FOO-229: Review → Merge
+- FOO-230: Review → Merge
+- FOO-231: Review → Merge
+- FOO-232: Review → Merge
+- FOO-233: Review → Merge
+- FOO-234: Review → Merge
+- FOO-235: Created in Todo (Fix: SWR initialData overwrites paginated entries)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-235](https://linear.app/lw-claude/issue/FOO-235/fix-swr-initialdata-useeffect-overwriting-paginated-entries)
+
+### Fix 1: SWR initialData useEffect overwrites paginated entries
+**Linear Issue:** [FOO-235](https://linear.app/lw-claude/issue/FOO-235/fix-swr-initialdata-useeffect-overwriting-paginated-entries)
+
+1. Write test in `src/components/__tests__/food-history.test.tsx`: mount component, wait for SWR data, click "Load More" to append entries, then trigger SWR revalidation — verify paginated entries are NOT wiped out
+2. Fix `src/components/food-history.tsx:84-89`: Add a ref (`hasSeeded`) to track whether initial seeding has occurred. The `useEffect` should only seed entries on the first `initialData` arrival. After pagination or "Jump to Date", the ref prevents SWR revalidation from overwriting local state. For delete operations that call `mutate()`, reset the ref so the refreshed data is picked up.
