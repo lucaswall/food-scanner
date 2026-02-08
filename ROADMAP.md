@@ -128,6 +128,16 @@ Shows 7-day trends:
 - **Macro averages:** Average daily protein/carbs/fat over the week
 - **Nutrient highlights:** Days where sodium or sugar exceeded recommended values (if we can determine thresholds)
 
+#### Fasting Window
+
+Projects overnight fasting duration based on meal timestamps already stored in `food_log_entries`:
+
+- **Calculation:** Time from the last logged meal of the previous day to the first logged meal of the current day
+- **Daily Summary display:** Show as a card with fasting duration (e.g., "14h 30m fast") and the time range (e.g., "9:15 PM → 11:45 AM")
+- **Weekly View display:** Show fasting durations per day alongside the calorie chart, so the user can see patterns
+- **Edge cases:** If no meals logged for the previous or current day, show "No data" instead of guessing. If only one meal exists for a day, use it as both first and last.
+- **No goal or threshold initially** — just display the data. A fasting goal feature can be added later if useful.
+
 #### Micronutrient Report (conditional)
 
 Only shown when the user has logged foods with extended nutrient data (from Feature 1):
@@ -167,11 +177,12 @@ These aggregate from our `food_log_entries` joined with `custom_foods`. We use o
 1. API endpoint for daily nutrition summary (aggregate from DB)
 2. Daily summary page with calorie ring + macro bars
 3. Bottom nav update (add dashboard tab)
-4. Extended nutrients section (depends on Feature 1)
-5. Date navigation (swipe/tap)
-6. API endpoint for date range
-7. Weekly view with simple charts
-8. Micronutrient report (depends on Feature 1 Tier 2+)
+4. Fasting window card (uses existing meal timestamps)
+5. Extended nutrients section (depends on Feature 1)
+6. Date navigation (swipe/tap)
+7. API endpoint for date range
+8. Weekly view with simple charts + fasting durations
+9. Micronutrient report (depends on Feature 1 Tier 2+)
 
 ### Dependencies
 
