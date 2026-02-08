@@ -2,6 +2,7 @@
 name: push-to-production
 description: Promote main to release with production DB backup and migration handling. Use when user says "push to production", "release", "deploy to production", or "promote to release". Backs up production DB, assesses MIGRATIONS.md, writes migration code if needed, and merges main to release.
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Task
+argument-hint: [version]
 disable-model-invocation: true
 ---
 
@@ -45,7 +46,7 @@ If the `db` service is not running, start it: `docker compose up -d`
 
 ### 1.3 Verify Drizzle Migration Internals
 
-Only needed if MIGRATIONS.md has entries (checked later in Phase 3, but verify early to fail fast). Read the Drizzle migrator source from the exact version in `node_modules` and confirm our assumptions about the journal table still hold:
+Only needed if MIGRATIONS.md has entries (checked in Phase 2, but verify early to fail fast). Read the Drizzle migrator source from the exact version in `node_modules` and confirm our assumptions about the journal table still hold:
 
 ```bash
 # Check migrator comparison logic
@@ -92,51 +93,17 @@ If there are no commits to promote, **STOP**: "Nothing to promote. `main` and `r
 
 Show the user the commit list and file diff summary.
 
-## Phase 2: Backup Production Database
+## Phase 2: Assess Migrations
 
-### 2.1 Create Backup Directory
+Migration assessment runs before backup so we know whether to stop the service first.
 
-```bash
-mkdir -p _migrations
-```
-
-### 2.2 Get Production Database URL
-
-```bash
-railway run -e production -s food-scanner printenv DATABASE_PUBLIC_URL
-```
-
-If the command fails or returns empty, **STOP**: "Cannot connect to production database. Check Railway configuration and DATABASE_PUBLIC_URL variable."
-
-### 2.3 Dump Production Database
-
-```bash
-/opt/homebrew/opt/libpq/bin/pg_dump "$DATABASE_PUBLIC_URL" \
-  --format=custom \
-  --no-owner \
-  --no-privileges \
-  -f _migrations/backup-$(date +%Y%m%d-%H%M%S).dump
-```
-
-Verify the dump file was created and is non-empty:
-
-```bash
-ls -lh _migrations/backup-*.dump | tail -1
-```
-
-If dump fails, **STOP**: "Database backup failed. Do not proceed without a backup."
-
-Report: "Production backup saved to `_migrations/backup-YYYYMMDD-HHMMSS.dump` (X KB)"
-
-## Phase 3: Assess Migrations
-
-### 3.1 Read MIGRATIONS.md
+### 2.1 Read MIGRATIONS.md
 
 Read `MIGRATIONS.md` from project root.
 
-If `MIGRATIONS.md` has no entries (only the template header), skip to Phase 5.5 (no migrations needed — go straight to merge).
+If `MIGRATIONS.md` has no entries (only the template header), skip to Phase 4 (backup without stopping service, then merge).
 
-### 3.2 Analyze Changes
+### 2.2 Analyze Changes
 
 For each entry in MIGRATIONS.md:
 
@@ -147,7 +114,7 @@ For each entry in MIGRATIONS.md:
    ```
 3. **Determine the net migration** — what SQL or data transformation is needed to go from production's current state to the new state
 
-### 3.3 Classify Migration Complexity
+### 2.3 Classify Migration Complexity
 
 | Complexity | Criteria | Action |
 |-----------|---------|--------|
@@ -155,7 +122,7 @@ For each entry in MIGRATIONS.md:
 | **Simple** | Column renames, backfill FK from existing data, env var renames | Write migration automatically |
 | **Complex** | Data transformation logic, ambiguous mappings, potential data loss | **STOP** and discuss with user |
 
-### 3.4 Handle Complex Migrations
+### 2.4 Handle Complex Migrations
 
 If any migration is classified as Complex:
 
@@ -175,11 +142,11 @@ If any migration is classified as Complex:
 
 2. Wait for user input before proceeding.
 
-## Phase 4: Write & Validate Migration
+## Phase 3: Write & Validate Migration
 
-Only applies if Phase 3 found migrations to execute.
+Only applies if Phase 2 found migrations to execute.
 
-### 4.1 Identify Covered Drizzle Migrations
+### 3.1 Identify Covered Drizzle Migrations
 
 Check which Drizzle migration files (in `drizzle/`) are new since `release`:
 
@@ -189,7 +156,7 @@ git diff origin/release..HEAD --name-only -- drizzle/
 
 Read the SQL content of each new Drizzle migration file. The manual migration script must cover **all DDL and data changes** so these Drizzle files don't need to run again. After the manual script executes, we mark these migrations as applied in Drizzle's journal table.
 
-### 4.2 Write Migration SQL
+### 3.2 Write Migration SQL
 
 Create a migration file at `_migrations/release-YYYYMMDD.sql` with:
 - Transaction wrapper (`BEGIN; ... COMMIT;`)
@@ -210,52 +177,9 @@ Create a migration file at `_migrations/release-YYYYMMDD.sql` with:
 
 **Important:** Drizzle only compares `created_at` timestamps, not hashes, to decide what to run. But always insert correct hashes for integrity.
 
-Example migration script structure:
-```sql
--- Migration: main → release (YYYY-MM-DD)
--- Source: MIGRATIONS.md entries
--- Covers Drizzle migrations: 0005_clever_calypso, 0006_silky_roughhouse
+For a full example migration script, read [references/migration-example.md](references/migration-example.md).
 
-BEGIN;
-
--- Step 1: DDL from Drizzle 0005 (safe for existing data)
-CREATE TABLE IF NOT EXISTS "users" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "email" text NOT NULL,
-  "name" text,
-  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
-  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-  CONSTRAINT "users_email_unique" UNIQUE("email")
-);
-ALTER TABLE "custom_foods" ADD COLUMN IF NOT EXISTS "user_id" uuid;
--- (nullable first — NOT NULL added after backfill)
-
--- Step 2: Data migration — derive from existing DB data, never hardcode
-INSERT INTO users (id, email)
-SELECT gen_random_uuid(), LOWER(email)
-FROM (SELECT DISTINCT email FROM sessions) s
-ON CONFLICT DO NOTHING;
-
-UPDATE custom_foods SET user_id = u.id
-FROM users u WHERE LOWER(custom_foods.email) = u.email AND custom_foods.user_id IS NULL;
--- ... same pattern for other tables ...
-
--- Step 3: Finalize DDL (NOT NULL, constraints, drops from 0006)
-ALTER TABLE "custom_foods" ALTER COLUMN "user_id" SET NOT NULL;
--- ... FK constraints, unique constraints, column drops ...
-
--- Step 4: Mark Drizzle migrations as applied
--- hash: shasum -a 256 drizzle/<file>.sql | cut -d' ' -f1
--- created_at: "when" field from drizzle/meta/_journal.json for each entry
-INSERT INTO "drizzle"."__drizzle_migrations" (hash, created_at)
-VALUES
-  ('<sha256-of-0005-file>', 1770483401568),
-  ('<sha256-of-0006-file>', 1770483422458);
-
-COMMIT;
-```
-
-### 4.3 Validate Against Backup
+### 3.3 Validate Against Backup
 
 Restore the production backup to a local test database and run the migration:
 
@@ -293,7 +217,7 @@ Restore the production backup to a local test database and run the migration:
 
 If local Docker is not available, show the migration SQL to the user and ask for manual approval.
 
-### 4.4 Show Migration to User
+### 3.4 Show Migration to User
 
 Regardless of validation, display the full migration SQL to the user for review:
 
@@ -309,19 +233,25 @@ Proceed with release?
 
 Wait for user confirmation.
 
-## Phase 5: Execute Release
+## Phase 4: Backup Production Database
 
-### 5.1 Stop Production Service (if migration needed)
-
-If migration SQL was written in Phase 4, stop the production app service before applying it. This eliminates any window of inconsistency between old code and migrated data.
-
-First, capture the database URL while the service is still running (we already have it from Phase 2, but re-fetch to confirm):
+### 4.1 Create Backup Directory
 
 ```bash
-DATABASE_PUBLIC_URL=$(railway run -e production -s food-scanner printenv DATABASE_PUBLIC_URL)
+mkdir -p _migrations
 ```
 
-Then stop the service:
+### 4.2 Get Production Database URL
+
+```bash
+railway run -e production -s food-scanner printenv DATABASE_PUBLIC_URL
+```
+
+If the command fails or returns empty, **STOP**: "Cannot connect to production database. Check Railway configuration and DATABASE_PUBLIC_URL variable."
+
+### 4.3 Stop Production Service (if migration needed)
+
+If migration SQL was written in Phase 3, stop the production app service **before** taking the backup. This ensures the backup captures every last write — no data can be lost between backup and migration.
 
 ```bash
 railway down -y -e production -s food-scanner
@@ -331,9 +261,33 @@ If the command fails, **STOP**: "Cannot stop production service. Check Railway C
 
 **Note:** `railway down` removes the most recent deployment — the app stops serving requests. The database is a separate Railway service and continues running. No data is lost — sessions, tokens, and food logs are all in PostgreSQL. Pushing to `release` later creates a new deployment that brings the service back.
 
-### 5.2 Apply Migration to Production
+If no migration is needed, skip this step — the service stays running during backup and merge.
 
-Run the migration using the URL captured in 5.1:
+### 4.4 Dump Production Database
+
+```bash
+/opt/homebrew/opt/libpq/bin/pg_dump "$DATABASE_PUBLIC_URL" \
+  --format=custom \
+  --no-owner \
+  --no-privileges \
+  -f _migrations/backup-$(date +%Y%m%d-%H%M%S).dump
+```
+
+Verify the dump file was created and is non-empty:
+
+```bash
+ls -lh _migrations/backup-*.dump | tail -1
+```
+
+If dump fails, **STOP**: "Database backup failed. Do not proceed without a backup."
+
+Report: "Production backup saved to `_migrations/backup-YYYYMMDD-HHMMSS.dump` (X KB)"
+
+## Phase 5: Execute Release
+
+### 5.1 Apply Migration to Production (if migration needed)
+
+Run the migration using the URL from Phase 4.2:
 
 ```bash
 /opt/homebrew/opt/libpq/bin/psql "$DATABASE_PUBLIC_URL" -f _migrations/release-YYYYMMDD.sql
@@ -341,7 +295,9 @@ Run the migration using the URL captured in 5.1:
 
 If the migration fails, **STOP**: "Migration failed on production. Service is down. Investigate before proceeding. Backup available at `_migrations/backup-*.dump`. To restore service, push current `release` branch again or redeploy from Railway dashboard."
 
-### 5.3 Clear MIGRATIONS.md
+If no migration is needed, skip this step.
+
+### 5.2 Clear MIGRATIONS.md
 
 Reset `MIGRATIONS.md` to its empty template:
 
@@ -355,13 +311,36 @@ Log potential production data migrations here during development. These notes ar
 <!-- Add entries below this line -->
 ```
 
+### 5.3 Update Version and Changelog
+
+**Determine version:**
+1. Read `CHANGELOG.md` and extract the current version from the first `## [x.y.z]` header
+2. If `<arguments>` contains a version (e.g., `2.0.0`):
+   - Validate it's valid semver (X.Y.Z)
+   - Validate it's strictly higher than current version
+   - If invalid, **STOP**: "Invalid version. Must be higher than current [current]."
+3. If no argument, auto-increment patch: `x.y.z` → `x.y.(z+1)`
+
+**Write changelog entry:**
+1. Review the commit list from Phase 1.6
+2. Write a `## [version] - YYYY-MM-DD` entry with user-friendly descriptions:
+   - Focus on what changed for the user, not implementation details
+   - Group minor fixes into single items ("Minor bug fixes", "Minor UI improvements")
+   - Lead with new features, then improvements, then fixes
+   - Keep the list concise — aim for 3-8 items
+3. Prepend the new entry after the header in `CHANGELOG.md` (before existing entries)
+
+**Update package.json:**
+
+Edit `package.json` to set `"version"` to the new version string.
+
 ### 5.4 Commit and Push to Main
 
-Stage and commit the cleared `MIGRATIONS.md` (and migration SQL file if it exists):
+Stage and commit all release housekeeping files:
 
 ```bash
-git add MIGRATIONS.md
-git commit -m "release: clear MIGRATIONS.md for release $(date +%Y-%m-%d)"
+git add MIGRATIONS.md CHANGELOG.md package.json
+git commit -m "release: v<version>"
 git push origin main
 ```
 
@@ -377,7 +356,7 @@ git checkout main
 
 If merge conflicts occur, **STOP** and tell the user to resolve them manually.
 
-**Note:** Pushing to `release` triggers Railway auto-deploy. If the service was stopped in Phase 5.1, the deploy will bring it back up automatically. Drizzle runs at startup, sees the covered migrations already in `__drizzle_migrations`, and skips them.
+**Note:** Pushing to `release` triggers Railway auto-deploy. If the service was stopped in Phase 4.3, the deploy will bring it back up automatically. Drizzle runs at startup, sees the covered migrations already in `__drizzle_migrations`, and skips them.
 
 ## Phase 6: Post-Release
 
@@ -386,6 +365,7 @@ If merge conflicts occur, **STOP** and tell the user to resolve them manually.
 ```
 ## Release Complete
 
+**Version:** X.Y.Z
 **Promoted:** main → release
 **Commits:** N commits
 **Backup:** _migrations/backup-YYYYMMDD-HHMMSS.dump
@@ -431,17 +411,19 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 | OrbStack not installed | STOP — `brew install orbstack` |
 | OrbStack stopped | Start with `orb start`, then continue |
 | Docker Compose db not running | Start with `docker compose up -d`, then continue |
+| Invalid/lower version argument | STOP — must be valid semver higher than current |
 
 ## Rules
 
-- **Always backup production DB first** — No exceptions
+- **Stop service before backup when migrating** — Prevents data loss between backup and migration; backup captures every last write
 - **Never skip migration assessment** — Even if MIGRATIONS.md is empty, check the diff
 - **Show migration SQL to user** — Always get explicit confirmation before applying
-- **Stop service before migration, deploy brings it back** — `railway down` before migration, push to `release` restarts the service
+- **Stop → backup → migrate → deploy** — `railway down` stops writes, backup is consistent, migration applies cleanly, push to `release` restarts the service
 - **Manual migration covers Drizzle DDL + data + journal** — One atomic script does everything; Drizzle skips already-applied migrations at startup
 - **Clear MIGRATIONS.md after release** — Reset to empty template on main
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never force-push** — Use normal merge only
 - **Backup files stay local** — `_migrations/` is gitignored
 - **Never hardcode user data in SQL** — Derive from existing DB content (SELECT DISTINCT, JOINs), never hardcode emails, names, or personal data
+- **Version and changelog always updated** — Every release gets a CHANGELOG.md entry and matching package.json version
 - **Stop on any failure** — Better to abort than corrupt production

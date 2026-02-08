@@ -120,6 +120,7 @@ food-scanner/
 ├── drizzle.config.ts                     # Drizzle Kit configuration
 ├── docker-compose.yml                    # Local Postgres for development
 ├── middleware.ts                          # Auth enforcement for protected routes
+├── CHANGELOG.md                          # Release history (Keep a Changelog format)
 ├── CLAUDE.md                             # This file
 ├── DEVELOPMENT.md                        # Local setup guide
 ├── README.md                             # Deployment & operations guide
