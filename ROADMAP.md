@@ -75,73 +75,12 @@ These are uncommon on everyday products. Only extracted when explicitly printed 
 
 ### Changes Required
 
-#### Types (`src/types/index.ts`)
-
-Add optional extended nutrient fields to `FoodAnalysis`:
-
-```typescript
-export interface FoodAnalysis {
-  // ... existing required fields ...
-
-  // Tier 1 extensions (always attempted)
-  saturated_fat_g?: number | null;
-  trans_fat_g?: number | null;
-  sugars_g?: number | null;
-  calories_from_fat?: number | null;
-
-  // Tier 2 (label only)
-  cholesterol_mg?: number | null;
-  potassium_mg?: number | null;
-  calcium_g?: number | null;
-  iron_mg?: number | null;
-  vitamin_a_iu?: number | null;
-  vitamin_c_mg?: number | null;
-  vitamin_d_iu?: number | null;
-
-  // Tier 3 (label only, rare)
-  vitamin_b6_mg?: number | null;
-  vitamin_b12_mcg?: number | null;
-  vitamin_e_iu?: number | null;
-  magnesium_mg?: number | null;
-  zinc_mg?: number | null;
-  phosphorus_g?: number | null;
-  copper_g?: number | null;
-  thiamin_mg?: number | null;
-  riboflavin_mg?: number | null;
-  niacin_mg?: number | null;
-  folic_acid_mg?: number | null;
-  biotin_mg?: number | null;
-  pantothenic_acid_mg?: number | null;
-  iodine_mcg?: number | null;
-}
-```
-
-All extended fields are optional and nullable. Existing code that only reads the 6 core fields continues to work without changes.
-
-#### Claude Tool Schema (`src/lib/claude.ts`)
-
-Expand `REPORT_NUTRITION_TOOL` input_schema to include extended nutrient properties. Update the system prompt to instruct Claude:
-- When a nutrition label is visible, extract all printed nutrients
-- When no label, only estimate Tier 1
-- Use `null` for unknown, `0` for confirmed-zero
-
-#### Fitbit API (`src/lib/fitbit.ts`)
-
-Expand `createFood()` to pass extended nutrients when available. Only include non-null values in the URLSearchParams.
-
-#### Database (`src/db/schema.ts`)
-
-Add nullable columns to `custom_foods` for each extended nutrient. This allows food matching to reuse the full nutrient profile.
-
-#### UI — Nutrition Facts Card (`src/components/nutrition-facts-card.tsx`)
-
-Show extended nutrients when available. Group into sections:
-- **Core:** Calories, Fat (Saturated, Trans), Carbs (Fiber, Sugars), Protein, Sodium
-- **Vitamins & Minerals:** Only shown when at least one has a value
-
-#### Food Matching (`src/lib/food-matching.ts`)
-
-Extend nutrient tolerance matching to include Tier 1 extensions (saturated fat, trans fat, sugars). Tier 2+ nutrients are not used for matching.
+- Add optional extended nutrient fields (nullable) to `FoodAnalysis` type. All extended fields are optional so existing code continues to work.
+- Expand the Claude tool schema to include extended nutrient properties and instruct Claude on tier-based extraction rules.
+- Expand `createFood()` in the Fitbit client to pass extended nutrients when available (only non-null values).
+- Add nullable columns to `custom_foods` DB table for each extended nutrient to support food matching with full nutrient profiles.
+- Update the Nutrition Facts Card UI to show extended nutrients grouped into Core and Vitamins & Minerals sections.
+- Extend food matching nutrient tolerance to include Tier 1 extensions (saturated fat, trans fat, sugars). Tier 2+ nutrients are not used for matching.
 
 ### Implementation Order
 
@@ -167,7 +106,7 @@ A dashboard view showing daily and weekly nutrition summaries, with emphasis on 
 
 ### Data Source
 
-Pull from Fitbit's time series API (`/1/user/-/foods/log/caloriesIn.json`, etc.) and from our own `food_log_entries` + `custom_foods` tables. Fitbit time series gives us the official daily totals (including foods logged outside our app). Our DB gives us per-entry detail and the extended nutrients Fitbit doesn't expose in its time series.
+Pull from Fitbit's time series API and from our own `food_log_entries` + `custom_foods` tables. Fitbit time series gives us the official daily totals (including foods logged outside our app). Our DB gives us per-entry detail and the extended nutrients Fitbit doesn't expose in its time series.
 
 ### Views
 
@@ -199,13 +138,7 @@ Only shown when the user has logged foods with extended nutrient data (from Feat
 
 ### Navigation
 
-Add a dashboard icon to the bottom navigation bar. The current bottom nav has:
-- Home (quick select)
-- Camera (analyze)
-- History
-- Settings
-
-New layout:
+Add a dashboard icon to the bottom navigation bar. New layout:
 - Home (quick select)
 - Camera (analyze)
 - Dashboard (new)
@@ -214,25 +147,18 @@ New layout:
 
 ### API Endpoints
 
-**New endpoints:**
-
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/nutrition-summary?date=YYYY-MM-DD` | Daily totals from our DB (includes extended nutrients) |
 | GET | `/api/nutrition-summary?from=YYYY-MM-DD&to=YYYY-MM-DD` | Range totals for weekly view |
 
-These aggregate from our `food_log_entries` joined with `custom_foods`. We use our own DB rather than Fitbit's time series because:
-1. We store extended nutrients that Fitbit doesn't expose in time series
-2. Faster than making multiple Fitbit API calls
-3. Works even if Fitbit is temporarily down
-
-Fitbit daily goals are fetched separately via the existing MCP/API for the calorie ring target.
+These aggregate from our `food_log_entries` joined with `custom_foods`. We use our own DB rather than Fitbit's time series because we store extended nutrients that Fitbit doesn't expose, it's faster than multiple Fitbit API calls, and it works even if Fitbit is temporarily down.
 
 ### Design Notes
 
 - **Mobile-first:** Cards stack vertically, charts are touch-friendly
 - **Dark mode:** All charts must work in both light and dark themes
-- **No charting library initially:** Use simple CSS-based bars and rings (avoid bundle bloat). Graduate to a library (e.g., Recharts) only if the simple approach becomes limiting.
+- **No charting library initially:** Use simple CSS-based bars and rings (avoid bundle bloat). Graduate to a library only if the simple approach becomes limiting.
 - **Loading states:** Skeleton cards while fetching data
 - **Empty state:** Friendly message when no food logged for the day, with a CTA to scan food
 
@@ -266,16 +192,8 @@ Queue food photos and descriptions locally when offline, then analyze and log th
 
 ### Architecture
 
-**Service Worker:** Register a service worker for:
-1. Caching the app shell (HTML, JS, CSS, icons) for offline access
-2. Intercepting failed `/api/analyze-food` and `/api/log-food` requests
-3. Background sync when connectivity returns
-
-**Local Storage:** Use IndexedDB (via `idb` or similar lightweight wrapper) to store:
-- Queued photos as blobs
-- Text descriptions
-- Timestamps and meal type selections
-- Sync status (pending, analyzing, logging, done, failed)
+- **Service Worker:** Cache the app shell (HTML, JS, CSS, icons) for offline access, intercept failed API requests, and trigger background sync when connectivity returns.
+- **Local Storage:** Use IndexedDB to store queued photos as blobs, text descriptions, timestamps, meal type selections, and sync status (pending, analyzing, logging, done, failed).
 
 ### User Flow
 
@@ -292,9 +210,7 @@ Normal flow — photo → analyze → confirm → log.
 
 #### Coming Back Online
 1. Service worker detects connectivity (`online` event or periodic check)
-2. Processes queue in order:
-   - Upload photo → analyze → show result as notification or in-app queue
-   - **Decision point:** Auto-log with AI results, or hold for user confirmation?
+2. Processes queue in order: upload photo → analyze → present result
 3. Queue items update status as they progress
 
 ### Confirmation Strategy
@@ -312,12 +228,7 @@ Two options — user picks in Settings:
 
 ### Cached Assets
 
-The service worker should cache:
-- App shell (all routes under `/app`)
-- Static assets (JS bundles, CSS, icons, fonts)
-- NOT API responses (food data is always dynamic)
-
-Use a **stale-while-revalidate** strategy for the shell — serve from cache, update in background.
+The service worker should cache the app shell (all routes under `/app`) and static assets (JS bundles, CSS, icons, fonts), but NOT API responses (food data is always dynamic). Use a **stale-while-revalidate** strategy for the shell.
 
 ### Implementation Order
 
@@ -335,22 +246,3 @@ Use a **stale-while-revalidate** strategy for the shell — serve from cache, up
 - Fitbit logging requires network — entries are queued, not logged.
 - Photos stored as blobs in IndexedDB may use significant storage. Cap at ~20 queued entries and warn the user.
 - Service worker updates need a reload to take effect — standard PWA behavior.
-
----
-
-## Implementation Priority
-
-**Phase 1 — Extended Nutrition, Tier 1:**
-Feature 1 steps 1-5 (Tier 1 nutrients end-to-end)
-
-**Phase 2 — Dashboard, Core:**
-Feature 2 steps 1-5 (daily view with current + Tier 1 nutrients)
-
-**Phase 3 — Offline Support:**
-Feature 3 steps 1-7 (service worker, queue, background sync)
-
-**Phase 4 — Extended Nutrition, Tier 2+:**
-Feature 1 steps 6-7 (full label extraction)
-
-**Phase 5 — Dashboard, Weekly + Micro:**
-Feature 2 steps 6-8 (weekly trends, micronutrient report)
