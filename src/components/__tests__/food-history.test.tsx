@@ -336,6 +336,27 @@ describe("FoodHistory", () => {
     });
   });
 
+  it("dialog has aria-describedby={undefined} to suppress Radix warning", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    render(<FoodHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    const entryButton = screen.getByRole("button", { name: /empanada de carne, 320 calories/i });
+    fireEvent.click(entryButton);
+
+    await waitFor(() => {
+      const dialogContent = screen.getByRole("dialog");
+      expect(dialogContent).not.toHaveAttribute("aria-describedby");
+    });
+  });
+
   it("tapping an entry row opens a dialog with nutrition facts", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

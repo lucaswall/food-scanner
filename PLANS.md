@@ -516,4 +516,34 @@ Fix two UI bugs (Quick Select Done button no-op, History dialog animation) and r
 - Worker 3: Tasks 6, 7 (home page, dashboard-preview)
 
 ### Continuation Status
+Tasks 1-8 completed. Task 9 (accessibility fix) remains.
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-08
+**Method:** Single-agent (trivial fix)
+
+### Task 9: Fix missing aria-describedby on History dialog (pre-existing accessibility bug)
+
+**Files:**
+- `src/components/food-history.tsx` (modify)
+- `src/components/__tests__/food-history.test.tsx` (modify)
+
+**Description:** The History food detail DialogContent is missing a `<DialogDescription>` or explicit `aria-describedby={undefined}` opt-out. Radix UI logs a console warning about this. Since the dialog content is a NutritionFactsCard that is self-explanatory, the explicit opt-out is appropriate.
+
+### Tasks Completed This Iteration
+- Task 9: Fix missing aria-describedby on History dialog - Added `aria-describedby={undefined}` to DialogContent, added test
+
+### Files Modified
+- `src/components/food-history.tsx` - Added `aria-describedby={undefined}` to DialogContent
+- `src/components/__tests__/food-history.test.tsx` - Added test verifying aria-describedby opt-out
+
+### Pre-commit Verification
+- verifier: All 47 food-history tests pass, zero warnings
+
+### Continuation Status
 All tasks completed.
+
+## Status: COMPLETE
