@@ -13,9 +13,11 @@ export async function GET() {
 
   const user = await getUserById(session!.userId);
 
-  return successResponse({
+  const response = successResponse({
     email: user?.email ?? null,
     fitbitConnected: session!.fitbitConnected,
     expiresAt: session!.expiresAt,
   });
+  response.headers.set("Cache-Control", "private, no-cache");
+  return response;
 }

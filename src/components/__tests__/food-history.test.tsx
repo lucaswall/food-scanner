@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { SWRConfig } from "swr";
 import { FoodHistory } from "../food-history";
 import type { FoodLogHistoryEntry } from "@/types";
 
@@ -69,6 +70,14 @@ const mockEntries: FoodLogHistoryEntry[] = [
   },
 ];
 
+function renderFoodHistory() {
+  return render(
+    <SWRConfig value={{ provider: () => new Map() }}>
+      <FoodHistory />
+    </SWRConfig>
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   // Mock window.confirm
@@ -78,7 +87,7 @@ beforeEach(() => {
 describe("FoodHistory", () => {
   it("renders loading state", () => {
     mockFetch.mockImplementation(() => new Promise(() => {}));
-    render(<FoodHistory />);
+    renderFoodHistory();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
@@ -88,7 +97,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -103,7 +112,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -120,7 +129,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       // Today's total: 320 + 120 = 440 cal
@@ -134,7 +143,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: [] } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText(/no food log entries/i)).toBeInTheDocument();
@@ -152,7 +161,7 @@ describe("FoodHistory", () => {
         json: () => Promise.resolve({ success: true }),
       });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -188,7 +197,7 @@ describe("FoodHistory", () => {
           }),
       });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -273,7 +282,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: entriesForToday } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Late night snack")).toBeInTheDocument();
@@ -316,7 +325,7 @@ describe("FoodHistory", () => {
         json: () => Promise.resolve({ success: true, data: { entries: [] } }),
       });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Food 1")).toBeInTheDocument();
@@ -342,7 +351,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -363,7 +372,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -387,7 +396,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
@@ -416,7 +425,7 @@ describe("FoodHistory", () => {
         json: () => Promise.resolve({ success: true }),
       });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -438,7 +447,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -467,7 +476,7 @@ describe("FoodHistory", () => {
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
     });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -521,7 +530,7 @@ describe("FoodHistory", () => {
         json: () => Promise.resolve({ success: true, data: { entries: [] } }),
       });
 
-    render(<FoodHistory />);
+    renderFoodHistory();
 
     await waitFor(() => {
       expect(screen.getByText("Food 1")).toBeInTheDocument();
@@ -536,5 +545,40 @@ describe("FoodHistory", () => {
       expect(url).toContain("lastId=20");
       expect(url).not.toContain("lastTime");
     });
+  });
+
+  it("shows cached data instantly on re-mount (SWR cache)", async () => {
+    const cache = new Map();
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    // First mount — loads data from fetch
+    const { unmount } = render(
+      <SWRConfig value={{ provider: () => cache }}>
+        <FoodHistory />
+      </SWRConfig>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Unmount
+    unmount();
+    cleanup();
+
+    // Re-mount — should show data instantly from cache (no loading state)
+    render(
+      <SWRConfig value={{ provider: () => cache }}>
+        <FoodHistory />
+      </SWRConfig>
+    );
+
+    // Data should be visible immediately, no loading state
+    expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
   });
 });

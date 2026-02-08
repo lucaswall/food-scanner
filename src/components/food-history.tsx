@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import useSWR from "swr";
+import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
@@ -63,14 +65,28 @@ function groupByDate(entries: FoodLogHistoryEntry[]): DateGroup[] {
 }
 
 export function FoodHistory() {
+  const { data: initialData, isLoading, mutate } = useSWR<{ entries: FoodLogHistoryEntry[] }>(
+    "/api/food-history?limit=20",
+    apiFetcher,
+    { revalidateOnFocus: false }
+  );
+
   const [entries, setEntries] = useState<FoodLogHistoryEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
   const [jumpDate, setJumpDate] = useState("");
+
+  // Seed local entries state from SWR initial data
+  useEffect(() => {
+    if (initialData?.entries) {
+      setEntries(initialData.entries);
+      setHasMore(initialData.entries.length >= 20);
+    }
+  }, [initialData]);
 
   const fetchEntries = useCallback(async (
     endDate?: string,
@@ -115,10 +131,6 @@ export function FoodHistory() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchEntries();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const handleLoadMore = () => {
     if (entries.length === 0) return;
     const oldestEntry = entries[entries.length - 1];
@@ -148,6 +160,7 @@ export function FoodHistory() {
       }
 
       setEntries((prev) => prev.filter((e) => e.id !== id));
+      mutate();
     } catch {
       setDeleteError("Failed to delete entry");
       vibrateError();
@@ -162,7 +175,7 @@ export function FoodHistory() {
     fetchEntries(jumpDate);
   };
 
-  if (loading) {
+  if (isLoading || loading) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground text-center">Loading history...</p>

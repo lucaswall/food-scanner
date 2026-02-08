@@ -460,14 +460,14 @@ describe("FoodAnalyzer re-prompt flow", () => {
     });
   });
 
-  it("correction input is disabled during logging", async () => {
+  it("shows confirmation immediately when logging (optimistic UI)", async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
-      // Make log-food hang to test disabled state
+      // Make log-food hang to verify optimistic UI shows before response
       .mockImplementationOnce(() => new Promise((resolve) => setTimeout(resolve, 5000)));
 
     render(<FoodAnalyzer />);
@@ -476,9 +476,10 @@ describe("FoodAnalyzer re-prompt flow", () => {
     // Click Log to Fitbit
     fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
+    // Confirmation shows immediately (optimistic), correction input is gone
     await waitFor(() => {
-      const correctionInput = screen.getByPlaceholderText(/correct something/i);
-      expect(correctionInput).toBeDisabled();
+      expect(screen.getByText(/successfully logged/i)).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText(/correct something/i)).not.toBeInTheDocument();
     });
   });
 

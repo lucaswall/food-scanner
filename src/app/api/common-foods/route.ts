@@ -18,7 +18,9 @@ export async function GET() {
       "common foods retrieved",
     );
 
-    return successResponse({ foods });
+    const response = successResponse({ foods });
+    response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+    return response;
   } catch (error) {
     logger.error(
       {

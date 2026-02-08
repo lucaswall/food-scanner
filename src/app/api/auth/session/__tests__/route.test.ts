@@ -67,6 +67,19 @@ describe("GET /api/auth/session", () => {
     expect(body.data.fitbitConnected).toBe(true);
   });
 
+  it("sets Cache-Control header to private no-cache", async () => {
+    mockGetSession.mockResolvedValue({
+      sessionId: "test-session",
+      userId: "user-uuid-123",
+      expiresAt: Date.now() + 86400000,
+      fitbitConnected: true,
+      destroy: vi.fn(),
+    });
+
+    const response = await GET();
+    expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+
   it("returns 401 for missing session", async () => {
     mockGetSession.mockResolvedValue(null);
 

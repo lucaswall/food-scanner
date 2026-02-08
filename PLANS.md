@@ -688,3 +688,86 @@ Comprehensive performance and UX improvement batch: add loading skeletons to all
 - Server-side caching (Redis, etc.)
 - Performance monitoring / metrics
 - Database query optimization
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-08
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Install shadcn/ui Skeleton component (lead)
+- Task 2: Add loading.tsx to dashboard route (worker-1)
+- Task 3: Add loading.tsx to analyze route (worker-1)
+- Task 4: Add loading.tsx to history route (worker-1)
+- Task 5: Add loading.tsx to quick-select route (worker-1)
+- Task 6: Add loading.tsx to settings route (worker-1)
+- Task 7: Add Cache-Control headers to GET /api/common-foods (worker-2)
+- Task 8: Add Cache-Control headers to GET /api/food-history (worker-2)
+- Task 9: Add Cache-Control: no-cache to GET /api/auth/session (worker-2)
+- Task 10: Migrate QuickSelect to useSWR (worker-3)
+- Task 11: Migrate FoodHistory to useSWR first page (worker-3)
+- Task 12: Add optimistic UI to QuickSelect food logging (worker-3)
+- Task 13: Add optimistic UI to FoodAnalyzer food logging (worker-4)
+- Task 14: Check FoodLogResponse type compatibility (worker-4) - No changes needed
+- Task 15: Add SWR preload to dashboard (worker-3)
+- Task 16: Update CLAUDE.md with performance conventions (lead)
+- Task 17: Integration & verification (lead)
+
+### Files Modified
+- `src/components/ui/skeleton.tsx` - Created (shadcn CLI)
+- `src/app/app/loading.tsx` - Created dashboard loading skeleton
+- `src/app/app/__tests__/loading.test.tsx` - Created (4 tests)
+- `src/app/app/analyze/loading.tsx` - Created analyze loading skeleton
+- `src/app/app/analyze/__tests__/loading.test.tsx` - Created (5 tests)
+- `src/app/app/history/loading.tsx` - Created history loading skeleton
+- `src/app/app/history/__tests__/loading.test.tsx` - Created (4 tests)
+- `src/app/app/quick-select/loading.tsx` - Created quick-select loading skeleton
+- `src/app/app/quick-select/__tests__/loading.test.tsx` - Created (3 tests)
+- `src/app/settings/loading.tsx` - Created settings loading skeleton
+- `src/app/settings/__tests__/loading.test.tsx` - Created (5 tests)
+- `src/app/api/common-foods/route.ts` - Added Cache-Control header
+- `src/app/api/common-foods/__tests__/route.test.ts` - Added Cache-Control test
+- `src/app/api/food-history/route.ts` - Added Cache-Control header
+- `src/app/api/food-history/__tests__/route.test.ts` - Added Cache-Control test
+- `src/app/api/auth/session/route.ts` - Added Cache-Control header
+- `src/app/api/auth/session/__tests__/route.test.ts` - Added Cache-Control test
+- `src/components/quick-select.tsx` - Migrated to useSWR, added optimistic UI
+- `src/components/__tests__/quick-select.test.tsx` - Updated for SWR + optimistic tests
+- `src/components/food-history.tsx` - Migrated initial fetch to useSWR
+- `src/components/__tests__/food-history.test.tsx` - Updated for SWR tests
+- `src/components/food-analyzer.tsx` - Added optimistic UI to handleLogToFitbit and handleUseExisting
+- `src/components/__tests__/food-analyzer.test.tsx` - Added optimistic UI tests
+- `src/components/__tests__/food-analyzer-reprompt.test.tsx` - Updated for optimistic UI behavior
+- `src/lib/swr.ts` - Created shared apiFetcher with error handling
+- `src/lib/__tests__/swr.test.ts` - Created (6 tests)
+- `src/components/dashboard-prefetch.tsx` - Created prefetch component
+- `src/components/__tests__/dashboard-prefetch.test.tsx` - Created (3 tests)
+- `src/app/app/page.tsx` - Added DashboardPrefetch component
+- `src/app/app/__tests__/page.test.tsx` - Added DashboardPrefetch mock
+- `CLAUDE.md` - Added PERFORMANCE section
+
+### Linear Updates
+- FOO-229: Todo → In Progress → Review
+- FOO-230: Todo → In Progress → Review
+- FOO-231: Todo → In Progress → Review
+- FOO-232: Todo → In Progress → Review
+- FOO-233: Todo → In Progress → Review
+- FOO-234: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 8 issues; 2 fixed (apiFetcher error handling, test compatibility), 6 out of scope (pre-existing code)
+- verifier: All 905 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Tasks 2-6 (loading skeletons — 10 files)
+- Worker 2: Tasks 7-9 (Cache-Control headers — 6 files)
+- Worker 3: Tasks 10-12, 15 (SWR migration + prefetch — 8 files)
+- Worker 4: Tasks 13-14 (optimistic FoodAnalyzer + type compat — 5 files)
+- Lead: Tasks 1, 16, 17 (skeleton install, CLAUDE.md, integration fixes)
+
+### Continuation Status
+All tasks completed.
+
+## Status: COMPLETE
