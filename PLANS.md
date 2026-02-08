@@ -432,3 +432,51 @@ Enable text-only food analysis (no photo required) and add a visible voice input
 - Multi-language support beyond `es-AR`
 - Streaming/interim results display
 - Service worker or PWA offline capabilities
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-08
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Make `analyzeFood()` accept empty images array - Existing code already supports text-only via spread operator; added 2 regression tests (worker-1)
+- Task 2: Make `refineAnalysis()` accept empty images array - Same finding; added 1 regression test (worker-1)
+- Task 3: Relax API route validation — allow description-only requests - Changed validation guard to accept description-only, updated error message (worker-2)
+- Task 4: Relax refine-food API route — allow image-less refinement - Removed mandatory image requirement for refinement (worker-2)
+- Task 5: Update UI — enable Analyze button without photos - Updated canAnalyze logic, handleAnalyze skips compression for text-only, handleRefine works with empty images (worker-3)
+- Task 6: Update first-time guidance text - Updated guidance steps to reflect optional photos, hide guidance on description input (worker-3)
+- Task 7: Create `useSpeechRecognition` hook - New hook with Web Speech API integration, support detection, start/stop/toggle, es-AR default language (worker-4)
+- Task 8: Add mic button to DescriptionInput - Mic button with conditional rendering, pulsing animation, smart transcript appending (worker-4)
+- Task 9: Integration & Verification - Lead fixed 3 post-implementation issues: memory leak cleanup, ref-during-render lint error, missing vitest import
+
+### Files Modified
+- `src/lib/__tests__/claude.test.ts` - Added 3 text-only regression tests
+- `src/app/api/analyze-food/route.ts` - Relaxed validation to allow description-only requests
+- `src/app/api/analyze-food/__tests__/route.test.ts` - Added 2 new tests, updated existing test
+- `src/app/api/refine-food/route.ts` - Removed mandatory image requirement
+- `src/app/api/refine-food/__tests__/route.test.ts` - Added image-less refinement test, updated existing test
+- `src/components/food-analyzer.tsx` - Updated canAnalyze, handleAnalyze, handleRefine, guidance text
+- `src/components/__tests__/food-analyzer.test.tsx` - Added 5 new tests for text-only behavior
+- `src/hooks/use-speech-recognition.ts` - Created: Web Speech API hook with cleanup
+- `src/hooks/__tests__/use-speech-recognition.test.ts` - Created: 12 tests for hook behavior
+- `src/components/description-input.tsx` - Added mic button with voice input integration
+- `src/components/__tests__/description-input.test.tsx` - Added 8 mic button tests, fixed vitest import
+
+### Linear Updates
+- FOO-222: Todo → In Progress → Review
+- FOO-223: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs (memory leak, ref-during-render, missing import), all fixed before commit
+- verifier: All 869 tests pass, zero lint errors, zero typecheck errors, build passes
+
+### Work Partition
+- Worker 1: Tasks 1-2 (claude.ts, claude.test.ts)
+- Worker 2: Tasks 3-4 (analyze-food route, refine-food route + tests)
+- Worker 3: Tasks 5-6 (food-analyzer.tsx + tests)
+- Worker 4: Tasks 7-8 (use-speech-recognition hook, description-input + tests)
+
+### Continuation Status
+All tasks completed.

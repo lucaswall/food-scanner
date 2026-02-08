@@ -55,11 +55,6 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid image data", 400);
   }
 
-  if (images.length === 0) {
-    logger.warn({ action: "refine_food_validation" }, "no images provided");
-    return errorResponse("VALIDATION_ERROR", "At least one image is required", 400);
-  }
-
   if (images.length > MAX_IMAGES) {
     logger.warn(
       { action: "refine_food_validation", imageCount: images.length },

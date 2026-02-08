@@ -140,8 +140,9 @@ describe("POST /api/refine-food", () => {
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 400 when no images provided", async () => {
+  it("allows refinement without images (images are optional)", async () => {
     mockGetSession.mockResolvedValue(validSession);
+    mockRefineAnalysis.mockResolvedValue(validAnalysis);
 
     const request = createMockRequest(
       [],
@@ -150,10 +151,9 @@ describe("POST /api/refine-food", () => {
     );
 
     const response = await POST(request);
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.error.code).toBe("VALIDATION_ERROR");
-    expect(body.error.message).toContain("image");
+    expect(body.success).toBe(true);
   });
 
   it("returns 400 when no correction text provided", async () => {
@@ -269,6 +269,29 @@ describe("POST /api/refine-food", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("CLAUDE_API_ERROR");
+  });
+
+  it("returns 200 for refinement without images", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const refinedAnalysis = { ...validAnalysis, calories: 500 };
+    mockRefineAnalysis.mockResolvedValue(refinedAnalysis);
+
+    const request = createMockRequest(
+      [],
+      JSON.stringify(validAnalysis),
+      "Actually this is about 500 calories"
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toEqual(refinedAnalysis);
+    expect(mockRefineAnalysis).toHaveBeenCalledWith(
+      [],
+      validAnalysis,
+      "Actually this is about 500 calories"
+    );
   });
 
   it("returns 400 for unsupported image type", async () => {

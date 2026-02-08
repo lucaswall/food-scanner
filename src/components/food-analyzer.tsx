@@ -45,7 +45,7 @@ export function FoodAnalyzer() {
   const [refineError, setRefineError] = useState<string | null>(null);
   const [compressedImages, setCompressedImages] = useState<Blob[] | null>(null);
 
-  const canAnalyze = photos.length > 0 && !compressing && !loading && !logging;
+  const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
 
   const handlePhotosChange = (files: File[]) => {
@@ -68,23 +68,36 @@ export function FoodAnalyzer() {
   };
 
   const handleAnalyze = async () => {
-    if (photos.length === 0) return;
+    if (photos.length === 0 && !description.trim()) return;
 
-    setCompressing(true);
-    setLoadingStep("Preparing images...");
     setError(null);
     setLogError(null);
     setRefineError(null);
 
-    try {
-      // Compress all images
-      const compressedBlobs = await Promise.all(photos.map(compressImage));
-      setCompressedImages(compressedBlobs);
+    let compressedBlobs: Blob[] = [];
+
+    if (photos.length > 0) {
+      setCompressing(true);
+      setLoadingStep("Preparing images...");
+
+      try {
+        compressedBlobs = await Promise.all(photos.map(compressImage));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to compress images");
+        vibrateError();
+        setCompressing(false);
+        setLoadingStep(undefined);
+        return;
+      }
 
       setCompressing(false);
-      setLoading(true);
-      setLoadingStep("Analyzing food...");
+    }
 
+    setCompressedImages(compressedBlobs);
+    setLoading(true);
+    setLoadingStep("Analyzing food...");
+
+    try {
       // Create FormData
       const formData = new FormData();
       compressedBlobs.forEach((blob, index) => {
@@ -140,16 +153,18 @@ export function FoodAnalyzer() {
   };
 
   const handleRefine = async () => {
-    if (!analysis || !correction.trim() || !compressedImages) return;
+    if (!analysis || !correction.trim()) return;
 
     setRefining(true);
     setRefineError(null);
 
     try {
       const formData = new FormData();
-      compressedImages.forEach((blob, index) => {
-        formData.append("images", blob, `image-${index}.jpg`);
-      });
+      if (compressedImages) {
+        compressedImages.forEach((blob, index) => {
+          formData.append("images", blob, `image-${index}.jpg`);
+        });
+      }
       formData.append("previousAnalysis", JSON.stringify(analysis));
       formData.append("correction", correction.trim());
 
@@ -395,15 +410,15 @@ export function FoodAnalyzer() {
       <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging} />
 
       {/* First-time user guidance */}
-      {photos.length === 0 && !analysis && (
+      {photos.length === 0 && !description.trim() && !analysis && (
         <div
           data-testid="first-time-guidance"
           className="p-4 rounded-lg bg-muted/50 text-muted-foreground"
         >
           <p className="text-sm font-medium mb-2">How it works:</p>
           <ol className="text-sm space-y-1 list-decimal list-inside">
-            <li>Take a photo of your food</li>
-            <li>Add description (optional)</li>
+            <li>Take a photo or describe your food</li>
+            <li>Add details (optional)</li>
             <li>Log to Fitbit</li>
           </ol>
         </div>
@@ -411,7 +426,7 @@ export function FoodAnalyzer() {
 
       <Button
         onClick={handleAnalyze}
-        disabled={photos.length === 0 || compressing || loading || logging}
+        disabled={!canAnalyze}
         className="w-full min-h-[44px]"
       >
         {compressing ? "Preparing images..." : loading ? "Analyzing..." : "Analyze Food"}

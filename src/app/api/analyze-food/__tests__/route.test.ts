@@ -165,7 +165,7 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.message).toContain("Invalid form data");
   });
 
-  it("returns 400 VALIDATION_ERROR for no images", async () => {
+  it("returns 400 VALIDATION_ERROR when no images and no description", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest([]);
@@ -174,7 +174,7 @@ describe("POST /api/analyze-food", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
-    expect(body.error.message).toContain("image");
+    expect(body.error.message).toContain("At least one image or a description is required");
   });
 
   it("returns 400 VALIDATION_ERROR for more than 3 images", async () => {
@@ -398,6 +398,30 @@ describe("POST /api/analyze-food", () => {
       30,
       15 * 60 * 1000,
     );
+  });
+
+  it("returns 200 for description-only request (no images)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+
+    const request = createMockRequest([], "2 medialunas");
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(mockAnalyzeFood).toHaveBeenCalledWith([], "2 medialunas");
+  });
+
+  it("returns 400 when neither images nor description provided", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest([]);
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("returns 400 VALIDATION_ERROR when description is a File", async () => {
