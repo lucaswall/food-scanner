@@ -102,7 +102,7 @@ export function QuickSelect() {
     }
 
     fetchFoods();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fetchFoods]);
 
   const handleSelectFood = (food: CommonFood) => {
     setSelectedFood(food);

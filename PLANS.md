@@ -543,6 +543,16 @@ Tasks 1-8 completed. Task 9 (accessibility fix) remains.
 ### Pre-commit Verification
 - verifier: All 47 food-history tests pass, zero warnings
 
+### Task 10: Remove suppressed exhaustive-deps in QuickSelect (pre-existing lint suppression)
+
+**Files:**
+- `src/components/quick-select.tsx` (modify)
+
+**Description:** The useEffect on mount suppresses `react-hooks/exhaustive-deps` with an eslint-disable comment. Since `fetchFoods` is memoized via `useCallback` with `[]`, adding it to the dependency array is correct and removes the lint suppression.
+
+### Tasks Completed This Iteration (cont.)
+- Task 10: Remove exhaustive-deps suppression in QuickSelect - Added `fetchFoods` to dependency array, removed eslint-disable comment
+
 ### Continuation Status
 All tasks completed.
 
