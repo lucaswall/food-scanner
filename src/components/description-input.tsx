@@ -50,7 +50,7 @@ export function DescriptionInput({ value, onChange, disabled = false }: Descript
             onClick={toggle}
             disabled={disabled}
             aria-label={isListening ? "Stop voice input" : "Start voice input"}
-            className="absolute bottom-2 right-2 flex items-center justify-center w-11 h-11 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className="absolute bottom-2 right-2 z-10 touch-manipulation flex items-center justify-center w-11 h-11 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Mic
               className={`h-5 w-5 ${isListening ? "text-red-500 animate-pulse" : ""}`}
