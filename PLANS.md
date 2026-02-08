@@ -1,434 +1,655 @@
 # Implementation Plan
 
 **Status:** IN_PROGRESS
-**Branch:** feat/FOO-224-nav-restructure-and-bug-fixes
-**Issues:** FOO-224, FOO-225, FOO-226, FOO-227, FOO-228
+**Branch:** feat/FOO-229-performance-and-loading-improvements
+**Issues:** FOO-229, FOO-230, FOO-231, FOO-232, FOO-233, FOO-234
 **Created:** 2026-02-08
 **Last Updated:** 2026-02-08
 
 ## Summary
 
-Fix two UI bugs (Quick Select Done button no-op, History dialog animation) and restructure the app navigation from 3 tabs to 5 tabs. This involves creating a standalone Quick Select route, updating the bottom nav, and redesigning the Home screen with CTA buttons and a blurred coming-soon dashboard preview.
+Comprehensive performance and UX improvement batch: add loading skeletons to all app routes, set Cache-Control headers on cacheable GET API routes, migrate FoodHistory and QuickSelect to SWR for client-side caching, add optimistic UI updates to food logging, prefetch API data from the dashboard, and document performance conventions in CLAUDE.md.
 
 ## Issues
 
-### FOO-224: Quick Select "Done" button does nothing after logging food
-
-**Priority:** Urgent
-**Labels:** Bug
-**Description:** After logging a food via Quick Select, the "Done" button calls `router.push("/app")` which is a no-op because the user is already on `/app`. The user is stuck on the success screen.
-
-**Acceptance Criteria:**
-- [ ] After logging food via Quick Select, tapping "Done" returns to the Quick Select food list
-- [ ] The Home tab in the bottom nav also resets Quick Select back to the food list when already on `/app`
-- [ ] Photo upload flow continues to work as before
-
-### FOO-225: History food detail dialog flies in from top-left instead of bottom
-
-**Priority:** Medium
-**Labels:** Bug
-**Description:** The food detail dialog on History uses the default Radix Dialog animation which slides in diagonally from top-left. Expected: slide-up from bottom (bottom-sheet style).
-
-**Acceptance Criteria:**
-- [ ] Food detail dialog on History slides in from the bottom when opened
-- [ ] Food detail dialog slides out through the bottom when closed
-- [ ] Change applies only to the History food detail dialog, not globally to all dialogs
-
-### FOO-226: Restructure bottom nav to 5 tabs
-
-**Priority:** High
-**Labels:** Improvement
-**Description:** Bottom nav currently has 3 tabs (Home, History, Settings). Add Quick Select and Take Photo as first-class navigation destinations.
-
-**Acceptance Criteria:**
-- [ ] Bottom nav shows 5 tabs: Home, Quick Select, Take Photo, History, Settings
-- [ ] Each tab has an appropriate icon and label
-- [ ] Quick Select tab routes to `/app/quick-select`
-- [ ] Take Photo tab routes to `/app/analyze`
-- [ ] Home tab routes to `/app`
-- [ ] Active tab highlighting works correctly for all 5 routes
-- [ ] Touch targets remain at least 44x44px
-- [ ] Safe area insets still respected on notched phones
-
-### FOO-227: Create standalone Quick Select screen at /app/quick-select
-
-**Priority:** High
-**Labels:** Improvement
-**Description:** Quick Select currently lives inside the Home page. It needs its own dedicated route at `/app/quick-select` so the Home screen can serve a different purpose.
-
-**Acceptance Criteria:**
-- [ ] New page at `/app/quick-select` renders the QuickSelect component
-- [ ] "Take Photo" buttons removed from QuickSelect (camera is now its own tab)
-- [ ] QuickSelect page has appropriate title/heading
-- [ ] Full food selection and logging flow works from the new route
-- [ ] Pending submission recovery (localStorage) still works
-- [ ] Home page (`/app`) no longer renders QuickSelect
-
-### FOO-228: Redesign Home screen with CTA buttons and blurred coming-soon dashboard
+### FOO-229: Add loading.tsx skeletons to all app routes
 
 **Priority:** Medium
 **Labels:** Improvement
-**Description:** After Quick Select moves out, the Home screen needs new content: two CTA buttons (Take Photo, Quick Select) and a blurred static dashboard mockup with "Coming Soon" overlay.
+**Description:** No `loading.tsx` files exist. Users see blank screens during navigation while server components render on Railway US (~200-300ms from Argentina). Create `loading.tsx` in all 5 app routes with skeleton UI matching each page's layout.
 
 **Acceptance Criteria:**
-- [ ] Home screen shows app title ("Food Scanner")
-- [ ] Two prominent CTA buttons: "Take Photo" (links to `/app/analyze`) and "Quick Select" (links to `/app/quick-select`)
-- [ ] Below the buttons: a blurred dashboard preview mockup
-- [ ] Dashboard preview shows a static mockup of calorie ring + macro bars (non-functional, just visual)
-- [ ] "Coming Soon" text displayed diagonally across the blurred preview
-- [ ] Blurred area uses CSS blur/frost effect (no images)
-- [ ] Mobile-friendly layout, buttons meet 44x44px touch targets
-- [ ] Looks good in both light and dark mode
+- [ ] `loading.tsx` exists in `src/app/app/`, `src/app/app/analyze/`, `src/app/app/history/`, `src/app/app/quick-select/`, `src/app/settings/`
+- [ ] Each skeleton mirrors the corresponding page's layout with placeholder shimmer boxes
+- [ ] Uses shadcn/ui `Skeleton` component for consistency
+- [ ] Zero build warnings
+
+### FOO-230: Add Cache-Control headers to cacheable GET API routes
+
+**Priority:** Medium
+**Labels:** Performance
+**Description:** GET API routes (`/api/common-foods`, `/api/food-history`) return no Cache-Control headers. Every request makes a full round trip to Railway US. Setting appropriate private cache headers lets the browser serve stale responses instantly while revalidating.
+
+**Acceptance Criteria:**
+- [ ] `GET /api/common-foods` returns `Cache-Control: private, max-age=60, stale-while-revalidate=300`
+- [ ] `GET /api/food-history` returns `Cache-Control: private, max-age=30, stale-while-revalidate=120`
+- [ ] `GET /api/auth/session` returns `Cache-Control: private, no-cache`
+- [ ] Headers are set on the Response object returned from each route handler
+- [ ] Existing tests still pass
+
+### FOO-231: Add SWR-style client caching to FoodHistory and QuickSelect
+
+**Priority:** Medium
+**Labels:** Performance
+**Description:** FoodHistory and QuickSelect fetch data fresh on every mount via `useState` + `fetch()`. SWR is already installed (`swr@^2.4.0`) and used in `SettingsContent`. Migrate these two components to use `useSWR` for instant cached rendering with background revalidation.
+
+**Acceptance Criteria:**
+- [ ] FoodHistory uses `useSWR` for initial data fetch (first page)
+- [ ] QuickSelect uses `useSWR` for `/api/common-foods` fetch
+- [ ] Stale data renders instantly on navigation; revalidation happens in background
+- [ ] Cache is invalidated after food log or delete operations
+- [ ] Cursor-based pagination ("Load More") continues to work in FoodHistory
+- [ ] Pending submission recovery flow still works in QuickSelect
+
+### FOO-232: Add optimistic UI updates to food logging
+
+**Priority:** Low
+**Labels:** Improvement
+**Description:** Food logging shows a spinner for 1-2s during the API round-trip. Show instant success feedback and sync in background. On failure, revert and show error toast.
+
+**Acceptance Criteria:**
+- [ ] After tapping "Log to Fitbit", UI immediately shows success state
+- [ ] API call fires in background
+- [ ] On success: update with real IDs from server response
+- [ ] On failure: revert optimistic update, show error, store in pending-submissions for retry
+- [ ] Fitbit token expiration flow still works (redirect to auth)
+
+### FOO-233: Prefetch API data for likely next navigations
+
+**Priority:** Low
+**Labels:** Performance
+**Description:** Dashboard is the main hub. Users navigate to analyze, history, or quick-select next. Prefetch `/api/common-foods` and first page of `/api/food-history` in background on dashboard mount so these pages render instantly.
+
+**Acceptance Criteria:**
+- [ ] Dashboard mounts trigger background prefetch of `/api/common-foods` and `/api/food-history`
+- [ ] Uses SWR `preload()` to warm the cache (depends on FOO-231 SWR adoption)
+- [ ] Prefetch only fires after visible content has loaded (non-blocking)
+- [ ] No visible UI change on dashboard
+
+### FOO-234: Update CLAUDE.md with performance conventions
+
+**Priority:** Low
+**Labels:** Convention
+**Description:** After implementing the performance improvements, document the conventions in CLAUDE.md so future development follows the same patterns.
+
+**Acceptance Criteria:**
+- [ ] CLAUDE.md has a PERFORMANCE section (5-8 lines max)
+- [ ] Documents: loading.tsx requirement, Cache-Control header convention, SWR usage pattern
+- [ ] Follows "only deviations from defaults" principle
 
 ## Prerequisites
 
-- [ ] On `main` branch with clean working tree
-- [ ] `npm test` passes
-- [ ] `npm run build` passes
+- [ ] shadcn/ui Skeleton component must be installed: `npx shadcn@latest add skeleton`
+- [ ] SWR is already installed (`swr@^2.4.0` in package.json) — no install needed
 
 ## Implementation Tasks
 
-### Task 1: Fix Quick Select "Done" button no-op (FOO-224)
+### Task 1: Install shadcn/ui Skeleton component
 
-**Issue:** FOO-224
+**Issue:** FOO-229
 **Files:**
-- `src/components/food-log-confirmation.tsx` (modify)
-- `src/components/__tests__/food-log-confirmation.test.ts` (create)
-- `src/components/quick-select.tsx` (modify)
+- `src/components/ui/skeleton.tsx` (create — generated by shadcn CLI)
+
+**Steps:**
+
+1. Run: `npx shadcn@latest add skeleton`
+2. Verify `src/components/ui/skeleton.tsx` is created
+3. Run: `npm run typecheck`
+
+**Notes:**
+- This is a prerequisite for Task 2. Must be done before writing loading.tsx files.
+
+---
+
+### Task 2: Add loading.tsx to dashboard route
+
+**Issue:** FOO-229
+**Files:**
+- `src/app/app/loading.tsx` (create)
+- `src/app/app/__tests__/loading.test.tsx` (create)
 
 **TDD Steps:**
 
-1. **RED** — Write test for FoodLogConfirmation accepting an `onDone` callback:
-   - Create `src/components/__tests__/food-log-confirmation.test.tsx`
-   - Test that clicking "Done" calls the `onDone` callback prop when provided
-   - Test that clicking "Done" falls back to `router.push("/app")` when `onDone` is not provided (backward compatibility for the photo upload flow in `food-analyzer.tsx`)
-   - Run: `npm test -- food-log-confirmation`
-   - Verify: Tests fail — `onDone` prop does not exist yet
+1. **RED** - Write failing test:
+   - Create `src/app/app/__tests__/loading.test.tsx`
+   - Test that the loading component renders a heading skeleton and two card skeletons matching the dashboard layout (h1 "Food Scanner" placeholder + 2-column grid of card placeholders + dashboard preview placeholder)
+   - Run: `npm test -- src/app/app/__tests__/loading.test.tsx`
+   - Verify: Test fails (module not found)
 
-2. **GREEN** — Add `onDone` callback prop to `FoodLogConfirmation`:
-   - In `src/components/food-log-confirmation.tsx`:
-     - Add optional `onDone?: () => void` to `FoodLogConfirmationProps`
-     - In the Done button's `onClick`: if `onDone` is provided, call it; otherwise call `router.push("/app")`
-   - Run: `npm test -- food-log-confirmation`
-   - Verify: Tests pass
+2. **GREEN** - Make it pass:
+   - Create `src/app/app/loading.tsx` (NOT a client component — loading.tsx should be a plain React component)
+   - Render skeleton matching dashboard layout:
+     - `Skeleton` for h1 area (~w-40 h-8)
+     - 2-column grid with two `Skeleton` cards (~h-24 each)
+     - `Skeleton` for DashboardPreview area (~h-64)
+   - Use same container: `min-h-screen px-4 py-6` > `mx-auto w-full max-w-md flex flex-col gap-6`
+   - Run: `npm test -- src/app/app/__tests__/loading.test.tsx`
+   - Verify: Test passes
 
-3. **Wire up in QuickSelect** — Pass a reset callback from `quick-select.tsx`:
-   - In `src/components/quick-select.tsx`, where `<FoodLogConfirmation>` is rendered (line 181):
-     - Add `onDone` prop that resets state: `setLogResponse(null)`, `setSelectedFood(null)`, `setLogError(null)`, and re-fetches foods via `fetchFoods()`
-   - Run: `npm test -- quick-select`
-   - Verify: Existing tests still pass
+**Reference:** Dashboard page layout at `src/app/app/page.tsx`
+
+---
+
+### Task 3: Add loading.tsx to analyze route
+
+**Issue:** FOO-229
+**Files:**
+- `src/app/app/analyze/loading.tsx` (create)
+- `src/app/app/analyze/__tests__/loading.test.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Create `src/app/app/analyze/__tests__/loading.test.tsx`
+   - Test that loading component renders heading skeleton + photo capture area skeleton + button skeleton
+   - Run: `npm test -- src/app/app/analyze/__tests__/loading.test.tsx`
+   - Verify: Test fails
+
+2. **GREEN** - Make it pass:
+   - Create `src/app/app/analyze/loading.tsx`
+   - Render skeleton matching analyze layout:
+     - `Skeleton` for h1 "Analyze Food" (~w-36 h-8)
+     - `Skeleton` for photo capture area (~h-48 rounded-xl)
+     - `Skeleton` for description input (~h-10)
+     - `Skeleton` for analyze button (~h-11 w-full)
+   - Same container pattern as Task 2
+   - Run: `npm test -- src/app/app/analyze/__tests__/loading.test.tsx`
+
+**Reference:** Analyze page at `src/app/app/analyze/page.tsx`, FoodAnalyzer at `src/components/food-analyzer.tsx`
+
+---
+
+### Task 4: Add loading.tsx to history route
+
+**Issue:** FOO-229
+**Files:**
+- `src/app/app/history/loading.tsx` (create)
+- `src/app/app/history/__tests__/loading.test.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Create `src/app/app/history/__tests__/loading.test.tsx`
+   - Test that loading component renders heading skeleton + date picker skeleton + 3 entry skeletons
+   - Run: `npm test -- src/app/app/history/__tests__/loading.test.tsx`
+
+2. **GREEN** - Make it pass:
+   - Create `src/app/app/history/loading.tsx`
+   - Render skeleton matching history layout:
+     - `Skeleton` for h1 "History" (~w-24 h-8)
+     - `Skeleton` for date picker row (~h-11 flex with gap)
+     - 3x `Skeleton` for food entry cards (~h-16 each, matching FoodHistory's loading state)
+   - Same container pattern
+   - Run: `npm test -- src/app/app/history/__tests__/loading.test.tsx`
+
+**Reference:** History page at `src/app/app/history/page.tsx`, FoodHistory loading state at `src/components/food-history.tsx:165-175`
+
+---
+
+### Task 5: Add loading.tsx to quick-select route
+
+**Issue:** FOO-229
+**Files:**
+- `src/app/app/quick-select/loading.tsx` (create)
+- `src/app/app/quick-select/__tests__/loading.test.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Create `src/app/app/quick-select/__tests__/loading.test.tsx`
+   - Test that loading component renders heading skeleton + 3 food card skeletons
+   - Run: `npm test -- src/app/app/quick-select/__tests__/loading.test.tsx`
+
+2. **GREEN** - Make it pass:
+   - Create `src/app/app/quick-select/loading.tsx`
+   - Render skeleton matching quick-select layout:
+     - `Skeleton` for h1 "Quick Select" (~w-32 h-8)
+     - 3x `Skeleton` for food cards (~h-20 each, matching QuickSelect's loading state)
+   - Same container pattern
+   - Run: `npm test -- src/app/app/quick-select/__tests__/loading.test.tsx`
+
+**Reference:** QuickSelect loading state at `src/components/quick-select.tsx:247-257`
+
+---
+
+### Task 6: Add loading.tsx to settings route
+
+**Issue:** FOO-229
+**Files:**
+- `src/app/settings/loading.tsx` (create)
+- `src/app/settings/__tests__/loading.test.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Create `src/app/settings/__tests__/loading.test.tsx`
+   - Test that loading component renders back button skeleton + heading skeleton + settings card skeleton
+   - Run: `npm test -- src/app/settings/__tests__/loading.test.tsx`
+
+2. **GREEN** - Make it pass:
+   - Create `src/app/settings/loading.tsx`
+   - Render skeleton matching settings layout:
+     - Flex row with `Skeleton` for back button (~w-11 h-11) + heading (~w-24 h-8)
+     - `Skeleton` for settings card (~h-48 rounded-xl)
+     - `Skeleton` for appearance card (~h-32 rounded-xl)
+   - Same centering as SettingsContent: `flex min-h-screen items-center justify-center px-4` > `w-full max-w-sm flex flex-col gap-6`
+   - Run: `npm test -- src/app/settings/__tests__/loading.test.tsx`
+
+**Reference:** Settings page at `src/app/settings/page.tsx`, SettingsContent at `src/components/settings-content.tsx`
+
+---
+
+### Task 7: Add Cache-Control headers to GET /api/common-foods
+
+**Issue:** FOO-230
+**Files:**
+- `src/app/api/common-foods/route.ts` (modify)
+- `src/app/api/common-foods/__tests__/route.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Add test to existing `src/app/api/common-foods/__tests__/route.test.ts`:
+     ```
+     it("sets Cache-Control header for private caching", async () => {
+       // Setup mock session + foods
+       const response = await GET();
+       expect(response.headers.get("Cache-Control")).toBe("private, max-age=60, stale-while-revalidate=300");
+     });
+     ```
+   - Run: `npm test -- src/app/api/common-foods/__tests__/route.test.ts`
+   - Verify: Test fails (Cache-Control is null)
+
+2. **GREEN** - Make it pass:
+   - In `src/app/api/common-foods/route.ts`, modify the success response to include Cache-Control header.
+   - The `successResponse` helper returns `Response.json()`. To add headers, create the response and set the header:
+     ```typescript
+     const response = successResponse({ foods });
+     response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+     return response;
+     ```
+   - Run: `npm test -- src/app/api/common-foods/__tests__/route.test.ts`
 
 **Notes:**
-- The photo upload flow in `food-analyzer.tsx` also uses `FoodLogConfirmation` but does NOT need `onDone` — it should keep the default `router.push("/app")` behavior since the analyze page is at `/app/analyze` (a different route).
-- The "Home tab bottom nav reset" acceptance criterion will be naturally satisfied after FOO-227 moves QuickSelect to `/app/quick-select` — tapping Home will navigate to `/app` (a different route), and tapping Quick Select will navigate to `/app/quick-select` which re-mounts the component.
+- `private` because response is user-specific (session-authenticated)
+- 60s max-age: common foods change slowly (based on time of day + last 30 days history)
+- 300s stale-while-revalidate: OK to show slightly stale data while refreshing
 
-### Task 2: Fix History dialog animation (FOO-225)
+---
 
-**Issue:** FOO-225
+### Task 8: Add Cache-Control headers to GET /api/food-history
+
+**Issue:** FOO-230
+**Files:**
+- `src/app/api/food-history/route.ts` (modify)
+- `src/app/api/food-history/__tests__/route.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Add test to existing `src/app/api/food-history/__tests__/route.test.ts`:
+     ```
+     it("sets Cache-Control header for private caching", async () => {
+       const response = await GET(new Request("http://localhost/api/food-history"));
+       expect(response.headers.get("Cache-Control")).toBe("private, max-age=30, stale-while-revalidate=120");
+     });
+     ```
+   - Run: `npm test -- src/app/api/food-history/__tests__/route.test.ts`
+
+2. **GREEN** - Make it pass:
+   - Same pattern as Task 7:
+     ```typescript
+     const response = successResponse({ entries });
+     response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=120");
+     return response;
+     ```
+   - Run: `npm test -- src/app/api/food-history/__tests__/route.test.ts`
+
+**Notes:**
+- 30s max-age: food history changes when user logs/deletes food
+- 120s stale-while-revalidate: OK for background refresh
+
+---
+
+### Task 9: Add Cache-Control: no-cache to GET /api/auth/session
+
+**Issue:** FOO-230
+**Files:**
+- `src/app/api/auth/session/route.ts` (modify)
+- `src/app/api/auth/session/__tests__/route.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Add test: session response should have `Cache-Control: private, no-cache`
+   - Run: `npm test -- src/app/api/auth/session/__tests__/route.test.ts`
+
+2. **GREEN** - Make it pass:
+   - Add `response.headers.set("Cache-Control", "private, no-cache")` before returning
+   - Run: `npm test -- src/app/api/auth/session/__tests__/route.test.ts`
+
+**Notes:**
+- Session data must always be fresh — `no-cache` forces revalidation on every request
+
+---
+
+### Task 10: Migrate QuickSelect to useSWR
+
+**Issue:** FOO-231
+**Files:**
+- `src/components/quick-select.tsx` (modify)
+- `src/components/__tests__/quick-select.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Update existing tests:
+   - Tests currently mock `global.fetch`. SWR wraps fetch, so existing mocks should still work.
+   - Add a new test: "shows cached data instantly on re-mount" — mount component, wait for data, unmount, re-mount, verify data appears without loading state.
+   - Run: `npm test -- src/components/__tests__/quick-select.test.tsx`
+
+2. **GREEN** - Migrate to useSWR:
+   - Replace the `fetchFoods` callback + `useEffect` pattern with:
+     ```typescript
+     const { data, isLoading, mutate } = useSWR<{ foods: CommonFood[] }>(
+       "/api/common-foods",
+       async (url: string) => {
+         const response = await fetch(url);
+         const result = await response.json();
+         if (!result.success) throw new Error("Failed to load");
+         return result.data;
+       },
+       { revalidateOnFocus: false }
+     );
+     const foods = data?.foods ?? [];
+     const loadingFoods = isLoading;
+     ```
+   - After successful food log, call `mutate()` to invalidate cache
+   - Keep pending submission recovery flow unchanged (it runs in `useEffect`, separate from SWR)
+   - Run: `npm test -- src/components/__tests__/quick-select.test.tsx`
+
+3. **REFACTOR**:
+   - Remove now-unused `fetchFoods` callback and its `useEffect`
+   - Replace manual `setLoadingFoods` with SWR's `isLoading`
+   - Remove `setFoods` state — use SWR's `data` directly
+
+**Reference:** SWR pattern in `src/components/settings-content.tsx:7-34`
+
+**Notes:**
+- Keep `revalidateOnFocus: false` since common foods don't change frequently
+- The `onDone` callback in `FoodLogConfirmation` currently calls `fetchFoods()` — replace with `mutate()`
+
+---
+
+### Task 11: Migrate FoodHistory to useSWR (first page only)
+
+**Issue:** FOO-231
 **Files:**
 - `src/components/food-history.tsx` (modify)
 - `src/components/__tests__/food-history.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Write test that the History detail dialog has bottom-sheet animation classes:
-   - In `src/components/__tests__/food-history.test.tsx`, add a test:
-     - Render FoodHistory, mock API to return entries, click an entry to open the dialog
-     - Assert the `DialogContent` element has the bottom-sheet animation class override (e.g., `slide-in-from-bottom`)
-   - Run: `npm test -- food-history`
-   - Verify: Test fails — current dialog uses default top-left animation
+1. **RED** - Update tests:
+   - Add test: "shows cached data instantly on re-mount"
+   - Existing fetch mocks should continue to work
+   - Run: `npm test -- src/components/__tests__/food-history.test.tsx`
 
-2. **GREEN** — Add className override to DialogContent in food-history:
-   - In `src/components/food-history.tsx` line 281, add a `className` prop to `<DialogContent>`:
+2. **GREEN** - Migrate initial fetch to useSWR:
+   - Use SWR for the initial page load only:
+     ```typescript
+     const { data: initialData, isLoading, mutate } = useSWR<{ entries: FoodLogHistoryEntry[] }>(
+       "/api/food-history?limit=20",
+       async (url: string) => {
+         const response = await fetch(url);
+         const result = await response.json();
+         if (!result.success) throw new Error("Failed to load");
+         return result.data;
+       },
+       { revalidateOnFocus: false }
+     );
      ```
-     className="data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom data-[state=open]:!animate-in data-[state=closed]:!animate-out fixed bottom-0 left-0 right-0 top-auto translate-x-0 translate-y-0 rounded-t-lg rounded-b-none sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg"
+   - Keep `entries` in local state for append-based pagination. Seed from `initialData` via `useEffect`:
+     ```typescript
+     useEffect(() => {
+       if (initialData?.entries) {
+         setEntries(initialData.entries);
+         setHasMore(initialData.entries.length >= 20);
+       }
+     }, [initialData]);
      ```
-   - This positions the dialog at the bottom on mobile with slide-up animation, while preserving centered behavior on desktop (sm: breakpoint).
-   - Run: `npm test -- food-history`
-   - Verify: Test passes
+   - "Load More" continues to use manual fetch + append to local state
+   - After delete, call `mutate()` to refresh the cache
+   - Run: `npm test -- src/components/__tests__/food-history.test.tsx`
 
-3. **REFACTOR** — Verify the override doesn't break existing dialog tests or the global dialog component.
+3. **REFACTOR**:
+   - Remove the initial `useEffect(() => { fetchEntries(); }, [])` call
+   - Keep `fetchEntries` for pagination (Load More) and Jump to Date
+   - Use SWR's `isLoading` for initial loading state
 
 **Notes:**
-- The `DialogContent` component in `dialog.tsx` uses `cn()` to merge classNames, so overrides via the `className` prop will work correctly with Tailwind's specificity.
-- Do NOT modify `dialog.tsx` — the change is scoped to `food-history.tsx` only.
+- FoodHistory has cursor-based pagination which doesn't map well to SWR's key-based caching. Only the first page uses SWR; subsequent pages use manual fetch.
+- Jump to Date resets local state and calls `fetchEntries` directly (bypasses SWR) since it's a different query.
 
-### Task 3: Create standalone Quick Select page (FOO-227)
+---
 
-**Issue:** FOO-227
+### Task 12: Add optimistic UI to QuickSelect food logging
+
+**Issue:** FOO-232
 **Files:**
-- `src/app/app/quick-select/page.tsx` (create)
-- `src/app/app/quick-select/__tests__/page.test.tsx` (create)
 - `src/components/quick-select.tsx` (modify)
+- `src/components/__tests__/quick-select.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Write page test for `/app/quick-select`:
-   - Create `src/app/app/quick-select/__tests__/page.test.tsx`
-   - Follow the pattern from `src/app/app/__tests__/page.test.tsx` and `src/app/app/analyze/__tests__/page.test.tsx`
-   - Test: redirects to `/` when session is null
-   - Test: renders "Quick Select" heading
-   - Test: renders QuickSelect component (mocked)
-   - Test: has skip link and main-content target
-   - Run: `npm test -- quick-select/.*page`
-   - Verify: Tests fail — page doesn't exist
+1. **RED** - Write failing test:
+   - Add test: "shows success immediately after tapping Log to Fitbit"
+   - Mock fetch to delay response (simulate network latency)
+   - Verify: FoodLogConfirmation renders immediately, before fetch resolves
+   - Run: `npm test -- src/components/__tests__/quick-select.test.tsx`
 
-2. **GREEN** — Create the Quick Select page:
-   - Create `src/app/app/quick-select/page.tsx`:
-     ```tsx
-     import { redirect } from "next/navigation";
-     import { getSession } from "@/lib/session";
-     import { QuickSelect } from "@/components/quick-select";
-     import { SkipLink } from "@/components/skip-link";
-
-     export default async function QuickSelectPage() {
-       const session = await getSession();
-       if (!session) { redirect("/"); }
-       return (
-         <div className="min-h-screen px-4 py-6">
-           <SkipLink />
-           <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
-             <h1 className="text-2xl font-bold">Quick Select</h1>
-             <QuickSelect />
-           </main>
-         </div>
-       );
+2. **GREEN** - Implement optimistic update:
+   - In `handleLogToFitbit`, immediately set `logResponse` with a provisional response:
+     ```typescript
+     // Optimistic: show success immediately
+     const optimisticResponse: FoodLogResponse = {
+       fitbitLogId: 0,   // placeholder
+       foodLogId: 0,     // placeholder
+       foodName: selectedFood.foodName,
+       calories: selectedFood.calories,
+     };
+     setLogResponse(optimisticResponse);
+     ```
+   - Fire the API call in background:
+     ```typescript
+     try {
+       const response = await fetch("/api/log-food", { ... });
+       const result = await response.json();
+       if (!response.ok || !result.success) {
+         // Revert optimistic update
+         setLogResponse(null);
+         // Handle error (token invalid → redirect, else show error)
+         ...
+       } else {
+         // Update with real response
+         setLogResponse(result.data);
+       }
+     } catch {
+       setLogResponse(null);
+       setLogError("Failed to log food");
      }
      ```
-   - Run: `npm test -- quick-select/.*page`
-   - Verify: Tests pass
-
-3. **Remove "Take Photo" buttons from QuickSelect** (per FOO-227 acceptance criteria):
-   - In `src/components/quick-select.tsx`:
-     - Remove the `Link` imports and `Camera` icon import if no longer used
-     - Remove the three `<Link href="/app/analyze">Take Photo</Link>` elements:
-       - Loading state (lines 245-251)
-       - Empty state (lines 267-273)
-       - Food list bottom (lines 320-326)
-     - Remove the `<Link href="/app/analyze">Take Photo</Link>` at the top of the food list (lines 281-287)
-   - Run: `npm test -- quick-select`
-   - Verify: Tests pass (update any tests that assert on "Take Photo" links)
+   - Note: Fitbit token expiration check must still redirect — don't show optimistic success if we know the token is expired (but we can't know until the API responds, so the revert handles this)
+   - Run: `npm test -- src/components/__tests__/quick-select.test.tsx`
 
 **Notes:**
-- Reference: `src/app/app/analyze/page.tsx` for the page pattern
-- The `onDone` callback from Task 1 will work correctly here — after logging, "Done" resets the QuickSelect state instead of navigating
+- Keep the existing `logging` state for the brief moment between tap and optimistic display
+- FoodLogConfirmation component must handle `fitbitLogId: 0` gracefully (it likely doesn't display IDs, so this should be fine)
+- After revert on error, `vibrateError()` should fire to give tactile feedback
 
-### Task 4: Update FoodLogConfirmation Done button for new route (FOO-224 + FOO-227)
+---
 
-**Issue:** FOO-224, FOO-227
+### Task 13: Add optimistic UI to FoodAnalyzer food logging
+
+**Issue:** FOO-232
 **Files:**
-- `src/components/food-log-confirmation.tsx` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing test:
+   - Add test: "shows success immediately after tapping Log to Fitbit"
+   - Verify: FoodLogConfirmation renders before fetch resolves
+   - Run: `npm test -- src/components/__tests__/food-analyzer.test.tsx`
+
+2. **GREEN** - Same optimistic pattern as Task 12:
+   - In `handleLogToFitbit`, immediately set `logResponse` with provisional data built from `analysis`:
+     ```typescript
+     const optimisticResponse: FoodLogResponse = {
+       fitbitLogId: 0,
+       foodLogId: 0,
+       foodName: analysis.food_name,
+       calories: analysis.calories,
+     };
+     setLogResponse(optimisticResponse);
+     ```
+   - Fire API in background, revert on error
+   - Same pattern for `handleUseExisting` (using existing food)
+   - Run: `npm test -- src/components/__tests__/food-analyzer.test.tsx`
+
+**Notes:**
+- Both `handleLogToFitbit` and `handleUseExisting` in FoodAnalyzer should get optimistic treatment
+- The `vibrateSuccess()` in FoodLogConfirmation will fire immediately — this is desirable UX
+
+---
+
+### Task 14: Check FoodLogResponse type compatibility
+
+**Issue:** FOO-232
+**Files:**
+- `src/types/index.ts` (read — may need modification)
+- `src/components/food-log-confirmation.tsx` (read — verify it handles placeholder IDs)
 
 **Steps:**
 
-1. Now that Quick Select is at `/app/quick-select`, update the fallback `router.push("/app")` in FoodLogConfirmation to NOT be relied upon by QuickSelect:
-   - QuickSelect already uses `onDone` callback (from Task 1)
-   - FoodAnalyzer at `/app/analyze` still uses the default `router.push("/app")` which correctly navigates to a different page
-   - No code change needed here — just verify both flows work
-
-2. Run: `npm test -- food-log-confirmation`
-3. Verify: All tests pass
+1. Read `FoodLogResponse` type definition in `src/types/index.ts`
+2. Read `FoodLogConfirmation` component to verify it doesn't display `fitbitLogId` or `foodLogId` to the user
+3. If IDs are displayed, add a conditional to hide them when they're 0 (placeholder)
+4. Run: `npm test -- src/components/__tests__/food-log-confirmation.test.tsx`
 
 **Notes:**
-- This task is a verification checkpoint, not a code change. The fix from Task 1 (`onDone` callback) plus the route separation from Task 3 together fully resolve FOO-224.
+- This is a verification task. May require no changes if the confirmation component doesn't show IDs.
 
-### Task 5: Restructure bottom nav to 5 tabs (FOO-226)
+---
 
-**Issue:** FOO-226
+### Task 15: Add SWR preload to dashboard
+
+**Issue:** FOO-233
 **Files:**
-- `src/components/bottom-nav.tsx` (modify)
-- `src/components/__tests__/bottom-nav.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update bottom nav tests for 5 tabs:
-   - In `src/components/__tests__/bottom-nav.test.tsx`:
-     - Update "renders three nav items" → "renders five nav items (Home, Quick Select, Take Photo, History, Settings)"
-     - Add test: "Quick Select links to `/app/quick-select`"
-     - Add test: "Take Photo links to `/app/analyze`"
-     - Add test: "Quick Select is active when on `/app/quick-select`"
-     - Add test: "Take Photo is active when on `/app/analyze`"
-     - Update "Home is active when on /app/analyze" — Home should NOT be active on `/app/analyze` anymore (Take Photo should be active instead)
-     - Update touch target test to expect 5 links
-   - Run: `npm test -- bottom-nav`
-   - Verify: Tests fail — only 3 tabs exist
-
-2. **GREEN** — Update `bottom-nav.tsx`:
-   - Import `ListChecks` (for Quick Select) and `Camera` (for Take Photo) from `lucide-react`
-   - Update `navItems` array to 5 entries:
-     ```tsx
-     { label: "Home", href: "/app", icon: Home, isActive: (p) => p === "/app" },
-     { label: "Quick Select", href: "/app/quick-select", icon: ListChecks, isActive: (p) => p === "/app/quick-select" },
-     { label: "Take Photo", href: "/app/analyze", icon: Camera, isActive: (p) => p === "/app/analyze" },
-     { label: "History", href: "/app/history", icon: Clock, isActive: (p) => p === "/app/history" },
-     { label: "Settings", href: "/settings", icon: Settings, isActive: (p) => p === "/settings" },
-     ```
-   - Note: Home `isActive` no longer includes `/app/analyze` — Take Photo has its own tab now
-   - Run: `npm test -- bottom-nav`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Verify touch targets and spacing:
-   - With 5 tabs, each tab will be narrower. Ensure `min-w-[44px]` still works.
-   - The text labels might need to be smaller. Consider reducing font to `text-[10px]` if 5 labels are too wide.
-   - Test on narrow viewports (320px width) to ensure labels don't overflow.
-
-**Notes:**
-- The nav bar uses `justify-around` which will automatically distribute 5 items evenly.
-- Labels should be short: "Home", "Quick Select" could be shortened to "Quick" if needed, but try full names first.
-
-### Task 6: Update Home page to remove QuickSelect (FOO-227 + FOO-228)
-
-**Issue:** FOO-227, FOO-228
-**Files:**
+- `src/components/dashboard-prefetch.tsx` (create)
+- `src/components/__tests__/dashboard-prefetch.test.tsx` (create)
 - `src/app/app/page.tsx` (modify)
-- `src/app/app/__tests__/page.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update Home page tests:
-   - In `src/app/app/__tests__/page.test.tsx`:
-     - Remove the test "renders QuickSelect component" and the QuickSelect mock
-     - Add test: "renders Take Photo CTA button linking to /app/analyze"
-     - Add test: "renders Quick Select CTA button linking to /app/quick-select"
-     - Add test: "renders blurred dashboard preview with Coming Soon text"
-     - Add test: "CTA buttons have min touch target size (44px)"
-   - Run: `npm test -- app/.*page\.test`
-   - Verify: Tests fail — page still renders QuickSelect
+1. **RED** - Write failing test:
+   - Create `src/components/__tests__/dashboard-prefetch.test.tsx`
+   - Test that `DashboardPrefetch` component calls `preload` for `/api/common-foods` and `/api/food-history?limit=20` on mount
+   - Run: `npm test -- src/components/__tests__/dashboard-prefetch.test.tsx`
 
-2. **GREEN** — Redesign the Home page:
-   - In `src/app/app/page.tsx`:
-     - Remove `QuickSelect` import
-     - Add `Link` import from `next/link`
-     - Add `Camera`, `ListChecks` icon imports from `lucide-react`
-     - Replace `<QuickSelect />` with the new Home content:
-       - Two CTA buttons as `<Link>` elements styled like large cards/buttons
-       - A blurred dashboard preview section below
-   - The page remains a Server Component (no `'use client'` needed — just static content with links)
-   - Run: `npm test -- app/.*page\.test`
-   - Verify: Tests pass
+2. **GREEN** - Create prefetch component:
+   - Create `src/components/dashboard-prefetch.tsx`:
+     ```typescript
+     "use client";
 
-3. **REFACTOR** — Ensure dark mode compatibility:
-   - Use Tailwind theme colors (`bg-card`, `text-foreground`, etc.) not hardcoded colors
-   - The blur effect should use `backdrop-blur` or `filter blur` with theme-aware backgrounds
+     import { useEffect } from "react";
+     import { preload } from "swr";
 
-**Notes:**
-- Reference `src/app/app/analyze/page.tsx` for page structure pattern
-- The blurred dashboard is purely decorative — no interactivity or data fetching needed
-- The "Coming Soon" text should be positioned diagonally with CSS `transform: rotate(-15deg)`
-- Dashboard mockup: use simple divs styled to look like a calorie ring (a circular border/progress) and horizontal progress bars for macros. Keep it lightweight — no SVG charting libraries.
+     // Fetcher matching the one used by QuickSelect and FoodHistory
+     async function apiFetcher(url: string) {
+       const response = await fetch(url);
+       const result = await response.json();
+       if (!result.success) throw new Error("Failed to load");
+       return result.data;
+     }
 
-### Task 7: Create Home dashboard preview component (FOO-228)
-
-**Issue:** FOO-228
-**Files:**
-- `src/components/dashboard-preview.tsx` (create)
-- `src/components/__tests__/dashboard-preview.test.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** — Write tests for the DashboardPreview component:
-   - Create `src/components/__tests__/dashboard-preview.test.tsx`
-   - Test: renders "Coming Soon" text
-   - Test: renders a calorie ring mockup element
-   - Test: renders macro progress bar mockup elements
-   - Test: the container has blur styling class
-   - Run: `npm test -- dashboard-preview`
-   - Verify: Tests fail — component doesn't exist
-
-2. **GREEN** — Create `src/components/dashboard-preview.tsx`:
-   - A client component (needs no interactivity, but CSS animations might benefit from client rendering — evaluate if Server Component works)
-   - Actually, this can be a Server Component since it's purely static. No `'use client'` needed.
-   - Structure:
-     ```tsx
-     export function DashboardPreview() {
-       return (
-         <div className="relative overflow-hidden rounded-xl border bg-card p-6">
-           {/* Blurred content */}
-           <div className="blur-sm pointer-events-none select-none space-y-6">
-             {/* Calorie ring mockup */}
-             <div className="flex justify-center">
-               <div className="w-32 h-32 rounded-full border-8 border-primary/30 flex items-center justify-center">
-                 <div className="text-center">
-                   <p className="text-2xl font-bold text-muted-foreground">1,850</p>
-                   <p className="text-xs text-muted-foreground">calories</p>
-                 </div>
-               </div>
-             </div>
-             {/* Macro bars */}
-             <div className="space-y-3">
-               {/* Protein bar */}
-               <div className="space-y-1">
-                 <div className="flex justify-between text-sm">
-                   <span>Protein</span><span>85g / 120g</span>
-                 </div>
-                 <div className="h-2 bg-muted rounded-full">
-                   <div className="h-2 bg-blue-500 rounded-full w-[70%]" />
-                 </div>
-               </div>
-               {/* Carbs bar */}
-               <div className="space-y-1">
-                 <div className="flex justify-between text-sm">
-                   <span>Carbs</span><span>200g / 250g</span>
-                 </div>
-                 <div className="h-2 bg-muted rounded-full">
-                   <div className="h-2 bg-amber-500 rounded-full w-[80%]" />
-                 </div>
-               </div>
-               {/* Fat bar */}
-               <div className="space-y-1">
-                 <div className="flex justify-between text-sm">
-                   <span>Fat</span><span>55g / 70g</span>
-                 </div>
-                 <div className="h-2 bg-muted rounded-full">
-                   <div className="h-2 bg-rose-500 rounded-full w-[78%]" />
-                 </div>
-               </div>
-             </div>
-           </div>
-           {/* Coming Soon overlay */}
-           <div className="absolute inset-0 flex items-center justify-center">
-             <p className="text-2xl font-bold text-muted-foreground/80 -rotate-12 select-none">
-               Coming Soon
-             </p>
-           </div>
-         </div>
-       );
+     export function DashboardPrefetch() {
+       useEffect(() => {
+         preload("/api/common-foods", apiFetcher);
+         preload("/api/food-history?limit=20", apiFetcher);
+       }, []);
+       return null;
      }
      ```
-   - Run: `npm test -- dashboard-preview`
-   - Verify: Tests pass
+   - Add `<DashboardPrefetch />` to `src/app/app/page.tsx` alongside existing components
+   - Run: `npm test -- src/components/__tests__/dashboard-prefetch.test.tsx`
 
-3. **REFACTOR** — Wire into the Home page:
-   - In `src/app/app/page.tsx`, import and render `<DashboardPreview />` below the CTA buttons
-   - Run: `npm test -- app/.*page`
-   - Verify: All Home page tests still pass
+3. **REFACTOR**:
+   - Extract the `apiFetcher` function to a shared location (e.g., `src/lib/swr.ts`) so QuickSelect, FoodHistory, and DashboardPrefetch all use the same fetcher. SWR deduplicates by key+fetcher, so using the same fetcher ensures cache hits.
+   - Update QuickSelect (Task 10) and FoodHistory (Task 11) to import from `src/lib/swr.ts`
+   - Run: `npm test`
 
 **Notes:**
-- All colors use Tailwind theme tokens for dark mode compatibility
-- The blur is applied to the content div, not via `backdrop-filter`, so it works without a background image
-- The "Coming Soon" text uses absolute positioning over the blurred content
+- `preload()` from SWR fires the request and populates the cache. When the user navigates to history or quick-select, `useSWR` with the same key returns cached data instantly.
+- DashboardPrefetch renders `null` — no visible UI.
+- The fetcher MUST be the same function reference used in the `useSWR` calls, otherwise SWR won't match the cache.
 
-### Task 8: Integration & Verification
+---
 
-**Issue:** FOO-224, FOO-225, FOO-226, FOO-227, FOO-228
-**Files:** Various files from previous tasks
+### Task 16: Update CLAUDE.md with performance conventions
+
+**Issue:** FOO-234
+**Files:**
+- `CLAUDE.md` (modify)
+
+**Steps:**
+
+1. Add a PERFORMANCE section to CLAUDE.md after the STYLE section:
+   ```markdown
+   ## PERFORMANCE
+
+   - **Every app route MUST have a `loading.tsx`** with `Skeleton` placeholders matching the page layout
+   - **Cacheable GET routes** set `Cache-Control: private, max-age=N, stale-while-revalidate=M` (user-specific data = `private`)
+   - **Client data fetching** uses `useSWR` with shared fetcher from `src/lib/swr.ts` — never raw `useState` + `fetch()`
+   ```
+2. Run: `npm run build` to verify no warnings
+
+**Notes:**
+- Keep it concise — only conventions that would cause mistakes if missing
+- This task MUST be done last, after all performance patterns are implemented
+
+---
+
+### Task 17: Integration & Verification
+
+**Issue:** FOO-229, FOO-230, FOO-231, FOO-232, FOO-233, FOO-234
+**Files:**
+- Various files from previous tasks
 
 **Steps:**
 
 1. Run full test suite: `npm test`
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
-4. Build check: `npm run build`
-5. Manual verification:
-   - [ ] Bottom nav shows 5 tabs with correct icons
-   - [ ] Tapping Quick Select tab goes to `/app/quick-select`
-   - [ ] Tapping Take Photo tab goes to `/app/analyze`
-   - [ ] Quick Select food list loads on its own page
-   - [ ] Logging food via Quick Select → Done button resets to food list
-   - [ ] History food detail dialog slides up from bottom
-   - [ ] Home screen shows CTA buttons and blurred dashboard preview
-   - [ ] All active tab highlights work correctly
-   - [ ] Dark mode looks correct on all screens
+4. Run build: `npm run build`
+5. Verify zero warnings in all of the above
+6. Manual verification:
+   - [ ] Navigate between routes — loading skeletons appear briefly
+   - [ ] Check Network tab — Cache-Control headers present on GET responses
+   - [ ] Navigate to history, go back, navigate again — cached data shows instantly
+   - [ ] Navigate to quick-select, go back, navigate again — cached data shows instantly
+   - [ ] Log a food via quick-select — success shows immediately
+   - [ ] Log a food via analyzer — success shows immediately
 
 ## MCP Usage During Implementation
 
@@ -440,176 +661,30 @@ Fix two UI bugs (Quick Select Done button no-op, History dialog animation) and r
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| No session on Quick Select page | Redirect to `/` | Unit test |
-| QuickSelect Done after logging | Reset component state via onDone callback | Unit test |
-| Narrow viewport with 5 tabs | Labels fit without overflow | Manual test |
+| SWR fetch failure | Show error state (existing behavior) | Unit test |
+| Optimistic update revert | Revert UI, show error, vibrate | Unit test |
+| Fitbit token expired during optimistic flow | Revert optimistic UI, redirect to auth | Unit test |
+| SWR cache miss | Show loading state, fetch fresh | Unit test |
 
 ## Risks & Open Questions
 
-- [ ] 5 tab labels may be too wide on very narrow screens (320px). Mitigation: test on 320px viewport, shorten "Quick Select" to "Quick" if needed.
-- [ ] The `onDone` callback approach for FOO-224 is simpler than `router.refresh()` and avoids a full page reload. Verify it properly resets all QuickSelect state.
-- [ ] The dialog bottom-sheet animation override may need tweaking — CSS specificity with `cn()` utility and Tailwind's animation classes. Test thoroughly.
+- [ ] **SWR fetcher identity**: The fetcher function passed to `useSWR` and `preload` must be the same reference for cache hits. Task 15 addresses this by extracting to `src/lib/swr.ts`.
+- [ ] **FoodHistory pagination with SWR**: Only the first page uses SWR. "Load More" and "Jump to Date" bypass SWR. This is a pragmatic compromise — full SWR pagination would require a different data model.
+- [ ] **Optimistic update timing**: The optimistic response uses placeholder IDs (`fitbitLogId: 0`, `foodLogId: 0`). If FoodLogConfirmation displays these, a conditional will be needed (covered in Task 14).
 
 ## Scope Boundaries
 
 **In Scope:**
-- Fix Done button no-op bug
-- Fix History dialog animation
-- Add 5-tab bottom nav
-- Create `/app/quick-select` route
-- Remove "Take Photo" buttons from QuickSelect component
-- Redesign Home screen with CTAs and blurred dashboard preview
+- Loading skeletons for all 5 app routes
+- Cache-Control headers on 3 GET routes
+- SWR adoption for FoodHistory (first page) and QuickSelect
+- Optimistic UI for food logging in QuickSelect and FoodAnalyzer
+- SWR prefetch from dashboard
+- CLAUDE.md performance conventions
 
 **Out of Scope:**
-- Functional Daily Nutrition Dashboard (future feature)
-- Service worker for PWA
-- Any backend/API changes
-- Settings page restructuring
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-08
-**Method:** Agent team (3 workers)
-
-### Tasks Completed This Iteration
-- Task 1: Fix Quick Select "Done" button no-op (FOO-224) - Added `onDone` callback prop to FoodLogConfirmation, wired in QuickSelect to reset state and re-fetch foods (worker-1)
-- Task 2: Fix History dialog animation (FOO-225) - Added bottom-sheet animation classes to DialogContent with mobile positioning and desktop centered fallback (worker-2)
-- Task 3: Create standalone Quick Select page (FOO-227) - Created /app/quick-select page with session guard, removed all Take Photo links from QuickSelect (worker-1)
-- Task 4: Verify FoodLogConfirmation Done button for both flows (FOO-224+FOO-227) - Confirmed QuickSelect uses onDone callback, FoodAnalyzer keeps default router.push (worker-1)
-- Task 5: Restructure bottom nav to 5 tabs (FOO-226) - Expanded from 3 to 5 nav items with ListChecks and Camera icons, adjusted spacing for narrow viewports (worker-2)
-- Task 6: Update Home page to remove QuickSelect (FOO-227+FOO-228) - Replaced QuickSelect with two CTA Link cards and DashboardPreview component (worker-3)
-- Task 7: Create Home dashboard preview component (FOO-228) - Created DashboardPreview server component with blurred calorie ring, macro bars, and Coming Soon overlay (worker-3)
-- Task 8: Integration & Verification - Full test suite, typecheck, lint, build all pass
-
-### Files Modified
-- `src/components/food-log-confirmation.tsx` - Added optional `onDone` callback prop
-- `src/components/__tests__/food-log-confirmation.test.tsx` - Added onDone callback tests
-- `src/components/quick-select.tsx` - Wired onDone callback, removed all Take Photo links and unused imports
-- `src/components/__tests__/quick-select.test.tsx` - Removed Take Photo tests, updated empty state test
-- `src/components/food-history.tsx` - Added bottom-sheet animation className to DialogContent
-- `src/components/__tests__/food-history.test.tsx` - Added bottom-sheet animation test
-- `src/components/bottom-nav.tsx` - Expanded to 5 nav items, adjusted spacing
-- `src/components/__tests__/bottom-nav.test.tsx` - Updated for 5 tabs with new route tests
-- `src/app/app/page.tsx` - Replaced QuickSelect with CTA buttons and DashboardPreview
-- `src/app/app/__tests__/page.test.tsx` - Updated for new Home page content
-- `src/components/dashboard-preview.tsx` - Created: blurred dashboard mockup with Coming Soon overlay
-- `src/components/__tests__/dashboard-preview.test.tsx` - Created: 4 tests
-- `src/app/app/quick-select/page.tsx` - Created: standalone Quick Select page
-- `src/app/app/quick-select/__tests__/page.test.tsx` - Created: 5 tests
-
-### Linear Updates
-- FOO-224: Todo → In Progress → Review
-- FOO-225: Todo → In Progress → Review
-- FOO-226: Todo → In Progress → Review
-- FOO-227: Todo → In Progress → Review
-- FOO-228: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Passed (0 critical/high, 1 medium pre-existing accessibility note, 3 low edge cases)
-- verifier: All 865 tests pass, zero warnings, build succeeds
-
-### Work Partition
-- Worker 1: Tasks 1, 3, 4 (food-log-confirmation, quick-select, quick-select page)
-- Worker 2: Tasks 2, 5 (food-history dialog, bottom-nav)
-- Worker 3: Tasks 6, 7 (home page, dashboard-preview)
-
-### Continuation Status
-Tasks 1-8 completed. Task 9 (accessibility fix) remains.
-
-### Review Findings
-
-Files reviewed: 14
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-No CRITICAL or HIGH issues found.
-
-**Documented (no fix needed):**
-- [MEDIUM] TYPE: Type assertion `result.data.entries as FoodLogHistoryEntry[]` on API response without runtime validation (`src/components/food-history.tsx:102`) — internal API with controlled response shape
-- [LOW] CONVENTION: ESLint `exhaustive-deps` suppression on useEffect (`src/components/food-history.tsx:120`) — `fetchEntries` is stable via useCallback, suppression is safe but unnecessary
-- [LOW] TYPE: Implicit `any` from `.json()` on `/api/common-foods` response (`src/components/quick-select.tsx:51`) — internal API, typed via useState generic
-- [LOW] TYPE: Implicit `any` from `.json()` on `/api/log-food` response (`src/components/quick-select.tsx:85-86`) — internal API, typed via useState generic
-- [LOW] EDGE CASE: `formatTime` doesn't guard malformed time strings (`src/components/food-history.tsx:31`) — API-validated HH:MM:SS format, extremely unlikely
-
-### Linear Updates
-- FOO-224: Review → Merge
-- FOO-225: Review → Merge
-- FOO-226: Review → Merge
-- FOO-227: Review → Merge
-- FOO-228: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-02-08
-**Method:** Single-agent (trivial fix)
-
-### Task 9: Fix missing aria-describedby on History dialog (pre-existing accessibility bug)
-
-**Files:**
-- `src/components/food-history.tsx` (modify)
-- `src/components/__tests__/food-history.test.tsx` (modify)
-
-**Description:** The History food detail DialogContent is missing a `<DialogDescription>` or explicit `aria-describedby={undefined}` opt-out. Radix UI logs a console warning about this. Since the dialog content is a NutritionFactsCard that is self-explanatory, the explicit opt-out is appropriate.
-
-### Tasks Completed This Iteration
-- Task 9: Fix missing aria-describedby on History dialog - Added `aria-describedby={undefined}` to DialogContent, added test
-
-### Files Modified
-- `src/components/food-history.tsx` - Added `aria-describedby={undefined}` to DialogContent
-- `src/components/__tests__/food-history.test.tsx` - Added test verifying aria-describedby opt-out
-
-### Pre-commit Verification
-- verifier: All 47 food-history tests pass, zero warnings
-
-### Task 10: Remove suppressed exhaustive-deps in QuickSelect (pre-existing lint suppression)
-
-**Files:**
-- `src/components/quick-select.tsx` (modify)
-
-**Description:** The useEffect on mount suppresses `react-hooks/exhaustive-deps` with an eslint-disable comment. Since `fetchFoods` is memoized via `useCallback` with `[]`, adding it to the dependency array is correct and removes the lint suppression.
-
-### Tasks Completed This Iteration (cont.)
-- Task 10: Remove exhaustive-deps suppression in QuickSelect - Added `fetchFoods` to dependency array, removed eslint-disable comment
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 3
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-No issues found - all implementations are correct and follow project conventions.
-
-### Linear Updates
-- FOO-224: Review → Merge (already transitioned in Iteration 1 review)
-- FOO-225: Review → Merge (already transitioned in Iteration 1 review)
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | TYPE | `src/components/food-history.tsx:102` | Type assertion on API response without runtime validation | Internal API with controlled response shape |
-| LOW | CONVENTION | `src/components/food-history.tsx:120` | ESLint exhaustive-deps suppression unnecessary | fetchEntries is stable via useCallback, suppression is safe |
-| LOW | TYPE | `src/components/quick-select.tsx:51` | Implicit any from .json() on API response | Internal API, typed via useState generic |
-| LOW | TYPE | `src/components/quick-select.tsx:85-86` | Implicit any from .json() on log-food response | Internal API, typed via useState generic |
-| LOW | EDGE CASE | `src/components/food-history.tsx:31` | formatTime doesn't guard malformed time strings | API-validated HH:MM:SS format, extremely unlikely |
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Infinite scroll for FoodHistory (current "Load More" button is retained)
+- Service Worker / offline caching
+- Server-side caching (Redis, etc.)
+- Performance monitoring / metrics
+- Database query optimization
