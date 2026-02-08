@@ -21,6 +21,10 @@ vi.mock("@/components/dashboard-preview", () => ({
   ),
 }));
 
+vi.mock("@/components/dashboard-prefetch", () => ({
+  DashboardPrefetch: () => null,
+}));
+
 const { default: AppPage } = await import("@/app/app/page");
 
 const validSession: FullSession = {

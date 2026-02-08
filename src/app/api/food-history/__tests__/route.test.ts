@@ -116,6 +116,14 @@ describe("GET /api/food-history", () => {
     });
   });
 
+  it("sets Cache-Control header for private caching", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const response = await GET(new Request("http://localhost/api/food-history"));
+    expect(response.headers.get("Cache-Control")).toBe("private, max-age=30, stale-while-revalidate=120");
+  });
+
   it("supports endDate query param for pagination", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogHistory.mockResolvedValue([]);

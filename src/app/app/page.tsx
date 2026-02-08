@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Camera, ListChecks } from "lucide-react";
 import { getSession } from "@/lib/session";
 import { DashboardPreview } from "@/components/dashboard-preview";
+import { DashboardPrefetch } from "@/components/dashboard-prefetch";
 import { SkipLink } from "@/components/skip-link";
 
 export default async function AppPage() {
@@ -36,6 +37,7 @@ export default async function AppPage() {
         </div>
 
         <DashboardPreview />
+        <DashboardPrefetch />
       </main>
     </div>
   );

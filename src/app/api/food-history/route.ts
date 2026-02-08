@@ -35,7 +35,9 @@ export async function GET(request: Request) {
 
     const entries = await getFoodLogHistory(session!.userId, { endDate, cursor, limit });
 
-    return successResponse({ entries });
+    const response = successResponse({ entries });
+    response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=120");
+    return response;
   } catch (error) {
     logger.error(
       {

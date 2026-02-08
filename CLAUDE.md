@@ -50,6 +50,14 @@ drizzle/           # Generated SQL migration files (never hand-write — use dri
 
 ---
 
+## PERFORMANCE
+
+- **Every app route MUST have a `loading.tsx`** with `Skeleton` placeholders matching the page layout
+- **Cacheable GET routes** set `Cache-Control: private, max-age=N, stale-while-revalidate=M` (user-specific data = `private`)
+- **Client data fetching** uses `useSWR` with shared fetcher from `src/lib/swr.ts` — never raw `useState` + `fetch()`
+
+---
+
 ## KNOWN ACCEPTED PATTERNS
 
 Do NOT flag these in code reviews:

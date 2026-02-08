@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { SWRConfig } from "swr";
 import { QuickSelect } from "../quick-select";
 import type { CommonFood, FoodLogResponse } from "@/types";
 
@@ -44,13 +45,16 @@ vi.mock("../food-log-confirmation", () => ({
   FoodLogConfirmation: ({
     response,
     foodName,
+    onDone,
   }: {
     response: FoodLogResponse | null;
     foodName: string;
+    onDone: () => void;
   }) =>
     response ? (
       <div data-testid="food-log-confirmation">
         <span>Successfully logged {foodName}</span>
+        <button data-testid="done-button" onClick={onDone}>Done</button>
       </div>
     ) : null,
 }));
@@ -115,14 +119,23 @@ const mockLogResponse: FoodLogResponse = {
   reusedFood: true,
 };
 
+function renderQuickSelect() {
+  return render(
+    <SWRConfig value={{ provider: () => new Map() }}>
+      <QuickSelect />
+    </SWRConfig>
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetPending.mockReturnValue(null);
 });
 
 describe("QuickSelect", () => {
   it("renders loading state initially", () => {
     mockFetch.mockImplementation(() => new Promise(() => {}));
-    render(<QuickSelect />);
+    renderQuickSelect();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
   });
 
@@ -132,7 +145,7 @@ describe("QuickSelect", () => {
       json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
     });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -146,7 +159,7 @@ describe("QuickSelect", () => {
       json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
     });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -161,7 +174,7 @@ describe("QuickSelect", () => {
       json: () => Promise.resolve({ success: true, data: { foods: [] } }),
     });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       expect(screen.getByText(/no recent foods/i)).toBeInTheDocument();
@@ -174,7 +187,7 @@ describe("QuickSelect", () => {
       json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
     });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -199,7 +212,7 @@ describe("QuickSelect", () => {
         json: () => Promise.resolve({ success: true, data: mockLogResponse }),
       });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -235,7 +248,7 @@ describe("QuickSelect", () => {
         json: () => Promise.resolve({ success: true, data: mockLogResponse }),
       });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -261,7 +274,7 @@ describe("QuickSelect", () => {
       json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
     });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -292,7 +305,7 @@ describe("QuickSelect", () => {
         json: () => Promise.resolve({ success: true, data: mockLogResponse }),
       });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -338,7 +351,7 @@ describe("QuickSelect", () => {
       value: { href: "", assign: vi.fn(), replace: vi.fn() },
     });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
@@ -377,7 +390,7 @@ describe("QuickSelect", () => {
       json: () => Promise.resolve({ success: true, data: mockLogResponse }),
     });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       const logCall = mockFetch.mock.calls.find(
@@ -403,7 +416,7 @@ describe("QuickSelect", () => {
       json: () => Promise.resolve({ success: true, data: mockLogResponse }),
     });
 
-    render(<QuickSelect />);
+    renderQuickSelect();
 
     await waitFor(() => {
       const logCall = mockFetch.mock.calls.find(
@@ -414,5 +427,79 @@ describe("QuickSelect", () => {
       expect(body.date).toBe("2026-02-07");
       expect(body.time).toBe("14:30:00");
     });
+  });
+
+  it("shows success immediately after tapping Log to Fitbit (optimistic UI)", async () => {
+    // First mock returns food list, second mock delays (simulates network latency)
+    let resolveLogFetch: ((value: unknown) => void) | null = null;
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
+      })
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveLogFetch = resolve;
+      }));
+
+    renderQuickSelect();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Empanada de carne"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    // FoodLogConfirmation should render immediately, BEFORE fetch resolves
+    await waitFor(() => {
+      expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+    });
+
+    // Now resolve the fetch to clean up
+    resolveLogFetch!({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+    });
+  });
+
+  it("shows cached data instantly on re-mount (SWR cache)", async () => {
+    // Use a shared SWR cache across mounts
+    const cache = new Map();
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
+    });
+
+    // First mount — loads data from fetch
+    const { unmount } = render(
+      <SWRConfig value={{ provider: () => cache }}>
+        <QuickSelect />
+      </SWRConfig>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Unmount
+    unmount();
+    cleanup();
+
+    // Re-mount — should show data instantly from cache (no loading state)
+    render(
+      <SWRConfig value={{ provider: () => cache }}>
+        <QuickSelect />
+      </SWRConfig>
+    );
+
+    // Data should be visible immediately, no loading state
+    expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
   });
 });

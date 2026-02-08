@@ -487,14 +487,14 @@ describe("FoodAnalyzer", () => {
     });
   });
 
-  it("Log to Fitbit is disabled while logging", async () => {
+  it("shows confirmation optimistically while log API is in flight", async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
-      .mockImplementationOnce(() => new Promise((resolve) => setTimeout(resolve, 1000)));
+      .mockImplementationOnce(() => new Promise(() => {}));
 
     render(<FoodAnalyzer />);
 
@@ -510,8 +510,9 @@ describe("FoodAnalyzer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
+    // With optimistic UI, confirmation shows immediately instead of "Logging..." button
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /logging/i })).toBeDisabled();
+      expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
     });
   });
 
@@ -1122,6 +1123,111 @@ describe("FoodAnalyzer", () => {
 
       // compressImage should NOT have been called
       expect(mockCompressImage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("optimistic UI for food logging", () => {
+    it("shows confirmation immediately after tapping Log to Fitbit", async () => {
+      // Analyze response resolves immediately
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        // Log-food fetch hangs — never resolves
+        .mockImplementationOnce(() => new Promise(() => {}));
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      // Confirmation should appear immediately (optimistic) even though fetch hasn't resolved
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      });
+    });
+
+    it("shows confirmation immediately after tapping Use this (existing food)", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        })
+        // Log-food fetch hangs — never resolves
+        .mockImplementationOnce(() => new Promise(() => {}));
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-match-card")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /use this/i }));
+
+      // Confirmation should appear immediately (optimistic) even though fetch hasn't resolved
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      });
+    });
+
+    it("reverts to analysis view on log API error after optimistic update", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () =>
+            Promise.resolve({
+              success: false,
+              error: { code: "FITBIT_API_ERROR", message: "Failed to log" },
+            }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      // Should revert and show error
+      await waitFor(() => {
+        expect(screen.getByTestId("log-error")).toBeInTheDocument();
+      });
+
+      // Confirmation should be gone
+      expect(screen.queryByTestId("food-log-confirmation")).not.toBeInTheDocument();
     });
   });
 

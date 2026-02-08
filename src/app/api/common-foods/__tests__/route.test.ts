@@ -103,6 +103,19 @@ describe("GET /api/common-foods", () => {
     expect(data.data.foods).toEqual([]);
   });
 
+  it("sets Cache-Control header for private caching", async () => {
+    mockGetSession.mockResolvedValue({
+      sessionId: "test-session",
+      userId: "user-uuid-123",
+      fitbitConnected: true,
+    });
+
+    mockGetCommonFoods.mockResolvedValue([]);
+
+    const response = await GET();
+    expect(response.headers.get("Cache-Control")).toBe("private, max-age=60, stale-while-revalidate=300");
+  });
+
   it("returns 500 when getCommonFoods throws", async () => {
     mockGetSession.mockResolvedValue({
       sessionId: "test-session",

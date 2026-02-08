@@ -34,7 +34,7 @@ export function FoodAnalyzer() {
   const [loadingStep, setLoadingStep] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
-  const [logging, setLogging] = useState(false);
+  const [logging] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
   const [matches, setMatches] = useState<FoodMatch[]>([]);
@@ -211,8 +211,15 @@ export function FoodAnalyzer() {
   const handleLogToFitbit = async () => {
     if (!analysis) return;
 
-    setLogging(true);
     setLogError(null);
+
+    // Optimistic: show confirmation immediately
+    const optimisticResponse: FoodLogResponse = {
+      success: true,
+      reusedFood: false,
+      foodLogId: 0,
+    };
+    setLogResponse(optimisticResponse);
 
     try {
       const response = await fetch("/api/log-food", {
@@ -229,6 +236,8 @@ export function FoodAnalyzer() {
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
+        // Revert optimistic update
+        setLogResponse(null);
         if (errorCode === "FITBIT_TOKEN_INVALID") {
           savePendingSubmission({
             analysis: analysis,
@@ -245,19 +254,26 @@ export function FoodAnalyzer() {
         return;
       }
 
+      // Replace optimistic response with real data
       setLogResponse(result.data);
-      // Note: vibrateSuccess() is called in FoodLogConfirmation on mount
     } catch (err) {
+      // Revert optimistic update
+      setLogResponse(null);
       setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
-    } finally {
-      setLogging(false);
     }
   };
 
   const handleUseExisting = async (match: FoodMatch) => {
-    setLogging(true);
     setLogError(null);
+
+    // Optimistic: show confirmation immediately
+    const optimisticResponse: FoodLogResponse = {
+      success: true,
+      reusedFood: true,
+      foodLogId: 0,
+    };
+    setLogResponse(optimisticResponse);
 
     try {
       const response = await fetch("/api/log-food", {
@@ -274,6 +290,8 @@ export function FoodAnalyzer() {
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
+        // Revert optimistic update
+        setLogResponse(null);
         if (errorCode === "FITBIT_TOKEN_INVALID") {
           savePendingSubmission({
             analysis: null,
@@ -291,12 +309,13 @@ export function FoodAnalyzer() {
         return;
       }
 
+      // Replace optimistic response with real data
       setLogResponse(result.data);
     } catch (err) {
+      // Revert optimistic update
+      setLogResponse(null);
       setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
-    } finally {
-      setLogging(false);
     }
   };
 

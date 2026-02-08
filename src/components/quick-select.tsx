@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import useSWR from "swr";
+import { apiFetcher } from "@/lib/swr";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { MealTypeSelector } from "./meal-type-selector";
 import { NutritionFactsCard } from "./nutrition-facts-card";
@@ -34,8 +36,14 @@ function foodToAnalysis(food: CommonFood): FoodAnalysis {
 }
 
 export function QuickSelect() {
-  const [foods, setFoods] = useState<CommonFood[]>([]);
-  const [loadingFoods, setLoadingFoods] = useState(true);
+  const { data, isLoading, mutate } = useSWR<{ foods: CommonFood[] }>(
+    "/api/common-foods",
+    apiFetcher,
+    { revalidateOnFocus: false }
+  );
+  const foods = data?.foods ?? [];
+  const loadingFoods = isLoading;
+
   const [selectedFood, setSelectedFood] = useState<CommonFood | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
   const [logging, setLogging] = useState(false);
@@ -44,65 +52,47 @@ export function QuickSelect() {
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
 
-  const fetchFoods = useCallback(async () => {
-    setLoadingFoods(true);
-    try {
-      const response = await fetch("/api/common-foods");
-      const result = await response.json();
-      if (result.success) {
-        setFoods(result.data.foods);
-      }
-    } catch {
-      // Silently fail — empty state will show
-    } finally {
-      setLoadingFoods(false);
-    }
-  }, []);
-
   useEffect(() => {
-    // Check for pending submission first
+    // Check for pending submission
     const pending = getPendingSubmission();
-    if (pending) {
-      setResubmitting(true);
-      setResubmitFoodName(pending.foodName);
-      setMealTypeId(pending.mealTypeId);
+    if (!pending) return;
 
-      const dateTime = pending.date && pending.time
-        ? { date: pending.date, time: pending.time }
-        : getLocalDateTime();
-      const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId, ...dateTime };
-      if (pending.reuseCustomFoodId) {
-        body.reuseCustomFoodId = pending.reuseCustomFoodId;
-      } else if (pending.analysis) {
-        Object.assign(body, pending.analysis);
-      }
+    setResubmitting(true);
+    setResubmitFoodName(pending.foodName);
+    setMealTypeId(pending.mealTypeId);
 
-      fetch("/api/log-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-        .then((r) => r.json())
-        .then((result) => {
-          clearPendingSubmission();
-          if (result.success) {
-            setLogResponse(result.data);
-          } else {
-            setLogError(result.error?.message || "Failed to resubmit food log");
-          }
-        })
-        .catch(() => {
-          clearPendingSubmission();
-          setLogError("Failed to resubmit food log");
-        })
-        .finally(() => {
-          setResubmitting(false);
-        });
-      return;
+    const dateTime = pending.date && pending.time
+      ? { date: pending.date, time: pending.time }
+      : getLocalDateTime();
+    const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId, ...dateTime };
+    if (pending.reuseCustomFoodId) {
+      body.reuseCustomFoodId = pending.reuseCustomFoodId;
+    } else if (pending.analysis) {
+      Object.assign(body, pending.analysis);
     }
 
-    fetchFoods();
-  }, [fetchFoods]);
+    fetch("/api/log-food", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        clearPendingSubmission();
+        if (result.success) {
+          setLogResponse(result.data);
+        } else {
+          setLogError(result.error?.message || "Failed to resubmit food log");
+        }
+      })
+      .catch(() => {
+        clearPendingSubmission();
+        setLogError("Failed to resubmit food log");
+      })
+      .finally(() => {
+        setResubmitting(false);
+      });
+  }, []);
 
   const handleSelectFood = (food: CommonFood) => {
     setSelectedFood(food);
@@ -121,6 +111,14 @@ export function QuickSelect() {
     setLogging(true);
     setLogError(null);
 
+    // Optimistic UI: show success immediately
+    const optimisticResponse: FoodLogResponse = {
+      success: true,
+      fitbitLogId: 0,
+      reusedFood: true,
+    };
+    setLogResponse(optimisticResponse);
+
     try {
       const response = await fetch("/api/log-food", {
         method: "POST",
@@ -137,6 +135,7 @@ export function QuickSelect() {
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
         if (errorCode === "FITBIT_TOKEN_INVALID") {
+          setLogResponse(null);
           savePendingSubmission({
             analysis: null,
             mealTypeId,
@@ -147,6 +146,7 @@ export function QuickSelect() {
           window.location.href = "/api/auth/fitbit";
           return;
         }
+        setLogResponse(null);
         setLogError(result.error?.message || "Failed to log food");
         vibrateError();
         return;
@@ -154,6 +154,7 @@ export function QuickSelect() {
 
       setLogResponse(result.data);
     } catch (err) {
+      setLogResponse(null);
       setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
     } finally {
@@ -186,7 +187,7 @@ export function QuickSelect() {
           setLogResponse(null);
           setSelectedFood(null);
           setLogError(null);
-          fetchFoods();
+          mutate();
         }}
       />
     );
