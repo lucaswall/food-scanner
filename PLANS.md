@@ -803,3 +803,30 @@ Summary: 1 issue found (Team: security, reliability, quality reviewers)
 
 1. Write test in `src/components/__tests__/food-history.test.tsx`: mount component, wait for SWR data, click "Load More" to append entries, then trigger SWR revalidation — verify paginated entries are NOT wiped out
 2. Fix `src/components/food-history.tsx:84-89`: Add a ref (`hasSeeded`) to track whether initial seeding has occurred. The `useEffect` should only seed entries on the first `initialData` arrival. After pagination or "Jump to Date", the ref prevents SWR revalidation from overwriting local state. For delete operations that call `mutate()`, reset the ref so the refreshed data is picked up.
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-08
+**Method:** Agent team (1 worker)
+
+### Tasks Completed This Iteration
+- Fix 1: SWR initialData useEffect overwrites paginated entries (FOO-235) - Added `hasSeeded` ref to gate the `useEffect([initialData])` so it only seeds entries once on initial load; subsequent SWR revalidations are blocked, preserving paginated entries from "Load More" (worker-1)
+
+### Files Modified
+- `src/components/food-history.tsx` - Added `useRef` import, `hasSeeded` ref gating the `useEffect([initialData])` to seed-once semantics
+- `src/components/__tests__/food-history.test.tsx` - Added test verifying paginated entries survive SWR revalidation after delete
+
+### Linear Updates
+- FOO-235: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 issues (1 HIGH, 2 MEDIUM) — all assessed as false positives: (1) not resetting hasSeeded on delete is intentional since optimistic local filter handles it and resetting would reintroduce the pagination wipe bug, (2) race condition is not real due to React batching, (3) Jump to Date ref reset is unnecessary since remount creates fresh ref
+- verifier: All 906 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Fix 1 (food-history.tsx + test)
+
+### Continuation Status
+All tasks completed.

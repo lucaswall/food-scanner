@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
@@ -80,11 +80,15 @@ export function FoodHistory() {
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
   const [jumpDate, setJumpDate] = useState("");
 
-  // Seed local entries state from SWR initial data
+  // Seed local entries state from SWR initial data — only once.
+  // After pagination or "Jump to Date", hasSeeded prevents SWR revalidation
+  // from overwriting local state with first-page-only data.
+  const hasSeeded = useRef(false);
   useEffect(() => {
-    if (initialData?.entries) {
+    if (initialData?.entries && !hasSeeded.current) {
       setEntries(initialData.entries);
       setHasMore(initialData.entries.length >= 20);
+      hasSeeded.current = true;
     }
   }, [initialData]);
 

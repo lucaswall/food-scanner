@@ -547,6 +547,108 @@ describe("FoodHistory", () => {
     });
   });
 
+  it("SWR revalidation after delete does not overwrite paginated entries", async () => {
+    // Initial 20 entries so "Load More" button appears
+    const initialEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+      id: i + 1,
+      foodName: `Initial ${i + 1}`,
+      calories: 100,
+      proteinG: 5,
+      carbsG: 10,
+      fatG: 3,
+      fiberG: 1,
+      sodiumMg: 50,
+      amount: 100,
+      unitId: 147,
+      mealTypeId: 3,
+      date: today,
+      time: "12:00:00",
+      fitbitLogId: 1000 + i,
+    }));
+
+    // Extra entries returned by "Load More"
+    const paginatedEntries: FoodLogHistoryEntry[] = Array.from({ length: 5 }, (_, i) => ({
+      id: 100 + i,
+      foodName: `Paginated ${i + 1}`,
+      calories: 200,
+      proteinG: 10,
+      carbsG: 20,
+      fatG: 6,
+      fiberG: 2,
+      sodiumMg: 100,
+      amount: 100,
+      unitId: 147,
+      mealTypeId: 3,
+      date: yesterday,
+      time: "10:00:00",
+      fitbitLogId: 2000 + i,
+    }));
+
+    // SWR revalidation after mutate() returns first page only (without deleted entry)
+    const revalidatedEntries = initialEntries.filter((e) => e.id !== 1);
+
+    mockFetch
+      // Call 1: SWR initial fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: initialEntries } }),
+      })
+      // Call 2: "Load More" pagination
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: paginatedEntries } }),
+      })
+      // Call 3: DELETE API call
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true }),
+      })
+      // Call 4: SWR revalidation triggered by mutate()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: revalidatedEntries } }),
+      });
+
+    renderFoodHistory();
+
+    // Wait for initial entries
+    await waitFor(() => {
+      expect(screen.getByText("Initial 1")).toBeInTheDocument();
+    });
+
+    // Click "Load More" to append paginated entries
+    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
+    fireEvent.click(loadMoreButton);
+
+    // Wait for paginated entries to appear
+    await waitFor(() => {
+      expect(screen.getByText("Paginated 1")).toBeInTheDocument();
+    });
+
+    // Now delete an entry — this calls mutate() which triggers SWR revalidation
+    // The SWR revalidation returns only first-page data (revalidatedEntries)
+    // BUG: The useEffect([initialData]) overwrites local state, wiping paginated entries
+    const deleteButtons = screen.getAllByRole("button", { name: /delete initial 1/i });
+    fireEvent.click(deleteButtons[0]);
+
+    // Wait for delete to complete and SWR revalidation to settle
+    await waitFor(() => {
+      // Deleted entry should be gone
+      expect(screen.queryByText("Initial 1")).not.toBeInTheDocument();
+    });
+
+    // Wait for SWR revalidation to complete
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(4);
+    });
+
+    // CRITICAL: Paginated entries should still be present after SWR revalidation
+    expect(screen.getByText("Paginated 1")).toBeInTheDocument();
+    expect(screen.getByText("Paginated 5")).toBeInTheDocument();
+    // Other initial entries should also still be present
+    expect(screen.getByText("Initial 2")).toBeInTheDocument();
+  });
+
   it("shows cached data instantly on re-mount (SWR cache)", async () => {
     const cache = new Map();
 
