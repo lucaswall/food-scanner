@@ -40,12 +40,12 @@ export async function POST(request: Request) {
   }
   const description = descriptionRaw;
 
-  // Validate image count
-  if (images.length === 0) {
-    logger.warn({ action: "analyze_food_validation" }, "no images provided");
+  // Validate: at least one image or a description is required
+  if (images.length === 0 && (!description || description.trim().length === 0)) {
+    logger.warn({ action: "analyze_food_validation" }, "no images or description provided");
     return errorResponse(
       "VALIDATION_ERROR",
-      "At least one image is required",
+      "At least one image or a description is required",
       400
     );
   }

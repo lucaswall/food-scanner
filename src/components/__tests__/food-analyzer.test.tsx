@@ -704,11 +704,11 @@ describe("FoodAnalyzer", () => {
   });
 
   describe("first-time user guidance", () => {
-    it("shows tips when no photos and no analysis", () => {
+    it("shows tips when no photos, no description, and no analysis", () => {
       render(<FoodAnalyzer />);
 
-      expect(screen.getByText(/take a photo/i)).toBeInTheDocument();
-      expect(screen.getByText(/add description/i)).toBeInTheDocument();
+      expect(screen.getByText(/take a photo or describe your food/i)).toBeInTheDocument();
+      expect(screen.getByText(/add details/i)).toBeInTheDocument();
       expect(screen.getByText(/log to fitbit/i)).toBeInTheDocument();
     });
 
@@ -716,17 +716,31 @@ describe("FoodAnalyzer", () => {
       render(<FoodAnalyzer />);
 
       // Initially tips are visible
-      expect(screen.getByText(/take a photo/i)).toBeInTheDocument();
+      expect(screen.getByText(/take a photo or describe your food/i)).toBeInTheDocument();
 
       // Add a photo
       fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
 
       // Tips should be hidden
       await waitFor(() => {
-        // The "Take a photo" text in the guidance should be gone
-        // (Note: "Log to Fitbit" will still appear as a button after analysis, so we check the guidance specifically)
         const guidanceSection = screen.queryByTestId("first-time-guidance");
         expect(guidanceSection).not.toBeInTheDocument();
+      });
+    });
+
+    it("hides tips after description typed", async () => {
+      render(<FoodAnalyzer />);
+
+      // Initially tips are visible
+      expect(screen.getByTestId("first-time-guidance")).toBeInTheDocument();
+
+      // Type a description
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "2 eggs" } });
+
+      // Tips should be hidden
+      await waitFor(() => {
+        expect(screen.queryByTestId("first-time-guidance")).not.toBeInTheDocument();
       });
     });
   });
@@ -1023,6 +1037,91 @@ describe("FoodAnalyzer", () => {
         const body = JSON.parse((logFoodCall![1] as RequestInit).body as string);
         expect(body.reuseCustomFoodId).toBeUndefined();
       });
+    });
+  });
+
+  describe("text-only analysis (no photos)", () => {
+    it("enables Analyze button when description has text and no photos", async () => {
+      render(<FoodAnalyzer />);
+
+      // No photos added — type text into description
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "2 scrambled eggs" } });
+
+      await waitFor(() => {
+        const analyzeButton = screen.getByRole("button", { name: /analyze food/i });
+        expect(analyzeButton).not.toBeDisabled();
+      });
+    });
+
+    it("disables Analyze button when neither photos nor description present", () => {
+      render(<FoodAnalyzer />);
+
+      const analyzeButton = screen.getByRole("button", { name: /analyze food/i });
+      expect(analyzeButton).toBeDisabled();
+    });
+
+    it("sends description-only to API when no photos", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      // Type description without adding photos
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "2 scrambled eggs" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze food/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze food/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/analyze-food",
+          expect.objectContaining({
+            method: "POST",
+            body: expect.any(FormData),
+          })
+        );
+      });
+
+      // Verify FormData has description but no images
+      const callArgs = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/analyze-food"
+      );
+      const formData = (callArgs![1] as RequestInit).body as FormData;
+      expect(formData.get("description")).toBe("2 scrambled eggs");
+      expect(formData.getAll("images")).toHaveLength(0);
+    });
+
+    it("skips compression step when no photos", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      // Type description without adding photos
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "2 scrambled eggs" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze food/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze food/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne");
+      });
+
+      // compressImage should NOT have been called
+      expect(mockCompressImage).not.toHaveBeenCalled();
     });
   });
 

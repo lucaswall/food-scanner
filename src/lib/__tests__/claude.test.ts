@@ -737,6 +737,64 @@ describe("analyzeFood", () => {
     expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
   });
 
+  it("works with text-only (no images)", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([], "2 medialunas y un cortado");
+
+    expect(result).toEqual(validAnalysis);
+
+    // Verify no image blocks in the API call
+    const call = mockCreate.mock.calls[0][0];
+    const imageBlocks = call.messages[0].content.filter(
+      (block: { type: string }) => block.type === "image"
+    );
+    expect(imageBlocks).toHaveLength(0);
+
+    // Verify text block uses the description
+    const textBlocks = call.messages[0].content.filter(
+      (block: { type: string }) => block.type === "text"
+    );
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0].text).toBe("2 medialunas y un cortado");
+  });
+
+  it("text-only uses description as the sole content block", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await analyzeFood([], "A bowl of lentil soup");
+
+    const call = mockCreate.mock.calls[0][0];
+    const content = call.messages[0].content;
+
+    // Should be exactly one block: the text description
+    expect(content).toHaveLength(1);
+    expect(content[0]).toEqual({
+      type: "text",
+      text: "A bowl of lentil soup",
+    });
+  });
+
   it("includes keywords in tool schema required fields", async () => {
     mockCreate.mockResolvedValueOnce({
       content: [
@@ -1003,6 +1061,50 @@ describe("refineAnalysis", () => {
     expect(imageBlocks).toHaveLength(2);
     expect(imageBlocks[0].source.data).toBe("img1");
     expect(imageBlocks[1].source.data).toBe("img2");
+  });
+
+  it("works with text-only refinement (no images)", async () => {
+    const refinedAnalysis: FoodAnalysis = {
+      ...validAnalysis,
+      food_name: "3 medialunas",
+      calories: 480,
+      notes: "Corrected to 3 medialunas instead of 2",
+    };
+
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "report_nutrition",
+          input: refinedAnalysis,
+        },
+      ],
+    });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    const result = await refineAnalysis(
+      [],
+      validAnalysis,
+      "Actually it was 3 medialunas"
+    );
+
+    expect(result).toEqual(refinedAnalysis);
+
+    // Verify no image blocks in the API call
+    const call = mockCreate.mock.calls[0][0];
+    const imageBlocks = call.messages[0].content.filter(
+      (block: { type: string }) => block.type === "image"
+    );
+    expect(imageBlocks).toHaveLength(0);
+
+    // Verify only text block with refinement context
+    const textBlocks = call.messages[0].content.filter(
+      (block: { type: string }) => block.type === "text"
+    );
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0].text).toContain("Actually it was 3 medialunas");
+    expect(textBlocks[0].text).toContain("Empanada de carne"); // previous analysis context
   });
 
   it("includes all nutrition fields from previous analysis in prompt", async () => {
