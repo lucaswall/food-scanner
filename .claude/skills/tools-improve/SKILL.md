@@ -1,25 +1,29 @@
 ---
 name: tools-improve
-description: "REQUIRED: Load this skill BEFORE creating, modifying, or reviewing any Claude Code skill or subagent. Contains critical best practices for .claude/skills/ and .claude/agents/ files. Use when: creating agents, creating skills, editing SKILL.md files, editing agent .md files, reviewing skill/agent code, or any work involving Claude Code extensibility."
+description: "REQUIRED: Load this skill BEFORE creating, modifying, or reviewing any Claude Code skill, subagent, or CLAUDE.md file. Contains critical best practices for .claude/skills/, .claude/agents/, and CLAUDE.md. Use when: creating agents, creating skills, editing SKILL.md files, editing agent .md files, reviewing skill/agent code, reviewing or editing CLAUDE.md, adding instructions to CLAUDE.md, or any work involving Claude Code extensibility."
 argument-hint: <skill or agent name>
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash
 ---
 
-# Tools Improve - Agent & Skill Development Assistant
+# Tools Improve - Agent, Skill & CLAUDE.md Assistant
 
-You create and optimize Claude Code subagents and skills.
+You create and optimize Claude Code subagents, skills, and CLAUDE.md files.
 
 ## Workflow
 
+**For skills/agents:**
 1. **Clarify requirements** - What does user want to create/modify?
 2. **Decide type** - Skill vs subagent (see Decision section below)
 3. **Create/edit file** - Use appropriate template
 4. **Update CLAUDE.md** - Add new skill/agent to the SKILLS or SUBAGENTS table
 5. **Verify** - Confirm description triggers correctly for auto-discovery
 
+**For CLAUDE.md:** Read [references/claude-md-reference.md](references/claude-md-reference.md) for the full review checklist and inclusion/exclusion criteria (sourced from Anthropic official docs).
+
 ## Reference Docs
 
 For detailed information beyond this file:
+- [references/claude-md-reference.md](references/claude-md-reference.md) - CLAUDE.md include/exclude criteria, review checklist, modular organization
 - [skills-reference.md](skills-reference.md) - Invocation control matrix, context budget, hooks, nested discovery
 - [subagents-reference.md](subagents-reference.md) - Built-in agents, permission modes, hook events, resume
 - [agent-teams-reference.md](agent-teams-reference.md) - Team orchestration, task coordination, best practices
