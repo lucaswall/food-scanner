@@ -14,6 +14,7 @@ interface FoodLogConfirmationProps {
   analysis?: FoodAnalysis;
   mealTypeId?: number;
   onDone?: () => void;
+  onLogAnother?: () => void;
 }
 
 export function FoodLogConfirmation({
@@ -22,6 +23,7 @@ export function FoodLogConfirmation({
   analysis,
   mealTypeId,
   onDone,
+  onLogAnother,
 }: FoodLogConfirmationProps) {
   const router = useRouter();
   // Trigger haptic feedback on mount
@@ -79,13 +81,24 @@ export function FoodLogConfirmation({
         </div>
       )}
 
-      <Button
-        onClick={() => (onDone ? onDone() : router.push("/app"))}
-        variant="outline"
-        className="min-h-[44px] min-w-[120px]"
-      >
-        Done
-      </Button>
+      <div className="flex gap-3">
+        {onLogAnother && (
+          <Button
+            onClick={onLogAnother}
+            variant="outline"
+            className="min-h-[44px] min-w-[120px]"
+          >
+            Log Another
+          </Button>
+        )}
+        <Button
+          onClick={() => (onDone ? onDone() : router.push("/app"))}
+          variant="outline"
+          className="min-h-[44px] min-w-[120px]"
+        >
+          Done
+        </Button>
+      </div>
     </div>
   );
 }

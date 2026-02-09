@@ -150,7 +150,7 @@ describe("GET /api/common-foods", () => {
     mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
 
     const response = await GET(makeRequest());
-    expect(response.headers.get("Cache-Control")).toBe("private, max-age=60, stale-while-revalidate=300");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 
   it("returns 500 when getCommonFoods throws", async () => {

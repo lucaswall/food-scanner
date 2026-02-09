@@ -80,6 +80,7 @@ export interface FoodLogResponse {
   reusedFood: boolean;
   foodLogId?: number;
   dryRun?: boolean;
+  dbError?: boolean;
   error?: string;
 }
 

@@ -78,13 +78,13 @@ export function FoodHistory() {
   const { data: initialData, isLoading, mutate } = useSWR<{ entries: FoodLogHistoryEntry[] }>(
     "/api/food-history?limit=20",
     apiFetcher,
-    { revalidateOnFocus: false }
   );
 
   const [entries, setEntries] = useState<FoodLogHistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
@@ -114,6 +114,8 @@ export function FoodHistory() {
       setLoading(true);
     }
 
+    setFetchError(null);
+
     try {
       const params = new URLSearchParams();
       if (endDate) params.set("endDate", endDate);
@@ -139,7 +141,7 @@ export function FoodHistory() {
         setHasMore(newEntries.length >= 20);
       }
     } catch {
-      // Silently fail
+      setFetchError("Failed to load entries. Please try again.");
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -236,6 +238,12 @@ export function FoodHistory() {
           Go
         </Button>
       </div>
+
+      {fetchError && (
+        <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <p className="text-sm text-destructive">{fetchError}</p>
+        </div>
+      )}
 
       {deleteError && (
         <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">

@@ -184,6 +184,14 @@ function isRateLimitError(error: unknown): boolean {
   );
 }
 
+function is5xxError(error: unknown): boolean {
+  if (!(error instanceof Error) || !("status" in error)) {
+    return false;
+  }
+  const status = (error as { status?: number }).status;
+  return typeof status === "number" && status >= 500 && status < 600;
+}
+
 export async function analyzeFood(
   images: ImageInput[],
   description?: string
@@ -267,6 +275,14 @@ export async function analyzeFood(
         continue;
       }
 
+      if (is5xxError(error) && attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000;
+        logger.warn({ attempt, delay }, "Claude API 5xx error, retrying");
+        lastError = error as Error;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
       logger.error(
         { error: error instanceof Error ? error.message : String(error) },
         "Claude API error"
@@ -277,7 +293,7 @@ export async function analyzeFood(
     }
   }
 
-  // This should only be reached if all retries exhausted due to timeouts
+  // This should only be reached if all retries exhausted due to timeouts/rate limits/5xx
   throw new ClaudeApiError(
     `API request failed after retries: ${lastError?.message || "unknown error"}`
   );
@@ -375,6 +391,14 @@ Please re-analyze the food considering this correction and provide updated nutri
       if (isRateLimitError(error) && attempt < maxRetries) {
         const delay = Math.pow(2, attempt) * 1000;
         logger.warn({ attempt, delay }, "Claude API rate limited during refinement, retrying");
+        lastError = error as Error;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      if (is5xxError(error) && attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000;
+        logger.warn({ attempt, delay }, "Claude API 5xx error during refinement, retrying");
         lastError = error as Error;
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;

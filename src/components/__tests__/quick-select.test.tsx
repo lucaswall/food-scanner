@@ -46,15 +46,19 @@ vi.mock("../food-log-confirmation", () => ({
     response,
     foodName,
     onDone,
+    onLogAnother,
   }: {
     response: FoodLogResponse | null;
     foodName: string;
-    onDone: () => void;
+    onDone?: () => void;
+    onLogAnother?: () => void;
   }) =>
     response ? (
       <div data-testid="food-log-confirmation">
         <span>Successfully logged {foodName}</span>
-        <button data-testid="done-button" onClick={onDone}>Done</button>
+        {onDone && <button data-testid="done-button" onClick={onDone}>Done</button>}
+        {onLogAnother && <button data-testid="log-another-button" onClick={onLogAnother}>Log Another</button>}
+        {!onDone && <span data-testid="no-on-done">no onDone prop</span>}
       </div>
     ) : null,
 }));
@@ -387,6 +391,75 @@ describe("QuickSelect", () => {
     });
   });
 
+
+  it("passes onLogAnother to FoodLogConfirmation that resets state for new selection", async () => {
+    mockFetch
+      .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+      });
+
+    renderQuickSelect();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Empanada de carne"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      // onLogAnother should be passed — the mock renders a "Log Another" button when present
+      expect(screen.getByTestId("log-another-button")).toBeInTheDocument();
+    });
+
+    // Click "Log Another" — should reset back to food list
+    fireEvent.click(screen.getByTestId("log-another-button"));
+
+    await waitFor(() => {
+      // Should be back on food list (SWR cached data)
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
+      // Confirmation should be gone
+      expect(screen.queryByTestId("food-log-confirmation")).not.toBeInTheDocument();
+    });
+  });
+
+  it("does not pass onDone to FoodLogConfirmation so Done navigates to /app", async () => {
+    mockFetch
+      .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+      });
+
+    renderQuickSelect();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Empanada de carne"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      // onDone should not be passed — the mock renders "no onDone prop" when absent
+      expect(screen.getByTestId("no-on-done")).toBeInTheDocument();
+    });
+  });
 
   it("has back button from detail view to food list", async () => {
     mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));

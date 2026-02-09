@@ -173,6 +173,7 @@ export async function POST(request: Request) {
 
       const reused = true;
       let fitbitLogId: number | undefined;
+      let dbError = false;
 
       if (!isDryRun) {
         const accessToken = await ensureFreshToken(session!.userId);
@@ -200,9 +201,10 @@ export async function POST(request: Request) {
           fitbitLogId: fitbitLogId ?? null,
         });
         foodLogId = logEntryResult.id;
-      } catch (dbError) {
+      } catch (dbErr) {
+        dbError = true;
         logger.error(
-          { action: "food_log_db_error", error: dbError instanceof Error ? dbError.message : String(dbError) },
+          { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
           "failed to insert food log entry to database"
         );
       }
@@ -214,6 +216,7 @@ export async function POST(request: Request) {
         reusedFood: reused,
         foodLogId,
         ...(isDryRun && { dryRun: true }),
+        ...(dbError && { dbError: true }),
       };
 
       logger.info(
@@ -235,6 +238,7 @@ export async function POST(request: Request) {
     let fitbitFoodId: number | undefined;
     let fitbitLogId: number | undefined;
     let reused = false;
+    let dbError = false;
 
     if (!isDryRun) {
       const accessToken = await ensureFreshToken(session!.userId);
@@ -282,9 +286,10 @@ export async function POST(request: Request) {
         fitbitLogId: fitbitLogId ?? null,
       });
       foodLogId = logEntryResult.id;
-    } catch (dbError) {
+    } catch (dbErr) {
+      dbError = true;
       logger.error(
-        { action: "food_log_db_error", error: dbError instanceof Error ? dbError.message : String(dbError) },
+        { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
         "failed to insert food log to database"
       );
     }
@@ -296,6 +301,7 @@ export async function POST(request: Request) {
       reusedFood: reused,
       foodLogId,
       ...(isDryRun && { dryRun: true }),
+      ...(dbError && { dbError: true }),
     };
 
     logger.info(

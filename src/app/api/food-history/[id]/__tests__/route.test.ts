@@ -251,6 +251,46 @@ describe("DELETE /api/food-history/[id]", () => {
     });
   });
 
+  describe("partial failure handling", () => {
+    it("returns success when Fitbit delete succeeds but DB delete fails", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockDeleteFoodLog.mockResolvedValue(undefined);
+      mockDeleteFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+
+      const { logger } = await import("@/lib/logger");
+
+      const request = createRequest();
+      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.data.deleted).toBe(true);
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "delete_food_log_db_error",
+          entryId: 42,
+        }),
+        expect.stringContaining("Fitbit delete succeeded but local DB delete failed"),
+      );
+    });
+
+    it("returns success when DB delete fails in dry-run mode", async () => {
+      vi.stubEnv("FITBIT_DRY_RUN", "true");
+      mockGetSession.mockResolvedValue(validSession);
+      mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+      mockDeleteFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+
+      const request = createRequest();
+      const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.data.deleted).toBe(true);
+    });
+  });
+
   describe("FITBIT_DRY_RUN not set", () => {
     it("existing Fitbit delete behavior works when entry has fitbitLogId", async () => {
       mockGetSession.mockResolvedValue(validSession);

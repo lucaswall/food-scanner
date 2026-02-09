@@ -43,7 +43,7 @@ export async function GET(request: Request) {
       );
 
       const response = successResponse({ foods: result.foods, nextCursor: result.nextCursor });
-      response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+      response.headers.set("Cache-Control", "private, no-cache");
       return response;
     }
 
@@ -75,7 +75,7 @@ export async function GET(request: Request) {
     );
 
     const response = successResponse({ foods: result.foods, nextCursor: result.nextCursor });
-    response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+    response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
     logger.error(

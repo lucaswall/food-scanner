@@ -75,16 +75,13 @@ export function QuickSelect() {
     setSize,
     isLoading: loadingFoods,
     isValidating,
-    mutate,
   } = useSWRInfinite<PaginatedFoodsPage>(getKey, apiFetcher, {
-    revalidateOnFocus: false,
     revalidateFirstPage: false,
   });
 
   const { data: searchData, isLoading: searchLoading } = useSWR<{ foods: CommonFood[] }>(
     isSearchActive ? `/api/search-foods?q=${encodeURIComponent(debouncedQuery)}` : null,
     apiFetcher,
-    { revalidateOnFocus: false }
   );
 
   const foods = isSearchActive
@@ -248,11 +245,10 @@ export function QuickSelect() {
         foodName={selectedFood?.foodName ?? resubmitFoodName ?? "Food"}
         analysis={analysis}
         mealTypeId={mealTypeId}
-        onDone={() => {
+        onLogAnother={() => {
           setLogResponse(null);
           setSelectedFood(null);
           setLogError(null);
-          mutate();
         }}
       />
     );

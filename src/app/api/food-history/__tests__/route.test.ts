@@ -121,7 +121,7 @@ describe("GET /api/food-history", () => {
     mockGetFoodLogHistory.mockResolvedValue([]);
 
     const response = await GET(new Request("http://localhost/api/food-history"));
-    expect(response.headers.get("Cache-Control")).toBe("private, max-age=30, stale-while-revalidate=120");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 
   it("supports endDate query param for pagination", async () => {

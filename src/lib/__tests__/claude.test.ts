@@ -795,6 +795,109 @@ describe("analyzeFood", () => {
     });
   });
 
+  it("retries on 5xx server error", async () => {
+    const serverError = new Error("Internal Server Error");
+    Object.assign(serverError, { status: 500 });
+
+    mockCreate
+      .mockRejectedValueOnce(serverError)
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "tool_use",
+            id: "tool_123",
+            name: "report_nutrition",
+            input: validAnalysis,
+          },
+        ],
+      });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(validAnalysis);
+  });
+
+  it("throws after retry exhausted on persistent 5xx error", async () => {
+    const serverError = new Error("Internal Server Error");
+    Object.assign(serverError, { status: 500 });
+
+    mockCreate
+      .mockRejectedValueOnce(serverError)
+      .mockRejectedValueOnce(serverError);
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries on 502 Bad Gateway error", async () => {
+    const gatewayError = new Error("Bad Gateway");
+    Object.assign(gatewayError, { status: 502 });
+
+    mockCreate
+      .mockRejectedValueOnce(gatewayError)
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "tool_use",
+            id: "tool_123",
+            name: "report_nutrition",
+            input: validAnalysis,
+          },
+        ],
+      });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(validAnalysis);
+  });
+
+  it("5xx retry uses exponential backoff delay", { timeout: 20000 }, async () => {
+    vi.useFakeTimers();
+
+    const serverError = new Error("Internal Server Error");
+    Object.assign(serverError, { status: 500 });
+
+    mockCreate
+      .mockRejectedValueOnce(serverError)
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "tool_use",
+            id: "tool_123",
+            name: "report_nutrition",
+            input: validAnalysis,
+          },
+        ],
+      });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const promise = analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    // The retry should wait for backoff delay (2^0 * 1000 = 1000ms)
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const result = await promise;
+    expect(result).toEqual(validAnalysis);
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
   it("includes keywords in tool schema required fields", async () => {
     mockCreate.mockResolvedValueOnce({
       content: [
@@ -1105,6 +1208,55 @@ describe("refineAnalysis", () => {
     expect(textBlocks).toHaveLength(1);
     expect(textBlocks[0].text).toContain("Actually it was 3 medialunas");
     expect(textBlocks[0].text).toContain("Empanada de carne"); // previous analysis context
+  });
+
+  it("retries on 5xx server error during refinement", async () => {
+    const serverError = new Error("Internal Server Error");
+    Object.assign(serverError, { status: 500 });
+
+    mockCreate
+      .mockRejectedValueOnce(serverError)
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "tool_use",
+            id: "tool_456",
+            name: "report_nutrition",
+            input: validAnalysis,
+          },
+        ],
+      });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    const result = await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Fix it"
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(validAnalysis);
+  });
+
+  it("throws after retry exhausted on persistent 5xx during refinement", async () => {
+    const serverError = new Error("Internal Server Error");
+    Object.assign(serverError, { status: 500 });
+
+    mockCreate
+      .mockRejectedValueOnce(serverError)
+      .mockRejectedValueOnce(serverError);
+
+    const { refineAnalysis } = await import("@/lib/claude");
+
+    await expect(
+      refineAnalysis(
+        [{ base64: "abc123", mimeType: "image/jpeg" }],
+        validAnalysis,
+        "Fix it"
+      )
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
   });
 
   it("includes all nutrition fields from previous analysis in prompt", async () => {
