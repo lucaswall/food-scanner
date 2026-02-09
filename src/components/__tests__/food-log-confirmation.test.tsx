@@ -248,6 +248,46 @@ describe("FoodLogConfirmation", () => {
       expect(screen.getByText("Dinner")).toBeInTheDocument();
     });
 
+  describe("onLogAnother", () => {
+    it("renders Log Another button when onLogAnother is provided", () => {
+      render(
+        <FoodLogConfirmation
+          response={mockResponse}
+          foodName="Test Food"
+          onLogAnother={vi.fn()}
+        />
+      );
+
+      expect(screen.getByRole("button", { name: /log another/i })).toBeInTheDocument();
+    });
+
+    it("does not render Log Another button when onLogAnother is not provided", () => {
+      render(
+        <FoodLogConfirmation
+          response={mockResponse}
+          foodName="Test Food"
+        />
+      );
+
+      expect(screen.queryByRole("button", { name: /log another/i })).not.toBeInTheDocument();
+    });
+
+    it("calls onLogAnother when Log Another button is clicked", () => {
+      const onLogAnother = vi.fn();
+      render(
+        <FoodLogConfirmation
+          response={mockResponse}
+          foodName="Test Food"
+          onLogAnother={onLogAnother}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /log another/i }));
+
+      expect(onLogAnother).toHaveBeenCalledTimes(1);
+    });
+  });
+
     it("does not render nutrition card when analysis is not provided", () => {
       render(
         <FoodLogConfirmation

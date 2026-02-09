@@ -245,6 +245,11 @@ export function QuickSelect() {
         foodName={selectedFood?.foodName ?? resubmitFoodName ?? "Food"}
         analysis={analysis}
         mealTypeId={mealTypeId}
+        onLogAnother={() => {
+          setLogResponse(null);
+          setSelectedFood(null);
+          setLogError(null);
+        }}
       />
     );
   }

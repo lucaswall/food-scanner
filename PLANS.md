@@ -491,3 +491,34 @@ Fix data freshness issues across the app (stale cache headers and disabled SWR r
 
 ### Continuation Status
 Task 9 remaining (UX regression fix from Task 3).
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-09
+**Method:** Agent team (1 worker)
+
+### Tasks Completed This Iteration
+- Task 9: Add "Log Another" button to FoodLogConfirmation in Quick Select flow (FOO-278) — Added `onLogAnother` prop to FoodLogConfirmation, passed from QuickSelect to reset state for new food selection (worker-1)
+
+### Files Modified
+- `src/components/food-log-confirmation.tsx` — Added `onLogAnother` optional prop, renders "Log Another" button when provided
+- `src/components/quick-select.tsx` — Passes `onLogAnother` callback that resets `logResponse`, `selectedFood`, and `logError`
+- `src/components/__tests__/quick-select.test.tsx` — Added test for onLogAnother flow (select → log → Log Another → back to food list)
+- `src/components/__tests__/food-log-confirmation.test.tsx` — Added 3 tests for onLogAnother prop (renders, does not render, calls callback)
+
+### Linear Updates
+- FOO-278: Review → Review (was already in Review from Iteration 1 Task 3; Task 9 completes the fix)
+
+### Pre-commit Verification
+- bug-hunter: 3 findings — 1 MEDIUM actioned (added component-level tests), 1 MEDIUM by-design (button order already correct), 1 LOW skipped (aria-label not needed for clear button text)
+- verifier: All 1,010 tests pass, zero warnings, lint/typecheck/build clean
+
+### Work Partition
+- Worker 1: Task 9 (component files: food-log-confirmation, quick-select)
+
+### Continuation Status
+All tasks completed.
+
+## Status: COMPLETE
