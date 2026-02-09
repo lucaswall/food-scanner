@@ -1,5 +1,79 @@
 # Food Scanner - Roadmap
 
+## Feature 0: Conversational Analysis (Chat Refinement)
+
+### Problem
+
+Food analysis is currently a one-shot transaction: snap a photo, get results, log to Fitbit. There's no way to correct mistakes ("that's two apples, not one"), add more items to the same meal, ask questions about the food, or refine the analysis before logging. The user either accepts what the AI says or starts over.
+
+The main issue is that users can't validate nutritional numbers — nobody looks at "23g protein" and knows whether that's right. What users *can* validate is the text description: "one apple" when it should be two, "white rice" when it's actually quinoa. The conversation itself is the validation mechanism, not a confirmation table full of numbers.
+
+### Goal
+
+After the initial analysis, the user can optionally open an inline chat to refine the result before logging. The chat is ephemeral — it exists only to produce a better food log entry. Once logged, the conversation is gone.
+
+### UX Flow
+
+1. **Initial analysis** works exactly as today: snap photo and/or write description → AI analyzes → analysis card appears with results.
+2. Below the analysis card, a **collapsed input hint** appears: *"Add details or correct something..."* — single line, subtle, not a full text area.
+3. If the user taps **Log**, the food is logged immediately (current flow, unchanged).
+4. If the user taps the **input hint**, the screen transforms into a chat:
+   - The analysis card reflows into a chat bubble (first assistant message).
+   - The input expands with a text field and an inline camera button.
+   - A **Log** button stays pinned and always accessible.
+   - A **Close** button (or X) is also available to abandon without logging.
+5. The user can send text messages, attach new photos, or both.
+6. Claude responds conversationally — short, focused replies. When the food list or quantities change, Claude confirms the updated analysis naturally in the conversation.
+7. When the user taps **Log**, the latest agreed-upon food analysis is logged (same flow as current: nutrition dialog if needed, then logged and back to Home).
+8. When the user taps **Close**, everything is discarded, back to Home.
+
+### Chat Behavior Rules
+
+1. **Claude always confirms what will be logged** — after any change to the food items or quantities, Claude's response should naturally include the updated summary. Not as a formal table, but conversationally: *"Got it — updated to 2 apples with peanut butter (~340 cal)."*
+2. **Don't repeat unchanged information** — if the user asks a question and nothing about the food changed, Claude answers the question without re-listing the entire analysis.
+3. **New photos add to the meal** — sending another photo mid-chat adds those items to the current meal, it doesn't replace the previous analysis.
+4. **Text-only input works** — the user can describe food without photos: *"I also had a coffee with oat milk."* Claude incorporates it.
+5. **Corrections override** — *"That's not rice, it's quinoa"* → Claude updates the analysis, confirms the change.
+6. **Portion adjustments** — *"I only ate half"* → Claude halves the quantities, confirms.
+
+### UI Details
+
+- **Chat bubbles**: Standard message bubble layout (assistant left, user right). Assistant messages use the app's accent color.
+- **Camera button**: Inline in the chat input bar, like messaging apps. Opens the same camera/gallery picker as the main analysis flow.
+- **Log button**: Pinned at the bottom or top of the chat. Always visible. Just says "Log" — no calorie preview on the button (numbers the user can't validate add no value).
+- **Close button**: Top-left X or alongside Log. Discards everything, returns to Home. No "are you sure?" confirmation.
+- **Success feedback**: After logging, a brief toast with the food names (not numbers): *"Logged: 2 apples, peanut butter"*.
+
+### Architecture
+
+- **Ephemeral chat state**: Conversation lives in client-side React state only. No persistence to DB. When the user logs or closes, it's gone.
+- **Multi-turn Anthropic API**: The existing Claude `tool_use` flow extends from 1 turn to N turns. Each user message sends the full conversation history to the API.
+- **Final log uses latest analysis**: When the user taps Log, the app uses the most recent `FoodAnalysis` result from the conversation (the last tool_use response that included food data).
+- **No thread persistence**: No `chat_threads` table. The value is in the logging outcome, not the conversation history.
+- **Auto-expire on navigation**: If the user leaves the screen (back button, app switch, etc.), the chat state is discarded. No resume.
+
+### What This Enables
+
+- **Corrections**: "That's quinoa, not rice" → re-analysis with correction.
+- **Additions**: "I also had this" + new photo → adds to the same meal.
+- **Partial logging**: "I only ate half" → adjusted portions.
+- **Questions**: "How much protein is in this?" / "Is this a good post-workout meal?"
+- **Multi-course meals**: Snap appetizer, then main, then dessert — all in one thread, logged as one meal.
+- **Text-only logging**: "I had a turkey sandwich on whole wheat, about 6 inches" — no photo needed.
+
+### Implementation Order
+
+1. Refactor analysis result into a chat-compatible message format
+2. Collapsed input hint UI below analysis card
+3. Chat screen transition (analysis card → first chat bubble)
+4. Multi-turn API integration (extend existing Claude flow)
+5. Inline camera button in chat input
+6. Log button reads latest analysis from conversation
+7. Close/discard behavior
+8. Success toast with food names
+
+---
+
 ## Feature 1: Extended Nutrition Tracking
 
 ### Problem
