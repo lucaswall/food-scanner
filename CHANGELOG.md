@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-02-09
+
+### Added
+
+- Per-user Fitbit credentials with encrypted storage and setup flow at `/app/setup-fitbit`
+- Food detail pages with full nutritional breakdown
+- Visual descriptions stored with custom foods for better context
+- Orphan food cleanup to automatically remove unused custom food entries
+
+### Changed
+
+- Fitbit credentials now per-user instead of shared environment variables
+- Comprehensive Fitbit railguards across all flows (analyze, log, quick-select, settings)
+
+### Fixed
+
+- Data freshness issues across multiple components
+- Multiple frontend review fixes (accessibility, touch targets, error states)
+- Fitbit connection status checks now consistently enforced
+
 ## [1.1.0] - 2026-02-08
 
 ### Added
@@ -44,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mobile-first PWA with Add to Home Screen support
 - Dual environment setup (staging with dry-run, production with live Fitbit)
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/lucaswall/food-scanner/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lucaswall/food-scanner/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/lucaswall/food-scanner/releases/tag/v1.0.0
