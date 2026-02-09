@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** COMPLETE
+**Status:** COMPLETE <!-- Updated by plan-review-implementation -->
 **Branch:** feat/FOO-288-per-user-fitbit-credentials
 **Issues:** FOO-288, FOO-289, FOO-290, FOO-291, FOO-292, FOO-293
 **Created:** 2026-02-09
@@ -772,3 +772,48 @@ The issues form two groups:
 - `src/components/settings-content.tsx`
 - `.env.sample`, `CLAUDE.md`, `DEVELOPMENT.md`, `MIGRATIONS.md`
 - 7 additional test files (hasFitbitCredentials field)
+
+### Review Findings
+
+Files reviewed: 44
+Reviewers: security, reliability, quality (agent team)
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+
+No CRITICAL or HIGH issues introduced by this iteration. All findings are pre-existing or MEDIUM/LOW.
+
+**Documented (no fix needed):**
+- [MEDIUM] EDGE CASE: `updateFitbitClientId` and `replaceFitbitClientSecret` (`src/lib/fitbit-credentials.ts:52-77`) do not verify row existence — Drizzle `.update().where()` silently succeeds with 0 rows if userId not found. Mitigated by the PATCH route checking existence first (`src/app/api/fitbit-credentials/route.ts:143-151`). Race window negligible in single-user app.
+- [MEDIUM] SECURITY: Missing rate limiting on `/api/fitbit-credentials` endpoints. Mitigated by ALLOWED_EMAILS allowlist (single-user app). Explicitly out of scope per plan.
+- [LOW] SECURITY: Cookie `secure: true` hardcoded in `src/lib/session.ts:23` — pre-existing, not introduced by this iteration. Breaks local dev on HTTP. Not in scope for this review.
+- [LOW] ASYNC: Fire-and-forget `touchSession()` in `src/lib/session.ts:58-69` — pre-existing pattern with proper `.catch()` handler. Not introduced by this iteration.
+- [LOW] EDGE CASE: `ensureFreshToken()` failure during compensation in `src/app/api/log-food/route.ts` produces generic error message instead of credential-specific one. Acceptable — the compensation catch logs the root cause.
+
+### Linear Updates
+- FOO-288: Review → Merge
+- FOO-289: In Progress → Merge
+- FOO-290: Review → Merge
+- FOO-291: Review → Merge
+- FOO-292: Review → Merge
+- FOO-293: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Skipped Findings Summary
+
+Findings documented but not fixed across all review iterations:
+
+| Severity | Category | File | Finding | Rationale |
+|----------|----------|------|---------|-----------|
+| MEDIUM | EDGE CASE | `src/lib/fitbit-credentials.ts:52-77` | Update functions don't verify row existence | PATCH route checks first; race window negligible in single-user app |
+| MEDIUM | SECURITY | `src/app/api/fitbit-credentials/route.ts` | No rate limiting on credential endpoints | Single-user app with ALLOWED_EMAILS allowlist; explicitly out of scope |
+| LOW | SECURITY | `src/lib/session.ts:23` | Cookie `secure: true` hardcoded (pre-existing) | Not introduced by this iteration |
+| LOW | ASYNC | `src/lib/session.ts:58-69` | Fire-and-forget touchSession (pre-existing) | Has proper error handling, not introduced by this iteration |
+| LOW | EDGE CASE | `src/app/api/log-food/route.ts` | Generic error during compensation token refresh | Compensation catch logs root cause; user sees actionable error |
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
