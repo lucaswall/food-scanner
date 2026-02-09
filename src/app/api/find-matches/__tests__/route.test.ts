@@ -40,6 +40,7 @@ const validSession: FullSession = {
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: true,
+  hasFitbitCredentials: true,
   destroy: vi.fn(),
 };
 

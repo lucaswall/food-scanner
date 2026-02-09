@@ -6,6 +6,7 @@ import { errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { getSessionById, deleteSession, touchSession } from "@/lib/session-db";
 import { getFitbitTokens } from "@/lib/fitbit-tokens";
+import { hasFitbitCredentials } from "@/lib/fitbit-credentials";
 
 let touchFailCount = 0;
 const TOUCH_FAIL_THRESHOLD = 3;
@@ -69,12 +70,14 @@ export async function getSession(): Promise<FullSession | null> {
   }
 
   const fitbitTokens = await getFitbitTokens(dbSession.userId);
+  const hasCredentials = await hasFitbitCredentials(dbSession.userId);
 
   return {
     sessionId: dbSession.id,
     userId: dbSession.userId,
     expiresAt: dbSession.expiresAt.getTime(),
     fitbitConnected: fitbitTokens !== null,
+    hasFitbitCredentials: hasCredentials,
     destroy: async () => {
       await deleteSession(dbSession.id);
       rawSession.destroy();

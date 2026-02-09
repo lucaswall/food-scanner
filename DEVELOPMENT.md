@@ -62,8 +62,9 @@ cp .env.sample .env.local
 Then fill in the secrets. See `.env.sample` for all required variables with comments. You'll need to provide:
 - `SESSION_SECRET` — generate with `openssl rand -base64 32`
 - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — see **OAuth Setup for Local Development** below
-- `FITBIT_CLIENT_ID` / `FITBIT_CLIENT_SECRET` — see **OAuth Setup for Local Development** below
 - `ANTHROPIC_API_KEY` — see **Anthropic API Setup** below
+
+> **Note:** Fitbit credentials (`FITBIT_CLIENT_ID` / `FITBIT_CLIENT_SECRET`) are no longer in env vars. Each user enters their own Fitbit Personal app credentials through the app's setup flow at `/app/setup-fitbit`.
 
 > **Note:** Migrations run automatically when you start the dev server (`npm run dev`).
 
@@ -242,7 +243,7 @@ Follow the [OAuth Setup section in README.md](README.md#oauth-setup) to create G
 - **Fitbit Developer** → Your app → Redirect URIs → add:
   `http://localhost:3000/api/auth/fitbit/callback`
 
-Copy the Client ID and Client Secret values into your `.env.local` file.
+Copy the Google Client ID and Client Secret values into your `.env.local` file. For Fitbit, enter your Personal app credentials through the setup flow at `/app/setup-fitbit` after logging in.
 
 ---
 

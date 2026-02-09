@@ -5,6 +5,7 @@ import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
 import { createSession } from "@/lib/session-db";
 import { getFitbitTokens } from "@/lib/fitbit-tokens";
+import { hasFitbitCredentials } from "@/lib/fitbit-credentials";
 import { isEmailAllowed } from "@/lib/env";
 import { getOrCreateUser } from "@/lib/users";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -78,8 +79,15 @@ export async function GET(request: Request) {
 
   logger.info({ action: "google_login_success", email: maskEmail(profile.email) }, "google login successful");
 
-  // Redirect: if no Fitbit tokens in DB, go to Fitbit OAuth; otherwise /app
+  // Three-way redirect logic:
+  // 1. If Fitbit tokens exist → /app
+  // 2. If Fitbit credentials exist (but no tokens) → /api/auth/fitbit
+  // 3. If neither exist → /app/setup-fitbit
   const fitbitTokens = await getFitbitTokens(user.id);
-  const redirectTo = fitbitTokens ? "/app" : "/api/auth/fitbit";
+  if (fitbitTokens) {
+    return Response.redirect(buildUrl("/app"), 302);
+  }
+  const hasCredentials = await hasFitbitCredentials(user.id);
+  const redirectTo = hasCredentials ? "/api/auth/fitbit" : "/app/setup-fitbit";
   return Response.redirect(buildUrl(redirectTo), 302);
 }

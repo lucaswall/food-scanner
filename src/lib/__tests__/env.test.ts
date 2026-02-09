@@ -41,8 +41,6 @@ describe("env", () => {
       process.env.SESSION_SECRET = "test-secret-that-is-at-least-32-chars-long";
       process.env.GOOGLE_CLIENT_ID = "google-id";
       process.env.GOOGLE_CLIENT_SECRET = "google-secret";
-      process.env.FITBIT_CLIENT_ID = "fitbit-id";
-      process.env.FITBIT_CLIENT_SECRET = "fitbit-secret";
       process.env.ANTHROPIC_API_KEY = "anthropic-key";
       process.env.APP_URL = "https://food.example.com";
       process.env.ALLOWED_EMAILS = "test@example.com";
@@ -56,8 +54,6 @@ describe("env", () => {
       delete process.env.SESSION_SECRET;
       delete process.env.GOOGLE_CLIENT_ID;
       delete process.env.GOOGLE_CLIENT_SECRET;
-      delete process.env.FITBIT_CLIENT_ID;
-      delete process.env.FITBIT_CLIENT_SECRET;
       delete process.env.ANTHROPIC_API_KEY;
       delete process.env.APP_URL;
       delete process.env.ALLOWED_EMAILS;
@@ -72,8 +68,6 @@ describe("env", () => {
       process.env.SESSION_SECRET = "test-secret-that-is-at-least-32-chars-long";
       process.env.GOOGLE_CLIENT_ID = "google-id";
       process.env.GOOGLE_CLIENT_SECRET = "google-secret";
-      process.env.FITBIT_CLIENT_ID = "fitbit-id";
-      process.env.FITBIT_CLIENT_SECRET = "fitbit-secret";
       delete process.env.ANTHROPIC_API_KEY;
       process.env.APP_URL = "https://food.example.com";
       delete process.env.ALLOWED_EMAILS;

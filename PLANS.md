@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Branch:** feat/FOO-288-per-user-fitbit-credentials
 **Issues:** FOO-288, FOO-289, FOO-290, FOO-291, FOO-292, FOO-293
 **Created:** 2026-02-09
@@ -724,3 +724,51 @@ The issues form two groups:
 - Automatic credential migration from env vars to DB
 - Service worker / offline support for credential management
 - Rate limiting on credential API routes (single-user app)
+
+## Iteration 1 — Implementation Complete
+
+**Date:** 2026-02-09
+**Result:** All 14 tasks implemented. Tests: 1059 passed, 0 failed. TypeScript: 0 errors. Lint: 0 warnings.
+
+### Execution
+
+**Team:** 2 Sonnet workers + Opus lead
+- **Worker-1:** Tasks 1, 2, 4, 5, 6, 10 (implementation only — ran out of context before tests for Task 10)
+- **Worker-2:** Tasks 7, 8, 9 (fully complete with tests)
+- **Lead:** Tasks 3 (migration), 10 (tests), 11, 12, 13, 14 + all integration fixes
+
+### Issues Fixed During Integration
+
+1. **FitbitStatusBanner imported non-existent `fetcher`** — Worker-1 used `import { fetcher }` from `@/lib/swr` but only `apiFetcher` exists. Fixed import and adjusted component to use apiFetcher's unwrapped data pattern.
+2. **Missing `hasFitbitCredentials` in 12 test files** — Adding the field to `FullSession` broke all tests constructing session objects. Fixed via batch update (7 by background Haiku agent, 5 by lead).
+3. **Missing `@/components/ui/alert`** — Worker-1 used Alert component that wasn't installed. Fixed with `npx shadcn@latest add alert`.
+4. **`"NOT_FOUND"` not in ErrorCode** — Worker-2 used `NOT_FOUND` in fitbit-credentials route but forgot to add it to the union type. Added to ErrorCode.
+5. **Setup-fitbit test imported `container` incorrectly** — Worker-2 wrote `const { container } = await import("@testing-library/react")` (wrong API). Removed unused import.
+6. **FitbitSetupForm test `window.location` mock type mismatch** — Worker-2 used `window.location = { href: "" } as Location` which doesn't satisfy `string & Location`. Fixed with `Object.defineProperty`.
+7. **Lint warning: unused `err` variable** — Worker-2 used `catch (err)` in fitbit-setup-form. Changed to `catch`.
+8. **Dry-run env var leak between tests** — The "returns error without compensation in dry-run mode" test used `vi.stubEnv("FITBIT_DRY_RUN", "true")` without cleanup, leaking into 4 subsequent reuse-flow tests. Fixed with try/finally cleanup.
+
+### Files Changed (44 total)
+
+**New files (14):**
+- `src/db/schema.ts` (fitbitCredentials table)
+- `src/lib/fitbit-credentials.ts` + tests
+- `src/app/api/fitbit-credentials/route.ts` + tests
+- `src/components/fitbit-setup-form.tsx` + tests
+- `src/components/fitbit-status-banner.tsx` + tests
+- `src/app/app/setup-fitbit/page.tsx` + `loading.tsx` + tests
+- `src/components/ui/alert.tsx` (shadcn/ui)
+- `drizzle/0008_stiff_stepford_cuckoos.sql` + snapshot
+
+**Modified files (30):**
+- `src/lib/fitbit.ts`, `src/lib/session.ts`, `src/lib/env.ts`
+- `src/types/index.ts`
+- `src/app/api/auth/fitbit/route.ts` + callback + tests
+- `src/app/api/auth/google/callback/route.ts` + tests
+- `src/app/api/auth/session/route.ts` + tests
+- `src/app/api/log-food/route.ts` + tests
+- `src/app/api/food-history/[id]/route.ts` + tests
+- `src/app/app/page.tsx` + tests
+- `src/components/settings-content.tsx`
+- `.env.sample`, `CLAUDE.md`, `DEVELOPMENT.md`, `MIGRATIONS.md`
+- 7 additional test files (hasFitbitCredentials field)

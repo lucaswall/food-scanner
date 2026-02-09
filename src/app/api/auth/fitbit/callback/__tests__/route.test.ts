@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.stubEnv("FITBIT_CLIENT_ID", "test-fitbit-client-id");
-vi.stubEnv("FITBIT_CLIENT_SECRET", "test-fitbit-client-secret");
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("APP_URL", "http://localhost:3000");
 
@@ -11,6 +9,11 @@ vi.mock("@/lib/fitbit", () => ({
   exchangeFitbitCode: vi.fn(),
   refreshFitbitToken: vi.fn(),
   ensureFreshToken: vi.fn(),
+}));
+
+const mockGetFitbitCredentials = vi.fn();
+vi.mock("@/lib/fitbit-credentials", () => ({
+  getFitbitCredentials: (...args: unknown[]) => mockGetFitbitCredentials(...args),
 }));
 
 // Mock session module — getRawSession returns mutable iron-session object
@@ -76,6 +79,10 @@ beforeEach(() => {
     expiresAt: new Date(Date.now() + 86400000),
   });
   mockUpsertFitbitTokens.mockResolvedValue(undefined);
+  mockGetFitbitCredentials.mockResolvedValue({
+    clientId: "test-fitbit-client-id",
+    clientSecret: "test-fitbit-client-secret",
+  });
 });
 
 function makeCallbackRequest(code: string | null, state: string | null) {
@@ -160,6 +167,10 @@ describe("GET /api/auth/fitbit/callback", () => {
     expect(mockExchangeFitbitCode).toHaveBeenCalledWith(
       "valid-fitbit-code",
       "https://food.lucaswall.me/api/auth/fitbit/callback",
+      expect.objectContaining({
+        clientId: "test-fitbit-client-id",
+        clientSecret: "test-fitbit-client-secret",
+      }),
     );
 
     const location = response.headers.get("location")!;
@@ -244,5 +255,14 @@ describe("GET /api/auth/fitbit/callback", () => {
       expect.objectContaining({ action: "fitbit_connect_success" }),
       expect.any(String),
     );
+  });
+
+  it("returns error when no credentials exist for user", async () => {
+    mockGetFitbitCredentials.mockResolvedValue(null);
+
+    const response = await GET(makeCallbackRequest("code", "test-state"));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
   });
 });

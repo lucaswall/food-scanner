@@ -56,6 +56,7 @@ describe("GET /api/auth/session", () => {
       userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
       fitbitConnected: true,
+      hasFitbitCredentials: true,
       destroy: vi.fn(),
     });
 
@@ -65,6 +66,7 @@ describe("GET /api/auth/session", () => {
     expect(body.success).toBe(true);
     expect(body.data.email).toBe("test@example.com");
     expect(body.data.fitbitConnected).toBe(true);
+    expect(body.data.hasFitbitCredentials).toBe(true);
   });
 
   it("sets Cache-Control header to private no-cache", async () => {
@@ -73,6 +75,7 @@ describe("GET /api/auth/session", () => {
       userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
       fitbitConnected: true,
+      hasFitbitCredentials: true,
       destroy: vi.fn(),
     });
 
@@ -95,6 +98,7 @@ describe("GET /api/auth/session", () => {
       userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
       fitbitConnected: false,
+      hasFitbitCredentials: false,
       destroy: vi.fn(),
     });
 
@@ -122,6 +126,7 @@ describe("GET /api/auth/session", () => {
       userId: "user-uuid-123",
       expiresAt: Date.now() + 86400000,
       fitbitConnected: false,
+      hasFitbitCredentials: false,
       destroy: vi.fn(),
     });
 

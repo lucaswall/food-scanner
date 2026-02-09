@@ -6,6 +6,13 @@ Log potential production data migrations here during development. These notes ar
 
 <!-- Add entries below this line -->
 
+## Per-user Fitbit credentials (FOO-288)
+New `fitbit_credentials` table. After deployment:
+1. Remove `FITBIT_CLIENT_ID` and `FITBIT_CLIENT_SECRET` from Railway production and staging env vars
+2. Existing user must re-enter Fitbit credentials through the new setup flow at `/app/setup-fitbit`
+
+No data migration needed — new table, no existing rows to convert.
+
 ## Orphan custom_foods cleanup (FOO-284)
 After deploying the orphan-cleanup code, run a one-time query to clean up existing orphaned rows:
 ```sql

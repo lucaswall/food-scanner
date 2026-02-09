@@ -1,7 +1,7 @@
 import type { FoodAnalysis } from "@/types";
 import { logger } from "@/lib/logger";
-import { getRequiredEnv } from "@/lib/env";
 import { getFitbitTokens, upsertFitbitTokens } from "@/lib/fitbit-tokens";
+import { getFitbitCredentials } from "@/lib/fitbit-credentials";
 
 const FITBIT_API_BASE = "https://api.fitbit.com";
 const MAX_RETRIES = 3;
@@ -281,9 +281,14 @@ export async function findOrCreateFood(
   return { foodId: createResult.food.foodId, reused: false };
 }
 
-export function buildFitbitAuthUrl(state: string, redirectUri: string): string {
+export interface FitbitClientCredentials {
+  clientId: string;
+  clientSecret: string;
+}
+
+export function buildFitbitAuthUrl(state: string, redirectUri: string, clientId: string): string {
   const params = new URLSearchParams({
-    client_id: getRequiredEnv("FITBIT_CLIENT_ID"),
+    client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
     scope: "nutrition",
@@ -296,14 +301,15 @@ export function buildFitbitAuthUrl(state: string, redirectUri: string): string {
 export async function exchangeFitbitCode(
   code: string,
   redirectUri: string,
+  credentials: FitbitClientCredentials,
 ): Promise<{
   access_token: string;
   refresh_token: string;
   user_id: string;
   expires_in: number;
 }> {
-  const credentials = Buffer.from(
-    `${getRequiredEnv("FITBIT_CLIENT_ID")}:${getRequiredEnv("FITBIT_CLIENT_SECRET")}`,
+  const authHeader = Buffer.from(
+    `${credentials.clientId}:${credentials.clientSecret}`,
   ).toString("base64");
 
   const controller = new AbortController();
@@ -313,7 +319,7 @@ export async function exchangeFitbitCode(
     const response = await fetch("https://api.fitbit.com/oauth2/token", {
       method: "POST",
       headers: {
-        Authorization: `Basic ${credentials}`,
+        Authorization: `Basic ${authHeader}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
@@ -353,6 +359,7 @@ export async function exchangeFitbitCode(
 
 export async function refreshFitbitToken(
   refreshToken: string,
+  credentials: FitbitClientCredentials,
 ): Promise<{
   access_token: string;
   refresh_token: string;
@@ -361,8 +368,8 @@ export async function refreshFitbitToken(
 }> {
   logger.debug({ action: "fitbit_token_refresh_start" }, "refreshing fitbit token");
 
-  const credentials = Buffer.from(
-    `${getRequiredEnv("FITBIT_CLIENT_ID")}:${getRequiredEnv("FITBIT_CLIENT_SECRET")}`,
+  const authHeader = Buffer.from(
+    `${credentials.clientId}:${credentials.clientSecret}`,
   ).toString("base64");
 
   const controller = new AbortController();
@@ -372,7 +379,7 @@ export async function refreshFitbitToken(
     const response = await fetch("https://api.fitbit.com/oauth2/token", {
       method: "POST",
       headers: {
-        Authorization: `Basic ${credentials}`,
+        Authorization: `Basic ${authHeader}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({
@@ -412,6 +419,11 @@ export async function refreshFitbitToken(
 const refreshInFlight = new Map<string, Promise<string>>();
 
 export async function ensureFreshToken(userId: string): Promise<string> {
+  const credentials = await getFitbitCredentials(userId);
+  if (!credentials) {
+    throw new Error("FITBIT_CREDENTIALS_MISSING");
+  }
+
   const tokenRow = await getFitbitTokens(userId);
   if (!tokenRow) {
     throw new Error("FITBIT_TOKEN_INVALID");
@@ -426,7 +438,7 @@ export async function ensureFreshToken(userId: string): Promise<string> {
 
     const promise = (async () => {
       try {
-        const tokens = await refreshFitbitToken(tokenRow.refreshToken);
+        const tokens = await refreshFitbitToken(tokenRow.refreshToken, credentials);
         await upsertFitbitTokens(userId, {
           fitbitUserId: tokens.user_id,
           accessToken: tokens.access_token,

@@ -36,6 +36,15 @@ export const fitbitTokens = pgTable("fitbit_tokens", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const fitbitCredentials = pgTable("fitbit_credentials", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id).unique(),
+  fitbitClientId: text("fitbit_client_id").notNull(),
+  encryptedClientSecret: text("encrypted_client_secret").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const customFoods = pgTable("custom_foods", {
   id: serial("id").primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),

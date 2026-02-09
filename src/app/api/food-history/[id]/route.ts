@@ -68,11 +68,12 @@ export async function DELETE(
 
     try {
       await deleteFoodLogEntry(session!.userId, id);
-    } catch (dbError) {
+    } catch (dbErr) {
       logger.error(
-        { action: "delete_food_log_db_error", entryId: id, error: dbError instanceof Error ? dbError.message : String(dbError) },
-        "Fitbit delete succeeded but local DB delete failed — entry may be orphaned locally",
+        { action: "delete_food_log_db_error", entryId: id, error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
+        "Fitbit delete succeeded but local DB delete failed",
       );
+      return errorResponse("INTERNAL_ERROR", "Fitbit log deleted but local delete failed. Entry may be orphaned.", 500);
     }
 
     if (isDryRun) {

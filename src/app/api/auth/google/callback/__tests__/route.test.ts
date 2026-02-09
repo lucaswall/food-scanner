@@ -40,6 +40,12 @@ vi.mock("@/lib/fitbit-tokens", () => ({
   getFitbitTokens: (...args: unknown[]) => mockGetFitbitTokens(...args),
 }));
 
+// Mock fitbit-credentials
+const mockHasFitbitCredentials = vi.fn();
+vi.mock("@/lib/fitbit-credentials", () => ({
+  hasFitbitCredentials: (...args: unknown[]) => mockHasFitbitCredentials(...args),
+}));
+
 // Mock rate limiter
 const mockCheckRateLimit = vi.fn();
 vi.mock("@/lib/rate-limit", () => ({
@@ -82,6 +88,7 @@ beforeEach(() => {
   mockRawSession.oauthState = "test-state"; // State stored in iron-session
   mockCreateSession.mockResolvedValue("new-session-uuid");
   mockGetFitbitTokens.mockResolvedValue(null);
+  mockHasFitbitCredentials.mockResolvedValue(false);
   mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 9 });
   mockGetOrCreateUser.mockResolvedValue(fakeUser);
 });
@@ -230,20 +237,6 @@ describe("GET /api/auth/google/callback", () => {
     );
   });
 
-  it("redirects to /api/auth/fitbit when no Fitbit tokens in DB", async () => {
-    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
-    mockGetGoogleProfile.mockResolvedValue({
-      email: "test@example.com",
-      name: "Test User",
-    });
-    mockGetFitbitTokens.mockResolvedValue(null);
-
-    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
-    expect(response.headers.get("location")).toBe(
-      "http://localhost:3000/api/auth/fitbit",
-    );
-  });
-
   it("redirects to /app when Fitbit tokens exist in DB", async () => {
     mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
     mockGetGoogleProfile.mockResolvedValue({
@@ -255,6 +248,36 @@ describe("GET /api/auth/google/callback", () => {
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.headers.get("location")).toBe(
       "http://localhost:3000/app",
+    );
+  });
+
+  it("redirects to /app/setup-fitbit when no credentials and no tokens", async () => {
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({
+      email: "test@example.com",
+      name: "Test User",
+    });
+    mockGetFitbitTokens.mockResolvedValue(null);
+    mockHasFitbitCredentials.mockResolvedValue(false);
+
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(response.headers.get("location")).toBe(
+      "http://localhost:3000/app/setup-fitbit",
+    );
+  });
+
+  it("redirects to /api/auth/fitbit when credentials exist but no tokens", async () => {
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({
+      email: "test@example.com",
+      name: "Test User",
+    });
+    mockGetFitbitTokens.mockResolvedValue(null);
+    mockHasFitbitCredentials.mockResolvedValue(true);
+
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(response.headers.get("location")).toBe(
+      "http://localhost:3000/api/auth/fitbit",
     );
   });
 
