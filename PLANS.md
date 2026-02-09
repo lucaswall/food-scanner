@@ -560,3 +560,43 @@ Summary: 4 issue(s) found (Team: security, reliability, quality reviewers + PR b
 **Linear Issue:** [FOO-244](https://linear.app/lw-claude/issue/FOO-244)
 
 1. In `src/lib/food-log.ts:107`, change `type JoinedRow = {` to `interface JoinedRow {`
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-08
+**Method:** Agent team (1 worker)
+
+### Tasks Completed This Iteration
+- Fix 1: Stale closure in IntersectionObserver callback (FOO-241) - Changed setSize(size + 1) to setSize((s) => s + 1), removed size from useEffect deps (worker-1)
+- Fix 2: Score-based pagination skips identical scores (FOO-242) - Changed cursor to composite {score, id}, updated filter, API route, client buildCursorParam, and all tests (worker-1)
+- Fix 3: Unvalidated JSON.parse cursor in common-foods API (FOO-243) - Added runtime validation for both recent and suggested cursor shapes (worker-1)
+- Fix 4: JoinedRow uses type instead of interface (FOO-244) - Changed `type JoinedRow = {` to `interface JoinedRow {` (worker-1)
+
+### Files Modified
+- `src/components/quick-select.tsx` - Functional updater for setSize, simplified buildCursorParam to always JSON.stringify
+- `src/components/__tests__/quick-select.test.tsx` - Added infinite scroll test, updated IntersectionObserver mock, updated cursor type in test helper
+- `src/lib/food-log.ts` - Composite cursor in getCommonFoods, interface JoinedRow, imported CommonFoodsCursor type
+- `src/lib/__tests__/food-log.test.ts` - Added test for identical scores at page boundary
+- `src/types/index.ts` - Added CommonFoodsCursor interface, changed CommonFoodsResponse.nextCursor type
+- `src/app/api/common-foods/route.ts` - JSON.parse + validation for both cursor types
+- `src/app/api/common-foods/__tests__/route.test.ts` - Updated cursor format in tests, added 3 validation tests
+
+### Linear Updates
+- FOO-241: Todo → In Progress → Review
+- FOO-242: Todo → In Progress → Review
+- FOO-243: Todo → In Progress → Review
+- FOO-244: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: No actionable bugs found (1 false positive on cursor direction, 2 cosmetic suggestions)
+- verifier: All 961 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Fixes 1, 2, 3, 4 (all files shared — single work unit)
+
+### Continuation Status
+All tasks completed.
+
+## Status: COMPLETE

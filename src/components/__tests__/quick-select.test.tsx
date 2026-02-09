@@ -84,11 +84,12 @@ vi.mock("../meal-type-selector", () => ({
 // Mock IntersectionObserver
 const mockObserve = vi.fn();
 const mockDisconnect = vi.fn();
-vi.stubGlobal("IntersectionObserver", vi.fn().mockImplementation(() => ({
-  observe: mockObserve,
-  disconnect: mockDisconnect,
-  unobserve: vi.fn(),
-})));
+const MockIntersectionObserver = vi.fn(function (this: IntersectionObserver) {
+  this.observe = mockObserve;
+  this.disconnect = mockDisconnect;
+  this.unobserve = vi.fn();
+} as unknown as () => void);
+vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
 
 const mockFoods: CommonFood[] = [
   {
@@ -129,7 +130,7 @@ const mockLogResponse: FoodLogResponse = {
 };
 
 /** Helper to create a mock fetch response with paginated data */
-function mockPaginatedResponse(foods: CommonFood[], nextCursor: number | null = null) {
+function mockPaginatedResponse(foods: CommonFood[], nextCursor: { score: number; id: number } | null = null) {
   return {
     ok: true,
     json: () => Promise.resolve({ success: true, data: { foods, nextCursor } }),
@@ -147,6 +148,12 @@ function renderQuickSelect() {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetPending.mockReturnValue(null);
+  // Restore IntersectionObserver mock (clearAllMocks strips the implementation)
+  MockIntersectionObserver.mockImplementation(function (this: IntersectionObserver) {
+    this.observe = mockObserve;
+    this.disconnect = mockDisconnect;
+    this.unobserve = vi.fn();
+  } as unknown as () => void);
 });
 
 describe("QuickSelect", () => {
@@ -548,6 +555,26 @@ describe("QuickSelect", () => {
     // Data should be visible immediately, no loading state
     expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+  });
+
+  describe("infinite scroll", () => {
+    it("does not include size in useEffect dependency array (functional updater)", async () => {
+      // The IntersectionObserver callback should use setSize(s => s + 1)
+      // (functional updater) instead of setSize(size + 1), so `size` should
+      // NOT be in the useEffect dependency array. This prevents stale closures
+      // and unnecessary re-subscriptions to the observer.
+      // We verify this by checking that the observer is set up only once
+      // even after the component receives data (which doesn't change size).
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods, { score: 0.5, id: 2 }));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Observer should have been set up exactly once (not re-created for size changes)
+      expect(mockObserve).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("search", () => {

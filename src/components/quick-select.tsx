@@ -45,12 +45,9 @@ function foodToAnalysis(food: CommonFood): FoodAnalysis {
   };
 }
 
-function buildCursorParam(cursor: unknown, tab: TabType): string {
+function buildCursorParam(cursor: unknown): string {
   if (cursor == null) return "";
-  if (tab === "recent" && typeof cursor === "object") {
-    return `&cursor=${encodeURIComponent(JSON.stringify(cursor))}`;
-  }
-  return `&cursor=${cursor}`;
+  return `&cursor=${encodeURIComponent(JSON.stringify(cursor))}`;
 }
 
 export function QuickSelect() {
@@ -66,7 +63,7 @@ export function QuickSelect() {
         ? "/api/common-foods?tab=recent&limit=10"
         : "/api/common-foods?limit=10";
       if (pageIndex === 0) return base;
-      const cursorParam = buildCursorParam(previousPageData!.nextCursor, activeTab);
+      const cursorParam = buildCursorParam(previousPageData!.nextCursor);
       return `${base}${cursorParam}`;
     },
     [activeTab]
@@ -74,7 +71,6 @@ export function QuickSelect() {
 
   const {
     data: pages,
-    size,
     setSize,
     isLoading: loadingFoods,
     isValidating,
@@ -103,14 +99,14 @@ export function QuickSelect() {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !isValidating) {
-          setSize(size + 1);
+          setSize((s) => s + 1);
         }
       },
       { threshold: 0.1 }
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, isValidating, setSize, size, isSearchActive]);
+  }, [hasMore, isValidating, setSize, isSearchActive]);
 
   const [selectedFood, setSelectedFood] = useState<CommonFood | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());

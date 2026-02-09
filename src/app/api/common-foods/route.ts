@@ -20,7 +20,16 @@ export async function GET(request: Request) {
       let cursor: { lastDate: string; lastTime: string | null; lastId: number } | undefined;
       if (cursorParam) {
         try {
-          cursor = JSON.parse(cursorParam);
+          const parsed = JSON.parse(cursorParam);
+          if (
+            typeof parsed !== "object" || parsed === null ||
+            typeof parsed.lastDate !== "string" ||
+            (parsed.lastTime !== null && typeof parsed.lastTime !== "string") ||
+            !Number.isFinite(parsed.lastId)
+          ) {
+            return errorResponse("VALIDATION_ERROR", "Invalid cursor format", 400);
+          }
+          cursor = { lastDate: parsed.lastDate, lastTime: parsed.lastTime, lastId: parsed.lastId };
         } catch {
           return errorResponse("VALIDATION_ERROR", "Invalid cursor format", 400);
         }
@@ -42,7 +51,21 @@ export async function GET(request: Request) {
     const currentTime = now.toTimeString().slice(0, 8);
     const currentDate = now.toISOString().slice(0, 10);
     const cursorParam = url.searchParams.get("cursor");
-    const cursor = cursorParam ? parseFloat(cursorParam) : undefined;
+    let cursor: { score: number; id: number } | undefined;
+    if (cursorParam) {
+      try {
+        const parsed = JSON.parse(cursorParam);
+        if (
+          typeof parsed !== "object" || parsed === null ||
+          !Number.isFinite(parsed.score) || !Number.isFinite(parsed.id)
+        ) {
+          return errorResponse("VALIDATION_ERROR", "Invalid cursor format", 400);
+        }
+        cursor = { score: parsed.score, id: parsed.id };
+      } catch {
+        return errorResponse("VALIDATION_ERROR", "Invalid cursor format", 400);
+      }
+    }
 
     const result = await getCommonFoods(session!.userId, currentTime, currentDate, { limit, cursor });
 

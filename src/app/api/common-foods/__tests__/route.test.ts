@@ -68,7 +68,7 @@ describe("GET /api/common-foods", () => {
           mealTypeId: 3,
         },
       ],
-      nextCursor: 0.85,
+      nextCursor: { score: 0.85, id: 1 },
     });
 
     const response = await GET(makeRequest());
@@ -78,7 +78,7 @@ describe("GET /api/common-foods", () => {
     expect(data.success).toBe(true);
     expect(data.data.foods).toHaveLength(1);
     expect(data.data.foods[0].foodName).toBe("Chicken");
-    expect(data.data.nextCursor).toBe(0.85);
+    expect(data.data.nextCursor).toEqual({ score: 0.85, id: 1 });
     expect(mockGetCommonFoods).toHaveBeenCalledWith(
       "user-uuid-123",
       expect.stringMatching(/^\d{2}:\d{2}:\d{2}$/),
@@ -96,13 +96,14 @@ describe("GET /api/common-foods", () => {
 
     mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
 
-    await GET(makeRequest({ limit: "5", cursor: "0.5" }));
+    const cursor = JSON.stringify({ score: 0.5, id: 10 });
+    await GET(makeRequest({ limit: "5", cursor }));
 
     expect(mockGetCommonFoods).toHaveBeenCalledWith(
       "user-uuid-123",
       expect.any(String),
       expect.any(String),
-      { limit: 5, cursor: 0.5 },
+      { limit: 5, cursor: { score: 0.5, id: 10 } },
     );
   });
 
@@ -232,6 +233,52 @@ describe("GET /api/common-foods", () => {
       });
 
       const response = await GET(makeRequest({ tab: "recent", cursor: "invalid-json" }));
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 for recent cursor with wrong shape (valid JSON)", async () => {
+      mockGetSession.mockResolvedValue({
+        sessionId: "test-session",
+        userId: "user-uuid-123",
+        fitbitConnected: true,
+      });
+
+      // Valid JSON but wrong shape — missing lastDate, lastId
+      const cursor = JSON.stringify({ foo: "bar" });
+      const response = await GET(makeRequest({ tab: "recent", cursor }));
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 for recent cursor with non-finite lastId", async () => {
+      mockGetSession.mockResolvedValue({
+        sessionId: "test-session",
+        userId: "user-uuid-123",
+        fitbitConnected: true,
+      });
+
+      const cursor = JSON.stringify({ lastDate: "2026-02-08", lastTime: "12:00:00", lastId: "not-a-number" });
+      const response = await GET(makeRequest({ tab: "recent", cursor }));
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 for suggested cursor with wrong shape (valid JSON)", async () => {
+      mockGetSession.mockResolvedValue({
+        sessionId: "test-session",
+        userId: "user-uuid-123",
+        fitbitConnected: true,
+      });
+
+      const cursor = JSON.stringify({ wrong: "shape" });
+      const response = await GET(makeRequest({ cursor }));
       const data = await response.json();
 
       expect(response.status).toBe(400);

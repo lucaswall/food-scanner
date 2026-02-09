@@ -735,6 +735,29 @@ describe("getCommonFoods", () => {
       expect(page2.nextCursor).toBeNull();
     });
 
+    it("does not skip foods with identical scores at page boundary", async () => {
+      // 3 foods all with identical scores (same time, same date, same recency)
+      // With limit=2, the first page returns 2 foods with nextCursor.
+      // The second page should return the 3rd food — not skip it because
+      // scores are identical. This requires a composite cursor {score, id}.
+      const rows = [
+        makeRow({ customFoodId: 10, foodName: "Food A", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3 }),
+        makeRow({ customFoodId: 20, foodName: "Food B", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3 }),
+        makeRow({ customFoodId: 30, foodName: "Food C", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 102, mealTypeId: 3 }),
+      ];
+      mockWhere.mockResolvedValue(rows);
+
+      const page1 = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08", { limit: 2 });
+      expect(page1.foods).toHaveLength(2);
+      expect(page1.nextCursor).not.toBeNull();
+
+      // Second page with composite cursor
+      const page2 = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08", { limit: 2, cursor: page1.nextCursor! });
+      expect(page2.foods).toHaveLength(1);
+      expect(page2.foods[0].foodName).toBe("Food C");
+      expect(page2.nextCursor).toBeNull();
+    });
+
     it("returns nextCursor when more items exist, null when no more", async () => {
       // Exactly 3 items, limit 3 → no more items → nextCursor null
       mockWhere.mockResolvedValue([

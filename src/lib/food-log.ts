@@ -1,7 +1,7 @@
 import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
-import type { CommonFood, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry } from "@/types";
+import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry } from "@/types";
 
 export interface CustomFoodInput {
   foodName: string;
@@ -104,7 +104,7 @@ function circularTimeDiff(a: number, b: number): number {
   return Math.min(diff, 1440 - diff);
 }
 
-type JoinedRow = {
+interface JoinedRow {
   food_log_entries: {
     id: number;
     userId: string;
@@ -135,7 +135,7 @@ type JoinedRow = {
     keywords: string[] | null;
     createdAt: Date;
   };
-};
+}
 
 function mapRowToCommonFood(row: JoinedRow): CommonFood {
   return {
@@ -177,7 +177,7 @@ export async function getCommonFoods(
   userId: string,
   currentTime: string,
   currentDate: string,
-  options: { limit?: number; cursor?: number } = {},
+  options: { limit?: number; cursor?: CommonFoodsCursor } = {},
 ): Promise<CommonFoodsResponse> {
   const db = getDb();
   const limit = options.limit ?? 10;
@@ -233,9 +233,14 @@ export async function getCommonFoods(
   let sorted = [...scoreByFood.values()]
     .sort((a, b) => b.totalScore - a.totalScore);
 
-  // Cursor-based pagination: filter items with score < cursor
+  // Cursor-based pagination: composite cursor {score, id} for stable pagination
   if (options.cursor !== undefined) {
-    sorted = sorted.filter((item) => item.totalScore < options.cursor!);
+    const { score: cursorScore, id: cursorId } = options.cursor;
+    sorted = sorted.filter((item) => {
+      const foodId = item.bestRow.custom_foods.id;
+      return item.totalScore < cursorScore ||
+        (item.totalScore === cursorScore && foodId > cursorId);
+    });
   }
 
   // Fetch limit + 1 to detect if more items exist
@@ -244,8 +249,9 @@ export async function getCommonFoods(
 
   const foods: CommonFood[] = page.map(({ bestRow }) => mapRowToCommonFood(bestRow));
 
-  const nextCursor = hasMore && page.length > 0
-    ? page[page.length - 1].totalScore
+  const lastItem = page.length > 0 ? page[page.length - 1] : null;
+  const nextCursor: CommonFoodsCursor | null = hasMore && lastItem
+    ? { score: lastItem.totalScore, id: lastItem.bestRow.custom_foods.id }
     : null;
 
   return { foods, nextCursor };
