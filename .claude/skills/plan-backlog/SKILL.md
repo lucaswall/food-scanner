@@ -218,7 +218,11 @@ Before proceeding, present the triage results to the user:
 - FOO-456: [title] — [brief reason it's valid]
 
 **Canceled:**
-- FOO-789: [title] — [brief reason it's invalid]
+
+| Issue | Title | Reason |
+|-------|-------|--------|
+| FOO-789 | [title] | [specific reason it's invalid] |
+| FOO-012 | [title] | [specific reason it's invalid] |
 ```
 
 Document canceled issues in the plan's **Scope Boundaries → Out of Scope** section with the cancellation reason.
