@@ -49,6 +49,7 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
     typeof req.sodium_mg !== "number" ||
     req.sodium_mg < 0 ||
     typeof req.notes !== "string" ||
+    typeof req.description !== "string" ||
     (req.confidence !== "high" &&
       req.confidence !== "medium" &&
       req.confidence !== "low")
@@ -272,6 +273,7 @@ export async function POST(request: Request) {
         sodiumMg: body.sodium_mg,
         confidence: body.confidence,
         notes: body.notes,
+        description: body.description,
         fitbitFoodId: fitbitFoodId ?? null,
         keywords: body.keywords,
       });

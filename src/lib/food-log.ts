@@ -1,7 +1,7 @@
 import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
-import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry } from "@/types";
+import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry, FoodLogEntryDetail } from "@/types";
 
 export interface CustomFoodInput {
   foodName: string;
@@ -15,6 +15,7 @@ export interface CustomFoodInput {
   sodiumMg: number;
   confidence: "high" | "medium" | "low";
   notes: string | null;
+  description?: string | null;
   fitbitFoodId?: number | null;
   keywords?: string[] | null;
 }
@@ -49,6 +50,7 @@ export async function insertCustomFood(
       sodiumMg: String(data.sodiumMg),
       confidence: data.confidence,
       notes: data.notes,
+      description: data.description ?? null,
       fitbitFoodId: data.fitbitFoodId ?? null,
       keywords: data.keywords ?? null,
     })
@@ -132,6 +134,7 @@ interface JoinedRow {
     fitbitFoodId: number | null;
     confidence: string;
     notes: string | null;
+    description: string | null;
     keywords: string[] | null;
     createdAt: Date;
   };
@@ -391,21 +394,77 @@ export async function getFoodLogEntry(userId: string, id: number) {
   return rows[0] ?? null;
 }
 
+export async function getFoodLogEntryDetail(
+  userId: string,
+  id: number,
+): Promise<FoodLogEntryDetail | null> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(foodLogEntries)
+    .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
+    .where(and(eq(foodLogEntries.id, id), eq(foodLogEntries.userId, userId)));
+
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    id: row.food_log_entries.id,
+    foodName: row.custom_foods.foodName,
+    description: row.custom_foods.description,
+    notes: row.custom_foods.notes,
+    calories: row.custom_foods.calories,
+    proteinG: Number(row.custom_foods.proteinG),
+    carbsG: Number(row.custom_foods.carbsG),
+    fatG: Number(row.custom_foods.fatG),
+    fiberG: Number(row.custom_foods.fiberG),
+    sodiumMg: Number(row.custom_foods.sodiumMg),
+    amount: Number(row.food_log_entries.amount),
+    unitId: row.food_log_entries.unitId,
+    mealTypeId: row.food_log_entries.mealTypeId,
+    date: row.food_log_entries.date,
+    time: row.food_log_entries.time,
+    fitbitLogId: row.food_log_entries.fitbitLogId,
+    confidence: row.custom_foods.confidence,
+  };
+}
+
 export async function deleteFoodLogEntry(
   userId: string,
   entryId: number,
 ): Promise<{ fitbitLogId: number | null } | null> {
   const db = getDb();
-  const rows = await db
-    .delete(foodLogEntries)
-    .where(
-      and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)),
-    )
-    .returning({ fitbitLogId: foodLogEntries.fitbitLogId });
 
-  const row = rows[0];
-  if (!row) return null;
-  return { fitbitLogId: row.fitbitLogId };
+  return db.transaction(async (tx) => {
+    // Delete the entry and get its customFoodId
+    const rows = await tx
+      .delete(foodLogEntries)
+      .where(
+        and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)),
+      )
+      .returning({
+        fitbitLogId: foodLogEntries.fitbitLogId,
+        customFoodId: foodLogEntries.customFoodId,
+      });
+
+    const row = rows[0];
+    if (!row) return null;
+
+    // Check if the custom food is still referenced by other entries
+    const remainingEntries = await tx
+      .select({ id: foodLogEntries.id })
+      .from(foodLogEntries)
+      .where(eq(foodLogEntries.customFoodId, row.customFoodId));
+
+    // If no remaining entries reference this custom food, delete it
+    if (remainingEntries.length === 0) {
+      await tx
+        .delete(customFoods)
+        .where(eq(customFoods.id, row.customFoodId));
+    }
+
+    return { fitbitLogId: row.fitbitLogId };
+  });
 }
 
 export async function searchFoods(

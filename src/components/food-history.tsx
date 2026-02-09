@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
@@ -322,18 +323,26 @@ export function FoodHistory() {
             <DialogTitle className="sr-only">{selectedEntry?.foodName}</DialogTitle>
           </DialogHeader>
           {selectedEntry && (
-            <NutritionFactsCard
-              foodName={selectedEntry.foodName}
-              calories={selectedEntry.calories}
-              proteinG={selectedEntry.proteinG}
-              carbsG={selectedEntry.carbsG}
-              fatG={selectedEntry.fatG}
-              fiberG={selectedEntry.fiberG}
-              sodiumMg={selectedEntry.sodiumMg}
-              unitId={selectedEntry.unitId}
-              amount={selectedEntry.amount}
-              mealTypeId={selectedEntry.mealTypeId}
-            />
+            <>
+              <NutritionFactsCard
+                foodName={selectedEntry.foodName}
+                calories={selectedEntry.calories}
+                proteinG={selectedEntry.proteinG}
+                carbsG={selectedEntry.carbsG}
+                fatG={selectedEntry.fatG}
+                fiberG={selectedEntry.fiberG}
+                sodiumMg={selectedEntry.sodiumMg}
+                unitId={selectedEntry.unitId}
+                amount={selectedEntry.amount}
+                mealTypeId={selectedEntry.mealTypeId}
+              />
+              <Link
+                href={`/app/food-detail/${selectedEntry.id}`}
+                className="block w-full text-center text-sm text-primary hover:underline min-h-[44px] flex items-center justify-center"
+              >
+                View Full Details
+              </Link>
+            </>
           )}
         </DialogContent>
       </Dialog>

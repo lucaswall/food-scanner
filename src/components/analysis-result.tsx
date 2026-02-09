@@ -68,6 +68,13 @@ export function AnalysisResult({
       {/* Portion size */}
       <p className="text-sm text-muted-foreground">Portion: {getUnitLabel(analysis.unit_id, analysis.amount)}</p>
 
+      {/* Description */}
+      {analysis.description && (
+        <div className="pt-2 border-t">
+          <p className="text-sm text-foreground">{analysis.description}</p>
+        </div>
+      )}
+
       {/* Main nutrition grid */}
       <div className="grid grid-cols-2 gap-4">
         <NutritionItem label="Calories" value={analysis.calories} unit="kcal" />

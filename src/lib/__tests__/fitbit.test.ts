@@ -460,6 +460,7 @@ describe("createFood", () => {
     sodium_mg: 10,
     confidence: "high" as const,
     notes: "Test food",
+    description: "",
     keywords: ["oatmeal"],
   };
 
@@ -704,6 +705,7 @@ describe("fetchWithRetry 5xx handling", () => {
     sodium_mg: 100,
     confidence: "high" as const,
     notes: "Test",
+    description: "",
     keywords: ["test"],
   };
 
@@ -807,6 +809,7 @@ describe("fetchWithRetry deadline", () => {
     sodium_mg: 100,
     confidence: "high" as const,
     notes: "Test",
+    description: "",
     keywords: ["test"],
   };
 
@@ -1061,6 +1064,7 @@ describe("findOrCreateFood", () => {
     sodium_mg: 10,
     confidence: "high" as const,
     notes: "Test food",
+    description: "",
     keywords: ["oatmeal"],
   };
 
