@@ -49,13 +49,13 @@ describe("/app page", () => {
     expect(screen.getByText("Food Scanner")).toBeInTheDocument();
   });
 
-  it("renders Take Photo CTA button linking to /app/analyze", async () => {
+  it("renders Take Photo CTA button linking to /app/analyze?autoCapture=true", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
     const link = screen.getByRole("link", { name: /take photo/i });
     expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/app/analyze");
+    expect(link).toHaveAttribute("href", "/app/analyze?autoCapture=true");
   });
 
   it("renders Quick Select CTA button linking to /app/quick-select", async () => {

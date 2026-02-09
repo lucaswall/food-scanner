@@ -1,7 +1,7 @@
 import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
-import type { CommonFood, FoodLogHistoryEntry } from "@/types";
+import type { CommonFood, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry } from "@/types";
 
 export interface CustomFoodInput {
   foodName: string;
@@ -104,15 +104,87 @@ function circularTimeDiff(a: number, b: number): number {
   return Math.min(diff, 1440 - diff);
 }
 
+type JoinedRow = {
+  food_log_entries: {
+    id: number;
+    userId: string;
+    customFoodId: number;
+    mealTypeId: number;
+    amount: string;
+    unitId: number;
+    date: string;
+    time: string;
+    fitbitLogId: number | null;
+    loggedAt: Date;
+  };
+  custom_foods: {
+    id: number;
+    userId: string;
+    foodName: string;
+    amount: string;
+    unitId: number;
+    calories: number;
+    proteinG: string;
+    carbsG: string;
+    fatG: string;
+    fiberG: string;
+    sodiumMg: string;
+    fitbitFoodId: number | null;
+    confidence: string;
+    notes: string | null;
+    keywords: string[] | null;
+    createdAt: Date;
+  };
+};
+
+function mapRowToCommonFood(row: JoinedRow): CommonFood {
+  return {
+    customFoodId: row.custom_foods.id,
+    foodName: row.custom_foods.foodName,
+    amount: Number(row.custom_foods.amount),
+    unitId: row.custom_foods.unitId,
+    calories: row.custom_foods.calories,
+    proteinG: Number(row.custom_foods.proteinG),
+    carbsG: Number(row.custom_foods.carbsG),
+    fatG: Number(row.custom_foods.fatG),
+    fiberG: Number(row.custom_foods.fiberG),
+    sodiumMg: Number(row.custom_foods.sodiumMg),
+    fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
+    mealTypeId: row.food_log_entries.mealTypeId,
+  };
+}
+
+/** Gaussian kernel for time-of-day similarity. σ = 90 minutes. */
+function gaussianTimeKernel(diffMinutes: number): number {
+  const sigma = 90;
+  return Math.exp(-0.5 * (diffMinutes / sigma) ** 2);
+}
+
+/** Exponential recency decay. Half-life = 7 days. */
+function recencyDecay(daysAgo: number): number {
+  const halfLife = 7;
+  return Math.exp((-Math.LN2 * daysAgo) / halfLife);
+}
+
+/** 1.3x boost when entry was logged on the same day of the week. */
+function dayOfWeekBoost(entryDate: string, currentDate: string): number {
+  const entryDay = new Date(entryDate + "T00:00:00").getDay();
+  const currentDay = new Date(currentDate + "T00:00:00").getDay();
+  return entryDay === currentDay ? 1.3 : 1.0;
+}
+
 export async function getCommonFoods(
   userId: string,
   currentTime: string,
-): Promise<CommonFood[]> {
+  currentDate: string,
+  options: { limit?: number; cursor?: number } = {},
+): Promise<CommonFoodsResponse> {
   const db = getDb();
+  const limit = options.limit ?? 10;
 
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const cutoffDate = thirtyDaysAgo.toISOString().slice(0, 10);
+  const cutoff = new Date(currentDate + "T00:00:00");
+  cutoff.setDate(cutoff.getDate() - 90);
+  const cutoffDate = cutoff.toISOString().slice(0, 10);
 
   const rows = await db
     .select()
@@ -128,42 +200,122 @@ export async function getCommonFoods(
 
   const currentMinutes = parseTimeToMinutes(currentTime);
 
-  // Dedup by customFoodId, keeping entry with smallest time diff
-  const bestByFood = new Map<
+  // Accumulate scores per customFoodId, track best entry per food
+  const scoreByFood = new Map<
     number,
-    { row: (typeof rows)[number]; timeDiff: number }
+    { totalScore: number; bestScore: number; bestRow: (typeof rows)[number] }
   >();
 
   for (const row of rows) {
     const entryMinutes = parseTimeToMinutes(row.food_log_entries.time);
     const timeDiff = circularTimeDiff(currentMinutes, entryMinutes);
-    const foodId = row.custom_foods.id;
+    const daysAgo = Math.max(0, (new Date(currentDate + "T00:00:00").getTime() - new Date(row.food_log_entries.date + "T00:00:00").getTime()) / 86400000);
+    const entryScore =
+      gaussianTimeKernel(timeDiff) *
+      recencyDecay(daysAgo) *
+      dayOfWeekBoost(row.food_log_entries.date, currentDate);
 
-    const existing = bestByFood.get(foodId);
-    if (!existing || timeDiff < existing.timeDiff) {
-      bestByFood.set(foodId, { row, timeDiff });
+    const foodId = row.custom_foods.id;
+    const existing = scoreByFood.get(foodId);
+
+    if (!existing) {
+      scoreByFood.set(foodId, { totalScore: entryScore, bestScore: entryScore, bestRow: row });
+    } else {
+      existing.totalScore += entryScore;
+      if (entryScore > existing.bestScore) {
+        existing.bestScore = entryScore;
+        existing.bestRow = row;
+      }
     }
   }
 
-  // Sort by ascending time diff, limit 5
-  const sorted = [...bestByFood.values()]
-    .sort((a, b) => a.timeDiff - b.timeDiff)
-    .slice(0, 5);
+  // Sort by descending total score
+  let sorted = [...scoreByFood.values()]
+    .sort((a, b) => b.totalScore - a.totalScore);
 
-  return sorted.map(({ row }) => ({
-    customFoodId: row.custom_foods.id,
-    foodName: row.custom_foods.foodName,
-    amount: Number(row.custom_foods.amount),
-    unitId: row.custom_foods.unitId,
-    calories: row.custom_foods.calories,
-    proteinG: Number(row.custom_foods.proteinG),
-    carbsG: Number(row.custom_foods.carbsG),
-    fatG: Number(row.custom_foods.fatG),
-    fiberG: Number(row.custom_foods.fiberG),
-    sodiumMg: Number(row.custom_foods.sodiumMg),
-    fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
-    mealTypeId: row.food_log_entries.mealTypeId,
-  }));
+  // Cursor-based pagination: filter items with score < cursor
+  if (options.cursor !== undefined) {
+    sorted = sorted.filter((item) => item.totalScore < options.cursor!);
+  }
+
+  // Fetch limit + 1 to detect if more items exist
+  const hasMore = sorted.length > limit;
+  const page = sorted.slice(0, limit);
+
+  const foods: CommonFood[] = page.map(({ bestRow }) => mapRowToCommonFood(bestRow));
+
+  const nextCursor = hasMore && page.length > 0
+    ? page[page.length - 1].totalScore
+    : null;
+
+  return { foods, nextCursor };
+}
+
+export async function getRecentFoods(
+  userId: string,
+  options: { limit?: number; cursor?: RecentFoodsCursor } = {},
+): Promise<RecentFoodsResponse> {
+  const db = getDb();
+  const limit = options.limit ?? 10;
+
+  const conditions = [eq(foodLogEntries.userId, userId)];
+
+  if (process.env.FITBIT_DRY_RUN !== "true") {
+    conditions.push(isNotNull(customFoods.fitbitFoodId));
+  }
+
+  if (options.cursor) {
+    const { lastDate, lastTime, lastId } = options.cursor;
+    const cursorCondition = lastTime !== null
+      ? or(
+          lt(foodLogEntries.date, lastDate),
+          and(eq(foodLogEntries.date, lastDate), lt(foodLogEntries.time, lastTime)),
+          and(eq(foodLogEntries.date, lastDate), eq(foodLogEntries.time, lastTime), gt(foodLogEntries.id, lastId)),
+          and(eq(foodLogEntries.date, lastDate), isNull(foodLogEntries.time)),
+        )
+      : or(
+          lt(foodLogEntries.date, lastDate),
+          and(eq(foodLogEntries.date, lastDate), isNull(foodLogEntries.time), gt(foodLogEntries.id, lastId)),
+        );
+    if (cursorCondition) {
+      conditions.push(cursorCondition);
+    }
+  }
+
+  const rows = await db
+    .select()
+    .from(foodLogEntries)
+    .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
+    .where(and(...conditions))
+    .orderBy(desc(foodLogEntries.date), desc(foodLogEntries.time), asc(foodLogEntries.id))
+    .limit(limit * 3);
+
+  // Dedup by customFoodId, keeping the most recent entry (first occurrence in DESC order)
+  const seenFoods = new Set<number>();
+  const deduped: typeof rows = [];
+  for (const row of rows) {
+    const foodId = row.custom_foods.id;
+    if (!seenFoods.has(foodId)) {
+      seenFoods.add(foodId);
+      deduped.push(row);
+    }
+  }
+
+  const hasMore = deduped.length > limit;
+  const page = deduped.slice(0, limit);
+
+  const foods: CommonFood[] = page.map(mapRowToCommonFood);
+
+  const lastRow = page.length > 0 ? page[page.length - 1] : null;
+  const nextCursor: RecentFoodsCursor | null = hasMore && lastRow
+    ? {
+        lastDate: lastRow.food_log_entries.date,
+        lastTime: lastRow.food_log_entries.time,
+        lastId: lastRow.food_log_entries.id,
+      }
+    : null;
+
+  return { foods, nextCursor };
 }
 
 export async function getFoodLogHistory(
@@ -248,4 +400,92 @@ export async function deleteFoodLogEntry(
   const row = rows[0];
   if (!row) return null;
   return { fitbitLogId: row.fitbitLogId };
+}
+
+export async function searchFoods(
+  userId: string,
+  query: string,
+  options: { limit?: number } = {},
+): Promise<CommonFood[]> {
+  const db = getDb();
+  const limit = options.limit ?? 10;
+  const lowerQuery = query.toLowerCase();
+
+  const conditions = [eq(customFoods.userId, userId)];
+
+  if (process.env.FITBIT_DRY_RUN !== "true") {
+    conditions.push(isNotNull(customFoods.fitbitFoodId));
+  }
+
+  const rows = await db
+    .select()
+    .from(customFoods)
+    .leftJoin(foodLogEntries, eq(foodLogEntries.customFoodId, customFoods.id))
+    .where(and(...conditions));
+
+  // Application-level filtering by name or keywords
+  const filtered = rows.filter((row) => {
+    const nameMatch = row.custom_foods.foodName.toLowerCase().includes(lowerQuery);
+    const keywordMatch = row.custom_foods.keywords?.some(
+      (kw) => kw.toLowerCase().includes(lowerQuery),
+    ) ?? false;
+    return nameMatch || keywordMatch;
+  });
+
+  // Group by customFoodId: count entries, track max date, keep best mealTypeId
+  const grouped = new Map<
+    number,
+    { row: (typeof filtered)[number]; count: number; maxDate: string | null; bestEntry: (typeof filtered)[number] | null }
+  >();
+
+  for (const row of filtered) {
+    const foodId = row.custom_foods.id;
+    const existing = grouped.get(foodId);
+    const entryDate = row.food_log_entries?.date ?? null;
+
+    if (!existing) {
+      grouped.set(foodId, {
+        row,
+        count: entryDate ? 1 : 0,
+        maxDate: entryDate,
+        bestEntry: row.food_log_entries ? row : null,
+      });
+    } else {
+      if (entryDate) {
+        existing.count += 1;
+        if (!existing.maxDate || entryDate > existing.maxDate) {
+          existing.maxDate = entryDate;
+          existing.bestEntry = row;
+        }
+      }
+    }
+  }
+
+  // Sort by count DESC, then maxDate DESC
+  const sorted = [...grouped.values()]
+    .sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      const dateA = a.maxDate ?? "";
+      const dateB = b.maxDate ?? "";
+      return dateB.localeCompare(dateA);
+    })
+    .slice(0, limit);
+
+  return sorted.map(({ row, bestEntry }) => {
+    const entryRow = bestEntry ?? row;
+    return {
+      customFoodId: row.custom_foods.id,
+      foodName: row.custom_foods.foodName,
+      amount: Number(row.custom_foods.amount),
+      unitId: row.custom_foods.unitId,
+      calories: row.custom_foods.calories,
+      proteinG: Number(row.custom_foods.proteinG),
+      carbsG: Number(row.custom_foods.carbsG),
+      fatG: Number(row.custom_foods.fatG),
+      fiberG: Number(row.custom_foods.fiberG),
+      sodiumMg: Number(row.custom_foods.sodiumMg),
+      fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
+      mealTypeId: entryRow.food_log_entries?.mealTypeId ?? 7,
+    };
+  });
 }

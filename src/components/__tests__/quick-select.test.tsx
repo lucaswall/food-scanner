@@ -81,6 +81,15 @@ vi.mock("../meal-type-selector", () => ({
   ),
 }));
 
+// Mock IntersectionObserver
+const mockObserve = vi.fn();
+const mockDisconnect = vi.fn();
+vi.stubGlobal("IntersectionObserver", vi.fn().mockImplementation(() => ({
+  observe: mockObserve,
+  disconnect: mockDisconnect,
+  unobserve: vi.fn(),
+})));
+
 const mockFoods: CommonFood[] = [
   {
     customFoodId: 1,
@@ -119,6 +128,14 @@ const mockLogResponse: FoodLogResponse = {
   reusedFood: true,
 };
 
+/** Helper to create a mock fetch response with paginated data */
+function mockPaginatedResponse(foods: CommonFood[], nextCursor: number | null = null) {
+  return {
+    ok: true,
+    json: () => Promise.resolve({ success: true, data: { foods, nextCursor } }),
+  };
+}
+
 function renderQuickSelect() {
   return render(
     <SWRConfig value={{ provider: () => new Map() }}>
@@ -133,6 +150,69 @@ beforeEach(() => {
 });
 
 describe("QuickSelect", () => {
+  describe("tabs", () => {
+    it("renders Suggested and Recent tabs", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /suggested/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /recent/i })).toBeInTheDocument();
+      });
+    });
+
+    it("Suggested tab is active by default", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        const suggestedTab = screen.getByRole("button", { name: /suggested/i });
+        expect(suggestedTab).toHaveAttribute("data-active", "true");
+      });
+    });
+
+    it("switching to Recent tab fetches with tab=recent param", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
+
+      await waitFor(() => {
+        const recentCalls = mockFetch.mock.calls.filter(
+          (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("tab=recent")
+        );
+        expect(recentCalls.length).toBeGreaterThan(0);
+      });
+    });
+
+    it("both tabs render food cards with the same UI", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce(mockPaginatedResponse([mockFoods[1]]));
+
+      renderQuickSelect();
+
+      // Suggested tab shows food cards
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Switch to Recent
+      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
+      });
+    });
+  });
+
   it("renders loading state initially", () => {
     mockFetch.mockImplementation(() => new Promise(() => {}));
     renderQuickSelect();
@@ -140,10 +220,7 @@ describe("QuickSelect", () => {
   });
 
   it("renders food cards when foods are returned", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-    });
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
 
     renderQuickSelect();
 
@@ -154,10 +231,7 @@ describe("QuickSelect", () => {
   });
 
   it("each card shows food name, amount+unit, calories", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-    });
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
 
     renderQuickSelect();
 
@@ -169,23 +243,17 @@ describe("QuickSelect", () => {
   });
 
   it("renders empty state when 0 results", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { foods: [] } }),
-    });
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse([]));
 
     renderQuickSelect();
 
     await waitFor(() => {
-      expect(screen.getByText(/no recent foods/i)).toBeInTheDocument();
+      expect(screen.getByText(/no foods found/i)).toBeInTheDocument();
     });
   });
 
   it("tapping a food card shows confirmation with Log to Fitbit button", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-    });
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
 
     renderQuickSelect();
 
@@ -203,10 +271,7 @@ describe("QuickSelect", () => {
 
   it("logging calls /api/log-food with reuseCustomFoodId", async () => {
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-      })
+      .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockLogResponse }),
@@ -239,10 +304,7 @@ describe("QuickSelect", () => {
 
   it("after successful log, shows success screen", async () => {
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-      })
+      .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockLogResponse }),
@@ -269,10 +331,7 @@ describe("QuickSelect", () => {
 
 
   it("has back button from detail view to food list", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-    });
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
 
     renderQuickSelect();
 
@@ -296,10 +355,7 @@ describe("QuickSelect", () => {
 
   it("logging sends date and time in request body", async () => {
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-      })
+      .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockLogResponse }),
@@ -332,10 +388,7 @@ describe("QuickSelect", () => {
 
   it("saves date and time in pending submission on FITBIT_TOKEN_INVALID", async () => {
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-      })
+      .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockResolvedValueOnce({
         ok: false,
         json: () =>
@@ -433,10 +486,7 @@ describe("QuickSelect", () => {
     // First mock returns food list, second mock delays (simulates network latency)
     let resolveLogFetch: ((value: unknown) => void) | null = null;
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-      })
+      .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockImplementationOnce(() => new Promise((resolve) => {
         resolveLogFetch = resolve;
       }));
@@ -471,10 +521,7 @@ describe("QuickSelect", () => {
     // Use a shared SWR cache across mounts
     const cache = new Map();
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { foods: mockFoods } }),
-    });
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
 
     // First mount — loads data from fetch
     const { unmount } = render(
@@ -501,5 +548,153 @@ describe("QuickSelect", () => {
     // Data should be visible immediately, no loading state
     expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
+  });
+
+  describe("search", () => {
+    it("renders search input below tab bar", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText("Search foods...")).toBeInTheDocument();
+      });
+    });
+
+    it("does not fetch when query is less than 2 characters", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText("Search foods...");
+      fireEvent.change(searchInput, { target: { value: "e" } });
+
+      // Wait for debounce to settle (300ms + buffer)
+      await new Promise((r) => setTimeout(r, 400));
+
+      // No search-foods call should be made (only common-foods for initial load)
+      const searchCalls = mockFetch.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("/api/search-foods")
+      );
+      expect(searchCalls).toHaveLength(0);
+    });
+
+    it("fetches search results after debounce with 2+ chars", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            data: { foods: [mockFoods[0]] },
+          }),
+        });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText("Search foods...");
+      fireEvent.change(searchInput, { target: { value: "emp" } });
+
+      // Before debounce fires — no search calls yet
+      const searchCallsBefore = mockFetch.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("/api/search-foods")
+      );
+      expect(searchCallsBefore).toHaveLength(0);
+
+      // After debounce settles, SWR should fire the search fetch
+      await waitFor(() => {
+        const searchCallsAfter = mockFetch.mock.calls.filter(
+          (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("/api/search-foods")
+        );
+        expect(searchCallsAfter.length).toBeGreaterThan(0);
+      });
+    });
+
+    it("shows search results replacing tab content", async () => {
+      const searchResult: CommonFood = {
+        customFoodId: 3,
+        foodName: "Empanada de humita",
+        amount: 150,
+        unitId: 147,
+        calories: 280,
+        proteinG: 8,
+        carbsG: 30,
+        fatG: 14,
+        fiberG: 3,
+        sodiumMg: 350,
+        fitbitFoodId: 333,
+        mealTypeId: 3,
+      };
+
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            data: { foods: [searchResult] },
+          }),
+        });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText("Search foods...");
+      fireEvent.change(searchInput, { target: { value: "humita" } });
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de humita")).toBeInTheDocument();
+      });
+    });
+
+    it("returns to tab content when search input is cleared", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            data: { foods: [mockFoods[0]] },
+          }),
+        });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+        expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText("Search foods...");
+
+      // Type search query
+      fireEvent.change(searchInput, { target: { value: "emp" } });
+
+      // Wait for search to trigger
+      await waitFor(() => {
+        const searchCalls = mockFetch.mock.calls.filter(
+          (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("/api/search-foods")
+        );
+        expect(searchCalls.length).toBeGreaterThan(0);
+      });
+
+      // Clear search
+      fireEvent.change(searchInput, { target: { value: "" } });
+
+      // Tab content should be back (SWR has cached data)
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+        expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
+      });
+    });
   });
 });

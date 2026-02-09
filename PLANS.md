@@ -436,3 +436,61 @@ Comprehensive Quick Select overhaul and UX improvement. Replaces the naive time-
 - Persisting tab selection across page navigations
 - Search result highlighting
 - Any database schema changes (all queries use existing columns)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-08
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Implement Gaussian scoring algorithm in `getCommonFoods()` (FOO-237) - Replaced time-diff dedup with Gaussian scoring (timeKernel σ=90min × recencyDecay half-life=7d × dayOfWeekBoost 1.3x), scores summed per food, 90-day window, sorted by descending score (worker-1)
+- Task 2: Add cursor-based pagination to `getCommonFoods()` and update API route (FOO-238) - Added limit/cursor params, nextCursor in response, API route parses query params and passes currentDate (worker-1)
+- Task 3: Add `getRecentFoods()` function and "Recent" mode to API (FOO-239) - Dedup by customFoodId keeping most recent, composite cursor pagination, API route handles ?tab=recent (worker-1)
+- Task 4: Build tabbed UI for Quick Select (FOO-239, FOO-238) - Added "Suggested"/"Recent" tabs, useSWRInfinite for paginated fetching, IntersectionObserver-based infinite scroll (worker-2)
+- Task 5: Add `searchFoods()` function and `GET /api/search-foods` endpoint (FOO-240) - Case-insensitive name/keyword matching, sorted by log count DESC + last-logged DESC, new API route with 2-char minimum (worker-1)
+- Task 6: Add search UI to Quick Select component (FOO-240) - Search input with 300ms debounce, useSWR with search endpoint, search results replace tab content, useDebounce hook extracted (worker-2)
+- Task 7: Auto-open camera from Home screen (FOO-236) - Added autoCapture prop chain (page → FoodAnalyzer → PhotoCapture), Home "Take Photo" links with ?autoCapture=true, bottom nav unchanged (worker-3)
+
+### Files Modified
+- `src/lib/food-log.ts` - Rewrote getCommonFoods with Gaussian scoring + pagination, added getRecentFoods, added searchFoods, extracted mapRowToCommonFood shared helper
+- `src/lib/__tests__/food-log.test.ts` - Rewrote scoring tests, added pagination/recent/search tests
+- `src/app/api/common-foods/route.ts` - Updated to accept Request param, parse limit/cursor/tab query params, dispatch to getCommonFoods or getRecentFoods
+- `src/app/api/common-foods/__tests__/route.test.ts` - Updated for new API signature, added tab=recent tests
+- `src/app/api/search-foods/route.ts` - NEW: GET endpoint with q/limit params, 2-char min validation, Cache-Control headers
+- `src/app/api/search-foods/__tests__/route.test.ts` - NEW: 7 tests for auth, validation, params, caching, errors
+- `src/types/index.ts` - Added CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse interfaces
+- `src/components/quick-select.tsx` - Complete rewrite: useSWRInfinite, tab bar UI, search input with debounce, infinite scroll sentinel
+- `src/components/__tests__/quick-select.test.tsx` - Updated all tests for paginated response, added tab/search tests
+- `src/hooks/use-debounce.ts` - NEW: useDebounce hook
+- `src/app/app/page.tsx` - Take Photo link now includes ?autoCapture=true
+- `src/components/photo-capture.tsx` - Added autoCapture prop with useEffect to trigger camera on mount
+- `src/components/__tests__/photo-capture.test.tsx` - Added autoCapture tests
+- `src/components/food-analyzer.tsx` - Added autoCapture prop passthrough
+- `src/app/app/analyze/page.tsx` - Reads searchParams, passes autoCapture to FoodAnalyzer
+- `src/app/app/analyze/__tests__/page.test.tsx` - Added autoCapture prop tests
+- `src/app/app/__tests__/page.test.tsx` - Updated Take Photo link test
+
+### Linear Updates
+- FOO-237: Todo → In Progress → Review
+- FOO-238: Todo → In Progress → Review
+- FOO-239: Todo → In Progress → Review
+- FOO-240: Todo → In Progress → Review
+- FOO-236: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (1 critical, 2 high, 1 medium), all fixed before proceeding
+  - CRITICAL: Cursor format mismatch between frontend (separate params) and API (JSON.parse) — fixed buildCursorParam to JSON.stringify
+  - HIGH: Missing NULL time handling in getRecentFoods cursor — added isNull branch (matching getFoodLogHistory pattern)
+  - HIGH: Type assertion missing null for lastTime — fixed alongside cursor fix
+  - MEDIUM: Dedup after limit causing short pages — increased fetch to limit*3
+- verifier: All 956 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3, 5 (backend: food-log.ts, tests, API routes, types)
+- Worker 2: Tasks 4, 6 (frontend: quick-select.tsx, useDebounce hook)
+- Worker 3: Task 7 (auto-camera: page.tsx, photo-capture.tsx, food-analyzer.tsx, analyze/page.tsx)
+
+### Continuation Status
+All tasks completed.

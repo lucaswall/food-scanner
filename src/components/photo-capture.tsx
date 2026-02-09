@@ -29,11 +29,13 @@ const ALLOWED_TYPES = [
 interface PhotoCaptureProps {
   onPhotosChange: (files: File[]) => void;
   maxPhotos?: number;
+  autoCapture?: boolean;
 }
 
 export function PhotoCapture({
   onPhotosChange,
   maxPhotos = 3,
+  autoCapture = false,
 }: PhotoCaptureProps) {
   const [photos, setPhotos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +57,13 @@ export function PhotoCapture({
       previewsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
+
+  // Auto-trigger camera on mount when autoCapture is true
+  useEffect(() => {
+    if (autoCapture) {
+      cameraInputRef.current?.click();
+    }
+  }, [autoCapture]);
 
   const validateFile = (file: File): string | null => {
     // Check MIME type first, then fallback to HEIC extension check
