@@ -1,886 +1,726 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-284-cleanup-and-food-details
-**Issues:** FOO-284, FOO-285, FOO-286, FOO-287
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-288-per-user-fitbit-credentials
+**Issues:** FOO-288, FOO-289, FOO-290, FOO-291, FOO-292, FOO-293
 **Created:** 2026-02-09
 **Last Updated:** 2026-02-09
 
 ## Summary
 
-This plan covers four backlog issues: removing redundant retry logic from Claude API calls (FOO-285), cleaning up orphaned custom_foods rows on delete (FOO-284), adding an AI-generated visual description field to food analysis (FOO-286), and adding a full detail page for food history entries (FOO-287).
+Implement per-user Fitbit app credentials (database storage, encrypted secrets, onboarding flow, settings management), improve Fitbit connection error UX on the dashboard, and make local DB failures real errors in food log operations.
+
+The issues form two groups:
+1. **Per-user Fitbit credentials** (FOO-288 → FOO-290 → FOO-289, FOO-291, FOO-292): Foundation → wiring → UI. Enables multiple household members to use the app with their own Fitbit Personal app.
+2. **DB error handling** (FOO-293): Independent improvement to treat local DB as authoritative.
 
 ## Issues
 
-### FOO-285: Remove redundant manual retry logic from Claude API calls
+### FOO-288: Per-user Fitbit app credentials — database storage and encryption
 
-**Priority:** Low
-**Labels:** Technical Debt
-**Description:** `analyzeFood` and `refineAnalysis` have manual retry loops (maxRetries=1) that stack with the Anthropic SDK's built-in retries (default maxRetries=2), causing up to 6 total attempts per request.
-
-**Acceptance Criteria:**
-- [ ] Remove manual retry loops from `analyzeFood` and `refineAnalysis`
-- [ ] Remove `isTimeoutError`, `isRateLimitError`, `is5xxError` helper functions
-- [ ] Keep `ClaudeApiError` re-throw and final catch wrapping
-- [ ] Make SDK `maxRetries` explicit on constructor
-- [ ] Update/remove retry-related tests in `claude.test.ts`
-
-### FOO-284: Delete unreferenced custom_foods rows when last food log entry is removed
-
-**Priority:** Low
-**Labels:** Technical Debt
-**Description:** `deleteFoodLogEntry` only deletes the `food_log_entries` row but never cleans up the associated `custom_foods` row. When the last entry referencing a custom food is deleted, the row becomes orphaned.
+**Priority:** High
+**Labels:** Feature
+**Description:** The app uses global `FITBIT_CLIENT_ID` and `FITBIT_CLIENT_SECRET` env vars. Personal apps restrict OAuth to the developer's own account, so only one user can connect Fitbit. Multiple household members need their own Personal app credentials. Add a `fitbit_credentials` table with encrypted client secret storage using existing AES-256-GCM encryption.
 
 **Acceptance Criteria:**
-- [ ] After deleting a `food_log_entries` row, if no other entries reference the same `custom_food_id`, the `custom_foods` row is also deleted
-- [ ] Reference check and delete run in the same transaction
-- [ ] A `custom_foods` row is NEVER deleted while other entries still reference it
-- [ ] Tests cover: delete last reference (removed), delete non-last reference (kept)
-- [ ] One-time orphan cleanup documented in MIGRATIONS.md
+- [ ] New `fitbit_credentials` table with `userId` (unique), `fitbitClientId`, `encryptedClientSecret`, `createdAt`, `updatedAt`
+- [ ] Lib module for CRUD operations with automatic encryption/decryption of client secret
+- [ ] Drizzle migration generated (never hand-written)
+- [ ] `FITBIT_CLIENT_ID` and `FITBIT_CLIENT_SECRET` removed from `REQUIRED_ENV_VARS`, `.env.sample`, and Railway environments
 
-### FOO-286: Add AI-generated visual description field to food analysis
+### FOO-290: Use per-user Fitbit credentials in OAuth and API calls
+
+**Priority:** High
+**Labels:** Feature
+**Description:** `buildFitbitAuthUrl`, `exchangeFitbitCode`, `refreshFitbitToken`, and `ensureFreshToken` all read credentials from env vars. They need to use per-user credentials from the database instead.
+
+**Acceptance Criteria:**
+- [ ] `buildFitbitAuthUrl` accepts `clientId` parameter
+- [ ] `exchangeFitbitCode` accepts `{ clientId, clientSecret }` parameter
+- [ ] `refreshFitbitToken` accepts `{ clientId, clientSecret }` parameter
+- [ ] `ensureFreshToken` loads credentials from DB and passes them through
+- [ ] Fitbit OAuth routes (`/api/auth/fitbit`, `/api/auth/fitbit/callback`) load user credentials before calling Fitbit functions
+- [ ] Error when credentials are missing returns clear error code
+
+### FOO-289: Fitbit credentials onboarding screen after Google login
+
+**Priority:** High
+**Labels:** Feature
+**Description:** New users who complete Google login have no way to provide their Fitbit Personal app credentials. Google callback redirects straight to Fitbit OAuth. An intermediate onboarding page is needed.
+
+**Acceptance Criteria:**
+- [ ] New page `/app/setup-fitbit` with form for Client ID + Client Secret
+- [ ] API route `POST /api/fitbit-credentials` to validate, encrypt, and store credentials
+- [ ] API route `GET /api/fitbit-credentials` to return client ID only (never the secret)
+- [ ] Google callback redirects to `/app/setup-fitbit` when user has no stored credentials
+- [ ] After saving credentials, redirects to Fitbit OAuth flow
+- [ ] Mobile-first design, 44px touch targets
+- [ ] `loading.tsx` skeleton for the setup page
+
+### FOO-292: Show clear error when Fitbit credentials are missing
+
+**Priority:** High
+**Labels:** Improvement
+**Description:** The `/app` dashboard only checks session existence, not `fitbitConnected`. Users with no Fitbit setup see the full UI but every action fails silently.
+
+**Acceptance Criteria:**
+- [ ] Dashboard detects missing Fitbit connection and shows actionable banner
+- [ ] Session API returns `hasFitbitCredentials` alongside `fitbitConnected`
+- [ ] Banner distinguishes "no credentials" (→ setup page) vs "credentials but no tokens" (→ reconnect)
+- [ ] Banner is prominent but doesn't block the UI completely
+
+### FOO-291: Settings page — edit Fitbit Client ID and replace Client Secret
 
 **Priority:** Medium
 **Labels:** Feature
-**Description:** Add a `description` field to Claude's `report_nutrition` tool so users see what the AI identified on the plate before confirming the log. Follows the exact same pattern as `notes`.
+**Description:** Users need to view/update Fitbit app credentials after initial setup. Client ID editable in place, Client Secret replaceable only (never displayed).
 
 **Acceptance Criteria:**
-- [ ] `custom_foods` table has a nullable `description` text column
-- [ ] Claude's `report_nutrition` tool includes a `description` field
-- [ ] Description is validated in `validateFoodAnalysis()`
-- [ ] Description is saved to DB when logging food
-- [ ] Description is preserved through the refinement flow
-- [ ] Description is displayed on the analysis result screen before submit
-- [ ] Existing foods without description continue to work (nullable column)
+- [ ] New "Fitbit App Credentials" section in Settings
+- [ ] Client ID shown in editable text input with Save button
+- [ ] Client Secret shown as masked (`••••••••`) with "Replace Secret" button
+- [ ] API route `PATCH /api/fitbit-credentials` to update credentials
+- [ ] After changing credentials, prompt to re-authorize Fitbit
+- [ ] Mobile-first design, 44px touch targets
 
-### FOO-287: Add full detail page for food history entries
+### FOO-293: Treat local DB failures as real errors in food log operations
 
-**Priority:** Medium
-**Labels:** Feature
-**Description:** Food history entries currently show only nutrition facts in a dialog. Notes (and description from FOO-286) are invisible after logging. Add a dedicated detail page to surface all data.
+**Priority:** High
+**Labels:** Improvement
+**Description:** API routes swallow DB errors and return success with `dbError: true`. The local DB is now authoritative and silent failures cause data loss (entries don't appear in history, detail pages, or food matching).
 
 **Acceptance Criteria:**
-- [ ] History entry dialog has a "View Details" link/button
-- [ ] Link opens a dedicated full detail page (`/app/food-detail/[id]`)
-- [ ] Detail page displays: food name, description, notes, full nutrition facts, meal type, date/time, portion size, confidence
-- [ ] Page has a `loading.tsx` with skeleton placeholders
-- [ ] Works for entries that predate the description field
-- [ ] Mobile-friendly layout with proper touch targets (44px minimum)
+- [ ] Log-food route: DB failure after Fitbit success triggers compensation (roll back Fitbit log), returns error
+- [ ] Delete route: DB failure after Fitbit delete returns error (with warning about orphaned state)
+- [ ] `FoodLogResponse.dbError` field removed from type
+- [ ] New `PARTIAL_ERROR` error code for cases where compensation itself fails
+- [ ] Existing tests updated to expect errors instead of success+dbError
+- [ ] Client-side handling updated if needed (currently `dbError` is ignored)
 
 ## Prerequisites
 
 - [ ] On `main` branch with clean working tree
-- [ ] Dependencies up to date (`npm install`)
+- [ ] Database migrations are up to date
+- [ ] All existing tests pass
 
 ## Implementation Tasks
 
-### Task 1: Remove retry logic from Claude API calls
+### Task 1: Add `fitbit_credentials` table to schema
 
-**Issue:** FOO-285
+**Issue:** FOO-288
 **Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/db/schema.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** - Update tests first:
-   - In `src/lib/__tests__/claude.test.ts`, **remove** these retry-related tests:
-     - `"retries once on timeout error"` (line 245)
-     - `"throws after retry exhausted on timeout"` (line 271)
-     - `"retries on rate limit (429) error"` (line 351)
-     - `"throws after retry exhausted on persistent rate limit"` (line 378)
-     - `"isRateLimitError returns false for non-Error objects"` (line 487)
-     - `"rate limited request retries with delay"` (line 504)
-     - `"retries on 5xx server error"` (line 798)
-     - `"throws after retry exhausted on persistent 5xx error"` (line 824)
-     - `"retries on 502 Bad Gateway error"` (line 841)
-     - `"5xx retry uses exponential backoff delay"` (line 867)
-     - `"retries on timeout error"` in refineAnalysis (line 1036)
-     - `"retries on rate limit error"` in refineAnalysis (line 1064)
-     - `"retries on 5xx server error during refinement"` (line 1213)
-     - `"throws after retry exhausted on persistent 5xx during refinement"` (line 1241)
-   - Update `"throws CLAUDE_API_ERROR on API failure"` test: expect `mockCreate` called exactly **once** (no retry)
-   - Update `"throws CLAUDE_API_ERROR on failure"` in refineAnalysis: expect called once
-   - Add new test: `"configures SDK with explicit maxRetries"` — verify `new Anthropic({ maxRetries: 2 })` is called
-   - Run: `npm test -- claude`
-   - Verify: Retry tests are gone, remaining tests fail (code still has retry loops)
+1. **RED** - Write failing test:
+   - No test needed for schema definition — Drizzle validates at migration generation time
+   - This task is schema-only; the lib module (Task 2) tests the actual behavior
 
-2. **GREEN** - Simplify the production code:
-   - In `src/lib/claude.ts`:
-     - Update `getClient()` to pass `maxRetries: 2` explicitly: `new Anthropic({ apiKey, timeout: 30000, maxRetries: 2 })`
-     - **Delete** `isTimeoutError`, `isRateLimitError`, `is5xxError` functions (lines 170-193)
-     - **Rewrite** `analyzeFood` to remove the for-loop, `maxRetries`, `lastError`, and retry conditionals. Keep the single `getClient().messages.create()` call, the `toolUseBlock` extraction, `validateFoodAnalysis`, and the catch block that re-throws `ClaudeApiError` or wraps unknown errors
-     - **Rewrite** `refineAnalysis` identically — single API call, no loop, same error handling
-   - Run: `npm test -- claude`
-   - Verify: All remaining tests pass
+2. **GREEN** - Add the table definition:
+   - Add to `src/db/schema.ts`:
+     ```ts
+     export const fitbitCredentials = pgTable("fitbit_credentials", {
+       id: serial("id").primaryKey(),
+       userId: uuid("user_id").notNull().references(() => users.id).unique(),
+       fitbitClientId: text("fitbit_client_id").notNull(),
+       encryptedClientSecret: text("encrypted_client_secret").notNull(),
+       createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+       updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+     });
+     ```
+   - Pattern: mirrors `fitbitTokens` table structure (serial id, unique userId FK, timestamps)
 
-3. **REFACTOR** - Review that both functions have consistent error handling structure
+3. **REFACTOR** - None needed.
 
 **Notes:**
-- The SDK's built-in retry handles timeout, 429, and 5xx with exponential backoff + jitter + Retry-After header support
-- `maxRetries: 2` means 3 total attempts (1 initial + 2 retries) — same as the SDK default, but now explicit
+- Client ID stored in plaintext — it's visible in OAuth URLs, not truly secret
+- Client Secret encrypted via existing `token-encryption.ts` (AES-256-GCM with SESSION_SECRET)
+- `userId` is unique (1:1 with users) — each user has at most one set of Fitbit credentials
+- **Migration note:** New table, no data migration needed. After deployment, existing user must re-enter Fitbit credentials through onboarding flow.
 
 ---
 
-### Task 2: Add orphan cleanup to deleteFoodLogEntry
+### Task 2: Create `fitbit-credentials` lib module
 
-**Issue:** FOO-284
+**Issue:** FOO-288
 **Files:**
-- `src/lib/food-log.ts` (modify)
-- `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/lib/fitbit-credentials.ts` (create)
+- `src/lib/__tests__/fitbit-credentials.test.ts` (create)
+
+**TDD Steps:**
+
+1. **RED** - Write failing tests in `src/lib/__tests__/fitbit-credentials.test.ts`:
+   - Test `saveFitbitCredentials(userId, clientId, clientSecret)` stores encrypted secret
+   - Test `getFitbitCredentials(userId)` returns `{ clientId, clientSecret }` with decrypted secret
+   - Test `getFitbitCredentials(userId)` returns `null` when no credentials exist
+   - Test `updateFitbitClientId(userId, newClientId)` updates only the client ID
+   - Test `replaceFitbitClientSecret(userId, newSecret)` re-encrypts with new secret
+   - Test `hasFitbitCredentials(userId)` returns boolean
+   - Test `deleteFitbitCredentials(userId)` removes the row
+   - Mock `getDb()` and `encryptToken`/`decryptToken` following `src/lib/__tests__/fitbit-tokens.test.ts` patterns
+   - Run: `npm test -- fitbit-credentials`
+   - Verify: All tests fail (module doesn't exist)
+
+2. **GREEN** - Create `src/lib/fitbit-credentials.ts`:
+   - Import from `@/db/index`, `@/db/schema`, `@/lib/token-encryption`
+   - Implement all functions using Drizzle queries
+   - `saveFitbitCredentials`: upsert (insert with onConflictDoUpdate on userId)
+   - `getFitbitCredentials`: select + decrypt client secret
+   - Pattern: follows `src/lib/fitbit-tokens.ts` exactly (same encryption, same query patterns)
+   - Run: `npm test -- fitbit-credentials`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Extract shared patterns if any overlap with fitbit-tokens module.
+
+**Notes:**
+- Reference: `src/lib/fitbit-tokens.ts` for encryption/decryption pattern
+- Reference: `src/lib/token-encryption.ts` for `encryptToken`/`decryptToken`
+
+---
+
+### Task 3: Generate Drizzle migration
+
+**Issue:** FOO-288
+**Files:**
+- `drizzle/` (generated files — never hand-write)
+
+**Steps:**
+
+1. Run `npx drizzle-kit generate`
+2. Verify a new migration SQL file was created in `drizzle/`
+3. Verify the migration creates the `fitbit_credentials` table
+4. Run: `npm run typecheck` to ensure schema types are consistent
+
+**Notes:**
+- `drizzle-kit generate` does NOT need a live DB — it diffs `schema.ts` against the previous snapshot locally
+- **IMPORTANT: Never hand-write migration files or snapshots**
+- This task MUST be done by the lead, not a worker (workers must not run CLI generators)
+
+---
+
+### Task 4: Refactor Fitbit OAuth functions to accept credentials
+
+**Issue:** FOO-290
+**Depends on:** Task 2
+**Files:**
+- `src/lib/fitbit.ts` (modify)
+- `src/lib/__tests__/fitbit.test.ts` (modify — if exists, or create)
+
+**TDD Steps:**
+
+1. **RED** - Update/write tests:
+   - Test `buildFitbitAuthUrl(state, redirectUri, clientId)` uses provided clientId
+   - Test `exchangeFitbitCode(code, redirectUri, { clientId, clientSecret })` uses provided credentials in Basic auth header
+   - Test `refreshFitbitToken(refreshToken, { clientId, clientSecret })` uses provided credentials
+   - Test `ensureFreshToken(userId)` loads credentials from DB and passes them to `refreshFitbitToken`
+   - Test `ensureFreshToken(userId)` throws `FITBIT_CREDENTIALS_MISSING` when no credentials in DB
+   - Run: `npm test -- fitbit`
+   - Verify: Tests fail (functions still use env vars)
+
+2. **GREEN** - Modify `src/lib/fitbit.ts`:
+   - `buildFitbitAuthUrl(state: string, redirectUri: string, clientId: string)` — replace `getRequiredEnv("FITBIT_CLIENT_ID")` with parameter
+   - `exchangeFitbitCode(code: string, redirectUri: string, credentials: { clientId: string; clientSecret: string })` — replace both env var calls with parameter
+   - `refreshFitbitToken(refreshToken: string, credentials: { clientId: string; clientSecret: string })` — replace both env var calls with parameter
+   - `ensureFreshToken(userId: string)`:
+     - Import `getFitbitCredentials` from `@/lib/fitbit-credentials`
+     - Load credentials at the start
+     - If no credentials, throw `new Error("FITBIT_CREDENTIALS_MISSING")`
+     - Pass credentials to `refreshFitbitToken` when refreshing
+   - Run: `npm test -- fitbit`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Define a `FitbitClientCredentials` interface: `{ clientId: string; clientSecret: string }` for reuse across function signatures.
+
+**Notes:**
+- `ensureFreshToken` already receives `userId` — it can load credentials alongside tokens
+- The `refreshInFlight` deduplication map stays unchanged
+- Fitbit Basic auth header = `base64(clientId:clientSecret)` — already implemented, just needs different source
+
+---
+
+### Task 5: Update Fitbit OAuth routes to use per-user credentials
+
+**Issue:** FOO-290
+**Depends on:** Task 4
+**Files:**
+- `src/app/api/auth/fitbit/route.ts` (modify)
+- `src/app/api/auth/fitbit/callback/route.ts` (modify)
+- `src/app/api/auth/fitbit/__tests__/route.test.ts` (modify)
+- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Update tests:
+   - `/api/auth/fitbit` tests: mock `getFitbitCredentials` to return credentials, verify `buildFitbitAuthUrl` receives the clientId
+   - `/api/auth/fitbit` tests: test that missing credentials returns a redirect to `/app/setup-fitbit` instead of crashing
+   - `/api/auth/fitbit/callback` tests: mock `getFitbitCredentials` to return credentials, verify `exchangeFitbitCode` receives them
+   - Run: `npm test -- auth/fitbit`
+   - Verify: Tests fail
+
+2. **GREEN** - Modify routes:
+   - `/api/auth/fitbit/route.ts`:
+     - Import `getFitbitCredentials` from `@/lib/fitbit-credentials`
+     - After session validation, load credentials for `session.userId`
+     - If no credentials, redirect to `/app/setup-fitbit`
+     - Pass `credentials.clientId` to `buildFitbitAuthUrl`
+   - `/api/auth/fitbit/callback/route.ts`:
+     - Import `getFitbitCredentials` from `@/lib/fitbit-credentials`
+     - After session validation, load credentials for `dbSession.userId`
+     - If no credentials, return error `FITBIT_CREDENTIALS_MISSING`
+     - Pass `credentials` object to `exchangeFitbitCode`
+   - Run: `npm test -- auth/fitbit`
+   - Verify: All tests pass
+
+3. **REFACTOR** - None expected.
+
+**Notes:**
+- The `/api/auth/fitbit` route has both GET and POST handlers — both need updating
+- Reference: `src/app/api/auth/fitbit/callback/route.ts` for current pattern
+
+---
+
+### Task 6: Remove Fitbit env vars and add new error code
+
+**Issue:** FOO-290
+**Depends on:** Task 5
+**Files:**
+- `src/lib/env.ts` (modify)
+- `src/types/index.ts` (modify)
+- `.env.sample` (modify)
+- `src/lib/__tests__/env.test.ts` (modify — if exists)
+
+**TDD Steps:**
+
+1. **RED** - Update tests:
+   - If env validation tests exist, update them to not expect `FITBIT_CLIENT_ID`/`FITBIT_CLIENT_SECRET`
+   - Run: `npm test -- env`
+   - Verify: Tests fail (still checking for Fitbit env vars)
+
+2. **GREEN** - Make changes:
+   - `src/lib/env.ts`: Remove `"FITBIT_CLIENT_ID"` and `"FITBIT_CLIENT_SECRET"` from `REQUIRED_ENV_VARS`
+   - `src/types/index.ts`: Add `"FITBIT_CREDENTIALS_MISSING"` to `ErrorCode` union type
+   - `.env.sample`: Remove the `FITBIT_CLIENT_ID` and `FITBIT_CLIENT_SECRET` lines and their comment
+   - Run: `npm test -- env`
+   - Verify: Tests pass
+
+3. **REFACTOR** - None needed.
+
+**Notes:**
+- **Migration note:** After deployment, remove `FITBIT_CLIENT_ID` and `FITBIT_CLIENT_SECRET` from Railway production and staging environments. Existing user must re-enter credentials via the new onboarding flow.
+- Update `CLAUDE.md` env vars documentation to reflect removal
+- Update `DEVELOPMENT.md` if it mentions these env vars
+
+---
+
+### Task 7: Create Fitbit credentials API routes
+
+**Issue:** FOO-289, FOO-291
+**Depends on:** Task 2
+**Files:**
+- `src/app/api/fitbit-credentials/route.ts` (create)
+- `src/app/api/fitbit-credentials/__tests__/route.test.ts` (create)
 
 **TDD Steps:**
 
 1. **RED** - Write failing tests:
-   - In `src/lib/__tests__/food-log.test.ts`, in the `deleteFoodLogEntry` describe block:
-   - Add mock for `db.transaction` — the mock `getDb()` needs to return a `transaction` method that calls its callback with the same mock tx (reusing existing mockInsert/mockDelete/etc.)
-   - Add test: `"deletes orphaned custom food when last entry is removed"` — mock delete returning `{ fitbitLogId: 789, customFoodId: 10 }`, mock select count returning `[]` (no remaining refs), expect `mockDelete` called twice (once for entry, once for custom food)
-   - Add test: `"keeps custom food when other entries still reference it"` — mock delete returning same, mock select count returning `[{ id: 99 }]` (another entry exists), expect `mockDelete` called once (entry only)
-   - Add test: `"returns same shape { fitbitLogId } as before"` — verify return value unchanged
-   - Run: `npm test -- food-log`
-   - Verify: New tests fail
+   - `GET /api/fitbit-credentials`:
+     - Returns `{ hasCredentials: true, clientId: "..." }` when credentials exist
+     - Returns `{ hasCredentials: false }` when no credentials
+     - Returns 401 when no session
+   - `POST /api/fitbit-credentials`:
+     - Saves credentials and returns success
+     - Returns 400 for missing `clientId` or `clientSecret`
+     - Returns 400 for empty strings
+     - Returns 401 when no session
+   - `PATCH /api/fitbit-credentials`:
+     - Updates client ID when only `clientId` provided
+     - Replaces client secret when only `clientSecret` provided
+     - Updates both when both provided
+     - Returns 400 when neither provided
+     - Returns 404 when no existing credentials to update
+     - Returns 401 when no session
+   - Run: `npm test -- fitbit-credentials`
+   - Verify: All tests fail (route doesn't exist)
 
-2. **GREEN** - Implement orphan cleanup:
-   - In `src/lib/food-log.ts`, rewrite `deleteFoodLogEntry`:
-   ```
-   export async function deleteFoodLogEntry(userId, entryId) {
-     const db = getDb();
-     return db.transaction(async (tx) => {
-       const rows = await tx.delete(foodLogEntries)
-         .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)))
-         .returning({ fitbitLogId: foodLogEntries.fitbitLogId, customFoodId: foodLogEntries.customFoodId });
-       const row = rows[0];
-       if (!row) return null;
-       // Check if custom food is still referenced
-       const refs = await tx.select({ id: foodLogEntries.id })
-         .from(foodLogEntries)
-         .where(eq(foodLogEntries.customFoodId, row.customFoodId))
-         .limit(1);
-       if (refs.length === 0) {
-         await tx.delete(customFoods)
-           .where(and(eq(customFoods.id, row.customFoodId), eq(customFoods.userId, userId)));
-       }
-       return { fitbitLogId: row.fitbitLogId };
-     });
-   }
-   ```
-   - Import `customFoods` from `@/db/schema` (already imported)
-   - Run: `npm test -- food-log`
+2. **GREEN** - Create `src/app/api/fitbit-credentials/route.ts`:
+   - `GET`: Load credentials, return `{ hasCredentials, clientId }` (never return secret)
+   - `POST`: Validate body `{ clientId: string, clientSecret: string }`, call `saveFitbitCredentials`, return success
+   - `PATCH`: Validate body (at least one of `clientId`/`clientSecret`), call `updateFitbitClientId` and/or `replaceFitbitClientSecret`
+   - All handlers: session validation, standardized error responses
+   - Cache-Control: `private, no-cache`
+   - Run: `npm test -- fitbit-credentials`
    - Verify: All tests pass
 
-3. **REFACTOR** - Ensure the transaction mock is clean and all existing delete tests still pass
+3. **REFACTOR** - Extract validation logic if body parsing is duplicated.
 
 **Notes:**
-- Return type stays `Promise<{ fitbitLogId: number | null } | null>` — no caller changes needed
-- The `userId` check on customFoods.delete is a safety measure
-- **Migration note:** Existing orphaned `custom_foods` rows need one-time cleanup. Log in MIGRATIONS.md.
+- Pattern: follows existing API routes (session validation, `successResponse`/`errorResponse`)
+- Never return the client secret in any response
+- The POST handler is used by onboarding (FOO-289), PATCH by settings (FOO-291)
 
 ---
 
-### Task 3: Log orphan cleanup migration
+### Task 8: Create setup-fitbit onboarding page
 
-**Issue:** FOO-284
+**Issue:** FOO-289
+**Depends on:** Task 7
 **Files:**
+- `src/app/app/setup-fitbit/page.tsx` (create)
+- `src/app/app/setup-fitbit/loading.tsx` (create)
+- `src/components/fitbit-setup-form.tsx` (create)
+- `src/components/__tests__/fitbit-setup-form.test.tsx` (create)
+- `src/app/app/setup-fitbit/__tests__/page.test.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** - Write failing tests:
+   - `fitbit-setup-form.test.tsx`:
+     - Renders Client ID and Client Secret input fields
+     - Submit button is disabled when fields are empty
+     - Calls `POST /api/fitbit-credentials` on submit
+     - Shows loading state during submission
+     - Redirects to `/api/auth/fitbit` on success
+     - Shows error message on failure
+   - `page.test.tsx`:
+     - Renders the setup form for authenticated users
+     - Redirects to `/` if no session
+   - Run: `npm test -- setup-fitbit`
+   - Verify: Tests fail
+
+2. **GREEN** - Create the components:
+   - `src/components/fitbit-setup-form.tsx` (`'use client'`):
+     - Form with two inputs: "Fitbit Client ID" and "Fitbit Client Secret"
+     - Client Secret input uses `type="password"`
+     - Submit button: "Connect Fitbit"
+     - On submit: POST to `/api/fitbit-credentials`, then redirect to `/api/auth/fitbit`
+     - Error state for API failures
+     - Instructions text: explain where to find these values in Fitbit developer console
+   - `src/app/app/setup-fitbit/page.tsx` (Server Component):
+     - Session check, redirect if not authenticated
+     - Render `FitbitSetupForm`
+     - Title: "Set Up Fitbit"
+   - `src/app/app/setup-fitbit/loading.tsx`:
+     - Skeleton matching the form layout
+   - Mobile-first, 44px touch targets on all interactive elements
+   - Run: `npm test -- setup-fitbit`
+   - Verify: Tests pass
+
+3. **REFACTOR** - Ensure consistent styling with other app pages.
+
+**Notes:**
+- Reference: `src/app/settings/page.tsx` for page pattern (Server Component with session check)
+- Reference: `src/components/settings-content.tsx` for card styling pattern
+- The page is under `/app/` so it's protected by middleware (requires session)
+- Include a brief help text explaining that each Fitbit user needs their own "Personal" app from dev.fitbit.com
+
+---
+
+### Task 9: Update Google callback redirect flow
+
+**Issue:** FOO-289
+**Depends on:** Task 8
+**Files:**
+- `src/app/api/auth/google/callback/route.ts` (modify)
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Update tests:
+   - Test: user with no Fitbit credentials AND no tokens → redirect to `/app/setup-fitbit`
+   - Test: user with Fitbit credentials but no tokens → redirect to `/api/auth/fitbit`
+   - Test: user with Fitbit tokens → redirect to `/app`
+   - Run: `npm test -- google/callback`
+   - Verify: New tests fail (callback doesn't check credentials)
+
+2. **GREEN** - Modify `src/app/api/auth/google/callback/route.ts`:
+   - Import `hasFitbitCredentials` from `@/lib/fitbit-credentials`
+   - After line 82 (`getFitbitTokens`), check credentials:
+     ```ts
+     const fitbitTokens = await getFitbitTokens(user.id);
+     if (fitbitTokens) {
+       return Response.redirect(buildUrl("/app"), 302);
+     }
+     const hasCredentials = await hasFitbitCredentials(user.id);
+     const redirectTo = hasCredentials ? "/api/auth/fitbit" : "/app/setup-fitbit";
+     return Response.redirect(buildUrl(redirectTo), 302);
+     ```
+   - Run: `npm test -- google/callback`
+   - Verify: All tests pass
+
+3. **REFACTOR** - None needed.
+
+**Notes:**
+- The three-way redirect: tokens → /app, credentials only → fitbit OAuth, nothing → setup page
+- This replaces the current two-way redirect (tokens → /app, no tokens → /api/auth/fitbit)
+
+---
+
+### Task 10: Add `hasFitbitCredentials` to session and show dashboard banner
+
+**Issue:** FOO-292
+**Depends on:** Task 2
+**Files:**
+- `src/types/index.ts` (modify)
+- `src/lib/session.ts` (modify)
+- `src/app/api/auth/session/route.ts` (modify)
+- `src/components/fitbit-status-banner.tsx` (create)
+- `src/app/app/page.tsx` (modify)
+- `src/components/__tests__/fitbit-status-banner.test.tsx` (create)
+- `src/lib/__tests__/session.test.ts` (modify)
+- `src/app/api/auth/session/__tests__/route.test.ts` (modify)
+- `src/app/app/__tests__/page.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write/update tests:
+   - `session.test.ts`: Test `getSession()` returns `hasFitbitCredentials: true/false`
+   - `session route test`: Test response includes `hasFitbitCredentials`
+   - `fitbit-status-banner.test.tsx`:
+     - Renders nothing when Fitbit is fully connected
+     - Shows "Set up Fitbit" banner with link to `/app/setup-fitbit` when no credentials
+     - Shows "Reconnect Fitbit" banner with link to reconnect when credentials exist but not connected
+   - `page.test.tsx`: Test that dashboard renders the `FitbitStatusBanner` component
+   - Run: `npm test -- session fitbit-status-banner page`
+   - Verify: New tests fail
+
+2. **GREEN** - Implement:
+   - `src/types/index.ts`: Add `hasFitbitCredentials: boolean` to `FullSession` interface
+   - `src/lib/session.ts`:
+     - Import `hasFitbitCredentials` from `@/lib/fitbit-credentials`
+     - In `getSession()`, query credentials: `const hasCredentials = await hasFitbitCredentials(dbSession.userId);`
+     - Add to return object: `hasFitbitCredentials: hasCredentials`
+   - `src/app/api/auth/session/route.ts`: Add `hasFitbitCredentials` to response
+   - `src/components/fitbit-status-banner.tsx` (`'use client'`):
+     - Uses `useSWR` to fetch `/api/auth/session`
+     - If `!fitbitConnected && !hasFitbitCredentials`: amber banner → "Set up Fitbit to start logging food" + link to `/app/setup-fitbit`
+     - If `!fitbitConnected && hasFitbitCredentials`: amber banner → "Fitbit disconnected" + "Reconnect" button (POST to `/api/auth/fitbit`)
+     - If `fitbitConnected`: render nothing
+   - `src/app/app/page.tsx`: Add `<FitbitStatusBanner />` below the heading
+   - Run: `npm test -- session fitbit-status-banner page`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Ensure banner styles match the card design system used elsewhere.
+
+**Notes:**
+- Reference: `src/components/settings-content.tsx` for SWR + session pattern
+- The banner is a client component because it fetches session data via SWR
+- Use amber/warning colors for the banner (not destructive red — it's informational)
+- The `getSession()` change adds one extra DB query per request — acceptable for single-user app
+
+---
+
+### Task 11: Add credentials management to Settings
+
+**Issue:** FOO-291
+**Depends on:** Task 7, Task 10
+**Files:**
+- `src/components/settings-content.tsx` (modify)
+- `src/components/__tests__/settings-content.test.tsx` (modify or create)
+- `src/app/settings/__tests__/page.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write/update tests:
+   - Test: Settings page renders "Fitbit App Credentials" section when credentials exist
+   - Test: Client ID shown in editable input with current value
+   - Test: Client Secret shown as "••••••••" with "Replace Secret" button
+   - Test: Clicking Save on Client ID calls `PATCH /api/fitbit-credentials` with `{ clientId }`
+   - Test: Clicking "Replace Secret" shows password input, submit calls PATCH with `{ clientSecret }`
+   - Test: After successful credential update, shows "Re-authorize Fitbit" prompt
+   - Test: When no credentials, shows "No Fitbit credentials configured" with link to setup page
+   - Run: `npm test -- settings`
+   - Verify: New tests fail
+
+2. **GREEN** - Modify `src/components/settings-content.tsx`:
+   - Add SWR call to `GET /api/fitbit-credentials` for credential data
+   - New section "Fitbit App Credentials" between connection status and appearance:
+     - If no credentials: "No Fitbit credentials configured" + link to `/app/setup-fitbit`
+     - If credentials exist:
+       - Client ID: text input (editable) + Save button
+       - Client Secret: masked display + "Replace Secret" button
+       - "Replace Secret" toggles a password input + Save button
+       - After any save, show a "Re-authorize Fitbit" link/button
+   - Use `fetch` for PATCH calls (not SWR — it's a mutation)
+   - Mobile-first, 44px touch targets
+   - Run: `npm test -- settings`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Extract credential form into a separate component if settings-content becomes too large.
+
+**Notes:**
+- Reference: existing card styling in `settings-content.tsx`
+- The "Re-authorize" prompt is important because changing credentials invalidates the current Fitbit OAuth tokens
+- Secret replacement pattern: never show the actual secret, only allow entering a new one
+
+---
+
+### Task 12: Treat DB failures as real errors in food log operations
+
+**Issue:** FOO-293
+**Depends on:** None (independent)
+**Files:**
+- `src/app/api/log-food/route.ts` (modify)
+- `src/app/api/food-history/[id]/route.ts` (modify)
+- `src/types/index.ts` (modify)
+- `src/app/api/log-food/__tests__/route.test.ts` (modify)
+- `src/app/api/food-history/[id]/__tests__/route.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Update tests:
+   - `log-food route.test.ts`:
+     - **Remove** the 4 existing `dbError` tests (lines ~529-611)
+     - **Add**: When `insertCustomFood` fails after Fitbit success → attempts to delete Fitbit log (compensation) → returns `INTERNAL_ERROR` with message "Food logged to Fitbit but local save failed. Fitbit log was rolled back."
+     - **Add**: When `insertFoodLogEntry` fails after Fitbit success → attempts to delete Fitbit log (compensation) → returns `INTERNAL_ERROR`
+     - **Add**: When DB fails AND compensation (Fitbit delete) also fails → returns `PARTIAL_ERROR` with message indicating Fitbit has the entry but local DB does not
+     - **Add**: When `insertFoodLogEntry` fails in reuse flow → same compensation pattern
+     - **Add**: In dry-run mode, DB failure still returns error (no Fitbit to compensate, just error)
+   - `food-history/[id] route.test.ts`:
+     - **Add**: When `deleteFoodLogEntry` fails after Fitbit delete → returns `INTERNAL_ERROR` with message "Fitbit log deleted but local delete failed"
+   - Run: `npm test -- log-food food-history`
+   - Verify: New tests fail, old dbError tests removed
+
+2. **GREEN** - Modify routes:
+   - `src/types/index.ts`:
+     - Add `"PARTIAL_ERROR"` to `ErrorCode` union
+     - Remove `dbError?: boolean` from `FoodLogResponse`
+   - `src/app/api/log-food/route.ts` — New food flow (lines ~262-297):
+     - Remove try/catch around DB operations
+     - Instead, wrap in try/catch that does compensation:
+       ```ts
+       try {
+         const customFoodResult = await insertCustomFood(...);
+         const logEntryResult = await insertFoodLogEntry(...);
+         foodLogId = logEntryResult.id;
+       } catch (dbErr) {
+         logger.error({ ... }, "DB write failed after Fitbit success, attempting compensation");
+         if (fitbitLogId && !isDryRun) {
+           try {
+             const accessToken = await ensureFreshToken(session!.userId);
+             await deleteFoodLog(accessToken, fitbitLogId);
+             logger.info({ ... }, "Fitbit log rolled back after DB failure");
+           } catch (compensationErr) {
+             logger.error({ ... }, "CRITICAL: Fitbit log exists but DB write failed and compensation failed");
+             return errorResponse("PARTIAL_ERROR", "Food logged to Fitbit but local save failed. Manual cleanup may be needed.", 500);
+           }
+         }
+         return errorResponse("INTERNAL_ERROR", "Failed to save food log", 500);
+       }
+       ```
+   - `src/app/api/log-food/route.ts` — Reuse flow (lines ~193-211): Same compensation pattern
+   - `src/app/api/food-history/[id]/route.ts` — Delete (lines ~69-76):
+     - Remove inner try/catch
+     - If `deleteFoodLogEntry` throws, return error:
+       ```ts
+       try {
+         await deleteFoodLogEntry(session!.userId, id);
+       } catch (dbErr) {
+         logger.error({ ... }, "Fitbit delete succeeded but local DB delete failed");
+         return errorResponse("INTERNAL_ERROR", "Fitbit log deleted but local delete failed. Entry may be orphaned.", 500);
+       }
+       ```
+   - Remove all `dbError` variable declarations and usages
+   - Remove `...(dbError && { dbError: true })` from response objects
+   - Run: `npm test -- log-food food-history`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Extract compensation logic into a helper function if the pattern is repeated more than twice.
+
+**Notes:**
+- Compensation approach: if DB fails after Fitbit succeeds, try to roll back the Fitbit operation
+- If compensation also fails, return `PARTIAL_ERROR` so the client knows the state is inconsistent
+- For dry-run mode: no Fitbit to compensate, just return the DB error
+- The delete route is simpler: no compensation possible (Fitbit log already deleted), just report the error
+- Client-side: `dbError` was never checked (grep confirmed no usage in `src/components/`), so no client changes needed
+
+---
+
+### Task 13: Update documentation
+
+**Issue:** FOO-288, FOO-290, FOO-292, FOO-293
+**Depends on:** Tasks 1-12
+**Files:**
+- `CLAUDE.md` (modify)
+- `.env.sample` (already modified in Task 6)
+- `DEVELOPMENT.md` (modify if needed)
 - `MIGRATIONS.md` (modify)
 
 **Steps:**
-1. Append to `MIGRATIONS.md`:
-   ```
-   ## Orphan custom_foods cleanup (FOO-284)
-   After deploying the orphan-cleanup code, run a one-time query to clean up existing orphaned rows:
-   DELETE FROM custom_foods WHERE id NOT IN (SELECT DISTINCT custom_food_id FROM food_log_entries);
-   ```
-2. No tests needed — documentation only
+
+1. Update `CLAUDE.md`:
+   - Remove `FITBIT_CLIENT_ID` and `FITBIT_CLIENT_SECRET` from env vars documentation
+   - Add `fitbit_credentials` to the database tables list
+   - Add `FITBIT_CREDENTIALS_MISSING` and `PARTIAL_ERROR` to error codes if documented
+   - Update any references to global Fitbit credentials
+
+2. Update `MIGRATIONS.md`:
+   - Add entry: "Per-user Fitbit credentials (FOO-288): New `fitbit_credentials` table. After deployment, remove `FITBIT_CLIENT_ID` and `FITBIT_CLIENT_SECRET` from Railway env vars. Existing user must re-enter Fitbit credentials through the new setup flow at `/app/setup-fitbit`."
+
+3. Update `DEVELOPMENT.md` if it mentions Fitbit env vars.
 
 ---
 
-### Task 4: Add description column to schema and types
+### Task 14: Integration & Verification
 
-**Issue:** FOO-286
+**Issue:** FOO-288, FOO-289, FOO-290, FOO-291, FOO-292, FOO-293
+**Depends on:** Tasks 1-13
 **Files:**
-- `src/db/schema.ts` (modify)
-- `src/types/index.ts` (modify)
-- `src/lib/food-log.ts` (modify — `CustomFoodInput` interface)
-- `drizzle/` (generated by drizzle-kit)
-
-**TDD Steps:**
-
-1. **RED** - Update types and write a test:
-   - In `src/types/index.ts`, add `description: string` to `FoodAnalysis` interface (after `notes`)
-   - In `src/lib/food-log.ts`, add `description?: string | null` to `CustomFoodInput` interface
-   - In `src/lib/__tests__/food-log.test.ts`, add test in `insertCustomFood`:
-     - `"stores description field in customFoods table"` — pass `description: "A bowl of oatmeal with berries"`, verify `mockValues` called with `description: "A bowl of oatmeal with berries"`
-     - `"stores null description when not provided"` — omit description, verify stored as null
-   - In `src/lib/__tests__/claude.test.ts`, update `validAnalysis` to include `description: "Standard Argentine beef empanada, baked style"`
-   - Run: `npm test`
-   - Verify: Tests fail (schema and implementation don't have description yet)
-
-2. **GREEN** - Add the column and update code:
-   - In `src/db/schema.ts`, add to `customFoods` table: `description: text("description"),` (after `notes`)
-   - In `src/lib/food-log.ts`, update `insertCustomFood` to include `description: data.description ?? null` in the values
-   - Run: `npx drizzle-kit generate` to create the migration file
-   - Run: `npm test`
-   - Verify: Tests pass
-
-3. **REFACTOR** - Verify the generated migration SQL adds a nullable text column
-
-**Notes:**
-- Column is nullable — no DEFAULT needed, no backfill needed
-- Existing rows get NULL description automatically
-- **Migration note:** Safe schema change — nullable column addition. No data migration needed.
-
----
-
-### Task 5: Add description to Claude tool and validation
-
-**Issue:** FOO-286
-**Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** - Write failing tests:
-   - Add test: `"includes description in tool schema"` — verify `mockCreate` called with tool schema containing `description` property
-   - Add test: `"validates description as optional string"` — test that a response with `description: 123` (number) fails validation
-   - Add test: `"accepts response without description (defaults to empty string)"` — test that missing description defaults to empty string
-   - Update existing `validAnalysis` fixture if not done in Task 4
-   - Run: `npm test -- claude`
-   - Verify: New tests fail
-
-2. **GREEN** - Update tool schema and validation:
-   - In `REPORT_NUTRITION_TOOL.input_schema.properties`, add:
-     ```
-     description: {
-       type: "string",
-       description: "A rich visual description of what you identified in the image (e.g., 'A white plate with two scrambled eggs, three strips of bacon, and a slice of whole wheat toast with butter')",
-     },
-     ```
-   - Add `"description"` to the `required` array
-   - In `validateFoodAnalysis`, add validation for `description`:
-     ```
-     if (typeof data.description !== "string") {
-       throw new ClaudeApiError("Invalid food analysis: missing description");
-     }
-     ```
-   - Add `description: data.description as string` to the return object
-   - Run: `npm test -- claude`
-   - Verify: All tests pass
-
-3. **REFACTOR** - Ensure description appears in the return type consistently
-
-**Notes:**
-- Description is required in the tool schema (Claude must always provide it)
-- Pattern follows `notes` exactly
-- The `SYSTEM_PROMPT` does not need changes — the tool description is sufficient to guide Claude
-
----
-
-### Task 6: Pass description through API routes
-
-**Issue:** FOO-286
-**Files:**
-- `src/app/api/log-food/route.ts` (modify)
-- `src/app/api/refine-food/route.ts` (modify)
-- `src/lib/claude.ts` (modify — refinement prompt text)
-
-**TDD Steps:**
-
-1. **RED** - The existing route tests (if any) should already work since `FoodAnalysis` now includes `description` and flows through. Check manually:
-   - The `isValidFoodLogRequest` function validates `FoodAnalysis` fields — needs `description` validation added (optional for reuse flow, present for new food flow)
-   - The `isValidPreviousAnalysis` in refine-food needs `description` check
-   - The `refineAnalysis` prompt text in `claude.ts` should include the previous description
-
-2. **GREEN** - Update validation and flow:
-   - In `src/app/api/log-food/route.ts`:
-     - In `isValidFoodLogRequest`, the new food flow check: after `notes` validation, no need to validate `description` separately since it comes from `FoodAnalysis` which is already validated by Claude. But for safety, add: `if (typeof req.description !== "string") return false;` in the new food validation block
-     - In the new food flow `insertCustomFood` call, add `description: body.description`
-   - In `src/app/api/refine-food/route.ts`:
-     - In `isValidPreviousAnalysis`, add: `typeof obj.description === "string"` to the check
-   - In `src/lib/claude.ts` `refineAnalysis`:
-     - Add `Description: ${previousAnalysis.description}` to the refinement prompt text (after the Notes line)
-   - Run: `npm test`
-   - Verify: All tests pass
-
-3. **REFACTOR** - Verify the full flow: Claude returns description → validation → API → DB
-
-**Notes:**
-- The reuse flow (`reuseCustomFoodId`) doesn't send description — it reuses an existing custom food
-- The refinement flow passes description through as part of `FoodAnalysis`
-
----
-
-### Task 7: Display description in analysis result UI
-
-**Issue:** FOO-286
-**Files:**
-- `src/components/analysis-result.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** - No component tests currently exist for this component. This is a UI-only change.
-   - Manual verification will confirm the description appears
-
-2. **GREEN** - Add description display:
-   - In `src/components/analysis-result.tsx`, add a description section above the notes section:
-     ```tsx
-     {/* Description */}
-     {analysis.description && (
-       <div className="pt-2 border-t">
-         <p className="text-sm text-foreground">{analysis.description}</p>
-       </div>
-     )}
-     ```
-   - Place it after the portion size line and before the nutrition grid
-   - Run: `npm run build`
-   - Verify: Build succeeds
-
-3. **REFACTOR** - Ensure description has distinct visual styling from notes (notes are italic + muted, description is normal weight)
-
-**Notes:**
-- Description should be visually prominent since it tells the user what was identified
-- Notes remain italic/muted as they explain assumptions
-
----
-
-### Task 8: Add food entry detail query and type
-
-**Issue:** FOO-287
-**Files:**
-- `src/types/index.ts` (modify)
-- `src/lib/food-log.ts` (modify)
-- `src/lib/__tests__/food-log.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** - Write failing tests:
-   - In `src/types/index.ts`, add new interface:
-     ```ts
-     export interface FoodLogEntryDetail {
-       id: number;
-       foodName: string;
-       description: string | null;
-       notes: string | null;
-       calories: number;
-       proteinG: number;
-       carbsG: number;
-       fatG: number;
-       fiberG: number;
-       sodiumMg: number;
-       amount: number;
-       unitId: number;
-       mealTypeId: number;
-       date: string;
-       time: string | null;
-       fitbitLogId: number | null;
-       confidence: string;
-     }
-     ```
-   - In `src/lib/__tests__/food-log.test.ts`, add `describe("getFoodLogEntryDetail")`:
-     - `"returns full entry with notes and description"` — mock join query returning row with notes and description, verify all fields mapped correctly
-     - `"returns null for non-existent entry"` — mock empty result, expect null
-     - `"handles null description and notes"` — mock row with null description/notes, verify nulls
-   - Run: `npm test -- food-log`
-   - Verify: Tests fail (function doesn't exist)
-
-2. **GREEN** - Implement the detail query:
-   - In `src/lib/food-log.ts`, add:
-     ```ts
-     export async function getFoodLogEntryDetail(
-       userId: string,
-       id: number,
-     ): Promise<FoodLogEntryDetail | null> {
-       const db = getDb();
-       const rows = await db
-         .select()
-         .from(foodLogEntries)
-         .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
-         .where(and(eq(foodLogEntries.id, id), eq(foodLogEntries.userId, userId)));
-       const row = rows[0];
-       if (!row) return null;
-       return {
-         id: row.food_log_entries.id,
-         foodName: row.custom_foods.foodName,
-         description: row.custom_foods.description ?? null,
-         notes: row.custom_foods.notes ?? null,
-         calories: row.custom_foods.calories,
-         proteinG: Number(row.custom_foods.proteinG),
-         carbsG: Number(row.custom_foods.carbsG),
-         fatG: Number(row.custom_foods.fatG),
-         fiberG: Number(row.custom_foods.fiberG),
-         sodiumMg: Number(row.custom_foods.sodiumMg),
-         amount: Number(row.food_log_entries.amount),
-         unitId: row.food_log_entries.unitId,
-         mealTypeId: row.food_log_entries.mealTypeId,
-         date: row.food_log_entries.date,
-         time: row.food_log_entries.time,
-         fitbitLogId: row.food_log_entries.fitbitLogId,
-         confidence: row.custom_foods.confidence,
-       };
-     }
-     ```
-   - Import `FoodLogEntryDetail` from `@/types`
-   - Run: `npm test -- food-log`
-   - Verify: All tests pass
-
-3. **REFACTOR** - Ensure the mock setup for join queries works with the new function
-
----
-
-### Task 9: Add GET endpoint for food entry detail
-
-**Issue:** FOO-287
-**Files:**
-- `src/app/api/food-history/[id]/route.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** - No API route tests for this endpoint currently. Write the handler directly.
-
-2. **GREEN** - Add GET handler:
-   - In `src/app/api/food-history/[id]/route.ts`, add:
-     ```ts
-     import { getFoodLogEntryDetail } from "@/lib/food-log";
-     ```
-     (Add to existing imports)
-   - Add GET handler:
-     ```ts
-     export async function GET(
-       _request: Request,
-       { params }: { params: Promise<{ id: string }> },
-     ) {
-       const session = await getSession();
-       const validationError = validateSession(session);
-       if (validationError) return validationError;
-
-       const { id: idParam } = await params;
-       const id = parseInt(idParam, 10);
-       if (Number.isNaN(id)) {
-         return errorResponse("VALIDATION_ERROR", "Invalid entry ID", 400);
-       }
-
-       try {
-         const entry = await getFoodLogEntryDetail(session!.userId, id);
-         if (!entry) {
-           return errorResponse("VALIDATION_ERROR", "Food log entry not found", 404);
-         }
-         const response = successResponse(entry);
-         response.headers.set("Cache-Control", "private, no-cache");
-         return response;
-       } catch (error) {
-         logger.error(
-           { action: "get_food_entry_detail_error", error: error instanceof Error ? error.message : String(error) },
-           "failed to get food entry detail",
-         );
-         return errorResponse("INTERNAL_ERROR", "Failed to get food entry detail", 500);
-       }
-     }
-     ```
-   - Run: `npm run build`
-   - Verify: Build succeeds
-
-3. **REFACTOR** - Ensure consistent error handling with the existing DELETE handler in the same file
-
-**Notes:**
-- Follows same pattern as `src/app/api/food-history/route.ts` GET handler
-- Cache-Control: private, no-cache per CLAUDE.md convention
-
----
-
-### Task 10: Create food detail page and loading skeleton
-
-**Issue:** FOO-287
-**Files:**
-- `src/app/app/food-detail/[id]/page.tsx` (create)
-- `src/app/app/food-detail/[id]/loading.tsx` (create)
-- `src/components/food-detail.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** - No component tests. Build verification.
-
-2. **GREEN** - Create the pages:
-   - Create `src/app/app/food-detail/[id]/loading.tsx`:
-     ```tsx
-     import { Skeleton } from "@/components/ui/skeleton";
-
-     export default function Loading() {
-       return (
-         <div className="min-h-screen px-4 py-6">
-           <div className="mx-auto w-full max-w-md flex flex-col gap-6">
-             <Skeleton className="w-8 h-8" />
-             <Skeleton className="w-48 h-8" />
-             <Skeleton className="w-full h-20" />
-             <Skeleton className="w-full h-64 rounded-lg" />
-             <Skeleton className="w-full h-16" />
-           </div>
-         </div>
-       );
-     }
-     ```
-   - Create `src/app/app/food-detail/[id]/page.tsx`:
-     ```tsx
-     import { redirect } from "next/navigation";
-     import { getSession } from "@/lib/session";
-     import { FoodDetail } from "@/components/food-detail";
-     import { SkipLink } from "@/components/skip-link";
-
-     interface Props {
-       params: Promise<{ id: string }>;
-     }
-
-     export default async function FoodDetailPage({ params }: Props) {
-       const session = await getSession();
-       if (!session) {
-         redirect("/");
-       }
-       const { id } = await params;
-       return (
-         <div className="min-h-screen px-4 py-6">
-           <SkipLink />
-           <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
-             <FoodDetail entryId={id} />
-           </main>
-         </div>
-       );
-     }
-     ```
-   - Create `src/components/food-detail.tsx`:
-     ```tsx
-     "use client";
-
-     import useSWR from "swr";
-     import { apiFetcher } from "@/lib/swr";
-     import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-     import { ConfidenceBadge } from "@/components/confidence-badge";
-     import { Button } from "@/components/ui/button";
-     import { ArrowLeft } from "lucide-react";
-     import { useRouter } from "next/navigation";
-     import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
-     import type { FoodLogEntryDetail } from "@/types";
-
-     interface FoodDetailProps {
-       entryId: string;
-     }
-
-     function formatTime(time: string | null): string {
-       if (!time) return "";
-       const [h, m] = time.split(":");
-       const hour = parseInt(h, 10);
-       const ampm = hour >= 12 ? "PM" : "AM";
-       const h12 = hour % 12 || 12;
-       return `${h12}:${m} ${ampm}`;
-     }
-
-     function formatDate(dateStr: string): string {
-       const date = new Date(dateStr + "T00:00:00");
-       return date.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-     }
-
-     export function FoodDetail({ entryId }: FoodDetailProps) {
-       const router = useRouter();
-       const { data, isLoading, error } = useSWR<FoodLogEntryDetail>(
-         `/api/food-history/${entryId}`,
-         apiFetcher,
-       );
-
-       if (isLoading) {
-         return (
-           <div className="space-y-4">
-             <p className="text-sm text-muted-foreground text-center">Loading...</p>
-           </div>
-         );
-       }
-
-       if (error || !data) {
-         return (
-           <div className="space-y-4">
-             <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]" onClick={() => router.back()}>
-               <ArrowLeft className="h-5 w-5" />
-             </Button>
-             <p className="text-sm text-destructive text-center">
-               {error ? "Failed to load entry details." : "Entry not found."}
-             </p>
-           </div>
-         );
-       }
-
-       return (
-         <div className="space-y-6">
-           {/* Back button */}
-           <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]" onClick={() => router.back()} aria-label="Go back">
-             <ArrowLeft className="h-5 w-5" />
-           </Button>
-
-           {/* Header */}
-           <div className="flex items-center justify-between">
-             <h1 className="text-2xl font-bold">{data.foodName}</h1>
-             <ConfidenceBadge confidence={data.confidence as "high" | "medium" | "low"} />
-           </div>
-
-           {/* Date/time/meal info */}
-           <div className="text-sm text-muted-foreground space-y-1">
-             <p>{formatDate(data.date)}{data.time ? ` at ${formatTime(data.time)}` : ""}</p>
-             <p>{FITBIT_MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"} · {getUnitLabel(data.unitId, data.amount)}</p>
-           </div>
-
-           {/* Description */}
-           {data.description && (
-             <div className="rounded-lg bg-muted/50 p-4">
-               <p className="text-sm">{data.description}</p>
-             </div>
-           )}
-
-           {/* Nutrition facts card */}
-           <NutritionFactsCard
-             foodName={data.foodName}
-             calories={data.calories}
-             proteinG={data.proteinG}
-             carbsG={data.carbsG}
-             fatG={data.fatG}
-             fiberG={data.fiberG}
-             sodiumMg={data.sodiumMg}
-             unitId={data.unitId}
-             amount={data.amount}
-             mealTypeId={data.mealTypeId}
-           />
-
-           {/* Notes */}
-           {data.notes && (
-             <div className="rounded-lg border p-4">
-               <h3 className="text-sm font-semibold mb-2">AI Notes</h3>
-               <p className="text-sm text-muted-foreground italic">{data.notes}</p>
-             </div>
-           )}
-         </div>
-       );
-     }
-     ```
-   - Run: `npm run build`
-   - Verify: Build succeeds
-
-3. **REFACTOR** - Ensure consistent layout with other app pages (max-w-md, px-4 py-6)
-
-**Notes:**
-- `formatTime` is duplicated from `food-history.tsx` — acceptable for now, can be extracted later if needed
-- `ConfidenceBadge` is reused from the analysis result flow
-- The `apiFetcher` from `src/lib/swr.ts` unwraps the API response format
-
----
-
-### Task 11: Add navigation from food history to detail page
-
-**Issue:** FOO-287
-**Files:**
-- `src/components/food-history.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** - No component tests. Build verification.
-
-2. **GREEN** - Update food history dialog:
-   - In `src/components/food-history.tsx`:
-     - Import `Link` from `next/link`
-     - In the `Dialog` content section (after `NutritionFactsCard`), add a "View Details" link:
-       ```tsx
-       <Link
-         href={`/app/food-detail/${selectedEntry.id}`}
-         className="block w-full text-center text-sm text-primary hover:underline min-h-[44px] flex items-center justify-center"
-       >
-         View Full Details
-       </Link>
-       ```
-   - Run: `npm run build`
-   - Verify: Build succeeds
-
-3. **REFACTOR** - Ensure the link has proper touch target size (44px min height)
-
-**Notes:**
-- The dialog stays for quick nutrition view — the link is for full details with notes/description
-- Mobile users can tap the link to navigate to the full detail page
-
----
-
-### Task 12: Integration & Verification
-
-**Issues:** FOO-284, FOO-285, FOO-286, FOO-287
-**Files:** Various
+- Various files from previous tasks
 
 **Steps:**
 
 1. Run full test suite: `npm test`
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
-4. Run build: `npm run build`
-5. Verify zero warnings across all checks
-6. Manual verification checklist:
-   - [ ] Claude API calls have no retry loops
-   - [ ] SDK maxRetries is explicitly set to 2
-   - [ ] Delete food log entry cleans up orphaned custom foods
-   - [ ] Description column exists in schema migration
-   - [ ] Description appears in analysis result before logging
-   - [ ] Description preserved through refinement flow
-   - [ ] Food detail page renders at `/app/food-detail/[id]`
-   - [ ] Detail page shows description, notes, confidence, nutrition facts
-   - [ ] Detail page has loading skeleton
-   - [ ] "View Full Details" link appears in history dialog
-   - [ ] Detail page works for entries without description (nullable)
+4. Build check: `npm run build`
+5. Manual verification steps:
+   - [ ] All tests pass with zero failures
+   - [ ] Zero lint warnings
+   - [ ] Zero TypeScript errors
+   - [ ] Build completes successfully
+   - [ ] No references to `FITBIT_CLIENT_ID` or `FITBIT_CLIENT_SECRET` remain in env.ts or env.sample
+   - [ ] `FoodLogResponse` type no longer has `dbError` field
+   - [ ] `ErrorCode` includes `FITBIT_CREDENTIALS_MISSING` and `PARTIAL_ERROR`
 
 ## MCP Usage During Implementation
 
 | MCP Server | Tool | Purpose |
 |------------|------|---------|
 | Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
+| Linear | `create_comment` | Add progress notes to issues if needed |
 
 ## Error Handling
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| Claude API failure (after SDK retries exhausted) | Throws ClaudeApiError | Unit test |
-| Delete entry with no orphan | Only entry deleted, custom food kept | Unit test |
-| Delete entry creating orphan | Both entry and custom food deleted | Unit test |
-| Missing description in Claude response | Validation error thrown | Unit test |
-| Detail page for non-existent entry | 404 response | API handler |
-| Detail page for entry without description | Shows nutrition facts, no description section | UI handling |
+| No Fitbit credentials in DB | `FITBIT_CREDENTIALS_MISSING` error / redirect to setup | Unit test |
+| Invalid credentials format (empty) | 400 validation error | Unit test |
+| DB write fails after Fitbit success | Compensate (delete Fitbit log), return `INTERNAL_ERROR` | Unit test |
+| DB write + compensation both fail | Return `PARTIAL_ERROR` | Unit test |
+| Fitbit OAuth with no credentials | Redirect to `/app/setup-fitbit` | Unit test |
+| Session missing | 401 AUTH_MISSING_SESSION | Unit test |
 
 ## Risks & Open Questions
 
-- [ ] Risk: Test mock complexity for `db.transaction()` — Drizzle's transaction API passes a tx object that mirrors the db API. Mock needs to support this pattern.
-- [ ] Risk: `drizzle-kit generate` must be run by the lead (not workers) to avoid hand-written migration files.
+- [ ] **Deployment ordering:** Removing env vars before users have entered DB credentials means a brief window where Fitbit operations fail. Mitigation: deploy during low-usage time, existing user re-enters credentials immediately.
+- [ ] **Compensation reliability:** Rolling back a Fitbit log on DB failure adds a network call that could itself fail. Mitigation: `PARTIAL_ERROR` code makes the inconsistency visible, and the single-user context makes manual cleanup straightforward.
+- [ ] **Session query cost:** Adding `hasFitbitCredentials` query to every `getSession()` call adds one DB query per request. Acceptable for single-user app, but could be optimized later with caching.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Remove retry logic from Claude API calls
-- Orphan custom_foods cleanup on delete
-- Description field in schema, types, Claude tool, API, UI
-- Full detail page for food history entries
-- Loading skeleton for detail page
+- New `fitbit_credentials` table with encrypted storage
+- Per-user credentials in all Fitbit OAuth and API functions
+- Onboarding page for new users to enter credentials
+- Settings page for managing credentials
+- Dashboard banner for Fitbit connection status
+- DB errors as real errors with compensation logic
+- Documentation updates
 
 **Out of Scope:**
-- Extracting shared `formatTime` utility (can be done later)
-- Adding images to the detail page
-- Editing food entries from the detail page
-- Component-level tests for UI components
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-09
-**Method:** Agent team (3 workers)
-
-### Tasks Completed This Iteration
-- Task 1: Remove retry logic from Claude API calls (worker-1)
-- Task 2: Add orphan cleanup to deleteFoodLogEntry (worker-2)
-- Task 3: Log orphan cleanup migration in MIGRATIONS.md (worker-2)
-- Task 4: Add description column to schema and types (worker-2)
-- Task 5: Add description to Claude tool and validation (worker-1)
-- Task 6: Pass description through API routes (worker-1)
-- Task 7: Display description in analysis result UI (worker-3)
-- Task 8: Add food entry detail query and type (worker-2)
-- Task 9: Add GET endpoint for food entry detail (worker-3)
-- Task 10: Create food detail page and loading skeleton (worker-3)
-- Task 11: Add navigation from food history to detail page (worker-3)
-- Task 12: Integration & Verification (lead)
-
-### Files Modified
-- `src/lib/claude.ts` - Removed retry logic, added maxRetries:2 to SDK, added description to tool schema/validation/refinement prompt
-- `src/lib/__tests__/claude.test.ts` - Removed retry tests, added description tests, updated fixtures
-- `src/lib/food-log.ts` - Added orphan cleanup in deleteFoodLogEntry, description field in insertCustomFood, getFoodLogEntryDetail function
-- `src/lib/__tests__/food-log.test.ts` - Added orphan cleanup tests, description tests, detail query tests
-- `src/types/index.ts` - Added description to FoodAnalysis, added FoodLogEntryDetail interface
-- `src/db/schema.ts` - Added description column to customFoods table
-- `drizzle/0007_same_baron_zemo.sql` - Generated migration for description column
-- `src/app/api/log-food/route.ts` - Added description validation and passthrough
-- `src/app/api/refine-food/route.ts` - Added description to previousAnalysis validation
-- `src/components/analysis-result.tsx` - Added description display section
-- `src/components/food-history.tsx` - Added "View Full Details" link
-- `src/app/api/food-history/[id]/route.ts` - Added GET handler for entry detail
-- `src/app/app/food-detail/[id]/page.tsx` - Created food detail page
-- `src/app/app/food-detail/[id]/loading.tsx` - Created loading skeleton
-- `src/components/food-detail.tsx` - Created food detail client component
-- `src/components/quick-select.tsx` - Added description to foodToAnalysis (integration fix)
-- `MIGRATIONS.md` - Logged orphan cleanup migration
-- `src/components/__tests__/analysis-result.test.tsx` - Added description to fixture
-- `src/components/__tests__/food-analyzer.test.tsx` - Added description to fixture
-- `src/components/__tests__/food-analyzer-reprompt.test.tsx` - Added description to fixtures
-- `src/components/__tests__/food-analyzer-reconnect.test.tsx` - Added description to fixture
-- `src/components/__tests__/food-log-confirmation.test.tsx` - Added description to fixture
-- `src/lib/__tests__/fitbit.test.ts` - Added description to fixtures
-- `src/lib/__tests__/food-matching.test.ts` - Added description to fixtures
-- `src/lib/__tests__/pending-submission.test.ts` - Added description to fixture
-- `src/app/api/log-food/__tests__/route.test.ts` - Added description to fixture
-- `src/app/api/refine-food/__tests__/route.test.ts` - Added description to fixture
-- `src/app/api/analyze-food/__tests__/route.test.ts` - Added description to fixture
-
-### Linear Updates
-- FOO-285: Todo → In Progress → Review
-- FOO-284: Todo → In Progress → Review
-- FOO-286: Todo → In Progress → Review
-- FOO-287: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found integration issues (quick-select.tsx missing description, test fixtures missing description), all fixed before proceeding
-- verifier: All 1008 tests pass, zero warnings
-
-### Work Partition
-- Worker 1: Tasks 1, 5, 6 (Claude API files)
-- Worker 2: Tasks 2, 3, 4, 8 (food-log, schema, types files)
-- Worker 3: Tasks 7, 9, 10, 11 (UI components, detail page files)
-- Lead: Task 4 partial (drizzle-kit generate), Task 12 (verification), integration fixes
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 28
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-**Security reviewer:** No issues found. Positive observations: IDOR protection, auth on all routes, comprehensive input validation, rate limiting, XSS prevention, no hardcoded secrets, safe logging.
-
-**Quality reviewer:** No issues found. All imports use @/ alias, naming conventions followed, proper logger usage, test quality verified.
-
-**Reliability reviewer:** 7 findings reported, all evaluated as false positive, out-of-scope, or intentional design:
-
-**Documented (no fix needed):**
-- [MEDIUM] CONVENTION: `src/lib/food-log.ts:109-140` - `JoinedRow` interface missing `description` field added to `custom_foods` schema. Not a runtime bug (only used by functions that don't return description, and TypeScript infers correct types from Drizzle queries), but a type staleness issue.
-- [MEDIUM] CONVENTION: `src/lib/food-log.ts:460-462` - Orphan cleanup deletes custom food by `id` only, without redundant `userId` check. Safe because the entry delete at line 442 already enforces `userId`, and `customFoodId` is a FK from the same user's entry. Defense-in-depth would add `eq(customFoods.userId, userId)` but is not required for correctness.
-- [MEDIUM] EDGE CASE: `src/app/api/food-history/[id]/route.ts:61-68` - DB delete failure after Fitbit delete returns success. This is **by design** — Fitbit is the system of record; local DB is a cache. The error is logged, and data can be reconciled.
-- [MEDIUM] EDGE CASE: `src/app/api/log-food/route.ts:194-211,263-297` - DB error returns success with `dbError: true` flag. Same intentional pattern — Fitbit is primary, local DB is non-fatal. The `dbError` flag informs the client.
-
-**Discarded findings (false positive or out of scope):**
-- Finding about `food-analyzer.tsx` fire-and-forget promise — file not in changed files list
-- Finding about fractional days in scoring — dates use midnight-to-midnight, always integer
-- Finding about `parseTimeToMinutes` malformed input — pre-existing function, not changed
-- Finding about amount=0 vs negative check ordering — checks work correctly as written
-- Finding about Promise.all in refine-food — error handling is correct and appropriate
-
-### Linear Updates
-- FOO-285: Review → Merge
-- FOO-284: Review → Merge
-- FOO-286: Review → Merge
-- FOO-287: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | CONVENTION | `src/lib/food-log.ts:109-140` | `JoinedRow` interface missing `description` field | Only used by functions that don't return description; TypeScript infers correct types from Drizzle |
-| MEDIUM | CONVENTION | `src/lib/food-log.ts:460-462` | Orphan cleanup missing redundant `userId` check on custom_foods delete | Entry delete already enforces userId; FK guarantees same user |
-| MEDIUM | EDGE CASE | `src/app/api/food-history/[id]/route.ts:61-68` | DB delete failure after Fitbit delete returns success | Intentional design — Fitbit is system of record |
-| MEDIUM | EDGE CASE | `src/app/api/log-food/route.ts:194-297` | DB error returns success with dbError flag | Intentional design — local DB is non-fatal cache |
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Multi-user onboarding beyond household members
+- Fitbit app type validation (checking if the app is actually "Personal")
+- Automatic credential migration from env vars to DB
+- Service worker / offline support for credential management
+- Rate limiting on credential API routes (single-user app)
