@@ -525,6 +525,91 @@ describe("POST /api/log-food", () => {
     expect(body.data.foodLogId).toBeUndefined();
   });
 
+  it("returns dbError: true when insertCustomFood fails in new food flow", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+    mockInsertCustomFood.mockRejectedValue(new Error("DB connection failed"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.dbError).toBe(true);
+  });
+
+  it("returns dbError: true when insertFoodLogEntry fails in new food flow", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
+    mockInsertFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.dbError).toBe(true);
+  });
+
+  it("returns dbError: true when insertFoodLogEntry fails in reuse flow", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockGetCustomFoodById.mockResolvedValue({
+      id: 42,
+      email: "user-uuid-123",
+      foodName: "Tea with milk",
+      amount: "1",
+      unitId: 91,
+      calories: 50,
+      fitbitFoodId: 12345,
+      confidence: "high",
+      notes: null,
+      keywords: ["tea", "milk"],
+      createdAt: new Date("2026-02-05T12:00:00Z"),
+    });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
+    });
+    mockInsertFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+
+    const request = createMockRequest({
+      ...validFoodLogRequest,
+      reuseCustomFoodId: 42,
+    });
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.dbError).toBe(true);
+  });
+
+  it("does not include dbError when DB operations succeed", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
+    mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data.dbError).toBeUndefined();
+  });
+
   describe("reuse flow with reuseCustomFoodId", () => {
     const existingFood = {
       id: 42,

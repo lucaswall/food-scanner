@@ -33,7 +33,14 @@ export async function DELETE(
       await deleteFoodLog(accessToken, entry.fitbitLogId);
     }
 
-    await deleteFoodLogEntry(session!.userId, id);
+    try {
+      await deleteFoodLogEntry(session!.userId, id);
+    } catch (dbError) {
+      logger.error(
+        { action: "delete_food_log_db_error", entryId: id, error: dbError instanceof Error ? dbError.message : String(dbError) },
+        "Fitbit delete succeeded but local DB delete failed — entry may be orphaned locally",
+      );
+    }
 
     if (isDryRun) {
       logger.info(

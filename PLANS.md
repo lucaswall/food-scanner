@@ -403,3 +403,64 @@ Fix data freshness issues across the app (stale cache headers and disabled SWR r
 - FOO-270 (Canceled): Token encryption key derivation — SHA-256 of high-entropy secret is adequate
 - FOO-269 (Canceled): Middleware cookie validation — functionally correct, route handlers always validate
 - FOO-268 (Canceled): CSP header — complex standalone effort, low current risk
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-09
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Remove stale Cache-Control headers (FOO-279, FOO-280, FOO-281) — Changed `max-age` headers to `no-cache` on 3 API routes (worker-2)
+- Task 2: Enable SWR revalidateOnFocus (FOO-282, FOO-283) — Removed `revalidateOnFocus: false` from 3 SWR hooks (worker-1)
+- Task 3: Fix Quick Select Done button navigation (FOO-278) — Removed `onDone` callback, uses fallback `router.push("/app")` (worker-1)
+- Task 4: Add error handling to food-history fetchEntries (FOO-276) — Added `fetchError` state and error display UI (worker-1)
+- Task 5: Add 5xx retry logic to Claude API client (FOO-275) — Added `is5xxError` helper and retry blocks in both `analyzeFood` and `refineAnalysis` (worker-3)
+- Task 6: Handle partial failure on food history delete (FOO-274) — Wrapped `deleteFoodLogEntry` in try/catch, DB failures non-fatal (worker-4)
+- Task 7: Improve partial failure handling in log-food route (FOO-273) — Added `dbError` flag to `FoodLogResponse` type and response (worker-4)
+
+### Files Modified
+- `src/app/api/common-foods/route.ts` — Cache-Control → `private, no-cache`
+- `src/app/api/common-foods/__tests__/route.test.ts` — Updated header assertions
+- `src/app/api/food-history/route.ts` — Cache-Control → `private, no-cache`
+- `src/app/api/food-history/__tests__/route.test.ts` — Updated header assertions
+- `src/app/api/search-foods/route.ts` — Cache-Control → `private, no-cache`
+- `src/app/api/search-foods/__tests__/route.test.ts` — Updated header assertions
+- `src/components/quick-select.tsx` — Removed `revalidateOnFocus: false`, removed `onDone` callback, removed unused `mutate`
+- `src/components/__tests__/quick-select.test.tsx` — Updated mock, added Done navigation test
+- `src/components/food-history.tsx` — Removed `revalidateOnFocus: false`, added `fetchError` state and error UI
+- `src/components/__tests__/food-history.test.tsx` — Added 3 error handling tests
+- `src/lib/claude.ts` — Added `is5xxError` helper, 5xx retry blocks in both functions
+- `src/lib/__tests__/claude.test.ts` — Added 6 retry tests
+- `src/app/api/food-history/[id]/route.ts` — Wrapped `deleteFoodLogEntry` in try/catch
+- `src/app/api/food-history/[id]/__tests__/route.test.ts` — Added 2 partial failure tests
+- `src/app/api/log-food/route.ts` — Added `dbError` flag to both reuse and new food flows
+- `src/app/api/log-food/__tests__/route.test.ts` — Added 4 partial failure tests
+- `src/types/index.ts` — Added `dbError?: boolean` to `FoodLogResponse`
+- `CLAUDE.md` — Updated Cache-Control performance policy
+
+### Linear Updates
+- FOO-279: Todo → In Progress → Review
+- FOO-280: Todo → In Progress → Review
+- FOO-281: Todo → In Progress → Review
+- FOO-282: Todo → In Progress → Review
+- FOO-283: Todo → In Progress → Review
+- FOO-278: Todo → In Progress → Review
+- FOO-276: Todo → In Progress → Review
+- FOO-275: Todo → In Progress → Review
+- FOO-274: Todo → In Progress → Review
+- FOO-273: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: 8 findings triaged — 2 HIGH by-design (per plan acceptance criteria), 1 MEDIUM actioned (CLAUDE.md updated), 4 false positives, 2 out-of-scope
+- verifier: All 1006 tests pass, zero warnings, lint/typecheck/build clean
+
+### Work Partition
+- Worker 1: Tasks 2, 3, 4 (component files: quick-select, food-history)
+- Worker 2: Task 1 (API route files: common-foods, food-history, search-foods)
+- Worker 3: Task 5 (lib file: claude.ts)
+- Worker 4: Tasks 6, 7 (API route files: food-history/[id], log-food + types)
+
+### Continuation Status
+All tasks completed.

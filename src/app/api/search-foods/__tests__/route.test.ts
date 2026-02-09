@@ -144,7 +144,7 @@ describe("GET /api/search-foods", () => {
     mockSearchFoods.mockResolvedValue([]);
 
     const response = await GET(makeRequest({ q: "test" }));
-    expect(response.headers.get("Cache-Control")).toBe("private, max-age=30, stale-while-revalidate=60");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 
   it("returns 500 when searchFoods throws", async () => {

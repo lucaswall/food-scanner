@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     );
 
     const response = successResponse({ foods });
-    response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
+    response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
     logger.error(

@@ -719,6 +719,126 @@ describe("FoodHistory", () => {
     expect(screen.getByText("Initial 2")).toBeInTheDocument();
   });
 
+  it("shows error message when Load More fetch fails", async () => {
+    // Need 20 entries to trigger hasMore=true
+    const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+      id: i + 1,
+      foodName: `Food ${i + 1}`,
+      calories: 100,
+      proteinG: 5,
+      carbsG: 10,
+      fatG: 3,
+      fiberG: 1,
+      sodiumMg: 50,
+      amount: 100,
+      unitId: 147,
+      mealTypeId: 3,
+      date: today,
+      time: "12:00:00",
+      fitbitLogId: 1000 + i,
+    }));
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
+      })
+      .mockRejectedValueOnce(new Error("Network error"));
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Food 1")).toBeInTheDocument();
+    });
+
+    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
+    fireEvent.click(loadMoreButton);
+
+    await waitFor(() => {
+      const alert = screen.getByRole("alert");
+      expect(alert).toHaveTextContent(/failed to load entries/i);
+    });
+  });
+
+  it("shows error message when Jump to Date fetch fails", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+      })
+      .mockRejectedValueOnce(new Error("Network error"));
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    const dateInput = screen.getByLabelText(/jump to date/i);
+    fireEvent.change(dateInput, { target: { value: "2026-01-15" } });
+
+    const goButton = screen.getByRole("button", { name: /go/i });
+    fireEvent.click(goButton);
+
+    await waitFor(() => {
+      const alert = screen.getAllByRole("alert");
+      const fetchAlert = alert.find((el) => el.textContent?.includes("Failed to load entries"));
+      expect(fetchAlert).toBeTruthy();
+    });
+  });
+
+  it("clears fetch error on subsequent successful fetch", async () => {
+    const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+      id: i + 1,
+      foodName: `Food ${i + 1}`,
+      calories: 100,
+      proteinG: 5,
+      carbsG: 10,
+      fatG: 3,
+      fiberG: 1,
+      sodiumMg: 50,
+      amount: 100,
+      unitId: 147,
+      mealTypeId: 3,
+      date: today,
+      time: "12:00:00",
+      fitbitLogId: 1000 + i,
+    }));
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
+      })
+      .mockRejectedValueOnce(new Error("Network error"))
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+      });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Food 1")).toBeInTheDocument();
+    });
+
+    // First click: fails
+    fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(/failed to load entries/i);
+    });
+
+    // Second click: succeeds — error should be cleared
+    fireEvent.click(screen.getByRole("button", { name: /load more/i }));
+
+    await waitFor(() => {
+      const alerts = screen.queryAllByRole("alert");
+      const fetchAlert = alerts.find((el) => el.textContent?.includes("Failed to load entries"));
+      expect(fetchAlert).toBeUndefined();
+    });
+  });
+
   it("date headers use h2 elements", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
