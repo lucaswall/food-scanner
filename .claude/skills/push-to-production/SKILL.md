@@ -116,13 +116,26 @@ For each entry in MIGRATIONS.md:
 
 ### 2.3 Classify Migration Complexity
 
+Classify **each MIGRATIONS.md entry independently**. A single release may have entries at different levels.
+
 | Complexity | Criteria | Action |
 |-----------|---------|--------|
 | **None** | No data affected (new tables only, new columns with defaults) | Skip — Drizzle handles DDL |
-| **Simple** | Column renames, backfill FK from existing data, env var renames | Write migration automatically |
+| **Data-only** | Drizzle handles DDL, but a standalone data operation is also needed (cleanup, backfill nullable column, one-time DELETE/UPDATE) | Collect SQL → run against production in Phase 5.1 |
+| **Simple** | DDL changes that Drizzle can't handle alone (column renames, type changes, backfill + NOT NULL constraint) | Write full migration script with Drizzle journal inserts (Phase 3) |
 | **Complex** | Data transformation logic, ambiguous mappings, potential data loss | **STOP** and discuss with user |
 
-### 2.4 Handle Complex Migrations
+**Key distinction:** "Data-only" means Drizzle's generated migrations are sufficient for the schema changes — the extra SQL is a data operation that runs *after* Drizzle migrations complete at deploy startup. "Simple" means the DDL itself needs manual handling (Drizzle's generated SQL would fail or produce wrong results on existing data).
+
+### 2.4 Handle Data-only Migrations
+
+For entries classified as Data-only:
+
+1. Write the SQL statements to a file at `_migrations/data-YYYYMMDD.sql`
+2. Use data-agnostic SQL (derive values from existing DB content, never hardcode user data)
+3. These will be executed against production in Phase 5.1 **after** the deploy completes and Drizzle migrations run
+
+### 2.5 Handle Complex Migrations
 
 If any migration is classified as Complex:
 
@@ -285,9 +298,11 @@ Report: "Production backup saved to `_migrations/backup-YYYYMMDD-HHMMSS.dump` (X
 
 ## Phase 5: Execute Release
 
-### 5.1 Apply Migration to Production (if migration needed)
+### 5.1 Apply Migrations to Production
 
-Run the migration using the URL from Phase 4.2:
+**Full migration script (Simple complexity):**
+
+If a migration script was written in Phase 3, run it using the URL from Phase 4.2 **before** merging to release (service is already stopped):
 
 ```bash
 /opt/homebrew/opt/libpq/bin/psql "$DATABASE_PUBLIC_URL" -f _migrations/release-YYYYMMDD.sql
@@ -295,7 +310,15 @@ Run the migration using the URL from Phase 4.2:
 
 If the migration fails, **STOP**: "Migration failed on production. Service is down. Investigate before proceeding. Backup available at `_migrations/backup-*.dump`. To restore service, push current `release` branch again or redeploy from Railway dashboard."
 
-If no migration is needed, skip this step.
+**Data-only SQL (Data-only complexity):**
+
+If data-only SQL was written in Phase 2.4, run it **after** merging to release and confirming the deploy succeeded (Drizzle migrations must run first at deploy startup). Wait for the Railway deploy to complete, then:
+
+```bash
+/opt/homebrew/opt/libpq/bin/psql -d "$DATABASE_PUBLIC_URL" -f _migrations/data-YYYYMMDD.sql
+```
+
+If no migrations or data operations are needed, skip this step.
 
 ### 5.2 Clear MIGRATIONS.md
 
@@ -397,6 +420,7 @@ git checkout main
 **Commits:** N commits
 **Backup:** _migrations/backup-YYYYMMDD-HHMMSS.dump
 **Migration:** [Applied successfully | No migration needed]
+**Data operations:** [Applied successfully (list queries) | None]
 
 ### Environment Variable Changes
 [List any env var renames/additions from MIGRATIONS.md, or "None"]
@@ -430,6 +454,7 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 | Complex migration | STOP — discuss with user |
 | Migration SQL fails locally | STOP — fix migration before proceeding |
 | Migration fails on production | STOP — service is down, investigate, backup available, restore service with `railway up` |
+| Data-only SQL fails on production | Log the error — deploy already succeeded, Drizzle migrations are fine. Report to user and suggest manual fix |
 | Cannot stop production service | STOP — check Railway CLI |
 | Drizzle internals changed | STOP — read migrator source, update skill before proceeding |
 | Merge conflicts | STOP — user resolves manually |
@@ -453,4 +478,5 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 - **Backup files stay local** — `_migrations/` is gitignored
 - **Never hardcode user data in SQL** — Derive from existing DB content (SELECT DISTINCT, JOINs), never hardcode emails, names, or personal data
 - **Semantic Versioning 2.0.0** — Version bumps follow semver rules: MAJOR for breaking changes, MINOR for new features, PATCH for bug fixes. Every release gets a CHANGELOG.md entry and matching package.json version
+- **Never defer SQL to the user** — All data operations from MIGRATIONS.md must be executed by this skill as part of the release. Never tell the user to run SQL manually post-deploy.
 - **Stop on any failure** — Better to abort than corrupt production
