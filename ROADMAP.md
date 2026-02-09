@@ -72,6 +72,24 @@ After the initial analysis, the user can optionally open an inline chat to refin
 7. Close/discard behavior
 8. Success toast with food names
 
+### Future Evolution: Smart Multi-Item Splitting & Library Reuse
+
+Once the chat is stable, the model can suggest splitting a meal into multiple separate food log entries. Instead of logging "grilled chicken with rice, salad, and flan" as one monolithic food, Claude suggests: *"I'd log this as 2 items: (1) Grilled chicken with rice — matches one you've logged before (520 cal), (2) Flan — new (~280 cal). Sound good?"*
+
+**Multi-item splitting:**
+- Claude suggests splitting by courses/distinct items, not by ingredients. "Chicken with rice" stays together — it's one dish. But "chicken with rice AND a flan" is two.
+- Claude suggests, user decides. Never auto-split. The user can say "keep it as one" or "actually split the chicken and rice too."
+- Cap at ~4-5 entries per analysis. No micro-entries.
+- The user can adjust splits during the chat: "combine those into one" or "separate the salad."
+
+**Food library reuse:**
+- Before creating a new food, Claude checks the existing custom foods library for matches.
+- If "Grilled chicken with rice" already exists from a previous log, Claude reuses it instead of creating a duplicate.
+- Claude tells the user which items are reused ("matches one you've logged before") vs. new estimates. Builds trust.
+- This keeps the food library clean — no duplicates piling up — and makes quick-add more useful over time.
+
+**Combined benefit:** After a few weeks the user has a curated library of actual foods they eat, at the right granularity. Quick-add becomes powerful: tomorrow you had the same lunch but no dessert — just quick-add the chicken with rice, skip the flan.
+
 ---
 
 ## Feature 1: Extended Nutrition Tracking
