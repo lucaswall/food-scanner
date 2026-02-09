@@ -1,4 +1,4 @@
-# Fix Plan: Fitbit Credentials-Missing Transitional State
+# Fix Plan: Comprehensive Fitbit Railguards
 
 **Issue:** FOO-294
 **Date:** 2026-02-09
@@ -9,66 +9,178 @@
 
 ### Bug Report
 
-After PR #47 introduced per-user Fitbit credentials, existing users who had tokens from the old env-var flow have a contradictory state: `fitbit_tokens` rows exist (so `fitbitConnected=true`) but `fitbit_credentials` rows don't (so `hasFitbitCredentials=false`). This causes:
+After PR #47 introduced per-user Fitbit credentials, there are no clear railguards preventing users from entering flows that will fail. The problem manifests in 3 distinct Fitbit states:
 
-1. Settings shows "Fitbit: Connected" (green) AND "No credentials configured" simultaneously
-2. `ensureFreshToken()` throws `FITBIT_CREDENTIALS_MISSING` when tokens expire, caught as generic 500
-3. `analyze-food` lets users spend a Claude API call even though `log-food` will fail when tokens need refresh
-4. `FitbitStatusBanner` doesn't warn about the connected-but-no-credentials state
+| State | `fitbitConnected` | `hasFitbitCredentials` | Meaning |
+|-------|---|---|---|
+| **Fully set up** | true | true | Everything works |
+| **Transitional** | true | false | Old tokens from env-var flow; will break on token refresh |
+| **No tokens** | false | true | Has credentials but hasn't completed OAuth |
+| **Not set up** | false | false | Brand new user, no Fitbit at all |
+
+Currently, only the "fully set up" state works correctly. The other 3 states let users enter analyze/quick-select, go through the entire flow, and only fail at the very end.
 
 ### Classification
 - **Type:** Bug
 - **Severity:** High
-- **Affected Area:** Auth/Fitbit integration, Settings UI, food logging flow
+- **Affected Area:** Auth/Fitbit integration, all food logging flows, Settings UI
 
 ### Root Cause Analysis
 
-#### Evidence
+#### Layer 1: No page-level blocking
 
-1. **`src/lib/session.ts:88-108`** — `validateSession({ requireFitbit: true })` only checks `session.fitbitConnected` (line 100), ignoring `session.hasFitbitCredentials`. This means API routes that require Fitbit pass validation even when credentials are missing.
+**`src/app/app/analyze/page.tsx`** and **`src/app/app/quick-select/page.tsx`** only check `session` existence (lines 13-15). They don't check Fitbit state at all. Users see the full UI regardless.
 
-2. **`src/app/api/log-food/route.ts:344-373`** — The catch block handles `FITBIT_TOKEN_INVALID` (line 347) and `FITBIT_RATE_LIMIT` (line 359), but `FITBIT_CREDENTIALS_MISSING` falls through to the generic catch on line 368, returning a vague "Failed to log food to Fitbit" (500).
+**`src/app/app/page.tsx`** shows `<FitbitStatusBanner />` (line 23) which is informational only — the "Take Photo" and "Quick Select" links (lines 26-39) are always rendered and clickable.
 
-3. **`src/lib/fitbit.ts:421-425`** — `ensureFreshToken()` checks credentials first: if missing, throws `FITBIT_CREDENTIALS_MISSING`. But this is only reached when tokens need refreshing (within 1 hour of expiry), so the bug is time-delayed — everything works until the first token refresh.
+#### Layer 2: API routes fail too late
 
-4. **`src/components/settings-content.tsx:131-142`** — "Fitbit: Connected/Not connected" is driven solely by `session.fitbitConnected`. No special handling for the combination of connected=true + hasCredentials=false.
+**`src/app/api/analyze-food/route.ts:14`** — `validateSession(session, { requireFitbit: true })` checks `fitbitConnected` but NOT `hasFitbitCredentials`. In the transitional state (tokens exist, no credentials), this passes. The user spends a Claude API call. Then `log-food` fails later.
 
-5. **`src/components/fitbit-status-banner.tsx:28`** — Banner returns `null` (hidden) when `fitbitConnected` is true, regardless of `hasFitbitCredentials`.
+**`src/lib/session.ts:100`** — `validateSession` only checks `session.fitbitConnected`:
+```typescript
+if (options?.requireFitbit && !session.fitbitConnected) { ... }
+```
+Missing: no check for `session.hasFitbitCredentials`.
 
-6. **`src/app/api/analyze-food/route.ts:14`** — Uses `validateSession(session, { requireFitbit: true })` which passes for users with tokens but no credentials, allowing a Claude API call that will be wasted if the subsequent log-food call fails.
+#### Layer 3: log-food catch block doesn't handle FITBIT_CREDENTIALS_MISSING
+
+**`src/app/api/log-food/route.ts:344-373`** — Handles `FITBIT_TOKEN_INVALID` (line 347) and `FITBIT_RATE_LIMIT` (line 359). `FITBIT_CREDENTIALS_MISSING` (thrown by `ensureFreshToken` at `src/lib/fitbit.ts:424`) falls to the generic catch → vague 500 "Failed to log food to Fitbit".
+
+#### Layer 4: Client components don't handle Fitbit error codes
+
+**`src/components/food-analyzer.tsx:246`** — Only handles `FITBIT_TOKEN_INVALID` (redirect to OAuth). `FITBIT_NOT_CONNECTED` and `FITBIT_CREDENTIALS_MISSING` show as generic error text with no actionable guidance.
+
+**`src/components/quick-select.tsx:200`** — Same: only handles `FITBIT_TOKEN_INVALID`.
+
+#### Layer 5: Settings UI shows contradictory state
+
+**`src/components/settings-content.tsx:131-142`** — Shows "Fitbit: Connected" (green) even in transitional state.
+
+**`src/components/fitbit-status-banner.tsx:28`** — Returns null when `fitbitConnected=true`, even without credentials.
 
 ### Impact
-- Users see contradictory state on Settings page
-- Users can waste Claude API calls analyzing food they can't log
-- When tokens expire, users get a vague error with no guidance on how to fix it
-- No proactive warning about the impending failure
+- Users waste time going through analyze/quick-select flows that will fail
+- Claude API calls are wasted when analysis succeeds but logging can't work
+- Error messages are generic and non-actionable
+- No proactive warning about impending failure
 
 ## Fix Plan (TDD Approach)
 
-### Step 1: Extend `validateSession` to check credentials
+### Step 1: Create `FitbitSetupGuard` component
 
-**Test file:** `src/lib/__tests__/session.test.ts`
-**Test:** Add test that `validateSession({ requireFitbit: true })` returns `FITBIT_CREDENTIALS_MISSING` error when `fitbitConnected=true` but `hasFitbitCredentials=false`
+A shared client component that wraps analyze and quick-select pages. It fetches session state and blocks the entire page content when Fitbit isn't properly set up, showing an appropriate message + action button.
 
-```typescript
-it("returns FITBIT_CREDENTIALS_MISSING when fitbitConnected but no credentials", () => {
-  const session: FullSession = {
-    sessionId: "test-id",
-    userId: "user-id",
-    expiresAt: Date.now() + 86400000,
-    fitbitConnected: true,
-    hasFitbitCredentials: false,
-    destroy: vi.fn(),
-  };
-  const result = validateSession(session, { requireFitbit: true });
-  expect(result).not.toBeNull();
-  // Parse response to check error code
-  // Expect: { code: "FITBIT_CREDENTIALS_MISSING", message: "..." }
-});
+**Test file:** `src/components/__tests__/fitbit-setup-guard.test.tsx`
+**Tests:**
+- When `fitbitConnected=true` AND `hasFitbitCredentials=true`: renders children normally
+- When `hasFitbitCredentials=false`: shows "Set up Fitbit credentials" message + link to `/app/setup-fitbit`, does NOT render children
+- When `fitbitConnected=false` AND `hasFitbitCredentials=true`: shows "Fitbit disconnected" message + reconnect button (form POST to `/api/auth/fitbit`), does NOT render children
+- When both false: shows "Set up Fitbit" message + link to `/app/setup-fitbit`, does NOT render children
+- While loading: shows skeleton placeholder
+
+**Implementation file:** `src/components/fitbit-setup-guard.tsx` (NEW)
+```tsx
+"use client";
+
+import useSWR from "swr";
+import { apiFetcher } from "@/lib/swr";
+import { Button } from "@/components/ui/button";
+import Link from "next/link";
+import type { ReactNode } from "react";
+
+interface SessionResponse {
+  fitbitConnected: boolean;
+  hasFitbitCredentials: boolean;
+}
+
+interface FitbitSetupGuardProps {
+  children: ReactNode;
+}
+
+export function FitbitSetupGuard({ children }: FitbitSetupGuardProps) {
+  const { data, isLoading } = useSWR<SessionResponse>(
+    "/api/auth/session",
+    apiFetcher,
+  );
+
+  if (isLoading) {
+    return <div className="h-48 rounded-lg bg-muted animate-pulse" />;
+  }
+
+  if (!data) return null;
+
+  // Fully set up — render normally
+  if (data.fitbitConnected && data.hasFitbitCredentials) {
+    return <>{children}</>;
+  }
+
+  // No credentials → set up
+  if (!data.hasFitbitCredentials) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 space-y-4 text-center">
+        <p className="text-muted-foreground">
+          Set up your Fitbit credentials to start logging food
+        </p>
+        <Button asChild className="min-h-[44px]">
+          <Link href="/app/setup-fitbit">Set up Fitbit</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  // Has credentials but no tokens → reconnect
+  return (
+    <div className="flex flex-col items-center justify-center py-12 space-y-4 text-center">
+      <p className="text-muted-foreground">
+        Connect your Fitbit account to start logging food
+      </p>
+      <form action="/api/auth/fitbit" method="POST">
+        <Button type="submit" className="min-h-[44px]">
+          Connect Fitbit
+        </Button>
+      </form>
+    </div>
+  );
+}
 ```
 
+### Step 2: Add `FitbitSetupGuard` to analyze and quick-select pages
+
+**Implementation files:**
+- `src/app/app/analyze/page.tsx` — Wrap `<FoodAnalyzer>` with `<FitbitSetupGuard>`
+- `src/app/app/quick-select/page.tsx` — Wrap `<QuickSelect>` with `<FitbitSetupGuard>`
+
+The guard fetches session client-side (SWR), so the page still renders as a server component with the heading. Only the interactive content is blocked.
+
+```tsx
+// analyze/page.tsx
+<FitbitSetupGuard>
+  <FoodAnalyzer autoCapture={autoCapture} />
+</FitbitSetupGuard>
+```
+
+```tsx
+// quick-select/page.tsx
+<FitbitSetupGuard>
+  <QuickSelect />
+</FitbitSetupGuard>
+```
+
+**Test files:**
+- `src/app/app/analyze/__tests__/page.test.tsx` — Verify guard is rendered
+- `src/app/app/quick-select/__tests__/page.test.tsx` — Verify guard is rendered
+
+### Step 3: Extend `validateSession` to check credentials
+
+**Test file:** `src/lib/__tests__/session.test.ts`
+**Tests:**
+- `validateSession({ requireFitbit: true })` with `fitbitConnected=true, hasFitbitCredentials=false` → returns `FITBIT_CREDENTIALS_MISSING` error (400)
+- `validateSession({ requireFitbit: true })` with `fitbitConnected=true, hasFitbitCredentials=true` → returns null (pass)
+- Existing tests for `fitbitConnected=false` remain unchanged → `FITBIT_NOT_CONNECTED`
+
 **Implementation file:** `src/lib/session.ts`
-**Change:** In `validateSession()`, after the `requireFitbit` + `!fitbitConnected` check (line 100), add a check for `!session.hasFitbitCredentials`:
+**Change:** After the `!fitbitConnected` check (line 100-106), add:
 
 ```typescript
 if (options?.requireFitbit && !session.hasFitbitCredentials) {
@@ -80,29 +192,17 @@ if (options?.requireFitbit && !session.hasFitbitCredentials) {
 }
 ```
 
-This goes **after** the `!fitbitConnected` check so we get the more specific error when applicable.
+Order matters: check `!fitbitConnected` first (no tokens at all), then `!hasFitbitCredentials` (has tokens but can't refresh). The first is more severe.
 
-**Important:** This change affects `analyze-food`, `refine-food`, and `log-food` since they all call `validateSession(session, { requireFitbit: true })`. This is the correct behavior — it blocks the user **before** wasting a Claude API call.
+### Step 4: Add `FITBIT_CREDENTIALS_MISSING` handler in `log-food` catch block
 
-### Step 2: Add `FITBIT_CREDENTIALS_MISSING` handler in `log-food` catch block
+Defense-in-depth: even with the guard and validateSession, handle this error specifically.
 
 **Test file:** `src/app/api/log-food/__tests__/route.test.ts`
-**Test:** Add test that when `ensureFreshToken` throws `FITBIT_CREDENTIALS_MISSING`, the response has error code `FITBIT_CREDENTIALS_MISSING` with 400 status (not generic 500).
-
-```typescript
-it("returns FITBIT_CREDENTIALS_MISSING when credentials are missing during token refresh", async () => {
-  mockGetSession.mockResolvedValue(validSession);
-  mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
-  // ... build valid request body
-  const response = await POST(request);
-  expect(response.status).toBe(400);
-  const body = await response.json();
-  expect(body.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
-});
-```
+**Test:** When `ensureFreshToken` throws `FITBIT_CREDENTIALS_MISSING`, response has code `FITBIT_CREDENTIALS_MISSING` and status 400.
 
 **Implementation file:** `src/app/api/log-food/route.ts`
-**Change:** In the catch block (line 344), add a handler before `FITBIT_TOKEN_INVALID`:
+**Change:** In catch block (line 344), before the `FITBIT_TOKEN_INVALID` handler:
 
 ```typescript
 if (errorMessage === "FITBIT_CREDENTIALS_MISSING") {
@@ -118,18 +218,51 @@ if (errorMessage === "FITBIT_CREDENTIALS_MISSING") {
 }
 ```
 
-**Note:** With Step 1 in place, this catch is a defense-in-depth — the `validateSession` check will catch it first in most cases. But if a race condition occurs (credentials deleted between validation and `ensureFreshToken`), this catch handles it gracefully.
+### Step 5: Handle Fitbit error codes in client components
 
-### Step 3: Update `validateSession` mock in affected test files
+Both `FoodAnalyzer` and `QuickSelect` need to handle `FITBIT_CREDENTIALS_MISSING` and `FITBIT_NOT_CONNECTED` with actionable UI, not just generic error text.
 
-The mock of `validateSession` in test files needs updating to also check `hasFitbitCredentials`. Affected files:
+**Implementation file:** `src/components/food-analyzer.tsx`
+**Change in `handleLogToFitbit` (line 242-258) and `handleUseExisting` (line 296-314):**
 
-- `src/app/api/log-food/__tests__/route.test.ts` (line 9-27)
+After the existing `FITBIT_TOKEN_INVALID` check, add:
+```typescript
+if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+  setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
+  vibrateError();
+  return;
+}
+```
+
+**Implementation file:** `src/components/quick-select.tsx`
+**Change in `handleLogToFitbit` (line 198-215):**
+
+Same pattern — after `FITBIT_TOKEN_INVALID` check:
+```typescript
+if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+  setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
+  vibrateError();
+  return;
+}
+```
+
+Also update the error display to show a "Go to Settings" link when the error mentions "set up" or "credentials" (similar to the existing `logError.includes("reconnect")` pattern in food-analyzer.tsx line 569-575).
+
+**Test files:**
+- `src/components/__tests__/food-analyzer.test.tsx` (if exists) or inline in component tests
+- `src/components/__tests__/quick-select.test.tsx` (if exists) or inline in component tests
+
+### Step 6: Update `validateSession` mocks in affected test files
+
+The mock of `validateSession` in test files needs to reflect the new `hasFitbitCredentials` check.
+
+**Affected files** (all files that mock `validateSession` with `requireFitbit`):
+- `src/app/api/log-food/__tests__/route.test.ts`
 - `src/app/api/analyze-food/__tests__/route.test.ts`
 - `src/app/api/refine-food/__tests__/route.test.ts`
 - Any other test files that mock `validateSession`
 
-Add to the mock:
+Add to the mock after the `!fitbitConnected` check:
 ```typescript
 if (options?.requireFitbit && !session.hasFitbitCredentials) {
   return Response.json(
@@ -139,13 +272,15 @@ if (options?.requireFitbit && !session.hasFitbitCredentials) {
 }
 ```
 
-### Step 4: Fix Settings page UI for transitional state
+Test sessions used in these tests need `hasFitbitCredentials: true` added to pass.
+
+### Step 7: Fix Settings page and FitbitStatusBanner
 
 **Test file:** `src/app/settings/__tests__/page.test.tsx`
-**Test:** When session has `fitbitConnected=true` and credentials `hasCredentials=false`, the settings page should show a warning like "Your Fitbit connection will stop working when the current token expires" and prominently show the setup button.
+**Test:** When `fitbitConnected=true` and `hasFitbitCredentials=false`, show amber warning.
 
 **Implementation file:** `src/components/settings-content.tsx`
-**Change:** In the Fitbit status display (lines 131-142), when `session.fitbitConnected && !session.hasFitbitCredentials`, show an amber warning instead of a green "Connected":
+**Change (lines 131-142):** Show amber "Connected (credentials missing)" instead of green "Connected":
 
 ```tsx
 {session.fitbitConnected && !session.hasFitbitCredentials ? (
@@ -165,16 +300,13 @@ if (options?.requireFitbit && !session.hasFitbitCredentials) {
 )}
 ```
 
-### Step 5: Update FitbitStatusBanner for transitional state
-
 **Test file:** `src/components/__tests__/fitbit-status-banner.test.tsx`
-**Test:** When `fitbitConnected=true` and `hasFitbitCredentials=false`, the banner should show a warning directing the user to set up credentials.
+**Test:** When `fitbitConnected=true` and `hasFitbitCredentials=false`, show warning banner.
 
 **Implementation file:** `src/components/fitbit-status-banner.tsx`
-**Change:** Before the `if (fitbitConnected) return null;` check (line 28), add a check for the transitional state:
+**Change:** Before `if (fitbitConnected) return null;` (line 28), add transitional state check:
 
 ```tsx
-// Case 0: Connected but no credentials → warn about impending failure
 if (fitbitConnected && !hasFitbitCredentials) {
   return (
     <Alert variant="default" className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
@@ -192,7 +324,7 @@ if (fitbitConnected && !hasFitbitCredentials) {
 }
 ```
 
-### Step 6: Verify
+### Step 8: Verify
 
 - [ ] All new tests pass
 - [ ] All existing tests pass (`npm test`)
@@ -200,9 +332,21 @@ if (fitbitConnected && !hasFitbitCredentials) {
 - [ ] Lint passes (`npm run lint`)
 - [ ] Build succeeds (`npm run build`)
 
+## Defense-in-Depth Summary
+
+After this fix, here's how each layer blocks incomplete Fitbit states:
+
+| Layer | What it does | Catches |
+|-------|-------------|---------|
+| **FitbitSetupGuard** (page) | Blocks entire page content with message + action button | All 3 bad states before any user interaction |
+| **FitbitStatusBanner** (dashboard) | Amber warning banner on `/app` | Transitional state (connected but no credentials) |
+| **validateSession** (API) | Returns specific error codes early | `FITBIT_NOT_CONNECTED` + `FITBIT_CREDENTIALS_MISSING` before any API work |
+| **log-food catch** (API) | Handles `FITBIT_CREDENTIALS_MISSING` specifically | Race condition: credentials deleted between validation and token refresh |
+| **Client error handlers** | Actionable error messages with Settings link | API errors that slip through |
+
 ## Notes
 
-- The `validateSession` change (Step 1) is the highest-impact fix — it blocks all three API routes (`analyze-food`, `refine-food`, `log-food`) before any expensive work happens.
-- Step 2 is defense-in-depth for the `log-food` route specifically.
-- Steps 4-5 are UX improvements that make the state visible to the user.
-- This is a transitional-state bug that only affects users who had tokens before PR #47 introduced per-user credentials. New users won't hit this because the Google OAuth callback redirects them to setup-fitbit before they can get tokens.
+- The `FitbitSetupGuard` is the highest-impact change — it prevents users from even starting a flow that will fail.
+- Steps 3-4 are server-side defense-in-depth.
+- Step 5 ensures that even if the guard is somehow bypassed (e.g., direct API call), users get clear guidance.
+- This is mostly a transitional-state problem affecting users who existed before PR #47. New users hit the Google OAuth → setup-fitbit redirect and won't see these issues.
