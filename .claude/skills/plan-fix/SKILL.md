@@ -136,9 +136,9 @@ Write or append to `PLANS.md` at the project root with this structure:
 - **Logs:** [relevant log output if any]
 
 #### Related Code
-```typescript
-// The problematic code
-```
+- `path/to/file.ts:lineNumber` — [describe what this code does and why it's problematic]
+- `path/to/other-file.ts:lineNumber` — [describe the related code]
+(Reference files and line numbers. Do NOT paste code blocks — the implementer will read the files.)
 
 ### Impact
 - [What breaks because of this bug]
@@ -147,30 +147,30 @@ Write or append to `PLANS.md` at the project root with this structure:
 
 ## Fix Plan (TDD Approach)
 
-### Step 1: Write Failing Test
-- **File:** `src/__tests__/path/to/test.test.ts` (or appropriate test location)
-- **Test:** [describe what the test should verify]
-```typescript
-// Test code outline
-```
+### Step 1: [Short description of change]
+**File:** `path/to/file.ts` (create | modify)
+**Test:** `path/to/__tests__/file.test.ts` (create | modify)
+**Pattern:** Follow `path/to/similar-existing-file.ts` structure
 
-### Step 2: Implement Fix
-- **File:** `path/to/file.ts`
-- **Change:** [describe the specific code change]
-```typescript
-// Fixed code outline
-```
+**Behavior:**
+- [What this component/function should do — written as a behavioral spec]
+- [State transitions, edge cases, error handling]
+- [Reference existing patterns by file path]
 
-### Step 3: Verify
-- [ ] Failing test now passes
-- [ ] Existing tests still pass
+**Tests:**
+1. [Test assertion in plain English]
+2. [Test assertion in plain English]
+3. [Test assertion in plain English]
+
+### Step 2: [Next change]
+(Same structure — behavioral spec, not code)
+
+### Step N: Verify
+- [ ] All new tests pass
+- [ ] All existing tests pass
 - [ ] TypeScript compiles without errors
 - [ ] Lint passes
-- [ ] Manual verification (if applicable)
-
-### Step 4: Additional Tests (if needed)
-- [ ] Edge case: [describe]
-- [ ] Integration test: [describe]
+- [ ] Build succeeds
 
 ## Notes
 - [Any additional context, workarounds, or considerations]
@@ -250,6 +250,7 @@ Create a Linear issue in the "Food Scanner" team with status "Todo":
   - **Low:** Minor UI issue, edge case, cosmetic problem
 - **DO NOT expose secrets, API keys, or sensitive environment variable values** in PLANS.md or Linear issues.
 - **DO NOT hallucinate code** - only reference code that actually exists in the codebase.
+- **Plans describe WHAT and WHY, not HOW at the code level.** Include: file paths, function names, behavioral specs, test assertions, patterns to follow (reference existing files by path), state transitions. Do NOT include: implementation code blocks, ready-to-paste TypeScript/TSX, full function bodies. The implementer (plan-implement workers) writes all code — your job is architecture and specification. Exception: short one-liners for surgical changes (e.g., "add `if (!session.x)` check after the existing `!session.y` check") are fine.
 - **Flag migration-relevant fixes** — If the fix changes DB schema, renames columns, changes identity models, renames env vars, or changes session/token formats, add a note in the fix plan: "**Migration note:** [what production data is affected]". The implementer will log this in `MIGRATIONS.md`.
 
 ## 10. Scope Boundaries
