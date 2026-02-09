@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** COMPLETE
+**Status:** IN_PROGRESS
 **Branch:** feat/FOO-237-quick-select-improvements
 **Issues:** FOO-237, FOO-238, FOO-239, FOO-240, FOO-236
 **Created:** 2026-02-08
@@ -497,23 +497,66 @@ All tasks completed.
 
 ### Review Findings
 
-Files reviewed: 17
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+Summary: 4 issue(s) found (Team: security, reliability, quality reviewers + PR bot review)
+- CRITICAL: 0
+- HIGH: 2
+- MEDIUM: 1 (fix required — external input validation)
+- LOW: 1 (documented only)
 
-No issues found - all implementations are correct and follow project conventions.
+**Issues requiring fix:**
+- [HIGH] BUG: Stale closure in IntersectionObserver callback — `setSize(size + 1)` captures stale `size` (`src/components/quick-select.tsx:106`)
+- [HIGH] BUG: Score-based pagination skips foods with identical scores — strict `<` comparison drops ties (`src/lib/food-log.ts:238`)
+- [MEDIUM] TYPE: Unvalidated JSON.parse cursor result — no runtime validation of parsed object shape (`src/app/api/common-foods/route.ts:23`)
+
+**Documented (no fix needed):**
+- [LOW] CONVENTION: `JoinedRow` uses `type` instead of `interface` (`src/lib/food-log.ts:107`)
 
 ### Linear Updates
-- FOO-237: Review → Merge
-- FOO-238: Review → Merge
-- FOO-239: Review → Merge
-- FOO-240: Review → Merge
-- FOO-236: Review → Merge
+- FOO-237: Review → Merge (original task completed)
+- FOO-238: Review → Merge (original task completed)
+- FOO-239: Review → Merge (original task completed)
+- FOO-240: Review → Merge (original task completed)
+- FOO-236: Review → Merge (original task completed)
+- FOO-241: Created in Todo (Fix: stale closure in IntersectionObserver)
+- FOO-242: Created in Todo (Fix: score-based pagination identical scores)
+- FOO-243: Created in Todo (Fix: unvalidated JSON.parse cursor)
+- FOO-244: Created in Todo (Fix: JoinedRow type vs interface)
 
 <!-- REVIEW COMPLETE -->
 
 ---
 
-## Status: COMPLETE
+## Fix Plan
 
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+**Source:** Review findings from Iteration 1 + PR #43 bot review
+**Linear Issues:** [FOO-241](https://linear.app/lw-claude/issue/FOO-241), [FOO-242](https://linear.app/lw-claude/issue/FOO-242), [FOO-243](https://linear.app/lw-claude/issue/FOO-243), [FOO-244](https://linear.app/lw-claude/issue/FOO-244)
+
+### Fix 1: Stale closure in IntersectionObserver callback
+**Linear Issue:** [FOO-241](https://linear.app/lw-claude/issue/FOO-241)
+
+1. Write test in `src/components/__tests__/quick-select.test.tsx` verifying `setSize` is called with functional updater
+2. In `src/components/quick-select.tsx:106`, change `setSize(size + 1)` to `setSize((s) => s + 1)`
+3. Remove `size` from the useEffect dependency array (line 113)
+
+### Fix 2: Score-based pagination skips foods with identical scores
+**Linear Issue:** [FOO-242](https://linear.app/lw-claude/issue/FOO-242)
+
+1. Write test in `src/lib/__tests__/food-log.test.ts` for two foods with identical scores spanning a page boundary
+2. Change `CommonFoodsResponse.nextCursor` type in `src/types/index.ts` from `number | null` to `{ score: number; id: number } | null`
+3. In `src/lib/food-log.ts:237-249`, update cursor filter to use composite comparison: `score < cursor.score || (score === cursor.score && foodId > cursor.id)`
+4. Update `nextCursor` generation to include `{ score, id: customFoodId }`
+5. In `src/app/api/common-foods/route.ts:44-45`, update suggested tab cursor parsing from `parseFloat` to `JSON.parse` with validation
+6. In `src/components/quick-select.tsx`, update `buildCursorParam` to JSON.stringify the suggested cursor too
+7. Update API route tests for new cursor format
+
+### Fix 3: Unvalidated JSON.parse cursor in common-foods API
+**Linear Issue:** [FOO-243](https://linear.app/lw-claude/issue/FOO-243)
+
+1. Write test in `src/app/api/common-foods/__tests__/route.test.ts` for malformed cursor JSON (valid JSON but wrong shape)
+2. In `src/app/api/common-foods/route.ts:23`, add runtime validation after `JSON.parse`: check `lastDate` is string, `lastTime` is string|null, `lastId` is finite number
+3. Return 400 VALIDATION_ERROR if validation fails
+
+### Fix 4: JoinedRow uses type instead of interface
+**Linear Issue:** [FOO-244](https://linear.app/lw-claude/issue/FOO-244)
+
+1. In `src/lib/food-log.ts:107`, change `type JoinedRow = {` to `interface JoinedRow {`
