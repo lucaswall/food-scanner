@@ -79,7 +79,7 @@ Use `TaskCreate` to create 3 review tasks:
 
 ### Spawn 3 reviewer teammates
 
-Use the `Task` tool with `team_name: "plan-review"` and `subagent_type: "general-purpose"` to spawn each reviewer. Spawn all 3 in parallel (3 concurrent Task calls in one message).
+Use the `Task` tool with `team_name: "plan-review"`, `subagent_type: "general-purpose"`, and `model: "sonnet"` to spawn each reviewer. Spawn all 3 in parallel (3 concurrent Task calls in one message).
 
 Each reviewer prompt MUST include:
 - The common preamble and their domain checklist from [references/reviewer-prompts.md](references/reviewer-prompts.md)

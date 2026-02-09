@@ -45,7 +45,7 @@ Use `TaskCreate` to create 3 review tasks (these track progress for each reviewe
 
 ### Spawn 3 reviewer teammates
 
-Use the `Task` tool with `team_name: "code-audit"` and `subagent_type: "general-purpose"` to spawn each reviewer. Give each a `name` and a detailed `prompt` (see Reviewer Prompts below).
+Use the `Task` tool with `team_name: "code-audit"`, `subagent_type: "general-purpose"`, and `model: "sonnet"` to spawn each reviewer. Give each a `name` and a detailed `prompt` (see Reviewer Prompts below).
 
 Spawn all 3 reviewers in parallel (3 concurrent Task calls in one message).
 

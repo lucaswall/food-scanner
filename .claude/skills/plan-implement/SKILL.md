@@ -100,7 +100,7 @@ Use `TaskCreate` to create one task per work unit:
 
 ### Spawn workers
 
-Use the `Task` tool with `team_name: "plan-implement"` and `subagent_type: "general-purpose"` for each worker. Give each a `name` like `worker-1`, `worker-2`, etc.
+Use the `Task` tool with `team_name: "plan-implement"`, `subagent_type: "general-purpose"`, and `model: "sonnet"` for each worker. Give each a `name` like `worker-1`, `worker-2`, etc.
 
 Spawn all workers in parallel (concurrent Task calls in one message).
 

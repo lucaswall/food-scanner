@@ -108,24 +108,26 @@ Do NOT flag these in code reviews:
 
 **IMPORTANT:** pr-creator only creates PRs when **explicitly requested**. Never auto-commit or auto-PR.
 
+**Model strategy:** Opus for all skills (they run inline in the main conversation). Sonnet for team workers/reviewers (isolated processes with scoped tasks). Haiku for fast validation.
+
 ---
 
 ## SKILLS
 
-| Skill | Trigger | What It Does |
-|---|---|---|
-| **plan-implement** | "implement the plan" | Agent team parallel PLANS.md execution |
-| **plan-backlog** | "plan FOO-123" | Convert Linear Backlog issues to Todo |
-| **plan-inline** | Direct feature request | Create issues in Todo from free-form requests |
-| **plan-fix** | Bug report | Investigate and create fix plan |
-| **code-audit** | "audit the codebase" | Agent team review → Linear Backlog issues |
-| **investigate** | "check why X is failing" | Read-only investigation |
-| **add-to-backlog** | "add to backlog" | Convert ideas to Linear Backlog issues |
-| **backlog-refine** | "refine FOO-123" | Interactive refinement of vague issues |
-| **plan-review-implementation** | After plan-implement | Agent team QA review |
-| **frontend-review** | "review frontend" | Agent team frontend review → Linear Backlog issues |
-| **tools-improve** | Before modifying skills/agents/CLAUDE.md | Best practices for Claude Code extensibility |
-| **push-to-production** | "push to production", "release" | Backup DB, migrate, merge `main` → `release` |
+| Skill | Model | Trigger | What It Does |
+|---|---|---|---|
+| **plan-implement** | Opus (lead) / Sonnet (workers) | "implement the plan" | Agent team parallel PLANS.md execution |
+| **plan-backlog** | Opus | "plan FOO-123" | Convert Linear Backlog issues to Todo |
+| **plan-inline** | Opus | Direct feature request | Create issues in Todo from free-form requests |
+| **plan-fix** | Opus | Bug report | Investigate and create fix plan |
+| **code-audit** | Opus (lead) / Sonnet (reviewers) | "audit the codebase" | Agent team review → Linear Backlog issues |
+| **investigate** | Opus | "check why X is failing" | Read-only investigation |
+| **add-to-backlog** | Opus | "add to backlog" | Convert ideas to Linear Backlog issues |
+| **backlog-refine** | Opus | "refine FOO-123" | Interactive refinement of vague issues |
+| **plan-review-implementation** | Opus (lead) / Sonnet (reviewers) | After plan-implement | Agent team QA review |
+| **frontend-review** | Opus (lead) / Sonnet (reviewers) | "review frontend" | Agent team frontend review → Linear Backlog issues |
+| **tools-improve** | Opus | Before modifying skills/agents/CLAUDE.md | Best practices for Claude Code extensibility |
+| **push-to-production** | Opus | "push to production", "release" | Backup DB, migrate, merge `main` → `release` |
 
 **Workflow:** `code-audit`/`add-to-backlog` → `backlog-refine` (optional) → `plan-backlog` → `plan-implement` → `plan-review-implementation` (repeat) → `push-to-production`
 
