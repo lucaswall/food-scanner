@@ -24,6 +24,23 @@ export function FitbitStatusBanner() {
 
   const { fitbitConnected, hasFitbitCredentials } = data;
 
+  // Transitional state: tokens exist but no credentials → will break on refresh
+  if (fitbitConnected && !hasFitbitCredentials) {
+    return (
+      <Alert variant="default" className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+        <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
+        <AlertDescription className="flex items-center justify-between gap-4">
+          <span className="text-sm text-amber-900 dark:text-amber-100">
+            Set up Fitbit credentials to keep logging food
+          </span>
+          <Button variant="outline" size="sm" asChild className="shrink-0">
+            <Link href="/app/setup-fitbit">Set up now</Link>
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   // If everything is connected, don't show the banner
   if (fitbitConnected) return null;
 

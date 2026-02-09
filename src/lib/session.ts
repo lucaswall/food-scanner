@@ -105,5 +105,13 @@ export function validateSession(
     return errorResponse("FITBIT_NOT_CONNECTED", "Fitbit account not connected", 400);
   }
 
+  if (options?.requireFitbit && !session.hasFitbitCredentials) {
+    logger.warn(
+      { action: "session_invalid", reason: "fitbit_credentials_missing" },
+      "session validation failed: fitbit credentials not configured",
+    );
+    return errorResponse("FITBIT_CREDENTIALS_MISSING", "Fitbit credentials not configured. Please set up your credentials in Settings.", 400);
+  }
+
   return null;
 }

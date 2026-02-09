@@ -344,6 +344,18 @@ export async function POST(request: Request) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
+    if (errorMessage === "FITBIT_CREDENTIALS_MISSING") {
+      logger.warn(
+        { action: "log_food_credentials_missing" },
+        "Fitbit credentials not configured"
+      );
+      return errorResponse(
+        "FITBIT_CREDENTIALS_MISSING",
+        "Fitbit credentials not configured. Please set up your credentials in Settings.",
+        400
+      );
+    }
+
     if (errorMessage === "FITBIT_TOKEN_INVALID") {
       logger.warn(
         { action: "log_food_token_invalid" },

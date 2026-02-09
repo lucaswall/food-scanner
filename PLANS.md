@@ -2,7 +2,7 @@
 
 **Issue:** FOO-294
 **Date:** 2026-02-09
-**Status:** Planning
+**Status:** COMPLETE
 **Branch:** fix/FOO-294-credentials-transitional-state
 
 ## Investigation

@@ -22,6 +22,12 @@ vi.mock("@/lib/session", () => ({
         { status: 400 },
       );
     }
+    if (options?.requireFitbit && !session.hasFitbitCredentials) {
+      return Response.json(
+        { success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Fitbit credentials not configured" }, timestamp: Date.now() },
+        { status: 400 },
+      );
+    }
     return null;
   },
 }));
@@ -211,6 +217,19 @@ describe("POST /api/log-food", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("FITBIT_API_ERROR");
+  });
+
+  it("returns 400 FITBIT_CREDENTIALS_MISSING when ensureFreshToken throws FITBIT_CREDENTIALS_MISSING", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
+    expect(body.error.message).toContain("credentials");
   });
 
   it("returns 401 FITBIT_TOKEN_INVALID triggers reconnect prompt", async () => {

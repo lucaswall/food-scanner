@@ -23,6 +23,12 @@ vi.mock("@/lib/session", () => ({
         { status: 400 },
       );
     }
+    if (options?.requireFitbit && !session.hasFitbitCredentials) {
+      return Response.json(
+        { success: false, error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Fitbit credentials not configured" }, timestamp: Date.now() },
+        { status: 400 },
+      );
+    }
     return null;
   },
 }));

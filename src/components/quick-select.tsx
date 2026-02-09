@@ -209,6 +209,12 @@ export function QuickSelect() {
           window.location.href = "/api/auth/fitbit";
           return;
         }
+        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+          setLogResponse(null);
+          setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
+          vibrateError();
+          return;
+        }
         setLogResponse(null);
         setLogError(result.error?.message || "Failed to log food");
         vibrateError();
@@ -293,6 +299,14 @@ export function QuickSelect() {
         {logError && (
           <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
             <p className="text-sm text-destructive">{logError}</p>
+            {logError.includes("Settings") && (
+              <a
+                href="/settings"
+                className="text-sm text-destructive underline mt-1 inline-block"
+              >
+                Go to Settings
+              </a>
+            )}
           </div>
         )}
 

@@ -130,15 +130,21 @@ export function SettingsContent() {
               {session.email && <p className="text-muted-foreground">{session.email}</p>}
               <p>
                 Fitbit:{" "}
-                <span
-                  className={
-                    session.fitbitConnected
-                      ? "text-green-600 dark:text-green-400"
-                      : "text-destructive"
-                  }
-                >
-                  {session.fitbitConnected ? "Connected" : "Not connected"}
-                </span>
+                {session.fitbitConnected && !session.hasFitbitCredentials ? (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    Connected (credentials missing)
+                  </span>
+                ) : (
+                  <span
+                    className={
+                      session.fitbitConnected
+                        ? "text-green-600 dark:text-green-400"
+                        : "text-destructive"
+                    }
+                  >
+                    {session.fitbitConnected ? "Connected" : "Not connected"}
+                  </span>
+                )}
               </p>
             </div>
           )}

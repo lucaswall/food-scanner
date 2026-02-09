@@ -383,4 +383,20 @@ describe("validateSession", () => {
     const result = validateSession(session, { requireFitbit: true });
     expect(result).toBeNull();
   });
+
+  it("returns FITBIT_CREDENTIALS_MISSING when fitbit connected but no credentials", async () => {
+    const session = {
+      sessionId: "abc",
+      userId: "user-uuid-123",
+      expiresAt: Date.now() + 60000,
+      fitbitConnected: true,
+      hasFitbitCredentials: false,
+      destroy: vi.fn(),
+    };
+    const result = validateSession(session, { requireFitbit: true });
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(400);
+    const body = await result!.json();
+    expect(body.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
+  });
 });
