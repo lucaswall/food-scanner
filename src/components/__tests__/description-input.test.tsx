@@ -76,4 +76,11 @@ describe("DescriptionInput", () => {
     const textarea = screen.getByRole("textbox");
     expect(textarea).toHaveAttribute("maxLength", "500");
   });
+
+  it("has aria-label for accessibility", () => {
+    const onChange = vi.fn();
+    render(<DescriptionInput value="" onChange={onChange} />);
+
+    expect(screen.getByRole("textbox", { name: /food description/i })).toBeInTheDocument();
+  });
 });

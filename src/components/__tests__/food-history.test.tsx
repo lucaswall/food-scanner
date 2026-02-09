@@ -80,8 +80,6 @@ function renderFoodHistory() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Mock window.confirm
-  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
 describe("FoodHistory", () => {
@@ -150,7 +148,22 @@ describe("FoodHistory", () => {
     });
   });
 
-  it("delete button calls DELETE /api/food-history/{id} and removes entry", async () => {
+  it("empty state includes guidance text", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText(/no food log entries/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(/take a photo or use quick select/i)).toBeInTheDocument();
+  });
+
+  it("delete button opens AlertDialog and confirm deletes entry", async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
@@ -167,8 +180,19 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
+    // Click delete button — should open AlertDialog, not immediately delete
     const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
     fireEvent.click(deleteButtons[0]);
+
+    // AlertDialog should be visible
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+      expect(screen.getByText(/delete this entry/i)).toBeInTheDocument();
+    });
+
+    // Click confirm button in the AlertDialog
+    const confirmButton = screen.getByRole("button", { name: /confirm/i });
+    fireEvent.click(confirmButton);
 
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
@@ -182,7 +206,40 @@ describe("FoodHistory", () => {
     });
   });
 
-  it("delete handles errors gracefully", async () => {
+  it("delete AlertDialog cancel button dismisses without deleting", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Click delete button to open AlertDialog
+    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+    fireEvent.click(deleteButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    // Click cancel
+    const cancelButton = screen.getByRole("button", { name: /cancel/i });
+    fireEvent.click(cancelButton);
+
+    // AlertDialog should be dismissed, entry still present, no DELETE call
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    // Only the initial fetch was called, no DELETE
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("delete handles errors gracefully with role=alert", async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
@@ -203,14 +260,23 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
+    // Open AlertDialog and confirm
     const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
     fireEvent.click(deleteButtons[0]);
 
     await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    const confirmButton = screen.getByRole("button", { name: /confirm/i });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
       // Entry should still be visible
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
-      // Error message shown
-      expect(screen.getByText(/failed to delete/i)).toBeInTheDocument();
+      // Error message shown with role="alert"
+      const errorContainer = screen.getByRole("alert");
+      expect(errorContainer).toHaveTextContent(/failed to delete/i);
     });
   });
 
@@ -414,16 +480,11 @@ describe("FoodHistory", () => {
     });
   });
 
-  it("clicking delete button does NOT open dialog", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true }),
-      });
+  it("clicking delete button does NOT open nutrition dialog", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
 
     renderFoodHistory();
 
@@ -431,14 +492,18 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
-    // Click the delete button
+    // Click the delete button — should open AlertDialog, not nutrition dialog
     const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
     fireEvent.click(deleteButtons[0]);
 
-    // Dialog should NOT open
+    // Nutrition dialog should NOT open
     await waitFor(() => {
       expect(screen.queryByText("Nutrition Facts")).not.toBeInTheDocument();
     });
+
+    // But AlertDialog should be open — dismiss it
+    const cancelButton = screen.getByRole("button", { name: /cancel/i });
+    fireEvent.click(cancelButton);
   });
 
   it("dialog can be closed", async () => {
@@ -625,11 +690,16 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Paginated 1")).toBeInTheDocument();
     });
 
-    // Now delete an entry — this calls mutate() which triggers SWR revalidation
-    // The SWR revalidation returns only first-page data (revalidatedEntries)
-    // BUG: The useEffect([initialData]) overwrites local state, wiping paginated entries
+    // Now delete an entry — click delete button, then confirm in AlertDialog
     const deleteButtons = screen.getAllByRole("button", { name: /delete initial 1/i });
     fireEvent.click(deleteButtons[0]);
+
+    // Confirm in AlertDialog
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+    const confirmButton = screen.getByRole("button", { name: /confirm/i });
+    fireEvent.click(confirmButton);
 
     // Wait for delete to complete and SWR revalidation to settle
     await waitFor(() => {
@@ -647,6 +717,78 @@ describe("FoodHistory", () => {
     expect(screen.getByText("Paginated 5")).toBeInTheDocument();
     // Other initial entries should also still be present
     expect(screen.getByText("Initial 2")).toBeInTheDocument();
+  });
+
+  it("date headers use h2 elements", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Date headers should be h2 (not h3) for proper heading hierarchy
+    // mockEntries span two dates, so we should get exactly 2 h2 headings
+    const headings = screen.getAllByRole("heading", { level: 2 });
+    expect(headings).toHaveLength(2);
+  });
+
+  it("daily summary rounds calories to integer and macros to one decimal", async () => {
+    const fractionalEntries: FoodLogHistoryEntry[] = [
+      {
+        id: 1,
+        foodName: "Food A",
+        calories: 123.4,
+        proteinG: 10.15,
+        carbsG: 20.27,
+        fatG: 8.33,
+        fiberG: 1,
+        sodiumMg: 100,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: today,
+        time: "12:00:00",
+        fitbitLogId: 111,
+      },
+      {
+        id: 2,
+        foodName: "Food B",
+        calories: 200.8,
+        proteinG: 15.89,
+        carbsG: 30.56,
+        fatG: 12.78,
+        fiberG: 2,
+        sodiumMg: 200,
+        amount: 150,
+        unitId: 147,
+        mealTypeId: 1,
+        date: today,
+        time: "08:00:00",
+        fitbitLogId: 222,
+      },
+    ];
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: fractionalEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Food A")).toBeInTheDocument();
+    });
+
+    // Total: 324.2 cal → 324 cal, P:26.04→26.0g, C:50.83→50.8g, F:21.11→21.1g
+    expect(screen.getByText(/324 cal/)).toBeInTheDocument();
+    expect(screen.getByText(/P:26\.0g/)).toBeInTheDocument();
+    expect(screen.getByText(/C:50\.8g/)).toBeInTheDocument();
+    expect(screen.getByText(/F:21\.1g/)).toBeInTheDocument();
   });
 
   it("shows cached data instantly on re-mount (SWR cache)", async () => {

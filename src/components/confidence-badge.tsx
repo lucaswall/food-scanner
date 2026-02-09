@@ -21,7 +21,7 @@ export function ConfidenceBadge({ confidence }: ConfidenceBadgeProps) {
           <button
             type="button"
             data-testid="confidence-trigger"
-            className="flex items-center gap-2 cursor-help"
+            className="flex items-center gap-2 cursor-help min-h-[44px]"
           >
             {confidence === "high" ? (
               <CheckCircle

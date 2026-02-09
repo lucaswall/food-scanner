@@ -15,6 +15,7 @@ interface MealTypeSelectorProps {
   onChange: (id: number) => void;
   disabled?: boolean;
   showTimeHint?: boolean;
+  id?: string;
 }
 
 function formatTime(date: Date): string {
@@ -39,6 +40,7 @@ export function MealTypeSelector({
   onChange,
   disabled,
   showTimeHint = true,
+  id,
 }: MealTypeSelectorProps) {
   const [currentTime, setCurrentTime] = useState(() => new Date());
 
@@ -59,7 +61,7 @@ export function MealTypeSelector({
         onValueChange={(val) => onChange(Number(val))}
         disabled={disabled}
       >
-        <SelectTrigger className="w-full min-h-[44px]">
+        <SelectTrigger id={id} className="w-full min-h-[44px]">
           <SelectValue placeholder="Select meal type" />
         </SelectTrigger>
         <SelectContent>

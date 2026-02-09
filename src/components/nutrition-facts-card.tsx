@@ -26,21 +26,21 @@ export function NutritionFactsCard({
   mealTypeId,
 }: NutritionFactsCardProps) {
   return (
-    <div className="border-2 border-foreground rounded-lg p-4">
-      <h4 className="text-lg font-bold border-b border-foreground pb-1">
+    <div className="border-2 border-foreground dark:border-foreground/50 rounded-lg p-4">
+      <h4 className="text-lg font-bold border-b border-foreground dark:border-foreground/50 pb-1">
         Nutrition Facts
       </h4>
       <p className="text-sm font-medium mt-1">{foodName}</p>
       <p className="text-sm text-muted-foreground">
         {getUnitLabel(unitId, amount)}
       </p>
-      <div className="border-t-4 border-foreground mt-2 pt-2">
+      <div className="border-t-4 border-foreground dark:border-foreground/50 mt-2 pt-2">
         <div className="flex justify-between items-baseline">
           <span className="text-sm font-bold">Calories</span>
           <span className="text-2xl font-bold">{calories}</span>
         </div>
       </div>
-      <div className="border-t border-foreground mt-1 pt-1 space-y-1">
+      <div className="border-t border-foreground dark:border-foreground/50 mt-1 pt-1 space-y-1">
         <div className="flex justify-between text-sm">
           <span className="font-bold">Protein</span>
           <span>{proteinG}g</span>
@@ -63,7 +63,7 @@ export function NutritionFactsCard({
         </div>
       </div>
       {mealTypeId !== undefined && (
-        <div className="border-t border-foreground mt-2 pt-2 text-sm text-muted-foreground">
+        <div className="border-t border-foreground dark:border-foreground/50 mt-2 pt-2 text-sm text-muted-foreground">
           {FITBIT_MEAL_TYPE_LABELS[mealTypeId] ?? "Unknown"}
         </div>
       )}

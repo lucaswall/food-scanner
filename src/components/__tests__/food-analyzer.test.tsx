@@ -92,13 +92,16 @@ vi.mock("../meal-type-selector", () => ({
     value,
     onChange,
     disabled,
+    id,
   }: {
     value: number;
     onChange: (id: number) => void;
     disabled?: boolean;
+    id?: string;
   }) => (
     <div data-testid="meal-type-selector">
       <select
+        id={id}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         disabled={disabled}
@@ -1228,6 +1231,70 @@ describe("FoodAnalyzer", () => {
 
       // Confirmation should be gone
       expect(screen.queryByTestId("food-log-confirmation")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("meal type label association", () => {
+    it("meal type label is associated with selector via htmlFor", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        const label = screen.getByText("Meal Type");
+        expect(label.tagName).toBe("LABEL");
+        expect(label).toHaveAttribute("for", "meal-type-analyzer");
+      });
+    });
+
+    it("meal type selector has matching id", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        const select = screen.getByTestId("meal-type-selector").querySelector("select");
+        expect(select).toHaveAttribute("id", "meal-type-analyzer");
+      });
+    });
+  });
+
+  describe("aria-labels on inputs", () => {
+    it("correction input has aria-label", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("textbox", { name: /correction/i })).toBeInTheDocument();
+      });
     });
   });
 

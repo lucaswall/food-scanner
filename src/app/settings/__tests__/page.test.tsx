@@ -196,7 +196,7 @@ describe("Settings content (client component)", () => {
     renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
-      expect(screen.getByText(/failed to load/i)).toBeInTheDocument();
+      expect(screen.getByText(/HTTP 500/i)).toBeInTheDocument();
     });
   });
 

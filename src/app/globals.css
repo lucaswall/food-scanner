@@ -156,7 +156,9 @@
 /* Respect reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in,
-  .animate-slide-up {
+  .animate-slide-up,
+  .animate-spin,
+  .animate-pulse {
     animation: none;
   }
 }

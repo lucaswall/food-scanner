@@ -23,7 +23,7 @@ export function DashboardPreview() {
               <span>85g / 120g</span>
             </div>
             <div className="h-2 bg-muted rounded-full">
-              <div className="h-2 bg-blue-500 rounded-full w-[70%]" />
+              <div className="h-2 bg-chart-1 rounded-full w-[70%]" />
             </div>
           </div>
           <div className="space-y-1">
@@ -32,7 +32,7 @@ export function DashboardPreview() {
               <span>200g / 250g</span>
             </div>
             <div className="h-2 bg-muted rounded-full">
-              <div className="h-2 bg-amber-500 rounded-full w-[80%]" />
+              <div className="h-2 bg-chart-4 rounded-full w-[80%]" />
             </div>
           </div>
           <div className="space-y-1">
@@ -41,7 +41,7 @@ export function DashboardPreview() {
               <span>55g / 70g</span>
             </div>
             <div className="h-2 bg-muted rounded-full">
-              <div className="h-2 bg-rose-500 rounded-full w-[78%]" />
+              <div className="h-2 bg-chart-5 rounded-full w-[78%]" />
             </div>
           </div>
         </div>

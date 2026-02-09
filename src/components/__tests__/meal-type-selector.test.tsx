@@ -109,6 +109,14 @@ describe("MealTypeSelector", () => {
     expect(screen.getByText("Lunch")).toBeInTheDocument();
   });
 
+  it("passes id prop to the select trigger", () => {
+    const onChange = vi.fn();
+    render(<MealTypeSelector value={1} onChange={onChange} id="test-meal" />);
+
+    const combobox = screen.getByRole("combobox");
+    expect(combobox).toHaveAttribute("id", "test-meal");
+  });
+
   describe("time-based hint", () => {
     it("shows helper text with current time context when showTimeHint is true", () => {
       const onChange = vi.fn();

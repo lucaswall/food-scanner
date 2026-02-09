@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { SkipLink } from "@/components/skip-link";
 import { useTheme } from "@/hooks/use-theme";
 import { Sun, Moon, Monitor, ArrowLeft } from "lucide-react";
 import useSWR from "swr";
+import { apiFetcher } from "@/lib/swr";
 
 interface SessionInfo {
   email: string | null;
@@ -12,20 +14,10 @@ interface SessionInfo {
   expiresAt: number;
 }
 
-async function fetchSession(): Promise<SessionInfo> {
-  const res = await fetch("/api/auth/session");
-  if (!res.ok) throw new Error("Failed to load session");
-  const data = await res.json();
-  if (!data.success) {
-    throw new Error(data.error?.message || "Failed to load session");
-  }
-  return data.data;
-}
-
 export function SettingsContent() {
   const { data: session, error } = useSWR<SessionInfo, Error>(
     "/api/auth/session",
-    fetchSession,
+    apiFetcher,
     {
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
@@ -45,7 +37,8 @@ export function SettingsContent() {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
-      <main className="flex w-full max-w-sm flex-col gap-6">
+      <SkipLink />
+      <main id="main-content" className="flex w-full max-w-sm flex-col gap-6">
         <div className="flex items-center gap-2">
           <Button asChild variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]">
             <Link href="/app" aria-label="Back to Food Scanner">
@@ -57,7 +50,7 @@ export function SettingsContent() {
 
         <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
           {error && (
-            <p className="text-sm text-red-500">{error.message}</p>
+            <p className="text-sm text-destructive">{error.message}</p>
           )}
           {session && (
             <div className="flex flex-col gap-1 text-sm">
@@ -67,8 +60,8 @@ export function SettingsContent() {
                 <span
                   className={
                     session.fitbitConnected
-                      ? "text-green-600"
-                      : "text-red-600"
+                      ? "text-green-600 dark:text-green-400"
+                      : "text-destructive"
                   }
                 >
                   {session.fitbitConnected ? "Connected" : "Not connected"}

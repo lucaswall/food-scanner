@@ -9,6 +9,7 @@ import { MealTypeSelector } from "./meal-type-selector";
 import { NutritionFactsCard } from "./nutrition-facts-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ArrowLeft, Search } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
 import {
@@ -230,7 +231,7 @@ export function QuickSelect() {
   if (resubmitting) {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-muted-foreground">
           Reconnected! Resubmitting {resubmitFoodName ?? "food"}...
         </p>
@@ -283,16 +284,17 @@ export function QuickSelect() {
         />
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">Meal Type</label>
+          <Label htmlFor="meal-type-quick-select">Meal Type</Label>
           <MealTypeSelector
             value={mealTypeId}
             onChange={setMealTypeId}
             disabled={logging}
+            id="meal-type-quick-select"
           />
         </div>
 
         {logError && (
-          <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
             <p className="text-sm text-destructive">{logError}</p>
           </div>
         )}
@@ -326,10 +328,12 @@ export function QuickSelect() {
   return (
     <div className="space-y-4">
       {/* Tab bar */}
-      <div className="flex gap-2">
+      <div role="tablist" className="flex gap-2">
         <button
+          role="tab"
+          id="tab-suggested"
+          aria-selected={activeTab === "suggested"}
           onClick={() => setActiveTab("suggested")}
-          data-active={activeTab === "suggested" ? "true" : "false"}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "suggested"
               ? "bg-primary text-primary-foreground"
@@ -339,8 +343,10 @@ export function QuickSelect() {
           Suggested
         </button>
         <button
+          role="tab"
+          id="tab-recent"
+          aria-selected={activeTab === "recent"}
           onClick={() => setActiveTab("recent")}
-          data-active={activeTab === "recent" ? "true" : "false"}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "recent"
               ? "bg-primary text-primary-foreground"
@@ -351,77 +357,84 @@ export function QuickSelect() {
         </button>
       </div>
 
-      {/* Search input */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search foods..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="pl-9 min-h-[44px]"
-        />
+      {/* Tab content */}
+      <div role="tabpanel" aria-labelledby={`tab-${activeTab}`} className="space-y-4">
+        {/* Search input */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search foods..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Search foods"
+            className="pl-9 min-h-[44px]"
+          />
+        </div>
+
+        {logError && (
+          <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+            <p className="text-sm text-destructive">{logError}</p>
+          </div>
+        )}
+
+        {/* Search loading state */}
+        {isSearchActive && searchLoading && (
+          <div className="space-y-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
+            ))}
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!searchLoading && foods.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
+            <p className="text-muted-foreground">
+              {isSearchActive ? "No results found" : "No foods found"}
+            </p>
+            {!isSearchActive && (
+              <p className="text-sm text-muted-foreground">Log some foods first using the Analyze page, then they&apos;ll appear here for quick re-logging</p>
+            )}
+          </div>
+        )}
+
+        {/* Food cards */}
+        {foods.length > 0 && (
+          <div className="space-y-3">
+            {foods.map((food) => (
+              <button
+                key={food.customFoodId}
+                onClick={() => handleSelectFood(food)}
+                className="w-full text-left p-4 rounded-lg border bg-card min-h-[44px] active:bg-muted transition-colors"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="font-medium">{food.foodName}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {getUnitLabel(food.unitId, food.amount)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-bold">{food.calories} cal</p>
+                    <p className="text-xs text-muted-foreground">
+                      P:{food.proteinG}g C:{food.carbsG}g F:{food.fatG}g
+                    </p>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Infinite scroll sentinel */}
+        {hasMore && (
+          <div ref={sentinelRef} className="flex justify-center py-4">
+            {isLoadingMore && (
+              <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+            )}
+          </div>
+        )}
       </div>
-
-      {logError && (
-        <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-          <p className="text-sm text-destructive">{logError}</p>
-        </div>
-      )}
-
-      {/* Search loading state */}
-      {isSearchActive && searchLoading && (
-        <div className="space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
-          ))}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!searchLoading && foods.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
-          <p className="text-muted-foreground">
-            {isSearchActive ? "No results found" : "No foods found"}
-          </p>
-        </div>
-      )}
-
-      {/* Food cards */}
-      {foods.length > 0 && (
-        <div className="space-y-3">
-          {foods.map((food) => (
-            <button
-              key={food.customFoodId}
-              onClick={() => handleSelectFood(food)}
-              className="w-full text-left p-4 rounded-lg border bg-card min-h-[44px] active:bg-muted transition-colors"
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="font-medium">{food.foodName}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {getUnitLabel(food.unitId, food.amount)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-bold">{food.calories} cal</p>
-                  <p className="text-xs text-muted-foreground">
-                    P:{food.proteinG}g C:{food.carbsG}g F:{food.fatG}g
-                  </p>
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Infinite scroll sentinel */}
-      {hasMore && (
-        <div ref={sentinelRef} className="flex justify-center py-4">
-          {isLoadingMore && (
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
-          )}
-        </div>
-      )}
     </div>
   );
 }

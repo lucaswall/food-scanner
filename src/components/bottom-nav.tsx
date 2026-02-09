@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, ListChecks, Camera, Clock, Settings } from "lucide-react";
+import { Home, ListChecks, ScanEye, Clock, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -19,9 +19,9 @@ const navItems = [
     isActive: (pathname: string) => pathname === "/app/quick-select",
   },
   {
-    label: "Take Photo",
+    label: "Analyze",
     href: "/app/analyze",
-    icon: Camera,
+    icon: ScanEye,
     isActive: (pathname: string) => pathname === "/app/analyze",
   },
   {
@@ -42,7 +42,7 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-background border-t z-50 pb-[env(safe-area-inset-bottom)]">
+    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 bg-background border-t z-50 pb-[env(safe-area-inset-bottom)]">
       <div className="flex justify-around items-center max-w-md mx-auto">
         {navItems.map((item) => {
           const active = item.isActive(pathname);
@@ -57,7 +57,7 @@ export function BottomNav() {
               aria-current={active ? "page" : undefined}
             >
               <item.icon className="h-5 w-5" />
-              <span className="text-[10px] mt-0.5">{item.label}</span>
+              <span className="text-xs mt-0.5">{item.label}</span>
             </Link>
           );
         })}

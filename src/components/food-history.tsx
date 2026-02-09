@@ -5,6 +5,16 @@ import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { Trash2 } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
@@ -77,6 +87,7 @@ export function FoodHistory() {
   const [hasMore, setHasMore] = useState(true);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
   const [jumpDate, setJumpDate] = useState("");
 
@@ -145,8 +156,10 @@ export function FoodHistory() {
     });
   };
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm("Delete this entry?")) return;
+  const handleDeleteConfirm = async () => {
+    if (deleteTargetId === null) return;
+    const id = deleteTargetId;
+    setDeleteTargetId(null);
 
     setDeletingId(id);
     setDeleteError(null);
@@ -196,6 +209,7 @@ export function FoodHistory() {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
         <p className="text-muted-foreground">No food log entries</p>
+        <p className="text-sm text-muted-foreground">Take a photo or use Quick Select to log your first meal</p>
       </div>
     );
   }
@@ -224,7 +238,7 @@ export function FoodHistory() {
       </div>
 
       {deleteError && (
-        <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+        <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
           <p className="text-sm text-destructive">{deleteError}</p>
         </div>
       )}
@@ -233,9 +247,9 @@ export function FoodHistory() {
         <div key={group.date} className="space-y-2">
           {/* Date header with summary */}
           <div className="flex justify-between items-baseline border-b pb-1">
-            <h3 className="font-semibold">{formatDateHeader(group.date)}</h3>
+            <h2 className="font-semibold">{formatDateHeader(group.date)}</h2>
             <span className="text-sm text-muted-foreground">
-              {group.totalCalories} cal | P:{group.totalProteinG}g C:{group.totalCarbsG}g F:{group.totalFatG}g
+              {Math.round(group.totalCalories)} cal | P:{group.totalProteinG.toFixed(1)}g C:{group.totalCarbsG.toFixed(1)}g F:{group.totalFatG.toFixed(1)}g
             </span>
           </div>
 
@@ -270,7 +284,7 @@ export function FoodHistory() {
                 variant="ghost"
                 size="icon"
                 className="min-h-[44px] min-w-[44px] shrink-0 text-destructive hover:text-destructive mr-3"
-                onClick={() => handleDelete(entry.id)}
+                onClick={() => setDeleteTargetId(entry.id)}
                 disabled={deletingId === entry.id}
                 aria-label={`Delete ${entry.foodName}`}
               >
@@ -315,6 +329,22 @@ export function FoodHistory() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteTargetId !== null} onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The entry will be removed from your food log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm}>Confirm</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

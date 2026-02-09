@@ -43,13 +43,14 @@ export function FoodLogConfirmation({
       <CheckCircle
         data-testid="success-icon"
         className="w-16 h-16 text-green-500"
+        aria-hidden="true"
       />
 
       <div className="space-y-2">
         <h3 className="text-lg font-semibold">
           {foodName} logged successfully!
         </h3>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-muted-foreground">
           {response.dryRun
             ? "Saved locally (Fitbit API skipped)"
             : response.reusedFood
@@ -57,7 +58,7 @@ export function FoodLogConfirmation({
               : "Created new food in your Fitbit library"}
         </p>
         {response.fitbitLogId != null && (
-          <p className="text-xs text-gray-400">Log ID: {response.fitbitLogId}</p>
+          <p className="text-xs text-muted-foreground">Log ID: {response.fitbitLogId}</p>
         )}
       </div>
 

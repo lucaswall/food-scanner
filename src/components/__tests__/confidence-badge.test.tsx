@@ -71,6 +71,12 @@ describe("ConfidenceBadge", () => {
     });
   });
 
+  it("tooltip trigger button has 44px minimum touch target", () => {
+    render(<ConfidenceBadge confidence="high" />);
+    const trigger = screen.getByTestId("confidence-trigger");
+    expect(trigger).toHaveClass("min-h-[44px]");
+  });
+
   it("shows low confidence explanation in tooltip", async () => {
     const user = userEvent.setup();
     render(<ConfidenceBadge confidence="low" />);
