@@ -2,7 +2,7 @@
 name: backlog-refine
 description: Refine vague Linear Backlog issues into well-specified, actionable items. Use when user says "refine backlog", "refine FOO-123", "improve backlog items", or "clarify issues". Fetches Backlog issues, analyzes gaps, asks clarifying questions, and updates Linear after user confirms.
 argument-hint: [FOO-123 FOO-124 or blank for picker]
-allowed-tools: Read, Glob, Grep, AskUserQuestion, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__create_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Glob, Grep, AskUserQuestion, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__create_issue, mcp__linear__create_comment, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -26,11 +26,12 @@ Parse issue identifiers from `$ARGUMENTS` (e.g., `FOO-123`, `FOO-124`).
 If `$ARGUMENTS` is empty or doesn't contain issue identifiers:
 1. Fetch all Backlog issues: `mcp__linear__list_issues` with `team: "Food Scanner"`, `state: "Backlog"`
 2. Score each issue's refinement readiness (see Refinement Score below)
-3. Display a markdown table with columns: #, Issue, Title, Priority, Labels, Score
-4. Present to user using `AskUserQuestion`:
-   - Include the score in each option's description (e.g., "Screen to show food logged by date — Feature — Score: 3/5")
+3. Assess each issue's drop likelihood (see Drop Assessment below)
+4. Display a markdown table with columns: #, Issue, Title, Priority, Labels, Score, Drop?
+5. Present to user using `AskUserQuestion`:
+   - Include the score and drop indicator in each option's description (e.g., "Screen to show food logged by date — Feature — Score: 3/5 — Drop? No")
    - Let user pick which issues to refine
-5. Fetch full details for selected issues
+6. Fetch full details for selected issues
 
 ### Refinement Score
 
@@ -52,6 +53,18 @@ Rate each issue 1–5 based **only** on the data returned from `list_issues` (ti
 - Priority or labels seem mismatched with description → −1
 
 Minimum score is 1. Issues scoring 5 can still be selected — refinement may find minor improvements after reading full details and source code.
+
+### Drop Assessment
+
+For each issue, make a quick gut-feel assessment of whether it should be dropped. This is based **only** on `list_issues` data (title, description, priority, labels) — no codebase reading at this stage.
+
+| Indicator | Meaning | Criteria |
+|-----------|---------|----------|
+| **Likely** | Probably should cancel | Title describes a theoretical concern, "nice to have" with no clear impact, duplicates another issue, or addresses a non-problem for this project context (single-user, behind auth, etc.) |
+| **Maybe** | Worth discussing | Unclear value, scope seems disproportionate to benefit, or might be outdated |
+| **No** | Keep it | Clear problem, real impact, actionable |
+
+The Drop? column helps the user prioritize which issues to examine first — issues marked "Likely" may not need refinement at all, just cancellation.
 
 ## Analysis Phase
 
@@ -111,6 +124,7 @@ Then engage in a back-and-forth discussion:
 - Recommend priority/label changes if warranted
 - Suggest splitting if scope is too broad (see Splitting Issues below)
 - Flag if the issue might be outdated or already fixed
+- **Suggest cancellation** if the issue shouldn't be done (see Suggesting Cancellation below)
 
 Continue the discussion until the user says they're done or confirms the refinements.
 
@@ -133,6 +147,33 @@ If the user agrees to a split:
 - **New issues** are created via `mcp__linear__create_issue` for the remaining split items, all in `state: "Backlog"` with proper labels and priorities
 - Each split issue gets a full refined description (using the standard format)
 
+### Suggesting Cancellation
+
+During analysis, if the issue shouldn't be done, suggest canceling it. Valid reasons for cancellation:
+
+- **Problem doesn't exist** — The referenced code doesn't have the described issue
+- **Already fixed** — The problem was resolved by other work
+- **Not applicable** — Theoretical concern that doesn't apply (e.g., multi-user issue for a single-user app)
+- **Cost exceeds value** — The effort to fix is disproportionate to the benefit
+- **Duplicate** — Another issue already covers this
+- **Outdated** — The referenced code or feature no longer exists
+
+Present cancellation suggestions clearly during discussion:
+
+```
+## FOO-123: [Current Title]
+
+**Recommendation: Cancel this issue**
+
+**Reasons:**
+- [Reason 1: e.g., "This is a single-user app behind auth — the XSS vector described requires a second user"]
+- [Reason 2: e.g., "The referenced code in src/lib/foo.ts was removed in PR #30"]
+
+**Context:** [What you found when reading the codebase that supports this recommendation]
+```
+
+If the user agrees to cancel, the issue will be handled in the Update Phase.
+
 ## Update Phase
 
 When the user confirms they're done refining:
@@ -154,7 +195,10 @@ When the user confirms they're done refining:
 - **Priority:** [Priority]
 - **Labels:** [Labels]
 
-### FOO-124 (update)
+### FOO-124 (cancel)
+- **Reason:** [Specific reason for cancellation]
+
+### FOO-125 (update)
 ...
 ```
 
@@ -163,6 +207,38 @@ When the user confirms they're done refining:
 3. **Apply updates:**
    - Use `mcp__linear__update_issue` for each updated issue (title, description, priority, labels)
    - Use `mcp__linear__create_issue` for each new split issue with `team: "Food Scanner"`, `state: "Backlog"`, and proper labels/priority
+   - For canceled issues, follow the Cancellation Procedure below
+
+### Cancellation Procedure
+
+For each issue the user agreed to cancel:
+
+1. **Add a comment** explaining the cancellation reason:
+
+```
+mcp__linear__create_comment(issueId: "FOO-xxx", body: "Canceled during refinement: [reason]")
+```
+
+The reason should be specific, e.g.:
+- "Problem doesn't exist — the referenced code in src/lib/foo.ts was removed in PR #30."
+- "Single-user app behind auth — the described XSS vector requires a second user."
+- "Cost exceeds value — would require rewriting the entire module for a marginal improvement."
+
+2. **Move to Canceled state.**
+
+**CRITICAL: Linear MCP same-type state bug.** "Duplicate" and "Canceled" are both `type: canceled` in Linear. Passing `state: "Canceled"` by name silently no-ops if the issue is already in another canceled-type state. To reliably cancel issues, first fetch the team's statuses to get the Canceled state UUID:
+
+```
+mcp__linear__list_issue_statuses(team: "Food Scanner")
+```
+
+Find the status with `name: "Canceled"` and use its `id` (UUID) in the update call:
+
+```
+mcp__linear__update_issue(id: "FOO-xxx", state: "<canceled-state-uuid>")
+```
+
+**Always use the UUID, never the name**, for canceled-type state transitions.
 
 ### Refined Description Format
 
@@ -203,6 +279,7 @@ When refining multiple issues:
 | User picks no issues | Stop gracefully |
 | Referenced code doesn't exist anymore | Note as potentially outdated in analysis |
 | Issue already well-specified | Tell user it looks good, suggest minor tweaks if any |
+| All selected issues canceled | Apply cancellations and stop — no refinement needed |
 
 ## Rules
 
@@ -226,6 +303,9 @@ Updated X issues:
 Created Y issues (from splits):
 - FOO-130: [Title] (split from FOO-123) — [Label, Priority]
 - FOO-131: [Title] (split from FOO-124) — [Label, Priority]
+
+Canceled Z issues:
+- FOO-126: [Title] — [brief cancellation reason]
 
 Unchanged:
 - FOO-125: Already well-specified
