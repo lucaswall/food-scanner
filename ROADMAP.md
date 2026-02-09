@@ -24,7 +24,7 @@ After the initial analysis, the user can optionally open an inline chat to refin
    - A **Close** button (or X) is also available to abandon without logging.
 5. The user can send text messages, attach new photos, or both.
 6. Claude responds conversationally — short, focused replies. When the food list or quantities change, Claude confirms the updated analysis naturally in the conversation.
-7. When the user taps **Log**, the latest agreed-upon food analysis is logged (same flow as current: nutrition dialog if needed, then logged and back to Home).
+7. When the user taps **Log**, the latest agreed-upon food analysis is logged (same flow as current: nutrition dialog if needed, then the standard `FoodLogConfirmation` screen with "Done" → Home and "Log Another" to reset).
 8. When the user taps **Close**, everything is discarded, back to Home.
 
 ### Chat Behavior Rules
@@ -42,7 +42,7 @@ After the initial analysis, the user can optionally open an inline chat to refin
 - **Camera button**: Inline in the chat input bar, like messaging apps. Opens the same camera/gallery picker as the main analysis flow.
 - **Log button**: Pinned at the bottom or top of the chat. Always visible. Just says "Log" — no calorie preview on the button (numbers the user can't validate add no value).
 - **Close button**: Top-left X or alongside Log. Discards everything, returns to Home. No "are you sure?" confirmation.
-- **Success feedback**: After logging, a brief toast with the food names (not numbers): *"Logged: 2 apples, peanut butter"*.
+- **Success feedback**: After logging, the standard `FoodLogConfirmation` screen is shown — same as the analyze and quick-select flows. "Done" navigates to Home, "Log Another" resets for a new entry.
 
 ### Architecture
 
@@ -70,7 +70,7 @@ After the initial analysis, the user can optionally open an inline chat to refin
 5. Inline camera button in chat input
 6. Log button reads latest analysis from conversation
 7. Close/discard behavior
-8. Success toast with food names
+8. Post-log flow (reuse existing FoodLogConfirmation screen)
 
 ### Future Evolution: Smart Multi-Item Splitting & Library Reuse
 
@@ -89,6 +89,25 @@ Once the chat is stable, the model can suggest splitting a meal into multiple se
 - This keeps the food library clean — no duplicates piling up — and makes quick-add more useful over time.
 
 **Combined benefit:** After a few weeks the user has a curated library of actual foods they eat, at the right granularity. Quick-add becomes powerful: tomorrow you had the same lunch but no dessert — just quick-add the chicken with rice, skip the flan.
+
+### Future Evolution: Contextual Memory from Food History
+
+Claude can query the user's food log database during the chat to give contextual, personalized responses. Instead of treating every analysis in isolation, the model has access to what the user has eaten recently and can reference it naturally.
+
+**Examples:**
+- User says *"I had the same breakfast as Monday."* → Claude looks up Monday's breakfast log and pre-fills the analysis.
+- User says *"This is like the chicken I had yesterday but without salt."* → Claude fetches yesterday's chicken entry, adjusts the sodium, confirms the change.
+- User asks *"How much protein have I had today?"* → Claude sums today's logged entries and answers.
+
+**How it works:**
+- New Claude tools (e.g., `search_food_history`, `get_recent_logs`) let the model query `food_log_entries` and `custom_foods` during the conversation.
+- These tools are **only triggered by user messages** in the chat — never during the initial analysis. The model doesn't preload history; it queries on demand when the user's message warrants a lookup.
+- Results are injected into the conversation as tool responses, same as the analysis tools.
+
+**What this enables:**
+- Smarter portion estimates: "Last time you logged this plate it was 350g — does this look about the same?"
+- Detecting patterns: "You've had this 3 times this week — want to save it to quick-select?"
+- Answering nutrition questions grounded in real data, not generic estimates.
 
 ---
 
