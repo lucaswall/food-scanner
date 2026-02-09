@@ -12,6 +12,7 @@ import { vibrateError } from "@/lib/haptics";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Send, Loader2 } from "lucide-react";
 import {
   savePendingSubmission,
@@ -391,7 +392,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   if (resubmitting) {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-muted-foreground">
           Reconnected! Resubmitting {resubmitFoodName ?? "food"}...
         </p>
@@ -508,6 +509,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
               onKeyDown={(e) =>
                 e.key === "Enter" && correction.trim() && !refining && !logging && handleRefine()
               }
+              aria-label="Correction"
               className="flex-1 min-h-[44px]"
             />
             <Button
@@ -547,11 +549,12 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
           {/* Meal type selector */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Meal Type</label>
+            <Label htmlFor="meal-type-analyzer">Meal Type</Label>
             <MealTypeSelector
               value={mealTypeId}
               onChange={setMealTypeId}
               disabled={logging}
+              id="meal-type-analyzer"
             />
           </div>
 

@@ -64,12 +64,15 @@ vi.mock("../meal-type-selector", () => ({
   MealTypeSelector: ({
     value,
     onChange,
+    id,
   }: {
     value: number;
     onChange: (id: number) => void;
+    id?: string;
   }) => (
     <div data-testid="meal-type-selector">
       <select
+        id={id}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
       >
@@ -163,8 +166,8 @@ describe("QuickSelect", () => {
       renderQuickSelect();
 
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /suggested/i })).toBeInTheDocument();
-        expect(screen.getByRole("button", { name: /recent/i })).toBeInTheDocument();
+        expect(screen.getByRole("tab", { name: /suggested/i })).toBeInTheDocument();
+        expect(screen.getByRole("tab", { name: /recent/i })).toBeInTheDocument();
       });
     });
 
@@ -173,8 +176,46 @@ describe("QuickSelect", () => {
       renderQuickSelect();
 
       await waitFor(() => {
-        const suggestedTab = screen.getByRole("button", { name: /suggested/i });
-        expect(suggestedTab).toHaveAttribute("data-active", "true");
+        const suggestedTab = screen.getByRole("tab", { name: /suggested/i });
+        expect(suggestedTab).toHaveAttribute("aria-selected", "true");
+      });
+    });
+
+    it("tab container has tablist role", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByRole("tablist")).toBeInTheDocument();
+      });
+    });
+
+    it("inactive tab has aria-selected false", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        const recentTab = screen.getByRole("tab", { name: /recent/i });
+        expect(recentTab).toHaveAttribute("aria-selected", "false");
+      });
+    });
+
+    it("tab content has tabpanel role", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByRole("tabpanel")).toBeInTheDocument();
+      });
+    });
+
+    it("tabpanel has aria-labelledby pointing to active tab", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        const tabpanel = screen.getByRole("tabpanel");
+        expect(tabpanel).toHaveAttribute("aria-labelledby", "tab-suggested");
       });
     });
 
@@ -189,7 +230,7 @@ describe("QuickSelect", () => {
         expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
+      fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
 
       await waitFor(() => {
         const recentCalls = mockFetch.mock.calls.filter(
@@ -212,7 +253,7 @@ describe("QuickSelect", () => {
       });
 
       // Switch to Recent
-      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
+      fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
 
       await waitFor(() => {
         expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
@@ -256,6 +297,16 @@ describe("QuickSelect", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/no foods found/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows guidance text in empty state (not search)", async () => {
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse([]));
+
+    renderQuickSelect();
+
+    await waitFor(() => {
+      expect(screen.getByText(/log some foods first using the analyze page/i)).toBeInTheDocument();
     });
   });
 
@@ -574,6 +625,118 @@ describe("QuickSelect", () => {
 
       // Observer should have been set up exactly once (not re-created for size changes)
       expect(mockObserve).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("aria-labels", () => {
+    it("search input has aria-label", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByRole("textbox", { name: /search foods/i })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("error role=alert", () => {
+    it("detail view error has role=alert", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () =>
+            Promise.resolve({
+              success: false,
+              error: { code: "FITBIT_API_ERROR", message: "Failed to log" },
+            }),
+        });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Empanada de carne"));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+        expect(screen.getByText("Failed to log")).toBeInTheDocument();
+      });
+    });
+
+    it("list view error has role=alert", async () => {
+      // Simulate a resubmit failure to get logError in list view
+      mockGetPending.mockReturnValue({
+        analysis: null,
+        mealTypeId: 3,
+        foodName: "Empanada de carne",
+        reuseCustomFoodId: 1,
+      });
+
+      mockFetch.mockImplementation((url: string) => {
+        if (url === "/api/log-food") {
+          return Promise.resolve({
+            ok: true,
+            json: () =>
+              Promise.resolve({
+                success: false,
+                error: { code: "FITBIT_API_ERROR", message: "Failed to resubmit food log" },
+              }),
+          });
+        }
+        // common-foods
+        return Promise.resolve(mockPaginatedResponse(mockFoods));
+      });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+        expect(screen.getByText("Failed to resubmit food log")).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("meal type label association", () => {
+    it("meal type label is associated with selector via htmlFor", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Empanada de carne"));
+
+      await waitFor(() => {
+        const label = screen.getByText("Meal Type");
+        expect(label.tagName).toBe("LABEL");
+        expect(label).toHaveAttribute("for", "meal-type-quick-select");
+      });
+    });
+
+    it("meal type selector has matching id", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Empanada de carne"));
+
+      await waitFor(() => {
+        const select = screen.getByTestId("meal-type-selector").querySelector("select");
+        expect(select).toHaveAttribute("id", "meal-type-quick-select");
+      });
     });
   });
 

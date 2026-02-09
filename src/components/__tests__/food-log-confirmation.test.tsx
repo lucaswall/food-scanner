@@ -133,6 +133,18 @@ describe("FoodLogConfirmation", () => {
     expect(screen.getByTestId("success-icon")).toBeInTheDocument();
   });
 
+  it("CheckCircle icon has aria-hidden='true'", () => {
+    render(
+      <FoodLogConfirmation
+        response={mockResponse}
+        foodName="Test Food"
+      />
+    );
+
+    const icon = screen.getByTestId("success-icon");
+    expect(icon).toHaveAttribute("aria-hidden", "true");
+  });
+
   describe("aria-live region", () => {
     it("has aria-live='assertive' on success message container", () => {
       render(

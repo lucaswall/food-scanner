@@ -134,6 +134,21 @@ describe("AnalysisResult", () => {
     expect(confidenceElement).toHaveClass("bg-red-500");
   });
 
+  it("food name heading should be an h2", () => {
+    const onRetry = vi.fn();
+    render(
+      <AnalysisResult
+        analysis={mockAnalysis}
+        loading={false}
+        error={null}
+        onRetry={onRetry}
+      />
+    );
+
+    const heading = screen.getByRole("heading", { level: 2 });
+    expect(heading).toHaveTextContent("Empanada de carne");
+  });
+
   it("displays notes/assumptions", () => {
     const onRetry = vi.fn();
     render(
@@ -163,6 +178,21 @@ describe("AnalysisResult", () => {
 
     expect(screen.getByTestId("loading-spinner")).toBeInTheDocument();
     expect(screen.getByText(/analyzing/i)).toBeInTheDocument();
+  });
+
+  it("loading spinner has aria-hidden='true'", () => {
+    const onRetry = vi.fn();
+    render(
+      <AnalysisResult
+        analysis={null}
+        loading={true}
+        error={null}
+        onRetry={onRetry}
+      />
+    );
+
+    const spinner = screen.getByTestId("loading-spinner");
+    expect(spinner).toHaveAttribute("aria-hidden", "true");
   });
 
   describe("multi-step loading progress", () => {

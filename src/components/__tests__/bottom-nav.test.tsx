@@ -8,13 +8,13 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("BottomNav", () => {
-  it("renders five nav items (Home, Quick Select, Take Photo, History, Settings)", () => {
+  it("renders five nav items (Home, Quick Select, Analyze, History, Settings)", () => {
     mockPathname.mockReturnValue("/app");
     render(<BottomNav />);
 
     expect(screen.getByText("Home")).toBeInTheDocument();
     expect(screen.getByText("Quick Select")).toBeInTheDocument();
-    expect(screen.getByText("Take Photo")).toBeInTheDocument();
+    expect(screen.getByText("Analyze")).toBeInTheDocument();
     expect(screen.getByText("History")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
@@ -35,12 +35,12 @@ describe("BottomNav", () => {
     expect(quickSelectLink).toHaveAttribute("href", "/app/quick-select");
   });
 
-  it("Take Photo links to /app/analyze", () => {
+  it("Analyze links to /app/analyze", () => {
     mockPathname.mockReturnValue("/app");
     render(<BottomNav />);
 
-    const takePhotoLink = screen.getByRole("link", { name: /take photo/i });
-    expect(takePhotoLink).toHaveAttribute("href", "/app/analyze");
+    const analyzeLink = screen.getByRole("link", { name: /^analyze$/i });
+    expect(analyzeLink).toHaveAttribute("href", "/app/analyze");
   });
 
   it("History links to /app/history", () => {
@@ -81,12 +81,12 @@ describe("BottomNav", () => {
     expect(homeLink).not.toHaveAttribute("aria-current");
   });
 
-  it("Take Photo is active when on /app/analyze", () => {
+  it("Analyze is active when on /app/analyze", () => {
     mockPathname.mockReturnValue("/app/analyze");
     render(<BottomNav />);
 
-    const takePhotoLink = screen.getByRole("link", { name: /take photo/i });
-    expect(takePhotoLink).toHaveAttribute("aria-current", "page");
+    const analyzeLink = screen.getByRole("link", { name: /^analyze$/i });
+    expect(analyzeLink).toHaveAttribute("aria-current", "page");
 
     // Home should NOT be active on /app/analyze
     const homeLink = screen.getByRole("link", { name: /home/i });
@@ -110,6 +110,28 @@ describe("BottomNav", () => {
 
     const settingsLink = screen.getByRole("link", { name: /settings/i });
     expect(settingsLink).toHaveAttribute("aria-current", "page");
+  });
+
+  it("nav has aria-label", () => {
+    mockPathname.mockReturnValue("/app");
+    render(<BottomNav />);
+
+    expect(screen.getByRole("navigation")).toHaveAttribute(
+      "aria-label",
+      "Main navigation"
+    );
+  });
+
+  it("nav item labels use text-xs font size", () => {
+    mockPathname.mockReturnValue("/app");
+    render(<BottomNav />);
+
+    const labels = screen.getAllByText(
+      /^(Home|Quick Select|Analyze|History|Settings)$/
+    );
+    labels.forEach((label) => {
+      expect(label).toHaveClass("text-xs");
+    });
   });
 
   it("all touch targets are at least 44x44px", () => {

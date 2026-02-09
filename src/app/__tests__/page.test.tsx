@@ -36,4 +36,19 @@ describe("Landing page", () => {
       screen.getByRole("button", { name: /login with google/i }),
     ).toBeInTheDocument();
   });
+
+  it("renders SkipLink pointing to #main-content", async () => {
+    const jsx = await Home();
+    render(jsx);
+    const skipLink = screen.getByText("Skip to main content");
+    expect(skipLink).toBeInTheDocument();
+    expect(skipLink).toHaveAttribute("href", "#main-content");
+  });
+
+  it("has id='main-content' on main element", async () => {
+    const jsx = await Home();
+    render(jsx);
+    const main = screen.getByRole("main");
+    expect(main).toHaveAttribute("id", "main-content");
+  });
 });

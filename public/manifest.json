@@ -2,6 +2,7 @@
   "name": "Food Logger",
   "short_name": "FoodLog",
   "description": "AI-powered food logging for Fitbit",
+  "id": "/app",
   "start_url": "/app",
   "display": "standalone",
   "background_color": "#ffffff",

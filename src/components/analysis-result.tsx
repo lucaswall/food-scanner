@@ -30,6 +30,7 @@ export function AnalysisResult({
         <div
           data-testid="loading-spinner"
           className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"
+          aria-hidden="true"
         />
         <p className="text-sm text-muted-foreground">
           {loadingStep || "Analyzing your food..."}
@@ -44,7 +45,7 @@ export function AnalysisResult({
         className="flex flex-col items-center justify-center py-8 space-y-4"
         aria-live="polite"
       >
-        <p className="text-sm text-red-500">{error}</p>
+        <p className="text-sm text-destructive">{error}</p>
         <Button onClick={onRetry} variant="outline">
           Retry
         </Button>
@@ -60,7 +61,7 @@ export function AnalysisResult({
     <div className="space-y-4 p-4 border rounded-lg" aria-live="polite">
       {/* Header with food name and confidence */}
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">{analysis.food_name}</h3>
+        <h2 className="text-lg font-semibold">{analysis.food_name}</h2>
         <ConfidenceBadge confidence={analysis.confidence} />
       </div>
 
