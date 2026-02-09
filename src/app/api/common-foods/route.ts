@@ -1,24 +1,80 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
-import { getCommonFoods } from "@/lib/food-log";
+import { getCommonFoods, getRecentFoods } from "@/lib/food-log";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getSession();
 
   const validationError = validateSession(session);
   if (validationError) return validationError;
 
   try {
-    const currentTime = new Date().toTimeString().slice(0, 8);
-    const foods = await getCommonFoods(session!.userId, currentTime);
+    const url = new URL(request.url);
+    const tab = url.searchParams.get("tab");
+    const limitParam = url.searchParams.get("limit");
+    const limit = limitParam ? Math.max(1, Math.min(50, parseInt(limitParam, 10) || 10)) : 10;
+
+    if (tab === "recent") {
+      const cursorParam = url.searchParams.get("cursor");
+      let cursor: { lastDate: string; lastTime: string | null; lastId: number } | undefined;
+      if (cursorParam) {
+        try {
+          const parsed = JSON.parse(cursorParam);
+          if (
+            typeof parsed !== "object" || parsed === null ||
+            typeof parsed.lastDate !== "string" ||
+            (parsed.lastTime !== null && typeof parsed.lastTime !== "string") ||
+            !Number.isFinite(parsed.lastId)
+          ) {
+            return errorResponse("VALIDATION_ERROR", "Invalid cursor format", 400);
+          }
+          cursor = { lastDate: parsed.lastDate, lastTime: parsed.lastTime, lastId: parsed.lastId };
+        } catch {
+          return errorResponse("VALIDATION_ERROR", "Invalid cursor format", 400);
+        }
+      }
+
+      const result = await getRecentFoods(session!.userId, { limit, cursor });
+
+      logger.debug(
+        { action: "get_recent_foods", count: result.foods.length },
+        "recent foods retrieved",
+      );
+
+      const response = successResponse({ foods: result.foods, nextCursor: result.nextCursor });
+      response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+      return response;
+    }
+
+    const now = new Date();
+    const currentTime = now.toTimeString().slice(0, 8);
+    const currentDate = now.toISOString().slice(0, 10);
+    const cursorParam = url.searchParams.get("cursor");
+    let cursor: { score: number; id: number } | undefined;
+    if (cursorParam) {
+      try {
+        const parsed = JSON.parse(cursorParam);
+        if (
+          typeof parsed !== "object" || parsed === null ||
+          !Number.isFinite(parsed.score) || !Number.isFinite(parsed.id)
+        ) {
+          return errorResponse("VALIDATION_ERROR", "Invalid cursor format", 400);
+        }
+        cursor = { score: parsed.score, id: parsed.id };
+      } catch {
+        return errorResponse("VALIDATION_ERROR", "Invalid cursor format", 400);
+      }
+    }
+
+    const result = await getCommonFoods(session!.userId, currentTime, currentDate, { limit, cursor });
 
     logger.debug(
-      { action: "get_common_foods", count: foods.length },
+      { action: "get_common_foods", count: result.foods.length },
       "common foods retrieved",
     );
 
-    const response = successResponse({ foods });
+    const response = successResponse({ foods: result.foods, nextCursor: result.nextCursor });
     response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
     return response;
   } catch (error) {

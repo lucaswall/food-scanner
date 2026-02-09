@@ -21,7 +21,7 @@ export default async function AppPage() {
 
         <div className="grid grid-cols-2 gap-4">
           <Link
-            href="/app/analyze"
+            href="/app/analyze?autoCapture=true"
             className="flex flex-col items-center justify-center gap-2 rounded-xl border bg-card p-4 min-h-[44px] text-center shadow-sm hover:bg-accent transition-colors"
           >
             <Camera className="h-8 w-8 text-primary" />

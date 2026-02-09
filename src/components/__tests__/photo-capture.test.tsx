@@ -998,6 +998,44 @@ describe("PhotoCapture", () => {
     });
   });
 
+  describe("autoCapture", () => {
+    it("triggers camera input click on mount when autoCapture is true", async () => {
+      const onPhotosChange = vi.fn();
+      // Spy on HTMLInputElement.prototype.click before rendering
+      const clickSpy = vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(() => {});
+      render(<PhotoCapture onPhotosChange={onPhotosChange} autoCapture />);
+
+      await waitFor(() => {
+        // Find calls that targeted the camera input specifically
+        const cameraInput = screen.getByTestId("camera-input") as HTMLInputElement;
+        const calledOnCamera = clickSpy.mock.instances.some(instance => instance === cameraInput);
+        expect(calledOnCamera).toBe(true);
+      });
+
+      clickSpy.mockRestore();
+    });
+
+    it("does not trigger camera input click when autoCapture is false", () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} autoCapture={false} />);
+
+      const cameraInput = screen.getByTestId("camera-input") as HTMLInputElement;
+      const clickSpy = vi.spyOn(cameraInput, "click");
+
+      expect(clickSpy).not.toHaveBeenCalled();
+    });
+
+    it("does not trigger camera input click when autoCapture is undefined", () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const cameraInput = screen.getByTestId("camera-input") as HTMLInputElement;
+      const clickSpy = vi.spyOn(cameraInput, "click");
+
+      expect(clickSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe("blob URL cleanup on unmount", () => {
     it("revokes all preview URLs when component unmounts", async () => {
       const onPhotosChange = vi.fn();

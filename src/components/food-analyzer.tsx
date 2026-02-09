@@ -21,7 +21,11 @@ import {
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import type { FoodAnalysis, FoodLogResponse, FoodMatch } from "@/types";
 
-export function FoodAnalyzer() {
+interface FoodAnalyzerProps {
+  autoCapture?: boolean;
+}
+
+export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [photos, setPhotos] = useState<File[]>([]);
   const [description, setDescription] = useState("");
   const [analysis, setAnalysis] = useState<FoodAnalysis | null>(null);
@@ -424,7 +428,7 @@ export function FoodAnalyzer() {
         </div>
       )}
 
-      <PhotoCapture onPhotosChange={handlePhotosChange} />
+      <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture} />
 
       <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging} />
 

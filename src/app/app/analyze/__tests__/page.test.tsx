@@ -16,7 +16,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/components/food-analyzer", () => ({
-  FoodAnalyzer: () => <div data-testid="food-analyzer">FoodAnalyzer</div>,
+  FoodAnalyzer: ({ autoCapture }: { autoCapture?: boolean }) => (
+    <div data-testid="food-analyzer" data-auto-capture={autoCapture ? "true" : undefined}>
+      FoodAnalyzer
+    </div>
+  ),
 }));
 
 const { default: AnalyzePage } = await import("@/app/app/analyze/page");
@@ -32,21 +36,35 @@ const validSession: FullSession = {
 describe("/app/analyze page", () => {
   it("redirects to / when session is null", async () => {
     mockGetSession.mockResolvedValue(null);
-    await expect(AnalyzePage()).rejects.toThrow("NEXT_REDIRECT");
+    await expect(AnalyzePage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT");
     expect(mockRedirect).toHaveBeenCalledWith("/");
   });
 
   it("renders 'Analyze Food' heading", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AnalyzePage();
+    const jsx = await AnalyzePage({ searchParams: Promise.resolve({}) });
     render(jsx);
     expect(screen.getByText("Analyze Food")).toBeInTheDocument();
   });
 
   it("renders FoodAnalyzer component", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AnalyzePage();
+    const jsx = await AnalyzePage({ searchParams: Promise.resolve({}) });
     render(jsx);
     expect(screen.getByTestId("food-analyzer")).toBeInTheDocument();
+  });
+
+  it("passes autoCapture=true to FoodAnalyzer when searchParams has autoCapture", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const jsx = await AnalyzePage({ searchParams: Promise.resolve({ autoCapture: "true" }) });
+    render(jsx);
+    expect(screen.getByTestId("food-analyzer")).toHaveAttribute("data-auto-capture", "true");
+  });
+
+  it("does not pass autoCapture when searchParams lacks autoCapture", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const jsx = await AnalyzePage({ searchParams: Promise.resolve({}) });
+    render(jsx);
+    expect(screen.getByTestId("food-analyzer")).not.toHaveAttribute("data-auto-capture");
   });
 });

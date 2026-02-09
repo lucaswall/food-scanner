@@ -146,6 +146,27 @@ export interface CommonFood {
   mealTypeId: number;
 }
 
+export interface CommonFoodsCursor {
+  score: number;
+  id: number;
+}
+
+export interface CommonFoodsResponse {
+  foods: CommonFood[];
+  nextCursor: CommonFoodsCursor | null;
+}
+
+export interface RecentFoodsCursor {
+  lastDate: string;
+  lastTime: string | null;
+  lastId: number;
+}
+
+export interface RecentFoodsResponse {
+  foods: CommonFood[];
+  nextCursor: RecentFoodsCursor | null;
+}
+
 export interface FoodLogHistoryEntry {
   id: number;
   foodName: string;
