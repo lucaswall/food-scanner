@@ -123,7 +123,7 @@ Do NOT flag these in code reviews:
 | **add-to-backlog** | "add to backlog" | Convert ideas to Linear Backlog issues |
 | **backlog-refine** | "refine FOO-123" | Interactive refinement of vague issues |
 | **plan-review-implementation** | After plan-implement | Agent team QA review |
-| **frontend-review** | "review frontend" | Agent team frontend review |
+| **frontend-review** | "review frontend" | Agent team frontend review → Linear Backlog issues |
 | **tools-improve** | Before modifying skills/agents/CLAUDE.md | Best practices for Claude Code extensibility |
 | **push-to-production** | "push to production", "release" | Backup DB, migrate, merge `main` → `release` |
 

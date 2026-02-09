@@ -264,9 +264,26 @@ For each new finding, use `mcp__linear__create_issue`:
 team: "Food Scanner"
 state: "Backlog"
 title: "[Brief description of the issue]"
-description: "[File path]\n\n[Problem description]"
+description: (see Issue Description Format below)
 priority: [1|2|3|4] (mapped from critical/high/medium/low)
 labels: [Mapped label(s)]
+```
+
+**Issue Description Format:**
+
+```
+**Problem:**
+[Clear, specific problem statement — 1-2 sentences]
+
+**Context:**
+[Affected file paths with line numbers, e.g. `src/lib/fitbit.ts:120-135`]
+
+**Impact:**
+[Why this matters — user-facing impact, data integrity, security risk, etc.]
+
+**Acceptance Criteria:**
+- [ ] [Specific, verifiable criterion — e.g. "API returns error response when DB insert fails after Fitbit log"]
+- [ ] [Another criterion]
 ```
 
 **Label Mapping:**
@@ -286,8 +303,8 @@ labels: [Mapped label(s)]
 - `[low]` → 4 (Low)
 
 **Rules:**
-- NO solutions in issue descriptions — identify problems only
-- Include file paths in description
+- NO solutions in issue descriptions — acceptance criteria define "done", not how to get there
+- Include file paths with line numbers in Context
 - One issue per distinct finding
 
 ## Shutdown Team
@@ -343,32 +360,30 @@ If `TeamCreate` fails (agent teams unavailable), perform the audit sequentially 
 
 ## Termination
 
-Output this message and STOP:
+Output this report and STOP:
 
 ```
-Audit complete. Findings created as Linear issues in Backlog.
+## Code Audit Report
 
-Team: 3 reviewers (security, reliability, quality)
-[OR: Mode: single-agent (team unavailable)]
-Preserved: P non-audit issues (features, improvements)
+**Team:** 3 reviewers (security, reliability, quality)
+[OR: **Mode:** single-agent (team unavailable)]
+**Preserved:** P non-audit issues (features, improvements)
 
-Existing Backlog issues:
+### Existing Backlog Issues
+
 - A kept (still valid)
 - B closed (fixed or superseded)
 - C updated (description/priority changed)
 
-New issues created: D
-- Security reviewer: X findings
-- Reliability reviewer: Y findings
-- Quality reviewer: Z findings
-- Duplicates merged: M
+### New Issues (ordered by priority)
 
-Linear Backlog summary:
-- X Urgent/High priority issues
-- Y Medium priority issues
-- Z Low priority issues
+| # | ID | Priority | Label | Title |
+|---|-----|----------|-------|-------|
+| 1 | FOO-N1 | Urgent | Security | Brief title |
+| 2 | FOO-N2 | High | Bug | Brief title |
+| ... | ... | ... | ... | ... |
 
-Issue IDs: FOO-N1, FOO-N2, ...
+X issues total | Duplicates merged: M | Findings dropped: N
 
 Next step: Review Backlog in Linear and use `plan-backlog` to create implementation plans.
 ```

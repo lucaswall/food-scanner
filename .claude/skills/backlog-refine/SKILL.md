@@ -38,16 +38,16 @@ Rate each issue 1–5 based **only** on the data returned from `list_issues` (ti
 
 | Score | Meaning | Criteria |
 |-------|---------|----------|
-| 5 | Ready | Has problem statement, context, acceptance criteria, correct priority/labels |
-| 4 | Minor gaps | Missing one of: acceptance criteria, implementation hints, or specificity |
-| 3 | Needs work | Vague description, missing context or impact, but intent is clear |
-| 2 | Unclear | Very short description, no acceptance criteria, scope ambiguous |
+| 5 | Ready | Has problem statement, file paths, impact, acceptance criteria, correct priority/labels |
+| 4 | Minor gaps | Missing one of: acceptance criteria, impact statement, or implementation hints |
+| 3 | Needs work | Has file paths and problem description but missing 2+ of: acceptance criteria, impact, specificity |
+| 2 | Unclear | Very short description, no file paths, scope ambiguous |
 | 1 | Stub | Title only or single sentence, no useful detail |
 
 **Scoring checklist** (deduct 1 point from 5 for each gap):
 - Description is ≤1 sentence with no specifics → −1
 - No acceptance criteria or definition of done → −1
-- No affected files/routes/components mentioned → −1
+- No affected files/routes/components mentioned in the description → −1
 - Scope is ambiguous (could mean multiple things) → −1
 - Priority or labels seem mismatched with description → −1
 

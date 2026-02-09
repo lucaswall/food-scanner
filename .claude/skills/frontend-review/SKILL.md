@@ -1,12 +1,12 @@
 ---
 name: frontend-review
-description: Reviews all frontend elements (UI, UX, accessibility, visual design, responsiveness, performance) using an agent team with 3 domain-specialized reviewers. Use when user says "review frontend", "check UI", "review UX", "audit accessibility", "check responsive", or "review screens". Falls back to single-agent mode if agent teams unavailable.
+description: Reviews all frontend elements (UI, UX, accessibility, visual design, responsiveness, performance) using an agent team with 3 domain-specialized reviewers. Creates Linear issues in Backlog state for findings. Use when user says "review frontend", "check UI", "review UX", "audit accessibility", "check responsive", or "review screens". Falls back to single-agent mode if agent teams unavailable.
 argument-hint: [optional: specific area like "settings page" or "photo capture"]
-allowed-tools: Read, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet
+allowed-tools: Read, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
-Review all frontend elements using an agent team with domain-specialized reviewers. You are the **team lead/coordinator**. You orchestrate 3 reviewer teammates who examine the frontend through different lenses in parallel, then you merge findings and produce a prioritized report.
+Review all frontend elements using an agent team with domain-specialized reviewers. You are the **team lead/coordinator**. You orchestrate 3 reviewer teammates who examine the frontend through different lenses in parallel, then you merge findings, create Linear issues, and output a summary report.
 
 **If agent teams are unavailable** (TeamCreate fails), fall back to single-agent mode — see "Fallback: Single-Agent Mode" section.
 
@@ -14,8 +14,9 @@ Review all frontend elements using an agent team with domain-specialized reviewe
 
 ## Pre-flight
 
-1. **Read CLAUDE.md** — Load project standards, tech stack, and conventions
-2. **Discover frontend files** — Use Glob to find all frontend-related files:
+1. **Verify Linear MCP** — Call `mcp__linear__list_teams`. If unavailable, STOP and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
+2. **Read CLAUDE.md** — Load project standards, tech stack, and conventions
+3. **Discover frontend files** — Use Glob to find all frontend-related files:
    - `src/app/**/page.tsx` — Pages
    - `src/app/**/layout.tsx` — Layouts
    - `src/components/**/*.tsx` — Components
@@ -23,10 +24,10 @@ Review all frontend elements using an agent team with domain-specialized reviewe
    - `src/app/globals.css` — Styles
    - `public/manifest.json` — PWA manifest
    - `middleware.ts` — Middleware
-3. **Determine review scope:**
+4. **Determine review scope:**
    - If `$ARGUMENTS` specifies an area → scope files to that area only
    - If no arguments → review all frontend files
-4. **Build the file list** — Create the exact list of files each reviewer will examine
+5. **Build the file list** — Create the exact list of files each reviewer will examine
 
 ## Team Setup
 
@@ -87,63 +88,62 @@ Once all reviewer findings are collected:
 | **MEDIUM** | Noticeable but not blocking | Inconsistent spacing, minor contrast issues on non-critical text, missing skip links, CLS > 0.1 |
 | **LOW** | Polish and best-practice improvements | Inconsistent border radius, missing hover transitions, suboptimal image format |
 
-## Produce Report
+## Create Linear Issues
 
-Output the consolidated report directly (do NOT write to a file). Use this format:
+After merging and deduplicating, create a Linear issue for each finding using `mcp__linear__create_issue`:
 
 ```
-## Frontend Review Report
-
-**Scope:** [all frontend files | specific area]
-**Reviewers:** accessibility, visual-design, performance (agent team)
-[OR: Mode: single-agent (team unavailable)]
-**Files reviewed:** N
-
-### Summary
-
-- CRITICAL: X
-- HIGH: Y
-- MEDIUM: Z
-- LOW: W
-
-### Critical & High Findings
-
-1. [CRITICAL] [ACCESSIBILITY] `src/components/food-analyzer.tsx:45` — Description of issue
-   **Impact:** Who is affected and how
-   **Fix:** Specific remediation steps
-
-2. [HIGH] [VISUAL/UX] `src/app/app/page.tsx:20` — Description of issue
-   **Impact:** Who is affected and how
-   **Fix:** Specific remediation steps
-
-### Medium Findings
-
-3. [MEDIUM] [PERFORMANCE] `src/components/photo-capture.tsx:100` — Description
-   **Fix:** Remediation steps
-
-### Low Findings (Summary)
-
-4. [LOW] [VISUAL] Multiple files — Description (list affected files)
-
-### Checklist Coverage
-
-| Domain | Status | Findings |
-|--------|--------|----------|
-| Accessibility & Semantics | Complete | X issues |
-| Visual Design & UX | Complete | Y issues |
-| Performance & Optimization | Complete | Z issues |
-
-### Recommendations
-
-Prioritized list of next steps, grouped by effort level:
-- **Quick wins** (< 1 hour each): ...
-- **Medium effort**: ...
-- **Larger changes**: ...
+team: "Food Scanner"
+state: "Backlog"
+title: "[Brief description of the issue]"
+description: (see Issue Description Format below)
+priority: [1|2|3|4] (mapped from severity)
+labels: [Mapped label(s)]
 ```
+
+**Issue Description Format:**
+
+```
+**Problem:**
+[Clear, specific problem statement — 1-2 sentences]
+
+**Context:**
+[Affected file paths with line numbers, e.g. `src/components/food-analyzer.tsx:45-60`]
+
+**Impact:**
+[Who is affected and how — e.g. screen reader users, mobile users, slow connections]
+
+**Fix:**
+[Specific remediation steps — what needs to change]
+
+**Acceptance Criteria:**
+- [ ] [Specific, verifiable criterion — e.g. "All interactive elements have visible focus indicators"]
+- [ ] [Another criterion]
+```
+
+**Severity → Priority Mapping:**
+- CRITICAL → 1 (Urgent)
+- HIGH → 2 (High)
+- MEDIUM → 3 (Medium)
+- LOW → 4 (Low)
+
+**Label Mapping:**
+
+| Domain | Linear Label |
+|--------|-------------|
+| Accessibility issues, semantic HTML, ARIA | Bug |
+| Visual design, UX, responsive layout | Improvement |
+| Performance, Core Web Vitals, bundle | Performance |
+| Convention (CLAUDE.md compliance) | Convention |
+
+**Rules:**
+- Include file paths with line numbers in Context
+- Acceptance criteria define "done" — verifiable conditions
+- One issue per distinct finding
 
 ## Shutdown Team
 
-After producing the report:
+After all Linear issues are created:
 1. Send shutdown requests to all 3 reviewers using `SendMessage` with `type: "shutdown_request"`
 2. Wait for shutdown confirmations
 3. Use `TeamDelete` to remove team resources
@@ -158,12 +158,13 @@ If `TeamCreate` fails, perform the review as a single agent:
    a. Accessibility & semantics checks
    b. Visual design & UX checks
    c. Performance & optimization checks
-4. Produce the same consolidated report format as team mode
+4. Merge, deduplicate, and create Linear issues — same process as team mode
 
 ## Error Handling
 
 | Situation | Action |
 |-----------|--------|
+| Linear MCP not connected | STOP — tell user to run `/mcp` |
 | No frontend files found | Stop — "No frontend files found in scope." |
 | CLAUDE.md doesn't exist | Use general best practices |
 | TeamCreate fails | Switch to single-agent fallback mode |
@@ -177,5 +178,32 @@ If `TeamCreate` fails, perform the review as a single agent:
 - **Include remediation** — Every finding must have a concrete fix suggestion
 - **Prioritize impact** — Focus on issues that affect real users
 - **Test don't assume** — Read the actual code, don't guess about implementations
-- **Lead handles all output** — Reviewers report to lead, lead produces final report
-- **No Linear integration** — This skill outputs a report only, does not create issues
+- **Lead handles all Linear writes** — Reviewers NEVER create issues directly
+- **Deduplicate before creating** — No duplicate issues in Linear
+
+## Termination
+
+Output this report and STOP:
+
+```
+## Frontend Review Report
+
+**Team:** 3 reviewers (accessibility, visual-design, performance)
+[OR: **Mode:** single-agent (team unavailable)]
+**Scope:** [all frontend files | specific area]
+**Files reviewed:** N
+
+### Issues (ordered by priority)
+
+| # | ID | Priority | Label | Title |
+|---|-----|----------|-------|-------|
+| 1 | FOO-N1 | High | Bug | Brief title |
+| 2 | FOO-N2 | Medium | Improvement | Brief title |
+| ... | ... | ... | ... | ... |
+
+X issues total | Duplicates merged: M
+
+Next step: Review Backlog in Linear and use `plan-backlog` to create implementation plans.
+```
+
+Do not ask follow-up questions. Do not offer to fix issues.
