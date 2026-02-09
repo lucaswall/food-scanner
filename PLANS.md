@@ -1,638 +1,384 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-229-performance-and-loading-improvements
-**Issues:** FOO-229, FOO-230, FOO-231, FOO-232, FOO-233, FOO-234
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-237-quick-select-improvements
+**Issues:** FOO-237, FOO-238, FOO-239, FOO-240, FOO-236
 **Created:** 2026-02-08
 **Last Updated:** 2026-02-08
 
 ## Summary
 
-Comprehensive performance and UX improvement batch: add loading skeletons to all app routes, set Cache-Control headers on cacheable GET API routes, migrate FoodHistory and QuickSelect to SWR for client-side caching, add optimistic UI updates to food logging, prefetch API data from the dashboard, and document performance conventions in CLAUDE.md.
+Comprehensive Quick Select overhaul and UX improvement. Replaces the naive time-proximity scoring with a Gaussian time-frequency algorithm (FOO-237), removes the hard 5-item limit and adds infinite scroll (FOO-238), introduces tabbed UI with "Quick Select" and "Recent" tabs (FOO-239), adds a search textbox for filtering all foods (FOO-240), and auto-opens the camera when navigating from the Home screen "Take Photo" button (FOO-236).
 
 ## Issues
 
-### FOO-229: Add loading.tsx skeletons to all app routes
+### FOO-237: Quick Select: smart Gaussian time-frequency scoring algorithm
+
+**Priority:** High
+**Labels:** Improvement
+**Description:** Replace the current dedup-by-closest-time algorithm with a Gaussian Time-Frequency Score. Instead of picking one best entry per food, sum relevance across ALL log entries using three signals: time-of-day kernel (Gaussian, sigma=120 min), recency decay (exponential, tau=10 days), and day-of-week boost (1.3x). Extend query window from 30 to 90 days. Remove the hard `.slice(0, 5)` limit (handled by FOO-238).
+
+**Acceptance Criteria:**
+- [ ] `getCommonFoods()` uses Gaussian scoring: `score(food) = SUM(timeKernel * recencyDecay * dayOfWeekBoost)` across all log entries
+- [ ] Time kernel: `exp(-(diff^2) / (2 * 120^2))` where diff is circular time-of-day distance in minutes
+- [ ] Recency decay: `exp(-daysAgo / 10)` where daysAgo is calendar days since log entry
+- [ ] Day-of-week boost: 1.3x when entry's day-of-week matches current day-of-week
+- [ ] Query window extended to 90 days (from 30)
+- [ ] A food logged daily at 8am scores ~10x higher than a one-time exact-time match
+- [ ] Results sorted by descending score
+- [ ] Existing tests updated to validate new scoring
+
+### FOO-238: Quick Select: remove limit and add infinite scroll
 
 **Priority:** Medium
 **Labels:** Improvement
-**Description:** No `loading.tsx` files exist. Users see blank screens during navigation while server components render on Railway US (~200-300ms from Argentina). Create `loading.tsx` in all 5 app routes with skeleton UI matching each page's layout.
+**Description:** Remove the hard `.slice(0, 5)` cap in `getCommonFoods()`. Add cursor-based pagination to `GET /api/common-foods`. Client uses `useSWRInfinite` with intersection observer to load more on scroll. Initial page: 10 items. Subsequent pages: 10 items each.
 
 **Acceptance Criteria:**
-- [ ] `loading.tsx` exists in `src/app/app/`, `src/app/app/analyze/`, `src/app/app/history/`, `src/app/app/quick-select/`, `src/app/settings/`
-- [ ] Each skeleton mirrors the corresponding page's layout with placeholder shimmer boxes
-- [ ] Uses shadcn/ui `Skeleton` component for consistency
-- [ ] Zero build warnings
+- [ ] `getCommonFoods()` accepts `limit` and `cursor` (score-based) parameters
+- [ ] `GET /api/common-foods` supports `?limit=10&cursor=X` query params
+- [ ] Client uses `useSWRInfinite` for paginated fetching
+- [ ] Intersection observer triggers load-more when nearing bottom
+- [ ] Initial load shows 10 items, subsequent loads add 10 more
+- [ ] Loading indicator shown at bottom while fetching next page
+- [ ] No more `.slice(0, 5)` — all scored foods are accessible via scroll
 
-### FOO-230: Add Cache-Control headers to cacheable GET API routes
+### FOO-239: Quick Select: add "Recent" tab with chronological ordering
 
 **Priority:** Medium
-**Labels:** Performance
-**Description:** GET API routes (`/api/common-foods`, `/api/food-history`) return no Cache-Control headers. Every request makes a full round trip to Railway US. Setting appropriate private cache headers lets the browser serve stale responses instantly while revalidating.
+**Labels:** Feature
+**Description:** Add a tabbed UI at the top of Quick Select: "Suggested" (Gaussian scoring) | "Recent" (chronological). The "Recent" tab queries `food_log_entries` joined with `custom_foods`, ordered by `date DESC, time DESC`, deduplicated by `customFoodId` (keep most recent entry). Both tabs share the food card UI and infinite scroll.
 
 **Acceptance Criteria:**
-- [ ] `GET /api/common-foods` returns `Cache-Control: private, max-age=60, stale-while-revalidate=300`
-- [ ] `GET /api/food-history` returns `Cache-Control: private, max-age=30, stale-while-revalidate=120`
-- [ ] `GET /api/auth/session` returns `Cache-Control: private, no-cache`
-- [ ] Headers are set on the Response object returned from each route handler
-- [ ] Existing tests still pass
+- [ ] Tabbed UI with "Suggested" and "Recent" tabs
+- [ ] Default tab is "Suggested" (the Gaussian-scored list)
+- [ ] "Recent" tab shows foods ordered by most-recently-logged, deduplicated by `customFoodId`
+- [ ] New `getRecentFoods()` function in `src/lib/food-log.ts` with cursor-based pagination
+- [ ] New `GET /api/common-foods?mode=recent` (or `?tab=recent`) query param support
+- [ ] Both tabs share food card UI and infinite scroll infrastructure
+- [ ] Tab selection persisted in component state (not URL or localStorage)
 
-### FOO-231: Add SWR-style client caching to FoodHistory and QuickSelect
+### FOO-240: Quick Select: add search textbox for filtering all foods
 
 **Priority:** Medium
-**Labels:** Performance
-**Description:** FoodHistory and QuickSelect fetch data fresh on every mount via `useState` + `fetch()`. SWR is already installed (`swr@^2.4.0`) and used in `SettingsContent`. Migrate these two components to use `useSWR` for instant cached rendering with background revalidation.
+**Labels:** Feature
+**Description:** Add a search input visible below the tab bar. When the user types (min 2 chars, 300ms debounce), switch to a search results view querying `custom_foods` with `ILIKE` on `food_name` and `ANY(keywords)`. Results sorted by frequency then recency. When input is cleared, return to active tab content.
 
 **Acceptance Criteria:**
-- [ ] FoodHistory uses `useSWR` for initial data fetch (first page)
-- [ ] QuickSelect uses `useSWR` for `/api/common-foods` fetch
-- [ ] Stale data renders instantly on navigation; revalidation happens in background
-- [ ] Cache is invalidated after food log or delete operations
-- [ ] Cursor-based pagination ("Load More") continues to work in FoodHistory
-- [ ] Pending submission recovery flow still works in QuickSelect
+- [ ] Search input always visible below tab bar
+- [ ] 300ms debounce on input before fetching
+- [ ] Minimum 2 characters to trigger search
+- [ ] New `searchFoods()` function in `src/lib/food-log.ts`
+- [ ] New `GET /api/search-foods?q=X` endpoint
+- [ ] Search queries `ILIKE` on `food_name` and matches against `keywords` array
+- [ ] Results sorted by log count (frequency) DESC, then last-logged date DESC
+- [ ] SWR with query string as key for caching
+- [ ] When input cleared, return to active tab content
+- [ ] Cursor-based pagination for consistency (though most searches return few results)
 
-### FOO-232: Add optimistic UI updates to food logging
+### FOO-236: Auto-open camera when navigating from Home screen "Take Photo" button
 
 **Priority:** Low
 **Labels:** Improvement
-**Description:** Food logging shows a spinner for 1-2s during the API round-trip. Show instant success feedback and sync in background. On failure, revert and show error toast.
+**Description:** When tapping "Take Photo" on the Home screen, pass `?autoCapture=true` to `/app/analyze`. `PhotoCapture` detects the param and auto-triggers `handleTakePhoto()` on mount. Bottom nav link does NOT include the param. Clear param from URL after triggering.
 
 **Acceptance Criteria:**
-- [ ] After tapping "Log to Fitbit", UI immediately shows success state
-- [ ] API call fires in background
-- [ ] On success: update with real IDs from server response
-- [ ] On failure: revert optimistic update, show error, store in pending-submissions for retry
-- [ ] Fitbit token expiration flow still works (redirect to auth)
-
-### FOO-233: Prefetch API data for likely next navigations
-
-**Priority:** Low
-**Labels:** Performance
-**Description:** Dashboard is the main hub. Users navigate to analyze, history, or quick-select next. Prefetch `/api/common-foods` and first page of `/api/food-history` in background on dashboard mount so these pages render instantly.
-
-**Acceptance Criteria:**
-- [ ] Dashboard mounts trigger background prefetch of `/api/common-foods` and `/api/food-history`
-- [ ] Uses SWR `preload()` to warm the cache (depends on FOO-231 SWR adoption)
-- [ ] Prefetch only fires after visible content has loaded (non-blocking)
-- [ ] No visible UI change on dashboard
-
-### FOO-234: Update CLAUDE.md with performance conventions
-
-**Priority:** Low
-**Labels:** Convention
-**Description:** After implementing the performance improvements, document the conventions in CLAUDE.md so future development follows the same patterns.
-
-**Acceptance Criteria:**
-- [ ] CLAUDE.md has a PERFORMANCE section (5-8 lines max)
-- [ ] Documents: loading.tsx requirement, Cache-Control header convention, SWR usage pattern
-- [ ] Follows "only deviations from defaults" principle
+- [ ] Home screen "Take Photo" card links to `/app/analyze?autoCapture=true`
+- [ ] Bottom navigation link to `/app/analyze` does NOT include the param
+- [ ] `PhotoCapture` detects `autoCapture=true` and auto-triggers camera on mount
+- [ ] URL param cleared after triggering (using `replaceState`)
+- [ ] Re-navigation back to analyze (without param) shows normal two-button choice
+- [ ] No disruption if `autoCapture` is missing or false
 
 ## Prerequisites
 
-- [ ] shadcn/ui Skeleton component must be installed: `npx shadcn@latest add skeleton`
-- [ ] SWR is already installed (`swr@^2.4.0` in package.json) — no install needed
+- [ ] On `main` branch with clean working tree
+- [ ] `npm install` is up to date
+- [ ] No active PLANS.md (previous plan was COMPLETE)
 
 ## Implementation Tasks
 
-### Task 1: Install shadcn/ui Skeleton component
+### Task 1: Implement Gaussian scoring algorithm in `getCommonFoods()`
 
-**Issue:** FOO-229
+**Issue:** FOO-237
 **Files:**
-- `src/components/ui/skeleton.tsx` (create — generated by shadcn CLI)
+- `src/lib/food-log.ts` (modify)
+- `src/lib/__tests__/food-log.test.ts` (modify)
 
-**Steps:**
+**TDD Steps:**
 
-1. Run: `npx shadcn@latest add skeleton`
-2. Verify `src/components/ui/skeleton.tsx` is created
-3. Run: `npm run typecheck`
+1. **RED** - Update existing `getCommonFoods` tests:
+   - Rewrite the `getCommonFoods` describe block to test the new scoring algorithm
+   - Test: a food logged every day at 8am for the past week scores higher than a food logged once at the exact current time
+   - Test: time-of-day kernel — food logged at the exact current time gets a higher time kernel than food logged 4 hours away
+   - Test: recency decay — food logged today scores higher than food logged 14 days ago (same time)
+   - Test: day-of-week boost — food logged on same day-of-week gets 1.3x multiplier
+   - Test: score is the SUM across all entries (not just best single entry)
+   - Test: results sorted by descending score
+   - Test: query window is 90 days (entries at 91 days should not appear in query)
+   - Test: empty result when no entries exist
+   - Test: circular time distance still works (23:00 close to 01:00)
+   - Test: handles null time entries (treat as midnight)
+   - Test: numeric fields parsed correctly
+   - Test: FITBIT_DRY_RUN=true includes foods with null fitbitFoodId
+   - Run: `npm test -- food-log`
+   - Verify: New tests fail (scoring function not yet updated)
+
+2. **GREEN** - Implement the Gaussian scoring:
+   - Add helper functions: `gaussianTimeKernel(diffMinutes)`, `recencyDecay(daysAgo)`, `dayOfWeekBoost(entryDayOfWeek, currentDayOfWeek)`
+   - Change the cutoff from 30 to 90 days
+   - Replace the dedup-by-min-time-diff logic with: iterate all entries, for each entry compute `timeKernel * recencyDecay * dayOfWeekBoost`, accumulate sum per `customFoodId`
+   - Keep the best `mealTypeId` for each food (from the entry with the highest individual score)
+   - Sort by descending total score
+   - Remove `.slice(0, 5)` (pagination added in Task 2)
+   - The function signature changes: add `currentDate: string` parameter to enable recency calculation and day-of-week boost
+   - Run: `npm test -- food-log`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Clean up:
+   - Export the scoring helper functions for testability (or keep private if tests use the integration approach)
+   - Ensure circular time diff helper is reused
+   - Check naming follows project conventions
 
 **Notes:**
-- This is a prerequisite for Task 2. Must be done before writing loading.tsx files.
+- `circularTimeDiff()` already exists at line 102 — reuse it for the time kernel
+- `parseTimeToMinutes()` already exists at line 96 — reuse it
+- The `currentDate` parameter should be a `string` in `YYYY-MM-DD` format to match the `date` column type
+- Reference: current `getCommonFoods()` at `src/lib/food-log.ts:107-167`
 
----
+### Task 2: Add cursor-based pagination to `getCommonFoods()` and update API route
 
-### Task 2: Add loading.tsx to dashboard route
-
-**Issue:** FOO-229
+**Issue:** FOO-238
 **Files:**
-- `src/app/app/loading.tsx` (create)
-- `src/app/app/__tests__/loading.test.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** - Write failing test:
-   - Create `src/app/app/__tests__/loading.test.tsx`
-   - Test that the loading component renders a heading skeleton and two card skeletons matching the dashboard layout (h1 "Food Scanner" placeholder + 2-column grid of card placeholders + dashboard preview placeholder)
-   - Run: `npm test -- src/app/app/__tests__/loading.test.tsx`
-   - Verify: Test fails (module not found)
-
-2. **GREEN** - Make it pass:
-   - Create `src/app/app/loading.tsx` (NOT a client component — loading.tsx should be a plain React component)
-   - Render skeleton matching dashboard layout:
-     - `Skeleton` for h1 area (~w-40 h-8)
-     - 2-column grid with two `Skeleton` cards (~h-24 each)
-     - `Skeleton` for DashboardPreview area (~h-64)
-   - Use same container: `min-h-screen px-4 py-6` > `mx-auto w-full max-w-md flex flex-col gap-6`
-   - Run: `npm test -- src/app/app/__tests__/loading.test.tsx`
-   - Verify: Test passes
-
-**Reference:** Dashboard page layout at `src/app/app/page.tsx`
-
----
-
-### Task 3: Add loading.tsx to analyze route
-
-**Issue:** FOO-229
-**Files:**
-- `src/app/app/analyze/loading.tsx` (create)
-- `src/app/app/analyze/__tests__/loading.test.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** - Write failing test:
-   - Create `src/app/app/analyze/__tests__/loading.test.tsx`
-   - Test that loading component renders heading skeleton + photo capture area skeleton + button skeleton
-   - Run: `npm test -- src/app/app/analyze/__tests__/loading.test.tsx`
-   - Verify: Test fails
-
-2. **GREEN** - Make it pass:
-   - Create `src/app/app/analyze/loading.tsx`
-   - Render skeleton matching analyze layout:
-     - `Skeleton` for h1 "Analyze Food" (~w-36 h-8)
-     - `Skeleton` for photo capture area (~h-48 rounded-xl)
-     - `Skeleton` for description input (~h-10)
-     - `Skeleton` for analyze button (~h-11 w-full)
-   - Same container pattern as Task 2
-   - Run: `npm test -- src/app/app/analyze/__tests__/loading.test.tsx`
-
-**Reference:** Analyze page at `src/app/app/analyze/page.tsx`, FoodAnalyzer at `src/components/food-analyzer.tsx`
-
----
-
-### Task 4: Add loading.tsx to history route
-
-**Issue:** FOO-229
-**Files:**
-- `src/app/app/history/loading.tsx` (create)
-- `src/app/app/history/__tests__/loading.test.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** - Write failing test:
-   - Create `src/app/app/history/__tests__/loading.test.tsx`
-   - Test that loading component renders heading skeleton + date picker skeleton + 3 entry skeletons
-   - Run: `npm test -- src/app/app/history/__tests__/loading.test.tsx`
-
-2. **GREEN** - Make it pass:
-   - Create `src/app/app/history/loading.tsx`
-   - Render skeleton matching history layout:
-     - `Skeleton` for h1 "History" (~w-24 h-8)
-     - `Skeleton` for date picker row (~h-11 flex with gap)
-     - 3x `Skeleton` for food entry cards (~h-16 each, matching FoodHistory's loading state)
-   - Same container pattern
-   - Run: `npm test -- src/app/app/history/__tests__/loading.test.tsx`
-
-**Reference:** History page at `src/app/app/history/page.tsx`, FoodHistory loading state at `src/components/food-history.tsx:165-175`
-
----
-
-### Task 5: Add loading.tsx to quick-select route
-
-**Issue:** FOO-229
-**Files:**
-- `src/app/app/quick-select/loading.tsx` (create)
-- `src/app/app/quick-select/__tests__/loading.test.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** - Write failing test:
-   - Create `src/app/app/quick-select/__tests__/loading.test.tsx`
-   - Test that loading component renders heading skeleton + 3 food card skeletons
-   - Run: `npm test -- src/app/app/quick-select/__tests__/loading.test.tsx`
-
-2. **GREEN** - Make it pass:
-   - Create `src/app/app/quick-select/loading.tsx`
-   - Render skeleton matching quick-select layout:
-     - `Skeleton` for h1 "Quick Select" (~w-32 h-8)
-     - 3x `Skeleton` for food cards (~h-20 each, matching QuickSelect's loading state)
-   - Same container pattern
-   - Run: `npm test -- src/app/app/quick-select/__tests__/loading.test.tsx`
-
-**Reference:** QuickSelect loading state at `src/components/quick-select.tsx:247-257`
-
----
-
-### Task 6: Add loading.tsx to settings route
-
-**Issue:** FOO-229
-**Files:**
-- `src/app/settings/loading.tsx` (create)
-- `src/app/settings/__tests__/loading.test.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** - Write failing test:
-   - Create `src/app/settings/__tests__/loading.test.tsx`
-   - Test that loading component renders back button skeleton + heading skeleton + settings card skeleton
-   - Run: `npm test -- src/app/settings/__tests__/loading.test.tsx`
-
-2. **GREEN** - Make it pass:
-   - Create `src/app/settings/loading.tsx`
-   - Render skeleton matching settings layout:
-     - Flex row with `Skeleton` for back button (~w-11 h-11) + heading (~w-24 h-8)
-     - `Skeleton` for settings card (~h-48 rounded-xl)
-     - `Skeleton` for appearance card (~h-32 rounded-xl)
-   - Same centering as SettingsContent: `flex min-h-screen items-center justify-center px-4` > `w-full max-w-sm flex flex-col gap-6`
-   - Run: `npm test -- src/app/settings/__tests__/loading.test.tsx`
-
-**Reference:** Settings page at `src/app/settings/page.tsx`, SettingsContent at `src/components/settings-content.tsx`
-
----
-
-### Task 7: Add Cache-Control headers to GET /api/common-foods
-
-**Issue:** FOO-230
-**Files:**
+- `src/lib/food-log.ts` (modify)
+- `src/lib/__tests__/food-log.test.ts` (modify)
 - `src/app/api/common-foods/route.ts` (modify)
-- `src/app/api/common-foods/__tests__/route.test.ts` (modify)
+- `src/types/index.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** - Write failing test:
-   - Add test to existing `src/app/api/common-foods/__tests__/route.test.ts`:
-     ```
-     it("sets Cache-Control header for private caching", async () => {
-       // Setup mock session + foods
-       const response = await GET();
-       expect(response.headers.get("Cache-Control")).toBe("private, max-age=60, stale-while-revalidate=300");
-     });
-     ```
-   - Run: `npm test -- src/app/api/common-foods/__tests__/route.test.ts`
-   - Verify: Test fails (Cache-Control is null)
+1. **RED** - Write pagination tests:
+   - Test: `getCommonFoods()` returns at most `limit` items (default 10)
+   - Test: `getCommonFoods()` with `cursor` (a score value) returns items with score < cursor
+   - Test: function returns `nextCursor` (score of last item) when more items exist, `null` when no more
+   - Test: API route `GET /api/common-foods?limit=10&cursor=0.5` passes params correctly
+   - Test: API route returns `{ foods, nextCursor }` shape
+   - Run: `npm test -- food-log`
+   - Verify: Tests fail
 
-2. **GREEN** - Make it pass:
-   - In `src/app/api/common-foods/route.ts`, modify the success response to include Cache-Control header.
-   - The `successResponse` helper returns `Response.json()`. To add headers, create the response and set the header:
-     ```typescript
-     const response = successResponse({ foods });
-     response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
-     return response;
-     ```
-   - Run: `npm test -- src/app/api/common-foods/__tests__/route.test.ts`
+2. **GREEN** - Implement pagination:
+   - Update `getCommonFoods()` signature to accept `options: { limit?: number; cursor?: number }`
+   - After sorting by score DESC, if `cursor` provided, filter out items with `score >= cursor`
+   - Slice to `limit + 1` to detect if there are more items
+   - Return `{ foods: CommonFood[], nextCursor: number | null }`
+   - Update `CommonFood` type or create a new response type `CommonFoodsResponse`
+   - Update the API route to parse `limit` and `cursor` from query params
+   - Pass `currentDate` (today's date string) to `getCommonFoods()`
+   - Return `{ foods, nextCursor }` in the API response
+   - Run: `npm test -- food-log`
+   - Verify: Tests pass
+
+3. **REFACTOR** - Ensure consistent return type across callers
 
 **Notes:**
-- `private` because response is user-specific (session-authenticated)
-- 60s max-age: common foods change slowly (based on time of day + last 30 days history)
-- 300s stale-while-revalidate: OK to show slightly stale data while refreshing
+- The cursor is the score of the last item on the previous page. Since scores are floats, this gives stable pagination.
+- Use `limit + 1` trick: fetch one extra to know if `nextCursor` should be non-null
+- Reference: `getFoodLogHistory()` at `src/lib/food-log.ts:169-224` for pagination pattern (though it uses composite cursor — this one is simpler with a single float score)
 
----
+### Task 3: Add `getRecentFoods()` function and "Recent" mode to API
 
-### Task 8: Add Cache-Control headers to GET /api/food-history
-
-**Issue:** FOO-230
+**Issue:** FOO-239
 **Files:**
-- `src/app/api/food-history/route.ts` (modify)
-- `src/app/api/food-history/__tests__/route.test.ts` (modify)
+- `src/lib/food-log.ts` (modify)
+- `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/app/api/common-foods/route.ts` (modify)
+- `src/types/index.ts` (modify — add `RecentFood` type if needed, or reuse `CommonFood`)
 
 **TDD Steps:**
 
-1. **RED** - Write failing test:
-   - Add test to existing `src/app/api/food-history/__tests__/route.test.ts`:
-     ```
-     it("sets Cache-Control header for private caching", async () => {
-       const response = await GET(new Request("http://localhost/api/food-history"));
-       expect(response.headers.get("Cache-Control")).toBe("private, max-age=30, stale-while-revalidate=120");
-     });
-     ```
-   - Run: `npm test -- src/app/api/food-history/__tests__/route.test.ts`
+1. **RED** - Write tests for `getRecentFoods()`:
+   - Test: returns foods ordered by most-recently-logged (date DESC, time DESC)
+   - Test: deduplicates by `customFoodId` keeping the most recent entry
+   - Test: returns `CommonFood` shape (same as `getCommonFoods`)
+   - Test: accepts `limit` and `cursor` (composite: `{ lastDate, lastTime, lastId }`) for pagination
+   - Test: returns `nextCursor` when more items exist
+   - Test: returns empty array when no entries
+   - Test: FITBIT_DRY_RUN=true includes foods with null fitbitFoodId
+   - Run: `npm test -- food-log`
+   - Verify: Tests fail
 
-2. **GREEN** - Make it pass:
-   - Same pattern as Task 7:
-     ```typescript
-     const response = successResponse({ entries });
-     response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=120");
-     return response;
-     ```
-   - Run: `npm test -- src/app/api/food-history/__tests__/route.test.ts`
+2. **GREEN** - Implement `getRecentFoods()`:
+   - Query `food_log_entries` joined with `custom_foods`, ordered by `date DESC, time DESC`
+   - Use a subquery or application-level dedup: for each `customFoodId`, keep only the row with the latest `(date, time)` combination
+   - Accept pagination params: `limit` (default 10) and `cursor` (composite)
+   - Return `{ foods: CommonFood[], nextCursor: { lastDate, lastTime, lastId } | null }`
+   - Update API route: when `?tab=recent` is present, call `getRecentFoods()` instead of `getCommonFoods()`
+   - Run: `npm test -- food-log`
+   - Verify: Tests pass
 
-**Notes:**
-- 30s max-age: food history changes when user logs/deletes food
-- 120s stale-while-revalidate: OK for background refresh
-
----
-
-### Task 9: Add Cache-Control: no-cache to GET /api/auth/session
-
-**Issue:** FOO-230
-**Files:**
-- `src/app/api/auth/session/route.ts` (modify)
-- `src/app/api/auth/session/__tests__/route.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** - Write failing test:
-   - Add test: session response should have `Cache-Control: private, no-cache`
-   - Run: `npm test -- src/app/api/auth/session/__tests__/route.test.ts`
-
-2. **GREEN** - Make it pass:
-   - Add `response.headers.set("Cache-Control", "private, no-cache")` before returning
-   - Run: `npm test -- src/app/api/auth/session/__tests__/route.test.ts`
+3. **REFACTOR** - Extract shared food-mapping logic:
+   - Both `getCommonFoods()` and `getRecentFoods()` map DB rows to `CommonFood`. Extract the mapping to a shared helper.
 
 **Notes:**
-- Session data must always be fresh — `no-cache` forces revalidation on every request
+- For deduplication: query all entries for the user (within a window, e.g., 90 days for consistency), group by `customFoodId`, keep the max `(date, time)` pair. Could use SQL `DISTINCT ON` or application-level dedup.
+- The cursor for "recent" is different from "suggested" (composite vs float score). The API response shape should reflect which cursor type is returned.
+- Reference: `getFoodLogHistory()` at `src/lib/food-log.ts:169-224` uses a similar composite cursor pattern
 
----
+### Task 4: Build tabbed UI for Quick Select (client-side)
 
-### Task 10: Migrate QuickSelect to useSWR
-
-**Issue:** FOO-231
+**Issue:** FOO-239, FOO-238
 **Files:**
 - `src/components/quick-select.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** - Update existing tests:
-   - Tests currently mock `global.fetch`. SWR wraps fetch, so existing mocks should still work.
-   - Add a new test: "shows cached data instantly on re-mount" — mount component, wait for data, unmount, re-mount, verify data appears without loading state.
-   - Run: `npm test -- src/components/__tests__/quick-select.test.tsx`
+1. **RED** - Write component tests (if existing tests exist, update them; otherwise this is primarily manual verification):
+   - Verify: Two tabs rendered: "Suggested" and "Recent"
+   - Verify: "Suggested" tab active by default
+   - Verify: Switching tabs changes the data source
+   - Verify: Both tabs show the same food card UI
 
-2. **GREEN** - Migrate to useSWR:
-   - Replace the `fetchFoods` callback + `useEffect` pattern with:
-     ```typescript
-     const { data, isLoading, mutate } = useSWR<{ foods: CommonFood[] }>(
-       "/api/common-foods",
-       async (url: string) => {
-         const response = await fetch(url);
-         const result = await response.json();
-         if (!result.success) throw new Error("Failed to load");
-         return result.data;
-       },
-       { revalidateOnFocus: false }
-     );
-     const foods = data?.foods ?? [];
-     const loadingFoods = isLoading;
-     ```
-   - After successful food log, call `mutate()` to invalidate cache
-   - Keep pending submission recovery flow unchanged (it runs in `useEffect`, separate from SWR)
-   - Run: `npm test -- src/components/__tests__/quick-select.test.tsx`
+2. **GREEN** - Implement tabbed UI:
+   - Add tab state: `const [activeTab, setActiveTab] = useState<'suggested' | 'recent'>('suggested')`
+   - Replace the single `useSWR` call with `useSWRInfinite`:
+     - Key function: `(pageIndex, previousPageData) => ...` that builds the URL with `tab`, `limit`, and `cursor` params
+     - For "suggested" tab: `/api/common-foods?limit=10` (and `&cursor=X` for subsequent pages)
+     - For "recent" tab: `/api/common-foods?tab=recent&limit=10` (and cursor params for subsequent pages)
+   - Render tab buttons at the top of the food list
+   - Use shadcn `Tabs` component if available, or plain buttons with active styling
+   - Both tabs render the same food card list from their respective data
+   - Add infinite scroll trigger: an invisible sentinel div at the bottom observed by `IntersectionObserver`
+   - When sentinel is visible and more pages exist, call `setSize(size + 1)`
+   - Show loading spinner at bottom during page fetch
+   - Run: `npm run build` to verify no TypeScript errors
+   - Verify: Tabs switch between data sources, infinite scroll loads more
 
-3. **REFACTOR**:
-   - Remove now-unused `fetchFoods` callback and its `useEffect`
-   - Replace manual `setLoadingFoods` with SWR's `isLoading`
-   - Remove `setFoods` state — use SWR's `data` directly
-
-**Reference:** SWR pattern in `src/components/settings-content.tsx:7-34`
+3. **REFACTOR** - Extract infinite scroll logic to a custom hook if it becomes complex
 
 **Notes:**
-- Keep `revalidateOnFocus: false` since common foods don't change frequently
-- The `onDone` callback in `FoodLogConfirmation` currently calls `fetchFoods()` — replace with `mutate()`
+- `useSWRInfinite` from `swr/infinite` — import: `import useSWRInfinite from 'swr/infinite'`
+- The `apiFetcher` from `src/lib/swr.ts` should work with `useSWRInfinite`
+- Reference: existing `useSWR` pattern in `src/components/quick-select.tsx:39-43`
+- Touch targets: tab buttons must be at least 44px tall (project policy)
+- When switching tabs, `useSWRInfinite` with a different key will automatically fetch the first page
 
----
+### Task 5: Add `searchFoods()` function and `GET /api/search-foods` endpoint
 
-### Task 11: Migrate FoodHistory to useSWR (first page only)
-
-**Issue:** FOO-231
+**Issue:** FOO-240
 **Files:**
-- `src/components/food-history.tsx` (modify)
-- `src/components/__tests__/food-history.test.tsx` (modify)
+- `src/lib/food-log.ts` (modify)
+- `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/app/api/search-foods/route.ts` (create)
+- `src/types/index.ts` (modify — if new types needed)
 
 **TDD Steps:**
 
-1. **RED** - Update tests:
-   - Add test: "shows cached data instantly on re-mount"
-   - Existing fetch mocks should continue to work
-   - Run: `npm test -- src/components/__tests__/food-history.test.tsx`
+1. **RED** - Write tests for `searchFoods()`:
+   - Test: matches on `food_name` using case-insensitive substring match (ILIKE `%query%`)
+   - Test: matches on `keywords` array (any keyword ILIKE `%query%`)
+   - Test: results sorted by log count DESC, then last-logged date DESC
+   - Test: returns `CommonFood` shape
+   - Test: accepts `limit` parameter
+   - Test: returns empty array when no matches
+   - Test: only returns foods for the given `userId`
+   - Test: FITBIT_DRY_RUN=true includes foods with null fitbitFoodId
+   - Run: `npm test -- food-log`
+   - Verify: Tests fail
 
-2. **GREEN** - Migrate initial fetch to useSWR:
-   - Use SWR for the initial page load only:
-     ```typescript
-     const { data: initialData, isLoading, mutate } = useSWR<{ entries: FoodLogHistoryEntry[] }>(
-       "/api/food-history?limit=20",
-       async (url: string) => {
-         const response = await fetch(url);
-         const result = await response.json();
-         if (!result.success) throw new Error("Failed to load");
-         return result.data;
-       },
-       { revalidateOnFocus: false }
-     );
-     ```
-   - Keep `entries` in local state for append-based pagination. Seed from `initialData` via `useEffect`:
-     ```typescript
-     useEffect(() => {
-       if (initialData?.entries) {
-         setEntries(initialData.entries);
-         setHasMore(initialData.entries.length >= 20);
-       }
-     }, [initialData]);
-     ```
-   - "Load More" continues to use manual fetch + append to local state
-   - After delete, call `mutate()` to refresh the cache
-   - Run: `npm test -- src/components/__tests__/food-history.test.tsx`
+2. **GREEN** - Implement `searchFoods()`:
+   - Query `custom_foods` table WHERE `food_name ILIKE %q%` OR any keyword matches
+   - Join with `food_log_entries` to compute: count of log entries (frequency) and MAX date (recency)
+   - Sort by frequency DESC, last-logged date DESC
+   - Return `CommonFood[]` (with `mealTypeId` from the most recent log entry)
+   - Create `GET /api/search-foods?q=X&limit=10` route:
+     - Validate `q` is at least 2 characters
+     - Call `searchFoods(userId, q, { limit })`
+     - Return `{ foods: CommonFood[] }`
+     - Set `Cache-Control: private, max-age=30, stale-while-revalidate=60`
+   - Run: `npm test -- food-log`
+   - Verify: Tests pass
 
-3. **REFACTOR**:
-   - Remove the initial `useEffect(() => { fetchEntries(); }, [])` call
-   - Keep `fetchEntries` for pagination (Load More) and Jump to Date
-   - Use SWR's `isLoading` for initial loading state
+3. **REFACTOR** - Ensure SQL query is efficient with the expected data size (~100s of custom foods)
 
 **Notes:**
-- FoodHistory has cursor-based pagination which doesn't map well to SWR's key-based caching. Only the first page uses SWR; subsequent pages use manual fetch.
-- Jump to Date resets local state and calls `fetchEntries` directly (bypasses SWR) since it's a different query.
+- For keyword matching: Drizzle ORM `arrayContains` or raw SQL `EXISTS (SELECT 1 FROM unnest(keywords) k WHERE k ILIKE $1)` — need to check Drizzle capabilities
+- For frequency/recency: LEFT JOIN on `food_log_entries`, use COUNT and MAX aggregations
+- Reference: `customFoods.keywords` is `text("keywords").array()` in `src/db/schema.ts:54`
 
----
+### Task 6: Add search UI to Quick Select component
 
-### Task 12: Add optimistic UI to QuickSelect food logging
-
-**Issue:** FOO-232
+**Issue:** FOO-240
 **Files:**
 - `src/components/quick-select.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** - Write failing test:
-   - Add test: "shows success immediately after tapping Log to Fitbit"
-   - Mock fetch to delay response (simulate network latency)
-   - Verify: FoodLogConfirmation renders immediately, before fetch resolves
-   - Run: `npm test -- src/components/__tests__/quick-select.test.tsx`
+1. **RED** - Define expected behavior:
+   - Search input visible below tab bar
+   - Typing 2+ chars after 300ms debounce triggers search
+   - Search results replace tab content
+   - Clearing input returns to active tab
 
-2. **GREEN** - Implement optimistic update:
-   - In `handleLogToFitbit`, immediately set `logResponse` with a provisional response:
-     ```typescript
-     // Optimistic: show success immediately
-     const optimisticResponse: FoodLogResponse = {
-       fitbitLogId: 0,   // placeholder
-       foodLogId: 0,     // placeholder
-       foodName: selectedFood.foodName,
-       calories: selectedFood.calories,
-     };
-     setLogResponse(optimisticResponse);
-     ```
-   - Fire the API call in background:
-     ```typescript
-     try {
-       const response = await fetch("/api/log-food", { ... });
-       const result = await response.json();
-       if (!response.ok || !result.success) {
-         // Revert optimistic update
-         setLogResponse(null);
-         // Handle error (token invalid → redirect, else show error)
-         ...
-       } else {
-         // Update with real response
-         setLogResponse(result.data);
-       }
-     } catch {
-       setLogResponse(null);
-       setLogError("Failed to log food");
-     }
-     ```
-   - Note: Fitbit token expiration check must still redirect — don't show optimistic success if we know the token is expired (but we can't know until the API responds, so the revert handles this)
-   - Run: `npm test -- src/components/__tests__/quick-select.test.tsx`
+2. **GREEN** - Implement search UI:
+   - Add search state: `const [searchQuery, setSearchQuery] = useState('')`
+   - Add debounced query: use `useState` + `useEffect` with `setTimeout` for 300ms debounce
+   - When `debouncedQuery.length >= 2`, use `useSWR` with `/api/search-foods?q=${debouncedQuery}` as key
+   - Render search input between tabs and food list:
+     - `<Input placeholder="Search foods..." value={searchQuery} onChange={...} />`
+     - Min height 44px (touch target)
+   - When search is active (debounced query >= 2 chars), render search results instead of tab content
+   - When search input is cleared (or < 2 chars), show tab content again
+   - Search results use the same food card UI
+   - Run: `npm run build`
+   - Verify: Search works as expected
+
+3. **REFACTOR** - Extract debounce logic to a `useDebounce` hook in `src/hooks/` if one doesn't already exist
 
 **Notes:**
-- Keep the existing `logging` state for the brief moment between tap and optimistic display
-- FoodLogConfirmation component must handle `fitbitLogId: 0` gracefully (it likely doesn't display IDs, so this should be fine)
-- After revert on error, `vibrateError()` should fire to give tactile feedback
+- SWR with query string key provides automatic caching — subsequent searches for "hei" will be instant
+- The search endpoint returns the full list (not paginated) since most searches return few results, but cursor param is available for consistency
+- Reference: `Input` component from `@/components/ui/input` (used in `food-analyzer.tsx:499`)
 
----
+### Task 7: Auto-open camera from Home screen
 
-### Task 13: Add optimistic UI to FoodAnalyzer food logging
-
-**Issue:** FOO-232
+**Issue:** FOO-236
 **Files:**
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** - Write failing test:
-   - Add test: "shows success immediately after tapping Log to Fitbit"
-   - Verify: FoodLogConfirmation renders before fetch resolves
-   - Run: `npm test -- src/components/__tests__/food-analyzer.test.tsx`
-
-2. **GREEN** - Same optimistic pattern as Task 12:
-   - In `handleLogToFitbit`, immediately set `logResponse` with provisional data built from `analysis`:
-     ```typescript
-     const optimisticResponse: FoodLogResponse = {
-       fitbitLogId: 0,
-       foodLogId: 0,
-       foodName: analysis.food_name,
-       calories: analysis.calories,
-     };
-     setLogResponse(optimisticResponse);
-     ```
-   - Fire API in background, revert on error
-   - Same pattern for `handleUseExisting` (using existing food)
-   - Run: `npm test -- src/components/__tests__/food-analyzer.test.tsx`
-
-**Notes:**
-- Both `handleLogToFitbit` and `handleUseExisting` in FoodAnalyzer should get optimistic treatment
-- The `vibrateSuccess()` in FoodLogConfirmation will fire immediately — this is desirable UX
-
----
-
-### Task 14: Check FoodLogResponse type compatibility
-
-**Issue:** FOO-232
-**Files:**
-- `src/types/index.ts` (read — may need modification)
-- `src/components/food-log-confirmation.tsx` (read — verify it handles placeholder IDs)
-
-**Steps:**
-
-1. Read `FoodLogResponse` type definition in `src/types/index.ts`
-2. Read `FoodLogConfirmation` component to verify it doesn't display `fitbitLogId` or `foodLogId` to the user
-3. If IDs are displayed, add a conditional to hide them when they're 0 (placeholder)
-4. Run: `npm test -- src/components/__tests__/food-log-confirmation.test.tsx`
-
-**Notes:**
-- This is a verification task. May require no changes if the confirmation component doesn't show IDs.
-
----
-
-### Task 15: Add SWR preload to dashboard
-
-**Issue:** FOO-233
-**Files:**
-- `src/components/dashboard-prefetch.tsx` (create)
-- `src/components/__tests__/dashboard-prefetch.test.tsx` (create)
 - `src/app/app/page.tsx` (modify)
+- `src/components/photo-capture.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** - Write failing test:
-   - Create `src/components/__tests__/dashboard-prefetch.test.tsx`
-   - Test that `DashboardPrefetch` component calls `preload` for `/api/common-foods` and `/api/food-history?limit=20` on mount
-   - Run: `npm test -- src/components/__tests__/dashboard-prefetch.test.tsx`
+1. **RED** - Write tests for PhotoCapture auto-capture:
+   - Test: when `autoCapture` prop is true, `handleTakePhoto` is called on mount (camera input clicked)
+   - Test: when `autoCapture` prop is false or undefined, no auto-trigger
+   - Test: URL param is cleared after triggering
+   - Run: `npm test -- photo-capture` (if tests exist, otherwise verify manually)
 
-2. **GREEN** - Create prefetch component:
-   - Create `src/components/dashboard-prefetch.tsx`:
-     ```typescript
-     "use client";
+2. **GREEN** - Implement auto-capture:
+   - In `src/app/app/page.tsx`: Change "Take Photo" Link href from `/app/analyze` to `/app/analyze?autoCapture=true`
+   - In `src/components/photo-capture.tsx`:
+     - Add `autoCapture?: boolean` prop to `PhotoCaptureProps` interface
+     - Add `useEffect` that checks `autoCapture` and calls `cameraInputRef.current?.click()` on mount
+     - In the parent `FoodAnalyzer` component or the analyze page, read `searchParams` and pass `autoCapture` prop
+   - In `src/components/food-analyzer.tsx`:
+     - Accept `autoCapture` prop and pass it down to `PhotoCapture`
+   - In `src/app/app/analyze/page.tsx`:
+     - Read `searchParams` and pass `autoCapture` to `FoodAnalyzer`
+     - Clear the URL param using `window.history.replaceState` (in the client component)
+   - Run: `npm run build`
+   - Verify: Navigating from Home "Take Photo" auto-opens camera
 
-     import { useEffect } from "react";
-     import { preload } from "swr";
-
-     // Fetcher matching the one used by QuickSelect and FoodHistory
-     async function apiFetcher(url: string) {
-       const response = await fetch(url);
-       const result = await response.json();
-       if (!result.success) throw new Error("Failed to load");
-       return result.data;
-     }
-
-     export function DashboardPrefetch() {
-       useEffect(() => {
-         preload("/api/common-foods", apiFetcher);
-         preload("/api/food-history?limit=20", apiFetcher);
-       }, []);
-       return null;
-     }
-     ```
-   - Add `<DashboardPrefetch />` to `src/app/app/page.tsx` alongside existing components
-   - Run: `npm test -- src/components/__tests__/dashboard-prefetch.test.tsx`
-
-3. **REFACTOR**:
-   - Extract the `apiFetcher` function to a shared location (e.g., `src/lib/swr.ts`) so QuickSelect, FoodHistory, and DashboardPrefetch all use the same fetcher. SWR deduplicates by key+fetcher, so using the same fetcher ensures cache hits.
-   - Update QuickSelect (Task 10) and FoodHistory (Task 11) to import from `src/lib/swr.ts`
-   - Run: `npm test`
+3. **REFACTOR** - Ensure bottom navigation link to `/app/analyze` does NOT include `?autoCapture=true`
 
 **Notes:**
-- `preload()` from SWR fires the request and populates the cache. When the user navigates to history or quick-select, `useSWR` with the same key returns cached data instantly.
-- DashboardPrefetch renders `null` — no visible UI.
-- The fetcher MUST be the same function reference used in the `useSWR` calls, otherwise SWR won't match the cache.
+- The analyze page is a Server Component that renders `FoodAnalyzer` (a Client Component). The `searchParams` can be read in the Server Component and passed as props.
+- In Next.js App Router, `searchParams` is available as a prop to page components.
+- `window.history.replaceState(null, '', '/app/analyze')` clears the param without navigation.
+- Reference: Home page link at `src/app/app/page.tsx:23-29`, PhotoCapture at `src/components/photo-capture.tsx:187-189`
 
----
+### Task 8: Integration & Verification
 
-### Task 16: Update CLAUDE.md with performance conventions
-
-**Issue:** FOO-234
-**Files:**
-- `CLAUDE.md` (modify)
-
-**Steps:**
-
-1. Add a PERFORMANCE section to CLAUDE.md after the STYLE section:
-   ```markdown
-   ## PERFORMANCE
-
-   - **Every app route MUST have a `loading.tsx`** with `Skeleton` placeholders matching the page layout
-   - **Cacheable GET routes** set `Cache-Control: private, max-age=N, stale-while-revalidate=M` (user-specific data = `private`)
-   - **Client data fetching** uses `useSWR` with shared fetcher from `src/lib/swr.ts` — never raw `useState` + `fetch()`
-   ```
-2. Run: `npm run build` to verify no warnings
-
-**Notes:**
-- Keep it concise — only conventions that would cause mistakes if missing
-- This task MUST be done last, after all performance patterns are implemented
-
----
-
-### Task 17: Integration & Verification
-
-**Issue:** FOO-229, FOO-230, FOO-231, FOO-232, FOO-233, FOO-234
+**Issue:** FOO-237, FOO-238, FOO-239, FOO-240, FOO-236
 **Files:**
 - Various files from previous tasks
 
@@ -641,15 +387,17 @@ Comprehensive performance and UX improvement batch: add loading skeletons to all
 1. Run full test suite: `npm test`
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
-4. Run build: `npm run build`
-5. Verify zero warnings in all of the above
-6. Manual verification:
-   - [ ] Navigate between routes — loading skeletons appear briefly
-   - [ ] Check Network tab — Cache-Control headers present on GET responses
-   - [ ] Navigate to history, go back, navigate again — cached data shows instantly
-   - [ ] Navigate to quick-select, go back, navigate again — cached data shows instantly
-   - [ ] Log a food via quick-select — success shows immediately
-   - [ ] Log a food via analyzer — success shows immediately
+4. Build check: `npm run build`
+5. Manual verification:
+   - [ ] Quick Select shows "Suggested" and "Recent" tabs
+   - [ ] "Suggested" tab uses Gaussian scoring (habitual foods rank higher)
+   - [ ] Both tabs support infinite scroll (more than 5 items visible)
+   - [ ] Search box filters foods by name and keywords
+   - [ ] Search results replace tab content; clearing returns to tabs
+   - [ ] Home "Take Photo" auto-opens camera
+   - [ ] Bottom nav "Analyze" does NOT auto-open camera
+   - [ ] All touch targets at least 44px
+   - [ ] Mobile layout looks correct
 
 ## MCP Usage During Implementation
 
@@ -661,213 +409,30 @@ Comprehensive performance and UX improvement batch: add loading skeletons to all
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| SWR fetch failure | Show error state (existing behavior) | Unit test |
-| Optimistic update revert | Revert UI, show error, vibrate | Unit test |
-| Fitbit token expired during optimistic flow | Revert optimistic UI, redirect to auth | Unit test |
-| SWR cache miss | Show loading state, fetch fresh | Unit test |
+| Search query < 2 chars | No API call, show tab content | Client logic |
+| Search API returns empty | Show "No results" message | Client logic |
+| Infinite scroll network error | SWR error handling, retry on next scroll | SWR built-in |
+| `getCommonFoods` DB error | Return 500 with INTERNAL_ERROR | Existing error handling in route |
+| `autoCapture` on non-camera device | Browser handles gracefully (file picker opens) | Browser behavior |
 
 ## Risks & Open Questions
 
-- [ ] **SWR fetcher identity**: The fetcher function passed to `useSWR` and `preload` must be the same reference for cache hits. Task 15 addresses this by extracting to `src/lib/swr.ts`.
-- [ ] **FoodHistory pagination with SWR**: Only the first page uses SWR. "Load More" and "Jump to Date" bypass SWR. This is a pragmatic compromise — full SWR pagination would require a different data model.
-- [ ] **Optimistic update timing**: The optimistic response uses placeholder IDs (`fitbitLogId: 0`, `foodLogId: 0`). If FoodLogConfirmation displays these, a conditional will be needed (covered in Task 14).
+- [ ] Drizzle ORM keyword array search: Need to verify how to query `text[].array()` columns with ILIKE. May need raw SQL or `sql` template tag from Drizzle.
+- [ ] `useSWRInfinite` with `apiFetcher`: The current `apiFetcher` unwraps `result.data`, so the key function for `useSWRInfinite` needs to handle the `nextCursor` from the response. May need a separate fetcher that returns the raw response data (including `nextCursor`).
+- [ ] Score-based cursor stability: If a new food is logged between page loads, scores could shift. This is acceptable for a personal app — worst case is a food appearing twice or being skipped across pages.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Loading skeletons for all 5 app routes
-- Cache-Control headers on 3 GET routes
-- SWR adoption for FoodHistory (first page) and QuickSelect
-- Optimistic UI for food logging in QuickSelect and FoodAnalyzer
-- SWR prefetch from dashboard
-- CLAUDE.md performance conventions
+- Gaussian scoring algorithm for Quick Select
+- Infinite scroll with cursor-based pagination
+- Tabbed UI (Suggested / Recent)
+- Search textbox with debounce and ILIKE query
+- Auto-open camera from Home screen
 
 **Out of Scope:**
-- Infinite scroll for FoodHistory (current "Load More" button is retained)
-- Service Worker / offline caching
-- Server-side caching (Redis, etc.)
-- Performance monitoring / metrics
-- Database query optimization
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-08
-**Method:** Agent team (4 workers)
-
-### Tasks Completed This Iteration
-- Task 1: Install shadcn/ui Skeleton component (lead)
-- Task 2: Add loading.tsx to dashboard route (worker-1)
-- Task 3: Add loading.tsx to analyze route (worker-1)
-- Task 4: Add loading.tsx to history route (worker-1)
-- Task 5: Add loading.tsx to quick-select route (worker-1)
-- Task 6: Add loading.tsx to settings route (worker-1)
-- Task 7: Add Cache-Control headers to GET /api/common-foods (worker-2)
-- Task 8: Add Cache-Control headers to GET /api/food-history (worker-2)
-- Task 9: Add Cache-Control: no-cache to GET /api/auth/session (worker-2)
-- Task 10: Migrate QuickSelect to useSWR (worker-3)
-- Task 11: Migrate FoodHistory to useSWR first page (worker-3)
-- Task 12: Add optimistic UI to QuickSelect food logging (worker-3)
-- Task 13: Add optimistic UI to FoodAnalyzer food logging (worker-4)
-- Task 14: Check FoodLogResponse type compatibility (worker-4) - No changes needed
-- Task 15: Add SWR preload to dashboard (worker-3)
-- Task 16: Update CLAUDE.md with performance conventions (lead)
-- Task 17: Integration & verification (lead)
-
-### Files Modified
-- `src/components/ui/skeleton.tsx` - Created (shadcn CLI)
-- `src/app/app/loading.tsx` - Created dashboard loading skeleton
-- `src/app/app/__tests__/loading.test.tsx` - Created (4 tests)
-- `src/app/app/analyze/loading.tsx` - Created analyze loading skeleton
-- `src/app/app/analyze/__tests__/loading.test.tsx` - Created (5 tests)
-- `src/app/app/history/loading.tsx` - Created history loading skeleton
-- `src/app/app/history/__tests__/loading.test.tsx` - Created (4 tests)
-- `src/app/app/quick-select/loading.tsx` - Created quick-select loading skeleton
-- `src/app/app/quick-select/__tests__/loading.test.tsx` - Created (3 tests)
-- `src/app/settings/loading.tsx` - Created settings loading skeleton
-- `src/app/settings/__tests__/loading.test.tsx` - Created (5 tests)
-- `src/app/api/common-foods/route.ts` - Added Cache-Control header
-- `src/app/api/common-foods/__tests__/route.test.ts` - Added Cache-Control test
-- `src/app/api/food-history/route.ts` - Added Cache-Control header
-- `src/app/api/food-history/__tests__/route.test.ts` - Added Cache-Control test
-- `src/app/api/auth/session/route.ts` - Added Cache-Control header
-- `src/app/api/auth/session/__tests__/route.test.ts` - Added Cache-Control test
-- `src/components/quick-select.tsx` - Migrated to useSWR, added optimistic UI
-- `src/components/__tests__/quick-select.test.tsx` - Updated for SWR + optimistic tests
-- `src/components/food-history.tsx` - Migrated initial fetch to useSWR
-- `src/components/__tests__/food-history.test.tsx` - Updated for SWR tests
-- `src/components/food-analyzer.tsx` - Added optimistic UI to handleLogToFitbit and handleUseExisting
-- `src/components/__tests__/food-analyzer.test.tsx` - Added optimistic UI tests
-- `src/components/__tests__/food-analyzer-reprompt.test.tsx` - Updated for optimistic UI behavior
-- `src/lib/swr.ts` - Created shared apiFetcher with error handling
-- `src/lib/__tests__/swr.test.ts` - Created (6 tests)
-- `src/components/dashboard-prefetch.tsx` - Created prefetch component
-- `src/components/__tests__/dashboard-prefetch.test.tsx` - Created (3 tests)
-- `src/app/app/page.tsx` - Added DashboardPrefetch component
-- `src/app/app/__tests__/page.test.tsx` - Added DashboardPrefetch mock
-- `CLAUDE.md` - Added PERFORMANCE section
-
-### Linear Updates
-- FOO-229: Todo → In Progress → Review
-- FOO-230: Todo → In Progress → Review
-- FOO-231: Todo → In Progress → Review
-- FOO-232: Todo → In Progress → Review
-- FOO-233: Todo → In Progress → Review
-- FOO-234: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 8 issues; 2 fixed (apiFetcher error handling, test compatibility), 6 out of scope (pre-existing code)
-- verifier: All 905 tests pass, zero warnings
-
-### Work Partition
-- Worker 1: Tasks 2-6 (loading skeletons — 10 files)
-- Worker 2: Tasks 7-9 (Cache-Control headers — 6 files)
-- Worker 3: Tasks 10-12, 15 (SWR migration + prefetch — 8 files)
-- Worker 4: Tasks 13-14 (optimistic FoodAnalyzer + type compat — 5 files)
-- Lead: Tasks 1, 16, 17 (skeleton install, CLAUDE.md, integration fixes)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Summary: 1 issue found (Team: security, reliability, quality reviewers)
-- CRITICAL: 0
-- HIGH: 1
-- MEDIUM: 0 (documented only)
-
-**Issues requiring fix:**
-- [HIGH] BUG: SWR `initialData` useEffect overwrites paginated entries when SWR revalidates (`src/components/food-history.tsx:84-89`) — When user clicks "Load More" to paginate, local `entries` state grows beyond the first page. If SWR revalidates in the background, the `useEffect` resets `entries` to just the first page, wiping out paginated data.
-
-### Linear Updates
-- FOO-229: Review → Merge
-- FOO-230: Review → Merge
-- FOO-231: Review → Merge
-- FOO-232: Review → Merge
-- FOO-233: Review → Merge
-- FOO-234: Review → Merge
-- FOO-235: Created in Todo (Fix: SWR initialData overwrites paginated entries)
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-235](https://linear.app/lw-claude/issue/FOO-235/fix-swr-initialdata-useeffect-overwriting-paginated-entries)
-
-### Fix 1: SWR initialData useEffect overwrites paginated entries
-**Linear Issue:** [FOO-235](https://linear.app/lw-claude/issue/FOO-235/fix-swr-initialdata-useeffect-overwriting-paginated-entries)
-
-1. Write test in `src/components/__tests__/food-history.test.tsx`: mount component, wait for SWR data, click "Load More" to append entries, then trigger SWR revalidation — verify paginated entries are NOT wiped out
-2. Fix `src/components/food-history.tsx:84-89`: Add a ref (`hasSeeded`) to track whether initial seeding has occurred. The `useEffect` should only seed entries on the first `initialData` arrival. After pagination or "Jump to Date", the ref prevents SWR revalidation from overwriting local state. For delete operations that call `mutate()`, reset the ref so the refreshed data is picked up.
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-02-08
-**Method:** Agent team (1 worker)
-
-### Tasks Completed This Iteration
-- Fix 1: SWR initialData useEffect overwrites paginated entries (FOO-235) - Added `hasSeeded` ref to gate the `useEffect([initialData])` so it only seeds entries once on initial load; subsequent SWR revalidations are blocked, preserving paginated entries from "Load More" (worker-1)
-
-### Files Modified
-- `src/components/food-history.tsx` - Added `useRef` import, `hasSeeded` ref gating the `useEffect([initialData])` to seed-once semantics
-- `src/components/__tests__/food-history.test.tsx` - Added test verifying paginated entries survive SWR revalidation after delete
-
-### Linear Updates
-- FOO-235: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 3 issues (1 HIGH, 2 MEDIUM) — all assessed as false positives: (1) not resetting hasSeeded on delete is intentional since optimistic local filter handles it and resetting would reintroduce the pagination wipe bug, (2) race condition is not real due to React batching, (3) Jump to Date ref reset is unnecessary since remount creates fresh ref
-- verifier: All 906 tests pass, zero warnings
-
-### Work Partition
-- Worker 1: Fix 1 (food-history.tsx + test)
-
-### Review Findings
-
-Files reviewed: 2
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-No issues found in Iteration 2 changes — the `hasSeeded` ref fix is correct and well-tested.
-
-All findings below are pre-existing code (not introduced in this iteration):
-
-**Documented (no fix needed):**
-- [MEDIUM] TYPE: Unsafe `as FoodLogHistoryEntry[]` cast on API response in `fetchEntries()` (`src/components/food-history.tsx:122`) — pre-existing, `apiFetcher` validates `success` field; pagination uses raw fetch
-- [MEDIUM] BUG: `fetchEntries()` doesn't check `response.ok` before `response.json()` (`src/components/food-history.tsx:119`) — pre-existing, caught by empty catch block
-- [LOW] CONVENTION: Empty catch block in `fetchEntries()` silently swallows errors (`src/components/food-history.tsx:130-131`) — pre-existing, should use `console.error` per CLAUDE.md client-side logging rules
-- [LOW] EDGE CASE: `formatTime()` doesn't guard against malformed time strings (`src/components/food-history.tsx:33`) — pre-existing, server always sends valid HH:MM:SS
-- [LOW] ASYNC: `handleLoadMore` has theoretical double-click race (`src/components/food-history.tsx:138-146`) — pre-existing, mitigated by React batching and button disable state
-- [LOW] EDGE CASE: No test for `fetchEntries` network error path — pre-existing, error path is tested for delete but not for Load More/Jump to Date
-
-### Linear Updates
-- FOO-235: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | TYPE | `src/components/food-history.tsx:122` | Unsafe `as FoodLogHistoryEntry[]` cast on API response | Pre-existing; `success` field is validated; full runtime validation is out of scope |
-| MEDIUM | BUG | `src/components/food-history.tsx:119` | `fetchEntries()` doesn't check `response.ok` before `.json()` | Pre-existing; caught by empty catch block; no user-facing impact |
-| LOW | CONVENTION | `src/components/food-history.tsx:130-131` | Empty catch block silently swallows errors | Pre-existing; should add `console.error` but low impact |
-| LOW | EDGE CASE | `src/components/food-history.tsx:33` | `formatTime()` no guard for malformed time strings | Pre-existing; server always sends valid format |
-| LOW | ASYNC | `src/components/food-history.tsx:138-146` | Theoretical double-click race in `handleLoadMore` | Pre-existing; mitigated by React batching |
-| LOW | EDGE CASE | `src/components/__tests__/food-history.test.tsx` | No test for `fetchEntries` network error path | Pre-existing; error path tested for delete only |
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Service worker / offline support
+- Full-text search (pg_trgm, tsvector) — ILIKE is sufficient for the current scale
+- Persisting tab selection across page navigations
+- Search result highlighting
+- Any database schema changes (all queries use existing columns)
