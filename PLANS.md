@@ -1,393 +1,730 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-278-data-freshness-and-bug-fixes
-**Issues:** FOO-278, FOO-279, FOO-280, FOO-281, FOO-282, FOO-283, FOO-276, FOO-275, FOO-274, FOO-273
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-284-cleanup-and-food-details
+**Issues:** FOO-284, FOO-285, FOO-286, FOO-287
 **Created:** 2026-02-09
 **Last Updated:** 2026-02-09
 
 ## Summary
 
-Fix data freshness issues across the app (stale cache headers and disabled SWR revalidation), fix the Quick Select Done button navigation, add error handling for silent failures in food history, add 5xx retry logic to the Claude API client, and improve resilience for partial failures in Fitbit+DB operations.
+This plan covers four backlog issues: removing redundant retry logic from Claude API calls (FOO-285), cleaning up orphaned custom_foods rows on delete (FOO-284), adding an AI-generated visual description field to food analysis (FOO-286), and adding a full detail page for food history entries (FOO-287).
 
 ## Issues
 
-### FOO-278: Quick Select Done button navigates back to food list instead of Home
-
-**Priority:** Medium
-**Labels:** Bug
-**Description:** After logging a food via Quick Select, the Done button resets component state and stays on Quick Select instead of navigating to `/app`. The `onDone` callback in `quick-select.tsx:251-256` clears state instead of navigating. The fallback in `food-log-confirmation.tsx:83` already does `router.push("/app")` when no `onDone` is provided.
-
-**Acceptance Criteria:**
-- [ ] After logging food via Quick Select, Done button navigates to `/app`
-- [ ] SWR cache is still refreshed before navigation
-
-### FOO-279: Common foods API serves stale data for up to 60 seconds
-
-**Priority:** Medium
-**Labels:** Bug
-**Description:** `/api/common-foods` sets `Cache-Control: private, max-age=60, stale-while-revalidate=300` on both common foods and recent foods response paths (lines 46, 78). User prefers freshness over speed.
-
-**Acceptance Criteria:**
-- [ ] Common foods API returns `Cache-Control: private, no-cache` (always revalidate)
-- [ ] Recent foods API returns `Cache-Control: private, no-cache`
-
-### FOO-280: Food history API serves stale data for up to 30 seconds
-
-**Priority:** Medium
-**Labels:** Bug
-**Description:** `/api/food-history` sets `Cache-Control: private, max-age=30, stale-while-revalidate=120` (line 39). This compounds with SWR `revalidateOnFocus: false`.
-
-**Acceptance Criteria:**
-- [ ] Food history API returns `Cache-Control: private, no-cache`
-
-### FOO-281: Search foods API serves stale data for up to 30 seconds
-
-**Priority:** Medium
-**Labels:** Bug
-**Description:** `/api/search-foods` sets `Cache-Control: private, max-age=30, stale-while-revalidate=60` (line 31). After creating a custom food, searching for it won't return it for up to 30 seconds.
-
-**Acceptance Criteria:**
-- [ ] Search foods API returns `Cache-Control: private, no-cache`
-
-### FOO-282: Quick Select does not revalidate data on tab focus
-
-**Priority:** Medium
-**Labels:** Bug
-**Description:** `quick-select.tsx` sets `revalidateOnFocus: false` for all three SWR hooks (common foods via SWRInfinite, recent foods, and search). When user switches back to browser, food lists are not refreshed.
-
-**Acceptance Criteria:**
-- [ ] `revalidateOnFocus: false` removed from useSWRInfinite and useSWR hooks in quick-select.tsx
-- [ ] SWR default `revalidateOnFocus: true` takes effect
-
-### FOO-283: Food history does not revalidate on tab focus
-
-**Priority:** Medium
-**Labels:** Bug
-**Description:** `food-history.tsx` sets `revalidateOnFocus: false` for the initial history SWR hook (line 81). When user switches back to browser, history list is not refreshed.
-
-**Acceptance Criteria:**
-- [ ] `revalidateOnFocus: false` removed from useSWR hook in food-history.tsx
-- [ ] SWR default `revalidateOnFocus: true` takes effect
-
-### FOO-276: Empty catch block in food-history fetchEntries silently swallows errors
+### FOO-285: Remove redundant manual retry logic from Claude API calls
 
 **Priority:** Low
-**Labels:** Bug
-**Description:** `food-history.tsx:141` — `fetchEntries()` has an empty catch block that silently swallows all errors. Both "Load More" and "Jump to Date" silently fail with no error state or retry option.
+**Labels:** Technical Debt
+**Description:** `analyzeFood` and `refineAnalysis` have manual retry loops (maxRetries=1) that stack with the Anthropic SDK's built-in retries (default maxRetries=2), causing up to 6 total attempts per request.
 
 **Acceptance Criteria:**
-- [ ] `fetchEntries` catch block sets an error state
-- [ ] Error message is displayed to the user
-- [ ] User can retry after an error
+- [ ] Remove manual retry loops from `analyzeFood` and `refineAnalysis`
+- [ ] Remove `isTimeoutError`, `isRateLimitError`, `is5xxError` helper functions
+- [ ] Keep `ClaudeApiError` re-throw and final catch wrapping
+- [ ] Make SDK `maxRetries` explicit on constructor
+- [ ] Update/remove retry-related tests in `claude.test.ts`
 
-### FOO-275: Claude API client does not retry on 5xx errors
+### FOO-284: Delete unreferenced custom_foods rows when last food log entry is removed
 
 **Priority:** Low
-**Labels:** Bug
-**Description:** In both `analyzeFood` and `refineAnalysis`, the retry logic only handles timeout and rate limit (429) errors. 5xx server errors are NOT retried, unlike the Fitbit API client which retries on 5xx with exponential backoff.
+**Labels:** Technical Debt
+**Description:** `deleteFoodLogEntry` only deletes the `food_log_entries` row but never cleans up the associated `custom_foods` row. When the last entry referencing a custom food is deleted, the row becomes orphaned.
 
 **Acceptance Criteria:**
-- [ ] Both `analyzeFood` and `refineAnalysis` retry on 5xx errors with exponential backoff
-- [ ] Existing timeout and rate limit retry behavior is preserved
-- [ ] New `is5xxError` helper function added
+- [ ] After deleting a `food_log_entries` row, if no other entries reference the same `custom_food_id`, the `custom_foods` row is also deleted
+- [ ] Reference check and delete run in the same transaction
+- [ ] A `custom_foods` row is NEVER deleted while other entries still reference it
+- [ ] Tests cover: delete last reference (removed), delete non-last reference (kept)
+- [ ] One-time orphan cleanup documented in MIGRATIONS.md
 
-### FOO-274: Partial failure on food history delete — Fitbit deleted but local record persists
-
-**Priority:** Low
-**Labels:** Bug
-**Description:** In `food-history/[id]/route.ts:27-36`, if Fitbit deletion succeeds but `deleteFoodLogEntry` throws, the local DB record persists while the Fitbit log is already deleted. No catch/rollback for this partial failure.
-
-**Acceptance Criteria:**
-- [ ] If `deleteFoodLogEntry` fails after Fitbit delete succeeds, still return success (Fitbit is the primary system)
-- [ ] Log a warning about the DB failure so it can be investigated
-- [ ] User sees success (the Fitbit entry is gone, which is what matters)
-
-### FOO-273: Fitbit log succeeds but local DB insert can fail — orphaned entries
+### FOO-286: Add AI-generated visual description field to food analysis
 
 **Priority:** Medium
-**Labels:** Bug
-**Description:** In `log-food/route.ts:192-208, 258-290`, if `insertFoodLogEntry` throws after Fitbit log succeeds, the response returns `success: true` with `foodLogId` undefined. This creates an orphaned Fitbit entry that won't appear in the app's food history.
+**Labels:** Feature
+**Description:** Add a `description` field to Claude's `report_nutrition` tool so users see what the AI identified on the plate before confirming the log. Follows the exact same pattern as `notes`.
 
 **Acceptance Criteria:**
-- [ ] When DB insert fails after Fitbit log succeeds, response includes a warning flag
-- [ ] The `FoodLogResponse` type includes an optional `dbError` field
-- [ ] Client-side displays a warning when `dbError` is present in the response
+- [ ] `custom_foods` table has a nullable `description` text column
+- [ ] Claude's `report_nutrition` tool includes a `description` field
+- [ ] Description is validated in `validateFoodAnalysis()`
+- [ ] Description is saved to DB when logging food
+- [ ] Description is preserved through the refinement flow
+- [ ] Description is displayed on the analysis result screen before submit
+- [ ] Existing foods without description continue to work (nullable column)
+
+### FOO-287: Add full detail page for food history entries
+
+**Priority:** Medium
+**Labels:** Feature
+**Description:** Food history entries currently show only nutrition facts in a dialog. Notes (and description from FOO-286) are invisible after logging. Add a dedicated detail page to surface all data.
+
+**Acceptance Criteria:**
+- [ ] History entry dialog has a "View Details" link/button
+- [ ] Link opens a dedicated full detail page (`/app/food-detail/[id]`)
+- [ ] Detail page displays: food name, description, notes, full nutrition facts, meal type, date/time, portion size, confidence
+- [ ] Page has a `loading.tsx` with skeleton placeholders
+- [ ] Works for entries that predate the description field
+- [ ] Mobile-friendly layout with proper touch targets (44px minimum)
 
 ## Prerequisites
 
 - [ ] On `main` branch with clean working tree
-- [ ] All existing tests pass
+- [ ] Dependencies up to date (`npm install`)
 
 ## Implementation Tasks
 
-### Task 1: Remove stale Cache-Control headers from API routes
+### Task 1: Remove retry logic from Claude API calls
 
-**Issues:** FOO-279, FOO-280, FOO-281
-**Files:**
-- `src/app/api/common-foods/route.ts` (modify)
-- `src/app/api/food-history/route.ts` (modify)
-- `src/app/api/search-foods/route.ts` (modify)
-- `src/app/api/common-foods/__tests__/route.test.ts` (modify)
-- `src/app/api/food-history/__tests__/route.test.ts` (modify)
-- `src/app/api/search-foods/__tests__/route.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** - Update existing Cache-Control test assertions:
-   - In each test file, find assertions checking for `max-age=60` or `max-age=30` headers
-   - Change them to assert `Cache-Control: private, no-cache`
-   - Run: `npm test -- common-foods/route.test search-foods/route.test food-history/__tests__/route.test`
-   - Verify: Tests fail because current code still returns `max-age` headers
-
-2. **GREEN** - Update the API route handlers:
-   - In `src/app/api/common-foods/route.ts`: Change both lines 46 and 78 from `"private, max-age=60, stale-while-revalidate=300"` to `"private, no-cache"`
-   - In `src/app/api/food-history/route.ts`: Change line 39 from `"private, max-age=30, stale-while-revalidate=120"` to `"private, no-cache"`
-   - In `src/app/api/search-foods/route.ts`: Change line 31 from `"private, max-age=30, stale-while-revalidate=60"` to `"private, no-cache"`
-   - Run: `npm test -- common-foods/route.test search-foods/route.test food-history/__tests__/route.test`
-   - Verify: Tests pass
-
-3. **REFACTOR** - None needed, these are one-line changes.
-
-**Notes:**
-- `no-cache` means "always revalidate with server before using cached response" — the browser still caches but always checks freshness. This is the right choice for user-specific data that changes frequently.
-
-### Task 2: Enable SWR revalidateOnFocus in Quick Select and Food History
-
-**Issues:** FOO-282, FOO-283
-**Files:**
-- `src/components/quick-select.tsx` (modify)
-- `src/components/food-history.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
-- `src/components/__tests__/food-history.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** - Check if any existing tests assert `revalidateOnFocus: false` behavior. If so, update them to expect the default SWR behavior (revalidation on focus). Run: `npm test -- quick-select.test food-history.test`
-
-2. **GREEN** - Remove the option:
-   - In `src/components/food-history.tsx:81`: Remove `revalidateOnFocus: false` from the useSWR options (or remove the entire options object if it only contains that key)
-   - In `src/components/quick-select.tsx:80`: Remove `revalidateOnFocus: false` from useSWRInfinite options (keep `revalidateFirstPage: false`)
-   - In `src/components/quick-select.tsx:87`: Remove `revalidateOnFocus: false` from useSWR options (or remove the entire options object)
-   - Run: `npm test -- quick-select.test food-history.test`
-   - Verify: Tests pass
-
-3. **REFACTOR** - None needed, these are simple option removals.
-
-**Notes:**
-- SWR default `focusThrottleInterval` is 5 seconds, which prevents excessive refetching on rapid tab switches.
-- `revalidateFirstPage: false` in the SWRInfinite hook should remain — it prevents refetching already-loaded pages on new page loads.
-
-### Task 3: Fix Quick Select Done button navigation
-
-**Issue:** FOO-278
-**Files:**
-- `src/components/quick-select.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** - Write/update test asserting Done button navigates to `/app`:
-   - In the test file, find or add a test case for the post-log Done button behavior
-   - Assert that after logging a food, clicking Done calls `router.push("/app")`
-   - Run: `npm test -- quick-select.test`
-   - Verify: Test fails because current `onDone` resets state instead of navigating
-
-2. **GREEN** - Remove the `onDone` prop from `FoodLogConfirmation`:
-   - In `src/components/quick-select.tsx:251-256`: Remove the `onDone` callback entirely
-   - This lets the fallback `router.push("/app")` in `food-log-confirmation.tsx:83` kick in
-   - Run: `npm test -- quick-select.test`
-   - Verify: Test passes
-
-3. **REFACTOR** - Clean up:
-   - Remove the now-unused `mutate` from the success screen path (the Home page will refetch on mount via SWR revalidateOnFocus, which we just enabled in Task 2)
-   - Verify Quick Select tests still pass
-
-**Notes:**
-- The `FoodLogConfirmation` component at `src/components/food-log-confirmation.tsx:83` already has: `onClick={() => (onDone ? onDone() : router.push("/app"))}`. Removing `onDone` uses this fallback.
-- SWR will revalidate data when the user returns to Quick Select later, so explicit `mutate()` before navigating away is not needed.
-
-### Task 4: Add error handling to food-history fetchEntries
-
-**Issue:** FOO-276
-**Files:**
-- `src/components/food-history.tsx` (modify)
-- `src/components/__tests__/food-history.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** - Write test asserting error state is shown on fetch failure:
-   - Add a test that mocks `fetch` to reject
-   - Assert that an error message is displayed to the user
-   - Assert that "Load More" and "Jump to Date" show the error
-   - Run: `npm test -- food-history.test`
-   - Verify: Tests fail because current code silently swallows errors
-
-2. **GREEN** - Add error state to `fetchEntries`:
-   - Add a new state: `const [fetchError, setFetchError] = useState<string | null>(null)`
-   - In the catch block at line 141, replace empty catch with: `setFetchError("Failed to load entries. Please try again.")`
-   - Clear `fetchError` at the start of `fetchEntries`: `setFetchError(null)`
-   - Add error display in the JSX (similar to `deleteError` pattern at line 240-244)
-   - Run: `npm test -- food-history.test`
-   - Verify: Tests pass
-
-3. **REFACTOR** - Consider whether the error message pattern could reuse the existing `deleteError` display pattern.
-
-**Notes:**
-- Reference the existing `deleteError` display at lines 240-244 for consistent error UI pattern.
-- Clear the error on subsequent fetch attempts so the error disappears when the user retries.
-
-### Task 5: Add 5xx retry logic to Claude API client
-
-**Issue:** FOO-275
+**Issue:** FOO-285
 **Files:**
 - `src/lib/claude.ts` (modify)
 - `src/lib/__tests__/claude.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** - Write test for 5xx retry behavior:
-   - Add a test in `claude.test.ts` that simulates a 5xx error from the Anthropic SDK
-   - The Anthropic SDK throws an `InternalServerError` with `status: 500` — create a mock Error with `status: 500`
-   - Assert that the function retries and succeeds on the second attempt
-   - Add a test that 5xx retries are exhausted after `maxRetries` attempts
-   - Run: `npm test -- claude.test`
-   - Verify: Tests fail because current code doesn't retry on 5xx
+1. **RED** - Update tests first:
+   - In `src/lib/__tests__/claude.test.ts`, **remove** these retry-related tests:
+     - `"retries once on timeout error"` (line 245)
+     - `"throws after retry exhausted on timeout"` (line 271)
+     - `"retries on rate limit (429) error"` (line 351)
+     - `"throws after retry exhausted on persistent rate limit"` (line 378)
+     - `"isRateLimitError returns false for non-Error objects"` (line 487)
+     - `"rate limited request retries with delay"` (line 504)
+     - `"retries on 5xx server error"` (line 798)
+     - `"throws after retry exhausted on persistent 5xx error"` (line 824)
+     - `"retries on 502 Bad Gateway error"` (line 841)
+     - `"5xx retry uses exponential backoff delay"` (line 867)
+     - `"retries on timeout error"` in refineAnalysis (line 1036)
+     - `"retries on rate limit error"` in refineAnalysis (line 1064)
+     - `"retries on 5xx server error during refinement"` (line 1213)
+     - `"throws after retry exhausted on persistent 5xx during refinement"` (line 1241)
+   - Update `"throws CLAUDE_API_ERROR on API failure"` test: expect `mockCreate` called exactly **once** (no retry)
+   - Update `"throws CLAUDE_API_ERROR on failure"` in refineAnalysis: expect called once
+   - Add new test: `"configures SDK with explicit maxRetries"` — verify `new Anthropic({ maxRetries: 2 })` is called
+   - Run: `npm test -- claude`
+   - Verify: Retry tests are gone, remaining tests fail (code still has retry loops)
 
-2. **GREEN** - Add 5xx retry logic:
-   - Add a helper function `is5xxError(error: unknown): boolean` that checks for `error instanceof Error && "status" in error && status >= 500 && status < 600`
-   - In both `analyzeFood` (after the `isRateLimitError` check around line 262) and `refineAnalysis` (after the `isRateLimitError` check around line 375), add:
-     ```
-     if (is5xxError(error) && attempt < maxRetries) {
-       const delay = Math.pow(2, attempt) * 1000;
-       logger.warn({ attempt, delay }, "Claude API 5xx error, retrying");
-       lastError = error as Error;
-       await new Promise((resolve) => setTimeout(resolve, delay));
-       continue;
-     }
-     ```
-   - Run: `npm test -- claude.test`
-   - Verify: Tests pass
+2. **GREEN** - Simplify the production code:
+   - In `src/lib/claude.ts`:
+     - Update `getClient()` to pass `maxRetries: 2` explicitly: `new Anthropic({ apiKey, timeout: 30000, maxRetries: 2 })`
+     - **Delete** `isTimeoutError`, `isRateLimitError`, `is5xxError` functions (lines 170-193)
+     - **Rewrite** `analyzeFood` to remove the for-loop, `maxRetries`, `lastError`, and retry conditionals. Keep the single `getClient().messages.create()` call, the `toolUseBlock` extraction, `validateFoodAnalysis`, and the catch block that re-throws `ClaudeApiError` or wraps unknown errors
+     - **Rewrite** `refineAnalysis` identically — single API call, no loop, same error handling
+   - Run: `npm test -- claude`
+   - Verify: All remaining tests pass
 
-3. **REFACTOR** - Verify existing timeout and rate limit tests still pass.
+3. **REFACTOR** - Review that both functions have consistent error handling structure
 
 **Notes:**
-- Pattern follows the existing Fitbit client at `src/lib/fitbit.ts:101-111` which retries on `response.status >= 500`.
-- The Anthropic SDK throws typed errors with a `status` property — check for `error.status >= 500`.
-- Use the same exponential backoff pattern as rate limit retries.
+- The SDK's built-in retry handles timeout, 429, and 5xx with exponential backoff + jitter + Retry-After header support
+- `maxRetries: 2` means 3 total attempts (1 initial + 2 retries) — same as the SDK default, but now explicit
 
-### Task 6: Handle partial failure on food history delete
+---
 
-**Issue:** FOO-274
+### Task 2: Add orphan cleanup to deleteFoodLogEntry
+
+**Issue:** FOO-284
 **Files:**
-- `src/app/api/food-history/[id]/route.ts` (modify)
-- `src/app/api/food-history/[id]/__tests__/route.test.ts` (modify)
+- `src/lib/food-log.ts` (modify)
+- `src/lib/__tests__/food-log.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** - Write test for partial failure (Fitbit delete succeeds, DB delete fails):
-   - Mock `deleteFoodLog` to resolve successfully
-   - Mock `deleteFoodLogEntry` to throw an error
-   - Assert that the response is still `success: true` (Fitbit is the primary system)
-   - Assert that a warning is logged
-   - Run: `npm test -- food-history/\\[id\\]`
-   - Verify: Test fails because current code lets the error propagate to the outer catch
+1. **RED** - Write failing tests:
+   - In `src/lib/__tests__/food-log.test.ts`, in the `deleteFoodLogEntry` describe block:
+   - Add mock for `db.transaction` — the mock `getDb()` needs to return a `transaction` method that calls its callback with the same mock tx (reusing existing mockInsert/mockDelete/etc.)
+   - Add test: `"deletes orphaned custom food when last entry is removed"` — mock delete returning `{ fitbitLogId: 789, customFoodId: 10 }`, mock select count returning `[]` (no remaining refs), expect `mockDelete` called twice (once for entry, once for custom food)
+   - Add test: `"keeps custom food when other entries still reference it"` — mock delete returning same, mock select count returning `[{ id: 99 }]` (another entry exists), expect `mockDelete` called once (entry only)
+   - Add test: `"returns same shape { fitbitLogId } as before"` — verify return value unchanged
+   - Run: `npm test -- food-log`
+   - Verify: New tests fail
 
-2. **GREEN** - Wrap `deleteFoodLogEntry` in try/catch:
-   - In `src/app/api/food-history/[id]/route.ts:36`, wrap `deleteFoodLogEntry` call:
+2. **GREEN** - Implement orphan cleanup:
+   - In `src/lib/food-log.ts`, rewrite `deleteFoodLogEntry`:
+   ```
+   export async function deleteFoodLogEntry(userId, entryId) {
+     const db = getDb();
+     return db.transaction(async (tx) => {
+       const rows = await tx.delete(foodLogEntries)
+         .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)))
+         .returning({ fitbitLogId: foodLogEntries.fitbitLogId, customFoodId: foodLogEntries.customFoodId });
+       const row = rows[0];
+       if (!row) return null;
+       // Check if custom food is still referenced
+       const refs = await tx.select({ id: foodLogEntries.id })
+         .from(foodLogEntries)
+         .where(eq(foodLogEntries.customFoodId, row.customFoodId))
+         .limit(1);
+       if (refs.length === 0) {
+         await tx.delete(customFoods)
+           .where(and(eq(customFoods.id, row.customFoodId), eq(customFoods.userId, userId)));
+       }
+       return { fitbitLogId: row.fitbitLogId };
+     });
+   }
+   ```
+   - Import `customFoods` from `@/db/schema` (already imported)
+   - Run: `npm test -- food-log`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Ensure the transaction mock is clean and all existing delete tests still pass
+
+**Notes:**
+- Return type stays `Promise<{ fitbitLogId: number | null } | null>` — no caller changes needed
+- The `userId` check on customFoods.delete is a safety measure
+- **Migration note:** Existing orphaned `custom_foods` rows need one-time cleanup. Log in MIGRATIONS.md.
+
+---
+
+### Task 3: Log orphan cleanup migration
+
+**Issue:** FOO-284
+**Files:**
+- `MIGRATIONS.md` (modify)
+
+**Steps:**
+1. Append to `MIGRATIONS.md`:
+   ```
+   ## Orphan custom_foods cleanup (FOO-284)
+   After deploying the orphan-cleanup code, run a one-time query to clean up existing orphaned rows:
+   DELETE FROM custom_foods WHERE id NOT IN (SELECT DISTINCT custom_food_id FROM food_log_entries);
+   ```
+2. No tests needed — documentation only
+
+---
+
+### Task 4: Add description column to schema and types
+
+**Issue:** FOO-286
+**Files:**
+- `src/db/schema.ts` (modify)
+- `src/types/index.ts` (modify)
+- `src/lib/food-log.ts` (modify — `CustomFoodInput` interface)
+- `drizzle/` (generated by drizzle-kit)
+
+**TDD Steps:**
+
+1. **RED** - Update types and write a test:
+   - In `src/types/index.ts`, add `description: string` to `FoodAnalysis` interface (after `notes`)
+   - In `src/lib/food-log.ts`, add `description?: string | null` to `CustomFoodInput` interface
+   - In `src/lib/__tests__/food-log.test.ts`, add test in `insertCustomFood`:
+     - `"stores description field in customFoods table"` — pass `description: "A bowl of oatmeal with berries"`, verify `mockValues` called with `description: "A bowl of oatmeal with berries"`
+     - `"stores null description when not provided"` — omit description, verify stored as null
+   - In `src/lib/__tests__/claude.test.ts`, update `validAnalysis` to include `description: "Standard Argentine beef empanada, baked style"`
+   - Run: `npm test`
+   - Verify: Tests fail (schema and implementation don't have description yet)
+
+2. **GREEN** - Add the column and update code:
+   - In `src/db/schema.ts`, add to `customFoods` table: `description: text("description"),` (after `notes`)
+   - In `src/lib/food-log.ts`, update `insertCustomFood` to include `description: data.description ?? null` in the values
+   - Run: `npx drizzle-kit generate` to create the migration file
+   - Run: `npm test`
+   - Verify: Tests pass
+
+3. **REFACTOR** - Verify the generated migration SQL adds a nullable text column
+
+**Notes:**
+- Column is nullable — no DEFAULT needed, no backfill needed
+- Existing rows get NULL description automatically
+- **Migration note:** Safe schema change — nullable column addition. No data migration needed.
+
+---
+
+### Task 5: Add description to Claude tool and validation
+
+**Issue:** FOO-286
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing tests:
+   - Add test: `"includes description in tool schema"` — verify `mockCreate` called with tool schema containing `description` property
+   - Add test: `"validates description as optional string"` — test that a response with `description: 123` (number) fails validation
+   - Add test: `"accepts response without description (defaults to empty string)"` — test that missing description defaults to empty string
+   - Update existing `validAnalysis` fixture if not done in Task 4
+   - Run: `npm test -- claude`
+   - Verify: New tests fail
+
+2. **GREEN** - Update tool schema and validation:
+   - In `REPORT_NUTRITION_TOOL.input_schema.properties`, add:
      ```
-     try {
-       await deleteFoodLogEntry(session!.userId, id);
-     } catch (dbError) {
-       logger.error(
-         { action: "delete_food_log_db_error", entryId: id, error: dbError instanceof Error ? dbError.message : String(dbError) },
-         "Fitbit delete succeeded but local DB delete failed — entry may be orphaned locally"
+     description: {
+       type: "string",
+       description: "A rich visual description of what you identified in the image (e.g., 'A white plate with two scrambled eggs, three strips of bacon, and a slice of whole wheat toast with butter')",
+     },
+     ```
+   - Add `"description"` to the `required` array
+   - In `validateFoodAnalysis`, add validation for `description`:
+     ```
+     if (typeof data.description !== "string") {
+       throw new ClaudeApiError("Invalid food analysis: missing description");
+     }
+     ```
+   - Add `description: data.description as string` to the return object
+   - Run: `npm test -- claude`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Ensure description appears in the return type consistently
+
+**Notes:**
+- Description is required in the tool schema (Claude must always provide it)
+- Pattern follows `notes` exactly
+- The `SYSTEM_PROMPT` does not need changes — the tool description is sufficient to guide Claude
+
+---
+
+### Task 6: Pass description through API routes
+
+**Issue:** FOO-286
+**Files:**
+- `src/app/api/log-food/route.ts` (modify)
+- `src/app/api/refine-food/route.ts` (modify)
+- `src/lib/claude.ts` (modify — refinement prompt text)
+
+**TDD Steps:**
+
+1. **RED** - The existing route tests (if any) should already work since `FoodAnalysis` now includes `description` and flows through. Check manually:
+   - The `isValidFoodLogRequest` function validates `FoodAnalysis` fields — needs `description` validation added (optional for reuse flow, present for new food flow)
+   - The `isValidPreviousAnalysis` in refine-food needs `description` check
+   - The `refineAnalysis` prompt text in `claude.ts` should include the previous description
+
+2. **GREEN** - Update validation and flow:
+   - In `src/app/api/log-food/route.ts`:
+     - In `isValidFoodLogRequest`, the new food flow check: after `notes` validation, no need to validate `description` separately since it comes from `FoodAnalysis` which is already validated by Claude. But for safety, add: `if (typeof req.description !== "string") return false;` in the new food validation block
+     - In the new food flow `insertCustomFood` call, add `description: body.description`
+   - In `src/app/api/refine-food/route.ts`:
+     - In `isValidPreviousAnalysis`, add: `typeof obj.description === "string"` to the check
+   - In `src/lib/claude.ts` `refineAnalysis`:
+     - Add `Description: ${previousAnalysis.description}` to the refinement prompt text (after the Notes line)
+   - Run: `npm test`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Verify the full flow: Claude returns description → validation → API → DB
+
+**Notes:**
+- The reuse flow (`reuseCustomFoodId`) doesn't send description — it reuses an existing custom food
+- The refinement flow passes description through as part of `FoodAnalysis`
+
+---
+
+### Task 7: Display description in analysis result UI
+
+**Issue:** FOO-286
+**Files:**
+- `src/components/analysis-result.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** - No component tests currently exist for this component. This is a UI-only change.
+   - Manual verification will confirm the description appears
+
+2. **GREEN** - Add description display:
+   - In `src/components/analysis-result.tsx`, add a description section above the notes section:
+     ```tsx
+     {/* Description */}
+     {analysis.description && (
+       <div className="pt-2 border-t">
+         <p className="text-sm text-foreground">{analysis.description}</p>
+       </div>
+     )}
+     ```
+   - Place it after the portion size line and before the nutrition grid
+   - Run: `npm run build`
+   - Verify: Build succeeds
+
+3. **REFACTOR** - Ensure description has distinct visual styling from notes (notes are italic + muted, description is normal weight)
+
+**Notes:**
+- Description should be visually prominent since it tells the user what was identified
+- Notes remain italic/muted as they explain assumptions
+
+---
+
+### Task 8: Add food entry detail query and type
+
+**Issue:** FOO-287
+**Files:**
+- `src/types/index.ts` (modify)
+- `src/lib/food-log.ts` (modify)
+- `src/lib/__tests__/food-log.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write failing tests:
+   - In `src/types/index.ts`, add new interface:
+     ```ts
+     export interface FoodLogEntryDetail {
+       id: number;
+       foodName: string;
+       description: string | null;
+       notes: string | null;
+       calories: number;
+       proteinG: number;
+       carbsG: number;
+       fatG: number;
+       fiberG: number;
+       sodiumMg: number;
+       amount: number;
+       unitId: number;
+       mealTypeId: number;
+       date: string;
+       time: string | null;
+       fitbitLogId: number | null;
+       confidence: string;
+     }
+     ```
+   - In `src/lib/__tests__/food-log.test.ts`, add `describe("getFoodLogEntryDetail")`:
+     - `"returns full entry with notes and description"` — mock join query returning row with notes and description, verify all fields mapped correctly
+     - `"returns null for non-existent entry"` — mock empty result, expect null
+     - `"handles null description and notes"` — mock row with null description/notes, verify nulls
+   - Run: `npm test -- food-log`
+   - Verify: Tests fail (function doesn't exist)
+
+2. **GREEN** - Implement the detail query:
+   - In `src/lib/food-log.ts`, add:
+     ```ts
+     export async function getFoodLogEntryDetail(
+       userId: string,
+       id: number,
+     ): Promise<FoodLogEntryDetail | null> {
+       const db = getDb();
+       const rows = await db
+         .select()
+         .from(foodLogEntries)
+         .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
+         .where(and(eq(foodLogEntries.id, id), eq(foodLogEntries.userId, userId)));
+       const row = rows[0];
+       if (!row) return null;
+       return {
+         id: row.food_log_entries.id,
+         foodName: row.custom_foods.foodName,
+         description: row.custom_foods.description ?? null,
+         notes: row.custom_foods.notes ?? null,
+         calories: row.custom_foods.calories,
+         proteinG: Number(row.custom_foods.proteinG),
+         carbsG: Number(row.custom_foods.carbsG),
+         fatG: Number(row.custom_foods.fatG),
+         fiberG: Number(row.custom_foods.fiberG),
+         sodiumMg: Number(row.custom_foods.sodiumMg),
+         amount: Number(row.food_log_entries.amount),
+         unitId: row.food_log_entries.unitId,
+         mealTypeId: row.food_log_entries.mealTypeId,
+         date: row.food_log_entries.date,
+         time: row.food_log_entries.time,
+         fitbitLogId: row.food_log_entries.fitbitLogId,
+         confidence: row.custom_foods.confidence,
+       };
+     }
+     ```
+   - Import `FoodLogEntryDetail` from `@/types`
+   - Run: `npm test -- food-log`
+   - Verify: All tests pass
+
+3. **REFACTOR** - Ensure the mock setup for join queries works with the new function
+
+---
+
+### Task 9: Add GET endpoint for food entry detail
+
+**Issue:** FOO-287
+**Files:**
+- `src/app/api/food-history/[id]/route.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** - No API route tests for this endpoint currently. Write the handler directly.
+
+2. **GREEN** - Add GET handler:
+   - In `src/app/api/food-history/[id]/route.ts`, add:
+     ```ts
+     import { getFoodLogEntryDetail } from "@/lib/food-log";
+     ```
+     (Add to existing imports)
+   - Add GET handler:
+     ```ts
+     export async function GET(
+       _request: Request,
+       { params }: { params: Promise<{ id: string }> },
+     ) {
+       const session = await getSession();
+       const validationError = validateSession(session);
+       if (validationError) return validationError;
+
+       const { id: idParam } = await params;
+       const id = parseInt(idParam, 10);
+       if (Number.isNaN(id)) {
+         return errorResponse("VALIDATION_ERROR", "Invalid entry ID", 400);
+       }
+
+       try {
+         const entry = await getFoodLogEntryDetail(session!.userId, id);
+         if (!entry) {
+           return errorResponse("VALIDATION_ERROR", "Food log entry not found", 404);
+         }
+         const response = successResponse(entry);
+         response.headers.set("Cache-Control", "private, no-cache");
+         return response;
+       } catch (error) {
+         logger.error(
+           { action: "get_food_entry_detail_error", error: error instanceof Error ? error.message : String(error) },
+           "failed to get food entry detail",
+         );
+         return errorResponse("INTERNAL_ERROR", "Failed to get food entry detail", 500);
+       }
+     }
+     ```
+   - Run: `npm run build`
+   - Verify: Build succeeds
+
+3. **REFACTOR** - Ensure consistent error handling with the existing DELETE handler in the same file
+
+**Notes:**
+- Follows same pattern as `src/app/api/food-history/route.ts` GET handler
+- Cache-Control: private, no-cache per CLAUDE.md convention
+
+---
+
+### Task 10: Create food detail page and loading skeleton
+
+**Issue:** FOO-287
+**Files:**
+- `src/app/app/food-detail/[id]/page.tsx` (create)
+- `src/app/app/food-detail/[id]/loading.tsx` (create)
+- `src/components/food-detail.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** - No component tests. Build verification.
+
+2. **GREEN** - Create the pages:
+   - Create `src/app/app/food-detail/[id]/loading.tsx`:
+     ```tsx
+     import { Skeleton } from "@/components/ui/skeleton";
+
+     export default function Loading() {
+       return (
+         <div className="min-h-screen px-4 py-6">
+           <div className="mx-auto w-full max-w-md flex flex-col gap-6">
+             <Skeleton className="w-8 h-8" />
+             <Skeleton className="w-48 h-8" />
+             <Skeleton className="w-full h-20" />
+             <Skeleton className="w-full h-64 rounded-lg" />
+             <Skeleton className="w-full h-16" />
+           </div>
+         </div>
        );
      }
      ```
-   - Run: `npm test -- food-history/\\[id\\]`
-   - Verify: Tests pass
+   - Create `src/app/app/food-detail/[id]/page.tsx`:
+     ```tsx
+     import { redirect } from "next/navigation";
+     import { getSession } from "@/lib/session";
+     import { FoodDetail } from "@/components/food-detail";
+     import { SkipLink } from "@/components/skip-link";
 
-3. **REFACTOR** - None needed.
+     interface Props {
+       params: Promise<{ id: string }>;
+     }
+
+     export default async function FoodDetailPage({ params }: Props) {
+       const session = await getSession();
+       if (!session) {
+         redirect("/");
+       }
+       const { id } = await params;
+       return (
+         <div className="min-h-screen px-4 py-6">
+           <SkipLink />
+           <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
+             <FoodDetail entryId={id} />
+           </main>
+         </div>
+       );
+     }
+     ```
+   - Create `src/components/food-detail.tsx`:
+     ```tsx
+     "use client";
+
+     import useSWR from "swr";
+     import { apiFetcher } from "@/lib/swr";
+     import { NutritionFactsCard } from "@/components/nutrition-facts-card";
+     import { ConfidenceBadge } from "@/components/confidence-badge";
+     import { Button } from "@/components/ui/button";
+     import { ArrowLeft } from "lucide-react";
+     import { useRouter } from "next/navigation";
+     import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+     import type { FoodLogEntryDetail } from "@/types";
+
+     interface FoodDetailProps {
+       entryId: string;
+     }
+
+     function formatTime(time: string | null): string {
+       if (!time) return "";
+       const [h, m] = time.split(":");
+       const hour = parseInt(h, 10);
+       const ampm = hour >= 12 ? "PM" : "AM";
+       const h12 = hour % 12 || 12;
+       return `${h12}:${m} ${ampm}`;
+     }
+
+     function formatDate(dateStr: string): string {
+       const date = new Date(dateStr + "T00:00:00");
+       return date.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+     }
+
+     export function FoodDetail({ entryId }: FoodDetailProps) {
+       const router = useRouter();
+       const { data, isLoading, error } = useSWR<FoodLogEntryDetail>(
+         `/api/food-history/${entryId}`,
+         apiFetcher,
+       );
+
+       if (isLoading) {
+         return (
+           <div className="space-y-4">
+             <p className="text-sm text-muted-foreground text-center">Loading...</p>
+           </div>
+         );
+       }
+
+       if (error || !data) {
+         return (
+           <div className="space-y-4">
+             <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]" onClick={() => router.back()}>
+               <ArrowLeft className="h-5 w-5" />
+             </Button>
+             <p className="text-sm text-destructive text-center">
+               {error ? "Failed to load entry details." : "Entry not found."}
+             </p>
+           </div>
+         );
+       }
+
+       return (
+         <div className="space-y-6">
+           {/* Back button */}
+           <Button variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]" onClick={() => router.back()} aria-label="Go back">
+             <ArrowLeft className="h-5 w-5" />
+           </Button>
+
+           {/* Header */}
+           <div className="flex items-center justify-between">
+             <h1 className="text-2xl font-bold">{data.foodName}</h1>
+             <ConfidenceBadge confidence={data.confidence as "high" | "medium" | "low"} />
+           </div>
+
+           {/* Date/time/meal info */}
+           <div className="text-sm text-muted-foreground space-y-1">
+             <p>{formatDate(data.date)}{data.time ? ` at ${formatTime(data.time)}` : ""}</p>
+             <p>{FITBIT_MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"} · {getUnitLabel(data.unitId, data.amount)}</p>
+           </div>
+
+           {/* Description */}
+           {data.description && (
+             <div className="rounded-lg bg-muted/50 p-4">
+               <p className="text-sm">{data.description}</p>
+             </div>
+           )}
+
+           {/* Nutrition facts card */}
+           <NutritionFactsCard
+             foodName={data.foodName}
+             calories={data.calories}
+             proteinG={data.proteinG}
+             carbsG={data.carbsG}
+             fatG={data.fatG}
+             fiberG={data.fiberG}
+             sodiumMg={data.sodiumMg}
+             unitId={data.unitId}
+             amount={data.amount}
+             mealTypeId={data.mealTypeId}
+           />
+
+           {/* Notes */}
+           {data.notes && (
+             <div className="rounded-lg border p-4">
+               <h3 className="text-sm font-semibold mb-2">AI Notes</h3>
+               <p className="text-sm text-muted-foreground italic">{data.notes}</p>
+             </div>
+           )}
+         </div>
+       );
+     }
+     ```
+   - Run: `npm run build`
+   - Verify: Build succeeds
+
+3. **REFACTOR** - Ensure consistent layout with other app pages (max-w-md, px-4 py-6)
 
 **Notes:**
-- The approach mirrors the existing pattern in `log-food/route.ts:192-208` where DB failures are non-fatal.
-- Fitbit is the system of record — if Fitbit delete succeeds, the user's intent is fulfilled.
+- `formatTime` is duplicated from `food-history.tsx` — acceptable for now, can be extracted later if needed
+- `ConfidenceBadge` is reused from the analysis result flow
+- The `apiFetcher` from `src/lib/swr.ts` unwraps the API response format
 
-### Task 7: Improve partial failure handling in log-food route
+---
 
-**Issue:** FOO-273
+### Task 11: Add navigation from food history to detail page
+
+**Issue:** FOO-287
 **Files:**
-- `src/app/api/log-food/route.ts` (modify)
-- `src/app/api/log-food/__tests__/route.test.ts` (modify)
-- `src/types/index.ts` (modify)
+- `src/components/food-history.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** - Write test for partial failure (Fitbit log succeeds, DB insert fails):
-   - Mock `insertCustomFood` or `insertFoodLogEntry` to throw
-   - Mock Fitbit API calls to succeed
-   - Assert that response includes `success: true` AND `dbError: true`
-   - Run: `npm test -- log-food/route.test`
-   - Verify: Test fails because current code doesn't set `dbError`
+1. **RED** - No component tests. Build verification.
 
-2. **GREEN** - Add `dbError` flag:
-   - In `src/types/index.ts`, add `dbError?: boolean` to the `FoodLogResponse` interface
-   - In `src/app/api/log-food/route.ts`: In both the reuse flow (lines 192-208) and new food flow (lines 258-290), when the DB catch block fires, set a `dbError` flag
-   - Include `dbError: true` in the response object when the DB insert fails
-   - Run: `npm test -- log-food/route.test`
-   - Verify: Tests pass
+2. **GREEN** - Update food history dialog:
+   - In `src/components/food-history.tsx`:
+     - Import `Link` from `next/link`
+     - In the `Dialog` content section (after `NutritionFactsCard`), add a "View Details" link:
+       ```tsx
+       <Link
+         href={`/app/food-detail/${selectedEntry.id}`}
+         className="block w-full text-center text-sm text-primary hover:underline min-h-[44px] flex items-center justify-center"
+       >
+         View Full Details
+       </Link>
+       ```
+   - Run: `npm run build`
+   - Verify: Build succeeds
 
-3. **REFACTOR** - Verify existing log-food tests still pass.
-
-**Notes:**
-- The current code already logs DB errors and continues — we just need to propagate the `dbError` flag to the client.
-- Client-side handling of `dbError` is a nice-to-have but not required for this task — the primary goal is making the partial failure visible in the response.
-
-### Task 9: Add "Log Another" button to FoodLogConfirmation in Quick Select flow
-
-**Issue:** FOO-278 (regression from Task 3)
-**Files:**
-- `src/components/food-log-confirmation.tsx` (modify)
-- `src/components/quick-select.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** - Write test asserting a "Log Another" button appears in Quick Select's FoodLogConfirmation:
-   - After logging a food via Quick Select, the confirmation screen should show both "Done" (navigates to `/app`) and "Log Another" (resets Quick Select state)
-   - Run: `npm test -- quick-select.test`
-   - Verify: Test fails because no "Log Another" button exists
-
-2. **GREEN** - Add "Log Another" support:
-   - In `src/components/food-log-confirmation.tsx`: Add an optional `onLogAnother?: () => void` prop. When provided, render a second button "Log Another" that calls it.
-   - In `src/components/quick-select.tsx`: Pass `onLogAnother` to `FoodLogConfirmation` that resets `logResponse`, `selectedFood`, and `logError` state (the old `onDone` behavior minus the `mutate()` call — SWR revalidateOnFocus handles refresh now)
-   - Run: `npm test -- quick-select.test`
-   - Verify: Tests pass
-
-3. **REFACTOR** - Ensure "Done" still navigates to `/app` (no `onDone` prop), and "Log Another" resets state.
+3. **REFACTOR** - Ensure the link has proper touch target size (44px min height)
 
 **Notes:**
-- Task 3 removed the `onDone` callback so "Done" navigates to `/app`. This was correct for the Done button, but created a UX regression: users can no longer log multiple foods in succession from Quick Select without navigating back each time.
-- The fix adds a separate "Log Another" button instead of overloading the "Done" button, giving users both options.
+- The dialog stays for quick nutrition view — the link is for full details with notes/description
+- Mobile users can tap the link to navigate to the full detail page
 
-### Task 8: Integration & Verification
+---
 
-**Issues:** FOO-278, FOO-279, FOO-280, FOO-281, FOO-282, FOO-283, FOO-276, FOO-275, FOO-274, FOO-273
-**Files:**
-- Various files from previous tasks
+### Task 12: Integration & Verification
+
+**Issues:** FOO-284, FOO-285, FOO-286, FOO-287
+**Files:** Various
 
 **Steps:**
 
 1. Run full test suite: `npm test`
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
-4. Build check: `npm run build`
-5. Manual verification steps:
-   - [ ] All tests pass with zero failures
-   - [ ] No lint warnings
-   - [ ] No type errors
-   - [ ] Build succeeds with zero warnings
+4. Run build: `npm run build`
+5. Verify zero warnings across all checks
+6. Manual verification checklist:
+   - [ ] Claude API calls have no retry loops
+   - [ ] SDK maxRetries is explicitly set to 2
+   - [ ] Delete food log entry cleans up orphaned custom foods
+   - [ ] Description column exists in schema migration
+   - [ ] Description appears in analysis result before logging
+   - [ ] Description preserved through refinement flow
+   - [ ] Food detail page renders at `/app/food-detail/[id]`
+   - [ ] Detail page shows description, notes, confidence, nutrition facts
+   - [ ] Detail page has loading skeleton
+   - [ ] "View Full Details" link appears in history dialog
+   - [ ] Detail page works for entries without description (nullable)
 
 ## MCP Usage During Implementation
 
@@ -399,196 +736,29 @@ Fix data freshness issues across the app (stale cache headers and disabled SWR r
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| API route returns no-cache header | Browser always revalidates | Unit test (check header value) |
-| SWR refetches on tab focus | Fresh data shown on return | Component test |
-| Quick Select Done clicked | Navigate to /app | Component test |
-| fetchEntries network failure | Error message shown to user | Component test |
-| Claude API returns 5xx | Retry with backoff | Unit test |
-| Fitbit delete ok, DB delete fails | Return success, log warning | Unit test |
-| Fitbit log ok, DB insert fails | Return success with dbError flag | Unit test |
+| Claude API failure (after SDK retries exhausted) | Throws ClaudeApiError | Unit test |
+| Delete entry with no orphan | Only entry deleted, custom food kept | Unit test |
+| Delete entry creating orphan | Both entry and custom food deleted | Unit test |
+| Missing description in Claude response | Validation error thrown | Unit test |
+| Detail page for non-existent entry | 404 response | API handler |
+| Detail page for entry without description | Shows nutrition facts, no description section | UI handling |
 
 ## Risks & Open Questions
 
-- [ ] Removing `max-age` headers means every browser navigation triggers a server request. For a single-user app this is fine — the DB queries are fast. If performance becomes an issue later, consider `max-age=5` instead of `no-cache`.
-- [ ] Removing `onDone` from Quick Select's FoodLogConfirmation means the SWR cache won't be explicitly mutated before navigating away. This is acceptable because SWR will revalidate when the user returns (revalidateOnFocus is now enabled).
+- [ ] Risk: Test mock complexity for `db.transaction()` — Drizzle's transaction API passes a tx object that mirrors the db API. Mock needs to support this pattern.
+- [ ] Risk: `drizzle-kit generate` must be run by the lead (not workers) to avoid hand-written migration files.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Cache-Control header changes on 3 API routes
-- SWR revalidateOnFocus option removal on 2 components
-- Quick Select Done button navigation fix
-- Error handling in food-history fetchEntries
-- 5xx retry logic in Claude API client
-- Partial failure handling in food history delete route
-- Partial failure flag in log-food route response
+- Remove retry logic from Claude API calls
+- Orphan custom_foods cleanup on delete
+- Description field in schema, types, Claude tool, API, UI
+- Full detail page for food history entries
+- Loading skeleton for detail page
 
 **Out of Scope:**
-- FOO-277 (Canceled): Duplicated pending-submission resubmit logic — premature abstraction, working correctly
-- FOO-272 (Canceled): Fire-and-forget stale state updates — React no-op, no real impact
-- FOO-271 (Canceled): In-memory row loading — correct approach for single-user data volumes
-- FOO-270 (Canceled): Token encryption key derivation — SHA-256 of high-entropy secret is adequate
-- FOO-269 (Canceled): Middleware cookie validation — functionally correct, route handlers always validate
-- FOO-268 (Canceled): CSP header — complex standalone effort, low current risk
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-09
-**Method:** Agent team (4 workers)
-
-### Tasks Completed This Iteration
-- Task 1: Remove stale Cache-Control headers (FOO-279, FOO-280, FOO-281) — Changed `max-age` headers to `no-cache` on 3 API routes (worker-2)
-- Task 2: Enable SWR revalidateOnFocus (FOO-282, FOO-283) — Removed `revalidateOnFocus: false` from 3 SWR hooks (worker-1)
-- Task 3: Fix Quick Select Done button navigation (FOO-278) — Removed `onDone` callback, uses fallback `router.push("/app")` (worker-1)
-- Task 4: Add error handling to food-history fetchEntries (FOO-276) — Added `fetchError` state and error display UI (worker-1)
-- Task 5: Add 5xx retry logic to Claude API client (FOO-275) — Added `is5xxError` helper and retry blocks in both `analyzeFood` and `refineAnalysis` (worker-3)
-- Task 6: Handle partial failure on food history delete (FOO-274) — Wrapped `deleteFoodLogEntry` in try/catch, DB failures non-fatal (worker-4)
-- Task 7: Improve partial failure handling in log-food route (FOO-273) — Added `dbError` flag to `FoodLogResponse` type and response (worker-4)
-
-### Files Modified
-- `src/app/api/common-foods/route.ts` — Cache-Control → `private, no-cache`
-- `src/app/api/common-foods/__tests__/route.test.ts` — Updated header assertions
-- `src/app/api/food-history/route.ts` — Cache-Control → `private, no-cache`
-- `src/app/api/food-history/__tests__/route.test.ts` — Updated header assertions
-- `src/app/api/search-foods/route.ts` — Cache-Control → `private, no-cache`
-- `src/app/api/search-foods/__tests__/route.test.ts` — Updated header assertions
-- `src/components/quick-select.tsx` — Removed `revalidateOnFocus: false`, removed `onDone` callback, removed unused `mutate`
-- `src/components/__tests__/quick-select.test.tsx` — Updated mock, added Done navigation test
-- `src/components/food-history.tsx` — Removed `revalidateOnFocus: false`, added `fetchError` state and error UI
-- `src/components/__tests__/food-history.test.tsx` — Added 3 error handling tests
-- `src/lib/claude.ts` — Added `is5xxError` helper, 5xx retry blocks in both functions
-- `src/lib/__tests__/claude.test.ts` — Added 6 retry tests
-- `src/app/api/food-history/[id]/route.ts` — Wrapped `deleteFoodLogEntry` in try/catch
-- `src/app/api/food-history/[id]/__tests__/route.test.ts` — Added 2 partial failure tests
-- `src/app/api/log-food/route.ts` — Added `dbError` flag to both reuse and new food flows
-- `src/app/api/log-food/__tests__/route.test.ts` — Added 4 partial failure tests
-- `src/types/index.ts` — Added `dbError?: boolean` to `FoodLogResponse`
-- `CLAUDE.md` — Updated Cache-Control performance policy
-
-### Linear Updates
-- FOO-279: Todo → In Progress → Review
-- FOO-280: Todo → In Progress → Review
-- FOO-281: Todo → In Progress → Review
-- FOO-282: Todo → In Progress → Review
-- FOO-283: Todo → In Progress → Review
-- FOO-278: Todo → In Progress → Review
-- FOO-276: Todo → In Progress → Review
-- FOO-275: Todo → In Progress → Review
-- FOO-274: Todo → In Progress → Review
-- FOO-273: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: 8 findings triaged — 2 HIGH by-design (per plan acceptance criteria), 1 MEDIUM actioned (CLAUDE.md updated), 1 MEDIUM valid regression (Task 9 added), 2 false positives, 2 added to backlog (FOO-284, FOO-285)
-- verifier: All 1006 tests pass, zero warnings, lint/typecheck/build clean
-
-### Work Partition
-- Worker 1: Tasks 2, 3, 4 (component files: quick-select, food-history)
-- Worker 2: Task 1 (API route files: common-foods, food-history, search-foods)
-- Worker 3: Task 5 (lib file: claude.ts)
-- Worker 4: Tasks 6, 7 (API route files: food-history/[id], log-food + types)
-
-### Continuation Status
-Task 9 remaining (UX regression fix from Task 3).
-
-### Review Findings
-
-Summary: 0 critical/high issues found (Team: security, reliability, quality reviewers)
-- CRITICAL: 0
-- HIGH: 0
-- MEDIUM: 3 (documented only)
-- LOW: 7 (documented only)
-
-**Documented (no fix needed):**
-- [MEDIUM] BUG: Silent failure on non-success API response in `fetchEntries` (`src/components/food-history.tsx:134`) — when API returns `{ success: false }`, no error shown to user. The catch block only handles thrown exceptions, not application-level errors. Unlikely in practice since the API route returns standard error responses with HTTP error codes, which SWR handles separately.
-- [MEDIUM] TYPE: `PaginatedFoodsPage.nextCursor` typed as `unknown` (`src/components/quick-select.tsx:28-30`) — `buildCursorParam` also accepts `unknown`. Functionally safe since cursors are JSON-serialized, but a union type would provide compile-time safety.
-- [MEDIUM] TYPE: Unvalidated type assertion `result.data.entries as FoodLogHistoryEntry[]` (`src/components/food-history.tsx:135`) — raw fetch response cast without runtime validation. Single-user app with controlled API makes this low-risk.
-- [LOW] CONVENTION: Raw `fetch()` used for Load More/Jump to Date instead of SWR (`src/components/food-history.tsx:129-132`) — pragmatic choice for append-based pagination that SWR doesn't natively support.
-- [LOW] CONVENTION: Error log action says `"get_common_foods_error"` even when `tab=recent` fails (`src/app/api/common-foods/route.ts:83`) — misleading log message for the recent foods branch.
-- [LOW] EDGE CASE: `hasSeeded` ref prevents SWR revalidation updates after first seed (`src/components/food-history.tsx:83-103`) — intentional per comment, accepted trade-off for pagination design.
-- [LOW] EDGE CASE: `parseInt || 10` fallback pattern differs from food-history's `Number.isNaN` check (`src/app/api/common-foods/route.ts:16`) — both work correctly, minor inconsistency.
-- [LOW] SECURITY: No max length on search query `q` (`src/app/api/search-foods/route.ts:16`) — single-user app, minimal risk.
-- [LOW] SECURITY: No max length on `food_name` field (`src/app/api/log-food/route.ts:34-35`) — Fitbit API likely rejects overlong names.
-- [LOW] SECURITY: No max length on `notes` field (`src/app/api/log-food/route.ts:51`) — defense-in-depth improvement, not urgent.
-
-### Linear Updates
-- FOO-279: Review → Merge
-- FOO-280: Review → Merge
-- FOO-281: Review → Merge
-- FOO-282: Review → Merge
-- FOO-283: Review → Merge
-- FOO-278: Review → Merge
-- FOO-276: Review → Merge
-- FOO-275: Review → Merge
-- FOO-274: Review → Merge
-- FOO-273: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-02-09
-**Method:** Agent team (1 worker)
-
-### Tasks Completed This Iteration
-- Task 9: Add "Log Another" button to FoodLogConfirmation in Quick Select flow (FOO-278) — Added `onLogAnother` prop to FoodLogConfirmation, passed from QuickSelect to reset state for new food selection (worker-1)
-
-### Files Modified
-- `src/components/food-log-confirmation.tsx` — Added `onLogAnother` optional prop, renders "Log Another" button when provided
-- `src/components/quick-select.tsx` — Passes `onLogAnother` callback that resets `logResponse`, `selectedFood`, and `logError`
-- `src/components/__tests__/quick-select.test.tsx` — Added test for onLogAnother flow (select → log → Log Another → back to food list)
-- `src/components/__tests__/food-log-confirmation.test.tsx` — Added 3 tests for onLogAnother prop (renders, does not render, calls callback)
-
-### Linear Updates
-- FOO-278: Review → Review (was already in Review from Iteration 1 Task 3; Task 9 completes the fix)
-
-### Pre-commit Verification
-- bug-hunter: 3 findings — 1 MEDIUM actioned (added component-level tests), 1 MEDIUM by-design (button order already correct), 1 LOW skipped (aria-label not needed for clear button text)
-- verifier: All 1,010 tests pass, zero warnings, lint/typecheck/build clean
-
-### Work Partition
-- Worker 1: Task 9 (component files: food-log-confirmation, quick-select)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 4
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
-
-No issues found - all implementations are correct and follow project conventions.
-
-### Linear Updates
-- FOO-278: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | BUG | `src/components/food-history.tsx:134` | Silent failure on non-success API response in fetchEntries | API routes return HTTP error codes handled by SWR; `success: false` with 200 is unlikely |
-| MEDIUM | TYPE | `src/components/quick-select.tsx:28-30` | `PaginatedFoodsPage.nextCursor` typed as `unknown` | Functionally safe — cursors are JSON-serialized |
-| MEDIUM | TYPE | `src/components/food-history.tsx:135` | Unvalidated type assertion on fetch response | Single-user app with controlled API |
-| LOW | CONVENTION | `src/components/food-history.tsx:129-132` | Raw fetch() for pagination instead of SWR | SWR doesn't natively support append-based pagination |
-| LOW | CONVENTION | `src/app/api/common-foods/route.ts:83` | Error log action misleading for recent foods branch | Cosmetic — doesn't affect functionality |
-| LOW | EDGE CASE | `src/components/food-history.tsx:83-103` | hasSeeded ref prevents SWR revalidation updates | Intentional per code comment |
-| LOW | EDGE CASE | `src/app/api/common-foods/route.ts:16` | parseInt fallback pattern inconsistency | Both patterns work correctly |
-| LOW | SECURITY | `src/app/api/search-foods/route.ts:16` | No max length on search query | Single-user app, minimal risk |
-| LOW | SECURITY | `src/app/api/log-food/route.ts:34-35` | No max length on food_name | Fitbit API likely rejects overlong names |
-| LOW | SECURITY | `src/app/api/log-food/route.ts:51` | No max length on notes field | Defense-in-depth improvement, not urgent |
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Extracting shared `formatTime` utility (can be done later)
+- Adding images to the detail page
+- Editing food entries from the detail page
+- Component-level tests for UI components
