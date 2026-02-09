@@ -2,13 +2,13 @@
 
 **Status:** IN_PROGRESS
 **Branch:** feat/FOO-245-frontend-review-fixes
-**Issues:** FOO-245, FOO-246, FOO-247, FOO-248, FOO-249, FOO-250, FOO-251, FOO-252, FOO-253, FOO-254, FOO-255, FOO-256, FOO-257, FOO-258, FOO-259, FOO-260, FOO-261, FOO-262, FOO-263, FOO-264, FOO-267
+**Issues:** FOO-245, FOO-246, FOO-247, FOO-248, FOO-249, FOO-250, FOO-251, FOO-252, FOO-253, FOO-254, FOO-257, FOO-258, FOO-259, FOO-260, FOO-261, FOO-262, FOO-263, FOO-264, FOO-267
 **Created:** 2026-02-08
 **Last Updated:** 2026-02-08
 
 ## Summary
 
-Comprehensive frontend review fixes: accessibility improvements (aria-labels, heading hierarchy, tab patterns, skip links, reduced motion), visual/UX polish (theme colors, spinners, empty states, dark mode borders, step indicator), and technical cleanup (remove unused directives, shared fetcher, PWA manifest). Plus the original two fixes: bottom nav rename and history rounding.
+Comprehensive frontend review fixes: accessibility improvements (aria-labels, heading hierarchy, tab patterns, skip links, reduced motion), visual/UX polish (theme colors, spinners, empty states, dark mode borders), and technical cleanup (shared fetcher, PWA manifest). Plus the original two fixes: bottom nav rename and history rounding.
 
 ## Issues
 
@@ -32,10 +32,6 @@ Comprehensive frontend review fixes: accessibility improvements (aria-labels, he
 **Priority:** Medium | **Labels:** Improvement
 ### FOO-254: Soften nutrition-facts-card borders in dark mode
 **Priority:** Low | **Labels:** Improvement
-### FOO-255: Add visual step indicator to food analyzer flow
-**Priority:** Medium | **Labels:** Improvement
-### FOO-256: Remove unnecessary 'use client' from 5 components
-**Priority:** Medium | **Labels:** Performance
 ### FOO-257: Add aria-hidden to decorative icons and role=alert to error messages
 **Priority:** Low | **Labels:** Improvement
 ### FOO-258: Add prefers-reduced-motion handling for animate-spin
@@ -239,8 +235,7 @@ Comprehensive frontend review fixes: accessibility improvements (aria-labels, he
    - Run tests → All pass
 
 **Notes:**
-- `page.tsx` is a server component — `SkipLink` will need "use client" removed (handled in Task 17) OR we wrap it. Since the landing page redirects authenticated users, SkipLink here is only for the login page. For simplicity, wrap in a fragment.
-- Actually, server components CAN import client components. So importing `SkipLink` (which has "use client") into `page.tsx` (server) is fine.
+- `page.tsx` is a server component — server components CAN import client components. So importing `SkipLink` (which has "use client") into `page.tsx` (server) is fine.
 
 ---
 
@@ -435,61 +430,7 @@ Comprehensive frontend review fixes: accessibility improvements (aria-labels, he
 
 ---
 
-### Task 16: Step indicator for food analyzer flow
-
-**Issues:** FOO-255
-**Files:**
-- `src/components/food-analyzer.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test:
-   - When no photos/description: step indicator shows "Capture" as active
-   - When analysis is loading: step indicator shows "Review" as active
-   - When analysis result shown: step indicator shows "Review" as active
-   - When log confirmation shown: step indicator shows "Log" as active
-   - Run tests → Verify failures
-
-2. **GREEN** — Add step indicator:
-   - Determine current step from component state: capture (no analysis, no logResponse), review (analysis exists or loading), log (logResponse exists)
-   - Add a simple text-based indicator at the top of the component: `Step 1 of 3: Capture · Review · Log` with current step highlighted
-   - Use `text-muted-foreground` for inactive steps, `text-foreground font-medium` for active
-   - Show the indicator in the main return JSX (line 418), but NOT in resubmitting or logResponse screens
-   - Run tests → All pass
-
-**Notes:**
-- Keep it minimal — just text indicators, not a complex stepper component
-- Don't show during resubmission flow (line 391) or success screen (line 403)
-
----
-
-### Task 17: Remove unnecessary 'use client' from 5 components
-
-**Issues:** FOO-256
-**Files:**
-- `src/components/skip-link.tsx` (modify)
-- `src/components/food-match-card.tsx` (modify)
-- `src/components/description-input.tsx` (modify)
-- `src/components/analysis-result.tsx` (modify)
-- `src/components/confidence-badge.tsx` (modify)
-
-**Steps:**
-
-1. **GREEN** — Remove `"use client";` directive from each file
-   - These components have no hooks, state, or browser APIs
-   - They are only imported by parent client components (except skip-link which can be a true server component)
-   - Run: `npm test` → All pass
-   - Run: `npm run build` → No errors
-
-**Notes:**
-- `description-input.tsx` has an `onChange` handler on textarea but no React hooks — event handlers work in components rendered within a client boundary
-- `confidence-badge.tsx` imports Tooltip components (client), but server components can import client components
-- `food-match-card.tsx` imports Button (client) and receives function props — works within client boundary
-- If build fails for any component, re-add "use client" to that specific one
-
----
-
-### Task 18: Use shared apiFetcher in settings-content
+### Task 16: Use shared apiFetcher in settings-content
 
 **Issues:** FOO-264
 **Files:**
@@ -510,7 +451,7 @@ Comprehensive frontend review fixes: accessibility improvements (aria-labels, he
 
 ---
 
-### Task 19: PWA manifest updates
+### Task 17: PWA manifest — add id field
 
 **Issues:** FOO-263
 **Files:**
@@ -520,12 +461,12 @@ Comprehensive frontend review fixes: accessibility improvements (aria-labels, he
 
 1. **GREEN** — Update manifest:
    - Add `"id": "/app"` for stable PWA identity
-   - Change `"theme_color": "#000000"` → `"theme_color": "#ffffff"` (matches light mode default background)
+   - Keep `theme_color` as `#000000` (works better with dark mode)
    - Run: `npm run build` → No errors
 
 ---
 
-### Task 20: Full verification
+### Task 18: Full verification
 
 **Issues:** All
 **Files:** Various
@@ -543,7 +484,6 @@ Comprehensive frontend review fixes: accessibility improvements (aria-labels, he
    - [ ] Delete confirmation uses AlertDialog (not native confirm)
    - [ ] Dark mode: nutrition card borders are softer
    - [ ] Spinners are consistent across pages
-   - [ ] Step indicator visible in analyzer flow
    - [ ] Empty states show helpful guidance
 
 ## MCP Usage During Implementation
@@ -554,17 +494,17 @@ Comprehensive frontend review fixes: accessibility improvements (aria-labels, he
 
 ## Risks & Open Questions
 
-- [ ] Task 17 (remove "use client"): If build fails for any component, re-add the directive to that specific one. Run `npm run build` after each removal.
 - [ ] Task 3 (AlertDialog): Ensure AlertDialog works within the existing Dialog component already in food-history.tsx (both from Radix, should coexist fine)
-- [ ] Task 16 (step indicator): Keep implementation minimal to avoid overcomplicating the already-large food-analyzer component
 
 ## Scope Boundaries
 
 **In Scope:**
-- All 21 valid issues listed above
+- All 19 valid issues listed above
 - TDD for each change where testable
 
 **Out of Scope:**
+- FOO-255: Step indicator — canceled (low value, adds complexity to already-large component)
+- FOO-256: Remove 'use client' — canceled (zero practical benefit, fragile to future imports)
 - FOO-265: useReducer refactor — canceled (over-engineering, React batches updates)
 - FOO-266: Edge runtime evaluation — canceled (Railway is single-region, no benefit)
 - Dashboard-preview.tsx progress bar colors are low priority but included for consistency
