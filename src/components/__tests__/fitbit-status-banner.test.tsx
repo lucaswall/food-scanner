@@ -63,6 +63,19 @@ describe("FitbitStatusBanner", () => {
     expect(link).toHaveAttribute("href", "/app/setup-fitbit");
   });
 
+  it("shows warning banner in transitional state (connected but no credentials)", () => {
+    mockUseSWR.mockReturnValue({
+      data: { fitbitConnected: true, hasFitbitCredentials: false, email: "test@example.com", expiresAt: Date.now() + 86400000 },
+      error: undefined,
+      isLoading: false,
+    });
+
+    render(<FitbitStatusBanner />);
+    expect(screen.getByText("Set up Fitbit credentials to keep logging food")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: /set up now/i });
+    expect(link).toHaveAttribute("href", "/app/setup-fitbit");
+  });
+
   it("shows 'Reconnect' banner when credentials exist but not connected", () => {
     mockUseSWR.mockReturnValue({
       data: { fitbitConnected: false, hasFitbitCredentials: true, email: "test@example.com", expiresAt: Date.now() + 86400000 },

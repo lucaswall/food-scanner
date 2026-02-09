@@ -15,6 +15,10 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
+vi.mock("@/components/fitbit-setup-guard", () => ({
+  FitbitSetupGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock("@/components/food-analyzer", () => ({
   FoodAnalyzer: ({ autoCapture }: { autoCapture?: boolean }) => (
     <div data-testid="food-analyzer" data-auto-capture={autoCapture ? "true" : undefined}>

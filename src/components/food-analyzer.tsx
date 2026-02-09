@@ -252,9 +252,13 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           });
           window.location.href = "/api/auth/fitbit";
           return;
-        } else {
-          setLogError(result.error?.message || "Failed to log food to Fitbit");
         }
+        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+          setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
+          vibrateError();
+          return;
+        }
+        setLogError(result.error?.message || "Failed to log food to Fitbit");
         vibrateError();
         return;
       }
@@ -307,9 +311,13 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           });
           window.location.href = "/api/auth/fitbit";
           return;
-        } else {
-          setLogError(result.error?.message || "Failed to log food to Fitbit");
         }
+        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+          setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
+          vibrateError();
+          return;
+        }
+        setLogError(result.error?.message || "Failed to log food to Fitbit");
         vibrateError();
         return;
       }
@@ -566,7 +574,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
               aria-live="polite"
             >
               <p className="text-sm text-destructive">{logError}</p>
-              {logError.includes("reconnect") && (
+              {(logError.includes("reconnect") || logError.includes("Settings")) && (
                 <a
                   href="/settings"
                   className="text-sm text-destructive underline mt-1 inline-block"

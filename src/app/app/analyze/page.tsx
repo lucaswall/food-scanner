@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { FoodAnalyzer } from "@/components/food-analyzer";
+import { FitbitSetupGuard } from "@/components/fitbit-setup-guard";
 import { SkipLink } from "@/components/skip-link";
 
 interface AnalyzePageProps {
@@ -23,7 +24,9 @@ export default async function AnalyzePage({ searchParams }: AnalyzePageProps) {
       <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
         <h1 className="text-2xl font-bold">Analyze Food</h1>
 
-        <FoodAnalyzer autoCapture={autoCapture} />
+        <FitbitSetupGuard>
+          <FoodAnalyzer autoCapture={autoCapture} />
+        </FitbitSetupGuard>
       </main>
     </div>
   );

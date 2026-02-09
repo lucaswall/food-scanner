@@ -15,6 +15,10 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
+vi.mock("@/components/fitbit-setup-guard", () => ({
+  FitbitSetupGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 vi.mock("@/components/quick-select", () => ({
   QuickSelect: () => <div data-testid="quick-select">QuickSelect</div>,
 }));
