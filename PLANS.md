@@ -344,6 +344,33 @@ Fix data freshness issues across the app (stale cache headers and disabled SWR r
 - The current code already logs DB errors and continues — we just need to propagate the `dbError` flag to the client.
 - Client-side handling of `dbError` is a nice-to-have but not required for this task — the primary goal is making the partial failure visible in the response.
 
+### Task 9: Add "Log Another" button to FoodLogConfirmation in Quick Select flow
+
+**Issue:** FOO-278 (regression from Task 3)
+**Files:**
+- `src/components/food-log-confirmation.tsx` (modify)
+- `src/components/quick-select.tsx` (modify)
+- `src/components/__tests__/quick-select.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** - Write test asserting a "Log Another" button appears in Quick Select's FoodLogConfirmation:
+   - After logging a food via Quick Select, the confirmation screen should show both "Done" (navigates to `/app`) and "Log Another" (resets Quick Select state)
+   - Run: `npm test -- quick-select.test`
+   - Verify: Test fails because no "Log Another" button exists
+
+2. **GREEN** - Add "Log Another" support:
+   - In `src/components/food-log-confirmation.tsx`: Add an optional `onLogAnother?: () => void` prop. When provided, render a second button "Log Another" that calls it.
+   - In `src/components/quick-select.tsx`: Pass `onLogAnother` to `FoodLogConfirmation` that resets `logResponse`, `selectedFood`, and `logError` state (the old `onDone` behavior minus the `mutate()` call — SWR revalidateOnFocus handles refresh now)
+   - Run: `npm test -- quick-select.test`
+   - Verify: Tests pass
+
+3. **REFACTOR** - Ensure "Done" still navigates to `/app` (no `onDone` prop), and "Log Another" resets state.
+
+**Notes:**
+- Task 3 removed the `onDone` callback so "Done" navigates to `/app`. This was correct for the Done button, but created a UX regression: users can no longer log multiple foods in succession from Quick Select without navigating back each time.
+- The fix adds a separate "Log Another" button instead of overloading the "Done" button, giving users both options.
+
 ### Task 8: Integration & Verification
 
 **Issues:** FOO-278, FOO-279, FOO-280, FOO-281, FOO-282, FOO-283, FOO-276, FOO-275, FOO-274, FOO-273
@@ -453,7 +480,7 @@ Fix data freshness issues across the app (stale cache headers and disabled SWR r
 - FOO-273: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: 8 findings triaged — 2 HIGH by-design (per plan acceptance criteria), 1 MEDIUM actioned (CLAUDE.md updated), 4 false positives, 2 out-of-scope
+- bug-hunter: 8 findings triaged — 2 HIGH by-design (per plan acceptance criteria), 1 MEDIUM actioned (CLAUDE.md updated), 1 MEDIUM valid regression (Task 9 added), 2 false positives, 2 added to backlog (FOO-284, FOO-285)
 - verifier: All 1006 tests pass, zero warnings, lint/typecheck/build clean
 
 ### Work Partition
@@ -463,4 +490,4 @@ Fix data freshness issues across the app (stale cache headers and disabled SWR r
 - Worker 4: Tasks 6, 7 (API route files: food-history/[id], log-food + types)
 
 ### Continuation Status
-All tasks completed.
+Task 9 remaining (UX regression fix from Task 3).
