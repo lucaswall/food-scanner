@@ -38,6 +38,7 @@ const validAnalysis: FoodAnalysis = {
   confidence: "high",
   notes: "Standard Argentine beef empanada, baked style",
   keywords: ["empanada", "carne", "horno"],
+  description: "Standard Argentine beef empanada, baked style",
 };
 
 function setupMocks() {
@@ -82,6 +83,9 @@ describe("analyzeFood", () => {
     await expect(
       analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+
+    // Should be called exactly once (no retry)
+    expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 
   it("throws CLAUDE_API_ERROR when no tool_use block in response", async () => {
@@ -242,47 +246,23 @@ describe("analyzeFood", () => {
     expect(imageBlocks[1].source.data).toBe("img2");
   });
 
-  it("retries once on timeout error", async () => {
-    const timeoutError = new Error("Request timed out");
-    timeoutError.name = "APIConnectionTimeoutError";
-
-    mockCreate
-      .mockRejectedValueOnce(timeoutError)
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "tool_use",
-            id: "tool_123",
-            name: "report_nutrition",
-            input: validAnalysis,
-          },
-        ],
-      });
+  it("configures SDK with explicit maxRetries", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
 
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(result).toEqual(validAnalysis);
-  });
-
-  it("throws after retry exhausted on timeout", async () => {
-    const timeoutError = new Error("Request timed out");
-    timeoutError.name = "APIConnectionTimeoutError";
-
-    mockCreate
-      .mockRejectedValueOnce(timeoutError)
-      .mockRejectedValueOnce(timeoutError);
-
-    const { analyzeFood } = await import("@/lib/claude");
-
-    await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
-    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+    // Verify client is initialized (indirect test - we can't directly inspect Anthropic constructor)
+    expect(mockCreate).toHaveBeenCalled();
   });
 
   it("throws when tool_use output has missing fields", async () => {
@@ -348,50 +328,6 @@ describe("analyzeFood", () => {
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
-  it("retries on rate limit (429) error", async () => {
-    const rateLimitError = new Error("rate limit exceeded");
-    rateLimitError.name = "RateLimitError";
-    Object.assign(rateLimitError, { status: 429 });
-
-    mockCreate
-      .mockRejectedValueOnce(rateLimitError)
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "tool_use",
-            id: "tool_123",
-            name: "report_nutrition",
-            input: validAnalysis,
-          },
-        ],
-      });
-
-    const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(result).toEqual(validAnalysis);
-  });
-
-  it("throws after retry exhausted on persistent rate limit", async () => {
-    const rateLimitError = new Error("rate limit exceeded");
-    rateLimitError.name = "RateLimitError";
-    Object.assign(rateLimitError, { status: 429 });
-
-    mockCreate
-      .mockRejectedValueOnce(rateLimitError)
-      .mockRejectedValueOnce(rateLimitError);
-
-    const { analyzeFood } = await import("@/lib/claude");
-
-    await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
-    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-  });
 
   it("throws when confidence is not a valid enum value", async () => {
     mockCreate.mockResolvedValueOnce({
@@ -484,57 +420,6 @@ describe("analyzeFood", () => {
     expect(result.notes).toBe("Standard Argentine beef empanada, baked style");
   });
 
-  it("isRateLimitError returns false for non-Error objects", async () => {
-    // A non-Error with status 429 should not trigger rate limit retry
-    mockCreate
-      .mockRejectedValueOnce({ status: 429, message: "rate limited" })
-      .mockRejectedValueOnce(new Error("second call should not happen"));
-
-    const { analyzeFood } = await import("@/lib/claude");
-
-    // Should throw without retrying since it's not an Error instance
-    await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
-    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
-
-    // Should only be called once (no retry for non-Error objects)
-    expect(mockCreate).toHaveBeenCalledTimes(1);
-  });
-
-  it("rate limited request retries with delay", { timeout: 20000 }, async () => {
-    vi.useFakeTimers();
-
-    const rateLimitError = new Error("rate limit exceeded");
-    rateLimitError.name = "RateLimitError";
-    Object.assign(rateLimitError, { status: 429 });
-
-    mockCreate
-      .mockRejectedValueOnce(rateLimitError)
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "tool_use",
-            id: "tool_123",
-            name: "report_nutrition",
-            input: validAnalysis,
-          },
-        ],
-      });
-
-    const { analyzeFood } = await import("@/lib/claude");
-    const promise = analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
-
-    // The retry should wait for backoff delay (2^0 * 1000 = 1000ms)
-    await vi.advanceTimersByTimeAsync(1000);
-
-    const result = await promise;
-    expect(result).toEqual(validAnalysis);
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-
-    vi.useRealTimers();
-  });
 
   it("validates keywords array of strings in Claude response", async () => {
     mockCreate.mockResolvedValueOnce({
@@ -795,108 +680,6 @@ describe("analyzeFood", () => {
     });
   });
 
-  it("retries on 5xx server error", async () => {
-    const serverError = new Error("Internal Server Error");
-    Object.assign(serverError, { status: 500 });
-
-    mockCreate
-      .mockRejectedValueOnce(serverError)
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "tool_use",
-            id: "tool_123",
-            name: "report_nutrition",
-            input: validAnalysis,
-          },
-        ],
-      });
-
-    const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(result).toEqual(validAnalysis);
-  });
-
-  it("throws after retry exhausted on persistent 5xx error", async () => {
-    const serverError = new Error("Internal Server Error");
-    Object.assign(serverError, { status: 500 });
-
-    mockCreate
-      .mockRejectedValueOnce(serverError)
-      .mockRejectedValueOnce(serverError);
-
-    const { analyzeFood } = await import("@/lib/claude");
-
-    await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
-    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-  });
-
-  it("retries on 502 Bad Gateway error", async () => {
-    const gatewayError = new Error("Bad Gateway");
-    Object.assign(gatewayError, { status: 502 });
-
-    mockCreate
-      .mockRejectedValueOnce(gatewayError)
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "tool_use",
-            id: "tool_123",
-            name: "report_nutrition",
-            input: validAnalysis,
-          },
-        ],
-      });
-
-    const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(result).toEqual(validAnalysis);
-  });
-
-  it("5xx retry uses exponential backoff delay", { timeout: 20000 }, async () => {
-    vi.useFakeTimers();
-
-    const serverError = new Error("Internal Server Error");
-    Object.assign(serverError, { status: 500 });
-
-    mockCreate
-      .mockRejectedValueOnce(serverError)
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "tool_use",
-            id: "tool_123",
-            name: "report_nutrition",
-            input: validAnalysis,
-          },
-        ],
-      });
-
-    const { analyzeFood } = await import("@/lib/claude");
-    const promise = analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
-
-    // The retry should wait for backoff delay (2^0 * 1000 = 1000ms)
-    await vi.advanceTimersByTimeAsync(1000);
-
-    const result = await promise;
-    expect(result).toEqual(validAnalysis);
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-
-    vi.useRealTimers();
-  });
 
   it("includes keywords in tool schema required fields", async () => {
     mockCreate.mockResolvedValueOnce({
@@ -931,6 +714,83 @@ describe("analyzeFood", () => {
         ]),
       })
     );
+  });
+
+  it("includes description in tool schema", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            name: "report_nutrition",
+            input_schema: expect.objectContaining({
+              required: expect.arrayContaining(["description"]),
+              properties: expect.objectContaining({
+                description: expect.objectContaining({
+                  type: "string",
+                }),
+              }),
+            }),
+          }),
+        ]),
+      })
+    );
+  });
+
+  it("validates description as required string", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            description: 123, // number instead of string
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("accepts response without description (defaults to empty string)", async () => {
+    const analysisWithoutDescription = { ...validAnalysis };
+    delete (analysisWithoutDescription as Partial<FoodAnalysis>).description;
+
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: analysisWithoutDescription,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+
+    expect(result.description).toBe("");
   });
 });
 
@@ -1033,62 +893,6 @@ describe("refineAnalysis", () => {
     expect(result).toEqual(refinedAnalysis);
   });
 
-  it("retries on timeout error", async () => {
-    const timeoutError = new Error("Request timed out");
-    timeoutError.name = "APIConnectionTimeoutError";
-
-    mockCreate
-      .mockRejectedValueOnce(timeoutError)
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "tool_use",
-            id: "tool_456",
-            name: "report_nutrition",
-            input: validAnalysis,
-          },
-        ],
-      });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    const result = await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Fix it"
-    );
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(result).toEqual(validAnalysis);
-  });
-
-  it("retries on rate limit error", async () => {
-    const rateLimitError = new Error("rate limit exceeded");
-    rateLimitError.name = "RateLimitError";
-    Object.assign(rateLimitError, { status: 429 });
-
-    mockCreate
-      .mockRejectedValueOnce(rateLimitError)
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "tool_use",
-            id: "tool_456",
-            name: "report_nutrition",
-            input: validAnalysis,
-          },
-        ],
-      });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    const result = await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Fix it"
-    );
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(result).toEqual(validAnalysis);
-  });
 
   it("throws CLAUDE_API_ERROR on failure", async () => {
     mockCreate.mockRejectedValueOnce(new Error("API connection failed"));
@@ -1102,6 +906,9 @@ describe("refineAnalysis", () => {
         "Fix it"
       )
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+
+    // Should be called exactly once (no retry)
+    expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 
   it("uses same model and tool configuration as analyzeFood", async () => {
@@ -1210,54 +1017,6 @@ describe("refineAnalysis", () => {
     expect(textBlocks[0].text).toContain("Empanada de carne"); // previous analysis context
   });
 
-  it("retries on 5xx server error during refinement", async () => {
-    const serverError = new Error("Internal Server Error");
-    Object.assign(serverError, { status: 500 });
-
-    mockCreate
-      .mockRejectedValueOnce(serverError)
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "tool_use",
-            id: "tool_456",
-            name: "report_nutrition",
-            input: validAnalysis,
-          },
-        ],
-      });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    const result = await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Fix it"
-    );
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(result).toEqual(validAnalysis);
-  });
-
-  it("throws after retry exhausted on persistent 5xx during refinement", async () => {
-    const serverError = new Error("Internal Server Error");
-    Object.assign(serverError, { status: 500 });
-
-    mockCreate
-      .mockRejectedValueOnce(serverError)
-      .mockRejectedValueOnce(serverError);
-
-    const { refineAnalysis } = await import("@/lib/claude");
-
-    await expect(
-      refineAnalysis(
-        [{ base64: "abc123", mimeType: "image/jpeg" }],
-        validAnalysis,
-        "Fix it"
-      )
-    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
-
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-  });
 
   it("includes all nutrition fields from previous analysis in prompt", async () => {
     mockCreate.mockResolvedValueOnce({

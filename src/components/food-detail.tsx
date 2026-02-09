@@ -1,0 +1,123 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import useSWR from "swr";
+import { apiFetcher } from "@/lib/swr";
+import { Button } from "@/components/ui/button";
+import { NutritionFactsCard } from "@/components/nutrition-facts-card";
+import { ArrowLeft } from "lucide-react";
+import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import type { FoodLogEntryDetail } from "@/types";
+
+interface FoodDetailProps {
+  entryId: string;
+}
+
+function formatDate(dateStr: string): string {
+  const date = new Date(dateStr + "T00:00:00");
+  return date.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatTime(time: string | null): string {
+  if (!time) return "Not specified";
+  const [h, m] = time.split(":");
+  const hour = parseInt(h, 10);
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 || 12;
+  return `${h12}:${m} ${ampm}`;
+}
+
+export function FoodDetail({ entryId }: FoodDetailProps) {
+  const router = useRouter();
+  const { data, error, isLoading } = useSWR<FoodLogEntryDetail>(
+    `/api/food-history/${entryId}`,
+    apiFetcher,
+  );
+
+  if (isLoading) {
+    return (
+      <div className="max-w-md mx-auto p-4 space-y-6">
+        <p className="text-center text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="max-w-md mx-auto p-4 space-y-6">
+        <Button
+          onClick={() => router.back()}
+          variant="ghost"
+          className="min-h-[44px]"
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back
+        </Button>
+        <p className="text-center text-destructive">
+          Failed to load food entry details
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-md mx-auto p-4 space-y-6">
+      {/* Back button */}
+      <Button
+        onClick={() => router.back()}
+        variant="ghost"
+        className="min-h-[44px]"
+      >
+        <ArrowLeft className="mr-2 h-4 w-4" />
+        Back
+      </Button>
+
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold">{data.foodName}</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          {formatDate(data.date)} · {formatTime(data.time)} ·{" "}
+          {FITBIT_MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          {getUnitLabel(data.unitId, data.amount)}
+        </p>
+      </div>
+
+      {/* Description */}
+      {data.description && (
+        <div className="p-4 rounded-lg bg-muted">
+          <h2 className="text-sm font-semibold mb-2">Description</h2>
+          <p className="text-sm">{data.description}</p>
+        </div>
+      )}
+
+      {/* Nutrition Facts */}
+      <NutritionFactsCard
+        foodName={data.foodName}
+        calories={data.calories}
+        proteinG={data.proteinG}
+        carbsG={data.carbsG}
+        fatG={data.fatG}
+        fiberG={data.fiberG}
+        sodiumMg={data.sodiumMg}
+        unitId={data.unitId}
+        amount={data.amount}
+        mealTypeId={data.mealTypeId}
+      />
+
+      {/* Notes */}
+      {data.notes && (
+        <div className="p-4 rounded-lg border">
+          <h2 className="text-sm font-semibold mb-2">Notes</h2>
+          <p className="text-sm text-muted-foreground">{data.notes}</p>
+        </div>
+      )}
+    </div>
+  );
+}

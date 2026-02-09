@@ -1,8 +1,33 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
-import { getFoodLogEntry, deleteFoodLogEntry } from "@/lib/food-log";
+import { getFoodLogEntry, deleteFoodLogEntry, getFoodLogEntryDetail } from "@/lib/food-log";
 import { ensureFreshToken, deleteFoodLog } from "@/lib/fitbit";
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await getSession();
+
+  const validationError = validateSession(session);
+  if (validationError) return validationError;
+
+  const { id: idParam } = await params;
+  const id = parseInt(idParam, 10);
+  if (Number.isNaN(id)) {
+    return errorResponse("VALIDATION_ERROR", "Invalid entry ID", 400);
+  }
+
+  const entry = await getFoodLogEntryDetail(session!.userId, id);
+  if (!entry) {
+    return errorResponse("VALIDATION_ERROR", "Food log entry not found", 404);
+  }
+
+  const response = successResponse(entry);
+  response.headers.set("Cache-Control", "private, no-cache");
+  return response;
+}
 
 export async function DELETE(
   _request: Request,

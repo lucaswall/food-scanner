@@ -73,6 +73,7 @@ const validAnalysis: FoodAnalysis = {
   confidence: "high",
   notes: "Standard Argentine beef empanada, baked style",
   keywords: ["empanada", "carne", "horno"],
+  description: "Standard Argentine beef empanada, baked style",
 };
 
 // Create a mock file that works with jsdom (which lacks File.arrayBuffer)

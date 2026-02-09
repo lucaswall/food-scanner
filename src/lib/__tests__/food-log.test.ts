@@ -25,6 +25,8 @@ const mockDeleteReturning = vi.fn();
 const mockOrderBy = vi.fn();
 const mockLimit = vi.fn();
 
+const mockTransaction = vi.fn();
+
 vi.mock("@/db/index", () => ({
   getDb: () => ({
     insert: (...args: unknown[]) => {
@@ -38,6 +40,25 @@ vi.mock("@/db/index", () => ({
     delete: (...args: unknown[]) => {
       mockDelete(...args);
       return { where: mockDeleteWhere };
+    },
+    transaction: (...args: unknown[]) => {
+      mockTransaction(...args);
+      // Call the callback with a mock tx that has the same methods
+      const callback = args[0] as (tx: unknown) => unknown;
+      return callback({
+        insert: (...args: unknown[]) => {
+          mockInsert(...args);
+          return { values: mockValues };
+        },
+        select: (...args: unknown[]) => {
+          mockSelect(...args);
+          return { from: mockFrom };
+        },
+        delete: (...args: unknown[]) => {
+          mockDelete(...args);
+          return { where: mockDeleteWhere };
+        },
+      });
     },
   }),
 }));
@@ -70,6 +91,7 @@ const {
   searchFoods,
   getFoodLogHistory,
   getFoodLogEntry,
+  getFoodLogEntryDetail,
   deleteFoodLogEntry,
 } = await import("@/lib/food-log");
 
@@ -267,6 +289,57 @@ describe("insertCustomFood", () => {
         fatG: "0.2",
         fiberG: "0.6",
         sodiumMg: "1.5",
+      }),
+    );
+  });
+
+  it("stores description field in customFoods table", async () => {
+    const createdAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 52, createdAt }]);
+
+    await insertCustomFood("user-uuid-123", {
+      foodName: "Oatmeal with berries",
+      amount: 1,
+      unitId: 91,
+      calories: 200,
+      proteinG: 8,
+      carbsG: 35,
+      fatG: 4,
+      fiberG: 6,
+      sodiumMg: 50,
+      confidence: "high",
+      notes: null,
+      description: "A bowl of oatmeal with berries",
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: "A bowl of oatmeal with berries",
+      }),
+    );
+  });
+
+  it("stores null description when not provided", async () => {
+    const createdAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 53, createdAt }]);
+
+    await insertCustomFood("user-uuid-123", {
+      foodName: "Apple",
+      amount: 1,
+      unitId: 304,
+      calories: 95,
+      proteinG: 0.5,
+      carbsG: 25,
+      fatG: 0.3,
+      fiberG: 4.4,
+      sodiumMg: 2,
+      confidence: "high",
+      notes: null,
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: null,
       }),
     );
   });
@@ -1177,23 +1250,10 @@ describe("getFoodLogEntry", () => {
 
 describe("deleteFoodLogEntry", () => {
   it("deletes the entry and returns fitbitLogId", async () => {
-    // First call is the lookup (getFoodLogEntry uses select)
-    mockWhere.mockResolvedValueOnce([
-      {
-        id: 5,
-        userId: "user-uuid-123",
-        customFoodId: 10,
-        mealTypeId: 3,
-        amount: "150",
-        unitId: 147,
-        date: "2026-02-05",
-        time: "12:00:00",
-        fitbitLogId: 789,
-        loggedAt: new Date(),
-      },
-    ]);
-    // Second call is the delete returning
-    mockDeleteReturning.mockResolvedValue([{ fitbitLogId: 789 }]);
+    // Mock the delete returning fitbitLogId and customFoodId
+    mockDeleteReturning.mockResolvedValueOnce([{ fitbitLogId: 789, customFoodId: 10 }]);
+    // Mock the count query - other entries still reference this custom food
+    mockWhere.mockResolvedValueOnce([{ id: 99 }]);
 
     const result = await deleteFoodLogEntry("user-uuid-123", 5);
 
@@ -1202,7 +1262,7 @@ describe("deleteFoodLogEntry", () => {
   });
 
   it("returns null when entry not found", async () => {
-    mockDeleteReturning.mockResolvedValue([]);
+    mockDeleteReturning.mockResolvedValueOnce([]);
 
     const result = await deleteFoodLogEntry("user-uuid-123", 999);
 
@@ -1210,25 +1270,162 @@ describe("deleteFoodLogEntry", () => {
   });
 
   it("returns null fitbitLogId when entry has no Fitbit log", async () => {
-    mockWhere.mockResolvedValueOnce([
-      {
-        id: 5,
-        userId: "user-uuid-123",
-        customFoodId: 10,
-        mealTypeId: 3,
-        amount: "150",
-        unitId: 147,
-        date: "2026-02-05",
-        time: null,
-        fitbitLogId: null,
-        loggedAt: new Date(),
-      },
-    ]);
-    mockDeleteReturning.mockResolvedValue([{ fitbitLogId: null }]);
+    mockDeleteReturning.mockResolvedValueOnce([{ fitbitLogId: null, customFoodId: 10 }]);
+    // Mock the count query - other entries still reference this custom food
+    mockWhere.mockResolvedValueOnce([{ id: 99 }]);
 
     const result = await deleteFoodLogEntry("user-uuid-123", 5);
 
     expect(result).toEqual({ fitbitLogId: null });
+  });
+
+  it("deletes orphaned custom food when last entry is removed", async () => {
+    // Mock delete returning the entry with customFoodId
+    mockDeleteReturning.mockResolvedValueOnce([{ fitbitLogId: 789, customFoodId: 10 }]);
+    // Mock count query - no other entries reference this custom food
+    mockWhere.mockResolvedValueOnce([]);
+    // Note: second delete doesn't call .returning(), so no second mock needed
+
+    const result = await deleteFoodLogEntry("user-uuid-123", 5);
+
+    expect(result).toEqual({ fitbitLogId: 789 });
+    // Verify delete was called twice (entry + custom food)
+    expect(mockDelete).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps custom food when other entries still reference it", async () => {
+    // Mock delete returning the entry with customFoodId
+    mockDeleteReturning.mockResolvedValueOnce([{ fitbitLogId: 789, customFoodId: 10 }]);
+    // Mock count query - another entry exists
+    mockWhere.mockResolvedValueOnce([{ id: 99 }]);
+
+    const result = await deleteFoodLogEntry("user-uuid-123", 5);
+
+    expect(result).toEqual({ fitbitLogId: 789 });
+    // Verify delete was called only once (just the entry, not the custom food)
+    expect(mockDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns same shape { fitbitLogId } as before", async () => {
+    mockDeleteReturning.mockResolvedValueOnce([{ fitbitLogId: 789, customFoodId: 10 }]);
+    mockWhere.mockResolvedValueOnce([{ id: 99 }]);
+
+    const result = await deleteFoodLogEntry("user-uuid-123", 5);
+
+    expect(result).toEqual({ fitbitLogId: 789 });
+    expect(result).not.toHaveProperty("customFoodId");
+  });
+});
+
+describe("getFoodLogEntryDetail", () => {
+  it("returns full entry with notes and description", async () => {
+    const mockRow = {
+      food_log_entries: {
+        id: 100,
+        userId: "user-uuid-123",
+        customFoodId: 42,
+        mealTypeId: 3,
+        amount: "200",
+        unitId: 147,
+        date: "2026-02-08",
+        time: "12:30:00",
+        fitbitLogId: 789,
+        loggedAt: new Date(),
+      },
+      custom_foods: {
+        id: 42,
+        userId: "user-uuid-123",
+        foodName: "Grilled Salmon",
+        amount: "200",
+        unitId: 147,
+        calories: 400,
+        proteinG: "40",
+        carbsG: "0",
+        fatG: "20",
+        fiberG: "0",
+        sodiumMg: "150",
+        fitbitFoodId: 100,
+        confidence: "high",
+        notes: "With lemon",
+        description: "A piece of grilled salmon",
+        keywords: null,
+        createdAt: new Date(),
+      },
+    };
+    mockWhere.mockResolvedValue([mockRow]);
+
+    const result = await getFoodLogEntryDetail("user-uuid-123", 100);
+
+    expect(result).toEqual({
+      id: 100,
+      foodName: "Grilled Salmon",
+      description: "A piece of grilled salmon",
+      notes: "With lemon",
+      calories: 400,
+      proteinG: 40,
+      carbsG: 0,
+      fatG: 20,
+      fiberG: 0,
+      sodiumMg: 150,
+      amount: 200,
+      unitId: 147,
+      mealTypeId: 3,
+      date: "2026-02-08",
+      time: "12:30:00",
+      fitbitLogId: 789,
+      confidence: "high",
+    });
+  });
+
+  it("returns null for non-existent entry", async () => {
+    mockWhere.mockResolvedValue([]);
+
+    const result = await getFoodLogEntryDetail("user-uuid-123", 999);
+
+    expect(result).toBeNull();
+  });
+
+  it("handles null description and notes", async () => {
+    const mockRow = {
+      food_log_entries: {
+        id: 101,
+        userId: "user-uuid-123",
+        customFoodId: 43,
+        mealTypeId: 1,
+        amount: "100",
+        unitId: 304,
+        date: "2026-02-08",
+        time: "08:00:00",
+        fitbitLogId: null,
+        loggedAt: new Date(),
+      },
+      custom_foods: {
+        id: 43,
+        userId: "user-uuid-123",
+        foodName: "Apple",
+        amount: "100",
+        unitId: 304,
+        calories: 95,
+        proteinG: "0.5",
+        carbsG: "25",
+        fatG: "0.3",
+        fiberG: "4.4",
+        sodiumMg: "2",
+        fitbitFoodId: null,
+        confidence: "medium",
+        notes: null,
+        description: null,
+        keywords: null,
+        createdAt: new Date(),
+      },
+    };
+    mockWhere.mockResolvedValue([mockRow]);
+
+    const result = await getFoodLogEntryDetail("user-uuid-123", 101);
+
+    expect(result).not.toBeNull();
+    expect(result!.description).toBeNull();
+    expect(result!.notes).toBeNull();
   });
 });
 

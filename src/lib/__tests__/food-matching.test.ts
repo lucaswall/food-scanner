@@ -157,6 +157,7 @@ describe("findMatchingFoods", () => {
       sodium_mg: 10,
       confidence: "high",
       notes: "",
+      description: "",
       keywords: ["tea", "milk"],
     });
 
@@ -195,6 +196,7 @@ describe("findMatchingFoods", () => {
       sodium_mg: 10,
       confidence: "high",
       notes: "",
+      description: "",
       keywords: ["tea", "milk"],
     });
 
@@ -233,6 +235,7 @@ describe("findMatchingFoods", () => {
       sodium_mg: 10,
       confidence: "high",
       notes: "",
+      description: "",
       keywords: ["tea", "milk"],
     });
 
@@ -303,6 +306,7 @@ describe("findMatchingFoods", () => {
       sodium_mg: 10,
       confidence: "high",
       notes: "",
+      description: "",
       keywords: ["tea", "milk"],
     });
 
@@ -348,6 +352,7 @@ describe("findMatchingFoods", () => {
       sodium_mg: 10,
       confidence: "high",
       notes: "",
+      description: "",
       keywords: ["tea", "milk"],
     });
 
@@ -386,6 +391,7 @@ describe("findMatchingFoods", () => {
       sodium_mg: 10,
       confidence: "high",
       notes: "",
+      description: "",
       keywords: ["tea", "milk"],
     });
 
@@ -426,6 +432,7 @@ describe("findMatchingFoods", () => {
         sodium_mg: 10,
         confidence: "high",
         notes: "",
+        description: "",
         keywords: ["tea", "milk"],
       });
 

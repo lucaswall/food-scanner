@@ -42,6 +42,7 @@ function foodToAnalysis(food: CommonFood): FoodAnalysis {
     sodium_mg: food.sodiumMg,
     confidence: "high",
     notes: "",
+    description: "",
     keywords: [],
   };
 }

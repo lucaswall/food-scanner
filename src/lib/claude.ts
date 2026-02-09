@@ -10,6 +10,7 @@ function getClient(): Anthropic {
     _client = new Anthropic({
       apiKey: getRequiredEnv("ANTHROPIC_API_KEY"),
       timeout: 30000, // 30 second timeout as per ROADMAP.md
+      maxRetries: 2,
     });
   }
   return _client;
@@ -55,6 +56,10 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
         items: { type: "string" },
         description: "3 to 5 lowercase single-word tokens (no spaces) identifying this food for matching against previously logged foods. Priority order: (1) food type (e.g., cerveza, pizza, ensalada), (2) key modifiers that affect nutrition (e.g., integral, descremado, light), (3) main ingredients not implied by food type (e.g., jamon, queso), (4) preparation method if nutritionally relevant (e.g., frito, hervido). For compound concepts use hyphens: sin-alcohol, sin-tacc. Use singular form. Exclude: brand names, packaging (lata, botella), country of origin, marketing terms (original, clasico). Example: 'Clausthaler Original cerveza sin alcohol en lata' → ['cerveza', 'sin-alcohol']. Example: 'Pizza de jamón y muzzarella' → ['pizza', 'jamon', 'muzzarella'].",
       },
+      description: {
+        type: "string",
+        description: "A rich visual description of what you identified in the image, including colors, textures, cooking method, portion size, presentation, and any distinctive visual features that help distinguish this specific food item from similar foods.",
+      },
     },
     required: [
       "food_name",
@@ -69,6 +74,7 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       "confidence",
       "notes",
       "keywords",
+      "description",
     ],
   },
 };
@@ -151,6 +157,12 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
     throw new ClaudeApiError("Invalid food analysis: keywords must have at least 1 element");
   }
 
+  // Validate description - default to empty string if missing
+  const description = typeof data.description === "string" ? data.description : "";
+  if (data.description !== undefined && typeof data.description !== "string") {
+    throw new ClaudeApiError("Invalid food analysis: description must be a string");
+  }
+
   return {
     food_name: data.food_name as string,
     amount: data.amount as number,
@@ -164,139 +176,83 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
     confidence: data.confidence as FoodAnalysis["confidence"],
     notes: data.notes as string,
     keywords,
+    description,
   };
-}
-
-function isTimeoutError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === "APIConnectionTimeoutError" ||
-      error.message.includes("timed out") ||
-      error.message.includes("timeout"))
-  );
-}
-
-function isRateLimitError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === "RateLimitError" ||
-      ("status" in error && (error as { status?: number }).status === 429))
-  );
-}
-
-function is5xxError(error: unknown): boolean {
-  if (!(error instanceof Error) || !("status" in error)) {
-    return false;
-  }
-  const status = (error as { status?: number }).status;
-  return typeof status === "number" && status >= 500 && status < 600;
 }
 
 export async function analyzeFood(
   images: ImageInput[],
   description?: string
 ): Promise<FoodAnalysis> {
-  const maxRetries = 1;
-  let lastError: Error | null = null;
+  try {
+    logger.info(
+      { imageCount: images.length, hasDescription: !!description },
+      "calling Claude API for food analysis"
+    );
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      logger.info(
-        { imageCount: images.length, hasDescription: !!description, attempt },
-        "calling Claude API for food analysis"
-      );
-
-      const response = await getClient().messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        tools: [REPORT_NUTRITION_TOOL],
-        tool_choice: { type: "tool", name: "report_nutrition" },
-        messages: [
-          {
-            role: "user",
-            content: [
-              ...images.map((img) => ({
-                type: "image" as const,
-                source: {
-                  type: "base64" as const,
-                  media_type: img.mimeType as
-                    | "image/jpeg"
-                    | "image/png"
-                    | "image/gif"
-                    | "image/webp",
-                  data: img.base64,
-                },
-              })),
-              {
-                type: "text" as const,
-                text: description || "Analyze this food.",
+    const response = await getClient().messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      tools: [REPORT_NUTRITION_TOOL],
+      tool_choice: { type: "tool", name: "report_nutrition" },
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...images.map((img) => ({
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: img.mimeType as
+                  | "image/jpeg"
+                  | "image/png"
+                  | "image/gif"
+                  | "image/webp",
+                data: img.base64,
               },
-            ],
-          },
-        ],
-      });
+            })),
+            {
+              type: "text" as const,
+              text: description || "Analyze this food.",
+            },
+          ],
+        },
+      ],
+    });
 
-      const toolUseBlock = response.content.find(
-        (block) => block.type === "tool_use"
-      );
+    const toolUseBlock = response.content.find(
+      (block) => block.type === "tool_use"
+    );
 
-      if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
-        logger.error(
-          { contentTypes: response.content.map((b) => b.type) },
-          "no tool_use block in Claude response"
-        );
-        throw new ClaudeApiError("No tool_use block in response");
-      }
-
-      const analysis = validateFoodAnalysis(toolUseBlock.input);
-      logger.info(
-        { foodName: analysis.food_name, confidence: analysis.confidence },
-        "food analysis completed"
-      );
-
-      return analysis;
-    } catch (error) {
-      if (error instanceof ClaudeApiError) {
-        throw error;
-      }
-
-      if (isTimeoutError(error) && attempt < maxRetries) {
-        logger.warn({ attempt }, "Claude API timeout, retrying");
-        lastError = error as Error;
-        continue;
-      }
-
-      if (isRateLimitError(error) && attempt < maxRetries) {
-        const delay = Math.pow(2, attempt) * 1000;
-        logger.warn({ attempt, delay }, "Claude API rate limited, retrying");
-        lastError = error as Error;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
-      }
-
-      if (is5xxError(error) && attempt < maxRetries) {
-        const delay = Math.pow(2, attempt) * 1000;
-        logger.warn({ attempt, delay }, "Claude API 5xx error, retrying");
-        lastError = error as Error;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
-      }
-
+    if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
       logger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        "Claude API error"
+        { contentTypes: response.content.map((b) => b.type) },
+        "no tool_use block in Claude response"
       );
-      throw new ClaudeApiError(
-        `API request failed: ${error instanceof Error ? error.message : String(error)}`
-      );
+      throw new ClaudeApiError("No tool_use block in response");
     }
-  }
 
-  // This should only be reached if all retries exhausted due to timeouts/rate limits/5xx
-  throw new ClaudeApiError(
-    `API request failed after retries: ${lastError?.message || "unknown error"}`
-  );
+    const analysis = validateFoodAnalysis(toolUseBlock.input);
+    logger.info(
+      { foodName: analysis.food_name, confidence: analysis.confidence },
+      "food analysis completed"
+    );
+
+    return analysis;
+  } catch (error) {
+    if (error instanceof ClaudeApiError) {
+      throw error;
+    }
+
+    logger.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Claude API error"
+    );
+    throw new ClaudeApiError(
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 export async function refineAnalysis(
@@ -304,17 +260,13 @@ export async function refineAnalysis(
   previousAnalysis: FoodAnalysis,
   correction: string
 ): Promise<FoodAnalysis> {
-  const maxRetries = 1;
-  let lastError: Error | null = null;
+  try {
+    logger.info(
+      { imageCount: images.length, hasCorrection: !!correction },
+      "calling Claude API for food analysis refinement"
+    );
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      logger.info(
-        { imageCount: images.length, hasCorrection: !!correction, attempt },
-        "calling Claude API for food analysis refinement"
-      );
-
-      const refinementText = `I previously analyzed this food and got the following result:
+    const refinementText = `I previously analyzed this food and got the following result:
 
 Food: ${previousAnalysis.food_name}
 Amount: ${previousAnalysis.amount} (unit_id: ${previousAnalysis.unit_id})
@@ -322,99 +274,73 @@ Calories: ${previousAnalysis.calories}
 Protein: ${previousAnalysis.protein_g}g, Carbs: ${previousAnalysis.carbs_g}g, Fat: ${previousAnalysis.fat_g}g, Fiber: ${previousAnalysis.fiber_g}g, Sodium: ${previousAnalysis.sodium_mg}mg
 Confidence: ${previousAnalysis.confidence}
 Notes: ${previousAnalysis.notes}
+Description: ${previousAnalysis.description}
 
 The user has provided this correction: "${correction}"
 
 Please re-analyze the food considering this correction and provide updated nutritional information.`;
 
-      const response = await getClient().messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        tools: [REPORT_NUTRITION_TOOL],
-        tool_choice: { type: "tool", name: "report_nutrition" },
-        messages: [
-          {
-            role: "user",
-            content: [
-              ...images.map((img) => ({
-                type: "image" as const,
-                source: {
-                  type: "base64" as const,
-                  media_type: img.mimeType as
-                    | "image/jpeg"
-                    | "image/png"
-                    | "image/gif"
-                    | "image/webp",
-                  data: img.base64,
-                },
-              })),
-              {
-                type: "text" as const,
-                text: refinementText,
+    const response = await getClient().messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      tools: [REPORT_NUTRITION_TOOL],
+      tool_choice: { type: "tool", name: "report_nutrition" },
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...images.map((img) => ({
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: img.mimeType as
+                  | "image/jpeg"
+                  | "image/png"
+                  | "image/gif"
+                  | "image/webp",
+                data: img.base64,
               },
-            ],
-          },
-        ],
-      });
+            })),
+            {
+              type: "text" as const,
+              text: refinementText,
+            },
+          ],
+        },
+      ],
+    });
 
-      const toolUseBlock = response.content.find(
-        (block) => block.type === "tool_use"
-      );
+    const toolUseBlock = response.content.find(
+      (block) => block.type === "tool_use"
+    );
 
-      if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
-        logger.error(
-          { contentTypes: response.content.map((b) => b.type) },
-          "no tool_use block in Claude refinement response"
-        );
-        throw new ClaudeApiError("No tool_use block in response");
-      }
-
-      const analysis = validateFoodAnalysis(toolUseBlock.input);
-      logger.info(
-        { foodName: analysis.food_name, confidence: analysis.confidence },
-        "food analysis refinement completed"
-      );
-
-      return analysis;
-    } catch (error) {
-      if (error instanceof ClaudeApiError) {
-        throw error;
-      }
-
-      if (isTimeoutError(error) && attempt < maxRetries) {
-        logger.warn({ attempt }, "Claude API timeout during refinement, retrying");
-        lastError = error as Error;
-        continue;
-      }
-
-      if (isRateLimitError(error) && attempt < maxRetries) {
-        const delay = Math.pow(2, attempt) * 1000;
-        logger.warn({ attempt, delay }, "Claude API rate limited during refinement, retrying");
-        lastError = error as Error;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
-      }
-
-      if (is5xxError(error) && attempt < maxRetries) {
-        const delay = Math.pow(2, attempt) * 1000;
-        logger.warn({ attempt, delay }, "Claude API 5xx error during refinement, retrying");
-        lastError = error as Error;
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
-      }
-
+    if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
       logger.error(
-        { error: error instanceof Error ? error.message : String(error) },
-        "Claude API refinement error"
+        { contentTypes: response.content.map((b) => b.type) },
+        "no tool_use block in Claude refinement response"
       );
-      throw new ClaudeApiError(
-        `API request failed: ${error instanceof Error ? error.message : String(error)}`
-      );
+      throw new ClaudeApiError("No tool_use block in response");
     }
-  }
 
-  throw new ClaudeApiError(
-    `API request failed after retries: ${lastError?.message || "unknown error"}`
-  );
+    const analysis = validateFoodAnalysis(toolUseBlock.input);
+    logger.info(
+      { foodName: analysis.food_name, confidence: analysis.confidence },
+      "food analysis refinement completed"
+    );
+
+    return analysis;
+  } catch (error) {
+    if (error instanceof ClaudeApiError) {
+      throw error;
+    }
+
+    logger.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Claude API refinement error"
+    );
+    throw new ClaudeApiError(
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }

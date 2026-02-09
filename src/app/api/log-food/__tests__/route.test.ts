@@ -78,6 +78,7 @@ const validFoodLogRequest: FoodLogRequest = {
   sodium_mg: 200,
   confidence: "high",
   notes: "Test notes",
+  description: "Test description",
   keywords: ["test", "food"],
   mealTypeId: 1,
   date: "2026-02-07",

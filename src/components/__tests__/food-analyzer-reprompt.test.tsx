@@ -161,6 +161,7 @@ const mockAnalysis: FoodAnalysis = {
   sodium_mg: 450,
   confidence: "high",
   notes: "Standard Argentine beef empanada",
+  description: "A golden-brown baked empanada on a white plate",
   keywords: ["empanada", "carne", "beef"],
 };
 
@@ -176,6 +177,7 @@ const refinedAnalysis: FoodAnalysis = {
   sodium_mg: 500,
   confidence: "high",
   notes: "Argentine beef empanada with cheese",
+  description: "A golden-brown empanada with melted cheese visible",
   keywords: ["empanada", "carne", "queso"],
 };
 

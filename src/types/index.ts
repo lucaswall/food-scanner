@@ -63,6 +63,7 @@ export interface FoodAnalysis {
   sodium_mg: number;
   confidence: "high" | "medium" | "low";
   notes: string;
+  description: string;
   keywords: string[];
 }
 
@@ -197,4 +198,24 @@ export interface FoodMatch {
   lastLoggedAt: Date;
   amount: number;
   unitId: number;
+}
+
+export interface FoodLogEntryDetail {
+  id: number;
+  foodName: string;
+  description: string | null;
+  notes: string | null;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sodiumMg: number;
+  amount: number;
+  unitId: number;
+  mealTypeId: number;
+  date: string;
+  time: string | null;
+  fitbitLogId: number | null;
+  confidence: string;
 }

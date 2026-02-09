@@ -26,6 +26,7 @@ function isValidPreviousAnalysis(data: unknown): data is FoodAnalysis {
     typeof obj.unit_id === "number" &&
     typeof obj.confidence === "string" &&
     typeof obj.notes === "string" &&
+    typeof obj.description === "string" &&
     Array.isArray(obj.keywords)
   );
 }

@@ -27,6 +27,7 @@ const mockAnalysis: FoodAnalysis = {
   sodium_mg: 120,
   confidence: "high",
   notes: "Grilled skinless chicken breast",
+  description: "A grilled chicken breast on a plate with vegetables",
   keywords: ["chicken", "grilled"],
 };
 
