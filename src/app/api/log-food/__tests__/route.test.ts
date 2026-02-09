@@ -40,10 +40,12 @@ vi.mock("@/lib/logger", () => ({
 const mockFindOrCreateFood = vi.fn();
 const mockLogFood = vi.fn();
 const mockEnsureFreshToken = vi.fn();
+const mockDeleteFoodLog = vi.fn();
 vi.mock("@/lib/fitbit", () => ({
   findOrCreateFood: mockFindOrCreateFood,
   logFood: mockLogFood,
   ensureFreshToken: mockEnsureFreshToken,
+  deleteFoodLog: (...args: unknown[]) => mockDeleteFoodLog(...args),
 }));
 
 // Mock food-log DB module
@@ -63,6 +65,7 @@ const validSession: FullSession = {
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: true,
+  hasFitbitCredentials: true,
   destroy: vi.fn(),
 };
 
@@ -484,7 +487,7 @@ describe("POST /api/log-food", () => {
     );
   });
 
-  it("returns success even if insertCustomFood fails (non-fatal)", async () => {
+  it("returns error and compensates Fitbit when insertCustomFood fails in new food flow", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
@@ -492,20 +495,18 @@ describe("POST /api/log-food", () => {
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
     mockInsertCustomFood.mockRejectedValue(new Error("DB connection failed"));
+    mockDeleteFoodLog.mockResolvedValue(undefined);
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data.fitbitFoodId).toBe(123);
-    expect(body.data.fitbitLogId).toBe(456);
-    expect(body.data.foodLogId).toBeUndefined();
-    expect(mockInsertFoodLogEntry).not.toHaveBeenCalled();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456);
   });
 
-  it("returns success even if insertFoodLogEntry fails (non-fatal)", async () => {
+  it("returns error and compensates Fitbit when insertFoodLogEntry fails in new food flow", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
@@ -514,19 +515,18 @@ describe("POST /api/log-food", () => {
     });
     mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
     mockInsertFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+    mockDeleteFoodLog.mockResolvedValue(undefined);
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data.fitbitFoodId).toBe(123);
-    expect(body.data.fitbitLogId).toBe(456);
-    expect(body.data.foodLogId).toBeUndefined();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456);
   });
 
-  it("returns dbError: true when insertCustomFood fails in new food flow", async () => {
+  it("returns PARTIAL_ERROR when DB fails and compensation also fails in new food flow", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
@@ -534,34 +534,18 @@ describe("POST /api/log-food", () => {
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
     mockInsertCustomFood.mockRejectedValue(new Error("DB connection failed"));
+    mockDeleteFoodLog.mockRejectedValue(new Error("Fitbit API error"));
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body.data.dbError).toBe(true);
+    expect(body.error.code).toBe("PARTIAL_ERROR");
+    expect(body.error.message).toContain("local save failed");
   });
 
-  it("returns dbError: true when insertFoodLogEntry fails in new food flow", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-    mockInsertFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
-
-    const request = createMockRequest(validFoodLogRequest);
-    const response = await POST(request);
-
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.data.dbError).toBe(true);
-  });
-
-  it("returns dbError: true when insertFoodLogEntry fails in reuse flow", async () => {
+  it("returns error and compensates Fitbit when insertFoodLogEntry fails in reuse flow", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockGetCustomFoodById.mockResolvedValue({
@@ -581,6 +565,7 @@ describe("POST /api/log-food", () => {
       foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
     });
     mockInsertFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+    mockDeleteFoodLog.mockResolvedValue(undefined);
 
     const request = createMockRequest({
       ...validFoodLogRequest,
@@ -588,27 +573,28 @@ describe("POST /api/log-food", () => {
     });
     const response = await POST(request);
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(500);
     const body = await response.json();
-    expect(body.data.dbError).toBe(true);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789);
   });
 
-  it("does not include dbError when DB operations succeed", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-    mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+  it("returns error without compensation in dry-run mode when DB fails", async () => {
+    vi.stubEnv("FITBIT_DRY_RUN", "true");
+    try {
+      mockGetSession.mockResolvedValue(validSession);
+      mockInsertCustomFood.mockRejectedValue(new Error("DB connection failed"));
 
-    const request = createMockRequest(validFoodLogRequest);
-    const response = await POST(request);
+      const request = createMockRequest(validFoodLogRequest);
+      const response = await POST(request);
 
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.data.dbError).toBeUndefined();
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body.error.code).toBe("INTERNAL_ERROR");
+      expect(mockDeleteFoodLog).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   describe("reuse flow with reuseCustomFoodId", () => {

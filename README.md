@@ -84,8 +84,6 @@ railway variables set \
   APP_URL=https://food.lucaswall.me \
   GOOGLE_CLIENT_ID=your-google-client-id \
   GOOGLE_CLIENT_SECRET=your-google-client-secret \
-  FITBIT_CLIENT_ID=your-fitbit-client-id \
-  FITBIT_CLIENT_SECRET=your-fitbit-client-secret \
   ANTHROPIC_API_KEY=your-anthropic-api-key \
   LOG_LEVEL=info
 ```
@@ -205,14 +203,21 @@ Claude Sonnet powers the AI food analysis feature.
 
 ### Fitbit OAuth
 
+**Note:** Fitbit credentials are configured per-user through the application UI, not via environment variables.
+
+Each user must register their own Fitbit OAuth application and enter credentials through the setup flow:
+
 1. Go to [dev.fitbit.com](https://dev.fitbit.com) → **Manage → Register an App**
 2. Set OAuth 2.0 Application Type: **Personal**
-3. Under **Redirect URIs**, add your environment URLs:
+3. Under **Redirect URIs**, add your environment URL:
    - Production: `https://food.lucaswall.me/api/auth/fitbit/callback`
    - Staging: `https://<staging-railway-domain>/api/auth/fitbit/callback`
    - Local: `http://localhost:3000/api/auth/fitbit/callback`
 4. Under **Default Access Type**, select **Read & Write**
-5. Copy the **Client ID** and **Client Secret**
+5. After signing in to Food Scanner, visit `/app/setup-fitbit` to enter your Fitbit **Client ID** and **Client Secret**
+6. Complete the Fitbit OAuth flow to authorize the app
+
+Credentials are stored securely in the database on a per-user basis.
 
 ---
 

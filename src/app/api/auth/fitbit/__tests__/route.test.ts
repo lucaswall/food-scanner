@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { FullSession } from "@/types";
 
-vi.stubEnv("FITBIT_CLIENT_ID", "test-fitbit-client-id");
-vi.stubEnv("FITBIT_CLIENT_SECRET", "test-fitbit-client-secret");
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("APP_URL", "http://localhost:3000");
 
@@ -18,6 +16,11 @@ vi.mock("@/lib/session", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
   validateSession: (...args: unknown[]) => mockValidateSession(...args),
   getRawSession: vi.fn().mockResolvedValue(mockRawSession),
+}));
+
+const mockGetFitbitCredentials = vi.fn();
+vi.mock("@/lib/fitbit-credentials", () => ({
+  getFitbitCredentials: (...args: unknown[]) => mockGetFitbitCredentials(...args),
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -38,6 +41,7 @@ const validSession: FullSession = {
   userId: "test-user-uuid",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: false,
+  hasFitbitCredentials: true,
   destroy: vi.fn(),
 };
 
@@ -46,6 +50,10 @@ beforeEach(() => {
   vi.stubEnv("APP_URL", "http://localhost:3000");
   mockGetSession.mockResolvedValue(validSession);
   mockValidateSession.mockReturnValue(null); // null = valid session
+  mockGetFitbitCredentials.mockResolvedValue({
+    clientId: "test-fitbit-client-id",
+    clientSecret: "test-fitbit-client-secret",
+  });
   Object.keys(mockRawSession).forEach((key) => {
     if (key !== "save" && key !== "sessionId") delete mockRawSession[key];
   });
@@ -136,5 +144,23 @@ describe("GET /api/auth/fitbit", () => {
     await GET();
     expect(mockRawSession.oauthState).toBeTruthy();
     expect(mockRawSession.save).toHaveBeenCalled();
+  });
+
+  it("redirects to /app/setup-fitbit when no credentials", async () => {
+    mockGetFitbitCredentials.mockResolvedValue(null);
+
+    const response = await GET();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain("/app/setup-fitbit");
+  });
+});
+
+describe("POST /api/auth/fitbit", () => {
+  it("redirects to /app/setup-fitbit when no credentials", async () => {
+    mockGetFitbitCredentials.mockResolvedValue(null);
+
+    const response = await POST();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain("/app/setup-fitbit");
   });
 });

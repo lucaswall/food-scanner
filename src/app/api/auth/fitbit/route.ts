@@ -2,15 +2,28 @@ import { buildFitbitAuthUrl } from "@/lib/fitbit";
 import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
 import { getSession, validateSession, getRawSession } from "@/lib/session";
+import { getFitbitCredentials } from "@/lib/fitbit-credentials";
 
 async function initiateFitbitAuth() {
   const session = await getSession();
   const error = validateSession(session);
   if (error) return error;
 
+  // Load per-user Fitbit credentials
+  const credentials = await getFitbitCredentials(session!.userId);
+  if (!credentials) {
+    // No credentials stored — redirect to setup page
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: buildUrl("/app/setup-fitbit"),
+      },
+    });
+  }
+
   const state = crypto.randomUUID();
   const redirectUri = buildUrl("/api/auth/fitbit/callback");
-  const authUrl = buildFitbitAuthUrl(state, redirectUri);
+  const authUrl = buildFitbitAuthUrl(state, redirectUri, credentials.clientId);
 
   // Store state in iron-session (encrypted cookie) instead of plain cookie
   const rawSession = await getRawSession();

@@ -5,6 +5,7 @@ import { buildUrl } from "@/lib/url";
 import { logger } from "@/lib/logger";
 import { getSessionById } from "@/lib/session-db";
 import { upsertFitbitTokens } from "@/lib/fitbit-tokens";
+import { getFitbitCredentials } from "@/lib/fitbit-credentials";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -20,6 +21,24 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
+  if (!rawSession.sessionId) {
+    logger.warn({ action: "fitbit_callback_no_session" }, "fitbit callback without authenticated session");
+    return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
+  }
+
+  const dbSession = await getSessionById(rawSession.sessionId);
+  if (!dbSession) {
+    logger.warn({ action: "fitbit_callback_no_session" }, "fitbit callback with expired/invalid session");
+    return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
+  }
+
+  // Load per-user Fitbit credentials
+  const credentials = await getFitbitCredentials(dbSession.userId);
+  if (!credentials) {
+    logger.warn({ action: "fitbit_callback_no_credentials" }, "fitbit callback with no stored credentials");
+    return errorResponse("FITBIT_CREDENTIALS_MISSING", "No Fitbit credentials configured", 400);
+  }
+
   const redirectUri = buildUrl("/api/auth/fitbit/callback");
 
   let tokens: {
@@ -29,7 +48,7 @@ export async function GET(request: Request) {
     expires_in: number;
   };
   try {
-    tokens = await exchangeFitbitCode(code, redirectUri);
+    tokens = await exchangeFitbitCode(code, redirectUri, credentials);
   } catch (error) {
     logger.error(
       { action: "fitbit_token_exchange_error", error: error instanceof Error ? error.message : String(error) },
@@ -40,17 +59,6 @@ export async function GET(request: Request) {
       "Failed to exchange Fitbit authorization code",
       400,
     );
-  }
-
-  if (!rawSession.sessionId) {
-    logger.warn({ action: "fitbit_callback_no_session" }, "fitbit callback without authenticated session");
-    return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
-  }
-
-  const dbSession = await getSessionById(rawSession.sessionId);
-  if (!dbSession) {
-    logger.warn({ action: "fitbit_callback_no_session" }, "fitbit callback with expired/invalid session");
-    return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
   }
 
   // Store Fitbit tokens in database

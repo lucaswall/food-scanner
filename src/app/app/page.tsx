@@ -5,6 +5,7 @@ import { getSession } from "@/lib/session";
 import { DashboardPreview } from "@/components/dashboard-preview";
 import { DashboardPrefetch } from "@/components/dashboard-prefetch";
 import { SkipLink } from "@/components/skip-link";
+import { FitbitStatusBanner } from "@/components/fitbit-status-banner";
 
 export default async function AppPage() {
   const session = await getSession();
@@ -18,6 +19,8 @@ export default async function AppPage() {
       <SkipLink />
       <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
         <h1 className="text-2xl font-bold">Food Scanner</h1>
+
+        <FitbitStatusBanner />
 
         <div className="grid grid-cols-2 gap-4">
           <Link

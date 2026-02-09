@@ -56,6 +56,7 @@ const validSession: FullSession = {
   userId: "user-uuid-123",
   expiresAt: Date.now() + 86400000,
   fitbitConnected: true,
+  hasFitbitCredentials: true,
   destroy: vi.fn(),
 };
 
@@ -252,7 +253,7 @@ describe("DELETE /api/food-history/[id]", () => {
   });
 
   describe("partial failure handling", () => {
-    it("returns success when Fitbit delete succeeds but DB delete fails", async () => {
+    it("returns error when Fitbit delete succeeds but DB delete fails", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
@@ -264,9 +265,10 @@ describe("DELETE /api/food-history/[id]", () => {
       const request = createRequest();
       const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(500);
       const body = await response.json();
-      expect(body.data.deleted).toBe(true);
+      expect(body.error.code).toBe("INTERNAL_ERROR");
+      expect(body.error.message).toContain("local delete failed");
       expect(logger.error).toHaveBeenCalledWith(
         expect.objectContaining({
           action: "delete_food_log_db_error",
@@ -276,7 +278,7 @@ describe("DELETE /api/food-history/[id]", () => {
       );
     });
 
-    it("returns success when DB delete fails in dry-run mode", async () => {
+    it("returns error when DB delete fails in dry-run mode", async () => {
       vi.stubEnv("FITBIT_DRY_RUN", "true");
       mockGetSession.mockResolvedValue(validSession);
       mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
@@ -285,9 +287,9 @@ describe("DELETE /api/food-history/[id]", () => {
       const request = createRequest();
       const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(500);
       const body = await response.json();
-      expect(body.data.deleted).toBe(true);
+      expect(body.error.code).toBe("INTERNAL_ERROR");
     });
   });
 

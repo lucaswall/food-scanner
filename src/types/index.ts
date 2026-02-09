@@ -17,6 +17,7 @@ export interface FullSession {
   userId: string;
   expiresAt: number;
   fitbitConnected: boolean;
+  hasFitbitCredentials: boolean;
   /** Call to destroy both cookie and DB session */
   destroy: () => Promise<void>;
 }
@@ -81,7 +82,6 @@ export interface FoodLogResponse {
   reusedFood: boolean;
   foodLogId?: number;
   dryRun?: boolean;
-  dbError?: boolean;
   error?: string;
 }
 
@@ -100,6 +100,9 @@ export type ErrorCode =
   | "AUTH_MISSING_SESSION"
   | "FITBIT_NOT_CONNECTED"
   | "FITBIT_TOKEN_INVALID"
+  | "FITBIT_CREDENTIALS_MISSING"
+  | "NOT_FOUND"
+  | "PARTIAL_ERROR"
   | "CLAUDE_API_ERROR"
   | "FITBIT_API_ERROR"
   | "VALIDATION_ERROR"

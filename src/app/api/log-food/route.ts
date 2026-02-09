@@ -1,7 +1,7 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
-import { ensureFreshToken, findOrCreateFood, logFood } from "@/lib/fitbit";
+import { ensureFreshToken, findOrCreateFood, logFood, deleteFoodLog } from "@/lib/fitbit";
 import { insertCustomFood, insertFoodLogEntry, getCustomFoodById } from "@/lib/food-log";
 import type { FoodLogRequest, FoodLogResponse } from "@/types";
 import { FitbitMealType } from "@/types";
@@ -174,7 +174,6 @@ export async function POST(request: Request) {
 
       const reused = true;
       let fitbitLogId: number | undefined;
-      let dbError = false;
 
       if (!isDryRun) {
         const accessToken = await ensureFreshToken(session!.userId);
@@ -203,11 +202,24 @@ export async function POST(request: Request) {
         });
         foodLogId = logEntryResult.id;
       } catch (dbErr) {
-        dbError = true;
         logger.error(
           { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
-          "failed to insert food log entry to database"
+          "DB write failed after Fitbit success, attempting compensation"
         );
+        if (fitbitLogId && !isDryRun) {
+          try {
+            const accessToken = await ensureFreshToken(session!.userId);
+            await deleteFoodLog(accessToken, fitbitLogId);
+            logger.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
+          } catch (compensationErr) {
+            logger.error(
+              { action: "food_log_compensation_failed", fitbitLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
+              "CRITICAL: Fitbit log exists but DB write failed and compensation failed"
+            );
+            return errorResponse("PARTIAL_ERROR", "Food logged to Fitbit but local save failed. Manual cleanup may be needed.", 500);
+          }
+        }
+        return errorResponse("INTERNAL_ERROR", "Failed to save food log", 500);
       }
 
       const response: FoodLogResponse = {
@@ -217,7 +229,6 @@ export async function POST(request: Request) {
         reusedFood: reused,
         foodLogId,
         ...(isDryRun && { dryRun: true }),
-        ...(dbError && { dbError: true }),
       };
 
       logger.info(
@@ -239,7 +250,6 @@ export async function POST(request: Request) {
     let fitbitFoodId: number | undefined;
     let fitbitLogId: number | undefined;
     let reused = false;
-    let dbError = false;
 
     if (!isDryRun) {
       const accessToken = await ensureFreshToken(session!.userId);
@@ -259,7 +269,7 @@ export async function POST(request: Request) {
       fitbitLogId = logResult.foodLog.logId;
     }
 
-    // Log to database (non-fatal — Fitbit is the primary operation)
+    // Log to database — DB is authoritative, failures trigger compensation
     try {
       const customFoodResult = await insertCustomFood(session!.userId, {
         foodName: body.food_name,
@@ -289,11 +299,24 @@ export async function POST(request: Request) {
       });
       foodLogId = logEntryResult.id;
     } catch (dbErr) {
-      dbError = true;
       logger.error(
         { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
-        "failed to insert food log to database"
+        "DB write failed after Fitbit success, attempting compensation"
       );
+      if (fitbitLogId && !isDryRun) {
+        try {
+          const accessToken = await ensureFreshToken(session!.userId);
+          await deleteFoodLog(accessToken, fitbitLogId);
+          logger.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
+        } catch (compensationErr) {
+          logger.error(
+            { action: "food_log_compensation_failed", fitbitLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
+            "CRITICAL: Fitbit log exists but DB write failed and compensation failed"
+          );
+          return errorResponse("PARTIAL_ERROR", "Food logged to Fitbit but local save failed. Manual cleanup may be needed.", 500);
+        }
+      }
+      return errorResponse("INTERNAL_ERROR", "Failed to save food log", 500);
     }
 
     const response: FoodLogResponse = {
@@ -303,7 +326,6 @@ export async function POST(request: Request) {
       reusedFood: reused,
       foodLogId,
       ...(isDryRun && { dryRun: true }),
-      ...(dbError && { dbError: true }),
     };
 
     logger.info(

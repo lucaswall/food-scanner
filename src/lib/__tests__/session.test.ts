@@ -36,11 +36,17 @@ vi.mock("@/lib/fitbit-tokens", () => ({
   getFitbitTokens: (...args: unknown[]) => mockGetFitbitTokens(...args),
 }));
 
+const mockHasFitbitCredentials = vi.fn();
+vi.mock("@/lib/fitbit-credentials", () => ({
+  hasFitbitCredentials: (...args: unknown[]) => mockHasFitbitCredentials(...args),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockDeleteSession.mockResolvedValue(undefined);
   mockTouchSession.mockResolvedValue(undefined);
   mockGetFitbitTokens.mockResolvedValue(null);
+  mockHasFitbitCredentials.mockResolvedValue(false);
 });
 
 const { getSession, getRawSession, validateSession } = await import(
@@ -104,8 +110,30 @@ describe("getSession", () => {
     expect(result!.sessionId).toBe("abc-123");
     expect(result!.userId).toBe("user-uuid-123");
     expect(result!.fitbitConnected).toBe(false);
+    expect(result!.hasFitbitCredentials).toBe(false);
     expect(typeof result!.expiresAt).toBe("number");
     expect(mockGetFitbitTokens).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockHasFitbitCredentials).toHaveBeenCalledWith("user-uuid-123");
+  });
+
+  it("sets hasFitbitCredentials to true when credentials exist", async () => {
+    mockGetIronSession.mockResolvedValue({
+      sessionId: "abc-123",
+      save: vi.fn(),
+      destroy: vi.fn(),
+    });
+    mockGetSessionById.mockResolvedValue({
+      id: "abc-123",
+      userId: "user-uuid-123",
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 86400000),
+    });
+    mockGetFitbitTokens.mockResolvedValue(null);
+    mockHasFitbitCredentials.mockResolvedValue(true);
+
+    const result = await getSession();
+
+    expect(result!.hasFitbitCredentials).toBe(true);
   });
 
   it("sets fitbitConnected to true when Fitbit tokens exist", async () => {
@@ -322,6 +350,7 @@ describe("validateSession", () => {
       userId: "user-uuid-123",
       expiresAt: Date.now() + 60000,
       fitbitConnected: false,
+      hasFitbitCredentials: false,
       destroy: vi.fn(),
     };
     const result = validateSession(session, { requireFitbit: true });
@@ -335,6 +364,7 @@ describe("validateSession", () => {
       userId: "user-uuid-123",
       expiresAt: Date.now() + 60000,
       fitbitConnected: false,
+      hasFitbitCredentials: false,
       destroy: vi.fn(),
     };
     const result = validateSession(session);
@@ -347,6 +377,7 @@ describe("validateSession", () => {
       userId: "user-uuid-123",
       expiresAt: Date.now() + 60000,
       fitbitConnected: true,
+      hasFitbitCredentials: true,
       destroy: vi.fn(),
     };
     const result = validateSession(session, { requireFitbit: true });

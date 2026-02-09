@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SkipLink } from "@/components/skip-link";
 import { useTheme } from "@/hooks/use-theme";
 import { Sun, Moon, Monitor, ArrowLeft } from "lucide-react";
@@ -11,7 +13,13 @@ import { apiFetcher } from "@/lib/swr";
 interface SessionInfo {
   email: string | null;
   fitbitConnected: boolean;
+  hasFitbitCredentials: boolean;
   expiresAt: number;
+}
+
+interface CredentialsInfo {
+  hasCredentials: boolean;
+  clientId?: string;
 }
 
 export function SettingsContent() {
@@ -24,7 +32,23 @@ export function SettingsContent() {
       dedupingInterval: 5000,
     }
   );
+  const { data: credentials, mutate: mutateCredentials } = useSWR<CredentialsInfo, Error>(
+    "/api/fitbit-credentials",
+    apiFetcher,
+    {
+      revalidateOnFocus: true,
+      dedupingInterval: 5000,
+    }
+  );
   const { theme, setTheme } = useTheme();
+
+  const [editingClientId, setEditingClientId] = useState(false);
+  const [clientIdValue, setClientIdValue] = useState("");
+  const [replacingSecret, setReplacingSecret] = useState(false);
+  const [secretValue, setSecretValue] = useState("");
+  const [credentialsSaving, setCredentialsSaving] = useState(false);
+  const [credentialsError, setCredentialsError] = useState<string | null>(null);
+  const [showReauth, setShowReauth] = useState(false);
 
   async function handleLogout() {
     try {
@@ -33,6 +57,55 @@ export function SettingsContent() {
       // Best-effort logout — redirect anyway to clear client state
     }
     window.location.href = "/";
+  }
+
+  async function handleSaveClientId() {
+    if (!clientIdValue.trim()) return;
+    setCredentialsSaving(true);
+    setCredentialsError(null);
+    try {
+      const res = await fetch("/api/fitbit-credentials", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId: clientIdValue.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error?.message || "Failed to update");
+      }
+      setEditingClientId(false);
+      setShowReauth(true);
+      await mutateCredentials();
+    } catch (err) {
+      setCredentialsError(err instanceof Error ? err.message : "Failed to update");
+    } finally {
+      setCredentialsSaving(false);
+    }
+  }
+
+  async function handleReplaceSecret() {
+    if (!secretValue.trim()) return;
+    setCredentialsSaving(true);
+    setCredentialsError(null);
+    try {
+      const res = await fetch("/api/fitbit-credentials", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientSecret: secretValue.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error?.message || "Failed to update");
+      }
+      setReplacingSecret(false);
+      setSecretValue("");
+      setShowReauth(true);
+      await mutateCredentials();
+    } catch (err) {
+      setCredentialsError(err instanceof Error ? err.message : "Failed to update");
+    } finally {
+      setCredentialsSaving(false);
+    }
   }
 
   return (
@@ -83,6 +156,123 @@ export function SettingsContent() {
           >
             Logout
           </Button>
+        </div>
+
+        <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
+          <h2 className="text-lg font-semibold">Fitbit App Credentials</h2>
+
+          {credentialsError && (
+            <p className="text-sm text-destructive">{credentialsError}</p>
+          )}
+
+          {credentials && !credentials.hasCredentials && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm text-muted-foreground">No Fitbit credentials configured.</p>
+              <Button asChild variant="outline" className="min-h-[44px]">
+                <Link href="/app/setup-fitbit">Set up Fitbit credentials</Link>
+              </Button>
+            </div>
+          )}
+
+          {credentials?.hasCredentials && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Client ID</label>
+                {editingClientId ? (
+                  <div className="flex gap-2">
+                    <Input
+                      value={clientIdValue}
+                      onChange={(e) => setClientIdValue(e.target.value)}
+                      className="min-h-[44px]"
+                      placeholder="Enter Client ID"
+                    />
+                    <Button
+                      onClick={handleSaveClientId}
+                      disabled={credentialsSaving || !clientIdValue.trim()}
+                      className="min-h-[44px] shrink-0"
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setEditingClientId(false)}
+                      className="min-h-[44px] shrink-0"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 rounded bg-muted px-2 py-1 text-sm">
+                      {credentials.clientId}
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px] shrink-0"
+                      onClick={() => {
+                        setClientIdValue(credentials.clientId || "");
+                        setEditingClientId(true);
+                      }}
+                    >
+                      Edit
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium">Client Secret</label>
+                {replacingSecret ? (
+                  <div className="flex gap-2">
+                    <Input
+                      type="password"
+                      value={secretValue}
+                      onChange={(e) => setSecretValue(e.target.value)}
+                      className="min-h-[44px]"
+                      placeholder="Enter new Client Secret"
+                    />
+                    <Button
+                      onClick={handleReplaceSecret}
+                      disabled={credentialsSaving || !secretValue.trim()}
+                      className="min-h-[44px] shrink-0"
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => { setReplacingSecret(false); setSecretValue(""); }}
+                      className="min-h-[44px] shrink-0"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 rounded bg-muted px-2 py-1 text-sm">
+                      ••••••••
+                    </code>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-[44px] shrink-0"
+                      onClick={() => setReplacingSecret(true)}
+                    >
+                      Replace Secret
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {showReauth && (
+                <form action="/api/auth/fitbit" method="POST">
+                  <Button type="submit" variant="default" className="w-full min-h-[44px]">
+                    Re-authorize Fitbit
+                  </Button>
+                </form>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">

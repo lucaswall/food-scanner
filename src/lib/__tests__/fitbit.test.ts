@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.stubEnv("FITBIT_CLIENT_ID", "test-fitbit-client-id");
-vi.stubEnv("FITBIT_CLIENT_SECRET", "test-fitbit-client-secret");
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
+vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
 vi.mock("@/lib/logger", () => ({
   logger: {
@@ -19,6 +18,11 @@ const mockUpsertFitbitTokens = vi.fn();
 vi.mock("@/lib/fitbit-tokens", () => ({
   getFitbitTokens: (...args: unknown[]) => mockGetFitbitTokens(...args),
   upsertFitbitTokens: (...args: unknown[]) => mockUpsertFitbitTokens(...args),
+}));
+
+const mockGetFitbitCredentials = vi.fn();
+vi.mock("@/lib/fitbit-credentials", () => ({
+  getFitbitCredentials: (...args: unknown[]) => mockGetFitbitCredentials(...args),
 }));
 
 const {
@@ -43,20 +47,22 @@ describe("buildFitbitAuthUrl", () => {
       buildFitbitAuthUrl(
         "test-state",
         "http://localhost:3000/api/auth/fitbit/callback",
+        "test-fitbit-client-id",
       ),
     );
     expect(url.origin).toBe("https://www.fitbit.com");
     expect(url.pathname).toBe("/oauth2/authorize");
   });
 
-  it("includes correct client_id", () => {
+  it("uses provided client_id parameter", () => {
     const url = new URL(
       buildFitbitAuthUrl(
         "test-state",
         "http://localhost:3000/api/auth/fitbit/callback",
+        "custom-client-id-123",
       ),
     );
-    expect(url.searchParams.get("client_id")).toBe("test-fitbit-client-id");
+    expect(url.searchParams.get("client_id")).toBe("custom-client-id-123");
   });
 
   it("includes redirect_uri", () => {
@@ -64,6 +70,7 @@ describe("buildFitbitAuthUrl", () => {
       buildFitbitAuthUrl(
         "test-state",
         "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
       ),
     );
     expect(url.searchParams.get("redirect_uri")).toBe(
@@ -76,6 +83,7 @@ describe("buildFitbitAuthUrl", () => {
       buildFitbitAuthUrl(
         "test-state",
         "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
       ),
     );
     expect(url.searchParams.get("scope")).toContain("nutrition");
@@ -86,6 +94,7 @@ describe("buildFitbitAuthUrl", () => {
       buildFitbitAuthUrl(
         "test-state",
         "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
       ),
     );
     expect(url.searchParams.get("response_type")).toBe("code");
@@ -96,6 +105,7 @@ describe("buildFitbitAuthUrl", () => {
       buildFitbitAuthUrl(
         "my-state",
         "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
       ),
     );
     expect(url.searchParams.get("state")).toBe("my-state");
@@ -104,6 +114,10 @@ describe("buildFitbitAuthUrl", () => {
 
 describe("ensureFreshToken", () => {
   it("returns existing token if not expiring within 1 hour", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
     mockGetFitbitTokens.mockResolvedValue({
       accessToken: "valid-token",
       refreshToken: "refresh-token",
@@ -115,7 +129,19 @@ describe("ensureFreshToken", () => {
     expect(token).toBe("valid-token");
   });
 
+  it("throws FITBIT_CREDENTIALS_MISSING if no fitbit credentials exist", async () => {
+    mockGetFitbitCredentials.mockResolvedValue(null);
+
+    await expect(ensureFreshToken("user-uuid-123")).rejects.toThrow(
+      "FITBIT_CREDENTIALS_MISSING",
+    );
+  });
+
   it("throws FITBIT_TOKEN_INVALID if no fitbit tokens exist", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
     mockGetFitbitTokens.mockResolvedValue(null);
 
     await expect(ensureFreshToken("user-uuid-123")).rejects.toThrow(
@@ -124,6 +150,10 @@ describe("ensureFreshToken", () => {
   });
 
   it("upserts tokens in DB after refreshing", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({
         access_token: "new-token",
@@ -156,6 +186,10 @@ describe("ensureFreshToken", () => {
   });
 
   it("does not upsert tokens when token is still fresh", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
     mockGetFitbitTokens.mockResolvedValue({
       accessToken: "valid-token",
       refreshToken: "refresh-token",
@@ -168,6 +202,10 @@ describe("ensureFreshToken", () => {
   });
 
   it("two concurrent calls with expiring token only refresh once", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({
         access_token: "new-token",
@@ -212,6 +250,19 @@ describe("ensureFreshToken", () => {
       })));
     });
 
+    mockGetFitbitCredentials.mockImplementation((userId: string) => {
+      if (userId === "user-A") {
+        return Promise.resolve({
+          clientId: "client-id-A",
+          clientSecret: "secret-A",
+        });
+      }
+      return Promise.resolve({
+        clientId: "client-id-B",
+        clientSecret: "secret-B",
+      });
+    });
+
     mockGetFitbitTokens.mockImplementation((userId: string) => {
       if (userId === "user-A") {
         return Promise.resolve({
@@ -245,6 +296,10 @@ describe("ensureFreshToken", () => {
   });
 
   it("second concurrent call receives same refreshed access token", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
     let resolveRefresh: (value: Response) => void;
     const refreshPromise = new Promise<Response>((resolve) => {
       resolveRefresh = resolve;
@@ -280,6 +335,8 @@ describe("ensureFreshToken", () => {
 });
 
 describe("exchangeFitbitCode", () => {
+  const testCredentials = { clientId: "test-client-id", clientSecret: "test-client-secret" };
+
   it("aborts after timeout", { timeout: 20000 }, async () => {
     vi.useFakeTimers();
 
@@ -295,7 +352,7 @@ describe("exchangeFitbitCode", () => {
       }
     );
 
-    const promise = exchangeFitbitCode("code", "http://localhost:3000/callback");
+    const promise = exchangeFitbitCode("code", "http://localhost:3000/callback", testCredentials);
 
     const rejection = expect(promise).rejects.toThrow();
     await vi.advanceTimersByTimeAsync(10000);
@@ -311,7 +368,7 @@ describe("exchangeFitbitCode", () => {
     );
 
     await expect(
-      exchangeFitbitCode("bad-code", "http://localhost:3000/callback"),
+      exchangeFitbitCode("bad-code", "http://localhost:3000/callback", testCredentials),
     ).rejects.toThrow();
 
     expect(logger.error).toHaveBeenCalledWith(
@@ -331,7 +388,7 @@ describe("exchangeFitbitCode", () => {
     );
 
     await expect(
-      exchangeFitbitCode("code", "http://localhost:3000/callback"),
+      exchangeFitbitCode("code", "http://localhost:3000/callback", testCredentials),
     ).rejects.toThrow("Invalid Fitbit token response: missing access_token");
 
     vi.restoreAllMocks();
@@ -343,7 +400,7 @@ describe("exchangeFitbitCode", () => {
     );
 
     await expect(
-      exchangeFitbitCode("code", "http://localhost:3000/callback"),
+      exchangeFitbitCode("code", "http://localhost:3000/callback", testCredentials),
     ).rejects.toThrow("Invalid Fitbit token response: missing expires_in");
 
     vi.restoreAllMocks();
@@ -355,7 +412,7 @@ describe("exchangeFitbitCode", () => {
     );
 
     await expect(
-      exchangeFitbitCode("code", "http://localhost:3000/callback"),
+      exchangeFitbitCode("code", "http://localhost:3000/callback", testCredentials),
     ).rejects.toThrow("Invalid Fitbit token response: missing user_id");
 
     vi.restoreAllMocks();
@@ -363,6 +420,8 @@ describe("exchangeFitbitCode", () => {
 });
 
 describe("refreshFitbitToken", () => {
+  const testCredentials = { clientId: "test-client-id", clientSecret: "test-client-secret" };
+
   it("aborts after timeout", { timeout: 20000 }, async () => {
     vi.useFakeTimers();
 
@@ -378,7 +437,7 @@ describe("refreshFitbitToken", () => {
       }
     );
 
-    const promise = refreshFitbitToken("refresh-token");
+    const promise = refreshFitbitToken("refresh-token", testCredentials);
 
     const rejection = expect(promise).rejects.toThrow();
     await vi.advanceTimersByTimeAsync(10000);
@@ -393,7 +452,7 @@ describe("refreshFitbitToken", () => {
       new Response(null, { status: 401 }),
     );
 
-    await expect(refreshFitbitToken("bad-refresh")).rejects.toThrow();
+    await expect(refreshFitbitToken("bad-refresh", testCredentials)).rejects.toThrow();
 
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -411,7 +470,7 @@ describe("refreshFitbitToken", () => {
       new Response(null, { status: 401 }),
     );
 
-    await expect(refreshFitbitToken("token")).rejects.toThrow();
+    await expect(refreshFitbitToken("token", testCredentials)).rejects.toThrow();
 
     expect(logger.debug).toHaveBeenCalledWith(
       expect.objectContaining({ action: "fitbit_token_refresh_start" }),
@@ -426,7 +485,7 @@ describe("refreshFitbitToken", () => {
       new Response(JSON.stringify({ access_token: "at" }), { status: 200 }),
     );
 
-    await expect(refreshFitbitToken("token")).rejects.toThrow(
+    await expect(refreshFitbitToken("token", testCredentials)).rejects.toThrow(
       "Invalid Fitbit token response: missing refresh_token",
     );
 
@@ -438,7 +497,7 @@ describe("refreshFitbitToken", () => {
       new Response(JSON.stringify({ access_token: "at", refresh_token: "rt", expires_in: 3600 }), { status: 200 }),
     );
 
-    await expect(refreshFitbitToken("token")).rejects.toThrow(
+    await expect(refreshFitbitToken("token", testCredentials)).rejects.toThrow(
       "Invalid Fitbit token response: missing user_id",
     );
 
