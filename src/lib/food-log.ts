@@ -134,6 +134,7 @@ interface JoinedRow {
     fitbitFoodId: number | null;
     confidence: string;
     notes: string | null;
+    description: string | null;
     keywords: string[] | null;
     createdAt: Date;
   };
