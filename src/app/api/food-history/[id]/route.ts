@@ -19,14 +19,22 @@ export async function GET(
     return errorResponse("VALIDATION_ERROR", "Invalid entry ID", 400);
   }
 
-  const entry = await getFoodLogEntryDetail(session!.userId, id);
-  if (!entry) {
-    return errorResponse("VALIDATION_ERROR", "Food log entry not found", 404);
-  }
+  try {
+    const entry = await getFoodLogEntryDetail(session!.userId, id);
+    if (!entry) {
+      return errorResponse("VALIDATION_ERROR", "Food log entry not found", 404);
+    }
 
-  const response = successResponse(entry);
-  response.headers.set("Cache-Control", "private, no-cache");
-  return response;
+    const response = successResponse(entry);
+    response.headers.set("Cache-Control", "private, no-cache");
+    return response;
+  } catch (error) {
+    logger.error(
+      { action: "get_food_entry_detail_error", entryId: id, error: error instanceof Error ? error.message : String(error) },
+      "failed to get food entry detail",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to get food entry detail", 500);
+  }
 }
 
 export async function DELETE(

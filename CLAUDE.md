@@ -82,7 +82,7 @@ Do NOT flag these in code reviews:
 - All DB access through `src/lib/` modules — route handlers never import from `src/db/` directly
 - Schema changes: edit `src/db/schema.ts`, then `npx drizzle-kit generate` (does NOT need a live DB)
 - **IMPORTANT: Never hand-write migration files or snapshots**
-- Log potential production data migrations in `MIGRATIONS.md` (description only, no code)
+- Log potential production data migrations in `MIGRATIONS.md` (description + optional reference SQL; no full migration scripts)
 
 ---
 
