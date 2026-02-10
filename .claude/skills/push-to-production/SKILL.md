@@ -3,6 +3,7 @@ name: push-to-production
 description: Promote main to release with production DB backup and migration handling. Use when user says "push to production", "release", "deploy to production", or "promote to release". Backs up production DB, assesses MIGRATIONS.md, writes migration code if needed, and merges main to release.
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Task
 argument-hint: [version]
+model: sonnet
 disable-model-invocation: true
 ---
 
