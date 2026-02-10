@@ -85,6 +85,10 @@ async function fetchWithRetry(
       throw new Error("FITBIT_TOKEN_INVALID");
     }
 
+    if (response.status === 403) {
+      throw new Error("FITBIT_SCOPE_MISSING");
+    }
+
     if (response.status === 429) {
       if (retryCount >= MAX_RETRIES) {
         throw new Error("FITBIT_RATE_LIMIT");
@@ -305,7 +309,7 @@ export function buildFitbitAuthUrl(state: string, redirectUri: string, clientId:
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: "nutrition",
+    scope: "nutrition activity",
     state,
   });
 

@@ -200,6 +200,26 @@ describe("GET /api/activity-summary", () => {
     });
   });
 
+  it("returns 403 when getActivitySummary throws FITBIT_SCOPE_MISSING", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
+    mockGetActivitySummary.mockRejectedValue(new Error("FITBIT_SCOPE_MISSING"));
+
+    const request = new Request("http://localhost:3000/api/activity-summary?date=2026-02-10");
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data).toEqual({
+      success: false,
+      error: {
+        code: "FITBIT_SCOPE_MISSING",
+        message: "Fitbit permissions need updating. Please reconnect your Fitbit account in Settings.",
+      },
+      timestamp: expect.any(Number),
+    });
+  });
+
   it("returns 500 on generic/unknown error", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("Something unexpected"));

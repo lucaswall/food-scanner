@@ -541,4 +541,92 @@ describe("DailyDashboard", () => {
     const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
     expect(budgetMarker).not.toBeInTheDocument();
   });
+
+  it("shows reconnect message with link to settings when activity SWR returns error", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockSummary }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockGoals }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            error: { code: "FITBIT_SCOPE_MISSING", message: "Fitbit permissions need updating" },
+          }),
+      });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText(/fitbit permissions need updating/i)).toBeInTheDocument();
+    });
+
+    // Should have a link to settings
+    const settingsLink = screen.getByRole("link", { name: /settings/i });
+    expect(settingsLink).toHaveAttribute("href", "/settings");
+  });
+
+  it("CalorieRing still renders without budget when activity SWR returns error", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockSummary }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockGoals }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            error: { code: "FITBIT_SCOPE_MISSING", message: "Fitbit permissions need updating" },
+          }),
+      });
+
+    const { container } = renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+    });
+
+    // Budget marker should NOT be rendered when activity data fails
+    const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
+    expect(budgetMarker).not.toBeInTheDocument();
+  });
+
+  it("MacroBars and MealBreakdown still render when activity SWR returns error", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockSummary }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockGoals }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            error: { code: "FITBIT_SCOPE_MISSING", message: "Fitbit permissions need updating" },
+          }),
+      });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+      expect(screen.getByText("Breakfast")).toBeInTheDocument();
+      expect(screen.getByText("Lunch")).toBeInTheDocument();
+    });
+  });
 });

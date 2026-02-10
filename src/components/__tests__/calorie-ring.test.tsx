@@ -123,12 +123,56 @@ describe("CalorieRing", () => {
       // Marker should be positioned at 100% (goal position)
       // For a budget of 2500 (125% of goal), should cap at goal (2000)
       expect(marker).toBeInTheDocument();
+
+      // At budgetPosition=1 (100%), marker completes full circle back to SVG 3 o'clock
+      // Same coordinates as 0%: x1=114, y1=64, x2=126, y2=64
+      const x1 = marker?.getAttribute("x1");
+      const y1 = marker?.getAttribute("y1");
+      const x2 = marker?.getAttribute("x2");
+      const y2 = marker?.getAttribute("y2");
+
+      expect(parseFloat(x1 ?? "0")).toBeCloseTo(114, 1);
+      expect(parseFloat(y1 ?? "0")).toBeCloseTo(64, 1);
+      expect(parseFloat(x2 ?? "0")).toBeCloseTo(126, 1);
+      expect(parseFloat(y2 ?? "0")).toBeCloseTo(64, 1);
     });
 
     it("positions marker at start when budget is 0", () => {
       const { container } = render(<CalorieRing calories={1000} goal={2000} budget={0} />);
       const marker = container.querySelector('[data-testid="budget-marker"]');
       expect(marker).toBeInTheDocument();
+
+      // At budgetPosition=0, marker should be at SVG 3 o'clock (rightmost)
+      // After CSS -rotate-90, this appears at 12 o'clock on screen
+      // Expected coordinates: x1=114, y1=64, x2=126, y2=64 (horizontal line at right)
+      const x1 = marker?.getAttribute("x1");
+      const y1 = marker?.getAttribute("y1");
+      const x2 = marker?.getAttribute("x2");
+      const y2 = marker?.getAttribute("y2");
+
+      expect(parseFloat(x1 ?? "0")).toBeCloseTo(114, 1);
+      expect(parseFloat(y1 ?? "0")).toBeCloseTo(64, 1);
+      expect(parseFloat(x2 ?? "0")).toBeCloseTo(126, 1);
+      expect(parseFloat(y2 ?? "0")).toBeCloseTo(64, 1);
+    });
+
+    it("positions marker at 50% of goal at SVG 9 o'clock", () => {
+      const { container } = render(<CalorieRing calories={500} goal={2000} budget={1000} />);
+      const marker = container.querySelector('[data-testid="budget-marker"]');
+      expect(marker).toBeInTheDocument();
+
+      // At budgetPosition=0.5 (50%), marker should be at SVG 9 o'clock (leftmost)
+      // After CSS -rotate-90, this appears at 6 o'clock on screen
+      // Expected coordinates: x1=14, y1=64, x2=2, y2=64 (horizontal line at left)
+      const x1 = marker?.getAttribute("x1");
+      const y1 = marker?.getAttribute("y1");
+      const x2 = marker?.getAttribute("x2");
+      const y2 = marker?.getAttribute("y2");
+
+      expect(parseFloat(x1 ?? "0")).toBeCloseTo(14, 1);
+      expect(parseFloat(y1 ?? "0")).toBeCloseTo(64, 1);
+      expect(parseFloat(x2 ?? "0")).toBeCloseTo(2, 1);
+      expect(parseFloat(y2 ?? "0")).toBeCloseTo(64, 1);
     });
 
     it("positions marker at start when budget is negative", () => {

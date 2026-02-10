@@ -122,3 +122,45 @@ The calorie budget marker added in FOO-309 is not visible on staging or producti
 - The `fetchWithRetry` 403 handler applies to ALL Fitbit API calls — this is intentional since Fitbit 403 universally means insufficient scope
 - The nutrition-summary and nutrition-goals routes don't need the scope fix since they only use the `nutrition` scope which is already granted
 - No database migration needed
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-10
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Step 1: Add `activity` scope to Fitbit OAuth (FOO-313) — worker-1
+- Step 2: Fix budget marker angle (FOO-314) — worker-2
+- Step 3: Add `FITBIT_SCOPE_MISSING` error code and handle 403 (FOO-315) — worker-1
+- Step 4: Map `FITBIT_SCOPE_MISSING` in activity-summary route (FOO-315) — worker-3
+- Step 5: Surface activity errors in dashboard (FOO-315) — worker-3
+
+### Files Modified
+- `src/types/index.ts` — Added `FITBIT_SCOPE_MISSING` to ErrorCode union
+- `src/lib/fitbit.ts` — Changed scope to `"nutrition activity"`, added 403 handler in fetchWithRetry
+- `src/lib/__tests__/fitbit.test.ts` — Updated scope tests, added 403 handling tests
+- `src/components/calorie-ring.tsx` — Removed redundant `-Math.PI / 2` from angle calculation
+- `src/components/__tests__/calorie-ring.test.tsx` — Updated marker position tests, added 50% position test
+- `src/app/api/activity-summary/route.ts` — Added FITBIT_SCOPE_MISSING error handler (403)
+- `src/app/api/activity-summary/__tests__/route.test.ts` — Added scope missing error test
+- `src/components/daily-dashboard.tsx` — Added activity error display with reconnect link
+- `src/components/__tests__/daily-dashboard.test.tsx` — Added 3 error UX tests
+
+### Linear Updates
+- FOO-313: Todo → In Progress → Review
+- FOO-314: Todo → In Progress → Review
+- FOO-315: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 HIGH (accepted per plan design), 2 MEDIUM (minor), 1 LOW
+- verifier: All 1195 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Steps 1, 3 (fitbit backend files + types)
+- Worker 2: Step 2 (calorie-ring component)
+- Worker 3: Steps 4, 5 (activity-summary route + dashboard error UX)
+
+### Continuation Status
+All tasks completed.

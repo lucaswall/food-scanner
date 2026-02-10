@@ -57,6 +57,7 @@ export function DailyDashboard() {
 
   const {
     data: activity,
+    error: activityError,
   } = useSWR<ActivitySummary>(`/api/activity-summary?date=${today}`, apiFetcher);
 
   // Loading state
@@ -105,19 +106,33 @@ export function DailyDashboard() {
   return (
     <div className="space-y-6">
       {/* Calorie Ring or Plain Display */}
-      <div className="flex justify-center">
-        {goals?.calories != null ? (
-          <CalorieRing
-            calories={summary.totals.calories}
-            goal={goals.calories}
-            budget={budget}
-          />
-        ) : (
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-4xl font-bold tabular-nums">
-              {formatNumber(summary.totals.calories)}
-            </span>
-            <span className="text-sm text-muted-foreground">cal</span>
+      <div className="flex flex-col items-center gap-2">
+        <div className="flex justify-center">
+          {goals?.calories != null ? (
+            <CalorieRing
+              calories={summary.totals.calories}
+              goal={goals.calories}
+              budget={budget}
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <span className="text-4xl font-bold tabular-nums">
+                {formatNumber(summary.totals.calories)}
+              </span>
+              <span className="text-sm text-muted-foreground">cal</span>
+            </div>
+          )}
+        </div>
+
+        {/* Activity error message - only show when ring is rendered */}
+        {activityError && goals?.calories != null && (
+          <div className="text-sm text-muted-foreground text-center">
+            <div className="min-h-[44px] flex items-center justify-center">
+              Fitbit permissions need updating.{" "}
+              <Link href="/settings" className="text-primary hover:underline ml-1">
+                Settings
+              </Link>
+            </div>
           </div>
         )}
       </div>

@@ -80,7 +80,7 @@ describe("buildFitbitAuthUrl", () => {
     );
   });
 
-  it("requests nutrition scope", () => {
+  it("requests nutrition and activity scopes", () => {
     const url = new URL(
       buildFitbitAuthUrl(
         "test-state",
@@ -88,7 +88,20 @@ describe("buildFitbitAuthUrl", () => {
         "test-client-id",
       ),
     );
-    expect(url.searchParams.get("scope")).toContain("nutrition");
+    const scope = url.searchParams.get("scope");
+    expect(scope).toContain("nutrition");
+    expect(scope).toContain("activity");
+  });
+
+  it("includes activity in scope parameter", () => {
+    const url = new URL(
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
+      ),
+    );
+    expect(url.searchParams.get("scope")).toContain("activity");
   });
 
   it("uses response_type=code", () => {
@@ -958,6 +971,36 @@ describe("fetchWithRetry 5xx handling", () => {
   });
 });
 
+describe("fetchWithRetry 403 handling", () => {
+  const mockFoodAnalysis = {
+    food_name: "Test Food",
+    amount: 100,
+    unit_id: 147,
+    calories: 200,
+    protein_g: 10,
+    carbs_g: 20,
+    fat_g: 5,
+    fiber_g: 3,
+    sodium_mg: 100,
+    confidence: "high" as const,
+    notes: "Test",
+    description: "",
+    keywords: ["test"],
+  };
+
+  it("throws FITBIT_SCOPE_MISSING on 403 response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 403 }),
+    );
+
+    await expect(createFood("test-token", mockFoodAnalysis)).rejects.toThrow(
+      "FITBIT_SCOPE_MISSING",
+    );
+
+    vi.restoreAllMocks();
+  });
+});
+
 describe("fetchWithRetry deadline", () => {
   const mockFoodAnalysis = {
     food_name: "Test Food",
@@ -1335,6 +1378,18 @@ describe("getActivitySummary", () => {
       caloriesOut: 2345,
       estimatedCaloriesOut: 2345,
     });
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_SCOPE_MISSING on 403 response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 403 }),
+    );
+
+    await expect(getActivitySummary("test-token", "2024-01-15")).rejects.toThrow(
+      "FITBIT_SCOPE_MISSING",
+    );
 
     vi.restoreAllMocks();
   });
