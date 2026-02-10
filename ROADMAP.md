@@ -111,101 +111,7 @@ Claude can query the user's food log database during the chat to give contextual
 
 ---
 
-## Feature 1: Extended Nutrition Tracking
-
-### Problem
-
-We currently track only 6 nutrients (calories, protein, carbs, fat, fiber, sodium). Fitbit's API accepts 30+ nutritional fields. When a user photographs a packaged food with its nutrition label, we throw away most of the printed information. Argentine labels (Mercosur Res. GMC 46/03) already mandate saturated fat, trans fat, and energy in kJ — data we currently ignore.
-
-### Goal
-
-Extract and log all visible nutrients from food photos, especially from nutrition labels on packaged products. For non-label photos (a plate of food), continue estimating the core nutrients without inventing micronutrient values.
-
-### Nutrient Tiers
-
-Nutrients are grouped by how reliably they can be extracted.
-
-**Tier 1 — Always extracted (current + Argentine label mandatory fields):**
-
-| Nutrient | Fitbit API param | Unit | Currently tracked |
-|----------|-----------------|------|-------------------|
-| Calories | `calories` | kcal | Yes |
-| Protein | `protein` | g | Yes |
-| Total Carbs | `totalCarbohydrate` | g | Yes |
-| Total Fat | `totalFat` | g | Yes |
-| Dietary Fiber | `dietaryFiber` | g | Yes |
-| Sodium | `sodium` | mg | Yes |
-| Saturated Fat | `saturatedFat` | g | **No** |
-| Trans Fat | `transFat` | g | **No** |
-| Sugars | `sugars` | g | **No** |
-| Calories from Fat | `caloriesFromFat` | kcal | **No** |
-
-Tier 1 nutrients map to the mandatory fields on Argentine nutrition labels (Información Nutricional per Mercosur). Claude should always attempt to return these, falling back to estimation for non-label photos. `sugars` and `caloriesFromFat` are not mandatory on Argentine labels but are common enough on imported products and trivially derivable.
-
-**Tier 2 — Extract when visible on label:**
-
-| Nutrient | Fitbit API param | Unit |
-|----------|-----------------|------|
-| Cholesterol | `cholesterol` | mg |
-| Potassium | `potassium` | mg |
-| Calcium | `calcium` | g |
-| Iron | `iron` | mg |
-| Vitamin A | `vitaminA` | IU |
-| Vitamin C | `vitaminC` | mg |
-| Vitamin D | `vitaminD` | IU |
-
-These appear on many labels (especially US-style imports and supplements) but are not mandatory on Argentine labels. Claude should only include them if clearly visible — never estimate micronutrients from a photo of a plate.
-
-**Tier 3 — Extract when visible on label (rare):**
-
-| Nutrient | Fitbit API param | Unit |
-|----------|-----------------|------|
-| Vitamin B6 | `vitaminB6` | mg |
-| Vitamin B12 | `vitaminB12` | mcg |
-| Vitamin E | `vitaminE` | IU |
-| Magnesium | `magnesium` | mg |
-| Zinc | `zinc` | mg |
-| Phosphorus | `phosphorus` | g |
-| Copper | `copper` | g |
-| Thiamin | `thiamin` | mg |
-| Riboflavin | `riboflavin` | mg |
-| Niacin | `niacin` | mg |
-| Folic Acid | `folicAcid` | mg |
-| Biotin | `biotin` | mg |
-| Pantothenic Acid | `pantothenicAcid` | mg |
-| Iodine | `iodine` | mcg |
-
-These are uncommon on everyday products. Only extracted when explicitly printed on the label.
-
-### Behavior Rules
-
-1. **Label photos:** Extract every nutrient visible on the label. Confidence should be `high` for clearly readable values. Argentine labels show values per 100g and per serving — use the **per serving** values, or let the user pick.
-2. **Non-label photos (plate of food):** Return Tier 1 nutrients only. Never guess micronutrients from visual estimation.
-3. **Mixed photos (food + label visible):** Prefer label data over visual estimation.
-4. **Null means unknown:** Extended nutrients use `null` when not available, not `0`. Zero means "this food contains none of this nutrient." Null means "we don't know."
-
-### Changes Required
-
-- Add optional extended nutrient fields (nullable) to `FoodAnalysis` type. All extended fields are optional so existing code continues to work.
-- Expand the Claude tool schema to include extended nutrient properties and instruct Claude on tier-based extraction rules.
-- Expand `createFood()` in the Fitbit client to pass extended nutrients when available (only non-null values).
-- Add nullable columns to `custom_foods` DB table for each extended nutrient to support food matching with full nutrient profiles.
-- Update the Nutrition Facts Card UI to show extended nutrients grouped into Core and Vitamins & Minerals sections.
-- Extend food matching nutrient tolerance to include Tier 1 extensions (saturated fat, trans fat, sugars). Tier 2+ nutrients are not used for matching.
-
-### Implementation Order
-
-1. Types + Claude tool schema (Tier 1 first)
-2. Fitbit `createFood()` expansion
-3. DB schema migration (nullable columns)
-4. Nutrition Facts Card UI
-5. Food matching updates
-6. Types + Claude tool schema (Tier 2 & 3)
-7. Testing with real Argentine product labels
-
----
-
-## Feature 2: Daily Nutrition Dashboard
+## Feature 1: Daily Nutrition Dashboard
 
 ### Problem
 
@@ -227,7 +133,7 @@ Shows today's nutrition totals:
 
 - **Calorie ring:** Visual progress toward daily goal (from Fitbit food goals API)
 - **Macro bars:** Protein / Carbs / Fat as horizontal progress bars with gram amounts
-- **Extended nutrients table:** Fiber, sodium, saturated fat, trans fat, sugars — shown when data is available
+- **Extended nutrients table:** Fiber, sodium, saturated fat, trans fat, sugars — shown when data is available (depends on FOO-298 through FOO-301)
 - **Meal breakdown:** Collapsible sections per meal type (Breakfast, Lunch, Dinner, Snacks) showing individual entries
 - **Date picker:** Swipe left/right or tap to navigate between days
 
@@ -251,7 +157,7 @@ Projects overnight fasting duration based on meal timestamps already stored in `
 
 #### Micronutrient Report (conditional)
 
-Only shown when the user has logged foods with extended nutrient data (from Feature 1):
+Only shown when the user has logged foods with extended nutrient data (from FOO-298 through FOO-301):
 
 - Table of all non-null micronutrients with daily totals
 - Percentage of daily recommended intake where applicable
@@ -289,20 +195,20 @@ These aggregate from our `food_log_entries` joined with `custom_foods`. We use o
 2. Daily summary page with calorie ring + macro bars
 3. Bottom nav update (add dashboard tab)
 4. Fasting window card (uses existing meal timestamps)
-5. Extended nutrients section (depends on Feature 1)
+5. Extended nutrients section (depends on FOO-298 through FOO-301)
 6. Date navigation (swipe/tap)
 7. API endpoint for date range
 8. Weekly view with simple charts + fasting durations
-9. Micronutrient report (depends on Feature 1 Tier 2+)
+9. Micronutrient report (depends on FOO-298 through FOO-301)
 
 ### Dependencies
 
-- Feature 1 (Extended Nutrition Tracking) is NOT a hard blocker — the dashboard works with the current 6 nutrients. But the extended nutrients section and micronutrient report require Feature 1 to be useful.
+- Extended Nutrition Tracking (FOO-298 through FOO-301) is NOT a hard blocker — the dashboard works with the current 6 nutrients. But the extended nutrients section and micronutrient report require it to be useful.
 - Fitbit food goals API integration (for calorie target in the ring).
 
 ---
 
-## Feature 3: Offline Queue with Background Sync
+## Feature 2: Offline Queue with Background Sync
 
 ### Problem
 
