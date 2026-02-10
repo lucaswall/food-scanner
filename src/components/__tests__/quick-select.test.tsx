@@ -574,6 +574,59 @@ describe("QuickSelect", () => {
     });
   });
 
+  it("pending resubmit with reuse and analysis includes metadata", async () => {
+    const mockAnalysis = {
+      food_name: "Empanada de carne",
+      amount: 150,
+      unit_id: 147,
+      calories: 320,
+      protein_g: 12,
+      carbs_g: 28,
+      fat_g: 18,
+      fiber_g: 2,
+      sodium_mg: 450,
+      confidence: "high" as const,
+      notes: "Standard Argentine beef empanada",
+      description: "A golden-brown baked empanada on a white plate",
+      keywords: ["empanada", "carne", "beef"],
+    };
+
+    mockGetPending.mockReturnValue({
+      analysis: mockAnalysis,
+      mealTypeId: 3,
+      foodName: "Empanada de carne",
+      reuseCustomFoodId: 1,
+      date: "2026-02-06",
+      time: "12:00:00",
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+    });
+
+    renderQuickSelect();
+
+    await waitFor(() => {
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      expect(logCall).toBeDefined();
+      const body = JSON.parse(logCall![1].body);
+
+      // Should include reuse ID and date/time
+      expect(body.reuseCustomFoodId).toBe(1);
+      expect(body.date).toBe("2026-02-06");
+      expect(body.time).toBe("12:00:00");
+
+      // Should include analysis metadata with "new" prefix
+      expect(body.newDescription).toBe(mockAnalysis.description);
+      expect(body.newNotes).toBe(mockAnalysis.notes);
+      expect(body.newKeywords).toEqual(mockAnalysis.keywords);
+      expect(body.newConfidence).toBe(mockAnalysis.confidence);
+    });
+  });
+
   it("shows success immediately after tapping Log to Fitbit (optimistic UI)", async () => {
     // First mock returns food list, second mock delays (simulates network latency)
     let resolveLogFetch: ((value: unknown) => void) | null = null;

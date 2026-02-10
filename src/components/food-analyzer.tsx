@@ -285,14 +285,24 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setLogResponse(optimisticResponse);
 
     try {
+      const requestBody: Record<string, unknown> = {
+        reuseCustomFoodId: match.customFoodId,
+        mealTypeId,
+        ...getLocalDateTime(),
+      };
+
+      // Include current analysis metadata if available
+      if (analysis) {
+        requestBody.newDescription = analysis.description;
+        requestBody.newNotes = analysis.notes;
+        requestBody.newKeywords = analysis.keywords;
+        requestBody.newConfidence = analysis.confidence;
+      }
+
       const response = await fetch("/api/log-food", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reuseCustomFoodId: match.customFoodId,
-          mealTypeId,
-          ...getLocalDateTime(),
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const result = await response.json();

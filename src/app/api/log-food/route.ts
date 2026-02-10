@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood, deleteFoodLog } from "@/lib/fitbit";
-import { insertCustomFood, insertFoodLogEntry, getCustomFoodById } from "@/lib/food-log";
+import { insertCustomFood, insertFoodLogEntry, getCustomFoodById, updateCustomFoodMetadata } from "@/lib/food-log";
 import type { FoodLogRequest, FoodLogResponse } from "@/types";
 import { FitbitMealType } from "@/types";
 
@@ -24,9 +24,17 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   if (typeof req.date !== "string") return false;
   if (typeof req.time !== "string") return false;
 
-  // Reuse flow: only reuseCustomFoodId + mealTypeId + date + time needed
+  // Reuse flow: reuseCustomFoodId + mealTypeId + date + time needed, optional metadata
   if (req.reuseCustomFoodId !== undefined) {
-    return typeof req.reuseCustomFoodId === "number";
+    if (typeof req.reuseCustomFoodId !== "number") return false;
+    // Validate optional metadata update fields
+    if (req.newDescription !== undefined && typeof req.newDescription !== "string") return false;
+    if (req.newNotes !== undefined && typeof req.newNotes !== "string") return false;
+    if (req.newKeywords !== undefined) {
+      if (!Array.isArray(req.newKeywords) || !req.newKeywords.every((k: unknown) => typeof k === "string")) return false;
+    }
+    if (req.newConfidence !== undefined && req.newConfidence !== "high" && req.newConfidence !== "medium" && req.newConfidence !== "low") return false;
+    return true;
   }
 
   // New food flow: all FoodAnalysis fields required
@@ -212,6 +220,33 @@ export async function POST(request: Request) {
           fitbitLogId: fitbitLogId ?? null,
         });
         foodLogId = logEntryResult.id;
+
+        // Update custom food metadata if new values provided (fire-and-forget)
+        const hasMetadataUpdates =
+          body.newDescription !== undefined ||
+          body.newNotes !== undefined ||
+          body.newKeywords !== undefined ||
+          body.newConfidence !== undefined;
+
+        if (hasMetadataUpdates) {
+          const metadataUpdate: {
+            description?: string;
+            notes?: string;
+            keywords?: string[];
+            confidence?: "high" | "medium" | "low";
+          } = {};
+          if (body.newDescription !== undefined) metadataUpdate.description = body.newDescription as string;
+          if (body.newNotes !== undefined) metadataUpdate.notes = body.newNotes as string;
+          if (body.newKeywords !== undefined) metadataUpdate.keywords = body.newKeywords as string[];
+          if (body.newConfidence !== undefined) metadataUpdate.confidence = body.newConfidence as "high" | "medium" | "low";
+
+          updateCustomFoodMetadata(session!.userId, existingFood.id, metadataUpdate).catch((err) => {
+            logger.error(
+              { action: "update_custom_food_metadata_failed", error: err instanceof Error ? err.message : String(err) },
+              "Failed to update custom food metadata (non-blocking)"
+            );
+          });
+        }
       } catch (dbErr) {
         logger.error(
           { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },

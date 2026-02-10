@@ -583,6 +583,52 @@ export async function searchFoods(
   });
 }
 
+export interface CustomFoodMetadataUpdate {
+  description?: string | null;
+  notes?: string | null;
+  keywords?: string[] | null;
+  confidence?: "high" | "medium" | "low";
+}
+
+export async function updateCustomFoodMetadata(
+  userId: string,
+  customFoodId: number,
+  metadata: CustomFoodMetadataUpdate,
+): Promise<void> {
+  const db = getDb();
+
+  // Only include fields that are present in the metadata object
+  const updateFields: Partial<{
+    description: string | null;
+    notes: string | null;
+    keywords: string[] | null;
+    confidence: "high" | "medium" | "low";
+  }> = {};
+
+  if ("description" in metadata) {
+    updateFields.description = metadata.description;
+  }
+  if ("notes" in metadata) {
+    updateFields.notes = metadata.notes;
+  }
+  if ("keywords" in metadata) {
+    updateFields.keywords = metadata.keywords;
+  }
+  if ("confidence" in metadata) {
+    updateFields.confidence = metadata.confidence;
+  }
+
+  // If no fields to update, return early
+  if (Object.keys(updateFields).length === 0) {
+    return;
+  }
+
+  await db
+    .update(customFoods)
+    .set(updateFields)
+    .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
+}
+
 export async function getDailyNutritionSummary(
   userId: string,
   date: string,

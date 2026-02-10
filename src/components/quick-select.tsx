@@ -130,6 +130,13 @@ export function QuickSelect() {
     const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId, ...dateTime };
     if (pending.reuseCustomFoodId) {
       body.reuseCustomFoodId = pending.reuseCustomFoodId;
+      // If reusing and we have analysis metadata, include it with "new" prefix
+      if (pending.analysis) {
+        body.newDescription = pending.analysis.description;
+        body.newNotes = pending.analysis.notes;
+        body.newKeywords = pending.analysis.keywords;
+        body.newConfidence = pending.analysis.confidence;
+      }
     } else if (pending.analysis) {
       Object.assign(body, pending.analysis);
     }

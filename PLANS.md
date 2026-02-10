@@ -299,3 +299,65 @@ Four improvements to the daily dashboard and food logging experience: fix a cras
 - Macro goals from Fitbit (only calorie goal is fetched)
 - Custom goal setting within the app
 - Activity summary display beyond the budget marker
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-10
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Make NutritionGoals.calories nullable (FOO-312) - Changed interface to `number | null`, getFoodGoals returns null instead of throwing (worker-1)
+- Task 2: Dashboard handles null calorie goal gracefully (FOO-312) - Removed fatal goalsError block, conditional CalorieRing vs plain calorie display (worker-2)
+- Task 3: Improve AI description prompt (FOO-310) - Rewrote description field prompt to focus on food only, exclude scene elements, 1-2 sentence constraint (worker-3)
+- Task 4: Send analysis metadata in reuse request (FOO-311) - Added newDescription/newNotes/newKeywords/newConfidence to reuse requests in food-analyzer and quick-select (worker-3)
+- Task 5: Server-side custom food metadata update on reuse (FOO-311) - Added updateCustomFoodMetadata() with fire-and-forget error handling in reuse flow (worker-4)
+- Task 6: Add getActivitySummary to Fitbit lib (FOO-309) - Added ActivitySummary interface, getActivitySummary function with goals.caloriesOut for estimated total (worker-1)
+- Task 7: Create /api/activity-summary route (FOO-309) - New GET route with date validation, auth enforcement, error handling (worker-4)
+- Task 8: Add budget marker to CalorieRing (FOO-309) - Budget prop with SVG marker, dashboard integration with activity data fetch and budget calculation (worker-2)
+
+### Files Modified
+- `src/types/index.ts` - NutritionGoals.calories nullable, ActivitySummary interface, FoodLogRequest metadata fields
+- `src/lib/fitbit.ts` - getFoodGoals returns null for missing goals, getActivitySummary with goals.caloriesOut
+- `src/lib/__tests__/fitbit.test.ts` - Tests for nullable goals, activity summary with estimated total, fallback
+- `src/app/api/nutrition-goals/route.ts` - Logger handles null calorie goal
+- `src/app/api/nutrition-goals/__tests__/route.test.ts` - Updated for nullable goals
+- `src/lib/claude.ts` - Rewrote description field prompt
+- `src/lib/__tests__/claude.test.ts` - Tests for new prompt requirements
+- `src/components/food-analyzer.tsx` - Metadata fields in handleUseExisting()
+- `src/components/__tests__/food-analyzer.test.tsx` - Tests for metadata inclusion
+- `src/components/quick-select.tsx` - Metadata fields in pending resubmit
+- `src/components/__tests__/quick-select.test.tsx` - Tests for metadata inclusion
+- `src/lib/food-log.ts` - updateCustomFoodMetadata() function
+- `src/lib/__tests__/food-log.test.ts` - Tests for metadata update
+- `src/app/api/log-food/route.ts` - Metadata update in reuse flow, validation for metadata fields
+- `src/app/api/log-food/__tests__/route.test.ts` - Tests for metadata update in route
+- `src/components/daily-dashboard.tsx` - Conditional CalorieRing/plain display, activity data fetch, budget calculation
+- `src/components/__tests__/daily-dashboard.test.tsx` - Tests for null goals, budget marker integration
+- `src/components/calorie-ring.tsx` - Budget prop with SVG marker rendering
+- `src/components/__tests__/calorie-ring.test.tsx` - Tests for budget marker
+- `src/app/api/activity-summary/route.ts` - New route (created)
+- `src/app/api/activity-summary/__tests__/route.test.ts` - New tests (created)
+
+### Linear Updates
+- FOO-312: Todo → In Progress → Review
+- FOO-310: Todo → In Progress → Review
+- FOO-311: Todo → In Progress → Review
+- FOO-309: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs (1 critical, 1 high, 1 medium), all fixed before proceeding
+  - CRITICAL: getActivitySummary used same value for both fields — fixed to use goals.caloriesOut for estimatedCaloriesOut
+  - HIGH: Missing validation for metadata update fields in reuse flow — added validation in isValidFoodLogRequest()
+  - MEDIUM: Unsafe type assertion in metadata update — replaced Record<string, unknown> with proper typed object
+- verifier: All 1187 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1, 6 (Fitbit lib + types)
+- Worker 2: Tasks 2, 8 (Dashboard + CalorieRing)
+- Worker 3: Tasks 3, 4 (AI prompt + client reuse metadata)
+- Worker 4: Tasks 5, 7 (Server reuse + activity route)
+
+### Continuation Status
+All tasks completed.

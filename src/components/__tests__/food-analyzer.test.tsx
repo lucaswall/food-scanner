@@ -1005,6 +1005,53 @@ describe("FoodAnalyzer", () => {
       });
     });
 
+    it("'Use this' includes current analysis metadata in request body", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { ...mockLogResponse, reusedFood: true } }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-match-card")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /use this/i }));
+
+      await waitFor(() => {
+        const logFoodCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logFoodCall).toBeDefined();
+        const body = JSON.parse((logFoodCall![1] as RequestInit).body as string);
+
+        // Should include reuse ID
+        expect(body.reuseCustomFoodId).toBe(42);
+
+        // Should include current analysis metadata
+        expect(body.newDescription).toBe(mockAnalysis.description);
+        expect(body.newNotes).toBe(mockAnalysis.notes);
+        expect(body.newKeywords).toEqual(mockAnalysis.keywords);
+        expect(body.newConfidence).toBe(mockAnalysis.confidence);
+      });
+    });
+
     it("'Log as new' still creates a new food entry when matches exist", async () => {
       mockFetch
         .mockResolvedValueOnce({

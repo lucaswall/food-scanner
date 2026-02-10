@@ -77,6 +77,11 @@ export interface FoodLogRequest extends FoodAnalysis {
   date: string; // YYYY-MM-DD (client wall-clock)
   time: string; // HH:mm:ss (client wall-clock)
   reuseCustomFoodId?: number;
+  // Optional metadata updates when reusing a custom food
+  newDescription?: string;
+  newNotes?: string;
+  newKeywords?: string[];
+  newConfidence?: "high" | "medium" | "low";
 }
 
 export interface FoodLogResponse {
@@ -294,5 +299,10 @@ export interface NutritionSummary {
 }
 
 export interface NutritionGoals {
-  calories: number;
+  calories: number | null;
+}
+
+export interface ActivitySummary {
+  caloriesOut: number;
+  estimatedCaloriesOut: number;
 }

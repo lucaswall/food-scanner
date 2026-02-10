@@ -58,10 +58,12 @@ vi.mock("@/lib/fitbit", () => ({
 const mockInsertCustomFood = vi.fn();
 const mockInsertFoodLogEntry = vi.fn();
 const mockGetCustomFoodById = vi.fn();
+const mockUpdateCustomFoodMetadata = vi.fn();
 vi.mock("@/lib/food-log", () => ({
   insertCustomFood: (...args: unknown[]) => mockInsertCustomFood(...args),
   insertFoodLogEntry: (...args: unknown[]) => mockInsertFoodLogEntry(...args),
   getCustomFoodById: (...args: unknown[]) => mockGetCustomFoodById(...args),
+  updateCustomFoodMetadata: (...args: unknown[]) => mockUpdateCustomFoodMetadata(...args),
 }));
 
 const { POST } = await import("@/app/api/log-food/route");
@@ -798,6 +800,113 @@ describe("POST /api/log-food", () => {
       expect(mockFindOrCreateFood).toHaveBeenCalled();
       expect(mockGetCustomFoodById).not.toHaveBeenCalled();
       expect(mockInsertCustomFood).toHaveBeenCalled();
+    });
+
+    it("calls updateCustomFoodMetadata when reuse request includes new metadata fields", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockGetCustomFoodById.mockResolvedValue(existingFood);
+      mockLogFood.mockResolvedValue({
+        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
+      });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
+      mockUpdateCustomFoodMetadata.mockResolvedValue(undefined);
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        newDescription: "Updated description",
+        newNotes: "Updated notes",
+        newKeywords: ["updated", "keywords"],
+        newConfidence: "medium",
+      } as Partial<FoodLogRequest>);
+      await POST(request);
+
+      expect(mockUpdateCustomFoodMetadata).toHaveBeenCalledWith(
+        "user-uuid-123",
+        42,
+        {
+          description: "Updated description",
+          notes: "Updated notes",
+          keywords: ["updated", "keywords"],
+          confidence: "medium",
+        }
+      );
+    });
+
+    it("calls updateCustomFoodMetadata with only provided new metadata fields", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockGetCustomFoodById.mockResolvedValue(existingFood);
+      mockLogFood.mockResolvedValue({
+        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
+      });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
+      mockUpdateCustomFoodMetadata.mockResolvedValue(undefined);
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        newDescription: "Only description updated",
+      } as Partial<FoodLogRequest>);
+      await POST(request);
+
+      expect(mockUpdateCustomFoodMetadata).toHaveBeenCalledWith(
+        "user-uuid-123",
+        42,
+        {
+          description: "Only description updated",
+        }
+      );
+    });
+
+    it("does NOT call updateCustomFoodMetadata when reuse request has no new metadata fields", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockGetCustomFoodById.mockResolvedValue(existingFood);
+      mockLogFood.mockResolvedValue({
+        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
+      });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+      } as Partial<FoodLogRequest>);
+      await POST(request);
+
+      expect(mockUpdateCustomFoodMetadata).not.toHaveBeenCalled();
+    });
+
+    it("logs food successfully even if updateCustomFoodMetadata fails", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockGetCustomFoodById.mockResolvedValue(existingFood);
+      mockLogFood.mockResolvedValue({
+        foodLog: { logId: 789, loggedFood: { foodId: 12345 } },
+      });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 20, loggedAt: new Date() });
+      mockUpdateCustomFoodMetadata.mockRejectedValue(new Error("DB error"));
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        newDescription: "New description",
+      } as Partial<FoodLogRequest>);
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.data.success).toBe(true);
+      expect(body.data.foodLogId).toBe(20);
     });
   });
 

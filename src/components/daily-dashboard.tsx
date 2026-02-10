@@ -7,7 +7,7 @@ import { CalorieRing } from "@/components/calorie-ring";
 import { MacroBars } from "@/components/macro-bars";
 import { MealBreakdown } from "@/components/meal-breakdown";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { NutritionSummary, NutritionGoals } from "@/types";
+import type { NutritionSummary, NutritionGoals, ActivitySummary } from "@/types";
 
 function getTodayDate(): string {
   const now = new Date();
@@ -52,9 +52,12 @@ export function DailyDashboard() {
 
   const {
     data: goals,
-    error: goalsError,
     isLoading: goalsLoading,
   } = useSWR<NutritionGoals>("/api/nutrition-goals", apiFetcher);
+
+  const {
+    data: activity,
+  } = useSWR<ActivitySummary>(`/api/activity-summary?date=${today}`, apiFetcher);
 
   // Loading state
   if (summaryLoading || goalsLoading) {
@@ -67,16 +70,6 @@ export function DailyDashboard() {
       <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
         <p className="text-destructive">
           {summaryError.message || "Failed to load nutrition summary"}
-        </p>
-      </div>
-    );
-  }
-
-  if (goalsError) {
-    return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
-        <p className="text-destructive">
-          {goalsError.message || "Failed to load goals"}
         </p>
       </div>
     );
@@ -97,15 +90,36 @@ export function DailyDashboard() {
     );
   }
 
+  // Format numbers with commas
+  const formatNumber = (num: number): string => {
+    return num.toLocaleString("en-US");
+  };
+
+  // Calculate budget if all data is available
+  const budget =
+    goals?.calories != null && activity
+      ? activity.caloriesOut - (activity.estimatedCaloriesOut - goals.calories) - summary.totals.calories
+      : undefined;
+
   // Data state - compose all dashboard components
   return (
     <div className="space-y-6">
-      {/* Calorie Ring */}
+      {/* Calorie Ring or Plain Display */}
       <div className="flex justify-center">
-        <CalorieRing
-          calories={summary.totals.calories}
-          goal={goals?.calories ?? 0}
-        />
+        {goals?.calories != null ? (
+          <CalorieRing
+            calories={summary.totals.calories}
+            goal={goals.calories}
+            budget={budget}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2">
+            <span className="text-4xl font-bold tabular-nums">
+              {formatNumber(summary.totals.calories)}
+            </span>
+            <span className="text-sm text-muted-foreground">cal</span>
+          </div>
+        )}
       </div>
 
       {/* Macro Bars */}

@@ -102,4 +102,39 @@ describe("CalorieRing", () => {
     // Should have reasonable viewBox for ~128px default size
     expect(svg).toHaveAttribute("viewBox");
   });
+
+  describe("budget marker", () => {
+    it("renders a marker when budget prop is provided", () => {
+      const { container } = render(<CalorieRing calories={1000} goal={2000} budget={1500} />);
+      const marker = container.querySelector('[data-testid="budget-marker"]');
+      expect(marker).toBeInTheDocument();
+    });
+
+    it("does not render a marker when budget prop is undefined", () => {
+      const { container } = render(<CalorieRing calories={1000} goal={2000} />);
+      const marker = container.querySelector('[data-testid="budget-marker"]');
+      expect(marker).not.toBeInTheDocument();
+    });
+
+    it("caps marker at goal position when budget exceeds goal", () => {
+      const { container } = render(<CalorieRing calories={1000} goal={2000} budget={2500} />);
+      const marker = container.querySelector('[data-testid="budget-marker"]');
+
+      // Marker should be positioned at 100% (goal position)
+      // For a budget of 2500 (125% of goal), should cap at goal (2000)
+      expect(marker).toBeInTheDocument();
+    });
+
+    it("positions marker at start when budget is 0", () => {
+      const { container } = render(<CalorieRing calories={1000} goal={2000} budget={0} />);
+      const marker = container.querySelector('[data-testid="budget-marker"]');
+      expect(marker).toBeInTheDocument();
+    });
+
+    it("positions marker at start when budget is negative", () => {
+      const { container } = render(<CalorieRing calories={1000} goal={2000} budget={-100} />);
+      const marker = container.querySelector('[data-testid="budget-marker"]');
+      expect(marker).toBeInTheDocument();
+    });
+  });
 });

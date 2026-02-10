@@ -16,7 +16,7 @@ export async function GET() {
     logger.info(
       {
         action: "nutrition_goals_success",
-        calorieGoal: goals.calories,
+        calorieGoal: goals.calories ?? "not_set",
       },
       "nutrition goals retrieved"
     );
