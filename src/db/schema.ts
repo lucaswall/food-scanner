@@ -9,6 +9,7 @@ import {
   bigint,
   date,
   time,
+  unique,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -81,3 +82,21 @@ export const foodLogEntries = pgTable("food_log_entries", {
   time: time("time").notNull(),
   loggedAt: timestamp("logged_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const lumenGoals = pgTable(
+  "lumen_goals",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    date: date("date").notNull(),
+    dayType: text("day_type").notNull(),
+    proteinGoal: integer("protein_goal").notNull(),
+    carbsGoal: integer("carbs_goal").notNull(),
+    fatGoal: integer("fat_goal").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    userDateUnique: unique("lumen_goals_user_date_uniq").on(table.userId, table.date),
+  })
+);

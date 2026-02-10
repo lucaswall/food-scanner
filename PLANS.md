@@ -196,3 +196,61 @@
 **Risks/Considerations:**
 - Lumen app UI changes could affect parsing — mitigated by generic prompt + tool_use schema
 - Lumen banner adds a 4th SWR call to dashboard — non-blocking, graceful degradation on failure
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-10
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Add lumen_goals DB table and types (FOO-317) - Added lumenGoals table with composite unique, LumenGoals/LumenGoalsResponse types, LUMEN_PARSE_ERROR error code (worker-1)
+- Task 2: Implement Lumen screenshot parsing and DB CRUD (FOO-318) - Created src/lib/lumen.ts with parseLumenScreenshot() using Haiku, upsertLumenGoals(), getLumenGoalsByDate(), LumenParseError class (worker-1)
+- Task 3: Add Lumen goals API route (FOO-319) - Created GET/POST endpoints with session auth, rate limiting, image validation, Haiku parsing (worker-1)
+- Task 4: Enhance MacroBars with goal support (FOO-320) - Added optional goal props, "XX / YYg" format, progress-to-goal bars capped at 100% (worker-2)
+- Task 5: Create LumenBanner component with upload flow (FOO-321) - Client component with SWR, file upload, loading/error states, blue color scheme (worker-3)
+- Task 6: Integrate Lumen goals into DailyDashboard and app page (FOO-322) - Day type badge, MacroBars goal props, Update button, LumenBanner in app page, loading skeleton (worker-3)
+
+### Files Modified
+- `src/db/schema.ts` - Added lumenGoals table with composite unique constraint
+- `src/db/__tests__/schema.test.ts` - Created with lumenGoals table validation tests
+- `src/types/index.ts` - Added LumenGoals, LumenGoalsResponse interfaces, LUMEN_PARSE_ERROR error code
+- `src/lib/lumen.ts` - Created: Lumen parsing with separate Anthropic client, DB CRUD
+- `src/lib/__tests__/lumen.test.ts` - Created: 12 tests for parsing and DB operations
+- `src/app/api/lumen-goals/route.ts` - Created: GET and POST route handlers
+- `src/app/api/lumen-goals/__tests__/route.test.ts` - Created: 17 tests for API endpoints
+- `src/components/macro-bars.tsx` - Added optional goal props, dual-mode bar calculation
+- `src/components/__tests__/macro-bars.test.tsx` - Added 6 goal-related test cases
+- `src/components/lumen-banner.tsx` - Created: Upload banner component
+- `src/components/__tests__/lumen-banner.test.tsx` - Created: 8 tests for banner
+- `src/components/daily-dashboard.tsx` - Added lumen-goals SWR call, day type badge, goal props, update button
+- `src/components/__tests__/daily-dashboard.test.tsx` - Added 8 lumen-related test cases
+- `src/app/app/page.tsx` - Added LumenBanner between button grid and DailyDashboard
+- `src/app/app/__tests__/page.test.tsx` - Added LumenBanner render test
+- `src/app/app/loading.tsx` - Added banner skeleton placeholder
+- `drizzle/0010_elite_shiva.sql` - Generated migration for lumen_goals table
+- `MIGRATIONS.md` - Logged new table migration
+
+### Linear Updates
+- FOO-317: Todo → In Progress → Review
+- FOO-318: Todo → In Progress → Review
+- FOO-319: Todo → In Progress → Review
+- FOO-320: Todo → In Progress → Review
+- FOO-321: Todo → In Progress → Review
+- FOO-322: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 issues (type duplication), fixed before proceeding. Also fixed wrong DB import (`db` → `getDb()`).
+- verifier: All 1,250 tests pass, zero warnings, build succeeds
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3 (backend: schema, types, lumen lib, API route)
+- Worker 2: Task 4 (MacroBars goal support)
+- Worker 3: Tasks 5, 6 (LumenBanner, dashboard integration)
+- Lead: drizzle-kit generate, integration fixes (db import, type dedup)
+
+### Continuation Status
+All tasks completed.
+
+## Status: COMPLETE

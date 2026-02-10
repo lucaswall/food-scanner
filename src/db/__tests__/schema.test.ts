@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getTableColumns } from "drizzle-orm";
-import { users, sessions, fitbitTokens, customFoods, foodLogEntries } from "@/db/schema";
+import { users, sessions, fitbitTokens, customFoods, foodLogEntries, lumenGoals } from "@/db/schema";
 
 describe("database schema", () => {
   describe("users table", () => {
@@ -116,6 +116,44 @@ describe("database schema", () => {
       expect(columns.userId).toBeDefined();
       expect(columns.userId.dataType).toBe("string");
       expect(columns.userId.notNull).toBe(true);
+    });
+  });
+
+  describe("lumenGoals table", () => {
+    it("has expected columns", () => {
+      const columns = getTableColumns(lumenGoals);
+      expect(columns).toHaveProperty("id");
+      expect(columns).toHaveProperty("date");
+      expect(columns).toHaveProperty("dayType");
+      expect(columns).toHaveProperty("proteinGoal");
+      expect(columns).toHaveProperty("carbsGoal");
+      expect(columns).toHaveProperty("fatGoal");
+      expect(columns).toHaveProperty("createdAt");
+      expect(columns).toHaveProperty("updatedAt");
+    });
+
+    it("has userId column referencing users", () => {
+      const columns = getTableColumns(lumenGoals);
+      expect(columns.userId).toBeDefined();
+      expect(columns.userId.dataType).toBe("string");
+      expect(columns.userId.notNull).toBe(true);
+    });
+
+    it("has date column with correct type", () => {
+      const columns = getTableColumns(lumenGoals);
+      expect(columns.date).toBeDefined();
+      expect(columns.date.dataType).toBe("string");
+      expect(columns.date.notNull).toBe(true);
+    });
+
+    it("has integer goal columns", () => {
+      const columns = getTableColumns(lumenGoals);
+      expect(columns.proteinGoal.dataType).toBe("number");
+      expect(columns.proteinGoal.notNull).toBe(true);
+      expect(columns.carbsGoal.dataType).toBe("number");
+      expect(columns.carbsGoal.notNull).toBe(true);
+      expect(columns.fatGoal.dataType).toBe("number");
+      expect(columns.fatGoal.notNull).toBe(true);
     });
   });
 

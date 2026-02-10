@@ -6,6 +6,7 @@ import { DailyDashboard } from "@/components/daily-dashboard";
 import { DashboardPrefetch } from "@/components/dashboard-prefetch";
 import { SkipLink } from "@/components/skip-link";
 import { FitbitStatusBanner } from "@/components/fitbit-status-banner";
+import { LumenBanner } from "@/components/lumen-banner";
 
 export default async function AppPage() {
   const session = await getSession();
@@ -38,6 +39,8 @@ export default async function AppPage() {
             <span className="text-sm font-medium">Quick Select</span>
           </Link>
         </div>
+
+        <LumenBanner />
 
         <DailyDashboard />
         <DashboardPrefetch />

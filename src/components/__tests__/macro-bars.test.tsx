@@ -92,4 +92,146 @@ describe("MacroBars", () => {
     expect(screen.getByText("200g")).toBeInTheDocument();
     expect(screen.getByText("50g")).toBeInTheDocument();
   });
+
+  describe("with goals", () => {
+    it("shows 'XX / YYg' format when all goals provided", () => {
+      render(
+        <MacroBars
+          proteinG={85}
+          carbsG={200}
+          fatG={50}
+          proteinGoal={100}
+          carbsGoal={250}
+          fatGoal={60}
+        />
+      );
+
+      expect(screen.getByText("85 / 100g")).toBeInTheDocument();
+      expect(screen.getByText("200 / 250g")).toBeInTheDocument();
+      expect(screen.getByText("50 / 60g")).toBeInTheDocument();
+    });
+
+    it("bar width is consumed/goal*100% when goals provided", () => {
+      const { container } = render(
+        <MacroBars
+          proteinG={50}
+          carbsG={100}
+          fatG={30}
+          proteinGoal={100}
+          carbsGoal={200}
+          fatGoal={60}
+        />
+      );
+
+      const proteinBar = container.querySelector('[data-testid="macro-bar-protein"]');
+      const carbsBar = container.querySelector('[data-testid="macro-bar-carbs"]');
+      const fatBar = container.querySelector('[data-testid="macro-bar-fat"]');
+
+      // 50/100 = 50%, 100/200 = 50%, 30/60 = 50%
+      expect(proteinBar).toHaveStyle({ width: "50%" });
+      expect(carbsBar).toHaveStyle({ width: "50%" });
+      expect(fatBar).toHaveStyle({ width: "50%" });
+    });
+
+    it("caps bar width at 100% when consumed exceeds goal", () => {
+      const { container } = render(
+        <MacroBars
+          proteinG={150}
+          carbsG={300}
+          fatG={80}
+          proteinGoal={100}
+          carbsGoal={200}
+          fatGoal={60}
+        />
+      );
+
+      const proteinBar = container.querySelector('[data-testid="macro-bar-protein"]');
+      const carbsBar = container.querySelector('[data-testid="macro-bar-carbs"]');
+      const fatBar = container.querySelector('[data-testid="macro-bar-fat"]');
+
+      // All exceed goals, should be capped at 100%
+      expect(proteinBar).toHaveStyle({ width: "100%" });
+      expect(carbsBar).toHaveStyle({ width: "100%" });
+      expect(fatBar).toHaveStyle({ width: "100%" });
+
+      // Labels should still show actual values
+      expect(screen.getByText("150 / 100g")).toBeInTheDocument();
+      expect(screen.getByText("300 / 200g")).toBeInTheDocument();
+      expect(screen.getByText("80 / 60g")).toBeInTheDocument();
+    });
+
+    it("supports partial goals (only some macros have goals)", () => {
+      const { container } = render(
+        <MacroBars
+          proteinG={50}
+          carbsG={100}
+          fatG={30}
+          proteinGoal={100}
+          carbsGoal={200}
+        />
+      );
+
+      // Protein and carbs should show goal format
+      expect(screen.getByText("50 / 100g")).toBeInTheDocument();
+      expect(screen.getByText("100 / 200g")).toBeInTheDocument();
+
+      // Fat should show regular format (no goal)
+      expect(screen.getByText("30g")).toBeInTheDocument();
+
+      // Protein and carbs bars should use goal-based width
+      const proteinBar = container.querySelector('[data-testid="macro-bar-protein"]');
+      const carbsBar = container.querySelector('[data-testid="macro-bar-carbs"]');
+      expect(proteinBar).toHaveStyle({ width: "50%" });
+      expect(carbsBar).toHaveStyle({ width: "50%" });
+
+      // Fat bar should use relative-to-total width (30 / 180 = 16.67%)
+      const fatBar = container.querySelector('[data-testid="macro-bar-fat"]');
+      expect(fatBar).toHaveStyle({ width: "16.666666666666664%" });
+    });
+
+    it("backward compatibility: no goals = current relative behavior", () => {
+      const { container } = render(<MacroBars proteinG={50} carbsG={100} fatG={50} />);
+
+      // Should show gram-only format (note: protein and fat both show 50g)
+      const gramLabels = screen.getAllByText("50g");
+      expect(gramLabels).toHaveLength(2); // Protein and fat
+      expect(screen.getByText("100g")).toBeInTheDocument();
+
+      // Should use relative-to-total width
+      const proteinBar = container.querySelector('[data-testid="macro-bar-protein"]');
+      const carbsBar = container.querySelector('[data-testid="macro-bar-carbs"]');
+      const fatBar = container.querySelector('[data-testid="macro-bar-fat"]');
+
+      expect(proteinBar).toHaveStyle({ width: "25%" });
+      expect(carbsBar).toHaveStyle({ width: "50%" });
+      expect(fatBar).toHaveStyle({ width: "25%" });
+    });
+
+    it("handles zero goal gracefully", () => {
+      const { container } = render(
+        <MacroBars
+          proteinG={50}
+          carbsG={100}
+          fatG={30}
+          proteinGoal={0}
+          carbsGoal={200}
+          fatGoal={60}
+        />
+      );
+
+      // Protein with zero goal should fall back to relative behavior
+      const proteinBar = container.querySelector('[data-testid="macro-bar-protein"]');
+      // 50 / 180 = 27.78%
+      expect(proteinBar).toHaveStyle({ width: "27.77777777777778%" });
+
+      // Should show gram-only format for protein (zero goal)
+      expect(screen.getByText("50g")).toBeInTheDocument();
+
+      // Carbs and fat should use goal-based width
+      const carbsBar = container.querySelector('[data-testid="macro-bar-carbs"]');
+      const fatBar = container.querySelector('[data-testid="macro-bar-fat"]');
+      expect(carbsBar).toHaveStyle({ width: "50%" });
+      expect(fatBar).toHaveStyle({ width: "50%" });
+    });
+  });
 });

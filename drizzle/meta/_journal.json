@@ -71,6 +71,13 @@
       "when": 1770729052179,
       "tag": "0009_gigantic_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1770767014529,
+      "tag": "0010_elite_shiva",
+      "breakpoints": true
     }
   ]
 }
