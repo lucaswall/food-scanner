@@ -754,6 +754,35 @@ describe("analyzeFood", () => {
     );
   });
 
+  it("description field prompt excludes scene elements and includes length constraint", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+
+    const call = mockCreate.mock.calls[0][0];
+    const toolSchema = call.tools[0];
+    const descriptionPrompt = toolSchema.input_schema.properties.description.description;
+
+    // Should exclude non-food scene elements
+    expect(descriptionPrompt.toLowerCase()).toMatch(/(food only|do not describe)/);
+
+    // Should include length constraint
+    expect(descriptionPrompt).toMatch(/1-2.*sentence/i);
+
+    // Should NOT include "presentation" as an instruction (we want to exclude it)
+    expect(descriptionPrompt).not.toContain("presentation");
+  });
+
   it("validates description as required string", async () => {
     mockCreate.mockResolvedValueOnce({
       content: [

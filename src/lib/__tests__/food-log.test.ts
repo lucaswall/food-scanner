@@ -41,6 +41,10 @@ vi.mock("@/db/index", () => ({
       mockDelete(...args);
       return { where: mockDeleteWhere };
     },
+    update: (...args: unknown[]) => {
+      mockUpdate(...args);
+      return { set: mockUpdateSet };
+    },
     transaction: (...args: unknown[]) => {
       mockTransaction(...args);
       // Call the callback with a mock tx that has the same methods
@@ -76,6 +80,7 @@ beforeEach(() => {
   mockWhere.mockReturnValue({ orderBy: mockOrderBy });
   mockOrderBy.mockReturnValue({ limit: mockLimit });
   mockDeleteWhere.mockReturnValue({ returning: mockDeleteReturning });
+  mockUpdateSet.mockReturnValue({ where: mockUpdateWhere });
 });
 
 afterEach(() => {
@@ -93,6 +98,7 @@ const {
   getFoodLogEntry,
   getFoodLogEntryDetail,
   deleteFoodLogEntry,
+  updateCustomFoodMetadata,
 } = await import("@/lib/food-log");
 
 describe("insertCustomFood", () => {
@@ -1538,6 +1544,10 @@ describe("getFoodLogEntryDetail", () => {
   });
 });
 
+const mockUpdate = vi.fn();
+const mockUpdateSet = vi.fn();
+const mockUpdateWhere = vi.fn();
+
 describe("searchFoods", () => {
   function makeSearchRow(overrides: {
     customFoodId: number;
@@ -1701,5 +1711,64 @@ describe("searchFoods", () => {
       expect(result).toHaveLength(1);
       expect(result[0].fitbitFoodId).toBeNull();
     });
+  });
+});
+
+describe("updateCustomFoodMetadata", () => {
+  it("updates description, notes, keywords, and confidence fields", async () => {
+    mockUpdateWhere.mockResolvedValue(undefined);
+
+    await updateCustomFoodMetadata("user-uuid-123", 42, {
+      description: "Updated description",
+      notes: "Updated notes",
+      keywords: ["new", "keywords"],
+      confidence: "medium",
+    });
+
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith({
+      description: "Updated description",
+      notes: "Updated notes",
+      keywords: ["new", "keywords"],
+      confidence: "medium",
+    });
+    expect(mockUpdateWhere).toHaveBeenCalled();
+  });
+
+  it("only updates provided fields", async () => {
+    mockUpdateWhere.mockResolvedValue(undefined);
+
+    await updateCustomFoodMetadata("user-uuid-123", 42, {
+      description: "New description only",
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith({
+      description: "New description only",
+    });
+  });
+
+  it("does not update foodName, calories, or fitbitFoodId", async () => {
+    mockUpdateWhere.mockResolvedValue(undefined);
+
+    await updateCustomFoodMetadata("user-uuid-123", 42, {
+      description: "Test",
+    });
+
+    const setCall = mockUpdateSet.mock.calls[0][0];
+    expect(setCall).not.toHaveProperty("foodName");
+    expect(setCall).not.toHaveProperty("calories");
+    expect(setCall).not.toHaveProperty("fitbitFoodId");
+    expect(setCall).not.toHaveProperty("amount");
+    expect(setCall).not.toHaveProperty("unitId");
+  });
+
+  it("filters by userId and customFoodId", async () => {
+    mockUpdateWhere.mockResolvedValue(undefined);
+
+    await updateCustomFoodMetadata("user-uuid-123", 42, {
+      notes: "Test",
+    });
+
+    expect(mockUpdateWhere).toHaveBeenCalled();
   });
 });

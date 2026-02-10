@@ -34,6 +34,8 @@ const {
   logFood,
   findOrCreateFood,
   deleteFoodLog,
+  getFoodGoals,
+  getActivitySummary,
 } = await import("@/lib/fitbit");
 const { logger } = await import("@/lib/logger");
 
@@ -1207,6 +1209,159 @@ describe("deleteFoodLog", () => {
       expect.any(String),
     );
 
+    vi.restoreAllMocks();
+  });
+});
+
+describe("getFoodGoals", () => {
+  it("returns { calories: null } when Fitbit response has no goals.calories", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ goals: {} }), { status: 200 }),
+    );
+
+    const result = await getFoodGoals("test-token");
+
+    expect(result).toEqual({ calories: null });
+
+    vi.restoreAllMocks();
+  });
+
+  it("returns { calories: null } when goals.calories is not a number", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ goals: { calories: "not-a-number" } }), { status: 200 }),
+    );
+
+    const result = await getFoodGoals("test-token");
+
+    expect(result).toEqual({ calories: null });
+
+    vi.restoreAllMocks();
+  });
+
+  it("returns calorie goal when present", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ goals: { calories: 2500 } }), { status: 200 }),
+    );
+
+    const result = await getFoodGoals("test-token");
+
+    expect(result).toEqual({ calories: 2500 });
+
+    vi.restoreAllMocks();
+  });
+});
+
+describe("getActivitySummary", () => {
+  it("fetches activity summary for a given date", async () => {
+    const mockResponse = {
+      summary: {
+        caloriesOut: 2345,
+      },
+      goals: {
+        caloriesOut: 3500,
+      },
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 200 }),
+    );
+
+    const result = await getActivitySummary("test-token", "2024-01-15");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.fitbit.com/1/user/-/activities/date/2024-01-15.json",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token",
+        }),
+      }),
+    );
+    expect(result).toEqual({
+      caloriesOut: 2345,
+      estimatedCaloriesOut: 3500,
+    });
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID on 401", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(getActivitySummary("bad-token", "2024-01-15")).rejects.toThrow(
+      "FITBIT_TOKEN_INVALID",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_API_ERROR when API returns non-ok status", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: [{ message: "bad request" }] }), { status: 400 }),
+    );
+
+    await expect(getActivitySummary("test-token", "2024-01-15")).rejects.toThrow(
+      "FITBIT_API_ERROR",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_API_ERROR when response is missing summary.caloriesOut", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ summary: {} }), { status: 200 }),
+    );
+
+    await expect(getActivitySummary("test-token", "2024-01-15")).rejects.toThrow(
+      "FITBIT_API_ERROR",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to summary.caloriesOut when goals.caloriesOut is missing", async () => {
+    const mockResponse = {
+      summary: { caloriesOut: 2345 },
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 200 }),
+    );
+
+    const result = await getActivitySummary("test-token", "2024-01-15");
+    expect(result).toEqual({
+      caloriesOut: 2345,
+      estimatedCaloriesOut: 2345,
+    });
+
+    vi.restoreAllMocks();
+  });
+
+  it("retries on 429 rate limit", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    const mockResponse = { summary: { caloriesOut: 2345 }, goals: { caloriesOut: 3500 } };
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount < 2) {
+        return Promise.resolve(new Response(null, { status: 429 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(mockResponse), { status: 200 }),
+      );
+    });
+
+    const promise = getActivitySummary("test-token", "2024-01-15");
+    await vi.advanceTimersByTimeAsync(1000);
+    const result = await promise;
+
+    expect(callCount).toBe(2);
+    expect(result.caloriesOut).toBe(2345);
+
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 });

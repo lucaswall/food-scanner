@@ -390,7 +390,7 @@ describe("DailyDashboard", () => {
     });
   });
 
-  it("shows error state when goals fetch fails", async () => {
+  it("renders dashboard with plain calorie display when goals fetch fails", async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
@@ -408,7 +408,137 @@ describe("DailyDashboard", () => {
     renderDailyDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/failed to load goals/i)).toBeInTheDocument();
+      // Dashboard should render without blocking on goals error
+      expect(screen.queryByTestId("calorie-ring-svg")).not.toBeInTheDocument();
+      expect(screen.getByText("1,200")).toBeInTheDocument();
+      expect(screen.getByText("cal")).toBeInTheDocument();
     });
+
+    // Other components should still render
+    expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+    expect(screen.getByText("Breakfast")).toBeInTheDocument();
+  });
+
+  it("renders dashboard with plain calorie display when goals.calories is null", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockSummary }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { calories: null } }),
+      });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      // CalorieRing should NOT be rendered
+      expect(screen.queryByTestId("calorie-ring-svg")).not.toBeInTheDocument();
+
+      // Should show a plain calorie display with the total
+      expect(screen.getByText("1,200")).toBeInTheDocument();
+      expect(screen.getByText("cal")).toBeInTheDocument();
+    });
+
+    // Other dashboard components should still render
+    expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+    expect(screen.getByText("Breakfast")).toBeInTheDocument();
+  });
+
+  it("passes budget prop to CalorieRing when activity data is available", async () => {
+    const mockActivity = {
+      caloriesOut: 1800,
+      estimatedCaloriesOut: 2200,
+    };
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockSummary }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockGoals }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockActivity }),
+      });
+
+    const { container } = renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+    });
+
+    // Budget should be calculated as: caloriesOut - (estimatedCaloriesOut - goals.calories) - consumed
+    // Budget = 1800 - (2200 - 2000) - 1200 = 1800 - 200 - 1200 = 400
+    // Check that budget marker is rendered (indicates budget prop was passed)
+    const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
+    expect(budgetMarker).toBeInTheDocument();
+  });
+
+  it("does not pass budget prop to CalorieRing when activity data is unavailable", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockSummary }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockGoals }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            error: { code: "UNKNOWN_ERROR", message: "Activity data unavailable" },
+          }),
+      });
+
+    const { container } = renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+    });
+
+    // Budget marker should NOT be rendered when activity data fails
+    const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
+    expect(budgetMarker).not.toBeInTheDocument();
+  });
+
+  it("does not pass budget prop when goals.calories is null even if activity data exists", async () => {
+    const mockActivity = {
+      caloriesOut: 1800,
+      estimatedCaloriesOut: 2200,
+    };
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockSummary }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { calories: null } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockActivity }),
+      });
+
+    const { container } = renderDailyDashboard();
+
+    await waitFor(() => {
+      // Should show plain display (no CalorieRing)
+      expect(screen.queryByTestId("calorie-ring-svg")).not.toBeInTheDocument();
+      expect(screen.getByText("1,200")).toBeInTheDocument();
+    });
+
+    // Budget marker should not exist (CalorieRing not rendered)
+    const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
+    expect(budgetMarker).not.toBeInTheDocument();
   });
 });

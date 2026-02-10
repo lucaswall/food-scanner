@@ -503,8 +503,54 @@ export async function getFoodGoals(
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
   const goals = data.goals as Record<string, unknown> | undefined;
   if (typeof goals?.calories !== "number") {
-    throw new Error("Invalid Fitbit food goals response: missing goals.calories");
+    return { calories: null };
   }
 
   return { calories: goals.calories };
+}
+
+export async function getActivitySummary(
+  accessToken: string,
+  date: string,
+): Promise<import("@/types").ActivitySummary> {
+  logger.debug(
+    { action: "fitbit_get_activity_summary", date },
+    "fetching activity summary",
+  );
+
+  const response = await fetchWithRetry(
+    `${FITBIT_API_BASE}/1/user/-/activities/date/${date}.json`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    logger.error(
+      { action: "fitbit_get_activity_summary_failed", status: response.status, errorBody },
+      "activity summary fetch failed",
+    );
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const summary = data.summary as Record<string, unknown> | undefined;
+  if (typeof summary?.caloriesOut !== "number") {
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  const goals = data.goals as Record<string, unknown> | undefined;
+  const estimatedCaloriesOut = typeof goals?.caloriesOut === "number"
+    ? goals.caloriesOut
+    : summary.caloriesOut;
+
+  return {
+    caloriesOut: summary.caloriesOut,
+    estimatedCaloriesOut,
+  };
 }

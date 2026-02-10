@@ -75,7 +75,7 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       },
       description: {
         type: "string",
-        description: "A rich visual description of what you identified in the image, including colors, textures, cooking method, portion size, presentation, and any distinctive visual features that help distinguish this specific food item from similar foods.",
+        description: "Describe the food only in 1-2 concise sentences to distinguish this food from similar items. Include: visible ingredients, preparation/cooking method, portion size, and distinguishing visual characteristics (colors, textures). Do not describe hands, containers, plates, backgrounds, table settings, or other non-food elements.",
       },
     },
     required: [

@@ -1,9 +1,10 @@
 interface CalorieRingProps {
   calories: number;
   goal: number;
+  budget?: number;
 }
 
-export function CalorieRing({ calories, goal }: CalorieRingProps) {
+export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
   // SVG circle parameters
   const size = 128;
   const strokeWidth = 8;
@@ -15,6 +16,11 @@ export function CalorieRing({ calories, goal }: CalorieRingProps) {
 
   // Stroke dashoffset: full circumference = 0% progress, 0 = 100% progress
   const dashOffset = circumference * (1 - progress);
+
+  // Calculate budget marker position if budget is provided
+  const budgetPosition = budget != null && goal > 0
+    ? Math.max(0, Math.min(1, budget / goal))
+    : null;
 
   // Format numbers with commas
   const formatNumber = (num: number): string => {
@@ -57,6 +63,35 @@ export function CalorieRing({ calories, goal }: CalorieRingProps) {
             strokeLinecap="round"
             className="text-primary transition-all duration-300"
           />
+
+          {/* Budget marker */}
+          {budgetPosition !== null && (() => {
+            // Calculate angle in radians (starting at top, going clockwise)
+            const angle = budgetPosition * 2 * Math.PI - Math.PI / 2;
+            const markerLength = 6;
+            const innerRadius = radius - strokeWidth / 2 - markerLength;
+            const outerRadius = radius - strokeWidth / 2 + markerLength;
+
+            // Calculate start and end points of the marker line
+            const x1 = size / 2 + innerRadius * Math.cos(angle);
+            const y1 = size / 2 + innerRadius * Math.sin(angle);
+            const x2 = size / 2 + outerRadius * Math.cos(angle);
+            const y2 = size / 2 + outerRadius * Math.sin(angle);
+
+            return (
+              <line
+                data-testid="budget-marker"
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                className="text-amber-500"
+              />
+            );
+          })()}
         </svg>
 
         {/* Center text */}
