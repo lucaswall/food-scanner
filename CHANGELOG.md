@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-02-10
+
+### Added
+
+- Activity summary API endpoint for retrieving daily step and calorie data
+- Budget marker in CalorieRing component to show calories burned vs consumed
+
+### Changed
+
+- Improved AI description prompt for more accurate food analysis
+- Analysis metadata now preserved when reusing custom foods
+
+### Fixed
+
+- Dashboard gracefully handles cases where calorie goal is not set
+
 ## [1.3.0] - 2026-02-10
 
 ### Added
@@ -78,7 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mobile-first PWA with Add to Home Screen support
 - Dual environment setup (staging with dry-run, production with live Fitbit)
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/lucaswall/food-scanner/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/lucaswall/food-scanner/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/lucaswall/food-scanner/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lucaswall/food-scanner/compare/v1.0.0...v1.1.0
