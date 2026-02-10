@@ -66,8 +66,8 @@ export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
 
           {/* Budget marker */}
           {budgetPosition !== null && (() => {
-            // Calculate angle in radians (starting at top, going clockwise)
-            const angle = budgetPosition * 2 * Math.PI - Math.PI / 2;
+            // Calculate angle in radians (0 = SVG 3 o'clock, CSS rotation handles 12 o'clock start)
+            const angle = budgetPosition * 2 * Math.PI;
             const markerLength = 6;
             const innerRadius = radius - strokeWidth / 2 - markerLength;
             const outerRadius = radius - strokeWidth / 2 + markerLength;
