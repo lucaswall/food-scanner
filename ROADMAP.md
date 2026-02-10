@@ -1,6 +1,6 @@
 # Food Scanner - Roadmap
 
-## Feature 0: Conversational Analysis (Chat Refinement)
+## Feature 1: Conversational Analysis (Chat Refinement)
 
 ### Problem
 
@@ -111,104 +111,107 @@ Claude can query the user's food log database during the chat to give contextual
 
 ---
 
-## Feature 1: Daily Nutrition Dashboard
+## Feature 2: Fasting Window & Date Navigation
 
 ### Problem
 
-The app currently shows food log history as a list of individual entries. There's no way to see daily totals, track nutrient intake over time, or understand patterns. Fitbit tracks daily aggregates via its time series API, but users have to open the Fitbit app to see them.
+The daily dashboard (FOO-302 through FOO-306) shows today's nutrition totals, but there's no way to navigate between days or see fasting patterns. Users who practice intermittent fasting have no visibility into their eating windows.
 
 ### Goal
 
-A dashboard view showing daily and weekly nutrition summaries, with emphasis on the nutrients we now track (including the extended set from Feature 1). Mobile-first design, accessible from the bottom navigation.
+Add date navigation to the daily dashboard and a fasting window card that shows overnight fasting duration based on existing meal timestamps.
 
-### Data Source
+### Prerequisite
 
-Pull from Fitbit's time series API and from our own `food_log_entries` + `custom_foods` tables. Fitbit time series gives us the official daily totals (including foods logged outside our app). Our DB gives us per-entry detail and the extended nutrients Fitbit doesn't expose in its time series.
+Daily dashboard must be implemented first (FOO-302 through FOO-306).
 
-### Views
-
-#### Daily Summary (default view)
-
-Shows today's nutrition totals:
-
-- **Calorie ring:** Visual progress toward daily goal (from Fitbit food goals API)
-- **Macro bars:** Protein / Carbs / Fat as horizontal progress bars with gram amounts
-- **Extended nutrients table:** Fiber, sodium, saturated fat, trans fat, sugars — shown when data is available (depends on FOO-298 through FOO-301)
-- **Meal breakdown:** Collapsible sections per meal type (Breakfast, Lunch, Dinner, Snacks) showing individual entries
-- **Date picker:** Swipe left/right or tap to navigate between days
-
-#### Weekly View
-
-Shows 7-day trends:
-
-- **Line/bar chart:** Calories per day (bar) with goal line
-- **Macro averages:** Average daily protein/carbs/fat over the week
-- **Nutrient highlights:** Days where sodium or sugar exceeded recommended values (if we can determine thresholds)
-
-#### Fasting Window
+### Fasting Window
 
 Projects overnight fasting duration based on meal timestamps already stored in `food_log_entries`:
 
 - **Calculation:** Time from the last logged meal of the previous day to the first logged meal of the current day
-- **Daily Summary display:** Show as a card with fasting duration (e.g., "14h 30m fast") and the time range (e.g., "9:15 PM → 11:45 AM")
-- **Weekly View display:** Show fasting durations per day alongside the calorie chart, so the user can see patterns
+- **Display:** Show as a card with fasting duration (e.g., "14h 30m fast") and the time range (e.g., "9:15 PM → 11:45 AM")
 - **Edge cases:** If no meals logged for the previous or current day, show "No data" instead of guessing. If only one meal exists for a day, use it as both first and last.
 - **No goal or threshold initially** — just display the data. A fasting goal feature can be added later if useful.
 
+### Date Navigation
+
+- **Date picker:** Swipe left/right or tap arrows to navigate between days
+- **Today indicator:** Clear visual that shows when viewing today vs. a past date
+- **Bounds:** Don't allow navigating to future dates. Earliest date is the first food log entry.
+
+### Implementation Order
+
+1. Fasting window card component (compute from existing meal timestamps)
+2. Date navigation UI (swipe/tap between days)
+3. Wire fasting card into daily dashboard
+4. Update nutrition summary API to accept date parameter (if not already flexible enough)
+
+---
+
+## Feature 3: Weekly Nutrition View
+
+### Problem
+
+Daily totals show a snapshot but not trends. Users can't see if they're consistently hitting their calorie goals, whether protein is trending up, or how their fasting patterns look across the week.
+
+### Goal
+
+A weekly view showing 7-day nutrition trends with simple charts, macro averages, and fasting durations per day.
+
+### Prerequisite
+
+Daily dashboard (FOO-302 through FOO-306) and Feature 2 (Fasting Window & Date Navigation) should be implemented first.
+
+### Views
+
+#### Weekly Summary
+
+- **Bar chart:** Calories per day with goal line overlay
+- **Macro averages:** Average daily protein/carbs/fat over the week
+- **Fasting durations:** Per-day fasting window alongside the calorie chart
+- **Nutrient highlights:** Days where sodium or sugar exceeded recommended values (if we can determine thresholds)
+
+#### Extended Nutrients Table (conditional)
+
+Only shown when the user has logged foods with extended nutrient data (depends on FOO-298 through FOO-301):
+
+- Fiber, sodium, saturated fat, trans fat, sugars — shown when data is available
+- Daily totals with weekly averages
+
 #### Micronutrient Report (conditional)
 
-Only shown when the user has logged foods with extended nutrient data (from FOO-298 through FOO-301):
+Only shown when the user has logged foods with extended nutrient data (depends on FOO-298 through FOO-301):
 
 - Table of all non-null micronutrients with daily totals
 - Percentage of daily recommended intake where applicable
 - Only renders when there's data — no empty states for nutrients we don't have
 
-### Navigation
-
-Add a dashboard icon to the bottom navigation bar. New layout:
-- Home (quick select)
-- Camera (analyze)
-- Dashboard (new)
-- History
-- Settings
-
-### API Endpoints
+### API Endpoint
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/nutrition-summary?date=YYYY-MM-DD` | Daily totals from our DB (includes extended nutrients) |
 | GET | `/api/nutrition-summary?from=YYYY-MM-DD&to=YYYY-MM-DD` | Range totals for weekly view |
-
-These aggregate from our `food_log_entries` joined with `custom_foods`. We use our own DB rather than Fitbit's time series because we store extended nutrients that Fitbit doesn't expose, it's faster than multiple Fitbit API calls, and it works even if Fitbit is temporarily down.
 
 ### Design Notes
 
-- **Mobile-first:** Cards stack vertically, charts are touch-friendly
+- **Mobile-first:** Charts are touch-friendly, cards stack vertically
 - **Dark mode:** All charts must work in both light and dark themes
-- **No charting library initially:** Use simple CSS-based bars and rings (avoid bundle bloat). Graduate to a library only if the simple approach becomes limiting.
+- **No charting library initially:** Use simple CSS-based bars (avoid bundle bloat). Graduate to a library only if the simple approach becomes limiting.
 - **Loading states:** Skeleton cards while fetching data
-- **Empty state:** Friendly message when no food logged for the day, with a CTA to scan food
 
 ### Implementation Order
 
-1. API endpoint for daily nutrition summary (aggregate from DB)
-2. Daily summary page with calorie ring + macro bars
-3. Bottom nav update (add dashboard tab)
-4. Fasting window card (uses existing meal timestamps)
-5. Extended nutrients section (depends on FOO-298 through FOO-301)
-6. Date navigation (swipe/tap)
-7. API endpoint for date range
-8. Weekly view with simple charts + fasting durations
-9. Micronutrient report (depends on FOO-298 through FOO-301)
-
-### Dependencies
-
-- Extended Nutrition Tracking (FOO-298 through FOO-301) is NOT a hard blocker — the dashboard works with the current 6 nutrients. But the extended nutrients section and micronutrient report require it to be useful.
-- Fitbit food goals API integration (for calorie target in the ring).
+1. API endpoint for date range nutrition summary
+2. Weekly bar chart with CSS/SVG
+3. Macro averages display
+4. Fasting durations per day in weekly view
+5. Extended nutrients table (depends on FOO-298 through FOO-301)
+6. Micronutrient report (depends on FOO-298 through FOO-301)
 
 ---
 
-## Feature 2: Offline Queue with Background Sync
+## Feature 4: Offline Queue with Background Sync
 
 ### Problem
 
