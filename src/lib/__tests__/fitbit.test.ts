@@ -517,6 +517,10 @@ describe("createFood", () => {
     fat_g: 3,
     fiber_g: 4,
     sodium_mg: 10,
+    saturated_fat_g: null,
+    trans_fat_g: null,
+    sugars_g: null,
+    calories_from_fat: null,
     confidence: "high" as const,
     notes: "Test food",
     description: "",
@@ -652,6 +656,103 @@ describe("createFood", () => {
     expect(result.food.foodId).toBe(789);
 
     vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("includes Tier 1 nutrients when all are non-null numbers", async () => {
+    const foodWithTier1 = {
+      ...mockFoodAnalysis,
+      saturated_fat_g: 2.5,
+      trans_fat_g: 0.1,
+      sugars_g: 5.0,
+      calories_from_fat: 27,
+    };
+    const mockResponse = { food: { foodId: 789, name: "Test" } };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await createFood("test-token", foodWithTier1);
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).toContain("saturatedFat=2.5");
+    expect(body).toContain("transFat=0.1");
+    expect(body).toContain("sugars=5");
+    expect(body).toContain("caloriesFromFat=27");
+
+    vi.restoreAllMocks();
+  });
+
+  it("omits Tier 1 nutrients when all are null", async () => {
+    const mockResponse = { food: { foodId: 789, name: "Test" } };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await createFood("test-token", mockFoodAnalysis);
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).not.toContain("saturatedFat");
+    expect(body).not.toContain("transFat");
+    expect(body).not.toContain("sugars");
+    expect(body).not.toContain("caloriesFromFat");
+
+    vi.restoreAllMocks();
+  });
+
+  it("omits Tier 1 nutrients when undefined", async () => {
+    const foodWithoutTier1 = {
+      ...mockFoodAnalysis,
+      saturated_fat_g: undefined,
+      trans_fat_g: undefined,
+      sugars_g: undefined,
+      calories_from_fat: undefined,
+    };
+    const mockResponse = { food: { foodId: 789, name: "Test" } };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await createFood("test-token", foodWithoutTier1);
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).not.toContain("saturatedFat");
+    expect(body).not.toContain("transFat");
+    expect(body).not.toContain("sugars");
+    expect(body).not.toContain("caloriesFromFat");
+
+    vi.restoreAllMocks();
+  });
+
+  it("includes only non-null Tier 1 nutrients in mixed scenario", async () => {
+    const mixedFood = {
+      ...mockFoodAnalysis,
+      saturated_fat_g: 1.5,
+      trans_fat_g: null,
+      sugars_g: 3.0,
+      calories_from_fat: null,
+    };
+    const mockResponse = { food: { foodId: 789, name: "Test" } };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await createFood("test-token", mixedFood);
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).toContain("saturatedFat=1.5");
+    expect(body).not.toContain("transFat");
+    expect(body).toContain("sugars=3");
+    expect(body).not.toContain("caloriesFromFat");
+
     vi.restoreAllMocks();
   });
 });

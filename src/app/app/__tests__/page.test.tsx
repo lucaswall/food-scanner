@@ -15,9 +15,9 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-vi.mock("@/components/dashboard-preview", () => ({
-  DashboardPreview: () => (
-    <div data-testid="dashboard-preview">DashboardPreview</div>
+vi.mock("@/components/daily-dashboard", () => ({
+  DailyDashboard: () => (
+    <div data-testid="daily-dashboard">DailyDashboard</div>
   ),
 }));
 
@@ -81,11 +81,11 @@ describe("/app page", () => {
     expect(screen.getByTestId("fitbit-status-banner")).toBeInTheDocument();
   });
 
-  it("renders blurred dashboard preview with Coming Soon text", async () => {
+  it("renders daily dashboard component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
-    expect(screen.getByTestId("dashboard-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("daily-dashboard")).toBeInTheDocument();
   });
 
   it("CTA buttons have min touch target size (44px)", async () => {

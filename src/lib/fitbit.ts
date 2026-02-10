@@ -140,6 +140,20 @@ export async function createFood(
     description: food.food_name,
   });
 
+  // Conditionally add Tier 1 nutrients if present and not null
+  if (food.saturated_fat_g != null) {
+    params.set("saturatedFat", food.saturated_fat_g.toString());
+  }
+  if (food.trans_fat_g != null) {
+    params.set("transFat", food.trans_fat_g.toString());
+  }
+  if (food.sugars_g != null) {
+    params.set("sugars", food.sugars_g.toString());
+  }
+  if (food.calories_from_fat != null) {
+    params.set("caloriesFromFat", food.calories_from_fat.toString());
+  }
+
   const response = await fetchWithRetry(
     `${FITBIT_API_BASE}/1/user/-/foods.json`,
     {
@@ -456,4 +470,41 @@ export async function ensureFreshToken(userId: string): Promise<string> {
   }
 
   return tokenRow.accessToken;
+}
+
+export async function getFoodGoals(
+  accessToken: string,
+): Promise<import("@/types").NutritionGoals> {
+  logger.debug(
+    { action: "fitbit_get_food_goals" },
+    "fetching food goals",
+  );
+
+  const response = await fetchWithRetry(
+    `${FITBIT_API_BASE}/1/user/-/foods/log/goal.json`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    logger.error(
+      { action: "fitbit_get_food_goals_failed", status: response.status, errorBody },
+      "food goals fetch failed",
+    );
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const goals = data.goals as Record<string, unknown> | undefined;
+  if (typeof goals?.calories !== "number") {
+    throw new Error("Invalid Fitbit food goals response: missing goals.calories");
+  }
+
+  return { calories: goals.calories };
 }

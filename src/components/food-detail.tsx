@@ -109,6 +109,10 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
         unitId={data.unitId}
         amount={data.amount}
         mealTypeId={data.mealTypeId}
+        saturatedFatG={data.saturatedFatG}
+        transFatG={data.transFatG}
+        sugarsG={data.sugarsG}
+        caloriesFromFat={data.caloriesFromFat}
       />
 
       {/* Notes */}
