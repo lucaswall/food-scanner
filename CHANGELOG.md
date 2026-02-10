@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-02-10
+
+### Fixed
+
+- Budget marker now properly requests activity data scope during Fitbit OAuth setup
+- Budget marker rotation angle calculation corrected
+- Dashboard displays reconnect prompt when activity scope is missing
+
 ## [1.4.0] - 2026-02-10
 
 ### Added
@@ -94,7 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mobile-first PWA with Add to Home Screen support
 - Dual environment setup (staging with dry-run, production with live Fitbit)
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/lucaswall/food-scanner/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/lucaswall/food-scanner/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/lucaswall/food-scanner/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/lucaswall/food-scanner/compare/v1.1.0...v1.2.0
