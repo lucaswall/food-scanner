@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-02-10
+
+### Added
+
+- Daily dashboard with calorie ring, macro bars, and meal breakdown
+- Nutrition summary and goals API endpoints
+- Tier 1 nutrient support (saturated fat, trans fat, sugars, calories from fat)
+- Nutrition facts card with extended nutritional information
+
+### Changed
+
+- Dialog component now supports bottom-sheet variant for mobile
+- Unified post-log success screen across all logging flows
+
 ## [1.2.0] - 2026-02-09
 
 ### Added
@@ -64,7 +78,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mobile-first PWA with Add to Home Screen support
 - Dual environment setup (staging with dry-run, production with live Fitbit)
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/lucaswall/food-scanner/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/lucaswall/food-scanner/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lucaswall/food-scanner/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/lucaswall/food-scanner/releases/tag/v1.0.0
