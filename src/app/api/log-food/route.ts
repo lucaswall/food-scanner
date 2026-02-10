@@ -64,6 +64,17 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
     }
   }
 
+  // Validate Tier 1 nutrients if present: must be null or non-negative number
+  const tier1Fields = ["saturated_fat_g", "trans_fat_g", "sugars_g", "calories_from_fat"] as const;
+  for (const field of tier1Fields) {
+    const value = req[field];
+    if (value !== undefined && value !== null) {
+      if (typeof value !== "number" || value < 0) {
+        return false;
+      }
+    }
+  }
+
   return true;
 }
 

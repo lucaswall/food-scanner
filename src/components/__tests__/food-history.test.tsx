@@ -561,8 +561,8 @@ describe("FoodHistory", () => {
     // Should have bottom-sheet animation class for mobile
     expect(classes).toContain("data-[state=open]:slide-in-from-bottom");
     expect(classes).toContain("data-[state=closed]:slide-out-to-bottom");
-    // Should be positioned at bottom on mobile
-    expect(dialog).toHaveClass("bottom-0");
+    // Should be positioned near bottom on mobile with spacing
+    expect(dialog).toHaveClass("bottom-4");
     // Should have rounded top corners
     expect(dialog).toHaveClass("rounded-t-lg");
   });

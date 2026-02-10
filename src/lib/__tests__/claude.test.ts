@@ -35,6 +35,10 @@ const validAnalysis: FoodAnalysis = {
   fat_g: 18,
   fiber_g: 2,
   sodium_mg: 450,
+  saturated_fat_g: null,
+  trans_fat_g: null,
+  sugars_g: null,
+  calories_from_fat: null,
   confidence: "high",
   notes: "Standard Argentine beef empanada, baked style",
   keywords: ["empanada", "carne", "horno"],
@@ -1050,5 +1054,258 @@ describe("refineAnalysis", () => {
     expect(textBlock.text).toContain("2"); // fiber_g (as string in context)
     expect(textBlock.text).toContain("450"); // sodium_mg
     expect(textBlock.text).toContain("high"); // confidence
+  });
+});
+
+describe("validateFoodAnalysis with Tier 1 nutrients", () => {
+  beforeEach(() => {
+    setupMocks();
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("accepts valid input with all 4 Tier 1 fields as numbers", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            saturated_fat_g: 5.5,
+            trans_fat_g: 0.2,
+            sugars_g: 3.0,
+            calories_from_fat: 162,
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.saturated_fat_g).toBe(5.5);
+    expect(result.trans_fat_g).toBe(0.2);
+    expect(result.sugars_g).toBe(3.0);
+    expect(result.calories_from_fat).toBe(162);
+  });
+
+  it("accepts valid input with all 4 Tier 1 fields as null", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            saturated_fat_g: null,
+            trans_fat_g: null,
+            sugars_g: null,
+            calories_from_fat: null,
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.saturated_fat_g).toBeNull();
+    expect(result.trans_fat_g).toBeNull();
+    expect(result.sugars_g).toBeNull();
+    expect(result.calories_from_fat).toBeNull();
+  });
+
+  it("accepts valid input with Tier 1 fields omitted (backward compat)", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis, // no Tier 1 fields
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    // Should default to null when omitted
+    expect(result.saturated_fat_g).toBeNull();
+    expect(result.trans_fat_g).toBeNull();
+    expect(result.sugars_g).toBeNull();
+    expect(result.calories_from_fat).toBeNull();
+  });
+
+  it("rejects negative values for saturated_fat_g", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            saturated_fat_g: -1,
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("rejects negative values for trans_fat_g", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            trans_fat_g: -0.5,
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("rejects negative values for sugars_g", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            sugars_g: -2,
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("rejects negative values for calories_from_fat", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            calories_from_fat: -10,
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("rejects string value for saturated_fat_g", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            saturated_fat_g: "5.5",
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("rejects boolean value for trans_fat_g", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            trans_fat_g: true,
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+  });
+
+  it("accepts zero values for Tier 1 fields", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: {
+            ...validAnalysis,
+            saturated_fat_g: 0,
+            trans_fat_g: 0,
+            sugars_g: 0,
+            calories_from_fat: 0,
+          },
+        },
+      ],
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([
+      { base64: "abc123", mimeType: "image/jpeg" },
+    ]);
+
+    expect(result.saturated_fat_g).toBe(0);
+    expect(result.trans_fat_g).toBe(0);
+    expect(result.sugars_g).toBe(0);
+    expect(result.calories_from_fat).toBe(0);
   });
 });

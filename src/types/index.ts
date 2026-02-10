@@ -62,6 +62,10 @@ export interface FoodAnalysis {
   fat_g: number;
   fiber_g: number;
   sodium_mg: number;
+  saturated_fat_g?: number | null;
+  trans_fat_g?: number | null;
+  sugars_g?: number | null;
+  calories_from_fat?: number | null;
   confidence: "high" | "medium" | "low";
   notes: string;
   description: string;
@@ -147,6 +151,10 @@ export interface CommonFood {
   fatG: number;
   fiberG: number;
   sodiumMg: number;
+  saturatedFatG?: number | null;
+  transFatG?: number | null;
+  sugarsG?: number | null;
+  caloriesFromFat?: number | null;
   fitbitFoodId: number | null;
   mealTypeId: number;
 }
@@ -181,6 +189,10 @@ export interface FoodLogHistoryEntry {
   fatG: number;
   fiberG: number;
   sodiumMg: number;
+  saturatedFatG?: number | null;
+  transFatG?: number | null;
+  sugarsG?: number | null;
+  caloriesFromFat?: number | null;
   amount: number;
   unitId: number;
   mealTypeId: number;
@@ -196,6 +208,10 @@ export interface FoodMatch {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  saturatedFatG?: number | null;
+  transFatG?: number | null;
+  sugarsG?: number | null;
+  caloriesFromFat?: number | null;
   fitbitFoodId: number | null;
   matchRatio: number;
   lastLoggedAt: Date;
@@ -214,6 +230,10 @@ export interface FoodLogEntryDetail {
   fatG: number;
   fiberG: number;
   sodiumMg: number;
+  saturatedFatG?: number | null;
+  transFatG?: number | null;
+  sugarsG?: number | null;
+  caloriesFromFat?: number | null;
   amount: number;
   unitId: number;
   mealTypeId: number;
@@ -221,4 +241,58 @@ export interface FoodLogEntryDetail {
   time: string | null;
   fitbitLogId: number | null;
   confidence: string;
+}
+
+export interface MealEntry {
+  id: number;
+  foodName: string;
+  time: string | null;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sodiumMg: number;
+  saturatedFatG: number | null;
+  transFatG: number | null;
+  sugarsG: number | null;
+  caloriesFromFat: number | null;
+}
+
+export interface MealGroup {
+  mealTypeId: number;
+  entries: MealEntry[];
+  subtotal: {
+    calories: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    fiberG: number;
+    sodiumMg: number;
+    saturatedFatG: number;
+    transFatG: number;
+    sugarsG: number;
+    caloriesFromFat: number;
+  };
+}
+
+export interface NutritionSummary {
+  date: string;
+  meals: MealGroup[];
+  totals: {
+    calories: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    fiberG: number;
+    sodiumMg: number;
+    saturatedFatG: number;
+    transFatG: number;
+    sugarsG: number;
+    caloriesFromFat: number;
+  };
+}
+
+export interface NutritionGoals {
+  calories: number;
 }

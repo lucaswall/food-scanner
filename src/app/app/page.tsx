@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Camera, ListChecks } from "lucide-react";
 import { getSession } from "@/lib/session";
-import { DashboardPreview } from "@/components/dashboard-preview";
+import { DailyDashboard } from "@/components/daily-dashboard";
 import { DashboardPrefetch } from "@/components/dashboard-prefetch";
 import { SkipLink } from "@/components/skip-link";
 import { FitbitStatusBanner } from "@/components/fitbit-status-banner";
@@ -39,7 +39,7 @@ export default async function AppPage() {
           </Link>
         </div>
 
-        <DashboardPreview />
+        <DailyDashboard />
         <DashboardPrefetch />
       </main>
     </div>

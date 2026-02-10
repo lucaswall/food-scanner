@@ -78,7 +78,7 @@ describe("FoodLogConfirmation", () => {
     expect(screen.getByText(/67890/)).toBeInTheDocument();
   });
 
-  it("navigates to /app when Done button is clicked and no onDone provided", () => {
+  it("navigates to /app when Done button is clicked", () => {
     mockPush.mockClear();
     render(
       <FoodLogConfirmation
@@ -91,24 +91,6 @@ describe("FoodLogConfirmation", () => {
     fireEvent.click(button);
 
     expect(mockPush).toHaveBeenCalledWith("/app");
-  });
-
-  it("calls onDone callback when Done button is clicked and onDone is provided", () => {
-    mockPush.mockClear();
-    const onDone = vi.fn();
-    render(
-      <FoodLogConfirmation
-        response={mockResponse}
-        foodName="Test Food"
-        onDone={onDone}
-      />
-    );
-
-    const button = screen.getByRole("button", { name: /done/i });
-    fireEvent.click(button);
-
-    expect(onDone).toHaveBeenCalledTimes(1);
-    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it("returns null when response is null", () => {
@@ -249,44 +231,19 @@ describe("FoodLogConfirmation", () => {
       expect(screen.getByText("Dinner")).toBeInTheDocument();
     });
 
-  describe("onLogAnother", () => {
-    it("renders Log Another button when onLogAnother is provided", () => {
-      render(
-        <FoodLogConfirmation
-          response={mockResponse}
-          foodName="Test Food"
-          onLogAnother={vi.fn()}
-        />
-      );
+  it("renders only Done button, not Log Another", () => {
+    render(
+      <FoodLogConfirmation
+        response={mockResponse}
+        foodName="Test Food"
+      />
+    );
 
-      expect(screen.getByRole("button", { name: /log another/i })).toBeInTheDocument();
-    });
+    // Should have Done button
+    expect(screen.getByRole("button", { name: /done/i })).toBeInTheDocument();
 
-    it("does not render Log Another button when onLogAnother is not provided", () => {
-      render(
-        <FoodLogConfirmation
-          response={mockResponse}
-          foodName="Test Food"
-        />
-      );
-
-      expect(screen.queryByRole("button", { name: /log another/i })).not.toBeInTheDocument();
-    });
-
-    it("calls onLogAnother when Log Another button is clicked", () => {
-      const onLogAnother = vi.fn();
-      render(
-        <FoodLogConfirmation
-          response={mockResponse}
-          foodName="Test Food"
-          onLogAnother={onLogAnother}
-        />
-      );
-
-      fireEvent.click(screen.getByRole("button", { name: /log another/i }));
-
-      expect(onLogAnother).toHaveBeenCalledTimes(1);
-    });
+    // Should NOT have Log Another button
+    expect(screen.queryByRole("button", { name: /log another/i })).not.toBeInTheDocument();
   });
 
     it("does not render nutrition card when analysis is not provided", () => {

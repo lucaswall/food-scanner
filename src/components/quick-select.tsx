@@ -252,11 +252,6 @@ export function QuickSelect() {
         foodName={selectedFood?.foodName ?? resubmitFoodName ?? "Food"}
         analysis={analysis}
         mealTypeId={mealTypeId}
-        onLogAnother={() => {
-          setLogResponse(null);
-          setSelectedFood(null);
-          setLogError(null);
-        }}
       />
     );
   }
@@ -284,6 +279,10 @@ export function QuickSelect() {
           sodiumMg={selectedFood.sodiumMg}
           unitId={selectedFood.unitId}
           amount={selectedFood.amount}
+          saturatedFatG={selectedFood.saturatedFatG}
+          transFatG={selectedFood.transFatG}
+          sugarsG={selectedFood.sugarsG}
+          caloriesFromFat={selectedFood.caloriesFromFat}
         />
 
         <div className="space-y-2">

@@ -13,6 +13,10 @@ export interface CustomFoodInput {
   fatG: number;
   fiberG: number;
   sodiumMg: number;
+  saturatedFatG?: number | null;
+  transFatG?: number | null;
+  sugarsG?: number | null;
+  caloriesFromFat?: number | null;
   confidence: "high" | "medium" | "low";
   notes: string | null;
   description?: string | null;
@@ -48,6 +52,10 @@ export async function insertCustomFood(
       fatG: String(data.fatG),
       fiberG: String(data.fiberG),
       sodiumMg: String(data.sodiumMg),
+      saturatedFatG: data.saturatedFatG != null ? String(data.saturatedFatG) : null,
+      transFatG: data.transFatG != null ? String(data.transFatG) : null,
+      sugarsG: data.sugarsG != null ? String(data.sugarsG) : null,
+      caloriesFromFat: data.caloriesFromFat != null ? String(data.caloriesFromFat) : null,
       confidence: data.confidence,
       notes: data.notes,
       description: data.description ?? null,
@@ -131,6 +139,10 @@ interface JoinedRow {
     fatG: string;
     fiberG: string;
     sodiumMg: string;
+    saturatedFatG: string | null;
+    transFatG: string | null;
+    sugarsG: string | null;
+    caloriesFromFat: string | null;
     fitbitFoodId: number | null;
     confidence: string;
     notes: string | null;
@@ -152,6 +164,10 @@ function mapRowToCommonFood(row: JoinedRow): CommonFood {
     fatG: Number(row.custom_foods.fatG),
     fiberG: Number(row.custom_foods.fiberG),
     sodiumMg: Number(row.custom_foods.sodiumMg),
+    saturatedFatG: row.custom_foods.saturatedFatG != null ? Number(row.custom_foods.saturatedFatG) : null,
+    transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
+    sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
+    caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
     fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
     mealTypeId: row.food_log_entries.mealTypeId,
   };
@@ -375,6 +391,10 @@ export async function getFoodLogHistory(
     fatG: Number(row.custom_foods.fatG),
     fiberG: Number(row.custom_foods.fiberG),
     sodiumMg: Number(row.custom_foods.sodiumMg),
+    saturatedFatG: row.custom_foods.saturatedFatG != null ? Number(row.custom_foods.saturatedFatG) : null,
+    transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
+    sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
+    caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
     amount: Number(row.food_log_entries.amount),
     unitId: row.food_log_entries.unitId,
     mealTypeId: row.food_log_entries.mealTypeId,
@@ -419,6 +439,10 @@ export async function getFoodLogEntryDetail(
     fatG: Number(row.custom_foods.fatG),
     fiberG: Number(row.custom_foods.fiberG),
     sodiumMg: Number(row.custom_foods.sodiumMg),
+    saturatedFatG: row.custom_foods.saturatedFatG != null ? Number(row.custom_foods.saturatedFatG) : null,
+    transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
+    sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
+    caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
     amount: Number(row.food_log_entries.amount),
     unitId: row.food_log_entries.unitId,
     mealTypeId: row.food_log_entries.mealTypeId,
@@ -549,8 +573,150 @@ export async function searchFoods(
       fatG: Number(row.custom_foods.fatG),
       fiberG: Number(row.custom_foods.fiberG),
       sodiumMg: Number(row.custom_foods.sodiumMg),
+      saturatedFatG: row.custom_foods.saturatedFatG != null ? Number(row.custom_foods.saturatedFatG) : null,
+      transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
+      sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
+      caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
       fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
       mealTypeId: entryRow.food_log_entries?.mealTypeId ?? 7,
     };
   });
+}
+
+export async function getDailyNutritionSummary(
+  userId: string,
+  date: string,
+): Promise<import("@/types").NutritionSummary> {
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(foodLogEntries)
+    .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
+    .where(and(eq(foodLogEntries.userId, userId), eq(foodLogEntries.date, date)))
+    .orderBy(asc(foodLogEntries.mealTypeId), asc(foodLogEntries.time), asc(foodLogEntries.id));
+
+  // Group entries by mealTypeId
+  const mealGroups = new Map<number, typeof rows>();
+  for (const row of rows) {
+    const mealTypeId = row.food_log_entries.mealTypeId;
+    const existing = mealGroups.get(mealTypeId);
+    if (!existing) {
+      mealGroups.set(mealTypeId, [row]);
+    } else {
+      existing.push(row);
+    }
+  }
+
+  // Calculate totals and per-meal subtotals
+  const meals: import("@/types").MealGroup[] = [];
+  let totalCalories = 0;
+  let totalProteinG = 0;
+  let totalCarbsG = 0;
+  let totalFatG = 0;
+  let totalFiberG = 0;
+  let totalSodiumMg = 0;
+  let totalSaturatedFatG = 0;
+  let totalTransFatG = 0;
+  let totalSugarsG = 0;
+  let totalCaloriesFromFat = 0;
+
+  for (const [mealTypeId, mealRows] of mealGroups) {
+    const entries: import("@/types").MealEntry[] = [];
+    let mealCalories = 0;
+    let mealProteinG = 0;
+    let mealCarbsG = 0;
+    let mealFatG = 0;
+    let mealFiberG = 0;
+    let mealSodiumMg = 0;
+    let mealSaturatedFatG = 0;
+    let mealTransFatG = 0;
+    let mealSugarsG = 0;
+    let mealCaloriesFromFat = 0;
+
+    for (const row of mealRows) {
+      const calories = row.custom_foods.calories;
+      const proteinG = Number(row.custom_foods.proteinG);
+      const carbsG = Number(row.custom_foods.carbsG);
+      const fatG = Number(row.custom_foods.fatG);
+      const fiberG = Number(row.custom_foods.fiberG);
+      const sodiumMg = Number(row.custom_foods.sodiumMg);
+      const saturatedFatG = row.custom_foods.saturatedFatG != null ? Number(row.custom_foods.saturatedFatG) : 0;
+      const transFatG = row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : 0;
+      const sugarsG = row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : 0;
+      const caloriesFromFat = row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : 0;
+
+      entries.push({
+        id: row.food_log_entries.id,
+        foodName: row.custom_foods.foodName,
+        time: row.food_log_entries.time,
+        calories,
+        proteinG,
+        carbsG,
+        fatG,
+        fiberG,
+        sodiumMg,
+        saturatedFatG: row.custom_foods.saturatedFatG != null ? Number(row.custom_foods.saturatedFatG) : null,
+        transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
+        sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
+        caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
+      });
+
+      mealCalories += calories;
+      mealProteinG += proteinG;
+      mealCarbsG += carbsG;
+      mealFatG += fatG;
+      mealFiberG += fiberG;
+      mealSodiumMg += sodiumMg;
+      mealSaturatedFatG += saturatedFatG;
+      mealTransFatG += transFatG;
+      mealSugarsG += sugarsG;
+      mealCaloriesFromFat += caloriesFromFat;
+    }
+
+    meals.push({
+      mealTypeId,
+      entries,
+      subtotal: {
+        calories: mealCalories,
+        proteinG: mealProteinG,
+        carbsG: mealCarbsG,
+        fatG: mealFatG,
+        fiberG: mealFiberG,
+        sodiumMg: mealSodiumMg,
+        saturatedFatG: mealSaturatedFatG,
+        transFatG: mealTransFatG,
+        sugarsG: mealSugarsG,
+        caloriesFromFat: mealCaloriesFromFat,
+      },
+    });
+
+    totalCalories += mealCalories;
+    totalProteinG += mealProteinG;
+    totalCarbsG += mealCarbsG;
+    totalFatG += mealFatG;
+    totalFiberG += mealFiberG;
+    totalSodiumMg += mealSodiumMg;
+    totalSaturatedFatG += mealSaturatedFatG;
+    totalTransFatG += mealTransFatG;
+    totalSugarsG += mealSugarsG;
+    totalCaloriesFromFat += mealCaloriesFromFat;
+  }
+
+  return {
+    date,
+    meals,
+    totals: {
+      calories: totalCalories,
+      proteinG: totalProteinG,
+      carbsG: totalCarbsG,
+      fatG: totalFatG,
+      fiberG: totalFiberG,
+      sodiumMg: totalSodiumMg,
+      saturatedFatG: totalSaturatedFatG,
+      transFatG: totalTransFatG,
+      sugarsG: totalSugarsG,
+      caloriesFromFat: totalCaloriesFromFat,
+    },
+  };
 }

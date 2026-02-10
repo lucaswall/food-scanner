@@ -641,3 +641,92 @@ Three workstreams in a single plan:
 - Macro goals from Fitbit (only calorie goal for now)
 - Tier 2+ nutrients (micronutrients — future roadmap)
 - Meal type auto-suggestion changes
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-10
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Add `variant` prop to `DialogContent` for bottom-sheet animation (worker-1)
+- Task 2: Unify post-log success screen (worker-1)
+- Task 3: Polish bottom-sheet spacing and animation duration (worker-1)
+- Task 4: Extend FoodAnalysis type and Claude tool schema with Tier 1 nutrients (worker-2)
+- Task 5: Pass Tier 1 nutrients to Fitbit createFood API (worker-2)
+- Task 6: DB migration — add Tier 1 columns to custom_foods (worker-2 + lead migration gen)
+- Task 7: Update Nutrition Facts Card UI for Tier 1 nutrients (worker-1)
+- Task 8: Daily nutrition summary lib function and API route (worker-2)
+- Task 9: Fitbit food goals API integration (worker-2)
+- Task 10: CalorieRing SVG component (worker-3)
+- Task 11: MacroBars component (worker-3)
+- Task 12: MealBreakdown collapsible sections component (worker-3)
+- Task 13: DailyDashboard integration component (worker-3)
+
+### Files Modified
+- `src/components/ui/dialog.tsx` - Added `variant` prop with `default` and `bottom-sheet` variants using cva
+- `src/components/ui/__tests__/dialog.test.tsx` - Created tests for both dialog variants
+- `src/components/food-history.tsx` - Updated to use `variant="bottom-sheet"` instead of inline class overrides
+- `src/components/__tests__/food-history.test.tsx` - Updated assertion for bottom-4 spacing
+- `src/components/food-log-confirmation.tsx` - Removed onLogAnother/onDone props, unified to single "Done" button
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Updated tests for simplified behavior
+- `src/components/quick-select.tsx` - Removed onLogAnother callback, pass Tier 1 props to NutritionFactsCard
+- `src/components/__tests__/quick-select.test.tsx` - Updated for prop changes
+- `src/components/nutrition-facts-card.tsx` - Added Tier 1 nutrient rows (saturated fat, trans fat, sugars, calories from fat)
+- `src/components/__tests__/nutrition-facts-card.test.tsx` - Added tests for Tier 1 display
+- `src/components/food-detail.tsx` - Pass Tier 1 props to NutritionFactsCard
+- `src/types/index.ts` - Added Tier 1 fields to FoodAnalysis, CommonFood, FoodMatch, FoodLogHistoryEntry, FoodLogEntryDetail; added NutritionSummary, MealGroup, MealEntry, NutritionGoals types
+- `src/lib/claude.ts` - Extended tool schema and system prompt for Tier 1 nutrients, updated validateFoodAnalysis()
+- `src/lib/__tests__/claude.test.ts` - Added 10 Tier 1 validation tests
+- `src/lib/fitbit.ts` - Added Tier 1 params to createFood(), added getFoodGoals()
+- `src/lib/__tests__/fitbit.test.ts` - Added tests for Tier 1 params and food goals
+- `src/db/schema.ts` - Added 4 nullable Tier 1 columns to customFoods
+- `drizzle/0009_gigantic_silver_fox.sql` - Auto-generated migration for Tier 1 columns
+- `src/lib/food-log.ts` - Extended CustomFoodInput, insertCustomFood(), read functions, added getDailyNutritionSummary()
+- `src/lib/__tests__/food-log.test.ts` - Added tests for Tier 1 fields and nutrition summary
+- `src/app/api/log-food/route.ts` - Added Tier 1 validation in isValidFoodLogRequest()
+- `src/app/api/nutrition-summary/route.ts` - Created daily nutrition summary endpoint
+- `src/app/api/nutrition-summary/__tests__/route.test.ts` - Created endpoint tests
+- `src/app/api/nutrition-goals/route.ts` - Created Fitbit food goals endpoint
+- `src/app/api/nutrition-goals/__tests__/route.test.ts` - Created endpoint tests
+- `src/components/calorie-ring.tsx` - Created SVG calorie progress ring
+- `src/components/__tests__/calorie-ring.test.tsx` - 10 tests for ring calculations and edge cases
+- `src/components/macro-bars.tsx` - Created horizontal macro progress bars
+- `src/components/__tests__/macro-bars.test.tsx` - 8 tests for bar display
+- `src/components/meal-breakdown.tsx` - Created collapsible meal sections with meal type labels
+- `src/components/__tests__/meal-breakdown.test.tsx` - 9 tests for expand/collapse behavior
+- `src/components/daily-dashboard.tsx` - Created SWR-powered dashboard composing all sub-components
+- `src/components/__tests__/daily-dashboard.test.tsx` - 12 tests for fetching, states, composition
+- `src/app/app/page.tsx` - Replaced DashboardPreview with DailyDashboard
+- `src/app/app/__tests__/page.test.tsx` - Updated mock for DailyDashboard
+- `src/components/dashboard-preview.tsx` - DELETED
+- `src/components/__tests__/dashboard-preview.test.tsx` - DELETED
+- `MIGRATIONS.md` - Logged migration 0009
+
+### Linear Updates
+- FOO-295: Todo → In Progress → Review
+- FOO-296: Todo → In Progress → Review
+- FOO-297: Todo → In Progress → Review
+- FOO-298: Todo → In Progress → Review
+- FOO-299: Todo → In Progress → Review
+- FOO-300: Todo → In Progress → Review
+- FOO-301: Todo → In Progress → Review
+- FOO-302: Todo → In Progress → Review
+- FOO-303: Todo → In Progress → Review
+- FOO-304: Todo → In Progress → Review
+- FOO-305: Todo → In Progress → Review
+- FOO-306: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 critical + 2 high integration type mismatches (worker-3 local types vs worker-2 actual types), fixed by lead before commit
+- verifier: All 1129 tests pass, zero warnings, clean build
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3, 7 (dialog variant, success screen, polish, nutrition card UI)
+- Worker 2: Tasks 4, 5, 6, 8, 9 (types, Claude schema, Fitbit API, DB schema, nutrition summary, goals API)
+- Worker 3: Tasks 10, 11, 12, 13 (CalorieRing, MacroBars, MealBreakdown, DailyDashboard)
+- Lead: Migration generation (drizzle-kit), integration fixes, MIGRATIONS.md
+
+### Continuation Status
+All tasks completed.

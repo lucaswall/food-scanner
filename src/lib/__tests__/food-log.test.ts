@@ -343,6 +343,99 @@ describe("insertCustomFood", () => {
       }),
     );
   });
+
+  it("stores Tier 1 nutrients when provided as numbers", async () => {
+    const createdAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 100, createdAt }]);
+
+    await insertCustomFood("user-uuid-123", {
+      foodName: "Pizza slice",
+      amount: 150,
+      unitId: 311,
+      calories: 285,
+      proteinG: 12,
+      carbsG: 36,
+      fatG: 10,
+      fiberG: 2,
+      sodiumMg: 640,
+      saturatedFatG: 4.5,
+      transFatG: 0.2,
+      sugarsG: 3.5,
+      caloriesFromFat: 90,
+      confidence: "high",
+      notes: "Cheese pizza",
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        saturatedFatG: "4.5",
+        transFatG: "0.2",
+        sugarsG: "3.5",
+        caloriesFromFat: "90",
+      }),
+    );
+  });
+
+  it("stores Tier 1 nutrients as null when provided as null", async () => {
+    const createdAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 101, createdAt }]);
+
+    await insertCustomFood("user-uuid-123", {
+      foodName: "Unknown food",
+      amount: 100,
+      unitId: 147,
+      calories: 150,
+      proteinG: 5,
+      carbsG: 20,
+      fatG: 5,
+      fiberG: 2,
+      sodiumMg: 100,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      caloriesFromFat: null,
+      confidence: "low",
+      notes: null,
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+      }),
+    );
+  });
+
+  it("stores Tier 1 nutrients as null when not provided (backward compat)", async () => {
+    const createdAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 102, createdAt }]);
+
+    await insertCustomFood("user-uuid-123", {
+      foodName: "Legacy food",
+      amount: 100,
+      unitId: 147,
+      calories: 150,
+      proteinG: 5,
+      carbsG: 20,
+      fatG: 5,
+      fiberG: 2,
+      sodiumMg: 100,
+      confidence: "medium",
+      notes: null,
+      // Tier 1 fields omitted entirely
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+      }),
+    );
+  });
 });
 
 describe("insertFoodLogEntry", () => {
@@ -938,6 +1031,10 @@ describe("getRecentFoods", () => {
       fatG: 10,
       fiberG: 2,
       sodiumMg: 400,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      caloriesFromFat: null,
       fitbitFoodId: 100,
       mealTypeId: 3,
     });
@@ -1087,6 +1184,10 @@ describe("getFoodLogHistory", () => {
       fatG: 10,
       fiberG: 2,
       sodiumMg: 400,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      caloriesFromFat: null,
       amount: 150,
       unitId: 147,
       mealTypeId: 3,
@@ -1344,6 +1445,10 @@ describe("getFoodLogEntryDetail", () => {
         fatG: "20",
         fiberG: "0",
         sodiumMg: "150",
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
         fitbitFoodId: 100,
         confidence: "high",
         notes: "With lemon",
@@ -1367,6 +1472,10 @@ describe("getFoodLogEntryDetail", () => {
       fatG: 20,
       fiberG: 0,
       sodiumMg: 150,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      caloriesFromFat: null,
       amount: 200,
       unitId: 147,
       mealTypeId: 3,
@@ -1543,6 +1652,10 @@ describe("searchFoods", () => {
       fatG: 10,
       fiberG: 2,
       sodiumMg: 400,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      caloriesFromFat: null,
       fitbitFoodId: 100,
       mealTypeId: 3,
     });

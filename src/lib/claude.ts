@@ -19,7 +19,8 @@ function getClient(): Anthropic {
 const SYSTEM_PROMPT = `You are a nutrition analyst specializing in Argentine and Latin American cuisine.
 Analyze food images and descriptions to provide accurate nutritional information.
 Consider typical Argentine portions and preparation methods.
-Choose the most natural measurement unit for each food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).`;
+Choose the most natural measurement unit for each food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).
+Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calories_from_fat) when possible. Use null only when truly unknown.`;
 
 const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
@@ -46,6 +47,22 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       fat_g: { type: "number" },
       fiber_g: { type: "number" },
       sodium_mg: { type: "number" },
+      saturated_fat_g: {
+        type: "number",
+        description: "Estimated saturated fat in grams. Provide your best estimate; use null only if truly unknown.",
+      },
+      trans_fat_g: {
+        type: "number",
+        description: "Estimated trans fat in grams. Provide your best estimate; use null only if truly unknown.",
+      },
+      sugars_g: {
+        type: "number",
+        description: "Estimated sugars in grams. Provide your best estimate; use null only if truly unknown.",
+      },
+      calories_from_fat: {
+        type: "number",
+        description: "Estimated calories from fat. Provide your best estimate; use null only if truly unknown.",
+      },
       confidence: { type: "string", enum: ["high", "medium", "low"] },
       notes: {
         type: "string",
@@ -163,6 +180,27 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
     throw new ClaudeApiError("Invalid food analysis: description must be a string");
   }
 
+  // Validate Tier 1 optional nutrients
+  const tier1Fields = ["saturated_fat_g", "trans_fat_g", "sugars_g", "calories_from_fat"] as const;
+  const tier1Values: Record<string, number | null> = {};
+
+  for (const field of tier1Fields) {
+    const value = data[field];
+    if (value === undefined || value === null) {
+      // Omitted or explicitly null → normalize to null
+      tier1Values[field] = null;
+    } else if (typeof value === "number") {
+      // Present as number → validate non-negative
+      if (value < 0) {
+        throw new ClaudeApiError(`Invalid food analysis: ${field} must not be negative`);
+      }
+      tier1Values[field] = value;
+    } else {
+      // Present but not number or null → reject
+      throw new ClaudeApiError(`Invalid food analysis: ${field} must be a number or null`);
+    }
+  }
+
   return {
     food_name: data.food_name as string,
     amount: data.amount as number,
@@ -173,6 +211,10 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
     fat_g: data.fat_g as number,
     fiber_g: data.fiber_g as number,
     sodium_mg: data.sodium_mg as number,
+    saturated_fat_g: tier1Values.saturated_fat_g,
+    trans_fat_g: tier1Values.trans_fat_g,
+    sugars_g: tier1Values.sugars_g,
+    calories_from_fat: tier1Values.calories_from_fat,
     confidence: data.confidence as FoodAnalysis["confidence"],
     notes: data.notes as string,
     keywords,

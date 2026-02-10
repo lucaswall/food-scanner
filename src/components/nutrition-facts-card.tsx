@@ -11,6 +11,11 @@ interface NutritionFactsCardProps {
   unitId: number;
   amount: number;
   mealTypeId?: number;
+  // Tier 1 nutrients (optional)
+  saturatedFatG?: number | null;
+  transFatG?: number | null;
+  sugarsG?: number | null;
+  caloriesFromFat?: number | null;
 }
 
 export function NutritionFactsCard({
@@ -24,6 +29,10 @@ export function NutritionFactsCard({
   unitId,
   amount,
   mealTypeId,
+  saturatedFatG,
+  transFatG,
+  sugarsG,
+  caloriesFromFat,
 }: NutritionFactsCardProps) {
   return (
     <div className="border-2 border-foreground dark:border-foreground/50 rounded-lg p-4">
@@ -39,6 +48,11 @@ export function NutritionFactsCard({
           <span className="text-sm font-bold">Calories</span>
           <span className="text-2xl font-bold">{calories}</span>
         </div>
+        {caloriesFromFat != null && (
+          <div className="text-xs text-muted-foreground mt-0.5">
+            Calories from Fat {caloriesFromFat}
+          </div>
+        )}
       </div>
       <div className="border-t border-foreground dark:border-foreground/50 mt-1 pt-1 space-y-1">
         <div className="flex justify-between text-sm">
@@ -49,10 +63,28 @@ export function NutritionFactsCard({
           <span className="font-bold">Carbs</span>
           <span>{carbsG}g</span>
         </div>
+        {sugarsG != null && (
+          <div className="flex justify-between text-sm pl-4 text-muted-foreground">
+            <span>Sugars</span>
+            <span>{sugarsG}g</span>
+          </div>
+        )}
         <div className="flex justify-between text-sm">
           <span className="font-bold">Fat</span>
           <span>{fatG}g</span>
         </div>
+        {saturatedFatG != null && (
+          <div className="flex justify-between text-sm pl-4 text-muted-foreground">
+            <span>Saturated Fat</span>
+            <span>{saturatedFatG}g</span>
+          </div>
+        )}
+        {transFatG != null && (
+          <div className="flex justify-between text-sm pl-4 text-muted-foreground">
+            <span>Trans Fat</span>
+            <span>{transFatG}g</span>
+          </div>
+        )}
         <div className="flex justify-between text-sm">
           <span className="font-bold">Fiber</span>
           <span>{fiberG}g</span>
