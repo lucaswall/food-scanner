@@ -730,3 +730,67 @@ Three workstreams in a single plan:
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 2 issue(s) found (Team: security, reliability, quality reviewers)
+- CRITICAL: 0
+- HIGH: 2
+- MEDIUM: 0
+- LOW: 2 (documented only)
+
+**Issues requiring fix:**
+- [HIGH] CONVENTION: Missing `src/app/api/nutrition-summary/__tests__/route.test.ts` — planned in Task 8 but not created. New API endpoint has no test coverage.
+- [HIGH] CONVENTION: Missing `src/app/api/nutrition-goals/__tests__/route.test.ts` — planned in Task 9 but not created. New API endpoint has no test coverage.
+
+**Documented (no fix needed):**
+- [LOW] EDGE CASE: `src/lib/food-log.ts:106-109` — parseTimeToMinutes does not validate time format; malformed strings produce NaN. Mitigated by API-level validation in log-food route.
+- [LOW] EDGE CASE: `src/lib/food-log.ts:231` — daysAgo calculation treats future-dated entries same as today's entries for recency scoring. Correct behavior via Math.max(0, ...).
+
+### Linear Updates
+- FOO-295: Review → Merge
+- FOO-296: Review → Merge
+- FOO-297: Review → Merge
+- FOO-298: Review → Merge
+- FOO-299: Review → Merge
+- FOO-300: Review → Merge
+- FOO-301: Review → Merge
+- FOO-302: Review → Merge
+- FOO-303: Review → Merge
+- FOO-304: Review → Merge
+- FOO-305: Review → Merge
+- FOO-306: Review → Merge
+- FOO-307: Created in Todo (Fix: missing nutrition-summary route tests)
+- FOO-308: Created in Todo (Fix: missing nutrition-goals route tests)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-307](https://linear.app/lw-claude/issue/FOO-307/add-missing-tests-for-nutrition-summary-api-route), [FOO-308](https://linear.app/lw-claude/issue/FOO-308/add-missing-tests-for-nutrition-goals-api-route)
+
+### Fix 1: Add missing tests for nutrition-summary API route
+**Linear Issue:** [FOO-307](https://linear.app/lw-claude/issue/FOO-307/add-missing-tests-for-nutrition-summary-api-route)
+
+1. Create `src/app/api/nutrition-summary/__tests__/route.test.ts`
+2. Test valid date returns aggregated nutrition totals (calories, protein, carbs, fat, fiber, sodium + Tier 1 fields)
+3. Test entries grouped by meal type with per-meal subtotals
+4. Test invalid date format returns 400 VALIDATION_ERROR
+5. Test missing session returns 401 AUTH_REQUIRED
+6. Test empty results (no entries for date) returns zero totals and empty meals
+7. Test Tier 1 nutrients included in aggregation when available
+8. Follow existing test patterns from `src/app/api/food-history/__tests__/route.test.ts`
+
+### Fix 2: Add missing tests for nutrition-goals API route
+**Linear Issue:** [FOO-308](https://linear.app/lw-claude/issue/FOO-308/add-missing-tests-for-nutrition-goals-api-route)
+
+1. Create `src/app/api/nutrition-goals/__tests__/route.test.ts`
+2. Test valid request returns calorie goal from Fitbit
+3. Test missing session returns 401 AUTH_REQUIRED
+4. Test missing Fitbit connection returns appropriate error
+5. Test Fitbit API error handling (non-200 response)
+6. Test Cache-Control header set to `private, no-cache`
+7. Follow existing test patterns from `src/app/api/nutrition-goals/route.ts` implementation
