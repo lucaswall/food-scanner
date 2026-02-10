@@ -1,113 +1,87 @@
 # Food Scanner - Roadmap
 
-## Feature 1: Conversational Analysis (Chat Refinement)
+## Contents
+
+| # | Feature | Prerequisites |
+|---|---------|---------------|
+| 1 | [Conversational Analysis](#feature-1-conversational-analysis) | — |
+| 2 | [Fasting Window & Date Navigation](#feature-2-fasting-window--date-navigation) | Daily Dashboard (FOO-302–306) |
+| 3 | [Weekly Nutrition View](#feature-3-weekly-nutrition-view) | Feature 2 |
+| 4 | [Smart Multi-Item Splitting](#feature-4-smart-multi-item-splitting) | Feature 1 |
+| 5 | [Contextual Memory from Food History](#feature-5-contextual-memory-from-food-history) | Feature 1 |
+| 6 | [Offline Queue with Background Sync](#feature-6-offline-queue-with-background-sync) | — |
+
+---
+
+## Feature 1: Conversational Analysis
 
 ### Problem
 
-Food analysis is currently a one-shot transaction: snap a photo, get results, log to Fitbit. There's no way to correct mistakes ("that's two apples, not one"), add more items to the same meal, ask questions about the food, or refine the analysis before logging. The user either accepts what the AI says or starts over.
+The app supports a single correction after analysis (type a correction → Claude re-analyzes), but there's no multi-turn conversation. Users can't iteratively refine ("that's two apples" → "also add peanut butter" → "I only ate half"), add more photos mid-conversation, or ask questions about the food before logging.
 
-The main issue is that users can't validate nutritional numbers — nobody looks at "23g protein" and knows whether that's right. What users *can* validate is the text description: "one apple" when it should be two, "white rice" when it's actually quinoa. The conversation itself is the validation mechanism, not a confirmation table full of numbers.
+Users can't validate nutritional numbers — nobody looks at "23g protein" and knows whether that's right. What users *can* validate is the text description. The conversation itself is the validation mechanism, but the current single-correction flow limits this to one round.
 
 ### Goal
 
-After the initial analysis, the user can optionally open an inline chat to refine the result before logging. The chat is ephemeral — it exists only to produce a better food log entry. Once logged, the conversation is gone.
+Extend the existing correction flow into a full inline chat. The chat is ephemeral — it exists only to produce a better food log entry through iterative refinement. Once logged, the conversation is gone.
 
-### UX Flow
+### Design
 
-1. **Initial analysis** works exactly as today: snap photo and/or write description → AI analyzes → analysis card appears with results.
-2. Below the analysis card, a **collapsed input hint** appears: *"Add details or correct something..."* — single line, subtle, not a full text area.
-3. If the user taps **Log**, the food is logged immediately (current flow, unchanged).
-4. If the user taps the **input hint**, the screen transforms into a chat:
-   - The analysis card reflows into a chat bubble (first assistant message).
-   - The input expands with a text field and an inline camera button.
-   - A **Log** button stays pinned and always accessible.
-   - A **Close** button (or X) is also available to abandon without logging.
-5. The user can send text messages, attach new photos, or both.
-6. Claude responds conversationally — short, focused replies. When the food list or quantities change, Claude confirms the updated analysis naturally in the conversation.
-7. When the user taps **Log**, the latest agreed-upon food analysis is logged (same flow as current: nutrition dialog if needed, then the standard `FoodLogConfirmation` screen with "Done" → Home and "Log Another" to reset).
-8. When the user taps **Close**, everything is discarded, back to Home.
+#### UX Flow
 
-### Chat Behavior Rules
+1. **Initial analysis** works as today: photo/description → AI analyzes → analysis card appears.
+2. Below the analysis card, a **collapsed input hint** appears: *"Add details or correct something..."*
+3. Tapping **Log** logs immediately (current flow, unchanged).
+4. Tapping the **input hint** transforms the screen into a chat:
+   - Analysis card reflows into a chat bubble (first assistant message).
+   - Input expands with a text field and an inline camera button.
+   - **Log** button stays pinned and always accessible.
+   - **Close** button (X) available to abandon without logging.
+5. User can send text messages, attach new photos, or both.
+6. Claude responds conversationally. When food items or quantities change, Claude confirms the updated analysis naturally.
+7. Tapping **Log** logs the latest agreed-upon analysis (same post-log flow: `FoodLogConfirmation` with "Done" and "Log Another").
+8. Tapping **Close** discards everything, returns to Home.
 
-1. **Claude always confirms what will be logged** — after any change to the food items or quantities, Claude's response should naturally include the updated summary. Not as a formal table, but conversationally: *"Got it — updated to 2 apples with peanut butter (~340 cal)."*
-2. **Don't repeat unchanged information** — if the user asks a question and nothing about the food changed, Claude answers the question without re-listing the entire analysis.
-3. **New photos add to the meal** — sending another photo mid-chat adds those items to the current meal, it doesn't replace the previous analysis.
-4. **Text-only input works** — the user can describe food without photos: *"I also had a coffee with oat milk."* Claude incorporates it.
-5. **Corrections override** — *"That's not rice, it's quinoa"* → Claude updates the analysis, confirms the change.
-6. **Portion adjustments** — *"I only ate half"* → Claude halves the quantities, confirms.
+#### Chat Behavior Rules
 
-### UI Details
+1. **Always confirm what will be logged** — after any change, Claude's response includes the updated summary conversationally: *"Got it — updated to 2 apples with peanut butter (~340 cal)."*
+2. **Don't repeat unchanged information** — if the user asks a question and nothing changed, Claude answers without re-listing the analysis.
+3. **New photos add to the meal** — sending another photo adds items, doesn't replace.
+4. **Text-only input works** — *"I also had a coffee with oat milk."*
+5. **Corrections override** — *"That's not rice, it's quinoa"* → Claude updates and confirms.
+6. **Portion adjustments** — *"I only ate half"* → Claude halves quantities and confirms.
 
-- **Chat bubbles**: Standard message bubble layout (assistant left, user right). Assistant messages use the app's accent color.
-- **Camera button**: Inline in the chat input bar, like messaging apps. Opens the same camera/gallery picker as the main analysis flow.
-- **Log button**: Pinned at the bottom or top of the chat. Always visible. Just says "Log" — no calorie preview on the button (numbers the user can't validate add no value).
-- **Close button**: Top-left X or alongside Log. Discards everything, returns to Home. No "are you sure?" confirmation.
-- **Success feedback**: After logging, the standard `FoodLogConfirmation` screen is shown — same as the analyze and quick-select flows. "Done" navigates to Home, "Log Another" resets for a new entry.
+#### UI Details
+
+- **Chat bubbles:** Standard layout (assistant left, user right). Assistant messages use the accent color.
+- **Camera button:** Inline in chat input bar. Opens the same camera/gallery picker as the analyze flow.
+- **Log button:** Pinned, always visible. No calorie preview on the button.
+- **Close button:** Top-left X or alongside Log. No "are you sure?" confirmation.
 
 ### Architecture
 
-- **Ephemeral chat state**: Conversation lives in client-side React state only. No persistence to DB. When the user logs or closes, it's gone.
-- **Multi-turn Anthropic API**: The existing Claude `tool_use` flow extends from 1 turn to N turns. Each user message sends the full conversation history to the API.
-- **Final log uses latest analysis**: When the user taps Log, the app uses the most recent `FoodAnalysis` result from the conversation (the last tool_use response that included food data).
-- **No thread persistence**: No `chat_threads` table. The value is in the logging outcome, not the conversation history.
-- **Auto-expire on navigation**: If the user leaves the screen (back button, app switch, etc.), the chat state is discarded. No resume.
+- **Existing foundation:** `refineAnalysis()` in `src/lib/claude.ts` and `/api/refine-food` already handle a single correction round. This feature extends that into multi-turn by accumulating conversation history client-side.
+- **Ephemeral chat state:** Conversation history lives in client-side React state only. No DB persistence. Discarded on log, close, or navigation.
+- **Multi-turn Anthropic API:** Each user message sends the full conversation history to the API via `tool_use`. Extends the existing single-correction pattern to N turns.
+- **Final log uses latest analysis:** The most recent `FoodAnalysis` from the conversation (last tool_use response with food data).
+- **Auto-expire on navigation:** Leaving the screen discards the chat state. No resume.
 
-### What This Enables
+### Edge Cases
 
-- **Corrections**: "That's quinoa, not rice" → re-analysis with correction.
-- **Additions**: "I also had this" + new photo → adds to the same meal.
-- **Partial logging**: "I only ate half" → adjusted portions.
-- **Questions**: "How much protein is in this?" / "Is this a good post-workout meal?"
-- **Multi-course meals**: Snap appetizer, then main, then dessert — all in one thread, logged as one meal.
-- **Text-only logging**: "I had a turkey sandwich on whole wheat, about 6 inches" — no photo needed.
+- User navigates away mid-chat → state discarded silently, no prompt.
+- User sends only questions (no food changes) → Log button still uses the original analysis.
+- User sends a photo that Claude can't identify → Claude asks for clarification, doesn't discard previous items.
 
 ### Implementation Order
 
-1. Refactor analysis result into a chat-compatible message format
-2. Collapsed input hint UI below analysis card
+1. Refactor existing correction state into a chat message history format (extends current `food-analyzer.tsx` correction flow)
+2. Replace single-correction input with collapsed input hint UI
 3. Chat screen transition (analysis card → first chat bubble)
-4. Multi-turn API integration (extend existing Claude flow)
+4. Multi-turn API integration (extend `refineAnalysis()` to accept full conversation history)
 5. Inline camera button in chat input
-6. Log button reads latest analysis from conversation
+6. Log button reads latest analysis from conversation history
 7. Close/discard behavior
-8. Post-log flow (reuse existing FoodLogConfirmation screen)
-
-### Future Evolution: Smart Multi-Item Splitting & Library Reuse
-
-Once the chat is stable, the model can suggest splitting a meal into multiple separate food log entries. Instead of logging "grilled chicken with rice, salad, and flan" as one monolithic food, Claude suggests: *"I'd log this as 2 items: (1) Grilled chicken with rice — matches one you've logged before (520 cal), (2) Flan — new (~280 cal). Sound good?"*
-
-**Multi-item splitting:**
-- Claude suggests splitting by courses/distinct items, not by ingredients. "Chicken with rice" stays together — it's one dish. But "chicken with rice AND a flan" is two.
-- Claude suggests, user decides. Never auto-split. The user can say "keep it as one" or "actually split the chicken and rice too."
-- Cap at ~4-5 entries per analysis. No micro-entries.
-- The user can adjust splits during the chat: "combine those into one" or "separate the salad."
-
-**Food library reuse:**
-- Before creating a new food, Claude checks the existing custom foods library for matches.
-- If "Grilled chicken with rice" already exists from a previous log, Claude reuses it instead of creating a duplicate.
-- Claude tells the user which items are reused ("matches one you've logged before") vs. new estimates. Builds trust.
-- This keeps the food library clean — no duplicates piling up — and makes quick-add more useful over time.
-
-**Combined benefit:** After a few weeks the user has a curated library of actual foods they eat, at the right granularity. Quick-add becomes powerful: tomorrow you had the same lunch but no dessert — just quick-add the chicken with rice, skip the flan.
-
-### Future Evolution: Contextual Memory from Food History
-
-Claude can query the user's food log database during the chat to give contextual, personalized responses. Instead of treating every analysis in isolation, the model has access to what the user has eaten recently and can reference it naturally.
-
-**Examples:**
-- User says *"I had the same breakfast as Monday."* → Claude looks up Monday's breakfast log and pre-fills the analysis.
-- User says *"This is like the chicken I had yesterday but without salt."* → Claude fetches yesterday's chicken entry, adjusts the sodium, confirms the change.
-- User asks *"How much protein have I had today?"* → Claude sums today's logged entries and answers.
-
-**How it works:**
-- New Claude tools (e.g., `search_food_history`, `get_recent_logs`) let the model query `food_log_entries` and `custom_foods` during the conversation.
-- These tools are **only triggered by user messages** in the chat — never during the initial analysis. The model doesn't preload history; it queries on demand when the user's message warrants a lookup.
-- Results are injected into the conversation as tool responses, same as the analysis tools.
-
-**What this enables:**
-- Smarter portion estimates: "Last time you logged this plate it was 350g — does this look about the same?"
-- Detecting patterns: "You've had this 3 times this week — want to save it to quick-select?"
-- Answering nutrition questions grounded in real data, not generic estimates.
+8. Post-log flow (reuse existing `FoodLogConfirmation` screen)
 
 ---
 
@@ -115,37 +89,43 @@ Claude can query the user's food log database during the chat to give contextual
 
 ### Problem
 
-The daily dashboard (FOO-302 through FOO-306) shows today's nutrition totals, but there's no way to navigate between days or see fasting patterns. Users who practice intermittent fasting have no visibility into their eating windows.
+The daily dashboard shows today's nutrition totals but there's no way to navigate between days or see fasting patterns. Users who practice intermittent fasting have no visibility into their eating windows.
+
+### Prerequisites
+
+Daily dashboard must be implemented first (FOO-302 through FOO-306).
 
 ### Goal
 
 Add date navigation to the daily dashboard and a fasting window card that shows overnight fasting duration based on existing meal timestamps.
 
-### Prerequisite
+### Design
 
-Daily dashboard must be implemented first (FOO-302 through FOO-306).
+#### Fasting Window Card
 
-### Fasting Window
+- **Calculation:** Time from last logged meal of the previous day to the first logged meal of the current day.
+- **Display:** Card showing fasting duration (e.g., "14h 30m fast") and time range (e.g., "9:15 PM → 11:45 AM").
+- **Placement:** Below the macro bars, above the meal breakdown on the daily dashboard.
 
-Projects overnight fasting duration based on meal timestamps already stored in `food_log_entries`:
+#### Date Navigation
 
-- **Calculation:** Time from the last logged meal of the previous day to the first logged meal of the current day
-- **Display:** Show as a card with fasting duration (e.g., "14h 30m fast") and the time range (e.g., "9:15 PM → 11:45 AM")
-- **Edge cases:** If no meals logged for the previous or current day, show "No data" instead of guessing. If only one meal exists for a day, use it as both first and last.
-- **No goal or threshold initially** — just display the data. A fasting goal feature can be added later if useful.
+- **Controls:** Left/right arrows or swipe to navigate between days.
+- **Today indicator:** Clear visual distinction when viewing today vs. a past date. "Today" label or highlight.
+- **Bounds:** No future dates. Earliest date is the first food log entry.
+- **URL/state:** Date stored in query parameter or client state. Default is today.
 
-### Date Navigation
+### Edge Cases
 
-- **Date picker:** Swipe left/right or tap arrows to navigate between days
-- **Today indicator:** Clear visual that shows when viewing today vs. a past date
-- **Bounds:** Don't allow navigating to future dates. Earliest date is the first food log entry.
+- No meals logged for previous or current day → show "No data" for fasting window.
+- Only one meal logged for a day → use it as both first and last meal (fasting window shows time from previous day's last meal to this single meal).
+- User navigates to a date with no food logged → dashboard shows empty state with "No food logged" message.
 
 ### Implementation Order
 
-1. Fasting window card component (compute from existing meal timestamps)
-2. Date navigation UI (swipe/tap between days)
+1. Fasting window calculation logic and card component
+2. Date navigation UI (arrows/swipe between days)
 3. Wire fasting card into daily dashboard
-4. Update nutrition summary API to accept date parameter (if not already flexible enough)
+4. Update nutrition summary API to accept any date (if not already flexible)
 
 ---
 
@@ -153,113 +133,236 @@ Projects overnight fasting duration based on meal timestamps already stored in `
 
 ### Problem
 
-Daily totals show a snapshot but not trends. Users can't see if they're consistently hitting their calorie goals, whether protein is trending up, or how their fasting patterns look across the week.
+Daily totals show a snapshot but not trends. Users can't see if they're consistently hitting calorie goals, whether protein is trending up, or how fasting patterns look across the week.
+
+### Prerequisites
+
+Daily dashboard (FOO-302 through FOO-306) and Feature 2 (Fasting Window & Date Navigation).
 
 ### Goal
 
-A weekly view showing 7-day nutrition trends with simple charts, macro averages, and fasting durations per day.
+A weekly view showing 7-day nutrition trends with simple charts, macro averages, and fasting durations per day. Accessible from the daily dashboard.
 
-### Prerequisite
+### Design
 
-Daily dashboard (FOO-302 through FOO-306) and Feature 2 (Fasting Window & Date Navigation) should be implemented first.
+#### Navigation
 
-### Views
+- **Access:** Toggle within the dashboard on the Home page — "Daily" / "Weekly" tabs or segmented control above the dashboard content.
+- **Week selection:** Left/right arrows to navigate between weeks. Default is the current week (Mon–Sun).
 
 #### Weekly Summary
 
-- **Bar chart:** Calories per day with goal line overlay
-- **Macro averages:** Average daily protein/carbs/fat over the week
-- **Fasting durations:** Per-day fasting window alongside the calorie chart
-- **Nutrient highlights:** Days where sodium or sugar exceeded recommended values (if we can determine thresholds)
+- **Calorie bar chart:** One bar per day, colored by whether goal was met. Horizontal goal line overlay.
+- **Macro averages:** Average daily protein/carbs/fat over the 7 days.
+- **Fasting durations:** Per-day fasting window shown alongside or below the calorie chart.
+- **Nutrient highlights:** Flag days where sodium or sugar exceeded recommended values (if thresholds can be determined).
 
 #### Extended Nutrients Table (conditional)
 
-Only shown when the user has logged foods with extended nutrient data (depends on FOO-298 through FOO-301):
-
-- Fiber, sodium, saturated fat, trans fat, sugars — shown when data is available
-- Daily totals with weekly averages
+Depends on FOO-298 through FOO-301. Only shown when extended nutrient data exists:
+- Fiber, sodium, saturated fat, trans fat, sugars with daily totals and weekly averages.
 
 #### Micronutrient Report (conditional)
 
-Only shown when the user has logged foods with extended nutrient data (depends on FOO-298 through FOO-301):
+Depends on FOO-298 through FOO-301. Only shown when data exists:
+- Table of non-null micronutrients with daily totals and % of daily recommended intake.
 
-- Table of all non-null micronutrients with daily totals
-- Percentage of daily recommended intake where applicable
-- Only renders when there's data — no empty states for nutrients we don't have
+#### Charting Approach
 
-### API Endpoint
+- Start with pure CSS/SVG: `<div>` widths for bars, positioned elements for the goal line.
+- If pure CSS proves limiting (responsive sizing, accessibility, interaction), graduate to a lightweight library (e.g., Recharts).
+- Decision point: evaluate after the basic CSS version is working.
+
+### Edge Cases
+
+- Fewer than 7 days of data → show only available days, don't pad with empty bars.
+- No data at all → "Log food for a few days to see weekly trends" with CTA to scan food.
+- User has data for some days but not others → show bars for days with data, gaps for days without.
+
+### Architecture
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/nutrition-summary?from=YYYY-MM-DD&to=YYYY-MM-DD` | Range totals for weekly view |
+| GET | `/api/nutrition-summary?from=YYYY-MM-DD&to=YYYY-MM-DD` | Daily totals per day across a date range |
 
-### Design Notes
-
-- **Mobile-first:** Charts are touch-friendly, cards stack vertically
-- **Dark mode:** All charts must work in both light and dark themes
-- **No charting library initially:** Use simple CSS-based bars (avoid bundle bloat). Graduate to a library only if the simple approach becomes limiting.
-- **Loading states:** Skeleton cards while fetching data
+Aggregates from `food_log_entries` joined with `custom_foods`, same data source as the daily summary API (FOO-302). Returns an array of daily totals, one entry per day.
 
 ### Implementation Order
 
 1. API endpoint for date range nutrition summary
-2. Weekly bar chart with CSS/SVG
-3. Macro averages display
-4. Fasting durations per day in weekly view
-5. Extended nutrients table (depends on FOO-298 through FOO-301)
-6. Micronutrient report (depends on FOO-298 through FOO-301)
+2. Daily/Weekly toggle on dashboard
+3. Weekly calorie bar chart with CSS/SVG
+4. Macro averages display
+5. Fasting durations per day
+6. Extended nutrients table (depends on FOO-298 through FOO-301)
+7. Micronutrient report (depends on FOO-298 through FOO-301)
 
 ---
 
-## Feature 4: Offline Queue with Background Sync
+## Feature 4: Smart Multi-Item Splitting
 
 ### Problem
 
-The app is a PWA but has no service worker. Without connectivity (subway, traveling, spotty rural signal), the app is completely unusable. Food logging happens at meal time, not when you're conveniently on Wi-Fi.
+Complex meals are logged as a single monolithic food entry ("grilled chicken with rice, salad, and flan" → one custom food with combined nutrition). This makes the food library less reusable — tomorrow the user has the same chicken with rice but no flan, and they can't quick-select just the chicken.
+
+### Prerequisites
+
+Feature 1 (Conversational Analysis) — splitting happens during the chat refinement flow.
 
 ### Goal
 
-Queue food photos and descriptions locally when offline, then analyze and log them when connectivity returns. The user should never lose a meal entry because they didn't have signal.
+During the chat, Claude suggests splitting a meal into separate food log entries by course/dish, and reuses existing custom foods from the library when a match exists.
+
+### Design
+
+#### Splitting Behavior
+
+- Claude suggests splitting by **courses or distinct items**, not ingredients. "Chicken with rice" stays together. "Chicken with rice AND flan" is two items.
+- **Claude suggests, user decides.** Never auto-split. User can say "keep it as one" or "actually split the chicken and rice too."
+- **Cap at ~4–5 entries** per analysis. No micro-entries.
+- User can adjust splits during the chat: "combine those into one" or "separate the salad."
+
+#### Food Library Reuse
+
+- Before creating a new custom food, Claude checks the existing library for matches.
+- If "Grilled chicken with rice" already exists, Claude reuses it instead of creating a duplicate.
+- Claude tells the user which items are reused ("matches one you've logged before") vs. new estimates.
+- Keeps the food library clean — no duplicates piling up.
+
+#### UI
+
+- Claude's suggestion is conversational: *"I'd log this as 2 items: (1) Grilled chicken with rice — matches one you've logged before (520 cal), (2) Flan — new (~280 cal). Sound good?"*
+- User confirms, adjusts, or declines in the chat.
+- When confirmed, the Log button logs all items as separate entries in one action.
 
 ### Architecture
 
-- **Service Worker:** Cache the app shell (HTML, JS, CSS, icons) for offline access, intercept failed API requests, and trigger background sync when connectivity returns.
-- **Local Storage:** Use IndexedDB to store queued photos as blobs, text descriptions, timestamps, meal type selections, and sync status (pending, analyzing, logging, done, failed).
+- New Claude tool: `search_custom_foods` — queries the user's custom_foods table for name/keyword matches.
+- Multi-item log: the `/api/log-food` endpoint (or a new batch variant) must support logging multiple entries atomically.
+- Each split item becomes its own `food_log_entry` + `custom_food` pair.
 
-### User Flow
+### Edge Cases
 
-#### Online (no change)
-Normal flow — photo → analyze → confirm → log.
+- User declines splitting → log as a single entry (current behavior).
+- Matched food has different portion size → Claude notes the difference: "Last time this was 350g, this looks similar — same amount?"
+- No matches in library → all items created as new custom foods.
 
-#### Offline — New Entry
-1. User opens app (served from cache)
-2. Takes photo, adds description, picks meal type
-3. Taps "Analyze" — app detects offline
-4. Entry saved to IndexedDB with status `pending`
-5. UI shows "Saved — will analyze when online" with a queued badge
-6. User can continue adding more entries
+### Implementation Order
+
+1. `search_custom_foods` Claude tool (query existing library)
+2. Multi-item splitting logic in Claude prompt/tool schema
+3. Batch logging support (multiple entries from one analysis)
+4. Library match display in chat responses
+5. User confirmation flow for splits
+
+---
+
+## Feature 5: Contextual Memory from Food History
+
+### Problem
+
+Every food analysis is treated in isolation. Claude has no knowledge of what the user has eaten before. Users can't say "same as yesterday's lunch" or ask "how much protein have I had today?" without leaving the app.
+
+### Prerequisites
+
+Feature 1 (Conversational Analysis) — memory queries happen during the chat flow.
+
+### Goal
+
+Claude can query the user's food log database during the chat to give contextual, personalized responses grounded in real data.
+
+### Design
+
+#### User Interactions
+
+- *"I had the same breakfast as Monday."* → Claude looks up Monday's breakfast and pre-fills the analysis.
+- *"This is like the chicken I had yesterday but without salt."* → Claude fetches yesterday's entry, adjusts sodium, confirms.
+- *"How much protein have I had today?"* → Claude sums today's logged entries and answers.
+- *"You've had this 3 times this week — want to save it to quick-select?"* → Claude detects patterns.
+
+#### When Tools Are Used
+
+- Tools are **only triggered by user messages** during the chat — never during the initial one-shot analysis.
+- Claude doesn't preload history. It queries on demand when the user's message warrants a lookup.
+
+### Architecture
+
+- New Claude tools:
+  - `search_food_history` — search `food_log_entries` + `custom_foods` by date, food name, or keyword.
+  - `get_daily_totals` — sum nutrition for a given date (reuses the nutrition summary API logic).
+- Results injected as tool responses in the conversation, same pattern as `report_nutrition`.
+- Read-only — these tools never create or modify data.
+
+### Edge Cases
+
+- User references a date with no logs → Claude responds "I don't see any entries for Monday."
+- Ambiguous reference ("the chicken") with multiple matches → Claude asks for clarification or shows options.
+- User asks about nutrition totals for today while mid-analysis → Claude sums logged entries only, doesn't include the current unlogged analysis.
+
+### Implementation Order
+
+1. `search_food_history` Claude tool (query logs by date/name/keyword)
+2. `get_daily_totals` Claude tool (nutrition sums for a date)
+3. Prompt engineering for contextual responses
+4. Pattern detection ("you've had this X times this week")
+
+---
+
+## Feature 6: Offline Queue with Background Sync
+
+### Problem
+
+The app is a PWA but has no service worker. Without connectivity, the app is completely unusable. Food logging happens at meal time, not when you're conveniently on Wi-Fi.
+
+### Goal
+
+Queue food photos and descriptions locally when offline, then analyze and log them when connectivity returns. No meal entry should be lost due to lack of signal.
+
+### Design
+
+#### Online Flow (no change)
+
+Normal flow: photo → analyze → confirm → log.
+
+#### Offline Flow
+
+1. User opens app (served from cache).
+2. Takes photo, adds description, picks meal type.
+3. Taps "Analyze" — app detects offline.
+4. Entry saved to IndexedDB with status `pending`.
+5. UI shows "Saved — will analyze when online" with a queued badge.
+6. User can continue adding more entries.
 
 #### Coming Back Online
-1. Service worker detects connectivity (`online` event or periodic check)
-2. Processes queue in order: upload photo → analyze → present result
-3. Queue items update status as they progress
 
-### Confirmation Strategy
+1. Service worker detects connectivity (`online` event or periodic check).
+2. Processes queue in order: upload photo → analyze → present result.
+3. Queue items update status as they progress.
 
-Two options — user picks in Settings:
+#### Confirmation Strategy
 
-- **Auto-log (default for high confidence):** If Claude returns `confidence: high`, log automatically. Show a notification with the result and an "Undo" button (delete from Fitbit within 30 seconds).
-- **Hold for review:** All queued items wait in a "Pending Review" screen. User confirms each one. Safer but requires user action.
+User picks in Settings:
+- **Auto-log (default for high confidence):** If Claude returns `confidence: high`, log automatically. Show notification with result and "Undo" button (30-second window).
+- **Hold for review:** All queued items wait in a "Pending Review" screen. User confirms each one.
 
-### Queue UI
+#### Queue UI
 
-- **Badge on bottom nav:** Shows count of pending items
-- **Queue screen:** Accessible from the badge or a dedicated section. Shows each queued entry with photo thumbnail, description, status, and timestamp.
-- **Swipe to delete:** Remove queued items before they sync
+- **Badge:** Count of pending items on the bottom nav (on the Home or Analyze tab).
+- **Queue screen:** Shows each entry with photo thumbnail, description, status, and timestamp.
+- **Swipe to delete:** Remove queued items before they sync.
 
-### Cached Assets
+### Architecture
 
-The service worker should cache the app shell (all routes under `/app`) and static assets (JS bundles, CSS, icons, fonts), but NOT API responses (food data is always dynamic). Use a **stale-while-revalidate** strategy for the shell.
+- **Service Worker:** Caches app shell (HTML, JS, CSS, icons). Intercepts failed API requests. Triggers background sync on reconnection. Does NOT cache API responses.
+- **IndexedDB:** Stores queued photos as blobs, text descriptions, timestamps, meal type, sync status (`pending`, `analyzing`, `logging`, `done`, `failed`).
+- **Cache strategy:** Stale-while-revalidate for the shell.
+
+### Edge Cases
+
+- Queue reaches storage limit → cap at ~20 entries, warn user.
+- Sync fails for one item → mark as `failed`, continue processing others. User can retry failed items.
+- App updated while offline → service worker update takes effect on next reload.
+- User opens app online with pending queue → process queue immediately in background.
 
 ### Implementation Order
 
@@ -271,9 +374,57 @@ The service worker should cache the app shell (all routes under `/app`) and stat
 6. Auto-log vs hold-for-review setting
 7. Notification for auto-logged items
 
-### Limitations
+---
 
-- Claude analysis requires network — cannot run on-device. Queued items show as "waiting to analyze," not with nutrition data.
-- Fitbit logging requires network — entries are queued, not logged.
-- Photos stored as blobs in IndexedDB may use significant storage. Cap at ~20 queued entries and warn the user.
-- Service worker updates need a reload to take effect — standard PWA behavior.
+## Roadmap Conventions
+
+Rules for agents creating, updating, or managing features in this roadmap.
+
+### Feature Structure
+
+Every feature **must** have these sections in this order:
+
+| Section | Purpose |
+|---------|---------|
+| **Problem** | What's wrong or missing. 2–3 sentences max. No solution language. |
+| **Prerequisites** | Other features or Linear issues that must be done first. Omit if none. |
+| **Goal** | What the feature achieves for the user. 1–2 sentences. |
+| **Design** | The meat: UX flows, behavior rules, UI details. Sub-sections vary by feature. |
+| **Architecture** | Technical decisions: storage, APIs, state management. Omit if purely UI. |
+| **Edge Cases** | Non-obvious scenarios and how to handle them. |
+| **Implementation Order** | Numbered list of steps, ordered by dependency. |
+
+### Writing Rules
+
+- **Problem-focused.** Describe what's wrong, not how to fix it. The Design section handles solutions.
+- **Concise.** Each section earns its space. If a section adds nothing beyond what's obvious, cut it.
+- **No implementation code.** Reference file paths and patterns, but don't write code. That's for Linear issues and plan-implement.
+- **User-facing language in Problem/Goal.** Technical details belong in Architecture.
+- **Edge Cases are not Limitations.** Edge cases describe specific scenarios and their handling. Limitations are fundamental constraints (e.g., "requires network") — fold these into Architecture or Edge Cases.
+
+### Numbering
+
+- Features are numbered sequentially starting from 1.
+- When a feature is fully moved to Linear (all issues created), **remove it** from the roadmap. Do not leave stubs.
+- When removing a feature, **renumber** all remaining features to keep numbering contiguous (no gaps). Update the Contents table and any cross-references (Prerequisites).
+- New features get the next available number (highest existing + 1).
+
+### When to Move to Linear
+
+A feature moves from roadmap to Linear Backlog when:
+1. The design is detailed enough for `plan-backlog` to create implementation plans.
+2. Prerequisites are done or in progress.
+3. The feature is approved for implementation.
+
+Move the **entire feature or a self-contained phase** — don't create Linear issues for half a feature while the other half stays in the roadmap. When a feature is too large, split it into separate roadmap features first (each with their own number), then move them independently.
+
+### Splitting Features
+
+If a feature grows beyond ~60 lines or contains clearly independent phases:
+1. Extract each phase into its own feature with a new number.
+2. Set prerequisites between them as needed.
+3. Update the Contents table.
+
+### Contents Table
+
+The table at the top must stay in sync. When adding, removing, or renumbering features, update the table. Each row has: number, linked feature name, and prerequisites.
