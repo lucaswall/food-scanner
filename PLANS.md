@@ -794,3 +794,36 @@ Summary: 2 issue(s) found (Team: security, reliability, quality reviewers)
 5. Test Fitbit API error handling (non-200 response)
 6. Test Cache-Control header set to `private, no-cache`
 7. Follow existing test patterns from `src/app/api/nutrition-goals/route.ts` implementation
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-10
+**Method:** Agent team (2 workers)
+
+### Tasks Completed This Iteration
+- Fix 1: Add missing tests for nutrition-summary API route (FOO-307) (worker-1)
+- Fix 2: Add missing tests for nutrition-goals API route (FOO-308) (worker-2)
+
+### Files Modified
+- `src/app/api/nutrition-summary/__tests__/route.test.ts` - Created: 9 tests covering valid date, meal grouping, invalid date, missing date, missing session, empty results, Tier 1 nutrients, Cache-Control, internal error
+- `src/app/api/nutrition-goals/__tests__/route.test.ts` - Created: 9 tests covering valid request, missing session, Fitbit not connected, credentials missing, FITBIT_CREDENTIALS_MISSING throw, FITBIT_TOKEN_INVALID throw, FITBIT_API_ERROR throw, generic error, Cache-Control
+
+### Linear Updates
+- FOO-307: Todo → In Progress → Review
+- FOO-308: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 issues in worker-2's test (incomplete FullSession mocks, static import before mocks, inconsistent validateSession mock signature), fixed by lead before commit
+- verifier: All 1147 tests pass, zero warnings, clean build
+
+### Work Partition
+- Worker 1: Fix 1 (nutrition-summary route tests)
+- Worker 2: Fix 2 (nutrition-goals route tests)
+- Lead: Fixed worker-2 type errors (FullSession mock fields, dynamic import), consistent validateSession mock in worker-1's file
+
+### Continuation Status
+All tasks completed.
+
+## Status: COMPLETE
