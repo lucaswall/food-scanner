@@ -1,202 +1,198 @@
-# Fix Plan: Budget Marker Not Visible + Missing Error UX
+# Implementation Plan: Lumen Macro Goals via Screenshot
 
-**Issues:** FOO-313, FOO-314, FOO-315
-**Date:** 2026-02-10
-**Status:** COMPLETE
-**Branch:** fix/FOO-313-budget-marker-scope-and-errors
+**Created:** 2026-02-10
+**Source:** Inline request: Add Lumen metabolic tracking integration — parse Lumen app screenshots to extract daily macro targets, display on dashboard with goal-aware macro bars.
+**Linear Issues:** [FOO-317](https://linear.app/lw-claude/issue/FOO-317/add-lumen-goals-db-table-and-types), [FOO-318](https://linear.app/lw-claude/issue/FOO-318/implement-lumen-screenshot-parsing-and-db-crud), [FOO-319](https://linear.app/lw-claude/issue/FOO-319/add-lumen-goals-api-route), [FOO-320](https://linear.app/lw-claude/issue/FOO-320/enhance-macrobars-with-goal-support), [FOO-321](https://linear.app/lw-claude/issue/FOO-321/create-lumenbanner-component-with-upload-flow), [FOO-322](https://linear.app/lw-claude/issue/FOO-322/integrate-lumen-goals-into-dailydashboard-and-app-page)
 
-## Investigation
+## Context Gathered
 
-### Bug Report
-The calorie budget marker added in FOO-309 is not visible on staging or production. Additionally, no error is shown to the user when the underlying API call fails.
+### Codebase Analysis
+- **Dashboard page:** `src/app/app/page.tsx` — server component rendering FitbitStatusBanner, 2-button grid, DailyDashboard, DashboardPrefetch
+- **DailyDashboard:** `src/components/daily-dashboard.tsx` — client component, 3 SWR calls (nutrition-summary, nutrition-goals, activity-summary)
+- **MacroBars:** `src/components/macro-bars.tsx` — shows consumed grams with relative % bars (no goal support)
+- **CalorieRing:** `src/components/calorie-ring.tsx` — SVG ring with Fitbit calorie goal + budget marker
+- **NutritionGoals type:** `{ calories: number | null }` from Fitbit API only
+- **Anthropic pattern:** `src/lib/claude.ts` — singleton client, tool_use forced extraction, `ImageInput` type `{ base64, mimeType }`
+- **Upsert pattern:** `src/lib/users.ts`, `src/lib/fitbit-tokens.ts` — `onConflictDoUpdate` with `.unique()` columns
+- **Image validation:** `src/lib/image-validation.ts` — `isFileLike`, `ALLOWED_TYPES`, `MAX_IMAGE_SIZE`
+- **Rate limiting:** `src/lib/rate-limit.ts` — `checkRateLimit(key, max, windowMs)`
+- **API pattern:** `getSession()` → `validateSession()` → business logic → `successResponse()`/`errorResponse()`
+- **DB schema:** `src/db/schema.ts` — 6 tables, composite unique via Drizzle 0.45 `unique().on()` syntax
+- **Error codes:** `src/types/index.ts:106-120` — union type `ErrorCode`
 
-### Classification
-- **Type:** Integration + Frontend Bug
-- **Severity:** High (FOO-313), Medium (FOO-314, FOO-315)
-- **Affected Area:** Fitbit OAuth, CalorieRing component, DailyDashboard component
+### Design Decisions (from discussion)
+- **CalorieRing stays on Fitbit calorie goal** — Fitbit knows total energy budget (activity + weight goal). Lumen only provides macro distribution.
+- **MacroBars show consumed/goal** — "XX / YYg" text, bars fill to 100% of goal. No "remaining" text.
+- **Keep them independent** — gap between Lumen-implied calories and Fitbit covers alcohol, fiber rounding, different models.
+- **Haiku for parsing** — simple structured text extraction, no reasoning needed.
 
-### Root Cause Analysis
+## Original Plan
 
-**Three issues found:**
+### Task 1: Add lumen_goals DB table and types
+**Linear Issue:** [FOO-317](https://linear.app/lw-claude/issue/FOO-317/add-lumen-goals-db-table-and-types)
 
-1. **FOO-313 — Missing OAuth scope:** `buildFitbitAuthUrl` at `src/lib/fitbit.ts:308` only requests `scope: "nutrition"`. The activity summary endpoint requires the `activity` scope. Every call to `/api/activity-summary` fails with Fitbit 403 PERMISSION_DENIED.
+**Migration note:** New table, no existing data to transform. DDL-only migration.
 
-2. **FOO-314 — Double rotation offset:** The marker angle at `src/components/calorie-ring.tsx:70` applies `-Math.PI / 2` to shift from 3-o'clock to 12-o'clock, but the SVG parent already has `className="transform -rotate-90"` (line 38). The double correction positions the marker 90° CCW from where it should be. This was invisible because FOO-313 prevented any marker from rendering.
+1. Write test in `src/db/__tests__/schema.test.ts` (or verify schema compiles) — validate `lumenGoals` table export exists with expected columns (userId, date, dayType, proteinGoal, carbsGoal, fatGoal)
+2. Add `lumenGoals` table to `src/db/schema.ts`:
+   - Columns: id (serial PK), userId (UUID FK → users), date (date), dayType (text), proteinGoal (integer), carbsGoal (integer), fatGoal (integer), createdAt, updatedAt (timestamps)
+   - Composite unique constraint on (userId, date) — use Drizzle `unique("lumen_goals_user_date_uniq").on(table.userId, table.date)` pattern
+3. Run `npx drizzle-kit generate` to create migration SQL
+4. Add types to `src/types/index.ts`:
+   - `LumenGoals` interface: `{ date: string; dayType: string; proteinGoal: number; carbsGoal: number; fatGoal: number }`
+   - `LumenGoalsResponse` interface: `{ goals: LumenGoals | null }`
+   - Add `"LUMEN_PARSE_ERROR"` to `ErrorCode` union
+5. Run verifier
 
-3. **FOO-315 — Silent failure, no user feedback:** The activity SWR call in `src/components/daily-dashboard.tsx:58-60` doesn't destructure `error`. When the API returns 502 (mapped from Fitbit 403), `activity` is `undefined`, `budget` stays `undefined`, and the marker silently doesn't render. No indication is given to the user. Additionally, `fetchWithRetry` at `src/lib/fitbit.ts:84` handles 401 and 429 but not 403 — all 403s fall through as generic `FITBIT_API_ERROR`.
+### Task 2: Implement Lumen screenshot parsing and DB CRUD
+**Linear Issue:** [FOO-318](https://linear.app/lw-claude/issue/FOO-318/implement-lumen-screenshot-parsing-and-db-crud)
 
-#### Evidence
-- **Railway logs (staging + production):** Every activity summary call returns 403 with `"The caller does not have permission"`
-- **`src/lib/fitbit.ts:308`** — `scope: "nutrition"` (missing `activity`)
-- **`src/components/calorie-ring.tsx:70`** — `budgetPosition * 2 * Math.PI - Math.PI / 2` (double rotation)
-- **`src/components/daily-dashboard.tsx:58-60`** — no error handling on activity SWR
-- **`src/lib/fitbit.ts:84-86`** — 401 handled, 403 not handled
-- **`src/types/index.ts:106-119`** — no `FITBIT_SCOPE_MISSING` error code
+1. Write tests in `src/lib/__tests__/lumen.test.ts` following `src/lib/__tests__/claude.test.ts` patterns:
+   - **Parsing tests** (mock `@anthropic-ai/sdk`):
+     - Valid tool_use response returns parsed goals (dayType, proteinGoal, carbsGoal, fatGoal)
+     - Uses `claude-haiku-4-5-20251001` model
+     - Uses `max_tokens: 256`
+     - Forces `tool_choice: { type: "tool", name: "report_lumen_goals" }`
+     - Throws `LUMEN_PARSE_ERROR` on API failure
+     - Throws `LUMEN_PARSE_ERROR` when no tool_use content block
+     - Throws `LUMEN_PARSE_ERROR` when goals are negative or zero
+     - Throws `LUMEN_PARSE_ERROR` when day_type is empty
+   - **DB CRUD tests** (mock `@/db/index`):
+     - `upsertLumenGoals` calls insert with onConflictDoUpdate
+     - `getLumenGoalsByDate` returns goals when row exists
+     - `getLumenGoalsByDate` returns null when no row
+2. Run verifier (expect fail)
+3. Implement `src/lib/lumen.ts`:
+   - Own Anthropic client singleton (separate from claude.ts — different model, simpler config)
+   - `parseLumenScreenshot(image: ImageInput)` — system prompt tells model to extract target values only (numbers after the slash), not consumed values. Tool schema: `report_lumen_goals` with `day_type` (string), `protein_goal`, `carbs_goal`, `fat_goal` (numbers). Validate non-negative integers.
+   - Custom `LumenParseError` class with `name: "LUMEN_PARSE_ERROR"`
+   - `upsertLumenGoals(userId, date, data)` — insert + onConflictDoUpdate targeting composite unique on (userId, date)
+   - `getLumenGoalsByDate(userId, date)` — select where userId AND date, return `LumenGoals | null`
+   - Reuse `ImageInput` type from `src/lib/claude.ts`
+4. Run verifier (expect pass)
 
-### Impact
-- Budget marker feature (FOO-309) is completely non-functional
-- User has no indication anything is wrong
-- Re-authorization via Settings is available but user doesn't know they need it
+### Task 3: Add Lumen goals API route
+**Linear Issue:** [FOO-319](https://linear.app/lw-claude/issue/FOO-319/add-lumen-goals-api-route)
 
-## Fix Plan (TDD Approach)
+1. Write tests in `src/app/api/lumen-goals/__tests__/route.test.ts` following `src/app/api/analyze-food/__tests__/route.test.ts` patterns:
+   - **GET tests:**
+     - Returns 401 without session
+     - Returns 400 for missing date param
+     - Returns 400 for invalid date format
+     - Returns `{ goals: null }` when no goals exist
+     - Returns goals when they exist
+     - Sets `Cache-Control: private, no-cache`
+     - Does NOT require Fitbit connection (Lumen is independent)
+   - **POST tests:**
+     - Returns 401 without session
+     - Returns 429 when rate limited
+     - Returns 400 for invalid/missing FormData
+     - Returns 400 for missing image
+     - Returns 400 for invalid image type
+     - Returns 400 for oversized image
+     - Returns parsed+saved goals on success
+     - Returns error with LUMEN_PARSE_ERROR when parsing fails
+     - Does NOT require Fitbit connection
+     - Accepts optional `date` field in FormData (defaults to today)
+2. Run verifier (expect fail)
+3. Implement `src/app/api/lumen-goals/route.ts`:
+   - **GET:** `getSession()` → `validateSession(session)` (no `requireFitbit`) → validate date param → `getLumenGoalsByDate()` → `successResponse({ goals })` + Cache-Control header
+   - **POST:** `getSession()` → `validateSession(session)` → rate limit (20 req / 15 min) → parse FormData → validate single image (reuse `isFileLike`, `ALLOWED_TYPES`, `MAX_IMAGE_SIZE`) → convert to base64 → `parseLumenScreenshot()` → `upsertLumenGoals()` → `successResponse(goals)`. Catch `LUMEN_PARSE_ERROR` → `errorResponse("LUMEN_PARSE_ERROR", ..., 422)`
+4. Run verifier (expect pass)
 
-### Step 1: Add `activity` scope to Fitbit OAuth (FOO-313)
-**File:** `src/lib/fitbit.ts` (modify)
-**Test:** `src/lib/__tests__/fitbit.test.ts` (modify)
+### Task 4: Enhance MacroBars with goal support
+**Linear Issue:** [FOO-320](https://linear.app/lw-claude/issue/FOO-320/enhance-macrobars-with-goal-support)
 
-**Behavior:**
-- `buildFitbitAuthUrl` should include both `nutrition` and `activity` in the `scope` parameter (space-separated per Fitbit OAuth spec)
-- The generated URL's `scope` query param must contain both values
+1. Update tests in `src/components/__tests__/macro-bars.test.tsx`:
+   - Existing tests must still pass (backward compat — no goals = current behavior)
+   - New: when all three goals provided, shows "XX / YYg" format for each macro
+   - New: bar width = `consumed / goal * 100%` capped at 100% (not relative to total consumed)
+   - New: when consumed exceeds goal, bar is at 100% (visually full)
+   - New: when only some goals provided, only those macros show goal format (partial goals)
+2. Run verifier (expect fail)
+3. Modify `src/components/macro-bars.tsx`:
+   - Add optional `proteinGoal`, `carbsGoal`, `fatGoal` props to interface
+   - When a macro's goal is provided: bar width = `min(consumed / goal, 1) * 100%`, text shows `"XX / YYg"`
+   - When no goal: keep current behavior (relative % of total consumed), text shows `"XXg"`
+   - Colors stay the same (blue/green/amber)
+4. Run verifier (expect pass)
 
-**Tests:**
-1. Existing test at ~line 83 "requests nutrition scope" — update to verify both `nutrition` and `activity` are present in the scope param
-2. Add test: scope param contains `activity`
+### Task 5: Create LumenBanner component with upload flow
+**Linear Issue:** [FOO-321](https://linear.app/lw-claude/issue/FOO-321/create-lumenbanner-component-with-upload-flow)
 
-### Step 2: Fix budget marker angle (FOO-314)
-**File:** `src/components/calorie-ring.tsx` (modify)
-**Test:** `src/components/__tests__/calorie-ring.test.tsx` (modify)
+1. Write tests in `src/components/__tests__/lumen-banner.test.tsx`:
+   - Shows banner with upload prompt when no Lumen goals for today (SWR returns `{ goals: null }`)
+   - Hides banner (returns null) when goals exist for today
+   - Returns null while loading (non-blocking)
+   - Hidden file input is triggered by tapping the banner
+   - File input accepts `image/*`
+   - Shows loading spinner during upload
+   - Shows error message on upload failure
+   - After successful upload, SWR cache is mutated (banner hides)
+2. Run verifier (expect fail)
+3. Implement `src/components/lumen-banner.tsx`:
+   - `'use client'` component
+   - Fetches `/api/lumen-goals?date=${today}` via useSWR
+   - When no goals: render tappable card/alert (primary color scheme, distinct from amber Fitbit banner) with upload icon + "Set today's macro goals" text + "Upload Lumen screenshot" subtitle
+   - Hidden `<input type="file" accept="image/*">` triggered by card tap
+   - On file select: POST FormData to `/api/lumen-goals` → on success, `mutate` SWR key
+   - Loading state: spinner replacing icon during upload
+   - Error state: inline error text below the banner
+   - Touch target >= 44px
+4. Run verifier (expect pass)
 
-**Behavior:**
-- The marker angle should be `budgetPosition * 2 * Math.PI` (no `-Math.PI / 2` offset)
-- Since the SVG has `className="transform -rotate-90"`, the CSS rotation handles the 12-o'clock start; the marker coordinates should use raw SVG angles (0 = 3 o'clock in SVG, which becomes 12 o'clock after CSS rotation)
-- At budgetPosition=0.5 (50% of goal): marker should be at SVG angle π (9 o'clock in SVG → 6 o'clock on screen after rotation)
+### Task 6: Integrate Lumen goals into DailyDashboard and app page
+**Linear Issue:** [FOO-322](https://linear.app/lw-claude/issue/FOO-322/integrate-lumen-goals-into-dailydashboard-and-app-page)
 
-**Tests:**
-1. Update existing "positions marker at start when budget is 0" test — the marker line coordinates should map to SVG 3-o'clock (rightmost point), which after CSS -rotate-90 appears at 12 o'clock. Verify: x1/x2 are at max radius, y1/y2 are at center.
-2. Update "caps marker at goal position when budget exceeds goal" — budget at 100% should also be at SVG 3-o'clock (full circle returns to start)
-3. Add test: budget at 50% of goal → marker at SVG 9-o'clock (x at min, y at center)
+1. Update tests in `src/components/__tests__/daily-dashboard.test.tsx`:
+   - Mock fetch for `/api/lumen-goals?date=YYYY-MM-DD` in addition to existing mocks
+   - When Lumen goals exist: MacroBars receives goal props
+   - When Lumen goals exist: shows day type text (e.g., "Low carb day") above the calorie display
+   - When Lumen goals fetch fails: dashboard renders normally (graceful degradation, no goals passed)
+   - When Lumen goals are null: MacroBars receives no goal props (current behavior)
+   - Shows "Update Lumen goals" button below MealBreakdown
+   - "Update Lumen goals" button triggers file picker
+2. Update tests in `src/app/app/__tests__/page.test.tsx`:
+   - LumenBanner component renders between button grid and DailyDashboard
+3. Run verifier (expect fail)
+4. Modify `src/components/daily-dashboard.tsx`:
+   - Add SWR call for `/api/lumen-goals?date=${today}` → `LumenGoalsResponse`
+   - Do NOT block loading on lumen goals (dashboard renders as soon as summary + nutrition goals load; Lumen data enhances asynchronously)
+   - When `lumenGoals?.goals` exists: pass `proteinGoal`, `carbsGoal`, `fatGoal` to MacroBars
+   - When `lumenGoals?.goals` exists: show day type badge/text (e.g., "Low carb day" in muted text) above the calorie ring/plain display
+   - Add "Update Lumen goals" button below MealBreakdown — subtle secondary style with RefreshCw icon, hidden file input pattern, POST to `/api/lumen-goals` on select, mutate SWR cache on success
+5. Modify `src/app/app/page.tsx`:
+   - Import and render `<LumenBanner />` between the button grid and `<DailyDashboard />`
+6. Update `src/app/app/loading.tsx` — add a small skeleton placeholder between button grid and dashboard skeleton (for the banner area)
+7. Run verifier (expect pass)
 
-### Step 3: Add `FITBIT_SCOPE_MISSING` error code and handle 403 (FOO-315)
-**File:** `src/types/index.ts` (modify)
-**File:** `src/lib/fitbit.ts` (modify)
-**Test:** `src/lib/__tests__/fitbit.test.ts` (modify)
-
-**Behavior:**
-- Add `"FITBIT_SCOPE_MISSING"` to the `ErrorCode` union type
-- In `fetchWithRetry`, add a 403 handler between the existing 401 and 429 handlers. When `response.status === 403`, throw `new Error("FITBIT_SCOPE_MISSING")`
-- This applies to all Fitbit API calls that go through `fetchWithRetry` — a 403 from Fitbit means the token lacks required scopes
-
-**Tests:**
-1. Add test in `fetchWithRetry` section: 403 response throws `FITBIT_SCOPE_MISSING`
-2. Add test in `getActivitySummary` section: 403 response (via fetchWithRetry) throws `FITBIT_SCOPE_MISSING`
-
-### Step 4: Map `FITBIT_SCOPE_MISSING` in activity-summary route (FOO-315)
-**File:** `src/app/api/activity-summary/route.ts` (modify)
-**Test:** `src/app/api/activity-summary/__tests__/route.test.ts` (modify)
-
-**Behavior:**
-- Add a new error handler for `FITBIT_SCOPE_MISSING` in the catch block, alongside the existing `FITBIT_CREDENTIALS_MISSING` and `FITBIT_TOKEN_INVALID` handlers
-- Return `errorResponse("FITBIT_SCOPE_MISSING", "Fitbit permissions need updating. Please reconnect your Fitbit account in Settings.", 403)`
-- Follow the same pattern as `src/app/api/nutrition-goals/route.ts` error handling
-
-**Tests:**
-1. Add test: when `getActivitySummary` throws `FITBIT_SCOPE_MISSING`, returns 403 with `FITBIT_SCOPE_MISSING` code and descriptive message
-
-### Step 5: Surface activity errors in dashboard (FOO-315)
-**File:** `src/components/daily-dashboard.tsx` (modify)
-**Test:** `src/components/__tests__/daily-dashboard.test.tsx` (modify)
-
-**Behavior:**
-- Destructure `error: activityError` from the activity SWR call
-- When `activityError` is truthy and the ring is being rendered (goals.calories exists), show a small non-intrusive message below the calorie ring
-- The message should say something like "Fitbit permissions need updating" with a link to `/settings`
-- The rest of the dashboard (calorie ring without marker, macro bars, meal breakdown) must still render normally — only the budget marker is affected
-- The message should use `text-sm text-muted-foreground` styling and include a `Link` to `/settings` with primary color
-- Touch target for the link must be at least 44px tall (wrap in a min-h-[44px] flex container)
-
-**Tests:**
-1. Add test: when activity SWR returns error, shows reconnect message with link to settings
-2. Add test: when activity SWR returns error, CalorieRing still renders (without budget prop)
-3. Add test: when activity SWR returns error, MacroBars and MealBreakdown still render
-4. Existing test "passes budget prop when activity data is available" should still pass
-
-### Step 6: Verify
-- [ ] All new tests pass
-- [ ] All existing tests pass
-- [ ] TypeScript compiles without errors (`npm run typecheck`)
-- [ ] Lint passes (`npm run lint`)
-- [ ] Build succeeds (`npm run build`)
-
-## Notes
-- After deploying the scope fix, the user must re-authorize Fitbit via Settings > Reconnect Fitbit on both staging and production
-- The `fetchWithRetry` 403 handler applies to ALL Fitbit API calls — this is intentional since Fitbit 403 universally means insufficient scope
-- The nutrition-summary and nutrition-goals routes don't need the scope fix since they only use the `nutrition` scope which is already granted
-- No database migration needed
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-10
-**Method:** Agent team (3 workers)
-
-### Tasks Completed This Iteration
-- Step 1: Add `activity` scope to Fitbit OAuth (FOO-313) — worker-1
-- Step 2: Fix budget marker angle (FOO-314) — worker-2
-- Step 3: Add `FITBIT_SCOPE_MISSING` error code and handle 403 (FOO-315) — worker-1
-- Step 4: Map `FITBIT_SCOPE_MISSING` in activity-summary route (FOO-315) — worker-3
-- Step 5: Surface activity errors in dashboard (FOO-315) — worker-3
-
-### Files Modified
-- `src/types/index.ts` — Added `FITBIT_SCOPE_MISSING` to ErrorCode union
-- `src/lib/fitbit.ts` — Changed scope to `"nutrition activity"`, added 403 handler in fetchWithRetry
-- `src/lib/__tests__/fitbit.test.ts` — Updated scope tests, added 403 handling tests
-- `src/components/calorie-ring.tsx` — Removed redundant `-Math.PI / 2` from angle calculation
-- `src/components/__tests__/calorie-ring.test.tsx` — Updated marker position tests, added 50% position test
-- `src/app/api/activity-summary/route.ts` — Added FITBIT_SCOPE_MISSING error handler (403)
-- `src/app/api/activity-summary/__tests__/route.test.ts` — Added scope missing error test
-- `src/components/daily-dashboard.tsx` — Added activity error display with reconnect link
-- `src/components/__tests__/daily-dashboard.test.tsx` — Added 3 error UX tests
-
-### Linear Updates
-- FOO-313: Todo → In Progress → Review
-- FOO-314: Todo → In Progress → Review
-- FOO-315: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 2 HIGH (accepted per plan design), 2 MEDIUM (minor), 1 LOW
-- verifier: All 1195 tests pass, zero warnings, build clean
-
-### Work Partition
-- Worker 1: Steps 1, 3 (fitbit backend files + types)
-- Worker 2: Step 2 (calorie-ring component)
-- Worker 3: Steps 4, 5 (activity-summary route + dashboard error UX)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 9
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-No CRITICAL or HIGH issues found — all implementations are correct and follow project conventions.
-
-**Documented (no fix needed):**
-- [MEDIUM] CONVENTION: Inline import syntax `Promise<import("@/types").NutritionGoals>` instead of top-level import (`src/lib/fitbit.ts:481,519`) — pre-existing pattern, not introduced in this iteration
-- [LOW] TEST: Mock data includes extra fields (`steps`, `distance`, `activeMinutes`) not in `ActivitySummary` type (`src/app/api/activity-summary/__tests__/route.test.ts:65-70`) — pre-existing test, does not affect correctness
-
-### Linear Updates
-- FOO-313: Review → Merge
-- FOO-314: Review → Merge
-- FOO-315: Review → Merge
-
-<!-- REVIEW COMPLETE -->
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent - Review changes for bugs
+2. Run `verifier` agent - Verify all tests pass and zero warnings
 
 ---
 
-## Skipped Findings Summary
+## Plan Summary
 
-Findings documented but not fixed across all review iterations:
+**Objective:** Add Lumen metabolic tracking integration via screenshot parsing
 
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | CONVENTION | `src/lib/fitbit.ts:481,519` | Inline import syntax instead of top-level imports | Pre-existing pattern, not introduced in this iteration |
-| LOW | TEST | `src/app/api/activity-summary/__tests__/route.test.ts:65-70` | Mock data includes fields not in ActivitySummary type | Pre-existing test, does not affect correctness |
+**Request:** Parse Lumen app screenshots to extract daily macro targets (protein, carbs, fat), store per-user per-date, and display goal-aware macro bars on the dashboard. Fitbit calorie goal stays independent.
 
----
+**Linear Issues:** FOO-317, FOO-318, FOO-319, FOO-320, FOO-321, FOO-322
 
-## Status: COMPLETE
+**Approach:** New `lumen_goals` DB table stores daily macro targets. A POST API endpoint accepts a screenshot image, parses it with Claude Haiku (tool_use for structured extraction), and upserts goals. The dashboard banner prompts screenshot upload when no goals exist for today. MacroBars enhanced to show "XX / YYg" format with progress-to-goal bars when Lumen data is available.
 
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+**Scope:**
+- Tasks: 6
+- Files affected: ~15 (6 new, 9 modified)
+- New tests: yes
+
+**Key Decisions:**
+- Fitbit calorie goal and Lumen macro goals are independent — CalorieRing uses Fitbit, MacroBars use Lumen
+- Claude Haiku 4.5 for screenshot parsing (simple extraction, cheap)
+- Single image per upload (not multi-image like food analysis)
+- Composite unique (userId, date) with upsert for re-uploads same day
+
+**Risks/Considerations:**
+- Lumen app UI changes could affect parsing — mitigated by generic prompt + tool_use schema
+- Lumen banner adds a 4th SWR call to dashboard — non-blocking, graceful degradation on failure
