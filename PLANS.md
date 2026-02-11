@@ -1,173 +1,182 @@
-# Fix Plan: Lumen Date Timezone + History Stale Data
+# Implementation Plan
 
-**Issues:** [FOO-324](https://linear.app/lw-claude/issue/FOO-324/fix-lumen-goals-date-mismatch-between-client-and-server-timezone), [FOO-323](https://linear.app/lw-claude/issue/FOO-323/fix-history-page-showing-stale-data-after-navigation-and-focus-return)
-**Date:** 2026-02-11
-**Status:** COMPLETE
-**Branch:** fix/FOO-324-lumen-date-timezone
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-326-dashboard-always-visible
+**Issues:** FOO-326, FOO-325
+**Created:** 2026-02-11
+**Last Updated:** 2026-02-11
 
-## FOO-324: Lumen Goals Date Mismatch Between Client and Server Timezone
+## Summary
 
-### Root Cause
+Fix two related UX issues on the main app page: (1) the dashboard hides completely when no food is logged, blocking access to calorie/macro goals and the "Update Lumen goals" button; (2) the Lumen banner doesn't appear reliably on initial page load, preventing users from setting daily macro goals.
 
-Timezone mismatch between client-side and server-side `getTodayDate()` functions. When the user's local timezone is behind UTC, the client and server disagree on what "today" is. Goals get saved under the UTC date but queried by the local date, causing a permanent miss.
+FOO-326 is implemented first because it's simpler and unblocks the "Update Lumen goals" button as a workaround for FOO-325.
 
-### Evidence
+## Issues
 
-Staging logs show POST saves with server UTC date `2026-02-11` but GET queries use client local date `2026-02-10` — always `hasGoals=false`.
+### FOO-326: Show dashboard always
 
-### Related Code
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** Dashboard component hides completely when no food is logged today. The empty state at `src/components/daily-dashboard.tsx:131-143` returns a "No food logged today" message instead of showing CalorieRing, MacroBars, activity budget, and "Update Lumen goals" button. Users expect to see their goals and current progress (0) even before logging food.
 
-- `src/components/lumen-banner.tsx:10-16` — client-side `getTodayDate()`, used for SWR GET key at line 25
-- `src/components/lumen-banner.tsx:47-48` — POST FormData only appends `image`, no `date`
-- `src/components/daily-dashboard.tsx:15-21` — duplicate client-side `getTodayDate()`, used for SWR GET key at line 72
-- `src/components/daily-dashboard.tsx:86-87` — POST FormData only appends `image`, no `date`
-- `src/app/api/lumen-goals/route.ts:19-25` — server-side `getTodayDate()` in UTC (Railway)
-- `src/app/api/lumen-goals/route.ts:129` — defaults to server UTC today when no date sent
+**Acceptance Criteria:**
+- [ ] Dashboard always renders, even when no food is logged
+- [ ] Calorie ring shows 0% progress with goal visible
+- [ ] Macro bars show 0g with goal values visible (if Lumen goals are set)
+- [ ] Fitbit activity budget displays (using 0 logged calories)
+- [ ] "Update Lumen goals" button is always visible
+- [ ] Lumen day type badge shows if goals are set
+- [ ] Empty state message ("No food logged today") removed
+- [ ] MealBreakdown section naturally absent when meals array is empty (it already returns null)
 
-### Step 1: Add date to LumenBanner POST request (FOO-324)
-**File:** `src/components/lumen-banner.tsx` (modify)
-**Test:** `src/components/__tests__/lumen-banner.test.tsx` (modify)
+### FOO-325: Lumen banner doesn't appear on initial page load
 
-**Behavior:**
-- `handleFileChange` should append `date` field to FormData alongside the image
-- The date value is `today` (already computed at line 19 from client-side `getTodayDate()`)
-- This ensures the server saves goals under the same date the SWR GET queries
+**Priority:** Medium
+**Labels:** Bug
+**Description:** LumenBanner at `src/components/lumen-banner.tsx:30` returns `null` during `isLoading || !data`, making it invisible during the initial SWR fetch. The banner also doesn't destructure `error` from SWR, so fetch failures silently hide the banner. After navigating away and returning, SWR cache has data so the banner renders immediately.
 
-**Tests:**
-1. POST fetch body (FormData) includes a `date` field matching the client-side today date
-2. All existing LumenBanner tests continue to pass
+**Acceptance Criteria:**
+- [ ] Banner appears reliably on initial page load when no Lumen goals exist for today
+- [ ] Up to 2-second delay is acceptable while fetching data (skeleton placeholder)
+- [ ] Banner does not render prematurely (wait for data confirmation)
+- [ ] Banner hides after Lumen goals are successfully set
+- [ ] Fetch errors handled gracefully (show banner anyway — if we can't confirm goals exist, offer the upload)
 
-### Step 2: Add date to DailyDashboard Lumen update POST request (FOO-324)
-**File:** `src/components/daily-dashboard.tsx` (modify)
-**Test:** `src/components/__tests__/daily-dashboard.test.tsx` (modify)
+## Prerequisites
 
-**Behavior:**
-- `handleLumenFileChange` should append `date` field to FormData alongside the image
-- The date value is `today` (already computed at line 48 from client-side `getTodayDate()`)
-
-**Tests:**
-1. POST fetch body (FormData) includes a `date` field matching the client-side today date
-2. All existing DailyDashboard tests continue to pass
-
----
-
-## FOO-323: Fix History Page Showing Stale Data After Navigation and Focus Return
-
-### Root Cause
-
-`src/components/food-history.tsx:95-105` — The `hasSeeded` ref is a boolean that, once set to `true` on first SWR data seed, permanently blocks all subsequent SWR revalidation data from updating local `entries` state.
-
-On re-navigation (bottom nav): component remounts, SWR returns stale cached data synchronously, seeds entries and sets `hasSeeded = true`. When background revalidation completes with fresh data, `hasSeeded` is already `true` — fresh data is discarded.
-
-The `hasSeeded` pattern was designed to protect paginated entries from being overwritten by SWR revalidation (which only returns page 1). But it also prevents fresh data from appearing on re-navigation and focus return.
-
-### Related Code
-
-- `src/components/food-history.tsx:98` — `const hasSeeded = useRef(false)`
-- `src/components/food-history.tsx:99-105` — useEffect that seeds entries only when `!hasSeeded.current`
-- `src/components/food-history.tsx:152-160` — `handleLoadMore` pagination
-- `src/components/food-history.tsx:192-196` — `handleJumpToDate`
-- `src/components/food-history.tsx:183` — `mutate()` after delete (triggers SWR revalidation)
-
-### Design Decision
-
-Replace the boolean `hasSeeded` ref with a `hasPaginated` ref that tracks whether the user has performed pagination actions (Load More or Jump to Date). The key insight:
-
-- **User hasn't paginated** → local entries match SWR page 1 → safe to update from SWR revalidation
-- **User has paginated** → local entries include page 2+ data → SWR revalidation would lose paginated entries → block updates
-
-This preserves the pagination protection while allowing fresh data on re-navigation and focus return.
-
-### Step 3: Replace hasSeeded with hasPaginated in FoodHistory (FOO-323)
-**File:** `src/components/food-history.tsx` (modify)
-**Test:** `src/components/__tests__/food-history.test.tsx` (modify)
-
-**Behavior:**
-- Replace `hasSeeded` ref (boolean, set once on first seed) with `hasPaginated` ref (boolean, set when user paginates)
-- The useEffect seeding `entries` from `initialData` should update entries whenever `initialData` changes, UNLESS `hasPaginated.current` is `true`
-- Set `hasPaginated.current = true` in `handleLoadMore` (line 152) and `handleJumpToDate` (line 192)
-- This means: on fresh mount and on SWR revalidation (focus return, re-navigation), entries update from SWR data — unless the user has paginated in this session
-
-**Tests:**
-1. SWR revalidation updates entries when user has NOT paginated (new test) — mount with initial data, simulate SWR returning new data, verify entries update
-2. SWR revalidation after navigation shows fresh data (new test) — mount with cache, unmount, remount with updated SWR data, verify new entries appear
-3. Existing test "SWR revalidation after delete does not overwrite paginated entries" (line 615) must still pass — user paginates then deletes, SWR revalidation is blocked
-4. Existing test "shows cached data instantly on re-mount (SWR cache)" (line 914) must still pass
-5. All other existing food-history tests continue to pass
-
----
-
-## Verification (both issues)
-
-- [ ] All new tests pass
+- [ ] On `main` branch with clean working tree
 - [ ] All existing tests pass
-- [ ] TypeScript compiles without errors
-- [ ] Lint passes
-- [ ] Build succeeds
 
-## Notes
+## Implementation Tasks
 
-- Server-side `getTodayDate()` in `route.ts:19-25` remains as fallback for direct API calls without a date field
-- The `getTodayDate()` duplication across 3 files is acceptable since client and server versions intentionally use different timezones
-- The `hasPaginated` flag resets on each mount (component unmount destroys refs), so re-navigation always starts fresh
+### Task 1: Remove empty state from DailyDashboard
 
----
+**Issue:** FOO-326
+**Files:**
+- `src/components/daily-dashboard.tsx` (modify)
+- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
 
-## Iteration 1
+**TDD Steps:**
 
-**Implemented:** 2026-02-11
-**Method:** Agent team (3 workers)
+1. **RED** — Update empty state tests to assert new behavior:
+   - Modify the test "shows empty state when summary returns zero entries" to instead assert:
+     - CalorieRing renders with 0 calories and the goal value
+     - MacroBars renders with 0g values
+     - "Update Lumen goals" button is visible
+     - "No food logged today" text is NOT present
+   - Modify the test "empty state includes link to scan food" to instead assert:
+     - Dashboard components render (not empty state)
+     - No `/app` link in the empty state context
+   - Run: `npm test -- daily-dashboard`
+   - Verify: Updated tests fail (empty state still rendered)
 
-### Tasks Completed This Iteration
-- Task 1: Add date to LumenBanner POST (FOO-324) - Added `formData.append("date", today)` to handleFileChange (worker-1)
-- Task 2: Add date to DailyDashboard POST (FOO-324) - Added `formData.append("date", today)` to handleLumenFileChange (worker-2)
-- Task 3: Replace hasSeeded with hasPaginated (FOO-323) - Replaced boolean ref to allow SWR revalidation when user hasn't paginated (worker-3)
+2. **GREEN** — Remove empty state block and use data directly:
+   - Remove lines 131-143 (the `if (!summary || summary.meals.length === 0)` block)
+   - Add a fallback for the `!summary` edge case: construct a zero-state totals object `{ calories: 0, proteinG: 0, carbsG: 0, fatG: 0 }` and use it in place of `summary.totals` when summary is undefined
+   - The `summary.meals` array (empty `[]`) is already handled by MealBreakdown which returns null for empty arrays
+   - The budget calculation at line 151-153 already uses `summary.totals.calories` — with 0 value, it computes correctly: `caloriesOut - (estimatedCaloriesOut - goals.calories) - 0`
+   - Run: `npm test -- daily-dashboard`
+   - Verify: All tests pass
 
-### Files Modified
-- `src/components/lumen-banner.tsx` - Added date field to POST FormData
-- `src/components/__tests__/lumen-banner.test.tsx` - Added test verifying date in POST body
-- `src/components/daily-dashboard.tsx` - Added date field to POST FormData
-- `src/components/__tests__/daily-dashboard.test.tsx` - Added test verifying date in POST body
-- `src/components/food-history.tsx` - Replaced hasSeeded with hasPaginated ref logic
-- `src/components/__tests__/food-history.test.tsx` - Added 2 new tests for SWR revalidation behavior
+3. **REFACTOR** — Clean up:
+   - Remove the `Link` import from `next/link` if no longer used in the component
+   - Verify no dead code remains from the removed empty state
 
-### Linear Updates
-- FOO-324: Todo → In Progress → Review
-- FOO-323: Todo → In Progress → Review
+**Notes:**
+- CalorieRing already handles 0 values: `progress = goal > 0 ? Math.min(0/goal, 1) : 0` → 0% progress, displays "0 / 2,000 cal"
+- MacroBars already handles 0g: relative percent calculation handles `total = 0` (returns 0%), goal-based mode shows "0 / 120g"
+- MealBreakdown returns null for empty meals array (line 47-49 of `meal-breakdown.tsx`) — no changes needed
+- Reference existing component patterns in `src/components/calorie-ring.tsx` and `src/components/macro-bars.tsx`
 
-### Pre-commit Verification
-- bug-hunter: No critical/high bugs found. 2 medium test-only style notes, 1 low naming note.
-- verifier: All 1254 tests pass, zero warnings, build succeeds
+### Task 2: Fix LumenBanner loading and error states
 
-### Work Partition
-- Worker 1: Task 1 (lumen-banner files)
-- Worker 2: Task 2 (daily-dashboard files)
-- Worker 3: Task 3 (food-history files)
+**Issue:** FOO-325
+**Files:**
+- `src/components/lumen-banner.tsx` (modify)
+- `src/components/__tests__/lumen-banner.test.tsx` (modify)
 
-### Continuation Status
-All tasks completed.
+**TDD Steps:**
 
-### Review Findings
+1. **RED** — Update loading test and add error test:
+   - Modify the test "returns null when loading" to instead assert that a Skeleton placeholder renders (matching the banner's approximate dimensions), not an empty container
+   - Add a new test "shows banner when SWR returns error" that mocks `useSWR` returning `{ data: undefined, error: new Error('fetch failed'), isLoading: false, mutate: vi.fn() }` and asserts the banner's "Set today's macro goals" text is visible (generous: if we can't check goals, show the upload option)
+   - Add a new test "returns null when data is undefined and no error (edge case)" for the scenario where `isLoading=false, data=undefined, error=undefined` — banner should render the skeleton (this is a transient SWR state)
+   - Run: `npm test -- lumen-banner`
+   - Verify: New/updated tests fail
 
-Files reviewed: 6
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+2. **GREEN** — Implement loading skeleton and error handling:
+   - Import `Skeleton` from `@/components/ui/skeleton`
+   - Destructure `error` from the `useSWR` call (currently only destructures `data`, `isLoading`, `mutate`)
+   - Replace the `if (isLoading || !data) return null;` with:
+     - If `isLoading`: return a Skeleton placeholder matching the Alert banner dimensions (use Skeleton component with classes matching the Alert's min-height and width)
+     - If `error` or `!data` (after loading): fall through to render the banner (generous approach — show upload option when state is uncertain)
+   - Keep the `if (data.goals) return null;` check — only hide banner when we positively know goals exist
+   - Add a null guard: only check `data.goals` when `data` is defined
+   - Run: `npm test -- lumen-banner`
+   - Verify: All tests pass
 
-No issues found in changed code — all implementations are correct and follow project conventions.
+3. **REFACTOR** — Clean up:
+   - Ensure the Skeleton placeholder has appropriate dimensions matching the Alert component
+   - Verify no unused imports
 
-Reviewer notes on pre-existing code (out of scope, not blocking):
-- Error messages from API displayed without sanitization (medium, pre-existing)
-- summary.meals potential undefined access (pre-existing, type guarantees `meals: MealGroup[]`)
-- fetch() calls without timeout (pre-existing pattern across all components)
+**Notes:**
+- The Skeleton component is already used in `src/components/daily-dashboard.tsx` — follow the same import pattern
+- SWR deduplication: both LumenBanner and DailyDashboard fetch the same `/api/lumen-goals?date=${today}` key, so only one network request is made. The fix ensures the banner renders content during the shared fetch lifecycle.
+- The generous error approach aligns with the single-user context: if the API fails, it's better to show the upload option than hide it
 
-### Linear Updates
-- FOO-324: Review → Merge
-- FOO-323: Review → Merge
+### Task 3: Integration and verification
 
-<!-- REVIEW COMPLETE -->
+**Issue:** FOO-326, FOO-325
+**Files:**
+- Various files from previous tasks
 
----
+**Steps:**
 
-## Status: COMPLETE
+1. Run full test suite: `npm test`
+2. Run linter: `npm run lint`
+3. Run type checker: `npm run typecheck`
+4. Build check: `npm run build`
+5. Manual verification scenarios:
+   - [ ] Dashboard shows CalorieRing with 0/goal when no food logged
+   - [ ] Dashboard shows MacroBars with 0g when no food logged
+   - [ ] "Update Lumen goals" button visible when no food logged
+   - [ ] Lumen banner shows skeleton then resolves on first page load
+   - [ ] Lumen banner hides after goals are set
+   - [ ] Navigating to /app/analyze and back shows banner immediately (cached)
 
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+## MCP Usage During Implementation
+
+| MCP Server | Tool | Purpose |
+|------------|------|---------|
+| Linear | `update_issue` | Move FOO-326, FOO-325 to "In Progress" when starting, "Done" when complete |
+
+## Error Handling
+
+| Error Scenario | Expected Behavior | Test Coverage |
+|---------------|-------------------|---------------|
+| Nutrition summary returns empty meals | Dashboard shows zero-state (ring, bars, button) | Unit test (Task 1) |
+| Nutrition summary is undefined after loading | Dashboard uses zero-state fallback totals | Unit test (Task 1) |
+| Lumen goals fetch fails | LumenBanner shows upload option anyway | Unit test (Task 2) |
+| Lumen goals loading | LumenBanner shows Skeleton placeholder | Unit test (Task 2) |
+| Lumen goals fetch succeeds with goals | LumenBanner hidden | Existing test (unchanged) |
+| Lumen goals fetch succeeds without goals | LumenBanner shows upload prompt | Existing test (unchanged) |
+
+## Risks & Open Questions
+
+- [ ] MealBreakdown returns null for empty meals — verify no visual gap or spacing issue when MealBreakdown is absent from the dashboard layout (the `space-y-6` gap class on the parent div handles this naturally)
+- [ ] SWR deduplication between LumenBanner and DailyDashboard — verify both components update when the shared fetch completes (covered by integration testing)
+
+## Scope Boundaries
+
+**In Scope:**
+- Remove dashboard empty state, show zero-progress dashboard always
+- Fix LumenBanner loading/error states to show skeleton then banner
+- Update existing tests for both components
+
+**Out of Scope:**
+- Changes to MealBreakdown component (already handles empty array)
+- Changes to CalorieRing or MacroBars (already handle zero values)
+- Changes to API routes (data structure is correct)
+- Changes to DashboardPrefetch component
+- Service worker or offline support
