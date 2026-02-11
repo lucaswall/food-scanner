@@ -270,7 +270,7 @@ No service worker or offline support — the app requires an internet connection
 
 | File | Description |
 |------|-------------|
-| [ROADMAP.md](ROADMAP.md) | Full project specification and architecture |
+| [ROADMAP.md](ROADMAP.md) | Feature ideas and specifications |
 | [CLAUDE.md](CLAUDE.md) | Technical reference for Claude Code |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local development setup |
 | [README.md](README.md) | This file — deployment and operations |

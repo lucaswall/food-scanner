@@ -1,19 +1,20 @@
-# Food Scanner - Roadmap
+# Food Scanner - Ideas
 
 ## Contents
 
-| # | Feature | Prerequisites |
-|---|---------|---------------|
-| 1 | [Conversational Analysis](#feature-1-conversational-analysis) | — |
-| 2 | [Fasting Window & Date Navigation](#feature-2-fasting-window--date-navigation) | Daily Dashboard (FOO-302–306) |
-| 3 | [Weekly Nutrition View](#feature-3-weekly-nutrition-view) | Feature 2 |
-| 4 | [Smart Multi-Item Splitting](#feature-4-smart-multi-item-splitting) | Feature 1 |
-| 5 | [Contextual Memory from Food History](#feature-5-contextual-memory-from-food-history) | Feature 1 |
-| 6 | [Offline Queue with Background Sync](#feature-6-offline-queue-with-background-sync) | — |
+| Feature | Summary |
+|---------|---------|
+| [Conversational Analysis](#conversational-analysis) | Multi-turn chat to refine food analysis before logging |
+| [Date Navigation](#date-navigation) | Navigate between days on the daily dashboard |
+| [Fasting Window](#fasting-window) | Overnight fasting duration card on the dashboard |
+| [Weekly Nutrition View](#weekly-nutrition) | 7-day nutrition trends with charts and averages |
+| [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
+| [Contextual Memory from Food History](#contextual-memory) | Claude queries past food logs during chat |
+| [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
 
 ---
 
-## Feature 1: Conversational Analysis
+## Conversational Analysis
 
 ### Problem
 
@@ -85,29 +86,21 @@ Extend the existing correction flow into a full inline chat. The chat is ephemer
 
 ---
 
-## Feature 2: Fasting Window & Date Navigation
+## Date Navigation
 
 ### Problem
 
-The daily dashboard shows today's nutrition totals but there's no way to navigate between days or see fasting patterns. Users who practice intermittent fasting have no visibility into their eating windows.
+The daily dashboard shows only today's data. There's no way to look at nutrition for a past day.
 
 ### Prerequisites
 
-Daily dashboard must be implemented first (FOO-302 through FOO-306).
+Daily dashboard (FOO-302 through FOO-306).
 
 ### Goal
 
-Add date navigation to the daily dashboard and a fasting window card that shows overnight fasting duration based on existing meal timestamps.
+Navigate between days on the daily dashboard to view historical nutrition data.
 
 ### Design
-
-#### Fasting Window Card
-
-- **Calculation:** Time from last logged meal of the previous day to the first logged meal of the current day.
-- **Display:** Card showing fasting duration (e.g., "14h 30m fast") and time range (e.g., "9:15 PM → 11:45 AM").
-- **Placement:** Below the macro bars, above the meal breakdown on the daily dashboard.
-
-#### Date Navigation
 
 - **Controls:** Left/right arrows or swipe to navigate between days.
 - **Today indicator:** Clear visual distinction when viewing today vs. a past date. "Today" label or highlight.
@@ -116,20 +109,50 @@ Add date navigation to the daily dashboard and a fasting window card that shows 
 
 ### Edge Cases
 
-- No meals logged for previous or current day → show "No data" for fasting window.
-- Only one meal logged for a day → use it as both first and last meal (fasting window shows time from previous day's last meal to this single meal).
 - User navigates to a date with no food logged → dashboard shows empty state with "No food logged" message.
 
 ### Implementation Order
 
-1. Fasting window calculation logic and card component
-2. Date navigation UI (arrows/swipe between days)
-3. Wire fasting card into daily dashboard
-4. Update nutrition summary API to accept any date (if not already flexible)
+1. Date navigation UI (arrows/swipe between days)
+2. Update nutrition summary API to accept any date (if not already flexible)
+3. Empty state for days with no data
 
 ---
 
-## Feature 3: Weekly Nutrition View
+## Fasting Window
+
+### Problem
+
+Users who practice intermittent fasting have no visibility into their eating windows. There's no way to see overnight fasting duration.
+
+### Prerequisites
+
+[Date Navigation](#date-navigation), Daily dashboard (FOO-302 through FOO-306).
+
+### Goal
+
+Show a fasting window card on the daily dashboard displaying overnight fasting duration based on existing meal timestamps.
+
+### Design
+
+- **Calculation:** Time from last logged meal of the previous day to the first logged meal of the current day.
+- **Display:** Card showing fasting duration (e.g., "14h 30m fast") and time range (e.g., "9:15 PM → 11:45 AM").
+- **Placement:** Below the macro bars, above the meal breakdown on the daily dashboard.
+
+### Edge Cases
+
+- No meals logged for previous or current day → show "No data" for fasting window.
+- Only one meal logged for a day → use it as both first and last meal (fasting window shows time from previous day's last meal to this single meal).
+
+### Implementation Order
+
+1. Fasting window calculation logic
+2. Fasting window card component
+3. Wire fasting card into daily dashboard
+
+---
+
+## Weekly Nutrition View
 
 ### Problem
 
@@ -137,7 +160,7 @@ Daily totals show a snapshot but not trends. Users can't see if they're consiste
 
 ### Prerequisites
 
-Daily dashboard (FOO-302 through FOO-306) and Feature 2 (Fasting Window & Date Navigation).
+[Date Navigation](#date-navigation) and [Fasting Window](#fasting-window).
 
 ### Goal
 
@@ -199,7 +222,7 @@ Aggregates from `food_log_entries` joined with `custom_foods`, same data source 
 
 ---
 
-## Feature 4: Smart Multi-Item Splitting
+## Smart Multi-Item Splitting
 
 ### Problem
 
@@ -207,7 +230,7 @@ Complex meals are logged as a single monolithic food entry ("grilled chicken wit
 
 ### Prerequisites
 
-Feature 1 (Conversational Analysis) — splitting happens during the chat refinement flow.
+[Conversational Analysis](#conversational-analysis) — splitting happens during the chat refinement flow.
 
 ### Goal
 
@@ -257,7 +280,7 @@ During the chat, Claude suggests splitting a meal into separate food log entries
 
 ---
 
-## Feature 5: Contextual Memory from Food History
+## Contextual Memory from Food History
 
 ### Problem
 
@@ -265,7 +288,7 @@ Every food analysis is treated in isolation. Claude has no knowledge of what the
 
 ### Prerequisites
 
-Feature 1 (Conversational Analysis) — memory queries happen during the chat flow.
+[Conversational Analysis](#conversational-analysis) — memory queries happen during the chat flow.
 
 ### Goal
 
@@ -308,7 +331,7 @@ Claude can query the user's food log database during the chat to give contextual
 
 ---
 
-## Feature 6: Offline Queue with Background Sync
+## Offline Queue with Background Sync
 
 ### Problem
 
@@ -376,9 +399,9 @@ User picks in Settings:
 
 ---
 
-## Roadmap Conventions
+## Conventions
 
-Rules for agents creating, updating, or managing features in this roadmap.
+Rules for agents creating, updating, or managing features in this file.
 
 ### Feature Structure
 
@@ -402,29 +425,34 @@ Every feature **must** have these sections in this order:
 - **User-facing language in Problem/Goal.** Technical details belong in Architecture.
 - **Edge Cases are not Limitations.** Edge cases describe specific scenarios and their handling. Limitations are fundamental constraints (e.g., "requires network") — fold these into Architecture or Edge Cases.
 
-### Numbering
+### Identification
 
-- Features are numbered sequentially starting from 1.
-- When a feature is fully moved to Linear (all issues created), **remove it** from the roadmap. Do not leave stubs.
-- When removing a feature, **renumber** all remaining features to keep numbering contiguous (no gaps). Update the Contents table and any cross-references (Prerequisites).
-- New features get the next available number (highest existing + 1).
+- Features use **stable slug IDs** as their heading anchor (e.g., `## Date Navigation` → anchor `#date-navigation`).
+- Slugs never change once a feature is added. This keeps external references (chats, notes, Linear issues) valid.
+- Cross-references within this file use markdown links: `[Date Navigation](#date-navigation)`.
+
+### Adding and Removing Features
+
+- New features are appended before the Conventions section. Position in the contents table reflects rough priority.
+- When a feature is fully moved to Linear (all issues created), **remove it** from the file. Do not leave stubs.
+- When removing a feature, update the Contents table and fix any cross-references in remaining features.
 
 ### When to Move to Linear
 
-A feature moves from roadmap to Linear Backlog when:
+A feature moves from this file to Linear Backlog when:
 1. The design is detailed enough for `plan-backlog` to create implementation plans.
 2. Prerequisites are done or in progress.
 3. The feature is approved for implementation.
 
-Move the **entire feature or a self-contained phase** — don't create Linear issues for half a feature while the other half stays in the roadmap. When a feature is too large, split it into separate roadmap features first (each with their own number), then move them independently.
+Move the **entire feature or a self-contained phase** — don't create Linear issues for half a feature while the other half stays here. When a feature is too large, split it into separate features first, then move them independently.
 
 ### Splitting Features
 
 If a feature grows beyond ~60 lines or contains clearly independent phases:
-1. Extract each phase into its own feature with a new number.
+1. Extract each phase into its own feature with a new heading.
 2. Set prerequisites between them as needed.
 3. Update the Contents table.
 
 ### Contents Table
 
-The table at the top must stay in sync. When adding, removing, or renumbering features, update the table. Each row has: number, linked feature name, and prerequisites.
+The table at the top must stay in sync. When adding or removing features, update the table. Each row has: linked feature name and a one-sentence summary.
