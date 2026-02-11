@@ -189,4 +189,40 @@ describe("LumenBanner", () => {
       expect(mockMutate).toHaveBeenCalled();
     });
   });
+
+  it("includes date field in POST FormData matching client-side today", async () => {
+    const user = userEvent.setup();
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, data: { goals: null } }),
+    });
+    global.fetch = mockFetch;
+
+    mockUseSWR.mockReturnValue({
+      data: { goals: null },
+      error: undefined,
+      isLoading: false,
+      mutate: vi.fn(),
+    });
+
+    render(<LumenBanner />);
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["image"], "lumen.png", { type: "image/png" });
+
+    await user.upload(fileInput, file);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled();
+    });
+
+    const formData = mockFetch.mock.calls[0][1].body as FormData;
+    const dateValue = formData.get("date");
+
+    // Compute expected date client-side (same logic as getTodayDate)
+    const now = new Date();
+    const expectedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    expect(dateValue).toBe(expectedDate);
+  });
 });

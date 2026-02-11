@@ -24,7 +24,7 @@ Parse issue identifiers from `$ARGUMENTS` (e.g., `FOO-123`, `FOO-124`).
 ### Mode 2: No Arguments (picker mode)
 
 If `$ARGUMENTS` is empty or doesn't contain issue identifiers:
-1. Fetch all Backlog issues: `mcp__linear__list_issues` with `team: "Food Scanner"`, `state: "Backlog"`
+1. Fetch all Backlog issues: `mcp__linear__list_issues` with `team: "Food Scanner"`, `state: "Backlog"`, `includeArchived: false`
 2. Score each issue's refinement readiness (see Refinement Score below)
 3. Assess each issue's drop likelihood (see Drop Assessment below)
 4. Display a markdown table with columns: #, Issue, Title, Priority, Labels, Score, Drop?

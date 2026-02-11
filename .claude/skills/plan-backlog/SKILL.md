@@ -84,7 +84,7 @@ mcp__linear__list_issue_labels(teamName: "Food Scanner")
 Then query for Backlog issues:
 
 ```
-mcp__linear__list_issues(teamName: "Food Scanner", statusName: "Backlog")
+mcp__linear__list_issues(teamName: "Food Scanner", statusName: "Backlog", includeArchived: false)
 ```
 
 Filter the results based on the user's criteria (label, title keywords, etc.).
@@ -92,7 +92,7 @@ Filter the results based on the user's criteria (label, title keywords, etc.).
 **If user said "plan all" or "work on backlog":**
 
 ```
-mcp__linear__list_issues(teamName: "Food Scanner", statusName: "Backlog")
+mcp__linear__list_issues(teamName: "Food Scanner", statusName: "Backlog", includeArchived: false)
 ```
 
 Present the list to the user and confirm which issues to plan.

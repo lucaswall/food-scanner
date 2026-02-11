@@ -17,6 +17,7 @@ Perform a comprehensive code audit using an agent team with domain-specialized r
 3. **Query Linear Backlog** — Get existing issues using `mcp__linear__list_issues` with:
    - `team`: "Food Scanner"
    - `state`: "Backlog"
+   - `includeArchived`: false
    - For each issue, record: ID, title, labels, priority, description
    - **Audit issues** (labels: Bug, Security, Performance, Convention, Technical Debt) → mark as `pending_validation`
    - **Non-audit issues** (labels: Feature, Improvement) → mark as `preserve` (skip validation)

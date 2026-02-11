@@ -85,6 +85,7 @@ export function DailyDashboard() {
     try {
       const formData = new FormData();
       formData.append("image", file);
+      formData.append("date", today);
 
       const response = await fetch("/api/lumen-goals", {
         method: "POST",

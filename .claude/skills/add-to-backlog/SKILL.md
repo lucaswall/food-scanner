@@ -132,7 +132,7 @@ When user mentions investigation findings:
 ## Duplicate Detection
 
 Before creating, check existing Backlog:
-1. Query `mcp__linear__list_issues` with `team=Food Scanner, state=Backlog`
+1. Query `mcp__linear__list_issues` with `team=Food Scanner, state=Backlog, includeArchived=false`
 2. Compare proposed issues against existing titles/descriptions
 3. If similar issue exists:
    - Note as "Similar to FOO-XXX"
