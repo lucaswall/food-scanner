@@ -547,3 +547,82 @@ Three features planned together: (1) date navigation on the daily dashboard so u
 - Write endpoints in v1 (e.g., logging food via API) — not in FOO-328 scope
 - Rate limiting for v1 endpoints — future iteration
 - API key rotation/regeneration — not in current scope
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-11
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Extract Date Utility Module (FOO-327) — Created `date-utils.ts` with getTodayDate, formatDisplayDate, addDays, isToday; replaced 3 duplicated definitions (worker-1)
+- Task 2: Earliest Entry Date API Endpoint (FOO-327) — Added getEarliestEntryDate to food-log.ts; created GET /api/earliest-entry route (worker-1)
+- Task 3: DateNavigator Component (FOO-327) — Created client component with left/right arrows, date label, disabled states at boundaries, skeleton loading (worker-1)
+- Task 4: Integrate Date Navigation into Dashboard (FOO-327) — Added selectedDate state, DateNavigator, empty state, replaced hardcoded today with date-utils (worker-1)
+- Task 5: API Keys Database Schema (FOO-329) — Added apiKeys table to schema.ts; drizzle-kit generate run by lead (worker-2 + lead)
+- Task 6: API Key Library Module (FOO-329) — Created api-keys.ts with generateApiKey, hashApiKey, createApiKey, listApiKeys, revokeApiKey, validateApiKey (worker-2)
+- Task 7: API Key Management Routes (FOO-329) — Created GET/POST /api/api-keys and DELETE /api/api-keys/[id] routes (worker-2)
+- Task 8: API Key Settings UI (FOO-329) — Created ApiKeyManager component with generate/copy/revoke flows, integrated into settings page (worker-2)
+- Task 9: API Key Validation for v1 Routes (FOO-328) — Created api-auth.ts with validateApiRequest for Bearer token auth (worker-3)
+- Task 10: v1 Nutrition Summary and Food Log Endpoints (FOO-328) — Created GET /api/v1/nutrition-summary and /api/v1/food-log (worker-3)
+- Task 11: v1 Activity, Nutrition Goals, and Lumen Goals Endpoints (FOO-328) — Created 3 v1 endpoints + middleware exclusion for /api/v1/* (worker-3)
+- Task 12: Integration & Verification — Lead ran full verification, fixed lint/type issues, updated CLAUDE.md
+
+### Files Modified
+- `src/lib/date-utils.ts` — Created: shared date utility (getTodayDate, formatDisplayDate, addDays, isToday)
+- `src/lib/__tests__/date-utils.test.ts` — Created: 15 tests for date utilities
+- `src/components/date-navigator.tsx` — Created: date navigation component with arrows and boundary logic
+- `src/components/__tests__/date-navigator.test.tsx` — Created: 10 tests for DateNavigator
+- `src/app/api/earliest-entry/route.ts` — Created: GET endpoint for earliest food log date
+- `src/app/api/earliest-entry/__tests__/route.test.ts` — Created: 4 tests for earliest-entry route
+- `src/lib/food-log.ts` — Modified: added getEarliestEntryDate function
+- `src/lib/__tests__/food-log.test.ts` — Modified: added 3 tests for getEarliestEntryDate
+- `src/components/daily-dashboard.tsx` — Modified: added selectedDate state, DateNavigator, empty state, date-utils imports
+- `src/components/__tests__/daily-dashboard.test.tsx` — Modified: updated to 32 tests covering date navigation
+- `src/app/api/lumen-goals/route.ts` — Modified: replaced local getTodayDate with date-utils import
+- `src/components/lumen-banner.tsx` — Modified: replaced local getTodayDate with date-utils import
+- `src/db/schema.ts` — Modified: added apiKeys table
+- `drizzle/0011_eager_the_captain.sql` — Generated: CREATE TABLE api_keys migration
+- `src/lib/api-keys.ts` — Created: API key generation, hashing, CRUD, validation
+- `src/lib/__tests__/api-keys.test.ts` — Created: 14 tests for API key module
+- `src/app/api/api-keys/route.ts` — Created: GET/POST routes for API key management
+- `src/app/api/api-keys/__tests__/route.test.ts` — Created: 9 tests
+- `src/app/api/api-keys/[id]/route.ts` — Created: DELETE route for key revocation
+- `src/app/api/api-keys/[id]/__tests__/route.test.ts` — Created: 4 tests
+- `src/components/api-key-manager.tsx` — Created: API key management UI with generate/copy/revoke
+- `src/components/__tests__/api-key-manager.test.tsx` — Created: 10 tests
+- `src/components/ui/card.tsx` — Created: shadcn/ui Card component
+- `src/app/settings/page.tsx` — Modified: integrated ApiKeyManager component
+- `src/lib/api-auth.ts` — Created: validateApiRequest for Bearer token auth
+- `src/lib/__tests__/api-auth.test.ts` — Created: 5 tests
+- `src/app/api/v1/nutrition-summary/route.ts` — Created: v1 nutrition summary endpoint
+- `src/app/api/v1/nutrition-summary/__tests__/route.test.ts` — Created: 6 tests
+- `src/app/api/v1/food-log/route.ts` — Created: v1 food log endpoint
+- `src/app/api/v1/food-log/__tests__/route.test.ts` — Created: 6 tests
+- `src/app/api/v1/activity-summary/route.ts` — Created: v1 activity summary endpoint
+- `src/app/api/v1/activity-summary/__tests__/route.test.ts` — Created: 9 tests
+- `src/app/api/v1/nutrition-goals/route.ts` — Created: v1 nutrition goals endpoint
+- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` — Created: 7 tests
+- `src/app/api/v1/lumen-goals/route.ts` — Created: v1 lumen goals endpoint
+- `src/app/api/v1/lumen-goals/__tests__/route.test.ts` — Created: 6 tests
+- `middleware.ts` — Modified: excluded /api/v1/* from session check
+- `CLAUDE.md` — Modified: added api_keys to DATABASE tables list
+
+### Linear Updates
+- FOO-327: Todo → In Progress → Review
+- FOO-329: Todo → In Progress → Review
+- FOO-328: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 5 issues (1 false positive logging concern, 3 real fixes applied: error handling in ApiKeyManager, duplicate Today badge, CLAUDE.md update, 1 medium clipboard error handling)
+- verifier: All 1369 tests pass, zero lint warnings, zero typecheck errors, clean build
+
+### Work Partition
+- Worker 1: Tasks 1-4 (FOO-327 — date navigation: date-utils, earliest-entry, DateNavigator, dashboard integration)
+- Worker 2: Tasks 5-8 (FOO-329 — API keys: schema, lib module, routes, settings UI)
+- Worker 3: Tasks 9-11 (FOO-328 — v1 API: api-auth, nutrition/food-log endpoints, activity/goals/middleware)
+- Lead: Task 5 drizzle-kit generate, Task 12 verification, all post-verification fixes
+
+### Continuation Status
+All tasks completed.

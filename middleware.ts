@@ -38,5 +38,5 @@ export function middleware(request: NextRequest) {
 export const runtime = "nodejs";
 
 export const config = {
-  matcher: ["/app/:path*", "/settings/:path*", "/api/((?!health|auth).*)"],
+  matcher: ["/app/:path*", "/settings/:path*", "/api/((?!health|auth|v1).*)"],
 };

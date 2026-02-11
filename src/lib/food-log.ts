@@ -629,6 +629,21 @@ export async function updateCustomFoodMetadata(
     .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
 }
 
+export async function getEarliestEntryDate(
+  userId: string,
+): Promise<string | null> {
+  const db = getDb();
+
+  const rows = await db
+    .select({ date: foodLogEntries.date })
+    .from(foodLogEntries)
+    .where(eq(foodLogEntries.userId, userId))
+    .orderBy(asc(foodLogEntries.date))
+    .limit(1);
+
+  return rows[0]?.date ?? null;
+}
+
 export async function getDailyNutritionSummary(
   userId: string,
   date: string,

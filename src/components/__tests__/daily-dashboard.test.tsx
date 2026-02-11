@@ -144,6 +144,10 @@ describe("DailyDashboard", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
       })
       .mockResolvedValueOnce({
@@ -165,6 +169,10 @@ describe("DailyDashboard", () => {
 
   it("nutrition-summary includes today's date in YYYY-MM-DD format", async () => {
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
@@ -198,6 +206,10 @@ describe("DailyDashboard", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
       })
       .mockResolvedValueOnce({
@@ -216,6 +228,10 @@ describe("DailyDashboard", () => {
 
   it("renders MacroBars with fetched macro totals", async () => {
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
@@ -239,6 +255,10 @@ describe("DailyDashboard", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
       })
       .mockResolvedValueOnce({
@@ -258,6 +278,10 @@ describe("DailyDashboard", () => {
 
   it("meal entries are initially collapsed", async () => {
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
@@ -282,6 +306,10 @@ describe("DailyDashboard", () => {
     const user = userEvent.setup();
 
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
@@ -326,6 +354,10 @@ describe("DailyDashboard", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: () => Promise.resolve({ success: true, data: emptySummary }),
       })
       .mockResolvedValueOnce({
@@ -348,12 +380,12 @@ describe("DailyDashboard", () => {
       // "Update Lumen goals" button should be visible
       expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
 
-      // "No food logged today" text should NOT be present
-      expect(screen.queryByText(/no food logged today/i)).not.toBeInTheDocument();
+      // "No food logged" text SHOULD be present when meals array is empty
+      expect(screen.getByText(/no food logged/i)).toBeInTheDocument();
     });
   });
 
-  it("empty state includes link to scan food", async () => {
+  it("empty state includes no food logged message", async () => {
     const emptySummary = {
       date: "2026-02-10",
       totals: {
@@ -374,6 +406,10 @@ describe("DailyDashboard", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: () => Promise.resolve({ success: true, data: emptySummary }),
       })
       .mockResolvedValueOnce({
@@ -384,20 +420,20 @@ describe("DailyDashboard", () => {
     renderDailyDashboard();
 
     await waitFor(() => {
-      // Dashboard components should render (not empty state)
+      // Dashboard components should render
       expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
       expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+      // Empty state message should also be present
+      expect(screen.getByText(/no food logged/i)).toBeInTheDocument();
     });
-
-    // Should NOT have the "/app" link from empty state context
-    // (Note: Settings link at line 191 still exists but has href="/settings")
-    const links = screen.queryAllByRole("link");
-    const appLinks = links.filter(link => link.getAttribute("href") === "/app");
-    expect(appLinks.length).toBe(0);
   });
 
   it("shows error state when summary fetch fails", async () => {
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: false,
         json: () =>
@@ -420,6 +456,10 @@ describe("DailyDashboard", () => {
 
   it("renders dashboard with plain calorie display when goals fetch fails", async () => {
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
@@ -449,6 +489,10 @@ describe("DailyDashboard", () => {
 
   it("renders dashboard with plain calorie display when goals.calories is null", async () => {
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
@@ -483,6 +527,10 @@ describe("DailyDashboard", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
       })
       .mockResolvedValueOnce({
@@ -509,6 +557,10 @@ describe("DailyDashboard", () => {
 
   it("does not pass budget prop to CalorieRing when activity data is unavailable", async () => {
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
@@ -546,6 +598,10 @@ describe("DailyDashboard", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
       })
       .mockResolvedValueOnce({
@@ -572,6 +628,10 @@ describe("DailyDashboard", () => {
 
   it("shows reconnect message with link to settings when activity SWR returns error", async () => {
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
@@ -604,6 +664,10 @@ describe("DailyDashboard", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
       })
       .mockResolvedValueOnce({
@@ -632,6 +696,10 @@ describe("DailyDashboard", () => {
 
   it("MacroBars and MealBreakdown still render when activity SWR returns error", async () => {
     mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockSummary }),
@@ -787,6 +855,12 @@ describe("DailyDashboard", () => {
           json: () => Promise.resolve({ success: true, data: mockGoals }),
         });
       }
+      if (url.includes("/api/earliest-entry")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+        });
+      }
       if (url.includes("/api/lumen-goals")) {
         return Promise.resolve({
           ok: false,
@@ -815,8 +889,10 @@ describe("DailyDashboard", () => {
       expect(screen.getByText("Breakfast")).toBeInTheDocument();
     });
 
-    // Day type should NOT be shown
-    expect(screen.queryByText(/day$/)).not.toBeInTheDocument();
+    // Day type should NOT be shown (e.g., "Low carb day")
+    // Check that there's no "Low carb day", "High carb day", etc.
+    expect(screen.queryByText(/low carb day/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/high carb day/i)).not.toBeInTheDocument();
   });
 
   it("MacroBars receives no goal props when Lumen goals are null", async () => {
@@ -997,6 +1073,225 @@ describe("DailyDashboard", () => {
       const dateValue = formData.get("date");
       expect(dateValue).toBeDefined();
       expect(dateValue).toMatch(/^\d{4}-\d{2}-\d{2}$/); // YYYY-MM-DD format
+    });
+  });
+
+  it("renders the DateNavigator component", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/earliest-entry")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Previous day")).toBeInTheDocument();
+      expect(screen.getByLabelText("Next day")).toBeInTheDocument();
+    });
+  });
+
+  it("fetches from /api/earliest-entry on mount", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/earliest-entry")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { date: "2026-01-15" } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      const earliestEntryCall = mockFetch.mock.calls.find((call) =>
+        call[0].includes("/api/earliest-entry")
+      );
+      expect(earliestEntryCall).toBeDefined();
+    });
+  });
+
+  it("fetch keys include the selected date, not hardcoded today", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/earliest-entry")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      // All date-dependent endpoints should include date parameter
+      const summaryCall = mockFetch.mock.calls.find((call) =>
+        call[0].includes("/api/nutrition-summary")
+      );
+      const lumenCall = mockFetch.mock.calls.find((call) =>
+        call[0].includes("/api/lumen-goals")
+      );
+      const activityCall = mockFetch.mock.calls.find((call) =>
+        call[0].includes("/api/activity-summary")
+      );
+
+      expect(summaryCall).toBeDefined();
+      expect(summaryCall![0]).toMatch(/date=\d{4}-\d{2}-\d{2}/);
+      expect(lumenCall).toBeDefined();
+      expect(lumenCall![0]).toMatch(/date=\d{4}-\d{2}-\d{2}/);
+      expect(activityCall).toBeDefined();
+      expect(activityCall![0]).toMatch(/date=\d{4}-\d{2}-\d{2}/);
+    });
+  });
+
+  it("clicking DateNavigator updates selected date state", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/earliest-entry")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Previous day")).toBeInTheDocument();
+    });
+
+    // Previous day button should be enabled
+    const prevButton = screen.getByLabelText("Previous day");
+    expect(prevButton).not.toBeDisabled();
+
+    // Next day button should be disabled (viewing today)
+    const nextButton = screen.getByLabelText("Next day");
+    expect(nextButton).toBeDisabled();
+  });
+
+  it("shows 'No food logged' empty state when nutrition summary returns no meals", async () => {
+    const emptySummaryForDate = {
+      date: "2026-02-09",
+      totals: {
+        calories: 0,
+        proteinG: 0,
+        carbsG: 0,
+        fatG: 0,
+        fiberG: 0,
+        sodiumMg: 0,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+      meals: [],
+    };
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: emptySummaryForDate }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/earliest-entry")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText(/no food logged/i)).toBeInTheDocument();
     });
   });
 });

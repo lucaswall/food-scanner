@@ -78,6 +78,13 @@
       "when": 1770767014529,
       "tag": "0010_elite_shiva",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1770850251757,
+      "tag": "0011_eager_the_captain",
+      "breakpoints": true
     }
   ]
 }

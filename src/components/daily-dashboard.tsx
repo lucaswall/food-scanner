@@ -4,6 +4,8 @@ import { useRef, useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { apiFetcher } from "@/lib/swr";
+import { getTodayDate } from "@/lib/date-utils";
+import { DateNavigator } from "@/components/date-navigator";
 import { CalorieRing } from "@/components/calorie-ring";
 import { MacroBars } from "@/components/macro-bars";
 import { MealBreakdown } from "@/components/meal-breakdown";
@@ -12,17 +14,16 @@ import { Button } from "@/components/ui/button";
 import { RefreshCw, Loader2 } from "lucide-react";
 import type { NutritionSummary, NutritionGoals, ActivitySummary, LumenGoalsResponse } from "@/types";
 
-function getTodayDate(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function DashboardSkeleton() {
   return (
     <div data-testid="dashboard-skeleton" className="space-y-6">
+      {/* Date navigator skeleton */}
+      <div className="flex items-center justify-between gap-2">
+        <Skeleton className="h-[44px] w-[44px] rounded-md" />
+        <Skeleton className="h-6 w-32" />
+        <Skeleton className="h-[44px] w-[44px] rounded-md" />
+      </div>
+
       {/* Calorie ring skeleton */}
       <div className="flex flex-col items-center gap-2">
         <Skeleton className="w-32 h-32 rounded-full" />
@@ -45,16 +46,21 @@ function DashboardSkeleton() {
 }
 
 export function DailyDashboard() {
-  const today = getTodayDate();
+  const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingLumen, setIsUploadingLumen] = useState(false);
   const [lumenUploadError, setLumenUploadError] = useState<string | null>(null);
 
   const {
+    data: earliestEntry,
+    isLoading: earliestLoading,
+  } = useSWR<{ date: string | null }>("/api/earliest-entry", apiFetcher);
+
+  const {
     data: summary,
     error: summaryError,
     isLoading: summaryLoading,
-  } = useSWR<NutritionSummary>(`/api/nutrition-summary?date=${today}`, apiFetcher);
+  } = useSWR<NutritionSummary>(`/api/nutrition-summary?date=${selectedDate}`, apiFetcher);
 
   const {
     data: goals,
@@ -64,12 +70,12 @@ export function DailyDashboard() {
   const {
     data: activity,
     error: activityError,
-  } = useSWR<ActivitySummary>(`/api/activity-summary?date=${today}`, apiFetcher);
+  } = useSWR<ActivitySummary>(`/api/activity-summary?date=${selectedDate}`, apiFetcher);
 
   const {
     data: lumenGoals,
     mutate: mutateLumenGoals,
-  } = useSWR<LumenGoalsResponse>(`/api/lumen-goals?date=${today}`, apiFetcher);
+  } = useSWR<LumenGoalsResponse>(`/api/lumen-goals?date=${selectedDate}`, apiFetcher);
 
   const handleUpdateLumenGoals = () => {
     fileInputRef.current?.click();
@@ -85,7 +91,7 @@ export function DailyDashboard() {
     try {
       const formData = new FormData();
       formData.append("image", file);
-      formData.append("date", today);
+      formData.append("date", selectedDate);
 
       const response = await fetch("/api/lumen-goals", {
         method: "POST",
@@ -154,9 +160,19 @@ export function DailyDashboard() {
       ? activity.caloriesOut - (activity.estimatedCaloriesOut - goals.calories) - totals.calories
       : undefined;
 
+  // Empty state - when there are no meals logged for this date
+  const showEmptyState = !summaryLoading && meals.length === 0;
+
   // Data state - compose all dashboard components
   return (
     <div className="space-y-6">
+      {/* Date Navigator */}
+      <DateNavigator
+        selectedDate={selectedDate}
+        onDateChange={setSelectedDate}
+        earliestDate={earliestEntry?.date ?? null}
+        isLoading={earliestLoading}
+      />
       {/* Calorie Ring or Plain Display */}
       <div className="flex flex-col items-center gap-2">
         {/* Day type badge */}
@@ -206,8 +222,14 @@ export function DailyDashboard() {
         fatGoal={lumenGoals?.goals?.fatGoal}
       />
 
-      {/* Meal Breakdown */}
-      <MealBreakdown meals={meals} />
+      {/* Empty state or Meal Breakdown */}
+      {showEmptyState ? (
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <p className="text-muted-foreground">No food logged</p>
+        </div>
+      ) : (
+        <MealBreakdown meals={meals} />
+      )}
 
       {/* Update Lumen goals button */}
       <div className="flex flex-col items-center gap-2">
