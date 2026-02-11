@@ -3,18 +3,11 @@
 import { useRef, useState } from "react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
+import { getTodayDate } from "@/lib/date-utils";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Upload, Loader2 } from "lucide-react";
 import type { LumenGoalsResponse } from "@/types";
-
-function getTodayDate(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 export function LumenBanner() {
   const today = getTodayDate();

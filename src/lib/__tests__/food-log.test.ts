@@ -99,6 +99,7 @@ const {
   getFoodLogEntryDetail,
   deleteFoodLogEntry,
   updateCustomFoodMetadata,
+  getEarliestEntryDate,
 } = await import("@/lib/food-log");
 
 describe("insertCustomFood", () => {
@@ -1770,5 +1771,40 @@ describe("updateCustomFoodMetadata", () => {
     });
 
     expect(mockUpdateWhere).toHaveBeenCalled();
+  });
+});
+
+describe("getEarliestEntryDate", () => {
+  it("returns the earliest date when entries exist", async () => {
+    mockLimit.mockResolvedValue([
+      { date: "2026-01-15" },
+    ]);
+
+    const result = await getEarliestEntryDate("user-uuid-123");
+
+    expect(result).toBe("2026-01-15");
+    expect(mockSelect).toHaveBeenCalled();
+    expect(mockFrom).toHaveBeenCalled();
+    expect(mockWhere).toHaveBeenCalled();
+    expect(mockOrderBy).toHaveBeenCalled();
+    expect(mockLimit).toHaveBeenCalledWith(1);
+  });
+
+  it("returns null when no entries exist", async () => {
+    mockLimit.mockResolvedValue([]);
+
+    const result = await getEarliestEntryDate("user-uuid-123");
+
+    expect(result).toBeNull();
+  });
+
+  it("filters by userId", async () => {
+    mockLimit.mockResolvedValue([
+      { date: "2026-02-01" },
+    ]);
+
+    await getEarliestEntryDate("user-uuid-456");
+
+    expect(mockWhere).toHaveBeenCalled();
   });
 });

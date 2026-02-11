@@ -1,0 +1,138 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { LumenGoals } from "@/types";
+
+vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
+
+const mockValidateApiRequest = vi.fn();
+vi.mock("@/lib/api-auth", () => ({
+  validateApiRequest: (...args: unknown[]) => mockValidateApiRequest(...args),
+}));
+
+vi.mock("@/lib/logger", () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+}));
+
+const mockGetLumenGoalsByDate = vi.fn();
+vi.mock("@/lib/lumen", () => ({
+  getLumenGoalsByDate: (...args: unknown[]) => mockGetLumenGoalsByDate(...args),
+}));
+
+const { GET } = await import("@/app/api/v1/lumen-goals/route");
+
+function createRequest(url: string, headers?: HeadersInit): Request {
+  return new Request(url, { headers });
+}
+
+describe("GET /api/v1/lumen-goals", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns lumen goals for valid API key and date", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+
+    const mockGoals: LumenGoals = {
+      date: "2026-02-11",
+      dayType: "low-carb",
+      proteinGoal: 150,
+      carbsGoal: 50,
+      fatGoal: 100,
+    };
+
+    mockGetLumenGoalsByDate.mockResolvedValue(mockGoals);
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/lumen-goals?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.data.goals).toEqual(mockGoals);
+    expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
+    expect(mockGetLumenGoalsByDate).toHaveBeenCalledWith("user-123", "2026-02-11");
+  });
+
+  it("returns null goals when no lumen data exists for date", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockGetLumenGoalsByDate.mockResolvedValue(null);
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/lumen-goals?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.data.goals).toBeNull();
+  });
+
+  it("returns 401 for invalid API key", async () => {
+    const errorResponse = Response.json(
+      { success: false, error: { code: "AUTH_MISSING_SESSION", message: "Invalid API key" }, timestamp: Date.now() },
+      { status: 401 }
+    );
+    mockValidateApiRequest.mockResolvedValue(errorResponse);
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/lumen-goals?date=2026-02-11",
+      { Authorization: "Bearer invalid-key" }
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(401);
+  });
+
+  it("returns 400 for missing date parameter", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/lumen-goals",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toBe("date query parameter is required (YYYY-MM-DD)");
+  });
+
+  it("returns 400 for invalid date format", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/lumen-goals?date=invalid-date",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toBe("Invalid date format. Use YYYY-MM-DD");
+  });
+
+  it("sets Cache-Control header to private, no-cache", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockGetLumenGoalsByDate.mockResolvedValue({
+      date: "2026-02-11",
+      dayType: "low-carb",
+      proteinGoal: 150,
+      carbsGoal: 50,
+      fatGoal: 100,
+    });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/lumen-goals?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+
+    expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+});
