@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-02-10
+
+### Added
+
+- Lumen metabolic tracking integration with screenshot-based macro goal parsing
+- LumenBanner component for uploading and managing Lumen daily macro goals
+- Lumen goals API endpoint for creating and retrieving daily metabolic targets
+- MacroBars component now displays progress against Lumen goals when available
+
+### Fixed
+
+- Lumen goals date timezone handling to ensure correct daily goal assignment
+- Food history display now properly refreshes after logging
+
 ## [1.4.1] - 2026-02-10
 
 ### Fixed
@@ -102,7 +116,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Mobile-first PWA with Add to Home Screen support
 - Dual environment setup (staging with dry-run, production with live Fitbit)
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/lucaswall/food-scanner/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/lucaswall/food-scanner/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/lucaswall/food-scanner/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/lucaswall/food-scanner/compare/v1.2.0...v1.3.0
