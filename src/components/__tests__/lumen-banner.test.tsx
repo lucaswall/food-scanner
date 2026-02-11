@@ -18,7 +18,7 @@ beforeEach(() => {
 });
 
 describe("LumenBanner", () => {
-  it("returns null when loading", () => {
+  it("shows skeleton placeholder when loading", () => {
     mockUseSWR.mockReturnValue({
       data: undefined,
       error: undefined,
@@ -26,8 +26,37 @@ describe("LumenBanner", () => {
       mutate: vi.fn(),
     });
 
-    const { container } = render(<LumenBanner />);
-    expect(container.innerHTML).toBe("");
+    render(<LumenBanner />);
+    // Skeleton should be present during loading
+    const skeleton = document.querySelector('[data-testid="lumen-banner-skeleton"]');
+    expect(skeleton).toBeInTheDocument();
+  });
+
+  it("shows banner when SWR returns error", () => {
+    mockUseSWR.mockReturnValue({
+      data: undefined,
+      error: new Error("fetch failed"),
+      isLoading: false,
+      mutate: vi.fn(),
+    });
+
+    render(<LumenBanner />);
+    // Generous approach: show banner when we can't check goals
+    expect(screen.getByText("Set today's macro goals")).toBeInTheDocument();
+  });
+
+  it("shows skeleton when data is undefined and no error (transient SWR state)", () => {
+    mockUseSWR.mockReturnValue({
+      data: undefined,
+      error: undefined,
+      isLoading: false,
+      mutate: vi.fn(),
+    });
+
+    render(<LumenBanner />);
+    // Transient state - show skeleton
+    const skeleton = document.querySelector('[data-testid="lumen-banner-skeleton"]');
+    expect(skeleton).toBeInTheDocument();
   });
 
   it("hides banner (returns null) when goals exist for today", () => {

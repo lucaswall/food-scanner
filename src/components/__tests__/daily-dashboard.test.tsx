@@ -336,7 +336,20 @@ describe("DailyDashboard", () => {
     renderDailyDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/no food logged today/i)).toBeInTheDocument();
+      // CalorieRing should render with 0 calories and goal
+      expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+      expect(screen.getByText("0")).toBeInTheDocument();
+      expect(screen.getByText("/ 2,000 cal")).toBeInTheDocument();
+
+      // MacroBars should render with 0g values (multiple instances for P/C/F)
+      expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+      expect(screen.getAllByText("0g").length).toBeGreaterThan(0);
+
+      // "Update Lumen goals" button should be visible
+      expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
+
+      // "No food logged today" text should NOT be present
+      expect(screen.queryByText(/no food logged today/i)).not.toBeInTheDocument();
     });
   });
 
@@ -371,11 +384,16 @@ describe("DailyDashboard", () => {
     renderDailyDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/no food logged today/i)).toBeInTheDocument();
+      // Dashboard components should render (not empty state)
+      expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+      expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
     });
 
-    // Should have a link or button to scan food
-    expect(screen.getByRole("link")).toHaveAttribute("href", "/app");
+    // Should NOT have the "/app" link from empty state context
+    // (Note: Settings link at line 191 still exists but has href="/settings")
+    const links = screen.queryAllByRole("link");
+    const appLinks = links.filter(link => link.getAttribute("href") === "/app");
+    expect(appLinks.length).toBe(0);
   });
 
   it("shows error state when summary fetch fails", async () => {
