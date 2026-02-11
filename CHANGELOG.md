@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-02-11
+
+### Fixed
+
+- Dashboard now always displays, even when no food is logged today
+- Lumen banner appears reliably on initial page load
+
 ## [1.5.0] - 2026-02-10
 
 ### Added
@@ -96,7 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/lucaswall/food-scanner/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/lucaswall/food-scanner/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/lucaswall/food-scanner/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/lucaswall/food-scanner/compare/v1.3.0...v1.4.0
