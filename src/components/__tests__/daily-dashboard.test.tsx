@@ -117,6 +117,16 @@ const mockGoals = {
   calories: 2000,
 };
 
+const mockLumenGoals = {
+  goals: {
+    date: "2026-02-10",
+    dayType: "Low carb",
+    proteinGoal: 120,
+    carbsGoal: 50,
+    fatGoal: 80,
+  },
+};
+
 function renderDailyDashboard() {
   return render(
     <SWRConfig value={{ provider: () => new Map() }}>
@@ -628,5 +638,287 @@ describe("DailyDashboard", () => {
       expect(screen.getByText("Breakfast")).toBeInTheDocument();
       expect(screen.getByText("Lunch")).toBeInTheDocument();
     });
+  });
+
+  it("fetches lumen-goals with today's date", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      const lumenGoalsCall = mockFetch.mock.calls.find((call) =>
+        call[0].includes("/api/lumen-goals")
+      );
+      expect(lumenGoalsCall).toBeDefined();
+      expect(lumenGoalsCall![0]).toMatch(/date=\d{4}-\d{2}-\d{2}/);
+    });
+  });
+
+  it("passes goal props to MacroBars when Lumen goals exist", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      // When goals exist, MacroBars should show "current / goal" format
+      expect(screen.getByText(/85 \/ 120g/)).toBeInTheDocument(); // Protein: 85 / 120g
+      expect(screen.getByText(/200 \/ 50g/)).toBeInTheDocument(); // Carbs: 200 / 50g
+      expect(screen.getByText(/50 \/ 80g/)).toBeInTheDocument(); // Fat: 50 / 80g
+    });
+  });
+
+  it("shows day type text when Lumen goals exist", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByText("Low carb day")).toBeInTheDocument();
+    });
+  });
+
+  it("renders dashboard normally when Lumen goals fetch fails (graceful degradation)", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: false,
+          json: () =>
+            Promise.resolve({
+              success: false,
+              error: { code: "NOT_FOUND", message: "Lumen goals not found" },
+            }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      // Dashboard should render normally without Lumen goals
+      expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+      expect(screen.getByText("85g")).toBeInTheDocument(); // No goal suffix
+      expect(screen.getByText("Breakfast")).toBeInTheDocument();
+    });
+
+    // Day type should NOT be shown
+    expect(screen.queryByText(/day$/)).not.toBeInTheDocument();
+  });
+
+  it("MacroBars receives no goal props when Lumen goals are null", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { goals: null } }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+      // Should show current format without goals (e.g., "85g" not "85 / 120g")
+      expect(screen.getByText("85g")).toBeInTheDocument();
+      expect(screen.queryByText(/\/ \d+g/)).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows 'Update Lumen goals' button below MealBreakdown", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
+    });
+  });
+
+  it("'Update Lumen goals' button triggers file picker on click", async () => {
+    const user = userEvent.setup();
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
+    });
+
+    const updateButton = screen.getByRole("button", { name: /update lumen goals/i });
+    const fileInput = document.querySelector('input[type="file"][accept="image/*"]') as HTMLInputElement;
+    expect(fileInput).toBeInTheDocument();
+
+    const clickSpy = vi.spyOn(fileInput, "click");
+    await user.click(updateButton);
+    expect(clickSpy).toHaveBeenCalled();
   });
 });

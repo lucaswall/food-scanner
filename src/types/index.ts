@@ -117,6 +117,7 @@ export type ErrorCode =
   | "FITBIT_API_ERROR"
   | "VALIDATION_ERROR"
   | "RATE_LIMIT_EXCEEDED"
+  | "LUMEN_PARSE_ERROR"
   | "INTERNAL_ERROR";
 
 export interface ApiSuccessResponse<T> {
@@ -306,4 +307,16 @@ export interface NutritionGoals {
 export interface ActivitySummary {
   caloriesOut: number;
   estimatedCaloriesOut: number;
+}
+
+export interface LumenGoals {
+  date: string;
+  dayType: string;
+  proteinGoal: number;
+  carbsGoal: number;
+  fatGoal: number;
+}
+
+export interface LumenGoalsResponse {
+  goals: LumenGoals | null;
 }

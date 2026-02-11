@@ -2,41 +2,79 @@ interface MacroBarsProps {
   proteinG: number;
   carbsG: number;
   fatG: number;
+  proteinGoal?: number;
+  carbsGoal?: number;
+  fatGoal?: number;
 }
 
-export function MacroBars({ proteinG, carbsG, fatG }: MacroBarsProps) {
+export function MacroBars({
+  proteinG,
+  carbsG,
+  fatG,
+  proteinGoal,
+  carbsGoal,
+  fatGoal,
+}: MacroBarsProps) {
   // Round values to whole numbers
   const protein = Math.round(proteinG);
   const carbs = Math.round(carbsG);
   const fat = Math.round(fatG);
 
-  // Calculate total for percentage width
+  // Calculate total for percentage width (fallback behavior)
   const total = protein + carbs + fat;
 
+  // Helper function to calculate percent and label for each macro
+  const calculateMacroData = (
+    consumed: number,
+    goal: number | undefined,
+    relativeTotalPercent: number
+  ): { percent: number; label: string } => {
+    // Check if goal is provided and valid (> 0)
+    const hasGoal = goal !== undefined && goal > 0;
+
+    if (hasGoal) {
+      // Goal-based calculation: min(consumed / goal, 1) * 100, capped at 100%
+      const percent = Math.min((consumed / goal) * 100, 100);
+      const label = `${consumed} / ${goal}g`;
+      return { percent, label };
+    } else {
+      // Fallback to relative-to-total behavior
+      return { percent: relativeTotalPercent, label: `${consumed}g` };
+    }
+  };
+
   // Calculate percentage widths (handle division by zero)
-  const proteinPercent = total > 0 ? (protein / total) * 100 : 0;
-  const carbsPercent = total > 0 ? (carbs / total) * 100 : 0;
-  const fatPercent = total > 0 ? (fat / total) * 100 : 0;
+  const proteinRelativePercent = total > 0 ? (protein / total) * 100 : 0;
+  const carbsRelativePercent = total > 0 ? (carbs / total) * 100 : 0;
+  const fatRelativePercent = total > 0 ? (fat / total) * 100 : 0;
+
+  const proteinData = calculateMacroData(
+    protein,
+    proteinGoal,
+    proteinRelativePercent
+  );
+  const carbsData = calculateMacroData(carbs, carbsGoal, carbsRelativePercent);
+  const fatData = calculateMacroData(fat, fatGoal, fatRelativePercent);
 
   const macros = [
     {
       name: "Protein",
-      grams: protein,
-      percent: proteinPercent,
+      percent: proteinData.percent,
+      label: proteinData.label,
       color: "bg-blue-500",
       testId: "macro-bar-protein",
     },
     {
       name: "Carbs",
-      grams: carbs,
-      percent: carbsPercent,
+      percent: carbsData.percent,
+      label: carbsData.label,
       color: "bg-green-500",
       testId: "macro-bar-carbs",
     },
     {
       name: "Fat",
-      grams: fat,
-      percent: fatPercent,
+      percent: fatData.percent,
+      label: fatData.label,
       color: "bg-amber-500",
       testId: "macro-bar-fat",
     },
@@ -49,7 +87,7 @@ export function MacroBars({ proteinG, carbsG, fatG }: MacroBarsProps) {
           <div className="flex justify-between items-center text-sm">
             <span className="font-medium">{macro.name}</span>
             <span className="text-muted-foreground tabular-nums">
-              {macro.grams}g
+              {macro.label}
             </span>
           </div>
           <div className="w-full h-2 bg-muted rounded-full overflow-hidden">

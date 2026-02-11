@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import useSWR from "swr";
 import Link from "next/link";
 import { apiFetcher } from "@/lib/swr";
@@ -7,7 +8,9 @@ import { CalorieRing } from "@/components/calorie-ring";
 import { MacroBars } from "@/components/macro-bars";
 import { MealBreakdown } from "@/components/meal-breakdown";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { NutritionSummary, NutritionGoals, ActivitySummary } from "@/types";
+import { Button } from "@/components/ui/button";
+import { RefreshCw, Loader2 } from "lucide-react";
+import type { NutritionSummary, NutritionGoals, ActivitySummary, LumenGoalsResponse } from "@/types";
 
 function getTodayDate(): string {
   const now = new Date();
@@ -43,6 +46,9 @@ function DashboardSkeleton() {
 
 export function DailyDashboard() {
   const today = getTodayDate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingLumen, setIsUploadingLumen] = useState(false);
+  const [lumenUploadError, setLumenUploadError] = useState<string | null>(null);
 
   const {
     data: summary,
@@ -59,6 +65,50 @@ export function DailyDashboard() {
     data: activity,
     error: activityError,
   } = useSWR<ActivitySummary>(`/api/activity-summary?date=${today}`, apiFetcher);
+
+  const {
+    data: lumenGoals,
+    mutate: mutateLumenGoals,
+  } = useSWR<LumenGoalsResponse>(`/api/lumen-goals?date=${today}`, apiFetcher);
+
+  const handleUpdateLumenGoals = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleLumenFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingLumen(true);
+    setLumenUploadError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+
+      const response = await fetch("/api/lumen-goals", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || "Upload failed");
+      }
+
+      // Mutate SWR cache on success
+      await mutateLumenGoals();
+
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    } catch (error) {
+      setLumenUploadError(error instanceof Error ? error.message : "Upload failed");
+    } finally {
+      setIsUploadingLumen(false);
+    }
+  };
 
   // Loading state
   if (summaryLoading || goalsLoading) {
@@ -107,6 +157,13 @@ export function DailyDashboard() {
     <div className="space-y-6">
       {/* Calorie Ring or Plain Display */}
       <div className="flex flex-col items-center gap-2">
+        {/* Day type badge */}
+        {lumenGoals?.goals && (
+          <span className="text-sm text-muted-foreground">
+            {lumenGoals.goals.dayType} day
+          </span>
+        )}
+
         <div className="flex justify-center">
           {goals?.calories != null ? (
             <CalorieRing
@@ -142,10 +199,42 @@ export function DailyDashboard() {
         proteinG={summary.totals.proteinG}
         carbsG={summary.totals.carbsG}
         fatG={summary.totals.fatG}
+        proteinGoal={lumenGoals?.goals?.proteinGoal}
+        carbsGoal={lumenGoals?.goals?.carbsGoal}
+        fatGoal={lumenGoals?.goals?.fatGoal}
       />
 
       {/* Meal Breakdown */}
       <MealBreakdown meals={summary.meals} />
+
+      {/* Update Lumen goals button */}
+      <div className="flex flex-col items-center gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleUpdateLumenGoals}
+          disabled={isUploadingLumen}
+          className="min-h-[44px]"
+        >
+          {isUploadingLumen ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-2" />
+          )}
+          Update Lumen goals
+        </Button>
+        {lumenUploadError && (
+          <p className="text-sm text-destructive">{lumenUploadError}</p>
+        )}
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handleLumenFileChange}
+      />
     </div>
   );
 }

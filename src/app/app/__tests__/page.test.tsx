@@ -31,6 +31,12 @@ vi.mock("@/components/fitbit-status-banner", () => ({
   ),
 }));
 
+vi.mock("@/components/lumen-banner", () => ({
+  LumenBanner: () => (
+    <div data-testid="lumen-banner">LumenBanner</div>
+  ),
+}));
+
 const { default: AppPage } = await import("@/app/app/page");
 
 const validSession: FullSession = {
@@ -79,6 +85,13 @@ describe("/app page", () => {
     const jsx = await AppPage();
     render(jsx);
     expect(screen.getByTestId("fitbit-status-banner")).toBeInTheDocument();
+  });
+
+  it("renders LumenBanner component between button grid and DailyDashboard", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const jsx = await AppPage();
+    render(jsx);
+    expect(screen.getByTestId("lumen-banner")).toBeInTheDocument();
   });
 
   it("renders daily dashboard component", async () => {

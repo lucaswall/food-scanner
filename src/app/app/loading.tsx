@@ -11,6 +11,8 @@ export default function Loading() {
           <Skeleton data-testid="skeleton-card" className="h-24 rounded-xl" />
         </div>
 
+        <Skeleton data-testid="skeleton-banner" className="h-16 rounded-lg" />
+
         <Skeleton data-testid="skeleton-preview" className="h-64 rounded-xl" />
       </div>
     </div>
