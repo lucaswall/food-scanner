@@ -11,10 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Lumen metabolic tracking integration with screenshot-based macro goal parsing
-- LumenBanner component for uploading and managing Lumen daily macro goals
-- Lumen goals API endpoint for creating and retrieving daily metabolic targets
-- MacroBars component now displays progress against Lumen goals when available
+- Lumen metabolic tracking: upload Lumen screenshots to set daily macro goals
+- Macro progress bars now show Lumen goal targets when available
 
 ### Fixed
 
@@ -33,13 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Activity summary API endpoint for retrieving daily step and calorie data
-- Budget marker in CalorieRing component to show calories burned vs consumed
+- Calorie ring now shows a budget marker for calories burned vs consumed
 
 ### Changed
 
-- Improved AI description prompt for more accurate food analysis
-- Analysis metadata now preserved when reusing custom foods
+- More accurate AI food analysis
 
 ### Fixed
 
@@ -50,55 +46,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Daily dashboard with calorie ring, macro bars, and meal breakdown
-- Nutrition summary and goals API endpoints
-- Tier 1 nutrient support (saturated fat, trans fat, sugars, calories from fat)
-- Nutrition facts card with extended nutritional information
+- Extended nutritional information (saturated fat, trans fat, sugars, calories from fat)
+- Nutrition facts card with detailed nutrient breakdown
 
 ### Changed
 
-- Dialog component now supports bottom-sheet variant for mobile
-- Unified post-log success screen across all logging flows
+- Unified success screen after logging food
 
 ## [1.2.0] - 2026-02-09
 
 ### Added
 
-- Per-user Fitbit credentials with encrypted storage and setup flow at `/app/setup-fitbit`
+- Fitbit setup flow for connecting your personal Fitbit account
 - Food detail pages with full nutritional breakdown
-- Visual descriptions stored with custom foods for better context
-- Orphan food cleanup to automatically remove unused custom food entries
-
-### Changed
-
-- Fitbit credentials now per-user instead of shared environment variables
-- Comprehensive Fitbit railguards across all flows (analyze, log, quick-select, settings)
 
 ### Fixed
 
 - Data freshness issues across multiple components
-- Multiple frontend review fixes (accessibility, touch targets, error states)
-- Fitbit connection status checks now consistently enforced
+- Accessibility, touch targets, and error state improvements
 
 ## [1.1.0] - 2026-02-08
 
 ### Added
 
-- Quick Select overhaul: Gaussian scoring, infinite scroll, tabs (Frequent/Recent), search with food database, auto-camera on empty log
-- Loading skeletons for all app routes (dashboard, analyze, history, quick-select, settings)
-- Dashboard preview component with prefetched data
-- Food search API endpoint for Quick Select
-- Debounce hook for search input
+- Quick Select overhaul: smart scoring, infinite scroll, Frequent/Recent tabs, food search, auto-camera on empty log
+- Faster loading with skeleton placeholders across the app
 
 ### Changed
 
-- Navigation restructured with bottom nav improvements
-- Comprehensive performance and loading improvements across the app
-- Food history component with enhanced infinite scroll
+- Redesigned bottom navigation
+- Food history with infinite scroll
 
 ### Fixed
 
-- Multiple UI bug fixes (FOO-224, FOO-225, FOO-226, FOO-227, FOO-228)
-- PLANS.md completion status detection in skills
+- Multiple UI bug fixes
 
 ## [1.0.0] - 2026-02-08
 
@@ -114,7 +95,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refinement flow to correct AI analysis before logging
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
-- Dual environment setup (staging with dry-run, production with live Fitbit)
 
 [Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.5.0...HEAD
 [1.5.0]: https://github.com/lucaswall/food-scanner/compare/v1.4.1...v1.5.0
