@@ -5,7 +5,6 @@
 | Feature | Summary |
 |---------|---------|
 | [Conversational Analysis](#conversational-analysis) | Multi-turn chat to refine food analysis before logging |
-| [Date Navigation](#date-navigation) | Navigate between days on the daily dashboard |
 | [Fasting Window](#fasting-window) | Overnight fasting duration card on the dashboard |
 | [Weekly Nutrition View](#weekly-nutrition) | 7-day nutrition trends with charts and averages |
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
@@ -86,39 +85,6 @@ Extend the existing correction flow into a full inline chat. The chat is ephemer
 
 ---
 
-## Date Navigation
-
-### Problem
-
-The daily dashboard shows only today's data. There's no way to look at nutrition for a past day.
-
-### Prerequisites
-
-Daily dashboard (FOO-302 through FOO-306).
-
-### Goal
-
-Navigate between days on the daily dashboard to view historical nutrition data.
-
-### Design
-
-- **Controls:** Left/right arrows or swipe to navigate between days.
-- **Today indicator:** Clear visual distinction when viewing today vs. a past date. "Today" label or highlight.
-- **Bounds:** No future dates. Earliest date is the first food log entry.
-- **URL/state:** Date stored in query parameter or client state. Default is today.
-
-### Edge Cases
-
-- User navigates to a date with no food logged → dashboard shows empty state with "No food logged" message.
-
-### Implementation Order
-
-1. Date navigation UI (arrows/swipe between days)
-2. Update nutrition summary API to accept any date (if not already flexible)
-3. Empty state for days with no data
-
----
-
 ## Fasting Window
 
 ### Problem
@@ -127,7 +93,7 @@ Users who practice intermittent fasting have no visibility into their eating win
 
 ### Prerequisites
 
-[Date Navigation](#date-navigation), Daily dashboard (FOO-302 through FOO-306).
+Date Navigation (FOO-327), Daily dashboard (FOO-302 through FOO-306).
 
 ### Goal
 
@@ -160,7 +126,7 @@ Daily totals show a snapshot but not trends. Users can't see if they're consiste
 
 ### Prerequisites
 
-[Date Navigation](#date-navigation) and [Fasting Window](#fasting-window).
+Date Navigation (FOO-327) and [Fasting Window](#fasting-window).
 
 ### Goal
 
