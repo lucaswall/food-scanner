@@ -1,12 +1,26 @@
 # Skills Quick Reference
 
+## Progressive Disclosure (3-Layer Model)
+
+Skills load information in stages to optimize context window usage:
+
+| Level | When Loaded | Token Cost | Content |
+|-------|------------|------------|---------|
+| **1. Metadata** | Always (at startup) | ~100 tokens/skill | `name` + `description` from YAML frontmatter |
+| **2. Instructions** | When skill is triggered | <5k tokens | SKILL.md body |
+| **3. Resources** | As needed | Effectively unlimited | Supporting files (scripts, references, templates) |
+
+**Design implication:** Keep SKILL.md focused on instructions. Put large reference docs, API specs, and examples in supporting files and reference them from SKILL.md so Claude loads them only when needed.
+
 ## Invocation Control Matrix
 
-| Frontmatter | User `/invoke` | Claude auto-invoke | In context |
-|-------------|----------------|-------------------|------------|
-| (default) | Yes | Yes | Description always |
-| `disable-model-invocation: true` | Yes | No | Description hidden |
-| `user-invocable: false` | No | Yes | Description always |
+| Frontmatter | User `/invoke` | Claude auto-invoke | When loaded into context |
+|-------------|----------------|-------------------|--------------------------|
+| (default) | Yes | Yes | Description always in context; full skill on trigger |
+| `disable-model-invocation: true` | Yes | No | Description NOT in context; full skill on manual invoke |
+| `user-invocable: false` | No | Yes | Description always in context; full skill on trigger |
+
+**Note:** `user-invocable` only controls menu visibility, not Skill tool access. Use `disable-model-invocation: true` to block programmatic invocation entirely.
 
 ## Skill Directory Structure
 
@@ -23,6 +37,16 @@ my-skill/
 2. Create a **background knowledge skill** with `user-invocable: false`
 3. Accept duplication (self-contained skills are more maintainable)
 
+## Naming Rules
+
+- `name` field: lowercase letters, numbers, and hyphens only
+- Maximum 64 characters
+- Cannot contain XML tags
+- Cannot contain reserved words: "anthropic", "claude"
+- `SKILL.md` filename is case-sensitive (not `skill.md` or `Skill.md`)
+- If `name` omitted, defaults to directory name
+- If `description` omitted, falls back to first paragraph of markdown content
+
 ## String Substitutions
 
 | Variable | Example | Result |
@@ -31,9 +55,12 @@ my-skill/
 | `$0`, `$1`, `$2` | `/migrate Foo React Vue` | `Foo`, `React`, `Vue` |
 | `$ARGUMENTS[N]` | Same as `$N` | Same as above |
 | `${CLAUDE_SESSION_ID}` | - | `abc123def...` |
-| `!\`gh pr diff\`` | - | (PR diff output) |
+| `` !`gh pr diff` `` | - | (PR diff output) |
 
-**Note**: `!`command`` executes BEFORE Claude sees content.
+**Notes:**
+- `` !`command` `` executes BEFORE Claude sees content (preprocessing, not Claude execution).
+- If `$ARGUMENTS` is absent in content, arguments are auto-appended as `ARGUMENTS: <value>`.
+- Include "ultrathink" in skill content to enable extended thinking.
 
 ## Context: Fork vs Inline
 
@@ -46,9 +73,24 @@ my-skill/
 - Runs in isolated subagent
 - No conversation history
 - Good for research/exploration
-- Specify agent type with `agent:` field
+- Specify agent type with `agent:` field (built-in: `Explore`, `Plan`, `general-purpose`; or any custom agent)
 
 **Warning:** `context: fork` only makes sense for skills with **explicit task instructions**. If your skill contains guidelines like "use these API conventions" without a concrete task, the subagent receives guidelines but no actionable prompt and returns without meaningful output.
+
+| Approach | System prompt | Task | Also loads |
+|----------|--------------|------|------------|
+| Skill with `context: fork` | From agent type | SKILL.md content | CLAUDE.md |
+| Subagent with `skills` field | Subagent's markdown body | Claude's delegation message | Preloaded skills + CLAUDE.md |
+
+## Design Patterns
+
+| Pattern | When to Use | Key Technique |
+|---------|------------|---------------|
+| **Sequential Workflow** | Multi-step processes (deploy, release, migrate) | `disable-model-invocation: true`, ordered steps |
+| **MCP Coordination** | Combining multiple MCP tools into one workflow | Skill wraps MCP calls with business logic |
+| **Iterative Refinement** | Output needs progressive improvement | Skill defines criteria + review loop |
+| **Context-Aware Tool Selection** | Different tools needed based on input | Conditional instructions based on `$ARGUMENTS` |
+| **Domain-Specific Intelligence** | Embedding expert knowledge | Supporting files with schemas, APIs, conventions |
 
 ## Complete Examples
 
@@ -56,7 +98,7 @@ my-skill/
 ```yaml
 ---
 name: api-conventions
-description: API design patterns. Use when writing endpoints.
+description: API design patterns for this codebase. Use when writing or reviewing API endpoints.
 ---
 
 When writing API endpoints:
@@ -172,21 +214,56 @@ Syntax: `Skill(name)` exact, `Skill(name *)` prefix match
 
 ## Context Budget
 
-Skill descriptions loaded into context (default: 15,000 chars).
+Skill descriptions budget scales dynamically at **2% of the context window**, with a fallback of **16,000 characters**.
 
-Check: `/context` - shows warning if skills excluded.
+Check: `/context` — shows warning if skills excluded.
 
-Increase: `SLASH_COMMAND_TOOL_CHAR_BUDGET=30000`
+Override: `SLASH_COMMAND_TOOL_CHAR_BUDGET=30000`
 
 ## Nested Discovery
 
 Skills in subdirectories auto-discovered. If editing `packages/frontend/foo.ts`, Claude also finds `packages/frontend/.claude/skills/`.
 
+Skills defined in `.claude/skills/` within `--add-dir` directories are loaded automatically with live change detection.
+
+## Testing & Iteration
+
+### Test levels
+1. **Manual** — Direct `/skill-name` execution, verify output
+2. **Scripted** — Repeatable test cases for stability
+3. **Programmatic** — SDK/API automated testing before distribution
+
+### What to test
+- **Trigger accuracy** — Does the skill fire for intended queries? Does it avoid firing for unrelated ones?
+- **Functional correctness** — Does it produce expected outputs and follow procedures?
+- **Edge cases** — Missing arguments, unusual input, large files
+
+### Iteration guide
+
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| Skill never triggers | Description doesn't match user's natural language | Add phrases users would actually say |
+| Skill triggers too often | Description too broad | Narrow with specific conditions and contexts |
+| Unstable output | Vague instructions | Add concrete steps and output format examples |
+| Subagent returns empty | Guideline-only skill with `context: fork` | Remove `context: fork` or add explicit task |
+
+## Troubleshooting
+
+| Problem | Root Cause | Fix |
+|---------|-----------|-----|
+| Skill not recognized | Wrong filename case (`skill.md` vs `SKILL.md`) | Use exact `SKILL.md` in correct directory |
+| Claude doesn't see all skills | Context budget exceeded | Reduce description lengths or increase `SLASH_COMMAND_TOOL_CHAR_BUDGET` |
+| Instructions ignored | SKILL.md too large | Keep under 500 lines; move details to supporting files |
+| MCP tools unavailable in skill | Missing `allowed-tools` | Add tool names to frontmatter |
+| Subagent returns empty | Task-less skill with `context: fork` | Remove fork or add explicit task instructions |
+
 ## Best Practices Checklist
 
-- [ ] Description includes trigger phrases ("Use when...")
+- [ ] Description follows `[what] + [when] + [features]` formula
 - [ ] SKILL.md under 500 lines
 - [ ] Side effects → `disable-model-invocation: true`
-- [ ] Research → `context: fork`
+- [ ] Research → `context: fork` with explicit task
 - [ ] Background knowledge → `user-invocable: false`
 - [ ] Large docs → separate files, linked from SKILL.md
+- [ ] Tested: skill triggers correctly and doesn't over-trigger
+- [ ] `name` follows naming rules (lowercase, hyphens, max 64 chars)

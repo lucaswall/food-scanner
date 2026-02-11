@@ -2,7 +2,7 @@
 name: add-to-backlog
 description: Add issues to Linear Backlog from free-form input. Use when user says "add to backlog", "create backlog issues", "track this", or describes tasks/improvements/bugs to add. Interprets user's ideas, investigation findings, or conversation context into well-structured Backlog issues. Can process multiple items at once.
 argument-hint: [description of what to add, or "from conversation", or "from investigation"]
-allowed-tools: Read, Glob, Grep, Task, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Glob, Grep, Task, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -40,6 +40,10 @@ User references findings from `investigate` skill:
 /add-to-backlog from investigation findings
 /add-to-backlog add the issues found by investigate
 ```
+
+## Pre-flight
+
+**Verify Linear MCP:** Call `mcp__linear__list_teams`. If unavailable, **STOP** and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
 
 ## Workflow
 

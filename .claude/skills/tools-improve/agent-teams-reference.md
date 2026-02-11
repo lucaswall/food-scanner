@@ -24,7 +24,7 @@ Agent teams coordinate multiple Claude Code instances working together. One sess
 | **Coordination** | Main agent manages all work | Shared task list with self-coordination |
 | **Best for** | Focused tasks where only the result matters | Complex work requiring discussion and collaboration |
 | **Token cost** | Lower: results summarized back | Higher: each teammate is a separate instance |
-| **MCP access** | No | No (teammates don't inherit MCP tools) |
+| **MCP access** | Foreground subagents inherit MCP tools | Docs say teammates load MCP servers, but practical access is unreliable |
 
 **Use subagents** for quick focused workers that report back. **Use agent teams** when teammates need to share findings, challenge each other, and coordinate.
 
@@ -40,6 +40,34 @@ Agent teams coordinate multiple Claude Code instances working together. One sess
 Storage:
 - Team config: `~/.claude/teams/{team-name}/config.json`
 - Task list: `~/.claude/tasks/{team-name}/`
+
+## Display Modes
+
+| Mode | How | Requirements |
+|------|-----|-------------|
+| **In-process** (default) | All teammates in main terminal | Any terminal |
+| **Split panes** | Each teammate in own pane | tmux or iTerm2 |
+| **Auto** | Split if inside tmux, else in-process | - |
+
+Configure in settings.json:
+```json
+{ "teammateMode": "in-process" }
+```
+
+Or per-session: `claude --teammate-mode in-process`
+
+**Split pane requirements:** tmux (any OS) or iTerm2 with `it2` CLI + Python API enabled. NOT supported in VS Code terminal, Windows Terminal, or Ghostty.
+
+## Direct Teammate Interaction
+
+**In-process mode:**
+- **Shift+Up/Down** — Select a teammate
+- **Type** — Send message to selected teammate
+- **Enter** — View a teammate's session
+- **Escape** — Interrupt their current turn
+- **Ctrl+T** — Toggle the task list
+
+**Split-pane mode:** Click into a teammate's pane to interact directly.
 
 ## Core Tools
 
@@ -78,6 +106,16 @@ Task:
   prompt: "Detailed instructions for this teammate..."
 ```
 
+## Delegate Mode
+
+Press **Shift+Tab** to enter delegate mode. Restricts the lead to coordination-only tools (spawning, messaging, task management). Prevents the lead from implementing tasks itself instead of delegating.
+
+## Plan Approval for Teammates
+
+Teammates can be required to plan before implementing. When a teammate finishes planning, it sends a plan approval request to the lead. The lead reviews and either approves or rejects with feedback. Rejected teammates revise and resubmit.
+
+Give the lead criteria: "only approve plans that include test coverage" or "reject plans that modify the database schema."
+
 ## Task Sizing Guide
 
 | Size | Problem | Example |
@@ -94,20 +132,9 @@ Task:
 
 **Never assign the same file to multiple teammates.** Two teammates editing the same file leads to overwrites. Break work so each teammate owns a distinct set of files.
 
-```
-# Good: each worker owns different files
-Worker 1: src/auth/login.ts, src/auth/session.ts
-Worker 2: src/api/users.ts, src/api/settings.ts
-Worker 3: src/components/LoginForm.tsx, src/components/Settings.tsx
-
-# Bad: overlapping file ownership
-Worker 1: src/auth/ (all files)
-Worker 2: src/auth/login.ts, src/api/users.ts  # CONFLICT on login.ts
-```
-
 ### 2. Give Teammates Enough Context
 
-Teammates load CLAUDE.md and project skills automatically but do NOT inherit the lead's conversation history. Include everything task-specific in the spawn prompt:
+Teammates load CLAUDE.md, MCP servers, and skills automatically but do NOT inherit the lead's conversation history. Include everything task-specific in the spawn prompt:
 - Specific files to work on
 - Acceptance criteria
 - Project conventions relevant to their task
@@ -115,7 +142,7 @@ Teammates load CLAUDE.md and project skills automatically but do NOT inherit the
 
 ### 3. Lead Handles All External Writes
 
-Teammates do NOT have MCP tool access. Any operations requiring MCP (Linear issues, Railway deploys, etc.) must be done by the lead. Teammates report findings via `SendMessage`, and the lead acts on them.
+Teammates may not reliably access MCP tools. Any operations requiring MCP (Linear issues, Railway deploys, etc.) must be done by the lead. Teammates report findings via `SendMessage`, and the lead acts on them.
 
 ### 4. Use Domain Specialization
 
@@ -149,16 +176,12 @@ Teammates go idle after every turn — this is **normal**, not an error. An idle
 
 Check in on progress, redirect approaches that aren't working, and synthesize findings as they come in. Unattended teams risk wasted effort.
 
-### 8. Use Delegate Mode for Pure Orchestration
-
-Press `Shift+Tab` to enter delegate mode, which restricts the lead to coordination-only tools. Prevents the lead from implementing tasks itself instead of delegating.
-
 ## Quality Gates with Hooks
 
-### TeammateIdle (v2.1.33+)
+### TeammateIdle
 Runs when a teammate is about to go idle. Exit code 2 sends feedback and keeps them working.
 
-### TaskCompleted (v2.1.33+)
+### TaskCompleted
 Runs when a task is being marked complete. Exit code 2 prevents completion and sends feedback.
 
 Example: enforce test coverage before task completion:
@@ -243,19 +266,26 @@ disable-model-invocation: true
 3. Use sequential Task tool subagents instead (without team_name)
 ```
 
-## Lessons from Production Use
+## Troubleshooting
 
-These insights come from real-world agent team deployments:
+| Problem | Cause | Fix |
+|---------|-------|-----|
+| Teammates not appearing | Task too simple for team, or tmux not installed | Use Shift+Down to cycle; verify `which tmux` |
+| Too many permission prompts | Teammate permissions bubble up to lead | Pre-approve common operations in permission settings |
+| Teammates stopping on errors | Unhandled error | Message teammate directly with instructions, or spawn replacement |
+| Lead implements instead of delegating | Lead starts coding before teammates finish | Tell lead to wait; use delegate mode (Shift+Tab) |
+| Orphaned tmux sessions | Team not cleaned up properly | `tmux ls` then `tmux kill-session -t <name>` |
+| Task appears stuck | Teammate didn't mark task complete | Check if work is done; update task status manually |
+
+## Lessons from Production Use
 
 ### Environment Design Matters Most
 - **Test quality is paramount** — agents solve whatever the tests define, so tests must be nearly perfect
 - **Don't pollute stdout** — log to files, use grep-friendly formats (`ERROR: reason` on one line)
 - **Pre-compute summaries** — avoid agents recomputing expensive metrics repeatedly
-- **Use deterministic sampling** — for large test suites, give agents `--fast` options that run 1-10% subsets
 
 ### Decomposition Is the Hard Problem
 - **Monolithic tasks defeat parallelism** — N agents on one giant task ≈ 1 agent's effectiveness
-- **Oracle-based decomposition** — when possible, use a reference implementation to break work into independent subtasks
 - **Independent test cases** — each agent gets a different failing test to fix
 
 ### Coordination Overhead Is Real
@@ -271,9 +301,10 @@ If a task involves running a CLI generator (migrations, codegen, etc.), reserve 
 
 - **No session resumption** for in-process teammates (`/resume` doesn't restore them)
 - **Task status can lag** — teammates sometimes fail to mark tasks completed
+- **Shutdown can be slow** — teammates finish current request before exiting
 - **One team per session** — clean up before starting a new team
 - **No nested teams** — teammates cannot spawn their own teams
 - **Lead is fixed** — can't promote a teammate to lead
-- **Permissions set at spawn** — all teammates start with lead's permission mode
-- **No MCP access** for teammates
+- **Permissions set at spawn** — all teammates start with lead's permission mode; can change after
+- **MCP access unreliable** for teammates — keep MCP operations on the lead
 - **Split panes** require tmux or iTerm2 (not VS Code terminal, Windows Terminal, or Ghostty)

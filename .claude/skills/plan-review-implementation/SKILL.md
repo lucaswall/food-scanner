@@ -1,7 +1,7 @@
 ---
 name: plan-review-implementation
 description: QA review of completed implementation using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Merge. Creates new issues in Todo for bugs found. Falls back to single-agent mode if agent teams unavailable.
-allowed-tools: Read, Edit, Glob, Grep, Bash, Task, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Glob, Grep, Bash, Task, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,8 @@ Review **ALL** implementation iterations that need review using an agent team wi
 
 1. **Read PLANS.md** — Understand the full plan and iteration history
 2. **Read CLAUDE.md** — Understand project standards and conventions
-3. **Assess AI-generated code risk** — If implementation is large or shows AI patterns, apply extra scrutiny
+3. **Verify Linear MCP** — Call `mcp__linear__list_teams`. If unavailable, STOP and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
+4. **Assess AI-generated code risk** — If implementation is large or shows AI patterns, apply extra scrutiny
 
 ## Linear State Management
 

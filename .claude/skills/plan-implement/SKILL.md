@@ -1,7 +1,7 @@
 ---
 name: plan-implement
 description: Execute the pending plan in PLANS.md using an agent team for parallel implementation. Use when user says "implement the plan", "execute the plan", "team implement", or after any plan-* skill creates a plan. Spawns worker agents that each own distinct file groups to avoid conflicts. Updates Linear issues in real-time. Falls back to single-agent mode if agent teams unavailable.
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -13,7 +13,8 @@ Execute the current pending work in PLANS.md using an agent team for parallel im
 
 1. **Read PLANS.md** — Understand the full context and history
 2. **Read CLAUDE.md** — Understand TDD workflow and project rules
-3. **Identify pending work** — Use this priority order:
+3. **Verify Linear MCP** — Call `mcp__linear__list_teams`. If unavailable, STOP and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
+4. **Identify pending work** — Use this priority order:
    - Check latest Iteration block for "Tasks Remaining" section
    - Look for `## Fix Plan` (h2 level) with no iteration after it
    - Original Plan with no "Iteration 1" → Execute from Task 1

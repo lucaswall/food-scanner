@@ -2,7 +2,7 @@
 name: plan-fix
 description: Investigates bugs AND creates actionable TDD fix plans. Creates Linear issues in Todo state. Use when you know you want to fix something - user reports errors, deployment failures, wrong data, or UI issues. Can be chained from investigate skill. Discovers MCPs from CLAUDE.md for debugging (logs, etc.).
 argument-hint: <bug description>
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__Railway__check-railway-status, mcp__Railway__get-logs, mcp__Railway__list-deployments, mcp__Railway__list-services, mcp__Railway__list-variables
+allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__Railway__check-railway-status, mcp__Railway__get-logs, mcp__Railway__list-deployments, mcp__Railway__list-services, mcp__Railway__list-variables
 disable-model-invocation: true
 ---
 
@@ -30,7 +30,11 @@ Check if `PLANS.md` already exists at the project root:
 - If it exists with active (non-COMPLETE) content: **STOP.** Tell the user there is an active plan that must be completed or removed first.
 - In all cases, check for an existing section about this bug to avoid duplicates.
 
-## 3. Read Project Context
+## 3. Verify Linear MCP
+
+Call `mcp__linear__list_teams`. If unavailable, **STOP** and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
+
+## 4. Read Project Context
 
 Read `CLAUDE.md` at the project root (if it exists) to understand:
 - Project structure and conventions
@@ -39,7 +43,7 @@ Read `CLAUDE.md` at the project root (if it exists) to understand:
 - Testing conventions
 - Any project-specific debugging notes
 
-## 4. Classify Bug Type
+## 5. Classify Bug Type
 
 Categorize the reported issue into one of these types:
 
@@ -53,9 +57,9 @@ Categorize the reported issue into one of these types:
 | **Performance** | Slow responses, timeouts, memory issues | Query performance, bundle size, API response times |
 | **Integration** | Third-party service failures (AI APIs, payment, etc.) | API keys, request/response formats, rate limits, error handling |
 
-## 5. Gather Evidence
+## 6. Gather Evidence
 
-### 5.1 Codebase Investigation
+### 6.1 Codebase Investigation
 
 Search the codebase for relevant code:
 
@@ -73,7 +77,7 @@ Use Glob and Grep tools to:
 - Look for recent changes that might have introduced the bug
 - Check test files for related test coverage
 
-### 5.2 Deployment Logs (Railway MCP)
+### 6.2 Deployment Logs (Railway MCP)
 
 If the bug involves deployment or runtime errors, use Railway MCP to check logs:
 
@@ -82,7 +86,7 @@ If the bug involves deployment or runtime errors, use Railway MCP to check logs:
 - Check environment variable configuration (without exposing values)
 - Review build logs for warnings or errors
 
-### 5.3 Linear Context
+### 6.3 Linear Context
 
 Search Linear for related issues:
 
@@ -90,7 +94,7 @@ Search Linear for related issues:
 - Check if there are related issues that provide context
 - Look for previously attempted fixes
 
-### 5.4 Reproduce the Issue
+### 6.4 Reproduce the Issue
 
 When possible, try to reproduce:
 
@@ -105,7 +109,7 @@ npx tsc --noEmit 2>&1 | tail -50
 npm run lint 2>&1 | tail -50
 ```
 
-## 6. Document Findings in PLANS.md
+## 7. Document Findings in PLANS.md
 
 Write or append to `PLANS.md` at the project root with this structure:
 
@@ -176,7 +180,7 @@ Write or append to `PLANS.md` at the project root with this structure:
 - [Any additional context, workarounds, or considerations]
 ```
 
-## 7. Create Linear Issue
+## 8. Create Linear Issue
 
 Create a Linear issue in the "Food Scanner" team with status "Todo":
 
@@ -220,7 +224,7 @@ Create a Linear issue in the "Food Scanner" team with status "Todo":
 
 4. Update PLANS.md with the created issue key (FOO-xxx).
 
-## 8. Error Handling
+## 9. Error Handling
 
 | Situation | Action |
 |-----------|--------|
@@ -234,7 +238,7 @@ Create a Linear issue in the "Food Scanner" team with status "Todo":
 | Existing fix in progress | Check the existing Linear issue and PLANS.md entry, update rather than duplicate |
 | Bug is actually a feature request | Reclassify and suggest using add-to-backlog skill instead |
 
-## 9. Rules
+## 10. Rules
 
 - **NEVER modify application code.** This skill only investigates and plans.
 - **NEVER run destructive commands** (no `rm`, no `git reset --hard`, no database mutations).
@@ -253,7 +257,7 @@ Create a Linear issue in the "Food Scanner" team with status "Todo":
 - **Plans describe WHAT and WHY, not HOW at the code level.** Include: file paths, function names, behavioral specs, test assertions, patterns to follow (reference existing files by path), state transitions. Do NOT include: implementation code blocks, ready-to-paste TypeScript/TSX, full function bodies. The implementer (plan-implement workers) writes all code — your job is architecture and specification. Exception: short one-liners for surgical changes (e.g., "add `if (!session.x)` check after the existing `!session.y` check") are fine.
 - **Flag migration-relevant fixes** — If the fix changes DB schema, renames columns, changes identity models, renames env vars, or changes session/token formats, add a note in the fix plan: "**Migration note:** [what production data is affected]". The implementer will log this in `MIGRATIONS.md`.
 
-## 10. Scope Boundaries
+## 11. Scope Boundaries
 
 This skill is specifically for:
 - Investigating reported bugs and errors
@@ -267,7 +271,7 @@ This skill is NOT for:
 - General investigation without a fix intent (use investigate)
 - Refactoring (create a separate task)
 
-## 11. Termination and Git Workflow
+## 12. Termination and Git Workflow
 
 When investigation and planning are complete:
 

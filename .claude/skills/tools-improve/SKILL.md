@@ -24,9 +24,9 @@ You create and optimize Claude Code subagents, skills, and CLAUDE.md files.
 
 For detailed information beyond this file:
 - [references/claude-md-reference.md](references/claude-md-reference.md) - CLAUDE.md include/exclude criteria, review checklist, modular organization
-- [skills-reference.md](skills-reference.md) - Invocation control matrix, context budget, hooks, nested discovery
-- [subagents-reference.md](subagents-reference.md) - Built-in agents, permission modes, hook events, resume
-- [agent-teams-reference.md](agent-teams-reference.md) - Team orchestration, task coordination, best practices
+- [skills-reference.md](skills-reference.md) - Invocation control, context budget, hooks, progressive disclosure, testing, troubleshooting
+- [subagents-reference.md](subagents-reference.md) - Built-in agents, permission modes, hook events, MCP access, memory, resume
+- [agent-teams-reference.md](agent-teams-reference.md) - Team orchestration, task coordination, display modes, troubleshooting
 
 ## Decision: Skill vs Subagent
 
@@ -92,8 +92,8 @@ You are a specialist in [domain]. When invoked:
 ### Skill Fields (SKILL.md)
 | Field | Description |
 |-------|-------------|
-| `name` | Slash command name (defaults to directory) |
-| `description` | **Critical** - triggers auto-discovery |
+| `name` | Slash command name (defaults to directory). Lowercase, numbers, hyphens only, max 64 chars |
+| `description` | **Critical** - triggers auto-discovery. Falls back to first paragraph if omitted |
 | `argument-hint` | Autocomplete hint: `[issue-number]` |
 | `disable-model-invocation` | `true` = only user can invoke |
 | `user-invocable` | `false` = hidden from `/` menu |
@@ -106,13 +106,16 @@ You are a specialist in [domain]. When invoked:
 ### Subagent Fields (.md)
 | Field | Description |
 |-------|-------------|
-| `name` | Unique identifier (lowercase, hyphens) |
-| `description` | **Critical** - when Claude delegates |
-| `tools` | Allowlist (inherits all if omitted) |
+| `name` | Unique identifier (lowercase, hyphens). Required |
+| `description` | **Critical** - when Claude delegates. Required |
+| `tools` | Allowlist (inherits all including MCP if omitted). Use `Task(type1, type2)` to restrict spawnable agents |
 | `disallowedTools` | Denylist from inherited tools |
-| `model` | sonnet, opus, haiku, inherit |
-| `permissionMode` | default, acceptEdits, dontAsk, bypassPermissions, plan |
-| `skills` | Preload skill content at startup |
+| `model` | sonnet, opus, haiku, inherit (default: inherit) |
+| `permissionMode` | default, acceptEdits, delegate, dontAsk, bypassPermissions, plan |
+| `maxTurns` | Max agentic turns before stopping |
+| `skills` | Preload full skill content at startup |
+| `mcpServers` | MCP servers available (name reference or inline config) |
+| `memory` | Persistent memory scope: `user`, `project`, or `local` |
 | `hooks` | PreToolUse, PostToolUse, Stop |
 
 ### String Substitutions (Skills)
@@ -214,16 +217,29 @@ exit 0
 
 ### Descriptions Are Critical
 
-Claude uses descriptions for auto-discovery. Always include:
-- What it does
-- Trigger phrases ("Use when...", "Use proactively after...")
-- Specific contexts
+Claude uses descriptions for auto-discovery. Follow the **[what] + [when] + [features]** formula:
+
+**Poor:** `"Helps with code"`
+**Good:** `"Explains code using diagrams and analogies. Use when describing how code works, teaching about codebases, or answering 'how does this work?' questions."`
+
+Test: ask Claude "When should this skill be used?" — if the answer doesn't match your intent, refine the description.
+
+### Progressive Disclosure
+
+Skills load in 3 stages to optimize context:
+1. **Metadata** (~100 tokens/skill) — `name` + `description` always in context
+2. **Instructions** (<5k tokens) — SKILL.md body loaded when triggered
+3. **Resources** (unlimited) — Supporting files loaded as needed via references
+
+Design skills with this in mind: keep SKILL.md focused; put large docs in supporting files.
 
 ### Skill Architecture
 
 **Keep SKILL.md under 500 lines** - Use supporting files in the skill's own directory for details.
 
 **Skills are self-contained** - Each skill directory is independent. There is NO shared directory pattern across skills. Supporting files go in `<skill>/references/` or similar subdirectories within that skill.
+
+**Extended thinking** — Include the word "ultrathink" in skill content to enable extended thinking.
 
 **Reducing duplication across skills:**
 1. **Put in CLAUDE.md** - Content loaded into all contexts (best for project-wide conventions)
@@ -246,6 +262,7 @@ Claude uses descriptions for auto-discovery. Always include:
 - `default` - Standard prompts
 - `dontAsk` - Auto-deny prompts (use for read-only agents)
 - `acceptEdits` - Auto-accept file edits
+- `delegate` - Coordination-only (for agent team leads, restricts to team management tools)
 - `bypassPermissions` - Skip all checks (dangerous)
 
 ### Model Selection
