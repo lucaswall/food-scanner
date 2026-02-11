@@ -17,9 +17,9 @@ export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
   // Stroke dashoffset: full circumference = 0% progress, 0 = 100% progress
   const dashOffset = circumference * (1 - progress);
 
-  // Calculate budget marker position if budget is provided
+  // Calculate budget marker position: shows total ceiling (consumed + remaining) as fraction of goal
   const budgetPosition = budget != null && goal > 0
-    ? Math.max(0, Math.min(1, budget / goal))
+    ? Math.max(0, Math.min(1, (calories + budget) / goal))
     : null;
 
   // Format numbers with commas

@@ -121,7 +121,7 @@ describe("CalorieRing", () => {
       const marker = container.querySelector('[data-testid="budget-marker"]');
 
       // Marker should be positioned at 100% (goal position)
-      // For a budget of 2500 (125% of goal), should cap at goal (2000)
+      // (1000 + 2500) / 2000 = 1.75, capped at 1.0
       expect(marker).toBeInTheDocument();
 
       // At budgetPosition=1 (100%), marker completes full circle back to SVG 3 o'clock
@@ -137,12 +137,12 @@ describe("CalorieRing", () => {
       expect(parseFloat(y2 ?? "0")).toBeCloseTo(64, 1);
     });
 
-    it("positions marker at start when budget is 0", () => {
-      const { container } = render(<CalorieRing calories={1000} goal={2000} budget={0} />);
+    it("positions marker at start when calories and budget are both 0", () => {
+      const { container } = render(<CalorieRing calories={0} goal={2000} budget={0} />);
       const marker = container.querySelector('[data-testid="budget-marker"]');
       expect(marker).toBeInTheDocument();
 
-      // At budgetPosition=0, marker should be at SVG 3 o'clock (rightmost)
+      // budgetPosition = (0 + 0) / 2000 = 0, marker at SVG 3 o'clock (rightmost)
       // After CSS -rotate-90, this appears at 12 o'clock on screen
       // Expected coordinates: x1=114, y1=64, x2=126, y2=64 (horizontal line at right)
       const x1 = marker?.getAttribute("x1");
@@ -157,11 +157,11 @@ describe("CalorieRing", () => {
     });
 
     it("positions marker at 50% of goal at SVG 9 o'clock", () => {
-      const { container } = render(<CalorieRing calories={500} goal={2000} budget={1000} />);
+      const { container } = render(<CalorieRing calories={500} goal={2000} budget={500} />);
       const marker = container.querySelector('[data-testid="budget-marker"]');
       expect(marker).toBeInTheDocument();
 
-      // At budgetPosition=0.5 (50%), marker should be at SVG 9 o'clock (leftmost)
+      // budgetPosition = (500 + 500) / 2000 = 0.5, marker at SVG 9 o'clock (leftmost)
       // After CSS -rotate-90, this appears at 6 o'clock on screen
       // Expected coordinates: x1=14, y1=64, x2=2, y2=64 (horizontal line at left)
       const x1 = marker?.getAttribute("x1");
