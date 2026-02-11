@@ -92,15 +92,14 @@ export function FoodHistory() {
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
   const [jumpDate, setJumpDate] = useState("");
 
-  // Seed local entries state from SWR initial data — only once.
-  // After pagination or "Jump to Date", hasSeeded prevents SWR revalidation
+  // Seed local entries state from SWR initial data.
+  // After pagination or "Jump to Date", hasPaginated prevents SWR revalidation
   // from overwriting local state with first-page-only data.
-  const hasSeeded = useRef(false);
+  const hasPaginated = useRef(false);
   useEffect(() => {
-    if (initialData?.entries && !hasSeeded.current) {
+    if (initialData?.entries && !hasPaginated.current) {
       setEntries(initialData.entries);
       setHasMore(initialData.entries.length >= 20);
-      hasSeeded.current = true;
     }
   }, [initialData]);
 
@@ -151,6 +150,7 @@ export function FoodHistory() {
 
   const handleLoadMore = () => {
     if (entries.length === 0) return;
+    hasPaginated.current = true;
     const oldestEntry = entries[entries.length - 1];
     fetchEntries(undefined, true, {
       lastDate: oldestEntry.date,
@@ -191,6 +191,7 @@ export function FoodHistory() {
 
   const handleJumpToDate = () => {
     if (!jumpDate) return;
+    hasPaginated.current = true;
     setHasMore(true);
     fetchEntries(jumpDate);
   };

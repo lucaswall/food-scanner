@@ -921,4 +921,64 @@ describe("DailyDashboard", () => {
     await user.click(updateButton);
     expect(clickSpy).toHaveBeenCalled();
   });
+
+  it("POST to /api/lumen-goals includes date field in FormData body", async () => {
+    const user = userEvent.setup();
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      if (url.includes("/api/activity-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
+    });
+
+    // Create a test file
+    const testFile = new File(["test"], "lumen.jpg", { type: "image/jpeg" });
+    const fileInput = document.querySelector('input[type="file"][accept="image/*"]') as HTMLInputElement;
+
+    // Simulate file selection
+    await user.upload(fileInput, testFile);
+
+    // Wait for POST request to be made
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(
+        (call) => call[0] === "/api/lumen-goals" && call[1]?.method === "POST"
+      );
+      expect(postCall).toBeDefined();
+
+      // Verify FormData contains date field
+      const formData = postCall![1]?.body as FormData;
+      expect(formData).toBeInstanceOf(FormData);
+      const dateValue = formData.get("date");
+      expect(dateValue).toBeDefined();
+      expect(dateValue).toMatch(/^\d{4}-\d{2}-\d{2}$/); // YYYY-MM-DD format
+    });
+  });
 });

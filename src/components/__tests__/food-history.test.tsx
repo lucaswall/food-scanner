@@ -945,4 +945,165 @@ describe("FoodHistory", () => {
     expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
   });
+
+  it("SWR revalidation updates entries when user has NOT paginated", async () => {
+    const cache = new Map();
+
+    const initialEntries: FoodLogHistoryEntry[] = [
+      {
+        id: 1,
+        foodName: "Initial Entry",
+        calories: 100,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 3,
+        fiberG: 1,
+        sodiumMg: 50,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: today,
+        time: "12:00:00",
+        fitbitLogId: 1000,
+      },
+    ];
+
+    const updatedEntries: FoodLogHistoryEntry[] = [
+      {
+        id: 2,
+        foodName: "Updated Entry",
+        calories: 200,
+        proteinG: 10,
+        carbsG: 20,
+        fatG: 6,
+        fiberG: 2,
+        sodiumMg: 100,
+        amount: 150,
+        unitId: 147,
+        mealTypeId: 1,
+        date: today,
+        time: "08:00:00",
+        fitbitLogId: 2000,
+      },
+    ];
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: initialEntries } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: updatedEntries } }),
+      });
+
+    const { unmount } = render(
+      <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+        <FoodHistory />
+      </SWRConfig>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Initial Entry")).toBeInTheDocument();
+    });
+
+    // Unmount and remount to trigger SWR revalidation
+    unmount();
+    cleanup();
+
+    render(
+      <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+        <FoodHistory />
+      </SWRConfig>
+    );
+
+    // After revalidation, updated entries should appear
+    await waitFor(() => {
+      expect(screen.getByText("Updated Entry")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Initial Entry")).not.toBeInTheDocument();
+  });
+
+  it("SWR revalidation after navigation shows fresh data", async () => {
+    const cache = new Map();
+
+    const cachedEntries: FoodLogHistoryEntry[] = [
+      {
+        id: 1,
+        foodName: "Cached Entry",
+        calories: 100,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 3,
+        fiberG: 1,
+        sodiumMg: 50,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: today,
+        time: "12:00:00",
+        fitbitLogId: 1000,
+      },
+    ];
+
+    const freshEntries: FoodLogHistoryEntry[] = [
+      {
+        id: 2,
+        foodName: "Fresh Entry",
+        calories: 200,
+        proteinG: 10,
+        carbsG: 20,
+        fatG: 6,
+        fiberG: 2,
+        sodiumMg: 100,
+        amount: 150,
+        unitId: 147,
+        mealTypeId: 1,
+        date: today,
+        time: "08:00:00",
+        fitbitLogId: 2000,
+      },
+    ];
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: cachedEntries } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: freshEntries } }),
+      });
+
+    // First mount
+    const { unmount } = render(
+      <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+        <FoodHistory />
+      </SWRConfig>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Cached Entry")).toBeInTheDocument();
+    });
+
+    // Unmount (simulate navigation away)
+    unmount();
+    cleanup();
+
+    // Remount (simulate navigation back) — should show cached data then fresh data
+    render(
+      <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+        <FoodHistory />
+      </SWRConfig>
+    );
+
+    // Initially should show cached data
+    expect(screen.getByText("Cached Entry")).toBeInTheDocument();
+
+    // After SWR revalidates, should show fresh data
+    await waitFor(() => {
+      expect(screen.getByText("Fresh Entry")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Cached Entry")).not.toBeInTheDocument();
+  });
 });
