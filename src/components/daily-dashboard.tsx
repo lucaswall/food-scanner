@@ -127,30 +127,31 @@ export function DailyDashboard() {
     );
   }
 
-  // Empty state
-  if (!summary || summary.meals.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
-        <p className="text-muted-foreground">No food logged today</p>
-        <Link
-          href="/app"
-          className="text-sm text-primary hover:underline min-h-[44px] flex items-center"
-        >
-          Scan food to get started
-        </Link>
-      </div>
-    );
-  }
-
   // Format numbers with commas
   const formatNumber = (num: number): string => {
     return num.toLocaleString("en-US");
   };
 
+  // Fallback for undefined summary - use zero values
+  const totals = summary?.totals ?? {
+    calories: 0,
+    proteinG: 0,
+    carbsG: 0,
+    fatG: 0,
+    fiberG: 0,
+    sodiumMg: 0,
+    saturatedFatG: 0,
+    transFatG: 0,
+    sugarsG: 0,
+    caloriesFromFat: 0,
+  };
+
+  const meals = summary?.meals ?? [];
+
   // Calculate budget if all data is available
   const budget =
     goals?.calories != null && activity
-      ? activity.caloriesOut - (activity.estimatedCaloriesOut - goals.calories) - summary.totals.calories
+      ? activity.caloriesOut - (activity.estimatedCaloriesOut - goals.calories) - totals.calories
       : undefined;
 
   // Data state - compose all dashboard components
@@ -168,14 +169,14 @@ export function DailyDashboard() {
         <div className="flex justify-center">
           {goals?.calories != null ? (
             <CalorieRing
-              calories={summary.totals.calories}
+              calories={totals.calories}
               goal={goals.calories}
               budget={budget}
             />
           ) : (
             <div className="flex flex-col items-center gap-2">
               <span className="text-4xl font-bold tabular-nums">
-                {formatNumber(summary.totals.calories)}
+                {formatNumber(totals.calories)}
               </span>
               <span className="text-sm text-muted-foreground">cal</span>
             </div>
@@ -197,16 +198,16 @@ export function DailyDashboard() {
 
       {/* Macro Bars */}
       <MacroBars
-        proteinG={summary.totals.proteinG}
-        carbsG={summary.totals.carbsG}
-        fatG={summary.totals.fatG}
+        proteinG={totals.proteinG}
+        carbsG={totals.carbsG}
+        fatG={totals.fatG}
         proteinGoal={lumenGoals?.goals?.proteinGoal}
         carbsGoal={lumenGoals?.goals?.carbsGoal}
         fatGoal={lumenGoals?.goals?.fatGoal}
       />
 
       {/* Meal Breakdown */}
-      <MealBreakdown meals={summary.meals} />
+      <MealBreakdown meals={meals} />
 
       {/* Update Lumen goals button */}
       <div className="flex flex-col items-center gap-2">

@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Upload, Loader2 } from "lucide-react";
 import type { LumenGoalsResponse } from "@/types";
 
@@ -21,16 +22,34 @@ export function LumenBanner() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const { data, isLoading, mutate } = useSWR<LumenGoalsResponse>(
+  const { data, error, isLoading, mutate } = useSWR<LumenGoalsResponse>(
     `/api/lumen-goals?date=${today}`,
     apiFetcher
   );
 
-  // Non-blocking: return null while loading
-  if (isLoading || !data) return null;
+  // Show skeleton placeholder while loading
+  if (isLoading) {
+    return (
+      <Skeleton
+        data-testid="lumen-banner-skeleton"
+        className="w-full h-[44px] rounded-lg"
+      />
+    );
+  }
 
-  // Hide banner when goals exist
-  if (data.goals) return null;
+  // Transient SWR state: no data, no error, not loading - show skeleton
+  if (!data && !error) {
+    return (
+      <Skeleton
+        data-testid="lumen-banner-skeleton"
+        className="w-full h-[44px] rounded-lg"
+      />
+    );
+  }
+
+  // Generous approach: if error or no data, show banner (allow upload option)
+  // Hide banner only when we positively know goals exist
+  if (data?.goals) return null;
 
   const handleBannerClick = () => {
     fileInputRef.current?.click();
