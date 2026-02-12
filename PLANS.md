@@ -94,3 +94,32 @@ The `/api/claude-usage` route was implemented with API key auth (`validateApiReq
 ## Notes
 - The original PLANS.md that created this route (FOO-334, Task 6) instructed workers to "Follow pattern from existing API routes (e.g., `src/app/api/v1/food-log/route.ts`)" — the worker followed a v1 route pattern instead of a browser-facing route pattern, causing the auth mismatch.
 - No migration needed — this is a code-only fix.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-12
+**Method:** Single-agent (team workers exited without implementing)
+
+### Tasks Completed This Iteration
+- Step 1: Fix route auth from API key to session (lead — single-agent)
+- Step 2: Improve error message in component (worker-2 completed before exit)
+- Step 3: Add API route auth convention to CLAUDE.md (lead — single-agent)
+
+### Files Modified
+- `src/app/api/claude-usage/route.ts` — Replaced `validateApiRequest` with `getSession` + `validateSession`
+- `src/app/api/claude-usage/__tests__/route.test.ts` — Updated mocks from API key auth to session auth pattern
+- `src/components/claude-usage-section.tsx` — Changed error text to "Unable to load usage data" with error detail
+- `src/components/__tests__/claude-usage-section.test.tsx` — Added 2 error state tests
+- `CLAUDE.md` — Added API route auth convention under SECURITY section
+
+### Linear Updates
+- FOO-335: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: 3 findings, all false positives (patterns match established nutrition-summary convention)
+- verifier: All 1423 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.

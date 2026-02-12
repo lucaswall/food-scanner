@@ -43,7 +43,8 @@ export function ClaudeUsageSection() {
     return (
       <div className="rounded-xl border bg-card p-6">
         <h2 className="text-lg font-semibold mb-4">Claude API Usage</h2>
-        <p className="text-sm text-muted-foreground">Failed to load usage data</p>
+        <p className="text-sm text-muted-foreground">Unable to load usage data. Please try again later.</p>
+        <p className="text-xs text-muted-foreground mt-2">{error.message}</p>
       </div>
     );
   }

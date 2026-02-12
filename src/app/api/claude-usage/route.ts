@@ -1,11 +1,13 @@
-import { validateApiRequest } from "@/lib/api-auth";
+import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { getMonthlyUsage } from "@/lib/claude-usage";
 
 export async function GET(request: Request) {
-  const authResult = await validateApiRequest(request);
-  if (authResult instanceof Response) return authResult;
+  const session = await getSession();
+
+  const validationError = validateSession(session);
+  if (validationError) return validationError;
 
   const { searchParams } = new URL(request.url);
   const monthsParam = searchParams.get("months");
@@ -20,7 +22,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const usage = await getMonthlyUsage(authResult.userId, months);
+    const usage = await getMonthlyUsage(session!.userId, months);
 
     logger.info(
       {
