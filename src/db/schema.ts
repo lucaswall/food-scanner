@@ -126,3 +126,18 @@ export const claudeUsage = pgTable("claude_usage", {
   costUsd: numeric("cost_usd").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const dailyCalorieGoals = pgTable(
+  "daily_calorie_goals",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    date: date("date").notNull(),
+    calorieGoal: integer("calorie_goal").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    userDateUnique: unique("daily_calorie_goals_user_date_uniq").on(table.userId, table.date),
+  })
+);

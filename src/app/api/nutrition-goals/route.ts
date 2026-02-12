@@ -2,6 +2,8 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { ensureFreshToken, getFoodGoals } from "@/lib/fitbit";
+import { upsertCalorieGoal } from "@/lib/nutrition-goals";
+import { getTodayDate } from "@/lib/date-utils";
 
 export async function GET() {
   const session = await getSession();
@@ -12,6 +14,17 @@ export async function GET() {
   try {
     const accessToken = await ensureFreshToken(session!.userId);
     const goals = await getFoodGoals(accessToken);
+
+    // Capture calorie goal in database (fire-and-forget)
+    if (goals.calories !== null && goals.calories !== undefined) {
+      const todayDate = getTodayDate();
+      upsertCalorieGoal(session!.userId, todayDate, goals.calories).catch((error) => {
+        logger.warn(
+          { error: error instanceof Error ? error.message : String(error), userId: session!.userId },
+          "failed to capture calorie goal"
+        );
+      });
+    }
 
     logger.info(
       {

@@ -1,7 +1,8 @@
-import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc } from "drizzle-orm";
+import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc, between } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
-import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry, FoodLogEntryDetail } from "@/types";
+import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry, FoodLogEntryDetail, DailyNutritionTotals } from "@/types";
+import { getCalorieGoalsByDateRange } from "@/lib/nutrition-goals";
 
 export interface CustomFoodInput {
   foodName: string;
@@ -780,4 +781,77 @@ export async function getDailyNutritionSummary(
       caloriesFromFat: totalCaloriesFromFat,
     },
   };
+}
+
+export async function getDateRangeNutritionSummary(
+  userId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<DailyNutritionTotals[]> {
+  const db = getDb();
+
+  // Query all food log entries in the date range
+  const rows = await db
+    .select()
+    .from(foodLogEntries)
+    .innerJoin(customFoods, eq(foodLogEntries.customFoodId, customFoods.id))
+    .where(
+      and(
+        eq(foodLogEntries.userId, userId),
+        between(foodLogEntries.date, fromDate, toDate)
+      )
+    )
+    .orderBy(asc(foodLogEntries.date));
+
+  // Group by date and aggregate nutrition totals
+  const dailyTotals = new Map<string, Omit<DailyNutritionTotals, "calorieGoal">>();
+
+  for (const row of rows) {
+    const date = row.food_log_entries.date;
+    const existing = dailyTotals.get(date);
+
+    const calories = row.custom_foods.calories;
+    const proteinG = Number(row.custom_foods.proteinG);
+    const carbsG = Number(row.custom_foods.carbsG);
+    const fatG = Number(row.custom_foods.fatG);
+    const fiberG = Number(row.custom_foods.fiberG);
+    const sodiumMg = Number(row.custom_foods.sodiumMg);
+
+    if (!existing) {
+      dailyTotals.set(date, {
+        date,
+        calories,
+        proteinG,
+        carbsG,
+        fatG,
+        fiberG,
+        sodiumMg,
+      });
+    } else {
+      existing.calories += calories;
+      existing.proteinG += proteinG;
+      existing.carbsG += carbsG;
+      existing.fatG += fatG;
+      existing.fiberG += fiberG;
+      existing.sodiumMg += sodiumMg;
+    }
+  }
+
+  // Get calorie goals for the date range
+  const calorieGoals = await getCalorieGoalsByDateRange(userId, fromDate, toDate);
+  const calorieGoalsByDate = new Map(calorieGoals.map(g => [g.date, g.calorieGoal]));
+
+  // Merge nutrition totals with calorie goals
+  const result: DailyNutritionTotals[] = [];
+  for (const [date, totals] of dailyTotals) {
+    result.push({
+      ...totals,
+      calorieGoal: calorieGoalsByDate.get(date) ?? null,
+    });
+  }
+
+  // Sort by date ascending (already in order from query, but ensure consistency)
+  result.sort((a, b) => a.date.localeCompare(b.date));
+
+  return result;
 }

@@ -92,6 +92,13 @@
       "when": 1770908931152,
       "tag": "0012_gifted_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1770936958906,
+      "tag": "0013_hard_lady_bullseye",
+      "breakpoints": true
     }
   ]
 }

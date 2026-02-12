@@ -69,3 +69,59 @@ export function addDays(dateStr: string, days: number): string {
 export function isToday(dateStr: string): boolean {
   return dateStr === getTodayDate();
 }
+
+/**
+ * Get the week bounds (Sunday to Saturday) for a given date.
+ * Returns the Sunday (start) and Saturday (end) of the week containing the given date.
+ */
+export function getWeekBounds(dateStr: string): { start: string; end: string } {
+  const date = new Date(`${dateStr}T00:00:00Z`);
+  const dayOfWeek = date.getUTCDay(); // 0 = Sunday, 6 = Saturday
+
+  // Calculate Sunday (start of week)
+  const start = addDays(dateStr, -dayOfWeek);
+
+  // Calculate Saturday (end of week)
+  const end = addDays(dateStr, 6 - dayOfWeek);
+
+  return { start, end };
+}
+
+/**
+ * Format a week range for display.
+ * Returns "Mon D – D" if both dates are in the same month,
+ * or "Mon D – Mon D" if they span different months.
+ */
+export function formatWeekRange(start: string, end: string): string {
+  const startDate = new Date(`${start}T00:00:00Z`);
+  const endDate = new Date(`${end}T00:00:00Z`);
+
+  const startMonth = startDate.toLocaleString("en-US", {
+    month: "short",
+    timeZone: "UTC",
+  });
+  const startDay = startDate.getUTCDate();
+
+  const endMonth = endDate.toLocaleString("en-US", {
+    month: "short",
+    timeZone: "UTC",
+  });
+  const endDay = endDate.getUTCDate();
+
+  if (startMonth === endMonth) {
+    // Same month: "Mon D – D"
+    return `${startMonth} ${startDay} – ${endDay}`;
+  } else {
+    // Different months: "Mon D – Mon D"
+    return `${startMonth} ${startDay} – ${endMonth} ${endDay}`;
+  }
+}
+
+/**
+ * Add weeks to a date string.
+ * Positive numbers add weeks, negative numbers subtract weeks.
+ * Returns result in YYYY-MM-DD format.
+ */
+export function addWeeks(dateStr: string, weeks: number): string {
+  return addDays(dateStr, weeks * 7);
+}

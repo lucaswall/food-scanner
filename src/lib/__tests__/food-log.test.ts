@@ -87,6 +87,11 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+const mockGetCalorieGoalsByDateRange = vi.fn();
+vi.mock("@/lib/nutrition-goals", () => ({
+  getCalorieGoalsByDateRange: (...args: unknown[]) => mockGetCalorieGoalsByDateRange(...args),
+}));
+
 const {
   insertCustomFood,
   insertFoodLogEntry,
@@ -100,6 +105,7 @@ const {
   deleteFoodLogEntry,
   updateCustomFoodMetadata,
   getEarliestEntryDate,
+  getDateRangeNutritionSummary,
 } = await import("@/lib/food-log");
 
 describe("insertCustomFood", () => {
@@ -1806,5 +1812,138 @@ describe("getEarliestEntryDate", () => {
     await getEarliestEntryDate("user-uuid-456");
 
     expect(mockWhere).toHaveBeenCalled();
+  });
+});
+
+describe("getDateRangeNutritionSummary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFrom.mockReturnValue({ where: mockWhere, innerJoin: mockInnerJoin });
+    mockInnerJoin.mockReturnValue({ where: mockWhere });
+    mockWhere.mockReturnValue({ orderBy: mockOrderBy });
+  });
+
+  it("returns daily nutrition totals for date range", async () => {
+    mockOrderBy.mockResolvedValue([
+      {
+        food_log_entries: { date: "2026-02-08" },
+        custom_foods: {
+          calories: 500,
+          proteinG: "20",
+          carbsG: "30",
+          fatG: "15",
+          fiberG: "5",
+          sodiumMg: "200",
+        },
+      },
+      {
+        food_log_entries: { date: "2026-02-08" },
+        custom_foods: {
+          calories: 300,
+          proteinG: "10",
+          carbsG: "40",
+          fatG: "5",
+          fiberG: "3",
+          sodiumMg: "150",
+        },
+      },
+      {
+        food_log_entries: { date: "2026-02-09" },
+        custom_foods: {
+          calories: 600,
+          proteinG: "25",
+          carbsG: "50",
+          fatG: "20",
+          fiberG: "8",
+          sodiumMg: "300",
+        },
+      },
+    ]);
+
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([
+      { date: "2026-02-08", calorieGoal: 2000 },
+      { date: "2026-02-09", calorieGoal: 2200 },
+    ]);
+
+    const result = await getDateRangeNutritionSummary("user-123", "2026-02-08", "2026-02-09");
+
+    expect(result).toEqual([
+      {
+        date: "2026-02-08",
+        calories: 800,
+        proteinG: 30,
+        carbsG: 70,
+        fatG: 20,
+        fiberG: 8,
+        sodiumMg: 350,
+        calorieGoal: 2000,
+      },
+      {
+        date: "2026-02-09",
+        calories: 600,
+        proteinG: 25,
+        carbsG: 50,
+        fatG: 20,
+        fiberG: 8,
+        sodiumMg: 300,
+        calorieGoal: 2200,
+      },
+    ]);
+  });
+
+  it("returns empty array when no entries in range", async () => {
+    mockOrderBy.mockResolvedValue([]);
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+
+    const result = await getDateRangeNutritionSummary("user-123", "2026-02-08", "2026-02-10");
+
+    expect(result).toEqual([]);
+  });
+
+  it("handles days with no calorie goal (null)", async () => {
+    mockOrderBy.mockResolvedValue([
+      {
+        food_log_entries: { date: "2026-02-08" },
+        custom_foods: {
+          calories: 500,
+          proteinG: "20",
+          carbsG: "30",
+          fatG: "15",
+          fiberG: "5",
+          sodiumMg: "200",
+        },
+      },
+    ]);
+
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+
+    const result = await getDateRangeNutritionSummary("user-123", "2026-02-08", "2026-02-08");
+
+    expect(result).toEqual([
+      {
+        date: "2026-02-08",
+        calories: 500,
+        proteinG: 20,
+        carbsG: 30,
+        fatG: 15,
+        fiberG: 5,
+        sodiumMg: 200,
+        calorieGoal: null,
+      },
+    ]);
+  });
+
+  it("queries with correct userId and date range", async () => {
+    mockOrderBy.mockResolvedValue([]);
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+
+    await getDateRangeNutritionSummary("user-456", "2026-02-01", "2026-02-05");
+
+    expect(mockSelect).toHaveBeenCalled();
+    expect(mockFrom).toHaveBeenCalled();
+    expect(mockInnerJoin).toHaveBeenCalled();
+    expect(mockWhere).toHaveBeenCalled();
+    expect(mockOrderBy).toHaveBeenCalled();
+    expect(mockGetCalorieGoalsByDateRange).toHaveBeenCalledWith("user-456", "2026-02-01", "2026-02-05");
   });
 });
