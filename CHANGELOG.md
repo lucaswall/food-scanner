@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-02-12
+
+### Added
+
+- Claude API usage tracking showing costs and token consumption
+- App auto-reloads when resuming tab after being away
+
+### Changed
+
+- Budget marker only appears on today's date, not past days
+
 ## [1.6.0] - 2026-02-11
 
 ### Added
@@ -114,7 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/lucaswall/food-scanner/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/lucaswall/food-scanner/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/lucaswall/food-scanner/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/lucaswall/food-scanner/compare/v1.4.1...v1.5.0
