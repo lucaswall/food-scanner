@@ -1,300 +1,454 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Branch:** feat/FOO-330-budget-marker-and-resume-reset
-**Issues:** FOO-330, FOO-331
+**Branch:** feat/FOO-332-refresh-guard-and-usage-tracking
+**Issues:** FOO-332, FOO-334
 **Created:** 2026-02-12
 **Last Updated:** 2026-02-12
 
 ## Summary
 
-Two UX fixes for the daily dashboard's date navigation feature:
-1. **FOO-330:** Hide the calorie ring's budget marker when viewing past dates (it only has meaning for today).
-2. **FOO-331:** Auto-reset the dashboard to today when the PWA tab is resumed after a day change or 1hr+ idle, preventing stale data display.
+Two independent features: (1) a global app refresh guard that forces a full page reload when reopening the PWA after overnight sleep, and (2) a Claude API usage tracking system that records token consumption per call and displays monthly cost summaries on the Settings page.
 
 ## Issues
 
-### FOO-330: Hide budget marker when viewing past dates
+### FOO-332: Force full page reload on morning app reopen
 
-**Priority:** High
-**Labels:** Bug
-**Description:** The calorie ring's budget marker (amber tick showing remaining calorie ceiling) is rendered for all dates including past days. Budget is derived from live Fitbit burn data and only makes sense for the current day. Past dates show a misleading marker suggesting calories remain.
-
-**Acceptance Criteria:**
-- [ ] Budget marker is visible only when `selectedDate` is today
-- [ ] Budget marker is hidden when navigating to any past date
-
-### FOO-331: Reset dashboard to today when app is resumed after date change or 1h+ idle
-
-**Priority:** High
+**Priority:** Medium
 **Labels:** Improvement
-**Description:** `DailyDashboard` initializes `selectedDate` via `useState(getTodayDate())`, which only evaluates on first mount. When the PWA stays open in a browser tab and the user returns later, `selectedDate` stays on the previous day. The user sees stale data and stale Lumen goals instead of today's empty state.
+**Description:** When reopening the app after sleeping (e.g., next morning), stale data persists. The existing 1-hour soft reset in `DailyDashboard` (FOO-333) only revalidates SWR caches on the Home route. This issue adds a separate, global guard that forces a hard navigation to `/app` when both conditions are met: 4+ hours elapsed AND a new calendar day has started.
 
 **Acceptance Criteria:**
-- [ ] When the tab becomes visible and the calendar date has changed since last active, reset `selectedDate` to today and revalidate all SWR caches
-- [ ] When the tab becomes visible and >1hr has elapsed since last active (even if same day), reset `selectedDate` to today and revalidate all SWR caches
-- [ ] Track "last active" state (date + timestamp), updated on each `visibilitychange` to hidden
+- [ ] When the app becomes visible after being hidden for 4+ hours AND a new calendar day has started, force a full page reload navigating to `/app`
+- [ ] Works regardless of which route the user is on (Home, Quick Select, Analyze, History, Settings)
+- [ ] Uses `window.location.href = '/app'` (full page load — clears all client state)
+- [ ] The existing 1-hour soft reset in DailyDashboard (FOO-333) is preserved unchanged
+- [ ] Condition: both 4+ hours elapsed AND midnight crossed (not either/or)
+
+### FOO-334: Track monthly Claude API token usage and cost
+
+**Priority:** Medium
+**Labels:** Feature
+**Description:** The app uses Claude API for food analysis (Sonnet) and Lumen parsing (Haiku) but has no visibility into token usage or cost. This adds a `claude_usage` DB table, captures `response.usage` after every API call, and displays monthly cost summaries on the Settings page.
+
+**Acceptance Criteria:**
+- [ ] Every Claude API call stores a transaction record: model, input/output/cache tokens, per-token prices at time of request, computed dollar cost, timestamp
+- [ ] Settings page shows a "Claude API Usage" section with current month + 2 previous months
+- [ ] Each month displays: total requests, total tokens (input/output), total dollar cost
+- [ ] Per-model pricing stored alongside each transaction for historical accuracy
+- [ ] Per-model pricing configurable as code constants (updated when Anthropic changes prices)
 
 ## Prerequisites
 
-- [ ] On `main` branch with clean working tree
-- [ ] All existing tests pass
+- [ ] On `main` branch, clean working tree
+- [ ] `npm install` up to date
+- [ ] Existing tests passing
 
 ## Implementation Tasks
 
-### Task 1: Hide budget marker for past dates
+### Task 1: Create AppRefreshGuard component
 
-**Issue:** FOO-330
+**Issue:** FOO-332
 **Files:**
-- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
-- `src/components/daily-dashboard.tsx` (modify)
+- `src/components/app-refresh-guard.tsx` (create)
+- `src/components/__tests__/app-refresh-guard.test.tsx` (create)
 
 **TDD Steps:**
 
-1. **RED** — Write failing test:
-   - In `daily-dashboard.test.tsx`, add a test: "does not show budget marker when viewing a past date even with activity data"
-   - Approach: use `vi.useFakeTimers()` and `vi.setSystemTime()` to fix "today" to a known date (e.g., `2026-02-10`). Set up mockFetch to return activity data and earliest-entry. Render dashboard, then use `userEvent.click` on the "Previous day" button to navigate to `2026-02-09`. Wait for re-render, then assert `budget-marker` testid is NOT in the document.
-   - Also add a companion test: "shows budget marker when viewing today with activity data" (under fake timers for consistency) to confirm the marker IS shown for today. This may overlap with the existing "passes budget prop" test but ensures the condition is explicit.
-   - Run: `npm test -- daily-dashboard`
-   - Verify: The first test fails because budget is currently passed unconditionally.
+1. **RED** — Write test file covering these scenarios:
+   - Does NOT reload when elapsed < 4 hours (even if date changed)
+   - Does NOT reload when date has NOT changed (even if 5 hours elapsed)
+   - DOES reload when both conditions met: 4+ hours AND new date
+   - Renders children when no reload needed
+   - Stores `lastActive` timestamp and date string in localStorage on `visibilitychange` → hidden
+   - Reads `lastActive` from localStorage on `visibilitychange` → visible
+   - On mount (first load), initializes localStorage with current timestamp/date
+   - Test approach:
+     - Mock `localStorage` (JSDOM provides it, use `vi.spyOn(Storage.prototype, ...)` if needed)
+     - Mock `Date.now()` with `vi.useFakeTimers()` + `vi.setSystemTime()`
+     - Mock `window.location` by defining `delete (window as any).location; window.location = { href: '' } as any` pattern, or use `Object.defineProperty`
+     - Dispatch `new Event('visibilitychange')` after setting `document.visibilityState` via `Object.defineProperty`
+   - Run: `npm test -- app-refresh-guard`
+   - Verify: Tests fail (component doesn't exist)
 
-2. **GREEN** — Make it pass:
-   - In `daily-dashboard.tsx`, conditionally pass `budget` to `CalorieRing` only when `selectedDate` equals today.
-   - Use the existing `isToday()` helper from `@/lib/date-utils` (already exported) or inline `selectedDate === getTodayDate()`. The `isToday` import is cleaner.
-   - The change is on the line that passes `budget={budget}` to `<CalorieRing>` — wrap it: `budget={isToday(selectedDate) ? budget : undefined}`.
-   - Run: `npm test -- daily-dashboard`
-   - Verify: All tests pass, including existing budget marker tests (they render at today by default).
+2. **GREEN** — Create `src/components/app-refresh-guard.tsx`:
+   - `'use client'` component accepting `{ children: React.ReactNode }`
+   - localStorage keys: `app-refresh-guard:lastActive` (timestamp), `app-refresh-guard:lastDate` (date string from `new Date().toDateString()`)
+   - On mount: write current timestamp and date string to localStorage
+   - On `visibilitychange` → hidden: update localStorage with current values
+   - On `visibilitychange` → visible: read stored values, check both conditions:
+     - `Date.now() - storedTimestamp > 4 * 60 * 60 * 1000` (4 hours)
+     - `new Date().toDateString() !== storedDateString` (date changed)
+   - If both true: `window.location.href = '/app'`
+   - Return `<>{children}</>` (no wrapper DOM)
+   - Run: `npm test -- app-refresh-guard`
+   - Verify: Tests pass
 
-3. **REFACTOR** — Clean up:
-   - If `isToday` was imported, verify no unused imports remain. No other cleanup expected — this is a one-line change.
+3. **REFACTOR** — Ensure constants (4h threshold, localStorage keys) are named, not magic numbers.
 
 **Notes:**
-- The existing test "passes budget prop to CalorieRing when activity data is available" renders at default (today) so it should continue passing.
-- Fake timers are needed because `getTodayDate()` uses `new Date()` — without them, tests are date-dependent.
-- Reference pattern: `src/lib/__tests__/date-utils.test.ts` lines 17-24 for fake timer setup.
+- This is intentionally separate from the existing DailyDashboard soft reset — different thresholds, different scope, different mechanism.
+- Follow pattern from `src/components/daily-dashboard.tsx` lines 56-85 for the `visibilitychange` listener setup, but use localStorage instead of refs (refs don't survive page reloads).
 
-### Task 2: Add visibility-change auto-reset to today
+### Task 2: Integrate AppRefreshGuard into app layout
 
-**Issue:** FOO-331
+**Issue:** FOO-332
 **Files:**
-- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
-- `src/components/daily-dashboard.tsx` (modify)
+- `src/app/app/layout.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Write failing tests for visibility-change behavior. Add a new `describe("visibility change auto-reset", ...)` block in `daily-dashboard.test.tsx`. All tests in this block should use `vi.useFakeTimers()` to control both `Date.now()` and `getTodayDate()`.
+1. **RED** — This is a wiring task. No new unit tests needed — the guard component is already tested. Verify manually that the layout still renders.
 
-   Three tests needed:
+2. **GREEN** — Modify `src/app/app/layout.tsx`:
+   - Keep it as a server component (no `'use client'`)
+   - Import `AppRefreshGuard` from `@/components/app-refresh-guard`
+   - Wrap `{children}` inside `<AppRefreshGuard>` (inside the existing `<div className="pb-20">`)
+   - Current layout structure:
+     ```
+     <div className="pb-20">{children}</div>
+     <BottomNav />
+     ```
+   - After:
+     ```
+     <AppRefreshGuard>
+       <div className="pb-20">{children}</div>
+       <BottomNav />
+     </AppRefreshGuard>
+     ```
+   - Wrap both children AND BottomNav so the guard covers all rendered content on every /app/* route
 
-   a. **"resets selectedDate to today when tab becomes visible after a new day"**
-      - Set system time to `2026-02-10T20:00:00`. Render dashboard (selectedDate = "2026-02-10").
-      - Dispatch `visibilitychange` with `document.visibilityState = "hidden"`.
-      - Advance system time to `2026-02-11T08:00:00` (next day, >1hr elapsed).
-      - Dispatch `visibilitychange` with `document.visibilityState = "visible"`.
-      - Assert: the date display shows "Today" (which `formatDisplayDate` returns for the current date). Also assert new fetch calls are made with `date=2026-02-11`.
-
-   b. **"resets selectedDate to today when tab becomes visible after 1hr+ idle on same day"**
-      - Set system time to `2026-02-10T10:00:00`. Render dashboard.
-      - Navigate to previous day (click "Previous day") so selectedDate = "2026-02-09".
-      - Dispatch `visibilitychange` hidden.
-      - Advance system time by 2 hours (still 2026-02-10 but >1hr elapsed).
-      - Dispatch `visibilitychange` visible.
-      - Assert: display shows "Today" and fetch calls include `date=2026-02-10`.
-
-   c. **"does not reset when tab becomes visible within 1hr on same day"**
-      - Set system time to `2026-02-10T10:00:00`. Render dashboard.
-      - Navigate to previous day so selectedDate = "2026-02-09".
-      - Dispatch `visibilitychange` hidden.
-      - Advance time by 30 minutes (same day, <1hr).
-      - Dispatch `visibilitychange` visible.
-      - Assert: display still shows "Yesterday" (since selected date is still 2026-02-09 relative to 2026-02-10). The selected date was NOT reset.
-
-   Testing technique for `document.visibilityState`: use `Object.defineProperty(document, 'visibilityState', { value: 'hidden', writable: true })` before dispatching `new Event('visibilitychange')`. Restore in afterEach.
-
-   Run: `npm test -- daily-dashboard`
-   Verify: All three tests fail (no visibilitychange handler exists yet).
-
-2. **GREEN** — Implement the visibility-change handler:
-   - Import `useSWRConfig` from `"swr"` in `daily-dashboard.tsx`.
-   - Add `const { mutate: globalMutate } = useSWRConfig();` inside `DailyDashboard`.
-   - Add `const lastActiveRef = useRef({ date: getTodayDate(), timestamp: Date.now() });` to track when the tab was last active.
-   - Add a `useEffect` that:
-     - Registers a `visibilitychange` event listener on `document`.
-     - On `hidden`: updates `lastActiveRef.current` to `{ date: getTodayDate(), timestamp: Date.now() }`.
-     - On `visible`: computes `today = getTodayDate()`, checks if `today !== lastActiveRef.current.date` (date changed) OR `Date.now() - lastActiveRef.current.timestamp > 3_600_000` (1hr+ elapsed). If either is true: calls `setSelectedDate(today)` and `globalMutate(() => true)` to revalidate all SWR caches.
-     - Cleanup: removes the event listener on unmount.
-   - Dependencies array: `[globalMutate]` (setSelectedDate is stable from useState; the ref read doesn't need to be a dep).
-   - Run: `npm test -- daily-dashboard`
-   - Verify: All tests pass.
-
-3. **REFACTOR** — Clean up:
-   - Verify the `useRef` import is already present (line 3 currently imports `useRef`). `useSWRConfig` import is new.
-   - Ensure no ESLint warnings from the effect deps.
-   - Consider whether the 1-hour threshold should be a named constant (e.g., `IDLE_RESET_MS = 3_600_000`). Keep it inline if the plan-implement workers follow the spec; a named constant is fine too.
+3. **REFACTOR** — None expected.
 
 **Notes:**
-- `globalMutate(() => true)` revalidates all keys in the SWR cache. This covers `/api/nutrition-goals` and `/api/earliest-entry` (no date param) as well as the date-dependent endpoints.
-- When `selectedDate` doesn't actually change (e.g., user was on today, idle >1hr, comes back still today), the SWR keys with `?date=` won't change — but `globalMutate(() => true)` still forces a revalidation, ensuring fresh data.
-- `useRef` for lastActive state avoids re-renders when the tab is hidden/shown.
-- No persistence needed — tab reload already re-mounts the component and resets everything.
+- Server Components can render Client Components as children. The layout stays a server component; `AppRefreshGuard` is a client component that receives `children` as a prop.
 
-### Task 3: Integration & Verification
+### Task 3: Add claude_usage table to schema and types
 
-**Issues:** FOO-330, FOO-331
-**Files:** Various from previous tasks
+**Issue:** FOO-334
+**Files:**
+- `src/db/schema.ts` (modify)
+- `src/types/index.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** — No test-first step for schema/type definitions. These are validated at compile time by TypeScript.
+
+2. **GREEN** — Add to `src/db/schema.ts` after the `apiKeys` table:
+   - New `claudeUsage` table with columns:
+     - `id` — serial primary key
+     - `userId` — uuid FK to users.id
+     - `model` — text, not null (e.g., "claude-sonnet-4-20250514")
+     - `operation` — text, not null (e.g., "food-analysis", "food-refinement", "lumen-parsing")
+     - `inputTokens` — integer, not null
+     - `outputTokens` — integer, not null
+     - `cacheCreationTokens` — integer (nullable, defaults to 0 if not present)
+     - `cacheReadTokens` — integer (nullable, defaults to 0 if not present)
+     - `inputPricePerMToken` — numeric, not null (price per 1M tokens at time of request, stored as string via Drizzle numeric)
+     - `outputPricePerMToken` — numeric, not null
+     - `costUsd` — numeric, not null (pre-computed total cost for this call)
+     - `createdAt` — timestamp with timezone, default now, not null
+
+   Add to `src/types/index.ts`:
+   - `ClaudeUsageRecord` interface: `{ id: number; model: string; operation: string; inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number; costUsd: string; createdAt: string }`
+   - `MonthlyClaudeUsage` interface: `{ month: string; totalRequests: number; totalInputTokens: number; totalOutputTokens: number; totalCostUsd: string }`
+   - `ClaudeUsageResponse` interface: `{ months: MonthlyClaudeUsage[] }`
+
+3. **REFACTOR** — None expected.
+
+**Migration note:** New table only (no data migration needed). Run `npx drizzle-kit generate` after this task.
+
+### Task 4: Create claude-usage lib module
+
+**Issue:** FOO-334
+**Files:**
+- `src/lib/claude-usage.ts` (create)
+- `src/lib/__tests__/claude-usage.test.ts` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write tests for:
+   - `MODEL_PRICING` constant: verify it exports pricing for both `claude-sonnet-4-20250514` and `claude-haiku-4-5-20251001`; each entry has `inputPricePerMToken` and `outputPricePerMToken` as numbers
+   - `computeCost(usage, pricing)` pure function:
+     - Input: `{ inputTokens, outputTokens, cacheCreationTokens?, cacheReadTokens? }` and `{ inputPricePerMToken, outputPricePerMToken }`
+     - Returns cost as string with 6 decimal places
+     - Test case: 1000 input tokens at $3/M input + 500 output tokens at $15/M output = $0.010500
+     - Test case: zero tokens = "0.000000"
+     - Cache tokens: `cacheCreationTokens` are charged at input price (they ARE input tokens), `cacheReadTokens` are charged at 10% of input price (Anthropic's standard discount) — adjust these based on actual Anthropic pricing
+   - `recordUsage(userId, model, operation, usage)` function:
+     - Mock the DB insert
+     - Verify it calls insert with correct computed cost
+     - Verify it looks up pricing from MODEL_PRICING by model name
+     - Verify it doesn't throw on unknown model (logs warning, uses zero pricing)
+   - `getMonthlyUsage(userId, months)` function:
+     - Mock the DB query
+     - Returns array of `MonthlyClaudeUsage` objects, one per month
+     - Months are ordered most-recent-first
+     - Empty months are included with zero values
+   - Run: `npm test -- claude-usage`
+   - Verify: Tests fail
+
+2. **GREEN** — Create `src/lib/claude-usage.ts`:
+   - Export `MODEL_PRICING` as a `Record<string, { inputPricePerMToken: number; outputPricePerMToken: number }>` with current Anthropic prices:
+     - Sonnet 4: input $3/M, output $15/M
+     - Haiku 4.5: input $0.80/M, output $4/M
+   - Export `computeCost()` pure function — arithmetic on token counts and per-M prices
+   - Export `recordUsage()` — looks up pricing, computes cost, inserts row into `claudeUsage` table. Fire-and-forget (catch + log errors, never throw — usage tracking must not break food analysis)
+   - Export `getMonthlyUsage()` — SQL aggregation query grouping by `date_trunc('month', created_at)`, returning totals for the last N months. Use Drizzle's `sql` template for the aggregation.
+   - Follow DB access patterns from `src/lib/food-log.ts` and `src/lib/api-keys.ts`
+   - Run: `npm test -- claude-usage`
+   - Verify: Tests pass
+
+3. **REFACTOR** — Extract pricing lookup into a small helper if it's repeated.
+
+**Notes:**
+- `recordUsage` must be fire-and-forget: `recordUsage(...).catch(err => logger.error(...))`. It should never cause a food analysis or Lumen parse to fail.
+- Reference `src/lib/api-keys.ts` for the DB access pattern (import `db` from `@/db/connection`, import schema from `@/db/schema`).
+- Cache token pricing: Anthropic charges cache_creation at 25% MORE than input price, and cache_read at 90% LESS than input price. Verify current pricing at time of implementation and encode in MODEL_PRICING.
+
+### Task 5: Capture usage in claude.ts and lumen.ts
+
+**Issue:** FOO-334
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/lumen.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify — if exists)
+- `src/lib/__tests__/lumen.test.ts` (modify — if exists)
+
+**TDD Steps:**
+
+1. **RED** — Add/update tests:
+   - For `analyzeFood()`: verify that after a successful API response, `recordUsage` is called with userId, model name, `"food-analysis"` operation, and the response's usage object
+   - For `refineAnalysis()`: same but with `"food-refinement"` operation
+   - For `parseLumenScreenshot()`: same but with `"lumen-parsing"` operation and Haiku model
+   - Mock `recordUsage` as a vi.mock of `@/lib/claude-usage`
+   - Verify `recordUsage` is NOT awaited (fire-and-forget)
+   - Verify that if `recordUsage` throws, the main function still returns successfully
+   - Run: `npm test -- claude` and `npm test -- lumen`
+   - Verify: New assertions fail
+
+2. **GREEN** — Modify both files:
+   - `src/lib/claude.ts`: Both `analyzeFood()` and `refineAnalysis()` need a `userId` parameter added. After the successful `response` from the Anthropic SDK, call `recordUsage(userId, response.model, operation, response.usage).catch(...)` — fire-and-forget. The `response.usage` object from the Anthropic SDK has `{ input_tokens, output_tokens, cache_creation_input_tokens?, cache_read_input_tokens? }`.
+   - `src/lib/lumen.ts`: `parseLumenScreenshot()` needs a `userId` parameter. Same fire-and-forget pattern.
+   - Update all callers of these functions to pass `userId`. Check the route handlers that call `analyzeFood`, `refineAnalysis`, and `parseLumenScreenshot` — they already have the session with userId available.
+   - Run: `npm test -- claude` and `npm test -- lumen`
+   - Verify: Tests pass
+
+3. **REFACTOR** — None expected.
+
+**Notes:**
+- The `userId` parameter addition will require updating the call sites in the route handlers. Check `src/app/api/` for routes that call these functions and pass the userId from the session.
+- The Anthropic SDK `Message` type includes `usage: { input_tokens: number; output_tokens: number }` plus optional cache fields. Type the `usage` parameter in `recordUsage` to match.
+
+### Task 6: Create GET /api/claude-usage route
+
+**Issue:** FOO-334
+**Files:**
+- `src/app/api/claude-usage/route.ts` (create)
+- `src/app/api/claude-usage/__tests__/route.test.ts` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write route tests:
+   - Returns 401 if no session
+   - Returns monthly usage data for default 3 months
+   - Supports `?months=N` query param (max 12)
+   - Response matches `ApiSuccessResponse<ClaudeUsageResponse>` format
+   - Sets `Cache-Control: private, no-cache` header
+   - Run: `npm test -- claude-usage/route` (or appropriate pattern)
+   - Verify: Tests fail
+
+2. **GREEN** — Create the route:
+   - Follow pattern from existing API routes (e.g., `src/app/api/v1/food-log/route.ts`)
+   - Auth check via `getSession()`
+   - Parse `months` from searchParams (default 3, clamp to 1-12)
+   - Call `getMonthlyUsage(session.userId, months)`
+   - Return with `successResponse()` from `@/lib/api-response`
+   - Set `Cache-Control: private, no-cache`
+   - Run: `npm test -- claude-usage`
+   - Verify: Tests pass
+
+3. **REFACTOR** — None expected.
+
+**Notes:**
+- Reference `src/app/api/v1/food-log/route.ts` for the standard API route pattern (session check, response format, cache headers).
+
+### Task 7: Create ClaudeUsageSection component and add to Settings
+
+**Issue:** FOO-334
+**Files:**
+- `src/components/claude-usage-section.tsx` (create)
+- `src/components/__tests__/claude-usage-section.test.tsx` (create)
+- `src/app/settings/page.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write component tests:
+   - Shows loading skeleton while fetching
+   - Shows "No usage data" when API returns empty months array
+   - Renders month rows with formatted totals (requests, tokens, cost)
+   - Formats cost as USD with 2 decimal places (e.g., "$1.23")
+   - Formats token counts with comma separators (e.g., "1,234,567")
+   - Most recent month displayed first
+   - Uses SWR with `apiFetcher` pattern (mock via `useSWR`)
+   - Run: `npm test -- claude-usage-section`
+   - Verify: Tests fail
+
+2. **GREEN** — Create the component:
+   - `'use client'` component
+   - Uses `useSWR<ClaudeUsageResponse>("/api/claude-usage", apiFetcher)`
+   - Card layout matching existing Settings sections (rounded-xl border bg-card p-6)
+   - Header: "Claude API Usage"
+   - For each month: show month name (e.g., "February 2026"), request count, total tokens, total cost
+   - Compact table or stacked layout for mobile-first display
+   - Loading state: Skeleton placeholders matching the data layout
+
+   Modify `src/app/settings/page.tsx`:
+   - Import `ClaudeUsageSection`
+   - Add it between `SettingsContent` and `ApiKeyManager` (or after ApiKeyManager — user's choice at implementation)
+
+3. **REFACTOR** — Extract currency/number formatters if useful.
+
+**Notes:**
+- Follow the card styling from `src/components/settings-content.tsx` Appearance section (lines 284-318): `rounded-xl border bg-card p-6`.
+- Mobile-first: stack month summaries vertically, avoid horizontal scroll.
+- Touch targets: any interactive elements must be at least 44x44px.
+
+### Task 8: Generate Drizzle migration and integration verification
+
+**Issue:** FOO-334
+**Files:**
+- `drizzle/` (generated files — do NOT hand-write)
+- `MIGRATIONS.md` (modify)
 
 **Steps:**
 
-1. Run full test suite: `npm test`
-2. Run linter: `npm run lint`
-3. Run type checker: `npm run typecheck`
-4. Build check: `npm run build`
-5. Manual verification checklist:
-   - [ ] Run `npm run dev`, open dashboard — budget marker visible for today
-   - [ ] Navigate to yesterday — budget marker hidden
-   - [ ] Navigate back to today — budget marker reappears
-   - [ ] Open dashboard, switch to another tab, wait a few seconds, switch back — no reset (same day, <1hr)
-   - [ ] (Hard to test manually) Simulate day change by editing system clock
+1. Run `npx drizzle-kit generate` to create the migration for the new `claude_usage` table
+2. Verify the generated SQL creates the table with all expected columns
+3. Run full test suite: `npm test`
+4. Run linter: `npm run lint`
+5. Run type checker: `npm run typecheck`
+6. Run build: `npm run build`
+7. Log in `MIGRATIONS.md`: "New `claude_usage` table — no data migration needed, new table only."
+
+**Migration note:** New table only. No existing data affected. The migration is a simple CREATE TABLE.
 
 ## MCP Usage During Implementation
 
 | MCP Server | Tool | Purpose |
 |------------|------|---------|
-| Linear | `update_issue` | Move FOO-330 and FOO-331 to "In Progress" at start, "Done" at completion |
+| Linear | `update_issue` | Move FOO-332 and FOO-334 to "In Progress" when starting |
+| Linear | `update_issue` | Move to "Done" when implementation complete |
 
 ## Error Handling
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| Activity data unavailable on past date | No budget marker (same as today without activity) | Existing tests cover this |
-| `visibilitychange` not supported (SSR) | `document` check implicit — component is `'use client'` so always in browser | N/A |
-| Rapid hidden/visible toggling | Each visible event independently checks conditions — no race condition risk | N/A |
+| localStorage unavailable | Guard does nothing (no crash) | Unit test |
+| Unknown Claude model in recordUsage | Log warning, use zero pricing | Unit test |
+| DB insert fails in recordUsage | Log error, don't throw (fire-and-forget) | Unit test |
+| No session on /api/claude-usage | Return 401 | Unit test |
+| Invalid months param | Clamp to 1-12 | Unit test |
 
 ## Risks & Open Questions
 
-- [ ] **SWR global mutate and provider isolation in tests:** The `SWRConfig` wrapper in tests uses `provider: () => new Map()` which isolates caches. `globalMutate(() => true)` should work within this provider. If not, the test can verify behavior via mockFetch call counts instead.
-- [ ] **Fake timers interaction with SWR:** SWR uses `setTimeout` internally. Tests may need `vi.advanceTimersByTimeAsync()` or `vi.runAllTimersAsync()` after triggering visibility changes to flush SWR operations.
+- [ ] Anthropic SDK cache token fields: verify exact field names (`cache_creation_input_tokens` vs `cache_creation_tokens`) at implementation time by checking SDK types
+- [ ] Anthropic pricing for cache tokens: verify current cache_creation and cache_read pricing multipliers relative to base input price
+- [ ] `userId` parameter addition to `analyzeFood`/`refineAnalysis`/`parseLumenScreenshot` requires updating all call sites — check all route handlers
 
 ## Scope Boundaries
 
 **In Scope:**
-- Hiding budget marker for past dates (FOO-330)
-- Auto-resetting selectedDate on tab resume (FOO-331)
-- Revalidating SWR caches on resume (FOO-331)
+- AppRefreshGuard component with 4h + midnight condition
+- Integration into app layout for all /app/* routes
+- claude_usage DB table and Drizzle migration
+- Usage recording in claude.ts and lumen.ts
+- Monthly usage API endpoint
+- Settings page usage display section
 
 **Out of Scope:**
-- Budget marker styling changes
-- Persisting selectedDate across tab reloads
-- Service worker / background sync
-- Activity summary for past dates (existing behavior unchanged)
+- Modifying the existing 1-hour DailyDashboard soft reset (FOO-333)
+- Real-time usage alerts or budget limits
+- Per-endpoint usage breakdown beyond model/operation
+- Usage export or reporting features
+- Service worker or push notification integration
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-02-12
-**Method:** Agent team (1 worker)
+**Method:** Agent team (4 workers)
 
 ### Tasks Completed This Iteration
-- Task 1: Hide budget marker for past dates (FOO-330) - Conditionally pass budget to CalorieRing only when selectedDate is today using isToday() helper (worker-1)
-- Task 2: Add visibility-change auto-reset to today (FOO-331) - Added useEffect with visibilitychange listener, lastActiveRef for tracking, globalMutate for SWR cache revalidation (worker-1)
-- Task 3: Integration & Verification - Full test suite, lint, typecheck, build all pass (lead)
+- Task 1: Create AppRefreshGuard component (FOO-332) - Client component with localStorage-based 4h+date-change detection (worker-1)
+- Task 2: Integrate AppRefreshGuard into app layout (FOO-332) - Wrapped layout children and BottomNav in guard (worker-1)
+- Task 3: Add claude_usage table to schema and types (FOO-334) - Schema with 12 columns, 3 new TypeScript interfaces (worker-2)
+- Task 4: Create claude-usage lib module (FOO-334) - MODEL_PRICING, computeCost, recordUsage (fire-and-forget), getMonthlyUsage (worker-2)
+- Task 5: Capture usage in claude.ts and lumen.ts (FOO-334) - Added userId param, recordUsage calls with SDK→UsageTokens mapping, updated 3 route handlers (worker-3)
+- Task 6: Create GET /api/claude-usage route (FOO-334) - Auth, months param parsing, ClaudeUsageResponse format (worker-4)
+- Task 7: Create ClaudeUsageSection component and add to Settings (FOO-334) - SWR-based card with monthly cost/token display (worker-4)
+- Task 8: Generate Drizzle migration and integration verification (FOO-334) - drizzle/0012_gifted_nomad.sql (lead)
 
 ### Files Modified
-- `src/components/daily-dashboard.tsx` - Added isToday import, useEffect/useSWRConfig imports, conditional budget prop, visibility-change handler with lastActiveRef
-- `src/components/__tests__/daily-dashboard.test.tsx` - Added 5 new tests: 2 for budget marker visibility (today vs past date), 3 for visibility-change auto-reset (date change, 1hr+ idle, no reset within 1hr)
+- `src/components/app-refresh-guard.tsx` - Created: client component with visibilitychange + localStorage guard
+- `src/components/__tests__/app-refresh-guard.test.tsx` - Created: 7 tests
+- `src/app/app/layout.tsx` - Modified: wrapped content in AppRefreshGuard
+- `src/db/schema.ts` - Modified: added claudeUsage table
+- `src/types/index.ts` - Modified: added ClaudeUsageRecord, MonthlyClaudeUsage, ClaudeUsageResponse interfaces
+- `src/lib/claude-usage.ts` - Created: usage tracking module with pricing, cost computation, DB access
+- `src/lib/__tests__/claude-usage.test.ts` - Created: comprehensive test suite
+- `src/lib/claude.ts` - Modified: added userId param and recordUsage calls to analyzeFood/refineAnalysis
+- `src/lib/lumen.ts` - Modified: added userId param and recordUsage call to parseLumenScreenshot
+- `src/lib/__tests__/claude.test.ts` - Modified: added recordUsage mock and assertions
+- `src/lib/__tests__/lumen.test.ts` - Modified: added recordUsage mock and assertions
+- `src/app/api/analyze-food/route.ts` - Modified: pass userId to analyzeFood
+- `src/app/api/refine-food/route.ts` - Modified: pass userId to refineAnalysis
+- `src/app/api/lumen-goals/route.ts` - Modified: pass userId to parseLumenScreenshot
+- `src/app/api/analyze-food/__tests__/route.test.ts` - Modified: updated mock expectations
+- `src/app/api/refine-food/__tests__/route.test.ts` - Modified: updated mock expectations
+- `src/app/api/lumen-goals/__tests__/route.test.ts` - Modified: updated mock expectations
+- `src/app/api/claude-usage/route.ts` - Created: GET route with auth and monthly usage
+- `src/app/api/claude-usage/__tests__/route.test.ts` - Created: 10 tests
+- `src/components/claude-usage-section.tsx` - Created: SWR-based Settings card
+- `src/components/__tests__/claude-usage-section.test.tsx` - Created: 9 tests
+- `src/app/settings/page.tsx` - Modified: added ClaudeUsageSection
+- `drizzle/0012_gifted_nomad.sql` - Generated: CREATE TABLE claude_usage
+- `MIGRATIONS.md` - Modified: logged new table
 
 ### Linear Updates
-- FOO-330: Todo → In Progress → Review
-- FOO-331: Todo → In Progress → Review
+- FOO-332: Todo → In Progress → Review
+- FOO-334: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Passed — no bugs found
-- verifier: All 1374 tests pass, zero warnings
+- bug-hunter: Found 5 issues (2 HIGH/MEDIUM already fixed as integration issues, 1 MEDIUM design decision, 2 LOW not actionable)
+- verifier: All 1421 tests pass, zero warnings, build succeeds
 
 ### Work Partition
-- Worker 1: Tasks 1-2 (daily-dashboard component and tests)
-- Lead: Task 3 (verification), bug-hunter, verifier
+- Worker 1: Tasks 1+2 (refresh guard component + layout integration)
+- Worker 2: Tasks 3+4 (schema, types, claude-usage lib module)
+- Worker 3: Task 5 (claude.ts/lumen.ts integration + route handlers)
+- Worker 4: Tasks 6+7 (API route + Settings UI)
+- Lead: Task 8 (Drizzle migration generation) + integration fixes
 
 ### Continuation Status
 All tasks completed.
 
 ### Review Findings
 
-Summary: 1 issue(s) found (Team: security, reliability, quality reviewers)
-- CRITICAL: 0
-- HIGH: 1
-- MEDIUM: 1 (documented only)
-- LOW: 1 (documented only)
+Files reviewed: 24
+Reviewers: security, reliability, quality (agent team)
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
 
-**Issues requiring fix:**
-- [HIGH] BUG: File input not reset on failed upload (`src/components/daily-dashboard.tsx:143-145`) — if upload fails, the file input retains the selected file, preventing onChange from firing on retry with the same file
+Summary: 2 issue(s) found (0 CRITICAL, 0 HIGH, 1 MEDIUM, 1 LOW)
 
 **Documented (no fix needed):**
-- [MEDIUM] TIMEOUT: No timeout on fetch POST to `/api/lumen-goals` (`src/components/daily-dashboard.tsx:129`) — general pattern throughout the app, not a regression from this iteration
-- [LOW] TYPE: Untyped error response body (`src/components/daily-dashboard.tsx:135-136`) — optional chaining + fallback string provides adequate safety
+- [MEDIUM] EDGE CASE: Corrupted localStorage produces NaN in timestamp comparison (`src/components/app-refresh-guard.tsx:40`) — `Number(storedTimestamp)` returns NaN if value is manually corrupted; NaN > FOUR_HOURS_MS is always false, so reload silently never triggers. Graceful degradation — no crash, guard just becomes inert until next valid write.
+- [LOW] EDGE CASE: `parseFloat(costStr)` could return NaN if DB returns invalid numeric string (`src/components/claude-usage-section.tsx:19`) — unlikely given DB numeric type constraint.
 
 ### Linear Updates
-- FOO-330: Review → Merge (original task completed)
-- FOO-331: Review → Merge (original task completed)
-- FOO-333: Created in Todo (Fix: file input not reset on failed upload)
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-333](https://linear.app/lw-claude/issue/FOO-333/fix-file-input-not-reset-on-failed-lumen-goals-upload)
-
-### Fix 1: File input not reset on failed Lumen goals upload
-**Linear Issue:** [FOO-333](https://linear.app/lw-claude/issue/FOO-333/fix-file-input-not-reset-on-failed-lumen-goals-upload)
-
-1. Write test in `src/components/__tests__/daily-dashboard.test.tsx` that simulates a failed upload, then verifies the file input value is reset (allowing re-selection of the same file)
-2. Move the file input reset block (lines 143-145) from inside the `try` block to the `finally` block in `src/components/daily-dashboard.tsx`
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-02-12
-**Method:** Agent team (1 worker)
-
-### Tasks Completed This Iteration
-- Fix 1: File input not reset on failed Lumen goals upload (FOO-333) - Moved file input reset from try to finally block; added test for failed upload file input reset (worker-1)
-
-### Files Modified
-- `src/components/daily-dashboard.tsx` - Moved file input reset (`fileInputRef.current.value = ""`) from `try` block to `finally` block in handleLumenFileChange
-- `src/components/__tests__/daily-dashboard.test.tsx` - Added test "resets file input value after failed Lumen goals upload"; fixed dead mock branch (GET condition matched by query param `?` instead of HTTP method string)
-
-### Linear Updates
-- FOO-333: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 1 MEDIUM bug (dead mock branch in test), fixed by lead before commit
-- verifier: All 1375 tests pass, zero warnings
-
-### Work Partition
-- Worker 1: Fix 1 (daily-dashboard component and tests)
-- Lead: Bug-hunter fix (test mock correction), verification
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Summary: 0 issue(s) requiring fix (Team: security, reliability, quality reviewers)
-- CRITICAL: 0
-- HIGH: 0
-- MEDIUM: 1 (documented only — duplicate of Iteration 1 finding)
-- LOW: 0
-
-**Documented (no fix needed):**
-- [MEDIUM] ASYNC: No timeout on fetch POST to `/api/lumen-goals` (`src/components/daily-dashboard.tsx:129-131`) — duplicate of Iteration 1 documented finding; general pattern throughout the app, not a regression
-
-### Linear Updates
-- FOO-333: Review → Merge (fix verified)
+- FOO-332: Review → Merge
+- FOO-334: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 
@@ -306,14 +460,11 @@ Findings documented but not fixed across all review iterations:
 
 | Severity | Category | File | Finding | Rationale |
 |----------|----------|------|---------|-----------|
-| MEDIUM | TIMEOUT | `src/components/daily-dashboard.tsx:129` | No timeout on fetch POST to `/api/lumen-goals` | General pattern throughout the app, not a regression from this plan |
-| LOW | TYPE | `src/components/daily-dashboard.tsx:135-136` | Untyped error response body | Optional chaining + fallback string provides adequate safety |
+| MEDIUM | EDGE CASE | `src/components/app-refresh-guard.tsx:40` | NaN from corrupted localStorage silently disables guard | Graceful degradation — no crash, guard inert until next valid write |
+| LOW | EDGE CASE | `src/components/claude-usage-section.tsx:19` | parseFloat NaN on invalid DB numeric string | Unlikely — DB numeric type enforces valid values |
 
 ---
 
 ## Status: COMPLETE
 
 All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
-- FOO-330: Merge
-- FOO-331: Merge
-- FOO-333: Merge

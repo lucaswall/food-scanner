@@ -111,3 +111,18 @@ export const apiKeys = pgTable("api_keys", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const claudeUsage = pgTable("claude_usage", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  model: text("model").notNull(),
+  operation: text("operation").notNull(),
+  inputTokens: integer("input_tokens").notNull(),
+  outputTokens: integer("output_tokens").notNull(),
+  cacheCreationTokens: integer("cache_creation_tokens"),
+  cacheReadTokens: integer("cache_read_tokens"),
+  inputPricePerMToken: numeric("input_price_per_m_token").notNull(),
+  outputPricePerMToken: numeric("output_price_per_m_token").notNull(),
+  costUsd: numeric("cost_usd").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});

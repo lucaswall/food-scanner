@@ -135,7 +135,7 @@ export async function POST(request: Request) {
       })
     );
 
-    const analysis = await refineAnalysis(imageInputs, previousAnalysis, correction);
+    const analysis = await refineAnalysis(imageInputs, previousAnalysis, correction, session!.userId);
 
     logger.info(
       { action: "refine_food_success", foodName: analysis.food_name },

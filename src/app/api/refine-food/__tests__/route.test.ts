@@ -298,7 +298,8 @@ describe("POST /api/refine-food", () => {
     expect(mockRefineAnalysis).toHaveBeenCalledWith(
       [],
       validAnalysis,
-      "Actually this is about 500 calories"
+      "Actually this is about 500 calories",
+      "user-uuid-123"
     );
   });
 
@@ -406,7 +407,8 @@ describe("POST /api/refine-food", () => {
         expect.objectContaining({ mimeType: "image/jpeg" }),
       ]),
       validAnalysis,
-      "Larger portion"
+      "Larger portion",
+      "user-uuid-123"
     );
   });
 });

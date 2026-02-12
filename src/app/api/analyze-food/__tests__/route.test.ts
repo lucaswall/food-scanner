@@ -336,7 +336,8 @@ describe("POST /api/analyze-food", () => {
         expect.objectContaining({ mimeType: "image/jpeg" }),
         expect.objectContaining({ mimeType: "image/png" }),
       ]),
-      undefined
+      undefined,
+      "user-uuid-123"
     );
   });
 
@@ -353,7 +354,8 @@ describe("POST /api/analyze-food", () => {
 
     expect(mockAnalyzeFood).toHaveBeenCalledWith(
       expect.any(Array),
-      "250g pollo asado"
+      "250g pollo asado",
+      "user-uuid-123"
     );
   });
 
@@ -418,7 +420,7 @@ describe("POST /api/analyze-food", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(mockAnalyzeFood).toHaveBeenCalledWith([], "2 medialunas");
+    expect(mockAnalyzeFood).toHaveBeenCalledWith([], "2 medialunas", "user-uuid-123");
   });
 
   it("returns 400 when neither images nor description provided", async () => {

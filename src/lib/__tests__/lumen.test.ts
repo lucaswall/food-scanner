@@ -22,6 +22,12 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
+// Mock recordUsage
+const mockRecordUsage = vi.fn();
+vi.mock("@/lib/claude-usage", () => ({
+  recordUsage: mockRecordUsage,
+}));
+
 // Mock the database
 const mockInsert = vi.fn();
 const mockSelect = vi.fn();
@@ -69,6 +75,7 @@ function setupMocks() {
 describe("parseLumenScreenshot", () => {
   beforeEach(() => {
     setupMocks();
+    mockRecordUsage.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -77,6 +84,7 @@ describe("parseLumenScreenshot", () => {
 
   it("returns parsed goals for valid tool_use response", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-haiku-4-5-20251001",
       content: [
         {
           type: "tool_use",
@@ -85,10 +93,17 @@ describe("parseLumenScreenshot", () => {
           input: validLumenGoals,
         },
       ],
+      usage: {
+        input_tokens: 500,
+        output_tokens: 50,
+      },
     });
 
     const { parseLumenScreenshot } = await import("@/lib/lumen");
-    const result = await parseLumenScreenshot({ base64: "abc123", mimeType: "image/jpeg" });
+    const result = await parseLumenScreenshot(
+      { base64: "abc123", mimeType: "image/jpeg" },
+      "user-123"
+    );
 
     expect(result).toEqual({
       dayType: "High Carb",
@@ -96,6 +111,77 @@ describe("parseLumenScreenshot", () => {
       carbsGoal: 200,
       fatGoal: 60,
     });
+  });
+
+  it("calls recordUsage with correct arguments for lumen parsing", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-haiku-4-5-20251001",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_lumen_goals",
+          input: validLumenGoals,
+        },
+      ],
+      usage: {
+        input_tokens: 500,
+        output_tokens: 50,
+        cache_read_input_tokens: 100,
+      },
+    });
+
+    const { parseLumenScreenshot } = await import("@/lib/lumen");
+    await parseLumenScreenshot(
+      { base64: "abc123", mimeType: "image/jpeg" },
+      "user-123"
+    );
+
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      "user-123",
+      "claude-haiku-4-5-20251001",
+      "lumen-parsing",
+      {
+        inputTokens: 500,
+        outputTokens: 50,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 100,
+      }
+    );
+  });
+
+  it("succeeds even if recordUsage throws", async () => {
+    mockRecordUsage.mockRejectedValueOnce(new Error("Database error"));
+
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-haiku-4-5-20251001",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_lumen_goals",
+          input: validLumenGoals,
+        },
+      ],
+      usage: {
+        input_tokens: 500,
+        output_tokens: 50,
+      },
+    });
+
+    const { parseLumenScreenshot } = await import("@/lib/lumen");
+    const result = await parseLumenScreenshot(
+      { base64: "abc123", mimeType: "image/jpeg" },
+      "user-123"
+    );
+
+    expect(result).toEqual({
+      dayType: "High Carb",
+      proteinGoal: 120,
+      carbsGoal: 200,
+      fatGoal: 60,
+    });
+    expect(mockRecordUsage).toHaveBeenCalled();
   });
 
   it("uses claude-haiku-4-5-20251001 model", async () => {
@@ -170,10 +256,12 @@ describe("parseLumenScreenshot", () => {
     const { parseLumenScreenshot } = await import("@/lib/lumen");
 
     await expect(
-      parseLumenScreenshot({ base64: "abc123", mimeType: "image/jpeg" })
+      parseLumenScreenshot({ base64: "abc123", mimeType: "image/jpeg" }, "user-123")
     ).rejects.toMatchObject({ name: "LUMEN_PARSE_ERROR" });
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
+    // recordUsage should NOT be called on failure
+    expect(mockRecordUsage).not.toHaveBeenCalled();
   });
 
   it("throws LUMEN_PARSE_ERROR when no tool_use content block", async () => {

@@ -320,3 +320,27 @@ export interface LumenGoals {
 export interface LumenGoalsResponse {
   goals: LumenGoals | null;
 }
+
+export interface ClaudeUsageRecord {
+  id: number;
+  model: string;
+  operation: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  costUsd: string;
+  createdAt: string;
+}
+
+export interface MonthlyClaudeUsage {
+  month: string;
+  totalRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: string;
+}
+
+export interface ClaudeUsageResponse {
+  months: MonthlyClaudeUsage[];
+}

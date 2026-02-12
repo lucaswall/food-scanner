@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { FoodAnalysis } from "@/types";
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
+import { recordUsage } from "@/lib/claude-usage";
 
 let _client: Anthropic | null = null;
 
@@ -224,7 +225,8 @@ function validateFoodAnalysis(input: unknown): FoodAnalysis {
 
 export async function analyzeFood(
   images: ImageInput[],
-  description?: string
+  description?: string,
+  userId?: string
 ): Promise<FoodAnalysis> {
   try {
     logger.info(
@@ -281,6 +283,21 @@ export async function analyzeFood(
       "food analysis completed"
     );
 
+    // Record usage (fire-and-forget)
+    if (userId) {
+      recordUsage(userId, response.model, "food-analysis", {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      }).catch((error) => {
+        logger.warn(
+          { error: error instanceof Error ? error.message : String(error), userId },
+          "failed to record API usage"
+        );
+      });
+    }
+
     return analysis;
   } catch (error) {
     if (error instanceof ClaudeApiError) {
@@ -300,7 +317,8 @@ export async function analyzeFood(
 export async function refineAnalysis(
   images: ImageInput[],
   previousAnalysis: FoodAnalysis,
-  correction: string
+  correction: string,
+  userId?: string
 ): Promise<FoodAnalysis> {
   try {
     logger.info(
@@ -370,6 +388,21 @@ Please re-analyze the food considering this correction and provide updated nutri
       { foodName: analysis.food_name, confidence: analysis.confidence },
       "food analysis refinement completed"
     );
+
+    // Record usage (fire-and-forget)
+    if (userId) {
+      recordUsage(userId, response.model, "food-refinement", {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      }).catch((error) => {
+        logger.warn(
+          { error: error instanceof Error ? error.message : String(error), userId },
+          "failed to record API usage"
+        );
+      });
+    }
 
     return analysis;
   } catch (error) {
