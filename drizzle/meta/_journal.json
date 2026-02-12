@@ -85,6 +85,13 @@
       "when": 1770850251757,
       "tag": "0011_eager_the_captain",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1770908931152,
+      "tag": "0012_gifted_nomad",
+      "breakpoints": true
     }
   ]
 }

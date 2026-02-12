@@ -6,6 +6,7 @@ import { getRequiredEnv } from "@/lib/env";
 import { getDb } from "@/db/index";
 import { lumenGoals } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
+import { recordUsage } from "@/lib/claude-usage";
 
 let _client: Anthropic | null = null;
 
@@ -96,7 +97,10 @@ function validateLumenGoals(input: unknown): LumenGoalsParsed {
   };
 }
 
-export async function parseLumenScreenshot(image: ImageInput): Promise<LumenGoalsParsed> {
+export async function parseLumenScreenshot(
+  image: ImageInput,
+  userId?: string
+): Promise<LumenGoalsParsed> {
   try {
     logger.info("calling Claude API for Lumen screenshot parsing");
 
@@ -148,6 +152,21 @@ export async function parseLumenScreenshot(image: ImageInput): Promise<LumenGoal
       { dayType: goals.dayType, proteinGoal: goals.proteinGoal },
       "Lumen goals parsed successfully"
     );
+
+    // Record usage (fire-and-forget)
+    if (userId) {
+      recordUsage(userId, response.model, "lumen-parsing", {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      }).catch((error) => {
+        logger.warn(
+          { error: error instanceof Error ? error.message : String(error), userId },
+          "failed to record API usage"
+        );
+      });
+    }
 
     return goals;
   } catch (error) {

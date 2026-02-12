@@ -150,10 +150,13 @@ export async function POST(request: Request) {
     const buffer = await image.arrayBuffer();
     const base64 = Buffer.from(buffer).toString("base64");
 
-    const parsed = await parseLumenScreenshot({
-      base64,
-      mimeType: image.type,
-    });
+    const parsed = await parseLumenScreenshot(
+      {
+        base64,
+        mimeType: image.type,
+      },
+      session!.userId
+    );
 
     await upsertLumenGoals(session!.userId, date, parsed);
 

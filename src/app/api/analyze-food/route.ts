@@ -113,7 +113,8 @@ export async function POST(request: Request) {
 
     const analysis = await analyzeFood(
       imageInputs,
-      description || undefined
+      description || undefined,
+      session!.userId
     );
 
     logger.info(

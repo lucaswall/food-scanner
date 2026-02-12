@@ -372,3 +372,66 @@ Two independent features: (1) a global app refresh guard that forces a full page
 - Per-endpoint usage breakdown beyond model/operation
 - Usage export or reporting features
 - Service worker or push notification integration
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-12
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Create AppRefreshGuard component (FOO-332) - Client component with localStorage-based 4h+date-change detection (worker-1)
+- Task 2: Integrate AppRefreshGuard into app layout (FOO-332) - Wrapped layout children and BottomNav in guard (worker-1)
+- Task 3: Add claude_usage table to schema and types (FOO-334) - Schema with 12 columns, 3 new TypeScript interfaces (worker-2)
+- Task 4: Create claude-usage lib module (FOO-334) - MODEL_PRICING, computeCost, recordUsage (fire-and-forget), getMonthlyUsage (worker-2)
+- Task 5: Capture usage in claude.ts and lumen.ts (FOO-334) - Added userId param, recordUsage calls with SDK→UsageTokens mapping, updated 3 route handlers (worker-3)
+- Task 6: Create GET /api/claude-usage route (FOO-334) - Auth, months param parsing, ClaudeUsageResponse format (worker-4)
+- Task 7: Create ClaudeUsageSection component and add to Settings (FOO-334) - SWR-based card with monthly cost/token display (worker-4)
+- Task 8: Generate Drizzle migration and integration verification (FOO-334) - drizzle/0012_gifted_nomad.sql (lead)
+
+### Files Modified
+- `src/components/app-refresh-guard.tsx` - Created: client component with visibilitychange + localStorage guard
+- `src/components/__tests__/app-refresh-guard.test.tsx` - Created: 7 tests
+- `src/app/app/layout.tsx` - Modified: wrapped content in AppRefreshGuard
+- `src/db/schema.ts` - Modified: added claudeUsage table
+- `src/types/index.ts` - Modified: added ClaudeUsageRecord, MonthlyClaudeUsage, ClaudeUsageResponse interfaces
+- `src/lib/claude-usage.ts` - Created: usage tracking module with pricing, cost computation, DB access
+- `src/lib/__tests__/claude-usage.test.ts` - Created: comprehensive test suite
+- `src/lib/claude.ts` - Modified: added userId param and recordUsage calls to analyzeFood/refineAnalysis
+- `src/lib/lumen.ts` - Modified: added userId param and recordUsage call to parseLumenScreenshot
+- `src/lib/__tests__/claude.test.ts` - Modified: added recordUsage mock and assertions
+- `src/lib/__tests__/lumen.test.ts` - Modified: added recordUsage mock and assertions
+- `src/app/api/analyze-food/route.ts` - Modified: pass userId to analyzeFood
+- `src/app/api/refine-food/route.ts` - Modified: pass userId to refineAnalysis
+- `src/app/api/lumen-goals/route.ts` - Modified: pass userId to parseLumenScreenshot
+- `src/app/api/analyze-food/__tests__/route.test.ts` - Modified: updated mock expectations
+- `src/app/api/refine-food/__tests__/route.test.ts` - Modified: updated mock expectations
+- `src/app/api/lumen-goals/__tests__/route.test.ts` - Modified: updated mock expectations
+- `src/app/api/claude-usage/route.ts` - Created: GET route with auth and monthly usage
+- `src/app/api/claude-usage/__tests__/route.test.ts` - Created: 10 tests
+- `src/components/claude-usage-section.tsx` - Created: SWR-based Settings card
+- `src/components/__tests__/claude-usage-section.test.tsx` - Created: 9 tests
+- `src/app/settings/page.tsx` - Modified: added ClaudeUsageSection
+- `drizzle/0012_gifted_nomad.sql` - Generated: CREATE TABLE claude_usage
+- `MIGRATIONS.md` - Modified: logged new table
+
+### Linear Updates
+- FOO-332: Todo → In Progress → Review
+- FOO-334: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 5 issues (2 HIGH/MEDIUM already fixed as integration issues, 1 MEDIUM design decision, 2 LOW not actionable)
+- verifier: All 1421 tests pass, zero warnings, build succeeds
+
+### Work Partition
+- Worker 1: Tasks 1+2 (refresh guard component + layout integration)
+- Worker 2: Tasks 3+4 (schema, types, claude-usage lib module)
+- Worker 3: Task 5 (claude.ts/lumen.ts integration + route handlers)
+- Worker 4: Tasks 6+7 (API route + Settings UI)
+- Lead: Task 8 (Drizzle migration generation) + integration fixes
+
+### Continuation Status
+All tasks completed.
+
+## Status: COMPLETE

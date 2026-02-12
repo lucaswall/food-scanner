@@ -339,10 +339,13 @@ describe("POST /api/lumen-goals", () => {
       fatGoal: 60,
     });
 
-    expect(mockParseLumenScreenshot).toHaveBeenCalledWith({
-      base64: expect.any(String),
-      mimeType: "image/jpeg",
-    });
+    expect(mockParseLumenScreenshot).toHaveBeenCalledWith(
+      {
+        base64: expect.any(String),
+        mimeType: "image/jpeg",
+      },
+      "user-uuid-123"
+    );
     expect(mockUpsertLumenGoals).toHaveBeenCalledWith(
       "user-uuid-123",
       "2026-02-10",

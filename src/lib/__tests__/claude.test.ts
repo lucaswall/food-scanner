@@ -23,6 +23,12 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
+// Mock recordUsage
+const mockRecordUsage = vi.fn();
+vi.mock("@/lib/claude-usage", () => ({
+  recordUsage: mockRecordUsage,
+}));
+
 vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
 
 const validAnalysis: FoodAnalysis = {
@@ -53,6 +59,7 @@ function setupMocks() {
 describe("analyzeFood", () => {
   beforeEach(() => {
     setupMocks();
+    mockRecordUsage.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -61,6 +68,7 @@ describe("analyzeFood", () => {
 
   it("returns FoodAnalysis for valid tool_use response", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
       content: [
         {
           type: "tool_use",
@@ -69,14 +77,128 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123"
+    );
 
     expect(result).toEqual(validAnalysis);
+  });
+
+  it("calls recordUsage with correct arguments after successful analysis", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+        cache_creation_input_tokens: 100,
+        cache_read_input_tokens: 50,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123"
+    );
+
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      "user-123",
+      "claude-sonnet-4-20250514",
+      "food-analysis",
+      {
+        inputTokens: 1500,
+        outputTokens: 300,
+        cacheCreationTokens: 100,
+        cacheReadTokens: 50,
+      }
+    );
+  });
+
+  it("does not await recordUsage (fire-and-forget)", async () => {
+    let recordUsageResolved = false;
+    mockRecordUsage.mockImplementation(() => {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          recordUsageResolved = true;
+          resolve(undefined);
+        }, 100);
+      });
+    });
+
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123"
+    );
+
+    // Should return immediately without waiting for recordUsage
+    expect(result).toEqual(validAnalysis);
+    expect(recordUsageResolved).toBe(false);
+  });
+
+  it("succeeds even if recordUsage throws", async () => {
+    mockRecordUsage.mockRejectedValueOnce(new Error("Database error"));
+
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123"
+    );
+
+    expect(result).toEqual(validAnalysis);
+    expect(mockRecordUsage).toHaveBeenCalled();
   });
 
   it("throws CLAUDE_API_ERROR on API failure", async () => {
@@ -85,11 +207,13 @@ describe("analyzeFood", () => {
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
 
     // Should be called exactly once (no retry)
     expect(mockCreate).toHaveBeenCalledTimes(1);
+    // recordUsage should NOT be called on failure
+    expect(mockRecordUsage).not.toHaveBeenCalled();
   });
 
   it("throws CLAUDE_API_ERROR when no tool_use block in response", async () => {
@@ -830,6 +954,7 @@ describe("analyzeFood", () => {
 describe("refineAnalysis", () => {
   beforeEach(() => {
     setupMocks();
+    mockRecordUsage.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -838,6 +963,7 @@ describe("refineAnalysis", () => {
 
   it("calls Claude API with images, previous analysis, and correction text", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
       content: [
         {
           type: "tool_use",
@@ -846,13 +972,18 @@ describe("refineAnalysis", () => {
           input: { ...validAnalysis, calories: 500 },
         },
       ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 350,
+      },
     });
 
     const { refineAnalysis } = await import("@/lib/claude");
     await refineAnalysis(
       [{ base64: "abc123", mimeType: "image/jpeg" }],
       validAnalysis,
-      "Actually this is a larger portion, about 500 calories"
+      "Actually this is a larger portion, about 500 calories",
+      "user-123"
     );
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
@@ -906,6 +1037,7 @@ describe("refineAnalysis", () => {
     };
 
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
       content: [
         {
           type: "tool_use",
@@ -914,16 +1046,91 @@ describe("refineAnalysis", () => {
           input: refinedAnalysis,
         },
       ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 350,
+      },
     });
 
     const { refineAnalysis } = await import("@/lib/claude");
     const result = await refineAnalysis(
       [{ base64: "abc123", mimeType: "image/jpeg" }],
       validAnalysis,
-      "Larger portion"
+      "Larger portion",
+      "user-123"
     );
 
     expect(result).toEqual(refinedAnalysis);
+  });
+
+  it("calls recordUsage with correct arguments for refinement", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 350,
+        cache_read_input_tokens: 100,
+      },
+    });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Correction",
+      "user-123"
+    );
+
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      "user-123",
+      "claude-sonnet-4-20250514",
+      "food-refinement",
+      {
+        inputTokens: 2000,
+        outputTokens: 350,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 100,
+      }
+    );
+  });
+
+  it("succeeds even if recordUsage throws during refinement", async () => {
+    mockRecordUsage.mockRejectedValueOnce(new Error("Database error"));
+
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 350,
+      },
+    });
+
+    const { refineAnalysis } = await import("@/lib/claude");
+    const result = await refineAnalysis(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      validAnalysis,
+      "Correction",
+      "user-123"
+    );
+
+    expect(result).toEqual(validAnalysis);
+    expect(mockRecordUsage).toHaveBeenCalled();
   });
 
 
@@ -936,12 +1143,15 @@ describe("refineAnalysis", () => {
       refineAnalysis(
         [{ base64: "abc123", mimeType: "image/jpeg" }],
         validAnalysis,
-        "Fix it"
+        "Fix it",
+        "user-123"
       )
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
 
     // Should be called exactly once (no retry)
     expect(mockCreate).toHaveBeenCalledTimes(1);
+    // recordUsage should NOT be called on failure
+    expect(mockRecordUsage).not.toHaveBeenCalled();
   });
 
   it("uses same model and tool configuration as analyzeFood", async () => {
