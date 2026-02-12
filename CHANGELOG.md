@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-02-11
+
+### Added
+
+- Date navigation to browse food logs from previous days
+- API key management for programmatic access
+
+### Fixed
+
+- Budget marker now shows calorie ceiling instead of remaining budget
+
 ## [1.5.1] - 2026-02-11
 
 ### Fixed
@@ -103,7 +114,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/lucaswall/food-scanner/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/lucaswall/food-scanner/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/lucaswall/food-scanner/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/lucaswall/food-scanner/compare/v1.4.0...v1.4.1
