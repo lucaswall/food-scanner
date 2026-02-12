@@ -271,7 +271,7 @@ disable-model-invocation: true
 | Problem | Cause | Fix |
 |---------|-------|-----|
 | Teammates not appearing | Task too simple for team, or tmux not installed | Use Shift+Down to cycle; verify `which tmux` |
-| Too many permission prompts | Teammate permissions bubble up to lead | Pre-approve common operations in permission settings |
+| Too many permission prompts | `mode: "bypassPermissions"` is ignored for teammates ([#24073](https://github.com/anthropics/claude-code/issues/24073)); Bash write commands prompt even when in allow list ([#17321](https://github.com/anthropics/claude-code/issues/17321)); subagents don't inherit user-level permissions ([#18950](https://github.com/anthropics/claude-code/issues/18950)) | Instruct workers to use Write/Edit tools instead of Bash for file operations; have lead pre-create directories before spawning workers; or run session with `--dangerously-skip-permissions` |
 | Teammates stopping on errors | Unhandled error | Message teammate directly with instructions, or spawn replacement |
 | Lead implements instead of delegating | Lead starts coding before teammates finish | Tell lead to wait; use delegate mode (Shift+Tab) |
 | Orphaned tmux sessions | Team not cleaned up properly | `tmux ls` then `tmux kill-session -t <name>` |
@@ -305,6 +305,6 @@ If a task involves running a CLI generator (migrations, codegen, etc.), reserve 
 - **One team per session** — clean up before starting a new team
 - **No nested teams** — teammates cannot spawn their own teams
 - **Lead is fixed** — can't promote a teammate to lead
-- **Permissions set at spawn** — all teammates start with lead's permission mode; can change after
+- **Permissions set at spawn** — `mode: "bypassPermissions"` on Task tool is ignored for teammates; they inherit the lead's permission mode ([#24073](https://github.com/anthropics/claude-code/issues/24073)). Workaround: instruct workers to avoid Bash for file ops, have lead pre-create directories.
 - **MCP access unreliable** for teammates — keep MCP operations on the lead
 - **Split panes** require tmux or iTerm2 (not VS Code terminal, Windows Terminal, or Ghostty)

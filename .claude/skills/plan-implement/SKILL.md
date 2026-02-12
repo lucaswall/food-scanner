@@ -85,6 +85,16 @@ Before spawning workers, verify:
 
 ## Team Setup
 
+### Pre-create directories
+
+Before spawning workers, create all directories they will need. This avoids Bash(mkdir) permission prompts that block workers due to known Claude Code bugs.
+
+1. Collect all file paths from every work unit's file ownership list
+2. Extract unique parent directories (e.g., `src/lib/__tests__/` from `src/lib/__tests__/session.test.ts`)
+3. Run `mkdir -p` for each directory that doesn't already exist
+
+This step is fast and harmless — creating directories that already exist is a no-op.
+
 ### Create the team
 
 Use `TeamCreate`:
@@ -131,6 +141,7 @@ RULES:
 - Report the FINAL summary to the lead when ALL your tasks are done
 - Do NOT attempt to update Linear issues — the lead handles all Linear state transitions
 - NEVER hand-write generated files (migrations, snapshots, lock files). If a task requires running a CLI generator (e.g., `npx drizzle-kit generate`), report it as a blocker — the lead will handle it.
+- NEVER use Bash(mkdir) to create directories. Use the Write tool to create files — it auto-creates parent directories. If you need an empty directory, report it as a blocker and the lead will create it.
 
 WORKFLOW FOR EACH TASK:
 1. Send progress message to lead: "Starting Task N: [title] [FOO-XXX]" (include issue ID)
