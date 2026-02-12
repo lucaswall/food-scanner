@@ -5,8 +5,6 @@
 | Feature | Summary |
 |---------|---------|
 | [Conversational Analysis](#conversational-analysis) | Multi-turn chat to refine food analysis before logging |
-| [Fasting Window](#fasting-window) | Overnight fasting duration card on the dashboard |
-| [Weekly Nutrition View](#weekly-nutrition) | 7-day nutrition trends with charts and averages |
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Contextual Memory from Food History](#contextual-memory) | Claude queries past food logs during chat |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
@@ -82,109 +80,6 @@ Extend the existing correction flow into a full inline chat. The chat is ephemer
 6. Log button reads latest analysis from conversation history
 7. Close/discard behavior
 8. Post-log flow (reuse existing `FoodLogConfirmation` screen)
-
----
-
-## Fasting Window
-
-### Problem
-
-Users who practice intermittent fasting have no visibility into their eating windows. There's no way to see overnight fasting duration.
-
-### Prerequisites
-
-Date Navigation (FOO-327), Daily dashboard (FOO-302 through FOO-306).
-
-### Goal
-
-Show a fasting window card on the daily dashboard displaying overnight fasting duration based on existing meal timestamps.
-
-### Design
-
-- **Calculation:** Time from last logged meal of the previous day to the first logged meal of the current day.
-- **Display:** Card showing fasting duration (e.g., "14h 30m fast") and time range (e.g., "9:15 PM → 11:45 AM").
-- **Placement:** Below the macro bars, above the meal breakdown on the daily dashboard.
-
-### Edge Cases
-
-- No meals logged for previous or current day → show "No data" for fasting window.
-- Only one meal logged for a day → use it as both first and last meal (fasting window shows time from previous day's last meal to this single meal).
-
-### Implementation Order
-
-1. Fasting window calculation logic
-2. Fasting window card component
-3. Wire fasting card into daily dashboard
-
----
-
-## Weekly Nutrition View
-
-### Problem
-
-Daily totals show a snapshot but not trends. Users can't see if they're consistently hitting calorie goals, whether protein is trending up, or how fasting patterns look across the week.
-
-### Prerequisites
-
-Date Navigation (FOO-327) and [Fasting Window](#fasting-window).
-
-### Goal
-
-A weekly view showing 7-day nutrition trends with simple charts, macro averages, and fasting durations per day. Accessible from the daily dashboard.
-
-### Design
-
-#### Navigation
-
-- **Access:** Toggle within the dashboard on the Home page — "Daily" / "Weekly" tabs or segmented control above the dashboard content.
-- **Week selection:** Left/right arrows to navigate between weeks. Default is the current week (Mon–Sun).
-
-#### Weekly Summary
-
-- **Calorie bar chart:** One bar per day, colored by whether goal was met. Horizontal goal line overlay.
-- **Macro averages:** Average daily protein/carbs/fat over the 7 days.
-- **Fasting durations:** Per-day fasting window shown alongside or below the calorie chart.
-- **Nutrient highlights:** Flag days where sodium or sugar exceeded recommended values (if thresholds can be determined).
-
-#### Extended Nutrients Table (conditional)
-
-Depends on FOO-298 through FOO-301. Only shown when extended nutrient data exists:
-- Fiber, sodium, saturated fat, trans fat, sugars with daily totals and weekly averages.
-
-#### Micronutrient Report (conditional)
-
-Depends on FOO-298 through FOO-301. Only shown when data exists:
-- Table of non-null micronutrients with daily totals and % of daily recommended intake.
-
-#### Charting Approach
-
-- Start with pure CSS/SVG: `<div>` widths for bars, positioned elements for the goal line.
-- If pure CSS proves limiting (responsive sizing, accessibility, interaction), graduate to a lightweight library (e.g., Recharts).
-- Decision point: evaluate after the basic CSS version is working.
-
-### Edge Cases
-
-- Fewer than 7 days of data → show only available days, don't pad with empty bars.
-- No data at all → "Log food for a few days to see weekly trends" with CTA to scan food.
-- User has data for some days but not others → show bars for days with data, gaps for days without.
-
-### Architecture
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/nutrition-summary?from=YYYY-MM-DD&to=YYYY-MM-DD` | Daily totals per day across a date range |
-
-Aggregates from `food_log_entries` joined with `custom_foods`, same data source as the daily summary API (FOO-302). Returns an array of daily totals, one entry per day.
-
-### Implementation Order
-
-1. API endpoint for date range nutrition summary
-2. Daily/Weekly toggle on dashboard
-3. Weekly calorie bar chart with CSS/SVG
-4. Macro averages display
-5. Fasting durations per day
-6. Extended nutrients table (depends on FOO-298 through FOO-301)
-7. Micronutrient report (depends on FOO-298 through FOO-301)
 
 ---
 
