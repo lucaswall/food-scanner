@@ -136,7 +136,7 @@ Do NOT flag these in code reviews:
 ## LINEAR INTEGRATION
 
 - **Team:** "Food Scanner" | **Prefix:** FOO-xxx
-- **States:** Backlog → Todo → In Progress → Review → Merge → Done
+- **States:** Backlog → Todo → In Progress → Review → Merge → Done → Released
 - **Labels:** Security, Bug, Performance, Convention, Technical Debt, Feature, Improvement
 - **CRITICAL:** Skills using Linear tools (`mcp__linear__*`) MUST verify MCP is connected first via `mcp__linear__list_teams`. If unavailable, **STOP** and tell the user to run `/mcp`.
 

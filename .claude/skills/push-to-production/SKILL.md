@@ -414,7 +414,27 @@ git checkout main
 
 ## Phase 6: Post-Release
 
-### 6.1 Report
+### 6.1 Move Done Issues to Released
+
+Transition all Linear issues in "Done" to "Released" now that the code is live in production.
+
+1. Query all issues in Done state:
+   ```
+   mcp__linear__list_issues with team: "Food Scanner", state: "Done"
+   ```
+
+2. For each issue found, transition to Released using the **state UUID** (both Done and Released are `type: completed` — passing by name could silently no-op):
+   ```
+   mcp__linear__update_issue with id: <issue-id>, state: "38b7cf14-436a-4c01-9f23-7ffdc42b2009"
+   ```
+
+3. Collect the list of moved issues (identifier + title) for the report.
+
+If no issues are in Done, that's fine — skip silently.
+
+If the Linear MCP is unavailable (tools fail), **do not STOP** — log a warning in the report and continue. The release itself succeeded; issue state is cosmetic.
+
+### 6.2 Report
 
 ```
 ## Release Complete
@@ -426,6 +446,9 @@ git checkout main
 **Migration:** [Applied successfully | No migration needed]
 **Data operations:** [Applied successfully (list queries) | None]
 
+### Issues Released
+[List of FOO-xxx: title moved from Done → Released, or "None"]
+
 ### Environment Variable Changes
 [List any env var renames/additions from MIGRATIONS.md, or "None"]
 
@@ -435,7 +458,7 @@ git checkout main
 - Check Railway deploy logs if issues arise
 ```
 
-### 6.2 Remind About Env Vars
+### 6.3 Remind About Env Vars
 
 If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 
