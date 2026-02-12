@@ -1,7 +1,7 @@
 ---
 name: plan-backlog
-description: Convert Linear Backlog issues into TDD implementation plans. Use when user says "plan FOO-123", "plan all bugs", "work on backlog", or wants to implement issues from Linear. Moves planned issues to Todo state. Explores codebase for patterns and discovers available MCPs from CLAUDE.md.
-argument-hint: [issue-selector] e.g., "FOO-123", "all Bug issues", "the auth issue"
+description: Convert Linear Backlog issues into TDD implementation plans. Use when user says "plan FOO-123", "plan all bugs", "work on backlog", or wants to implement issues from Linear. With no arguments, plans ALL Backlog issues. Moves planned issues to Todo state. Explores codebase for patterns and discovers available MCPs from CLAUDE.md.
+argument-hint: [issue-selector] (optional) e.g., "FOO-123", "all Bug issues" — omit to plan all Backlog items
 allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__create_comment, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
@@ -93,13 +93,13 @@ mcp__linear__list_issues(teamName: "Food Scanner", statusName: "Backlog", includ
 
 Filter the results based on the user's criteria (label, title keywords, etc.).
 
-**If user said "plan all" or "work on backlog":**
+**If user said "plan all", "work on backlog", or provided no arguments:**
 
 ```
 mcp__linear__list_issues(teamName: "Food Scanner", statusName: "Backlog", includeArchived: false)
 ```
 
-Present the list to the user and confirm which issues to plan.
+Plan ALL returned Backlog issues. No confirmation needed — the triage phase (Phase 3) will filter out invalid ones.
 
 #### 2.2 Read CLAUDE.md
 
@@ -466,7 +466,7 @@ If the user asks to also implement the plan, tell them to use the `plan-implemen
 | Linear issue not in Backlog | WARN user but continue if they confirm. |
 | No CLAUDE.md found | WARN user. Continue with reduced context. |
 | MCP server unavailable | WARN user. Continue without that MCP's context. |
-| User specifies no issues | ASK user which issues to plan. |
+| User specifies no issues | Fetch ALL Backlog issues and plan them (default behavior). |
 | All issues invalid after triage | STOP. Cancel all issues, inform user no plan needed. |
 | Some issues invalid after triage | Cancel invalid issues, plan only valid ones. |
 
