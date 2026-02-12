@@ -73,6 +73,11 @@ Do NOT flag these in code reviews:
 - **Never log:** Cookie values, access tokens, images, user descriptions
 - **Client-side logging:** `console.error`/`console.warn` are correct for `'use client'` components — pino is server-only
 - **Image validation:** Max 10MB/image, max 3 images, JPEG/PNG/GIF/WebP/HEIC. HEIC converted client-side via heic2any.
+- **API route auth convention:**
+  - `src/app/api/*` browser-facing routes: `getSession()` + `validateSession()` from `@/lib/session` (iron-session cookies)
+  - `src/app/api/v1/*` external API routes: `validateApiRequest()` from `@/lib/api-auth` (Bearer API key)
+  - `src/app/api/auth/*` routes: own OAuth/session management logic
+  - `src/app/api/health` route: public, no auth
 
 ---
 

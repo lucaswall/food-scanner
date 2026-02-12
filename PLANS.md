@@ -1,470 +1,141 @@
-# Implementation Plan
+# Fix Plan: Claude usage route uses wrong auth mechanism
 
+**Issue:** FOO-335
+**Date:** 2026-02-12
 **Status:** COMPLETE
-**Branch:** feat/FOO-332-refresh-guard-and-usage-tracking
-**Issues:** FOO-332, FOO-334
-**Created:** 2026-02-12
-**Last Updated:** 2026-02-12
-
-## Summary
-
-Two independent features: (1) a global app refresh guard that forces a full page reload when reopening the PWA after overnight sleep, and (2) a Claude API usage tracking system that records token consumption per call and displays monthly cost summaries on the Settings page.
-
-## Issues
-
-### FOO-332: Force full page reload on morning app reopen
-
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** When reopening the app after sleeping (e.g., next morning), stale data persists. The existing 1-hour soft reset in `DailyDashboard` (FOO-333) only revalidates SWR caches on the Home route. This issue adds a separate, global guard that forces a hard navigation to `/app` when both conditions are met: 4+ hours elapsed AND a new calendar day has started.
-
-**Acceptance Criteria:**
-- [ ] When the app becomes visible after being hidden for 4+ hours AND a new calendar day has started, force a full page reload navigating to `/app`
-- [ ] Works regardless of which route the user is on (Home, Quick Select, Analyze, History, Settings)
-- [ ] Uses `window.location.href = '/app'` (full page load — clears all client state)
-- [ ] The existing 1-hour soft reset in DailyDashboard (FOO-333) is preserved unchanged
-- [ ] Condition: both 4+ hours elapsed AND midnight crossed (not either/or)
-
-### FOO-334: Track monthly Claude API token usage and cost
-
-**Priority:** Medium
-**Labels:** Feature
-**Description:** The app uses Claude API for food analysis (Sonnet) and Lumen parsing (Haiku) but has no visibility into token usage or cost. This adds a `claude_usage` DB table, captures `response.usage` after every API call, and displays monthly cost summaries on the Settings page.
-
-**Acceptance Criteria:**
-- [ ] Every Claude API call stores a transaction record: model, input/output/cache tokens, per-token prices at time of request, computed dollar cost, timestamp
-- [ ] Settings page shows a "Claude API Usage" section with current month + 2 previous months
-- [ ] Each month displays: total requests, total tokens (input/output), total dollar cost
-- [ ] Per-model pricing stored alongside each transaction for historical accuracy
-- [ ] Per-model pricing configurable as code constants (updated when Anthropic changes prices)
-
-## Prerequisites
-
-- [ ] On `main` branch, clean working tree
-- [ ] `npm install` up to date
-- [ ] Existing tests passing
-
-## Implementation Tasks
-
-### Task 1: Create AppRefreshGuard component
-
-**Issue:** FOO-332
-**Files:**
-- `src/components/app-refresh-guard.tsx` (create)
-- `src/components/__tests__/app-refresh-guard.test.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** — Write test file covering these scenarios:
-   - Does NOT reload when elapsed < 4 hours (even if date changed)
-   - Does NOT reload when date has NOT changed (even if 5 hours elapsed)
-   - DOES reload when both conditions met: 4+ hours AND new date
-   - Renders children when no reload needed
-   - Stores `lastActive` timestamp and date string in localStorage on `visibilitychange` → hidden
-   - Reads `lastActive` from localStorage on `visibilitychange` → visible
-   - On mount (first load), initializes localStorage with current timestamp/date
-   - Test approach:
-     - Mock `localStorage` (JSDOM provides it, use `vi.spyOn(Storage.prototype, ...)` if needed)
-     - Mock `Date.now()` with `vi.useFakeTimers()` + `vi.setSystemTime()`
-     - Mock `window.location` by defining `delete (window as any).location; window.location = { href: '' } as any` pattern, or use `Object.defineProperty`
-     - Dispatch `new Event('visibilitychange')` after setting `document.visibilityState` via `Object.defineProperty`
-   - Run: `npm test -- app-refresh-guard`
-   - Verify: Tests fail (component doesn't exist)
-
-2. **GREEN** — Create `src/components/app-refresh-guard.tsx`:
-   - `'use client'` component accepting `{ children: React.ReactNode }`
-   - localStorage keys: `app-refresh-guard:lastActive` (timestamp), `app-refresh-guard:lastDate` (date string from `new Date().toDateString()`)
-   - On mount: write current timestamp and date string to localStorage
-   - On `visibilitychange` → hidden: update localStorage with current values
-   - On `visibilitychange` → visible: read stored values, check both conditions:
-     - `Date.now() - storedTimestamp > 4 * 60 * 60 * 1000` (4 hours)
-     - `new Date().toDateString() !== storedDateString` (date changed)
-   - If both true: `window.location.href = '/app'`
-   - Return `<>{children}</>` (no wrapper DOM)
-   - Run: `npm test -- app-refresh-guard`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Ensure constants (4h threshold, localStorage keys) are named, not magic numbers.
-
-**Notes:**
-- This is intentionally separate from the existing DailyDashboard soft reset — different thresholds, different scope, different mechanism.
-- Follow pattern from `src/components/daily-dashboard.tsx` lines 56-85 for the `visibilitychange` listener setup, but use localStorage instead of refs (refs don't survive page reloads).
-
-### Task 2: Integrate AppRefreshGuard into app layout
-
-**Issue:** FOO-332
-**Files:**
-- `src/app/app/layout.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — This is a wiring task. No new unit tests needed — the guard component is already tested. Verify manually that the layout still renders.
-
-2. **GREEN** — Modify `src/app/app/layout.tsx`:
-   - Keep it as a server component (no `'use client'`)
-   - Import `AppRefreshGuard` from `@/components/app-refresh-guard`
-   - Wrap `{children}` inside `<AppRefreshGuard>` (inside the existing `<div className="pb-20">`)
-   - Current layout structure:
-     ```
-     <div className="pb-20">{children}</div>
-     <BottomNav />
-     ```
-   - After:
-     ```
-     <AppRefreshGuard>
-       <div className="pb-20">{children}</div>
-       <BottomNav />
-     </AppRefreshGuard>
-     ```
-   - Wrap both children AND BottomNav so the guard covers all rendered content on every /app/* route
-
-3. **REFACTOR** — None expected.
-
-**Notes:**
-- Server Components can render Client Components as children. The layout stays a server component; `AppRefreshGuard` is a client component that receives `children` as a prop.
-
-### Task 3: Add claude_usage table to schema and types
-
-**Issue:** FOO-334
-**Files:**
-- `src/db/schema.ts` (modify)
-- `src/types/index.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — No test-first step for schema/type definitions. These are validated at compile time by TypeScript.
-
-2. **GREEN** — Add to `src/db/schema.ts` after the `apiKeys` table:
-   - New `claudeUsage` table with columns:
-     - `id` — serial primary key
-     - `userId` — uuid FK to users.id
-     - `model` — text, not null (e.g., "claude-sonnet-4-20250514")
-     - `operation` — text, not null (e.g., "food-analysis", "food-refinement", "lumen-parsing")
-     - `inputTokens` — integer, not null
-     - `outputTokens` — integer, not null
-     - `cacheCreationTokens` — integer (nullable, defaults to 0 if not present)
-     - `cacheReadTokens` — integer (nullable, defaults to 0 if not present)
-     - `inputPricePerMToken` — numeric, not null (price per 1M tokens at time of request, stored as string via Drizzle numeric)
-     - `outputPricePerMToken` — numeric, not null
-     - `costUsd` — numeric, not null (pre-computed total cost for this call)
-     - `createdAt` — timestamp with timezone, default now, not null
-
-   Add to `src/types/index.ts`:
-   - `ClaudeUsageRecord` interface: `{ id: number; model: string; operation: string; inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number; costUsd: string; createdAt: string }`
-   - `MonthlyClaudeUsage` interface: `{ month: string; totalRequests: number; totalInputTokens: number; totalOutputTokens: number; totalCostUsd: string }`
-   - `ClaudeUsageResponse` interface: `{ months: MonthlyClaudeUsage[] }`
-
-3. **REFACTOR** — None expected.
-
-**Migration note:** New table only (no data migration needed). Run `npx drizzle-kit generate` after this task.
-
-### Task 4: Create claude-usage lib module
-
-**Issue:** FOO-334
-**Files:**
-- `src/lib/claude-usage.ts` (create)
-- `src/lib/__tests__/claude-usage.test.ts` (create)
-
-**TDD Steps:**
-
-1. **RED** — Write tests for:
-   - `MODEL_PRICING` constant: verify it exports pricing for both `claude-sonnet-4-20250514` and `claude-haiku-4-5-20251001`; each entry has `inputPricePerMToken` and `outputPricePerMToken` as numbers
-   - `computeCost(usage, pricing)` pure function:
-     - Input: `{ inputTokens, outputTokens, cacheCreationTokens?, cacheReadTokens? }` and `{ inputPricePerMToken, outputPricePerMToken }`
-     - Returns cost as string with 6 decimal places
-     - Test case: 1000 input tokens at $3/M input + 500 output tokens at $15/M output = $0.010500
-     - Test case: zero tokens = "0.000000"
-     - Cache tokens: `cacheCreationTokens` are charged at input price (they ARE input tokens), `cacheReadTokens` are charged at 10% of input price (Anthropic's standard discount) — adjust these based on actual Anthropic pricing
-   - `recordUsage(userId, model, operation, usage)` function:
-     - Mock the DB insert
-     - Verify it calls insert with correct computed cost
-     - Verify it looks up pricing from MODEL_PRICING by model name
-     - Verify it doesn't throw on unknown model (logs warning, uses zero pricing)
-   - `getMonthlyUsage(userId, months)` function:
-     - Mock the DB query
-     - Returns array of `MonthlyClaudeUsage` objects, one per month
-     - Months are ordered most-recent-first
-     - Empty months are included with zero values
-   - Run: `npm test -- claude-usage`
-   - Verify: Tests fail
-
-2. **GREEN** — Create `src/lib/claude-usage.ts`:
-   - Export `MODEL_PRICING` as a `Record<string, { inputPricePerMToken: number; outputPricePerMToken: number }>` with current Anthropic prices:
-     - Sonnet 4: input $3/M, output $15/M
-     - Haiku 4.5: input $0.80/M, output $4/M
-   - Export `computeCost()` pure function — arithmetic on token counts and per-M prices
-   - Export `recordUsage()` — looks up pricing, computes cost, inserts row into `claudeUsage` table. Fire-and-forget (catch + log errors, never throw — usage tracking must not break food analysis)
-   - Export `getMonthlyUsage()` — SQL aggregation query grouping by `date_trunc('month', created_at)`, returning totals for the last N months. Use Drizzle's `sql` template for the aggregation.
-   - Follow DB access patterns from `src/lib/food-log.ts` and `src/lib/api-keys.ts`
-   - Run: `npm test -- claude-usage`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Extract pricing lookup into a small helper if it's repeated.
-
-**Notes:**
-- `recordUsage` must be fire-and-forget: `recordUsage(...).catch(err => logger.error(...))`. It should never cause a food analysis or Lumen parse to fail.
-- Reference `src/lib/api-keys.ts` for the DB access pattern (import `db` from `@/db/connection`, import schema from `@/db/schema`).
-- Cache token pricing: Anthropic charges cache_creation at 25% MORE than input price, and cache_read at 90% LESS than input price. Verify current pricing at time of implementation and encode in MODEL_PRICING.
-
-### Task 5: Capture usage in claude.ts and lumen.ts
-
-**Issue:** FOO-334
-**Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/lumen.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify — if exists)
-- `src/lib/__tests__/lumen.test.ts` (modify — if exists)
-
-**TDD Steps:**
-
-1. **RED** — Add/update tests:
-   - For `analyzeFood()`: verify that after a successful API response, `recordUsage` is called with userId, model name, `"food-analysis"` operation, and the response's usage object
-   - For `refineAnalysis()`: same but with `"food-refinement"` operation
-   - For `parseLumenScreenshot()`: same but with `"lumen-parsing"` operation and Haiku model
-   - Mock `recordUsage` as a vi.mock of `@/lib/claude-usage`
-   - Verify `recordUsage` is NOT awaited (fire-and-forget)
-   - Verify that if `recordUsage` throws, the main function still returns successfully
-   - Run: `npm test -- claude` and `npm test -- lumen`
-   - Verify: New assertions fail
-
-2. **GREEN** — Modify both files:
-   - `src/lib/claude.ts`: Both `analyzeFood()` and `refineAnalysis()` need a `userId` parameter added. After the successful `response` from the Anthropic SDK, call `recordUsage(userId, response.model, operation, response.usage).catch(...)` — fire-and-forget. The `response.usage` object from the Anthropic SDK has `{ input_tokens, output_tokens, cache_creation_input_tokens?, cache_read_input_tokens? }`.
-   - `src/lib/lumen.ts`: `parseLumenScreenshot()` needs a `userId` parameter. Same fire-and-forget pattern.
-   - Update all callers of these functions to pass `userId`. Check the route handlers that call `analyzeFood`, `refineAnalysis`, and `parseLumenScreenshot` — they already have the session with userId available.
-   - Run: `npm test -- claude` and `npm test -- lumen`
-   - Verify: Tests pass
-
-3. **REFACTOR** — None expected.
-
-**Notes:**
-- The `userId` parameter addition will require updating the call sites in the route handlers. Check `src/app/api/` for routes that call these functions and pass the userId from the session.
-- The Anthropic SDK `Message` type includes `usage: { input_tokens: number; output_tokens: number }` plus optional cache fields. Type the `usage` parameter in `recordUsage` to match.
-
-### Task 6: Create GET /api/claude-usage route
-
-**Issue:** FOO-334
-**Files:**
-- `src/app/api/claude-usage/route.ts` (create)
-- `src/app/api/claude-usage/__tests__/route.test.ts` (create)
-
-**TDD Steps:**
-
-1. **RED** — Write route tests:
-   - Returns 401 if no session
-   - Returns monthly usage data for default 3 months
-   - Supports `?months=N` query param (max 12)
-   - Response matches `ApiSuccessResponse<ClaudeUsageResponse>` format
-   - Sets `Cache-Control: private, no-cache` header
-   - Run: `npm test -- claude-usage/route` (or appropriate pattern)
-   - Verify: Tests fail
-
-2. **GREEN** — Create the route:
-   - Follow pattern from existing API routes (e.g., `src/app/api/v1/food-log/route.ts`)
-   - Auth check via `getSession()`
-   - Parse `months` from searchParams (default 3, clamp to 1-12)
-   - Call `getMonthlyUsage(session.userId, months)`
-   - Return with `successResponse()` from `@/lib/api-response`
-   - Set `Cache-Control: private, no-cache`
-   - Run: `npm test -- claude-usage`
-   - Verify: Tests pass
-
-3. **REFACTOR** — None expected.
-
-**Notes:**
-- Reference `src/app/api/v1/food-log/route.ts` for the standard API route pattern (session check, response format, cache headers).
-
-### Task 7: Create ClaudeUsageSection component and add to Settings
-
-**Issue:** FOO-334
-**Files:**
-- `src/components/claude-usage-section.tsx` (create)
-- `src/components/__tests__/claude-usage-section.test.tsx` (create)
-- `src/app/settings/page.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Write component tests:
-   - Shows loading skeleton while fetching
-   - Shows "No usage data" when API returns empty months array
-   - Renders month rows with formatted totals (requests, tokens, cost)
-   - Formats cost as USD with 2 decimal places (e.g., "$1.23")
-   - Formats token counts with comma separators (e.g., "1,234,567")
-   - Most recent month displayed first
-   - Uses SWR with `apiFetcher` pattern (mock via `useSWR`)
-   - Run: `npm test -- claude-usage-section`
-   - Verify: Tests fail
-
-2. **GREEN** — Create the component:
-   - `'use client'` component
-   - Uses `useSWR<ClaudeUsageResponse>("/api/claude-usage", apiFetcher)`
-   - Card layout matching existing Settings sections (rounded-xl border bg-card p-6)
-   - Header: "Claude API Usage"
-   - For each month: show month name (e.g., "February 2026"), request count, total tokens, total cost
-   - Compact table or stacked layout for mobile-first display
-   - Loading state: Skeleton placeholders matching the data layout
-
-   Modify `src/app/settings/page.tsx`:
-   - Import `ClaudeUsageSection`
-   - Add it between `SettingsContent` and `ApiKeyManager` (or after ApiKeyManager — user's choice at implementation)
-
-3. **REFACTOR** — Extract currency/number formatters if useful.
-
-**Notes:**
-- Follow the card styling from `src/components/settings-content.tsx` Appearance section (lines 284-318): `rounded-xl border bg-card p-6`.
-- Mobile-first: stack month summaries vertically, avoid horizontal scroll.
-- Touch targets: any interactive elements must be at least 44x44px.
-
-### Task 8: Generate Drizzle migration and integration verification
-
-**Issue:** FOO-334
-**Files:**
-- `drizzle/` (generated files — do NOT hand-write)
-- `MIGRATIONS.md` (modify)
-
-**Steps:**
-
-1. Run `npx drizzle-kit generate` to create the migration for the new `claude_usage` table
-2. Verify the generated SQL creates the table with all expected columns
-3. Run full test suite: `npm test`
-4. Run linter: `npm run lint`
-5. Run type checker: `npm run typecheck`
-6. Run build: `npm run build`
-7. Log in `MIGRATIONS.md`: "New `claude_usage` table — no data migration needed, new table only."
-
-**Migration note:** New table only. No existing data affected. The migration is a simple CREATE TABLE.
-
-## MCP Usage During Implementation
-
-| MCP Server | Tool | Purpose |
-|------------|------|---------|
-| Linear | `update_issue` | Move FOO-332 and FOO-334 to "In Progress" when starting |
-| Linear | `update_issue` | Move to "Done" when implementation complete |
-
-## Error Handling
-
-| Error Scenario | Expected Behavior | Test Coverage |
-|---------------|-------------------|---------------|
-| localStorage unavailable | Guard does nothing (no crash) | Unit test |
-| Unknown Claude model in recordUsage | Log warning, use zero pricing | Unit test |
-| DB insert fails in recordUsage | Log error, don't throw (fire-and-forget) | Unit test |
-| No session on /api/claude-usage | Return 401 | Unit test |
-| Invalid months param | Clamp to 1-12 | Unit test |
-
-## Risks & Open Questions
-
-- [ ] Anthropic SDK cache token fields: verify exact field names (`cache_creation_input_tokens` vs `cache_creation_tokens`) at implementation time by checking SDK types
-- [ ] Anthropic pricing for cache tokens: verify current cache_creation and cache_read pricing multipliers relative to base input price
-- [ ] `userId` parameter addition to `analyzeFood`/`refineAnalysis`/`parseLumenScreenshot` requires updating all call sites — check all route handlers
-
-## Scope Boundaries
-
-**In Scope:**
-- AppRefreshGuard component with 4h + midnight condition
-- Integration into app layout for all /app/* routes
-- claude_usage DB table and Drizzle migration
-- Usage recording in claude.ts and lumen.ts
-- Monthly usage API endpoint
-- Settings page usage display section
-
-**Out of Scope:**
-- Modifying the existing 1-hour DailyDashboard soft reset (FOO-333)
-- Real-time usage alerts or budget limits
-- Per-endpoint usage breakdown beyond model/operation
-- Usage export or reporting features
-- Service worker or push notification integration
+**Branch:** fix/FOO-335-claude-usage-auth
+
+## Investigation
+
+### Bug Report
+Settings page shows "Failed to load usage data" for the Claude API Usage section. Food scanning works and records usage to the DB, but the read route always returns 401.
+
+### Classification
+- **Type:** Auth Issue
+- **Severity:** High
+- **Affected Area:** `/api/claude-usage` route + Settings page
+
+### Root Cause Analysis
+The `/api/claude-usage` route was implemented with API key auth (`validateApiRequest` from `@/lib/api-auth`) instead of session auth (`getSession` + `validateSession` from `@/lib/session`). The client component calls it via `useSWR("/api/claude-usage", apiFetcher)` — a plain browser `fetch()` with no Bearer token, so every request fails with 401.
+
+#### Evidence
+- **File:** `src/app/api/claude-usage/route.ts:1,7` — imports and calls `validateApiRequest` instead of `getSession`/`validateSession`
+- **Staging logs:** 8 occurrences of `[WARN] missing Authorization header action="api_auth_missing_header"` followed by `[WARN] api response error errorCode="AUTH_MISSING_SESSION" status=401` at 15:43, 15:44, 15:55 UTC on 2026-02-12
+- **Convention violation:** Every other non-v1 browser-facing route (17 routes) uses `getSession()` + `validateSession()`. Only `/api/v1/*` routes use `validateApiRequest()`. This is the only non-v1 route using API key auth.
+
+#### Related Code
+- `src/app/api/claude-usage/route.ts:1,7` — wrong auth import and call
+- `src/app/api/claude-usage/__tests__/route.test.ts:5-8` — test mocks `validateApiRequest` instead of session
+- `src/components/claude-usage-section.tsx:42-48` — error state shows vague "Failed to load usage data" message
+- `src/app/api/nutrition-summary/route.ts:1,14-18` — reference: correct session auth pattern for browser-facing route
+- `src/app/api/nutrition-summary/__tests__/route.test.ts:6-30` — reference: correct session auth test mock pattern
+
+### Impact
+- Users see "Failed to load usage data" on Settings page — feature is completely broken
+- Data IS being written to `claude_usage` table but can never be read through the UI
+- No data loss — all usage records are safely stored
+
+## Fix Plan (TDD Approach)
+
+### Step 1: Fix route auth from API key to session
+
+**File:** `src/app/api/claude-usage/route.ts` (modify)
+**Test:** `src/app/api/claude-usage/__tests__/route.test.ts` (modify)
+**Pattern:** Follow `src/app/api/nutrition-summary/route.ts` and its test file for the session auth pattern
+
+**Behavior:**
+- Replace `validateApiRequest` import with `getSession` + `validateSession` from `@/lib/session`
+- Auth check: `const session = await getSession()` then `const validationError = validateSession(session); if (validationError) return validationError;`
+- Use `session!.userId` (after validation) instead of `authResult.userId`
+- Remove the `request` parameter from GET since `getSession()` reads from cookies (doesn't need the request object). Keep `request` only for the URL searchParams parsing.
+
+**Tests:**
+1. Replace `mockValidateApiRequest` mock with `mockGetSession` + inline `validateSession` mock (copy pattern from `src/app/api/nutrition-summary/__tests__/route.test.ts:6-30`)
+2. Update "returns 401 if no session" test to use `mockGetSession.mockResolvedValue(null)` instead of returning a Response
+3. Update all success-path tests to use `mockGetSession.mockResolvedValue({ userId: "user-123" })` instead of `mockValidateApiRequest.mockResolvedValue({ userId: "user-123" })`
+4. Verify `mockGetSession` is called (not `mockValidateApiRequest`)
+
+### Step 2: Improve error message in component
+
+**File:** `src/components/claude-usage-section.tsx` (modify)
+**Test:** `src/components/__tests__/claude-usage-section.test.tsx` (modify)
+
+**Behavior:**
+- When SWR returns an error, show a more descriptive message that includes the error details
+- Display: "Unable to load usage data. Please try again later." as the primary message
+- Below it, show the actual error in smaller muted text: e.g., `error.message` from the SWR error object
+- This helps debugging without exposing raw internals to the user
+
+**Tests:**
+1. Add test: when SWR returns an error with message "Not authenticated", renders "Unable to load usage data" text and shows the error detail
+2. Add test: when SWR returns an error with message "HTTP 500", renders the error detail text
+
+### Step 3: Add API route auth convention to CLAUDE.md
+
+**File:** `CLAUDE.md` (modify)
+
+**Behavior:**
+- Add a new section under SECURITY (or as a subsection) documenting the auth convention:
+  - `src/app/api/*` browser-facing routes: use `getSession()` + `validateSession()` from `@/lib/session` — auth is via iron-session cookies
+  - `src/app/api/v1/*` external API routes: use `validateApiRequest()` from `@/lib/api-auth` — auth is via Bearer API key
+  - `src/app/api/auth/*` routes: have their own OAuth/session management logic
+  - `src/app/api/health` route: public, no auth
+- This convention must be explicitly documented so future features don't repeat this mistake
+
+### Step 4: Verify
+
+- [ ] All new tests pass
+- [ ] All existing tests pass
+- [ ] TypeScript compiles without errors
+- [ ] Lint passes
+- [ ] Build succeeds
+- [ ] Settings page loads Claude API usage data (manual verification on staging)
+
+## Notes
+- The original PLANS.md that created this route (FOO-334, Task 6) instructed workers to "Follow pattern from existing API routes (e.g., `src/app/api/v1/food-log/route.ts`)" — the worker followed a v1 route pattern instead of a browser-facing route pattern, causing the auth mismatch.
+- No migration needed — this is a code-only fix.
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-02-12
-**Method:** Agent team (4 workers)
+**Method:** Single-agent (team workers exited without implementing)
 
 ### Tasks Completed This Iteration
-- Task 1: Create AppRefreshGuard component (FOO-332) - Client component with localStorage-based 4h+date-change detection (worker-1)
-- Task 2: Integrate AppRefreshGuard into app layout (FOO-332) - Wrapped layout children and BottomNav in guard (worker-1)
-- Task 3: Add claude_usage table to schema and types (FOO-334) - Schema with 12 columns, 3 new TypeScript interfaces (worker-2)
-- Task 4: Create claude-usage lib module (FOO-334) - MODEL_PRICING, computeCost, recordUsage (fire-and-forget), getMonthlyUsage (worker-2)
-- Task 5: Capture usage in claude.ts and lumen.ts (FOO-334) - Added userId param, recordUsage calls with SDK→UsageTokens mapping, updated 3 route handlers (worker-3)
-- Task 6: Create GET /api/claude-usage route (FOO-334) - Auth, months param parsing, ClaudeUsageResponse format (worker-4)
-- Task 7: Create ClaudeUsageSection component and add to Settings (FOO-334) - SWR-based card with monthly cost/token display (worker-4)
-- Task 8: Generate Drizzle migration and integration verification (FOO-334) - drizzle/0012_gifted_nomad.sql (lead)
+- Step 1: Fix route auth from API key to session (lead — single-agent)
+- Step 2: Improve error message in component (worker-2 completed before exit)
+- Step 3: Add API route auth convention to CLAUDE.md (lead — single-agent)
 
 ### Files Modified
-- `src/components/app-refresh-guard.tsx` - Created: client component with visibilitychange + localStorage guard
-- `src/components/__tests__/app-refresh-guard.test.tsx` - Created: 7 tests
-- `src/app/app/layout.tsx` - Modified: wrapped content in AppRefreshGuard
-- `src/db/schema.ts` - Modified: added claudeUsage table
-- `src/types/index.ts` - Modified: added ClaudeUsageRecord, MonthlyClaudeUsage, ClaudeUsageResponse interfaces
-- `src/lib/claude-usage.ts` - Created: usage tracking module with pricing, cost computation, DB access
-- `src/lib/__tests__/claude-usage.test.ts` - Created: comprehensive test suite
-- `src/lib/claude.ts` - Modified: added userId param and recordUsage calls to analyzeFood/refineAnalysis
-- `src/lib/lumen.ts` - Modified: added userId param and recordUsage call to parseLumenScreenshot
-- `src/lib/__tests__/claude.test.ts` - Modified: added recordUsage mock and assertions
-- `src/lib/__tests__/lumen.test.ts` - Modified: added recordUsage mock and assertions
-- `src/app/api/analyze-food/route.ts` - Modified: pass userId to analyzeFood
-- `src/app/api/refine-food/route.ts` - Modified: pass userId to refineAnalysis
-- `src/app/api/lumen-goals/route.ts` - Modified: pass userId to parseLumenScreenshot
-- `src/app/api/analyze-food/__tests__/route.test.ts` - Modified: updated mock expectations
-- `src/app/api/refine-food/__tests__/route.test.ts` - Modified: updated mock expectations
-- `src/app/api/lumen-goals/__tests__/route.test.ts` - Modified: updated mock expectations
-- `src/app/api/claude-usage/route.ts` - Created: GET route with auth and monthly usage
-- `src/app/api/claude-usage/__tests__/route.test.ts` - Created: 10 tests
-- `src/components/claude-usage-section.tsx` - Created: SWR-based Settings card
-- `src/components/__tests__/claude-usage-section.test.tsx` - Created: 9 tests
-- `src/app/settings/page.tsx` - Modified: added ClaudeUsageSection
-- `drizzle/0012_gifted_nomad.sql` - Generated: CREATE TABLE claude_usage
-- `MIGRATIONS.md` - Modified: logged new table
+- `src/app/api/claude-usage/route.ts` — Replaced `validateApiRequest` with `getSession` + `validateSession`
+- `src/app/api/claude-usage/__tests__/route.test.ts` — Updated mocks from API key auth to session auth pattern
+- `src/components/claude-usage-section.tsx` — Changed error text to "Unable to load usage data" with error detail
+- `src/components/__tests__/claude-usage-section.test.tsx` — Added 2 error state tests
+- `CLAUDE.md` — Added API route auth convention under SECURITY section
 
 ### Linear Updates
-- FOO-332: Todo → In Progress → Review
-- FOO-334: Todo → In Progress → Review
+- FOO-335: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 5 issues (2 HIGH/MEDIUM already fixed as integration issues, 1 MEDIUM design decision, 2 LOW not actionable)
-- verifier: All 1421 tests pass, zero warnings, build succeeds
-
-### Work Partition
-- Worker 1: Tasks 1+2 (refresh guard component + layout integration)
-- Worker 2: Tasks 3+4 (schema, types, claude-usage lib module)
-- Worker 3: Task 5 (claude.ts/lumen.ts integration + route handlers)
-- Worker 4: Tasks 6+7 (API route + Settings UI)
-- Lead: Task 8 (Drizzle migration generation) + integration fixes
-
-### Continuation Status
-All tasks completed.
+- bug-hunter: 3 findings, all false positives (patterns match established nutrition-summary convention)
+- verifier: All 1423 tests pass, zero warnings
 
 ### Review Findings
 
-Files reviewed: 24
+Files reviewed: 5
 Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+Checks applied: Security (OWASP), Auth, Logic, Async, Resources, Type Safety, Conventions, Test Quality
 
-Summary: 2 issue(s) found (0 CRITICAL, 0 HIGH, 1 MEDIUM, 1 LOW)
-
-**Documented (no fix needed):**
-- [MEDIUM] EDGE CASE: Corrupted localStorage produces NaN in timestamp comparison (`src/components/app-refresh-guard.tsx:40`) — `Number(storedTimestamp)` returns NaN if value is manually corrupted; NaN > FOUR_HOURS_MS is always false, so reload silently never triggers. Graceful degradation — no crash, guard just becomes inert until next valid write.
-- [LOW] EDGE CASE: `parseFloat(costStr)` could return NaN if DB returns invalid numeric string (`src/components/claude-usage-section.tsx:19`) — unlikely given DB numeric type constraint.
+No issues found - all implementations are correct and follow project conventions.
 
 ### Linear Updates
-- FOO-332: Review → Merge
-- FOO-334: Review → Merge
+- FOO-335: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 
 ---
 
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | EDGE CASE | `src/components/app-refresh-guard.tsx:40` | NaN from corrupted localStorage silently disables guard | Graceful degradation — no crash, guard inert until next valid write |
-| LOW | EDGE CASE | `src/components/claude-usage-section.tsx:19` | parseFloat NaN on invalid DB numeric string | Unlikely — DB numeric type enforces valid values |
-
----
-
 ## Status: COMPLETE
 
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+All tasks implemented and reviewed successfully. FOO-335 moved to Merge.

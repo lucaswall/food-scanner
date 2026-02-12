@@ -199,4 +199,30 @@ describe("ClaudeUsageSection", () => {
 
     expect(screen.getByText("Claude API Usage")).toBeInTheDocument();
   });
+
+  it("shows descriptive error message when SWR returns 'Not authenticated' error", () => {
+    mockUseSWR.mockReturnValue({
+      data: undefined,
+      error: new Error("Not authenticated"),
+      isLoading: false,
+    });
+
+    render(<ClaudeUsageSection />);
+
+    expect(screen.getByText("Unable to load usage data. Please try again later.")).toBeInTheDocument();
+    expect(screen.getByText("Not authenticated")).toBeInTheDocument();
+  });
+
+  it("shows descriptive error message when SWR returns 'HTTP 500' error", () => {
+    mockUseSWR.mockReturnValue({
+      data: undefined,
+      error: new Error("HTTP 500"),
+      isLoading: false,
+    });
+
+    render(<ClaudeUsageSection />);
+
+    expect(screen.getByText("Unable to load usage data. Please try again later.")).toBeInTheDocument();
+    expect(screen.getByText("HTTP 500")).toBeInTheDocument();
+  });
 });
