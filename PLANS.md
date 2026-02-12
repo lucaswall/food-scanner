@@ -187,3 +187,34 @@ Two UX fixes for the daily dashboard's date navigation feature:
 - Persisting selectedDate across tab reloads
 - Service worker / background sync
 - Activity summary for past dates (existing behavior unchanged)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-12
+**Method:** Agent team (1 worker)
+
+### Tasks Completed This Iteration
+- Task 1: Hide budget marker for past dates (FOO-330) - Conditionally pass budget to CalorieRing only when selectedDate is today using isToday() helper (worker-1)
+- Task 2: Add visibility-change auto-reset to today (FOO-331) - Added useEffect with visibilitychange listener, lastActiveRef for tracking, globalMutate for SWR cache revalidation (worker-1)
+- Task 3: Integration & Verification - Full test suite, lint, typecheck, build all pass (lead)
+
+### Files Modified
+- `src/components/daily-dashboard.tsx` - Added isToday import, useEffect/useSWRConfig imports, conditional budget prop, visibility-change handler with lastActiveRef
+- `src/components/__tests__/daily-dashboard.test.tsx` - Added 5 new tests: 2 for budget marker visibility (today vs past date), 3 for visibility-change auto-reset (date change, 1hr+ idle, no reset within 1hr)
+
+### Linear Updates
+- FOO-330: Todo → In Progress → Review
+- FOO-331: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 1374 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Tasks 1-2 (daily-dashboard component and tests)
+- Lead: Task 3 (verification), bug-hunter, verifier
+
+### Continuation Status
+All tasks completed.

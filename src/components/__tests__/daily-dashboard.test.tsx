@@ -1,8 +1,53 @@
-import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { SWRConfig } from "swr";
 import userEvent from "@testing-library/user-event";
 import { DailyDashboard } from "../daily-dashboard";
+
+// Store original Date.now before mocking
+const originalDateNow = Date.now.bind(Date);
+
+// Hoisted mock state for date-utils
+const mockDateState = {
+  today: (() => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  })(),
+  now: Date.now(),
+};
+
+// Mock date-utils module
+vi.mock("@/lib/date-utils", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/date-utils")>("@/lib/date-utils");
+  return {
+    ...actual,
+    getTodayDate: () => mockDateState.today,
+    isToday: (dateStr: string) => dateStr === mockDateState.today,
+    formatDisplayDate: (dateStr: string) => {
+      if (dateStr === mockDateState.today) {
+        return "Today";
+      }
+      // Check if yesterday
+      const date = new Date(`${dateStr}T00:00:00Z`);
+      const todayDate = new Date(`${mockDateState.today}T00:00:00Z`);
+      const diffMs = todayDate.getTime() - date.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 1) {
+        return "Yesterday";
+      }
+
+      // Use actual implementation for other dates
+      return actual.formatDisplayDate(dateStr);
+    },
+  };
+});
+
+// Mock Date.now
+vi.spyOn(Date, "now").mockImplementation(() => mockDateState.now);
 
 // Mock ResizeObserver for UI components
 beforeAll(() => {
@@ -137,6 +182,18 @@ function renderDailyDashboard() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+
+  // Reset mock date state to actual current date for non-mocked tests
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  mockDateState.today = `${year}-${month}-${day}`;
+  mockDateState.now = originalDateNow();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("DailyDashboard", () => {
@@ -1292,6 +1349,354 @@ describe("DailyDashboard", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/no food logged/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("visibility change auto-reset (FOO-331)", () => {
+    beforeEach(() => {
+      // Reset mock state - will be overridden in each test
+      mockDateState.today = "2026-02-10";
+      mockDateState.now = new Date("2026-02-10T10:00:00Z").getTime();
+    });
+
+    it("resets selectedDate to today when tab becomes visible after a new day", async () => {
+      // Set initial date to 2026-02-10
+      mockDateState.today = "2026-02-10";
+      mockDateState.now = new Date("2026-02-10T20:00:00Z").getTime();
+
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+      });
+
+      // Verify initial state: viewing 2026-02-10 (today)
+      expect(screen.getByText("Today")).toBeInTheDocument();
+
+      // Clear previous fetch calls to track new ones
+      mockFetch.mockClear();
+
+      // Tab becomes hidden
+      act(() => {
+        Object.defineProperty(document, "visibilityState", {
+          value: "hidden",
+          writable: true,
+          configurable: true,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      // Simulate passage of time to next day
+      mockDateState.today = "2026-02-11";
+      mockDateState.now = new Date("2026-02-11T08:00:00Z").getTime();
+
+      // Tab becomes visible
+      act(() => {
+        Object.defineProperty(document, "visibilityState", {
+          value: "visible",
+          writable: true,
+          configurable: true,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      // Wait for re-render with new date
+      await waitFor(() => {
+        const summaryCall = mockFetch.mock.calls.find((call) =>
+          call[0].includes("/api/nutrition-summary?date=2026-02-11")
+        );
+        expect(summaryCall).toBeDefined();
+      });
+
+      // Display should still show "Today" (now 2026-02-11)
+      expect(screen.getByText("Today")).toBeInTheDocument();
+    });
+
+    it("resets selectedDate to today when tab becomes visible after 1hr+ idle on same day", async () => {
+      const user = userEvent.setup();
+
+      // Set initial date/time to 2026-02-10 10:00
+      mockDateState.today = "2026-02-10";
+      mockDateState.now = new Date("2026-02-10T10:00:00Z").getTime();
+
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+      });
+
+      // Navigate to previous day
+      const prevButton = screen.getByLabelText("Previous day");
+      await user.click(prevButton);
+
+      await waitFor(() => {
+        expect(screen.getByText("Yesterday")).toBeInTheDocument();
+      });
+
+      // Clear previous fetch calls
+      mockFetch.mockClear();
+
+      // Tab becomes hidden
+      act(() => {
+        Object.defineProperty(document, "visibilityState", {
+          value: "hidden",
+          writable: true,
+          configurable: true,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      // Simulate passage of 2 hours (same day, >1hr elapsed)
+      mockDateState.now = new Date("2026-02-10T12:00:00Z").getTime();
+
+      // Tab becomes visible
+      act(() => {
+        Object.defineProperty(document, "visibilityState", {
+          value: "visible",
+          writable: true,
+          configurable: true,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      // Wait for re-render with today's date
+      await waitFor(() => {
+        const summaryCall = mockFetch.mock.calls.find((call) =>
+          call[0].includes("/api/nutrition-summary?date=2026-02-10")
+        );
+        expect(summaryCall).toBeDefined();
+      });
+
+      // Display should now show "Today" (reset from Yesterday)
+      expect(screen.getByText("Today")).toBeInTheDocument();
+    });
+
+    it("does not reset when tab becomes visible within 1hr on same day", async () => {
+      const user = userEvent.setup();
+
+      // Set initial date/time to 2026-02-10 10:00
+      mockDateState.today = "2026-02-10";
+      mockDateState.now = new Date("2026-02-10T10:00:00Z").getTime();
+
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+      });
+
+      // Navigate to previous day
+      const prevButton = screen.getByLabelText("Previous day");
+      await user.click(prevButton);
+
+      await waitFor(() => {
+        expect(screen.getByText("Yesterday")).toBeInTheDocument();
+      });
+
+      // Clear previous fetch calls
+      mockFetch.mockClear();
+
+      // Tab becomes hidden
+      act(() => {
+        Object.defineProperty(document, "visibilityState", {
+          value: "hidden",
+          writable: true,
+          configurable: true,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      // Simulate passage of 30 minutes (same day, <1hr elapsed)
+      mockDateState.now = new Date("2026-02-10T10:30:00Z").getTime();
+
+      // Tab becomes visible
+      act(() => {
+        Object.defineProperty(document, "visibilityState", {
+          value: "visible",
+          writable: true,
+          configurable: true,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      // Wait for any state updates to settle
+      await waitFor(() => {
+        // selectedDate should still be yesterday — NOT reset to today
+        expect(screen.getByText("Yesterday")).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("budget marker visibility (FOO-330)", () => {
+    it("shows budget marker when viewing today with activity data", async () => {
+      const mockActivity = {
+        caloriesOut: 1800,
+        estimatedCaloriesOut: 2200,
+      };
+
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        if (url.includes("/api/activity-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockActivity }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      const { container } = renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+      });
+
+      // Budget marker should be visible for today
+      const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
+      expect(budgetMarker).toBeInTheDocument();
+    });
+
+    it("does not show budget marker when viewing a past date even with activity data", async () => {
+      const user = userEvent.setup();
+
+      const mockActivity = {
+        caloriesOut: 1800,
+        estimatedCaloriesOut: 2200,
+      };
+
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        if (url.includes("/api/activity-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockActivity }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      const { container } = renderDailyDashboard();
+
+      // Wait for initial render (viewing today)
+      await waitFor(() => {
+        expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+      });
+
+      // Budget marker should be visible initially (viewing today)
+      let budgetMarker = container.querySelector('[data-testid="budget-marker"]');
+      expect(budgetMarker).toBeInTheDocument();
+
+      // Navigate to previous day
+      const prevButton = screen.getByLabelText("Previous day");
+      await user.click(prevButton);
+
+      // Wait for re-render with past date
+      await waitFor(() => {
+        expect(screen.getByText("Yesterday")).toBeInTheDocument();
+      });
+
+      // Budget marker should NOT be visible for past date
+      budgetMarker = container.querySelector('[data-testid="budget-marker"]');
+      expect(budgetMarker).not.toBeInTheDocument();
     });
   });
 });

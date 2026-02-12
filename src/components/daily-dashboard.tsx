@@ -1,10 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
-import useSWR from "swr";
+import { useEffect, useRef, useState } from "react";
+import useSWR, { useSWRConfig } from "swr";
 import Link from "next/link";
 import { apiFetcher } from "@/lib/swr";
-import { getTodayDate } from "@/lib/date-utils";
+import { getTodayDate, isToday } from "@/lib/date-utils";
 import { DateNavigator } from "@/components/date-navigator";
 import { CalorieRing } from "@/components/calorie-ring";
 import { MacroBars } from "@/components/macro-bars";
@@ -50,6 +50,39 @@ export function DailyDashboard() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingLumen, setIsUploadingLumen] = useState(false);
   const [lumenUploadError, setLumenUploadError] = useState<string | null>(null);
+  const { mutate: globalMutate } = useSWRConfig();
+  const lastActiveRef = useRef({ date: getTodayDate(), timestamp: Date.now() });
+
+  // Auto-reset to today when tab becomes visible after date change or 1hr+ idle
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        // Tab is hidden - record current date and timestamp
+        lastActiveRef.current = {
+          date: getTodayDate(),
+          timestamp: Date.now(),
+        };
+      } else if (document.visibilityState === "visible") {
+        // Tab is visible - check if we should reset to today
+        const today = getTodayDate();
+        const dateChanged = today !== lastActiveRef.current.date;
+        const elapsed = Date.now() - lastActiveRef.current.timestamp;
+        const oneHourInMs = 3_600_000;
+
+        if (dateChanged || elapsed > oneHourInMs) {
+          // Reset to today and revalidate all SWR caches
+          setSelectedDate(today);
+          globalMutate(() => true);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [globalMutate]);
 
   const {
     data: earliestEntry,
@@ -187,7 +220,7 @@ export function DailyDashboard() {
             <CalorieRing
               calories={totals.calories}
               goal={goals.calories}
-              budget={budget}
+              budget={isToday(selectedDate) ? budget : undefined}
             />
           ) : (
             <div className="flex flex-col items-center gap-2">
