@@ -1592,6 +1592,70 @@ describe("DailyDashboard", () => {
     });
   });
 
+  it("resets file input value after failed Lumen goals upload", async () => {
+    const user = userEvent.setup();
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/earliest-entry")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+        });
+      }
+      if (url.includes("/api/lumen-goals") && url.includes("?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      if (url === "/api/lumen-goals" && !url.includes("?")) {
+        // POST request - return failure
+        return Promise.resolve({
+          ok: false,
+          json: () => Promise.resolve({
+            success: false,
+            error: { code: "VALIDATION_ERROR", message: "Invalid image format" },
+          }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
+    });
+
+    // Get file input
+    const fileInput = document.querySelector('input[type="file"][accept="image/*"]') as HTMLInputElement;
+    expect(fileInput).toBeInTheDocument();
+
+    // Create a test file and upload
+    const testFile = new File(["test"], "lumen.jpg", { type: "image/jpeg" });
+    await user.upload(fileInput, testFile);
+
+    // Wait for error message to appear
+    await waitFor(() => {
+      expect(screen.getByText(/invalid image format/i)).toBeInTheDocument();
+    });
+
+    // File input value should be reset even though upload failed
+    expect(fileInput.value).toBe("");
+  });
+
   describe("budget marker visibility (FOO-330)", () => {
     it("shows budget marker when viewing today with activity data", async () => {
       const mockActivity = {

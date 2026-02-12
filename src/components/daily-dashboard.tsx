@@ -138,14 +138,13 @@ export function DailyDashboard() {
 
       // Mutate SWR cache on success
       await mutateLumenGoals();
-
+    } catch (error) {
+      setLumenUploadError(error instanceof Error ? error.message : "Upload failed");
+    } finally {
       // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-    } catch (error) {
-      setLumenUploadError(error instanceof Error ? error.message : "Upload failed");
-    } finally {
       setIsUploadingLumen(false);
     }
   };
