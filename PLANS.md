@@ -775,3 +775,88 @@ Implement two feature groups: (1) Fasting window tracking on the daily dashboard
 - Macro goals for weekly averages (Lumen goals vary daily)
 - Fasting goal setting or reminders
 - Recharts or other chart library integration
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-12
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Add shared types for fasting and weekly features (worker-1)
+- Task 2: Create daily_calorie_goals DB table and storage logic (worker-1)
+- Task 3: Capture calorie goal in nutrition-goals route (worker-1)
+- Task 4: Fasting window calculation logic (worker-2)
+- Task 5: Date range nutrition summary lib function (worker-1)
+- Task 6: Extend nutrition-summary route for date ranges (worker-1)
+- Task 7: Fasting API route (worker-2)
+- Task 8: Fasting card component with live counter (worker-2)
+- Task 9: Add fasting card to daily dashboard (worker-2)
+- Task 10: Week date utilities (worker-3)
+- Task 11: Week navigator component (worker-3)
+- Task 12: Dashboard shell with toggle (worker-3)
+- Task 13: Weekly calorie bar chart (worker-3)
+- Task 14: Weekly macro averages (worker-3)
+- Task 15: Weekly fasting durations (worker-2)
+- Task 16: Weekly dashboard assembly (worker-3)
+- Task 17: Integration & Verification (lead)
+
+### Files Modified
+- `src/types/index.ts` - Added FastingWindow, FastingResponse, DailyNutritionTotals, DateRangeNutritionResponse
+- `src/db/schema.ts` - Added dailyCalorieGoals table
+- `src/lib/nutrition-goals.ts` - New: upsertCalorieGoal, getCalorieGoalsByDateRange
+- `src/lib/__tests__/nutrition-goals.test.ts` - New: 5 tests
+- `src/app/api/nutrition-goals/route.ts` - Fire-and-forget calorie goal capture
+- `src/app/api/nutrition-goals/__tests__/route.test.ts` - 3 new tests
+- `src/lib/food-log.ts` - Added getDateRangeNutritionSummary
+- `src/lib/__tests__/food-log.test.ts` - 4 new tests
+- `src/app/api/nutrition-summary/route.ts` - Added from/to date range support
+- `src/app/api/nutrition-summary/__tests__/route.test.ts` - 7 new tests
+- `src/lib/fasting.ts` - New: getFastingWindow, getFastingWindows
+- `src/lib/__tests__/fasting.test.ts` - New: 10 tests
+- `src/app/api/fasting/route.ts` - New: single date + date range fasting API
+- `src/app/api/fasting/__tests__/route.test.ts` - New: 13 tests
+- `src/components/fasting-card.tsx` - New: fasting card with live counter
+- `src/components/__tests__/fasting-card.test.tsx` - New: 11 tests
+- `src/components/daily-dashboard.tsx` - Integrated FastingCard
+- `src/components/__tests__/daily-dashboard.test.tsx` - 1 new test
+- `src/lib/date-utils.ts` - Added getWeekBounds, formatWeekRange, addWeeks
+- `src/lib/__tests__/date-utils.test.ts` - 29 new tests (including existing)
+- `src/components/week-navigator.tsx` - New: week navigation
+- `src/components/__tests__/week-navigator.test.tsx` - New: 6 tests
+- `src/components/dashboard-shell.tsx` - New: daily/weekly toggle
+- `src/components/__tests__/dashboard-shell.test.tsx` - New: 6 tests
+- `src/app/app/page.tsx` - Replaced DailyDashboard with DashboardShell
+- `src/components/weekly-calorie-chart.tsx` - New: CSS bar chart
+- `src/components/__tests__/weekly-calorie-chart.test.tsx` - New: 8 tests
+- `src/components/weekly-macro-averages.tsx` - New: macro averages
+- `src/components/__tests__/weekly-macro-averages.test.tsx` - New: 6 tests
+- `src/components/weekly-fasting-chart.tsx` - New: 7-day fasting display
+- `src/components/__tests__/weekly-fasting-chart.test.tsx` - New: 9 tests
+- `src/components/weekly-dashboard.tsx` - New: weekly dashboard assembly
+- `src/components/__tests__/weekly-dashboard.test.tsx` - New: 5 tests
+- `drizzle/0013_hard_lady_bullseye.sql` - New migration: daily_calorie_goals table
+
+### Linear Updates
+- FOO-336: Todo → In Progress → Review
+- FOO-337: Todo → In Progress → Review
+- FOO-338: Todo → In Progress → Review
+- FOO-339: Todo → In Progress → Review
+- FOO-340: Todo → In Progress → Review
+- FOO-341: Todo → In Progress → Review
+- FOO-342: Todo → In Progress → Review
+- FOO-343: Todo → In Progress → Review
+- FOO-344: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (1 critical, 1 high, 2 medium), all fixed before proceeding
+- verifier: All 1532 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3, 5, 6 (types, DB schema, nutrition-goals, food-log, nutrition-summary)
+- Worker 2: Tasks 4, 7, 8, 9, 15 (fasting lib, API, card, daily dashboard, weekly fasting)
+- Worker 3: Tasks 10, 11, 12, 13, 14, 16 (date utils, week UI, weekly charts, dashboard assembly)
+
+### Continuation Status
+All tasks completed.

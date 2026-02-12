@@ -43,6 +43,16 @@ vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+const mockUpsertCalorieGoal = vi.fn();
+vi.mock("@/lib/nutrition-goals", () => ({
+  upsertCalorieGoal: (...args: unknown[]) => mockUpsertCalorieGoal(...args),
+}));
+
+const mockGetTodayDate = vi.fn();
+vi.mock("@/lib/date-utils", () => ({
+  getTodayDate: () => mockGetTodayDate(),
+}));
+
 const { GET } = await import("@/app/api/nutrition-goals/route");
 
 const validSession: FullSession = {
@@ -57,6 +67,8 @@ const validSession: FullSession = {
 describe("GET /api/nutrition-goals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetTodayDate.mockReturnValue("2026-02-10");
+    mockUpsertCalorieGoal.mockResolvedValue(undefined);
   });
 
   it("returns nutrition goals from Fitbit on valid request", async () => {
@@ -209,5 +221,51 @@ describe("GET /api/nutrition-goals", () => {
     const response = await GET();
 
     expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+
+  it("captures calorie goal when goals.calories is set", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+    mockGetTodayDate.mockReturnValue("2026-02-10");
+    mockUpsertCalorieGoal.mockResolvedValue(undefined);
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    // Give the fire-and-forget a moment to execute
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-10", 2000);
+  });
+
+  it("does not call upsertCalorieGoal when goals.calories is null", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: null });
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(mockUpsertCalorieGoal).not.toHaveBeenCalled();
+  });
+
+  it("returns success even if upsertCalorieGoal throws", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+    mockGetTodayDate.mockReturnValue("2026-02-10");
+    mockUpsertCalorieGoal.mockRejectedValue(new Error("Database error"));
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.data).toEqual({ calories: 2000 });
   });
 });

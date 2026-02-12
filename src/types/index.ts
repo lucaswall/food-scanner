@@ -344,3 +344,33 @@ export interface MonthlyClaudeUsage {
 export interface ClaudeUsageResponse {
   months: MonthlyClaudeUsage[];
 }
+
+export interface FastingWindow {
+  date: string;
+  lastMealTime: string; // HH:mm:ss
+  firstMealTime: string | null;
+  durationMinutes: number | null;
+}
+
+export interface FastingResponse {
+  window: FastingWindow | null;
+  live: {
+    lastMealTime: string;
+    startDate: string;
+  } | null;
+}
+
+export interface DailyNutritionTotals {
+  date: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sodiumMg: number;
+  calorieGoal: number | null;
+}
+
+export interface DateRangeNutritionResponse {
+  days: DailyNutritionTotals[];
+}

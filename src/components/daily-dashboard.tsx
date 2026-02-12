@@ -9,6 +9,7 @@ import { DateNavigator } from "@/components/date-navigator";
 import { CalorieRing } from "@/components/calorie-ring";
 import { MacroBars } from "@/components/macro-bars";
 import { MealBreakdown } from "@/components/meal-breakdown";
+import { FastingCard } from "@/components/fasting-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Loader2 } from "lucide-react";
@@ -253,6 +254,9 @@ export function DailyDashboard() {
         carbsGoal={lumenGoals?.goals?.carbsGoal}
         fatGoal={lumenGoals?.goals?.fatGoal}
       />
+
+      {/* Fasting Card */}
+      <FastingCard date={selectedDate} />
 
       {/* Empty state or Meal Breakdown */}
       {showEmptyState ? (

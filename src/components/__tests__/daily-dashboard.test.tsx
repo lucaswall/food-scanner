@@ -1763,4 +1763,60 @@ describe("DailyDashboard", () => {
       expect(budgetMarker).not.toBeInTheDocument();
     });
   });
+
+  it("renders FastingCard component with selected date", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/earliest-entry")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+        });
+      }
+      if (url.includes("/api/fasting")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            data: {
+              window: {
+                date: mockDateState.today,
+                lastMealTime: "21:00:00",
+                firstMealTime: "09:00:00",
+                durationMinutes: 720,
+              },
+              live: null,
+            },
+          }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      // Fasting card should be rendered with data
+      expect(screen.getByText("Fasting")).toBeInTheDocument();
+      expect(screen.getByText("12h 0m")).toBeInTheDocument();
+    });
+
+    // Verify the API was called with the correct date
+    const fastingCall = mockFetch.mock.calls.find((call) =>
+      call[0].includes("/api/fasting")
+    );
+    expect(fastingCall).toBeDefined();
+    expect(fastingCall![0]).toMatch(/date=\d{4}-\d{2}-\d{2}/);
+  });
 });
