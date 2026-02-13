@@ -18,6 +18,8 @@ import {
   ImageIcon,
   ChevronDown,
   Plus,
+  X,
+  Paperclip,
 } from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
@@ -33,6 +35,23 @@ interface FoodChatProps {
   compressedImages: Blob[];
   onClose: () => void;
   onLogged: (response: FoodLogResponse) => void;
+}
+
+function AnalysisSummary({ analysis }: { analysis: FoodAnalysis }) {
+  return (
+    <div className="mt-2 pt-2 border-t border-current/10 text-xs space-y-0.5">
+      <p className="font-medium">{analysis.food_name}</p>
+      <p className="opacity-80">
+        {analysis.amount}
+        {analysis.unit_id === 147 ? "g" : analysis.unit_id === 209 ? "ml" : " units"}
+        {" · "}
+        {analysis.calories} cal
+      </p>
+      <p className="opacity-60">
+        P: {analysis.protein_g}g · C: {analysis.carbs_g}g · F: {analysis.fat_g}g
+      </p>
+    </div>
+  );
 }
 
 export function FoodChat({
@@ -54,7 +73,8 @@ export function FoodChat({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
-  const [images] = useState<Blob[]>(compressedImages);
+  const [images, setImages] = useState<Blob[]>(compressedImages);
+  const [imagesSent, setImagesSent] = useState(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -66,6 +86,9 @@ export function FoodChat({
     [...messages]
       .reverse()
       .find((msg) => msg.analysis)?.analysis || initialAnalysis;
+
+  // Images are pending if we have them and haven't sent the first message yet
+  const pendingImageCount = imagesSent ? 0 : images.length;
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -83,6 +106,10 @@ export function FoodChat({
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleClearImages = () => {
+    setImages([]);
   };
 
   const handleSend = async () => {
@@ -110,7 +137,7 @@ export function FoodChat({
       };
 
       // Include images on first user turn
-      if (messages.length === 1 && images.length > 0) {
+      if (!imagesSent && images.length > 0) {
         const base64Images = await Promise.all(
           images.map(async (blob) => {
             const reader = new FileReader();
@@ -125,6 +152,7 @@ export function FoodChat({
           })
         );
         requestBody.images = base64Images;
+        setImagesSent(true);
       }
 
       const response = await fetch("/api/chat-food", {
@@ -246,6 +274,9 @@ export function FoodChat({
               }`}
             >
               <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+              {msg.role === "assistant" && msg.analysis && idx > 0 && (
+                <AnalysisSummary analysis={msg.analysis} />
+              )}
             </div>
           </div>
         ))}
@@ -278,6 +309,28 @@ export function FoodChat({
           >
             <ChevronDown className="h-4 w-4" />
           </button>
+        )}
+
+        {/* Photo attachment indicator */}
+        {pendingImageCount > 0 && (
+          <div className="flex items-center gap-1.5 px-3 pt-2">
+            <div
+              data-testid="photo-indicator"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted text-xs text-muted-foreground"
+            >
+              <Paperclip className="h-3 w-3" />
+              <span>
+                {pendingImageCount} photo{pendingImageCount !== 1 ? "s" : ""}
+              </span>
+              <button
+                onClick={handleClearImages}
+                aria-label="Remove photos"
+                className="ml-0.5 rounded-full hover:bg-background/50 p-0.5"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Line 1: Camera menu + Text input + Send */}

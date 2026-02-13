@@ -416,6 +416,122 @@ describe("FoodChat", () => {
     expect(sendButton).toBeDisabled();
   });
 
+  it("shows photo attachment indicator with count and remove button", () => {
+    render(
+      <FoodChat
+        initialAnalysis={mockAnalysis}
+        compressedImages={mockCompressedImages}
+        onClose={vi.fn()}
+        onLogged={vi.fn()}
+      />
+    );
+
+    const indicator = screen.getByTestId("photo-indicator");
+    expect(indicator).toBeInTheDocument();
+    expect(indicator).toHaveTextContent("2 photos");
+    expect(screen.getByRole("button", { name: /remove photos/i })).toBeInTheDocument();
+  });
+
+  it("removes photos when remove button is clicked", () => {
+    render(
+      <FoodChat
+        initialAnalysis={mockAnalysis}
+        compressedImages={mockCompressedImages}
+        onClose={vi.fn()}
+        onLogged={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /remove photos/i }));
+
+    expect(screen.queryByTestId("photo-indicator")).not.toBeInTheDocument();
+  });
+
+  it("hides photo indicator after first message is sent", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: { message: "Got it!" },
+        })),
+    });
+
+    render(
+      <FoodChat
+        initialAnalysis={mockAnalysis}
+        compressedImages={mockCompressedImages}
+        onClose={vi.fn()}
+        onLogged={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("photo-indicator")).toBeInTheDocument();
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "test" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("photo-indicator")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows no photo indicator when no images provided", () => {
+    render(
+      <FoodChat
+        initialAnalysis={mockAnalysis}
+        compressedImages={[]}
+        onClose={vi.fn()}
+        onLogged={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByTestId("photo-indicator")).not.toBeInTheDocument();
+  });
+
+  it("shows analysis summary in assistant message when analysis is present", async () => {
+    const updatedAnalysis: FoodAnalysis = {
+      ...mockAnalysis,
+      food_name: "Mixed cocktail",
+      calories: 165,
+      protein_g: 0,
+      carbs_g: 5,
+      fat_g: 0,
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: {
+            message: "Let me analyze this for you:",
+            analysis: updatedAnalysis,
+          },
+        })),
+    });
+
+    render(
+      <FoodChat
+        initialAnalysis={mockAnalysis}
+        compressedImages={mockCompressedImages}
+        onClose={vi.fn()}
+        onLogged={vi.fn()}
+      />
+    );
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "Mix them" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Mixed cocktail")).toBeInTheDocument();
+      expect(screen.getByText(/165 cal/)).toBeInTheDocument();
+      expect(screen.getByText(/P: 0g/)).toBeInTheDocument();
+    });
+  });
+
   it("send button is disabled while loading", async () => {
     mockFetch.mockImplementationOnce(
       () => new Promise((resolve) => setTimeout(resolve, 1000))
