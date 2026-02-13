@@ -372,5 +372,35 @@ Replace the separate weekly calorie chart and macro averages components with a u
 - Worker 1: Tasks 1, 2, 3 (backend data layer: lumen module, types, food-log integration)
 - Worker 2: Tasks 4, 5, 6, 7 (frontend component, goal consistency, surplus/deficit, wiring + deletions)
 
-### Continuation Status
-All tasks completed.
+### Review Findings
+
+Summary: 0 critical/high issues found (Team: security, reliability, quality reviewers)
+- CRITICAL: 0
+- HIGH: 0
+- MEDIUM: 1 (documented only)
+
+**Documented (no fix needed):**
+- [MEDIUM] EDGE CASE: Goal marker can overflow chart when goal > max actual value (`src/components/weekly-nutrition-chart.tsx:66-74,159-165`) — `maxValue` only considers actual data values, not goal values. When goals significantly exceed actual intake, the dashed goal marker positions above the chart container. Inherited from original `weekly-calorie-chart` pattern; visual-only, no data or logic impact.
+
+### Linear Updates
+- FOO-345: Review → Merge
+- FOO-346: Review → Merge
+- FOO-347: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Skipped Findings Summary
+
+Findings documented but not fixed across all review iterations:
+
+| Severity | Category | File | Finding | Rationale |
+|----------|----------|------|---------|-----------|
+| MEDIUM | EDGE CASE | `src/components/weekly-nutrition-chart.tsx:66-74,159-165` | Goal marker overflows chart when goal > max actual value | Visual-only edge case inherited from original calorie chart pattern; no data or logic impact |
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
