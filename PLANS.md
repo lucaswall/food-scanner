@@ -1,432 +1,294 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-370-conversational-food-chat
-**Issues:** FOO-369, FOO-370, FOO-371, FOO-372, FOO-373
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-375-budget-marker-and-chat-ux
+**Issues:** FOO-375, FOO-376, FOO-377
 **Created:** 2026-02-13
 **Last Updated:** 2026-02-13
 
 ## Summary
 
-Implement conversational food analysis refinement (multi-turn chat replacing single-shot correction), fix raw SyntaxError on HTML error pages, and add over-goal visual indicators to CalorieRing and MacroBars.
+Three improvements: (1) Remove the broken budget marker from the calorie ring since Fitbit doesn't expose TDEE via API, (2) replace the hidden chat trigger with a proper CTA button, and (3) restructure the food chat as a full-screen view that replaces the analyzer instead of nesting inside it.
 
 ## Issues
 
-### FOO-373: Calorie ring: hide budget marker and turn text red when over goal
+### FOO-375: Budget marker on calorie ring uses wrong Fitbit field, producing incorrect position
 
-**Priority:** Low
-**Labels:** Improvement
-**Description:** When calories exceed the daily goal, the budget marker is clamped at 100% and becomes meaningless. No visual color change indicates the user has gone over their goal.
-
-**Acceptance Criteria:**
-- [ ] Budget marker is hidden when `calories >= goal`
-- [ ] Calorie count text turns `text-destructive` when `calories > goal`
-- [ ] Macro bar labels turn `text-destructive` when `consumed > goal`
-- [ ] Existing tests updated and new tests added for destructive color behavior
-
-### FOO-369: API fetch calls show raw SyntaxError when server returns HTML error page
-
-**Priority:** Low
+**Priority:** Medium
 **Labels:** Bug
-**Description:** Client-side `response.json()` calls throw raw `SyntaxError` when the server or Railway's reverse proxy returns an HTML error page (502/503). User sees cryptic error like `Unexpected token '<', "<!DOCTYPE "... is not valid JSON`.
+**Description:** The budget marker (yellow tick) on the calorie ring uses `goals.caloriesOut` (the user's activity GOAL, e.g. 3,598) as the estimated daily burn instead of the actual estimated TDEE. Fitbit doesn't expose their proprietary TDEE projection via the API, so there's no reliable way to replicate their budget calculation. The marker produces incorrect positions (often negative budget, hidden behind consumed arc).
 
 **Acceptance Criteria:**
-- [ ] Safe JSON parse utility created and tested
-- [ ] All client-side fetch calls in `food-analyzer.tsx` use safe parsing
-- [ ] User sees a friendly error message instead of raw SyntaxError
-- [ ] Auto-resubmit effect also uses safe parsing
+- [ ] CalorieRing no longer accepts or renders a `budget` prop
+- [ ] DailyDashboard no longer fetches `/api/activity-summary`
+- [ ] Browser-facing `/api/activity-summary` route is deleted (no remaining consumer)
+- [ ] `estimatedCaloriesOut` removed from `ActivitySummary` type
+- [ ] `getActivitySummary` simplified to only return `caloriesOut`
+- [ ] V1 API route updated for simplified type
+- [ ] All related tests updated
 
-### FOO-370: Multi-turn chat API for food analysis refinement
+### FOO-376: Full-screen chat replaces analysis view
 
-**Priority:** High
-**Labels:** Feature
-**Description:** Replace single-shot refinement with a multi-turn chat API. New `POST /api/chat-food` endpoint accepting full message history. Claude can respond with text-only (questions/confirmations) or text + `report_nutrition` tool_use (when food changes).
-
-**Acceptance Criteria:**
-- [ ] New `conversationalRefine()` function in `src/lib/claude.ts` accepting full message history
-- [ ] Uses `tool_choice: { type: "auto" }` so Claude can respond conversationally
-- [ ] New `POST /api/chat-food` endpoint with auth, rate limiting, validation
-- [ ] System prompt includes chat behavior rules
-- [ ] Images sent only on turns where user provides them
-- [ ] Usage tracked as "food-chat" operation type
-- [ ] `ConversationMessage` type defined in `src/types/index.ts`
-
-### FOO-371: FoodChat component for conversational refinement
-
-**Priority:** High
-**Labels:** Feature
-**Description:** New `src/components/food-chat.tsx` client component for multi-turn food analysis conversation.
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** The food chat is currently embedded as a small sub-panel inside the FoodAnalyzer component with a `max-h-[80vh]` constraint. It should take over the full viewport when opened, replacing the analyzer view entirely. Back button returns to analysis.
 
 **Acceptance Criteria:**
-- [ ] Message list with clear user/assistant visual distinction
-- [ ] Text input with send button at bottom
-- [ ] Inline camera button for adding photos mid-conversation (reuse `PhotoCapture` picker)
-- [ ] Pinned "Log to Fitbit" button always visible
-- [ ] Close (X) button to discard conversation
-- [ ] `MealTypeSelector` near the Log button
-- [ ] All state is ephemeral (React state only)
-- [ ] Mobile-first layout, 44px touch targets
-- [ ] Uses safe JSON parse utility from FOO-369
+- [ ] When chat is opened, it replaces the entire FoodAnalyzer UI (not nests inside it)
+- [ ] Chat has a back/close button in header to return to analysis view
+- [ ] Messages area fills available vertical space with proper scrolling
+- [ ] Bottom area has: text input + send button, then meal type selector + "Log to Fitbit" button
+- [ ] All controls remain accessible and touch-friendly (44px minimum)
+- [ ] initialAnalysis and compressedImages passed via component state
 
-### FOO-372: Wire FoodChat into the analysis flow
+### FOO-377: Replace hidden chat affordance with clear CTA button
 
-**Priority:** High
-**Labels:** Feature
-**Description:** Replace the post-analysis correction input in `FoodAnalyzer` with `FoodChat`. Delete old refinement code.
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** After analysis completes, the chat is triggered by clicking a muted text div ("Add details or correct something...") that looks like a disabled text input. Replace with an explicit Button component.
 
 **Acceptance Criteria:**
-- [ ] After initial analysis, show collapsed input hint instead of correction input
-- [ ] Tapping hint transitions to `FoodChat` with initial analysis
-- [ ] Tapping "Log" without entering chat logs immediately (unchanged)
-- [ ] When chat is open: hide food matches section, hide Re-analyze button
-- [ ] Post-log flow reuses existing `FoodLogConfirmation`
-- [ ] Close (X) or navigation away discards chat state silently
-- [ ] Delete `/api/refine-food/route.ts` and its tests
-- [ ] Delete `refineAnalysis()` from `claude.ts` and its tests
-- [ ] Remove old correction input, refine error display, and Re-analyze button
-- [ ] Updated food-analyzer tests reflect new flow
+- [ ] Chat trigger is a proper `<Button>` with button semantics
+- [ ] Uses secondary/outline variant (doesn't compete with "Log to Fitbit")
+- [ ] Includes a chat/message icon for visual clarity
+- [ ] Minimum 44px touch target
+- [ ] Obviously interactive at a glance on mobile
 
 ## Prerequisites
 
-- [ ] On `main` branch, clean working tree
+- [ ] On `main` branch with clean working tree
 - [ ] All existing tests pass
-- [ ] Linear MCP connected
 
 ## Implementation Tasks
 
-### Task 1: CalorieRing over-goal visual indicators
+### Task 1: Remove budget marker from CalorieRing (FOO-375)
 
-**Issue:** FOO-373
+**Issue:** FOO-375
 **Files:**
-- `src/components/__tests__/calorie-ring.test.tsx` (modify)
 - `src/components/calorie-ring.tsx` (modify)
-- `src/components/__tests__/macro-bars.test.tsx` (modify)
-- `src/components/macro-bars.tsx` (modify)
+- `src/components/__tests__/calorie-ring.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add tests to `calorie-ring.test.tsx`:
-   - Test: budget marker is NOT rendered when `calories >= goal` (e.g., `calories={2000} goal={2000} budget={500}`)
-   - Test: budget marker IS still rendered when `calories < goal` (existing behavior preserved)
-   - Test: calorie count text has `text-destructive` class when `calories > goal`
-   - Test: calorie count text does NOT have `text-destructive` when `calories <= goal`
-   - Test: calorie count text does NOT have `text-destructive` when `calories === goal` (at goal is not over)
+1. **RED** — Update tests first:
+   - Delete the entire `describe("budget marker", ...)` block (lines 106-201 in test file) — these tests verify behavior we're removing
+   - Remove any test that passes a `budget` prop to `CalorieRing`
+   - Add a test: `it("does not accept a budget prop")` — render `<CalorieRing calories={1000} goal={2000} />` and verify no `budget-marker` testid exists (this test already exists at line 113, but make it the canonical budget-free test)
    - Run: `npm test -- calorie-ring`
-   - Verify: new tests fail
+   - Verify: Tests fail because component still accepts budget prop (or some deleted tests cause issues)
 
-2. **GREEN** — Modify `calorie-ring.tsx`:
-   - Compute `const isOverGoal = goal > 0 && calories > goal`
-   - Conditionally hide the budget marker: only render when `budgetPosition !== null && !isOverGoal` (where `isOverGoal` means `calories >= goal` for the marker — hide at exactly goal too since marker is meaningless)
-   - Apply `text-destructive` to the calorie count `<span>` when `isOverGoal`
+2. **GREEN** — Remove budget from component:
+   - Remove `budget` from `CalorieRingProps` interface
+   - Remove `budgetPosition` calculation (lines 25-27)
+   - Remove the entire budget marker SVG rendering block (lines 72-98)
    - Run: `npm test -- calorie-ring`
-   - Verify: all tests pass
+   - Verify: All remaining tests pass
 
-3. **RED** — Add tests to `macro-bars.test.tsx`:
-   - Test: label text has `text-destructive` class when consumed exceeds goal (e.g., `proteinG={150} proteinGoal={100}`)
-   - Test: label text does NOT have `text-destructive` when consumed is within goal
-   - Test: label text does NOT have `text-destructive` when no goal is set
-   - Run: `npm test -- macro-bars`
-   - Verify: new tests fail
-
-4. **GREEN** — Modify `macro-bars.tsx`:
-   - Add `isOverGoal` boolean to `calculateMacroData` return value: `true` when `hasGoal && consumed > goal`
-   - Apply `text-destructive` to the label `<span>` when `isOverGoal` is true (replacing `text-muted-foreground`)
-   - Run: `npm test -- macro-bars`
-   - Verify: all tests pass
+3. **REFACTOR** — Clean up:
+   - Remove `isAtOrOverGoal` variable if it's no longer used (it was only used by the budget marker conditional)
+   - Verify `isOverGoal` is still used for the text-destructive class
 
 **Notes:**
-- The budget marker hide condition should be `calories >= goal` (at exactly 100%, marker sits at the same position as the full ring, which is confusing)
-- The text destructive condition should be `calories > goal` (strictly over, not at-goal)
-- Reference: existing calorie-ring budget marker tests at `src/components/__tests__/calorie-ring.test.tsx:106-183`
-- Reference: existing macro-bars goal tests at `src/components/__tests__/macro-bars.test.tsx:96-236`
+- The `isAtOrOverGoal` check (`calories >= goal`) is only used in the budget marker conditional render. After removal, only `isOverGoal` (`calories > goal`) remains for the over-goal text styling.
+- Reference existing pattern: the "over-goal visual indicators" tests should remain unchanged.
 
 ---
 
-### Task 2: Safe JSON parse utility for fetch calls
+### Task 2: Remove activity data fetching from DailyDashboard (FOO-375)
 
-**Issue:** FOO-369
+**Issue:** FOO-375
 **Files:**
-- `src/lib/__tests__/safe-json.test.ts` (create)
-- `src/lib/safe-json.ts` (create)
+- `src/components/daily-dashboard.tsx` (modify)
+- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Create `src/lib/__tests__/safe-json.test.ts`:
-   - Test: `safeResponseJson(response)` returns parsed JSON when response has valid JSON body
-   - Test: returns `{ success: false, error: { code: "INTERNAL_ERROR", message: "Server returned an unexpected response. Please try again." } }` when body is HTML (starts with `<!DOCTYPE` or `<html`)
-   - Test: returns the same fallback error response when `JSON.parse()` throws for any other non-JSON content
-   - Test: returns parsed JSON even when `content-type` header is missing (some proxies strip headers)
-   - Run: `npm test -- safe-json`
-   - Verify: tests fail
+1. **RED** — Update tests:
+   - Remove all mock fetch responses for `/api/activity-summary` in test fixtures
+   - Remove the budget-related test cases (any test asserting budget marker presence or budget calculation behavior)
+   - Remove the `activityError` display test cases (Fitbit permissions warning)
+   - Remove the `ActivitySummary` import from the test file
+   - Update remaining tests that mock `/api/activity-summary` in their fetch setup — remove those URL handlers from mock fetch implementations
+   - Run: `npm test -- daily-dashboard`
+   - Verify: Tests fail because component still fetches activity-summary and passes budget
 
-2. **GREEN** — Create `src/lib/safe-json.ts`:
-   - Export `async function safeResponseJson(response: Response): Promise<unknown>` — reads `response.text()`, then `JSON.parse()`, catching SyntaxError and returning the fallback error shape
-   - The fallback shape must match the `ApiErrorResponse` type from `src/types/index.ts` so callers can treat it like any other error response
-   - Run: `npm test -- safe-json`
-   - Verify: all tests pass
+2. **GREEN** — Remove activity from dashboard:
+   - Remove the `useSWR<ActivitySummary>` call for `/api/activity-summary`
+   - Remove the `ActivitySummary` import from types
+   - Remove the `budget` calculation (line 191-193)
+   - Remove `budget` prop from `<CalorieRing>` (just pass `calories` and `goal`)
+   - Remove the `activityError` display block (lines 236-245)
+   - Remove unused imports: `ActivitySummary` from `@/types`
+   - Run: `npm test -- daily-dashboard`
+   - Verify: All remaining tests pass
+
+3. **REFACTOR** — Verify no dead code remains related to activity/budget in the component.
 
 **Notes:**
-- Pattern reference: `src/lib/swr.ts` already does `.json().catch(() => ({}))` — this utility does a more robust version
-- The utility must return an object matching `ApiErrorResponse` shape so existing error handling code in `food-analyzer.tsx` (`result.error?.message`) works unchanged
+- The `activityError` block showed "Fitbit permissions need updating" — this only matters if we're fetching activity data. Since we're not, no need to display it.
+- The CalorieRing still renders with `calories` and `goal` props (from nutrition-summary and nutrition-goals). No visual regression on the ring itself.
+- Many test fixtures include `/api/activity-summary` in their mock fetch — all of these need updating.
 
 ---
 
-### Task 3: Apply safe JSON parsing to FoodAnalyzer
+### Task 3: Delete browser-facing activity-summary route and simplify types (FOO-375)
 
-**Issue:** FOO-369
+**Issue:** FOO-375
 **Files:**
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-- `src/components/food-analyzer.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test to `food-analyzer.test.tsx`:
-   - Test: when analyze-food fetch returns HTML (mock `response.json()` to throw SyntaxError or mock text body as HTML), the error shown to user is the friendly message, not raw SyntaxError
-   - Test: same for log-food fetch returning HTML
-   - Run: `npm test -- food-analyzer`
-   - Verify: new tests fail (currently shows raw SyntaxError)
-
-2. **GREEN** — Modify `food-analyzer.tsx`:
-   - Import `safeResponseJson` from `@/lib/safe-json`
-   - Replace all `await response.json()` calls with `await safeResponseJson(response)` for:
-     - `handleAnalyze` (line ~145)
-     - `handleLogToFitbit` (line ~264)
-     - `handleUseExisting` (line ~332)
-     - Auto-resubmit effect (line ~415)
-   - Do NOT change the `handleRefine` call (line ~205) — it will be deleted by FOO-372
-   - Do NOT change the `/api/find-matches` calls — they already silently ignore errors
-   - Run: `npm test -- food-analyzer`
-   - Verify: all tests pass
-
-**Notes:**
-- The auto-resubmit effect at line ~415 also uses `.then((r) => r.json())` — this should use `safeResponseJson` too
-- Reference: `src/components/food-analyzer.tsx:140-177` (handleAnalyze), `:240-298` (handleLogToFitbit), `:300-367` (handleUseExisting), `:410-431` (resubmit effect)
-
----
-
-### Task 4: ConversationMessage type and chat system prompt
-
-**Issue:** FOO-370
-**Files:**
+- `src/app/api/activity-summary/route.ts` (delete)
+- `src/app/api/activity-summary/__tests__/route.test.ts` (delete)
 - `src/types/index.ts` (modify)
-- `src/lib/claude.ts` (modify)
+- `src/lib/fitbit.ts` (modify)
+- `src/lib/__tests__/fitbit.test.ts` (modify)
+- `src/app/api/v1/activity-summary/route.ts` (no change needed — auto-inherits simplified type)
+- `src/app/api/v1/activity-summary/__tests__/route.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **Add `ConversationMessage` type** to `src/types/index.ts`:
-   - Define `ConversationMessage` interface with `role: 'user' | 'assistant'`, `content: string`, and optional `analysis?: FoodAnalysis` (the latest analysis when assistant responded with tool_use)
-   - Define `ChatFoodRequest` interface with `messages: ConversationMessage[]` and optional `images?: string[]` (base64 strings for new photos on this turn)
-   - Define `ChatFoodResponse` interface with `message: string` (assistant's text response) and optional `analysis?: FoodAnalysis` (present when Claude used report_nutrition tool)
+1. **RED** — Update types and lib tests:
+   - In `src/types/index.ts`: remove `estimatedCaloriesOut` from `ActivitySummary` interface (keep only `caloriesOut`)
+   - In `src/lib/__tests__/fitbit.test.ts`: update the `getActivitySummary` tests — assertions should no longer include `estimatedCaloriesOut` in the returned object. Remove the test case that verifies `estimatedCaloriesOut` falls back to `summary.caloriesOut` when goals is missing (line ~1376)
+   - Run: `npm test -- fitbit.test`
+   - Verify: Tests fail because `getActivitySummary` still returns `estimatedCaloriesOut`
 
-2. **Add `CHAT_SYSTEM_PROMPT`** constant to `src/lib/claude.ts`:
-   - Extends the existing `SYSTEM_PROMPT` with chat behavior rules
-   - Rules: always confirm changes with updated summary, don't repeat unchanged info, new photos add to meal, corrections override previous values, ask clarifying questions when ambiguous
-   - This is a constant — no test needed, it will be tested through the `conversationalRefine` function
+2. **GREEN** — Simplify the function:
+   - In `src/lib/fitbit.ts` `getActivitySummary`: remove `estimatedCaloriesOut` from the return object, remove the `goals` parsing logic (lines 551-554), just return `{ caloriesOut: summary.caloriesOut }`
+   - Run: `npm test -- fitbit.test`
+   - Verify: All remaining tests pass
+
+3. **Delete browser-facing route:**
+   - Delete `src/app/api/activity-summary/route.ts`
+   - Delete `src/app/api/activity-summary/__tests__/route.test.ts`
+   - Delete the `src/app/api/activity-summary/` directory
+
+4. **Update v1 route tests:**
+   - In `src/app/api/v1/activity-summary/__tests__/route.test.ts`: remove `estimatedCaloriesOut` from mock return values and assertions
+   - Run: `npm test -- v1/activity-summary`
+   - Verify: V1 route tests pass with simplified type
+
+5. **REFACTOR** — Run full test suite to catch any remaining references.
 
 **Notes:**
-- The `ConversationMessage` type is the client-side representation. The API route will convert these to Anthropic SDK message format
-- Keep types minimal — no DB persistence for chat conversations
-- Reference: `src/types/index.ts` for existing type patterns
+- The v1 route (`/api/v1/activity-summary`) still has value — it returns `caloriesOut` (actual calories burned so far today) to external API consumers.
+- Removing `estimatedCaloriesOut` from the v1 response is a breaking change for external clients, but this is a single-user app — acceptable.
+- The `getActivitySummary` function return type is `Promise<import("@/types").ActivitySummary>` — it auto-inherits the simplified interface.
 
 ---
 
-### Task 5: conversationalRefine function
+### Task 4: Replace chat hint div with CTA button (FOO-377)
 
-**Issue:** FOO-370
+**Issue:** FOO-377
 **Files:**
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/claude.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add `describe("conversationalRefine")` block to `src/lib/__tests__/claude.test.ts`:
-   - Test: accepts message history array and returns `{ message: string, analysis?: FoodAnalysis }`
-   - Test: when Claude responds with text only (no tool_use), returns `{ message: "text" }` with no analysis
-   - Test: when Claude responds with text + tool_use, returns `{ message: "text", analysis: validatedFoodAnalysis }`
-   - Test: uses `tool_choice: { type: "auto" }` (not forced)
-   - Test: uses `CHAT_SYSTEM_PROMPT` (the extended prompt)
-   - Test: uses `max_tokens: 2048`
-   - Test: images are included only when provided (first message or new photos)
-   - Test: records usage as "food-chat" operation type
-   - Test: throws CLAUDE_API_ERROR on API failure
-   - Run: `npm test -- claude`
-   - Verify: new tests fail
-
-2. **GREEN** — Add `conversationalRefine()` to `src/lib/claude.ts`:
-   - Signature: `async function conversationalRefine(messages: ConversationMessage[], images: ImageInput[], userId?: string): Promise<{ message: string; analysis?: FoodAnalysis }>`
-   - Convert `ConversationMessage[]` to Anthropic SDK messages format: each entry becomes `{ role, content: [{ type: "text", text }] }`. Images are prepended to the first user message or to any user message that includes new photos
-   - Call `getClient().messages.create()` with `tool_choice: { type: "auto" }`, `max_tokens: 2048`, `CHAT_SYSTEM_PROMPT`
-   - Parse response: extract text blocks into `message` string. If a `tool_use` block is present, validate via `validateFoodAnalysis()` and include as `analysis`
-   - Record usage as "food-chat"
-   - Run: `npm test -- claude`
-   - Verify: all tests pass
-
-**Notes:**
-- `tool_choice: "auto"` allows Claude to respond with just text (for questions/confirmations) or text + tool (when nutritional info changes)
-- The function must handle the case where Claude returns ONLY a text block (no tool_use) — this is expected for conversational responses like "Got it, anything else?"
-- Reference: `src/lib/claude.ts:226-315` (analyzeFood pattern to follow)
-- Export `CHAT_SYSTEM_PROMPT` from claude.ts only for testing purposes (test verifies it's used in the API call)
-
----
-
-### Task 6: POST /api/chat-food endpoint
-
-**Issue:** FOO-370
-**Files:**
-- `src/app/api/chat-food/__tests__/route.test.ts` (create)
-- `src/app/api/chat-food/route.ts` (create)
-
-**TDD Steps:**
-
-1. **RED** — Create `src/app/api/chat-food/__tests__/route.test.ts`:
-   - Test: returns 401 when no session
-   - Test: returns 401 when session is invalid
-   - Test: returns 429 when rate limit exceeded
-   - Test: returns 400 when messages array is missing or empty
-   - Test: returns 400 when messages contain invalid shape
-   - Test: returns success with assistant message when Claude returns text-only response
-   - Test: returns success with assistant message AND analysis when Claude returns text + tool_use
-   - Test: passes images to Claude when provided in request
-   - Test: returns 500 on Claude API error
-   - Run: `npm test -- chat-food`
-   - Verify: tests fail
-
-2. **GREEN** — Create `src/app/api/chat-food/route.ts`:
-   - Follow the same auth + rate-limit + validation pattern as `src/app/api/analyze-food/route.ts`
-   - Accept JSON body: `{ messages: ConversationMessage[], images?: base64[] }` — note this is JSON, not FormData (images are base64 strings since they're already compressed client-side)
-   - Validate messages array: non-empty, each message has role and content
-   - Call `conversationalRefine()` with the messages and any images
-   - Return `successResponse({ message, analysis })` — `ChatFoodResponse` shape
-   - Rate limit key: `chat-food:${session.userId}`
-   - Run: `npm test -- chat-food`
-   - Verify: all tests pass
-
-**Notes:**
-- This endpoint uses JSON instead of FormData because images in the chat are already compressed client-side and sent as base64 strings (they were compressed during the initial analysis and stored in React state)
-- Reference: `src/app/api/analyze-food/route.ts` for auth + rate-limit pattern
-- Reference: `src/app/api/refine-food/route.ts` for validation pattern (will be deleted later but useful reference during implementation)
-
----
-
-### Task 7: FoodChat component
-
-**Issue:** FOO-371
-**Files:**
-- `src/components/__tests__/food-chat.test.tsx` (create)
-- `src/components/food-chat.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** — Create `src/components/__tests__/food-chat.test.tsx`:
-   - Test: renders initial assistant message from the initial analysis (summary text)
-   - Test: renders text input with send button at bottom
-   - Test: renders "Log to Fitbit" button always visible
-   - Test: renders close (X) button
-   - Test: renders MealTypeSelector
-   - Test: typing and sending a message calls `POST /api/chat-food` with message history
-   - Test: assistant response is displayed in message list
-   - Test: when assistant response includes analysis, that analysis is used by Log button
-   - Test: clicking Log to Fitbit calls `/api/log-food` with the latest analysis
-   - Test: clicking close (X) calls onClose callback
-   - Test: shows loading indicator while waiting for chat response
-   - Test: shows error message on chat API failure (using safe JSON parse)
-   - Test: send button is disabled when input is empty or while loading
-   - Mock `PhotoCapture`, `MealTypeSelector`, `FoodLogConfirmation` as in food-analyzer tests
-   - Run: `npm test -- food-chat`
-   - Verify: tests fail
-
-2. **GREEN** — Create `src/components/food-chat.tsx`:
-   - Props interface: `{ initialAnalysis: FoodAnalysis, compressedImages: Blob[], onClose: () => void, onLogged: (response: FoodLogResponse) => void }`
-   - State: `messages: ConversationMessage[]` (initialized with assistant message summarizing initial analysis), `input: string`, `loading: boolean`, `error: string | null`, `mealTypeId: number`
-   - The latest `analysis` is extracted from messages: find the last message that has an `analysis` field, falling back to `initialAnalysis`
-   - `handleSend`: append user message to state, call `POST /api/chat-food` with full message history (and images on first turn or when new photos added), append assistant response
-   - `handleLog`: call `POST /api/log-food` with the latest analysis (same pattern as `handleLogToFitbit` in food-analyzer)
-   - Layout: scrollable message list (top), input bar with camera button and send button (bottom), pinned Log + MealTypeSelector area
-   - Mobile-first: full-width, touch targets 44px
-   - Use `safeResponseJson` from `@/lib/safe-json` for all fetch calls
-   - Run: `npm test -- food-chat`
-   - Verify: all tests pass
-
-3. **REFACTOR** — Extract initial assistant message generation:
-   - The initial assistant message text should summarize the food analysis in a natural way (e.g., "I analyzed your food as Empanada de carne (320 cal). Anything you'd like to correct?")
-   - This can be a simple template string — no need for a separate function
-
-**Notes:**
-- `PhotoCapture` is reused for the inline camera button in the input bar — import the existing component but configure it for inline use (photo picker only, not full capture flow)
-- Message list should auto-scroll to bottom on new messages
-- Reference: `src/components/food-analyzer.tsx` for the logging flow pattern (optimistic UI, pending submission, etc.)
-- Reference: `src/components/meal-type-selector.tsx` for the MealTypeSelector usage pattern
-- The `onLogged` callback lets the parent component (`FoodAnalyzer`) handle the post-log confirmation flow
-
----
-
-### Task 8: Wire FoodChat into FoodAnalyzer
-
-**Issue:** FOO-372
-**Files:**
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
 - `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update tests in `food-analyzer.test.tsx`:
-   - Remove/update tests that reference the correction input, refine error display, and Re-analyze button
-   - Add test: after analysis, a chat input hint is shown ("Add details or correct something...")
-   - Add test: tapping the hint renders `FoodChat` component
-   - Add test: tapping "Log to Fitbit" without entering chat logs immediately (existing quick-log path unchanged)
-   - Add test: when FoodChat is open, food matches section is hidden
-   - Add test: when FoodChat's onClose is called, returns to the post-analysis view
-   - Add test: when FoodChat's onLogged is called, shows `FoodLogConfirmation`
-   - Add mock for `FoodChat` component (same pattern as other component mocks)
-   - Run: `npm test -- food-analyzer`
-   - Verify: updated tests fail
+1. **RED** — Write test for CTA button:
+   - Add test: after analysis completes, a button with text containing "Refine" (or similar) should be rendered
+   - Assert the element is a `<button>` (proper semantics), not a `<div>`
+   - Assert the old "Add details or correct something..." text no longer appears
+   - Run: `npm test -- food-analyzer.test`
+   - Verify: Test fails because the div still exists
 
-2. **GREEN** — Modify `food-analyzer.tsx`:
-   - Add `chatOpen: boolean` state
-   - Remove `correction`, `refining`, `refineError` state and `handleRefine` function
-   - Replace the correction input + Re-analyze button section with: a tappable hint row ("Add details or correct something...") that sets `chatOpen = true`
-   - When `chatOpen === true`: render `<FoodChat>` passing `initialAnalysis`, `compressedImages`, `onClose` (sets `chatOpen = false`), `onLogged` (sets `logResponse` to show confirmation)
-   - When `chatOpen === true`: hide the food matches section, the hint row, and the Log/MealTypeSelector area (FoodChat has its own Log button)
-   - When `chatOpen === false`: show the hint row, Log button, MealTypeSelector, and food matches as before
-   - Run: `npm test -- food-analyzer`
-   - Verify: all tests pass
+2. **GREEN** — Replace the div:
+   - In `src/components/food-analyzer.tsx` lines 502-510: replace the `<div>` chat hint with a `<Button>` component
+   - Use `variant="outline"` so it doesn't compete with the primary "Log to Fitbit" button
+   - Add a `MessageSquare` icon from lucide-react for visual clarity
+   - Button text: "Refine with chat" or similar
+   - Keep `onClick={() => setChatOpen(true)}` behavior
+   - Ensure `min-h-[44px]` for touch target
+   - Import `MessageSquare` from `lucide-react`
+   - Run: `npm test -- food-analyzer.test`
+   - Verify: Tests pass
+
+3. **REFACTOR** — Ensure the button layout flows well with the existing "Log to Fitbit" button below it. Consider `w-full` for consistency.
 
 **Notes:**
-- The FoodChat component handles its own logging flow internally and calls `onLogged(response)` when done — the parent just needs to switch to the confirmation view
-- The `compressedImages` are already stored in state from the initial analysis — pass them to FoodChat for the first chat turn
-- Reference: `src/components/food-analyzer.tsx:534-631` for the current post-analysis controls section being replaced
+- The `MessageSquare` icon from lucide-react is already available in the project (lucide-react is a dependency).
+- Pattern reference: the "Log to Fitbit" button at line 543 uses `className="w-full min-h-[44px]"` — follow the same pattern.
+- The CTA button should be visually distinct but secondary to the primary action (logging).
 
 ---
 
-### Task 9: Delete old refinement code
+### Task 5: Restructure FoodChat as full-screen view (FOO-376)
 
-**Issue:** FOO-372
+**Issue:** FOO-376
 **Files:**
-- `src/app/api/refine-food/route.ts` (delete)
-- `src/app/api/refine-food/__tests__/route.test.ts` (delete)
-- `src/lib/claude.ts` (modify — remove `refineAnalysis`)
-- `src/lib/__tests__/claude.test.ts` (modify — remove `refineAnalysis` tests)
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
 
-**Steps:**
+**TDD Steps:**
 
-1. Delete `src/app/api/refine-food/route.ts`
-2. Delete `src/app/api/refine-food/__tests__/route.test.ts`
-3. Remove `refineAnalysis()` function and its export from `src/lib/claude.ts`
-4. Remove the entire `describe("refineAnalysis")` block from `src/lib/__tests__/claude.test.ts`
-5. Remove any remaining imports of `refineAnalysis` across the codebase (grep to confirm)
-6. Run: `npm test`
-7. Verify: all tests pass, no unused imports
+1. **RED** — Update tests for new layout:
+   - Update tests that assert `max-h-[80vh]` or inline layout — the chat should now fill its container
+   - Add test: header renders a back button (via `onClose`) with an `ArrowLeft` icon instead of `X`
+   - Add test: "Log to Fitbit" button and meal type selector are rendered in the bottom pinned area
+   - Add test: input bar with text input and send button exists in bottom area
+   - Run: `npm test -- food-chat`
+   - Verify: Tests fail
+
+2. **GREEN** — Redesign the component layout:
+   - Remove `max-h-[80vh]` constraint — use `h-full` or `min-h-screen` or `flex flex-col` that fills its parent
+   - Header: replace `X` close icon with `ArrowLeft` icon, keep "Chat about your food" title
+   - Messages area: `flex-1 overflow-y-auto` to fill available space
+   - Bottom pinned area (reorder):
+     - First row: text input + send button (camera icon optional)
+     - Second row: meal type selector
+     - Third row: "Log to Fitbit" button (full width)
+   - Run: `npm test -- food-chat`
+   - Verify: Tests pass
+
+3. **REFACTOR** — Clean up:
+   - Remove any vestigial inline-chat styling
+   - Ensure the component is clean and uses Tailwind classes for full-viewport behavior
+   - Import `ArrowLeft` from lucide-react (replace `X` import)
 
 **Notes:**
-- `analyzeFood()` in claude.ts remains unchanged (forced tool_use for initial analysis)
-- The `SYSTEM_PROMPT` constant remains (used by `analyzeFood`); `CHAT_SYSTEM_PROMPT` is the new one for chat
-- After deletion, confirm no other files reference `/api/refine-food` or `refineAnalysis`
+- The parent container (FoodAnalyzer) will be responsible for giving FoodChat full viewport space — see Task 6.
+- The `onClose` callback returns the user to the analysis view — behavior is the same, just the icon changes from X to back arrow.
+- The current PhotoCapture in the input bar has a placeholder `onPhotosChange` callback — keep as-is, it's future functionality.
+- The bottom controls should use `border-t` for visual separation and `p-4 space-y-3` for spacing (matching current pattern).
 
 ---
 
-### Task 10: Integration & Verification
+### Task 6: Wire full-screen chat into FoodAnalyzer (FOO-376)
 
-**Issues:** FOO-369, FOO-370, FOO-371, FOO-372, FOO-373
+**Issue:** FOO-376
+**Files:**
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write test for full-screen behavior:
+   - Add test: when chatOpen is true, the FoodAnalyzer renders ONLY the FoodChat component (PhotoCapture, DescriptionInput, AnalysisResult, and post-analysis controls are NOT in the DOM)
+   - Add test: when chatOpen is false (after analysis), the normal analyzer UI is shown
+   - Run: `npm test -- food-analyzer.test`
+   - Verify: Tests fail because currently FoodChat is rendered alongside analysis content
+
+2. **GREEN** — Restructure conditional rendering:
+   - Currently: when `chatOpen && analysis`, FoodChat is rendered inside the `space-y-6` div alongside analysis result (line 491-553)
+   - New behavior: when `chatOpen && analysis`, return ONLY `<FoodChat>` at the top level (early return, similar to the `logResponse` and `resubmitting` early returns)
+   - Move the `chatOpen` check BEFORE the main return, after the `logResponse` check (around line 403-416)
+   - Give FoodChat a container that fills the available space (the parent page provides the viewport)
+   - Run: `npm test -- food-analyzer.test`
+   - Verify: Tests pass
+
+3. **REFACTOR** — Clean up:
+   - The food matches section already has `!chatOpen` guard (line 476) — this can be simplified/removed since when chatOpen is true, we early-return before reaching it
+   - Ensure the FoodChat container has appropriate height classes for full-screen feel
+
+**Notes:**
+- The early-return pattern is already used for `resubmitting` (line 391-400) and `logResponse` (line 403-416). Follow the same pattern.
+- When returning from chat (onClose), the analysis state is preserved — the user sees their analysis result again with the CTA button and log controls.
+- The `compressedImages` state is already maintained across the chat toggle.
+
+---
+
+### Task 7: Integration & Verification
+
+**Issue:** FOO-375, FOO-376, FOO-377
 **Files:** Various files from previous tasks
 
 **Steps:**
@@ -434,231 +296,42 @@ Implement conversational food analysis refinement (multi-turn chat replacing sin
 1. Run full test suite: `npm test`
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
-4. Run build: `npm run build`
-5. Verify zero warnings
-6. Grep for dead references:
-   - `refineAnalysis` should not appear anywhere except git history
-   - `/api/refine-food` should not appear anywhere except git history
-   - `handleRefine` should not appear in food-analyzer.tsx
-7. Manual verification checklist:
-   - [ ] CalorieRing shows red text when over goal
-   - [ ] CalorieRing hides budget marker when at/over goal
-   - [ ] MacroBars shows red labels when macro exceeds goal
-   - [ ] HTML error page from proxy shows friendly error message
-   - [ ] Initial analysis flow works unchanged (photo → analyze → result)
-   - [ ] Quick log (tap Log without chatting) works unchanged
-   - [ ] Chat input hint appears after analysis
-   - [ ] Tapping hint opens FoodChat
-   - [ ] Sending a message shows assistant response
-   - [ ] Assistant can respond with just text (question/confirmation)
-   - [ ] Assistant can respond with updated analysis
-   - [ ] Log button in chat uses the latest analysis
-   - [ ] Close button discards chat and returns to analysis view
-   - [ ] New photos can be added mid-chat
-
-## MCP Usage During Implementation
-
-| MCP Server | Tool | Purpose |
-|------------|------|---------|
-| Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
+4. Build check: `npm run build`
+5. Verify zero warnings in all of the above
+6. Manual verification checklist:
+   - [ ] CalorieRing renders without any budget marker
+   - [ ] Dashboard loads without fetching activity-summary
+   - [ ] After analysis, a proper "Refine with chat" button appears (not a muted div)
+   - [ ] Clicking the button opens full-screen chat (replaces the analyzer view)
+   - [ ] Back button in chat returns to analysis view
+   - [ ] Chat messages scroll properly in full-screen layout
+   - [ ] "Log to Fitbit" button works from both the analysis view and the chat view
+   - [ ] Meal type selector works in both views
 
 ## Error Handling
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| Server returns HTML error page | User sees "Server returned an unexpected response. Please try again." | Unit test (safe-json) + component test |
-| Claude returns text-only (no tool_use) | Chat shows assistant message, no analysis update | Unit test (conversationalRefine) + route test |
-| Claude API failure during chat | Chat shows error message, user can retry | Unit test + route test |
-| Network failure during chat | Chat shows friendly error via safe-json | Component test |
-| Rate limit exceeded on chat | 429 response shown as error | Route test |
+| CalorieRing rendered without goal | Graceful zero display | Existing unit test |
+| Chat API returns error | Error displayed in chat message area | Existing unit test |
+| FoodChat onClose called | Returns to analysis view with state preserved | New unit test (Task 6) |
+| Log from chat fails | Error shown in chat bottom area | Existing unit test |
 
 ## Risks & Open Questions
 
-- [ ] FoodChat input bar with camera button — the existing `PhotoCapture` component is designed as a standalone capture flow, not an inline picker. May need to extract a simpler photo picker or use a separate button that opens the system file picker directly. The implementer should assess whether `PhotoCapture` can be configured for inline use or if a minimal wrapper is needed.
-- [ ] Chat message history size — with many turns, the Anthropic API payload could grow large. Consider capping at ~20 messages or implementing a sliding window. This can be deferred to a follow-up issue if not a problem in practice.
+- [ ] The v1 activity-summary API response changes (removes `estimatedCaloriesOut`) — this is a breaking change for external consumers. Acceptable for a single-user app.
+- [ ] Full-screen chat on desktop may look stretched — but this is a mobile-first app, so desktop is secondary.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Safe JSON parse utility
-- Multi-turn chat API endpoint
-- FoodChat component with send, log, close, and camera
-- Wiring FoodChat into FoodAnalyzer
-- Deleting old single-shot refinement code
-- CalorieRing + MacroBars over-goal visual indicators
+- Remove budget marker and all related activity data fetching
+- Replace chat trigger div with proper CTA button
+- Restructure chat as full-screen view replacing analyzer
+- Update all affected tests
 
 **Out of Scope:**
-- Chat message persistence (all ephemeral — explicitly stated in FOO-371)
-- Meal splitting / Claude suggesting multiple food entries (ROADMAP.md feature, not in these issues)
-- Contextual memory / querying past food logs (ROADMAP.md feature, not in these issues)
-- Editing previously logged food entries via chat (ROADMAP.md feature, not in these issues)
-- Service worker / offline support
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-13
-**Method:** Agent team (4 workers)
-
-### Tasks Completed This Iteration
-- Task 1: CalorieRing over-goal visual indicators (worker-1) — FOO-373
-- Task 2: Safe JSON parse utility for fetch calls (worker-3) — FOO-369
-- Task 3: Apply safe JSON parsing to FoodAnalyzer (worker-3) — FOO-369
-- Task 4: ConversationMessage type and chat system prompt (worker-2) — FOO-370
-- Task 5: conversationalRefine function (worker-2) — FOO-370
-- Task 6: POST /api/chat-food endpoint (worker-2) — FOO-370
-- Task 7: FoodChat component (worker-4) — FOO-371
-- Task 8: Wire FoodChat into FoodAnalyzer (worker-3) — FOO-372
-- Task 9: Delete old refinement code (worker-2) — FOO-372
-- Task 10: Integration & Verification (lead) — all issues
-
-### Files Modified
-- `src/components/calorie-ring.tsx` — Budget marker hidden when at/over goal, text-destructive when over
-- `src/components/__tests__/calorie-ring.test.tsx` — Added over-goal tests
-- `src/components/macro-bars.tsx` — Labels turn text-destructive when macro exceeds goal
-- `src/components/__tests__/macro-bars.test.tsx` — Added over-goal tests
-- `src/lib/safe-json.ts` — Created safe JSON parse utility
-- `src/lib/__tests__/safe-json.test.ts` — Created tests for safe-json
-- `src/components/food-analyzer.tsx` — Replaced correction UI with FoodChat wiring, safe JSON parsing
-- `src/components/__tests__/food-analyzer.test.tsx` — Updated for chat flow, safe JSON mocks
-- `src/components/__tests__/food-analyzer-reconnect.test.tsx` — Updated mocks for safe JSON
-- `src/components/__tests__/food-analyzer-reprompt.test.tsx` — Deleted (old correction UI)
-- `src/types/index.ts` — Added ConversationMessage, ChatFoodResponse types
-- `src/lib/claude.ts` — Added conversationalRefine(), CHAT_SYSTEM_PROMPT; deleted refineAnalysis()
-- `src/lib/__tests__/claude.test.ts` — Added conversationalRefine tests; deleted refineAnalysis tests
-- `src/app/api/chat-food/route.ts` — Created chat endpoint with auth, rate limiting, validation
-- `src/app/api/chat-food/__tests__/route.test.ts` — Created chat endpoint tests
-- `src/components/food-chat.tsx` — Created FoodChat component
-- `src/components/__tests__/food-chat.test.tsx` — Created FoodChat tests
-- `src/app/api/refine-food/route.ts` — Deleted
-- `src/app/api/refine-food/__tests__/route.test.ts` — Deleted
-
-### Linear Updates
-- FOO-369: Todo → In Progress → Review
-- FOO-370: Todo → In Progress → Review
-- FOO-371: Todo → In Progress → Review
-- FOO-372: Todo → In Progress → Review
-- FOO-373: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 7 bugs (2 HIGH, 3 MEDIUM, 2 LOW), 4 critical bugs fixed before proceeding
-- verifier: All 1594 tests pass, zero TS errors, zero lint warnings, clean build
-
-### Work Partition
-- Worker 1: Task 1 (calorie-ring, macro-bars files)
-- Worker 2: Tasks 4, 5, 6, 9 (types, claude.ts, chat-food API, refine-food deletion)
-- Worker 3: Tasks 2, 3, 8 (safe-json, food-analyzer files)
-- Worker 4: Task 7 (food-chat component)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Summary: 4 issue(s) found (Team: security, reliability, quality reviewers)
-- HIGH: 2
-- MEDIUM: 2 (documented only)
-
-**Issues requiring fix:**
-- [HIGH] SECURITY: Missing input array size limits in `/api/chat-food` (`src/app/api/chat-food/route.ts:37-78`) — messages and images arrays have no maximum size, enabling memory exhaustion or excessive API costs via a single malicious request
-- [HIGH] SECURITY: Missing base64 image validation in `/api/chat-food` (`src/app/api/chat-food/route.ts:68-77`) — images accepted without validating base64 format, decoded size (MAX_IMAGE_SIZE), or total payload size
-
-**Documented (no fix needed):**
-- [MEDIUM] SECURITY: Missing message content length validation (`src/app/api/chat-food/route.ts:55-57`) — no per-message character limit; mitigated by auth (single-user app) + rate limiting + Claude API token limits
-- [MEDIUM] CONVENTION: Dead state variable `logging` in food-analyzer (`src/components/food-analyzer.tsx:42`) — `useState(false)` with no setter, always false, referenced in multiple conditions with no effect; component uses `logResponse` for optimistic UI instead
-
-### Linear Updates
-- FOO-369: Review → Merge
-- FOO-370: Review → Merge
-- FOO-371: Review → Merge
-- FOO-372: Review → Merge
-- FOO-373: Review → Merge
-- FOO-374: Created in Todo (Fix: input validation limits on chat-food endpoint)
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-374](https://linear.app/lw-claude/issue/FOO-374/add-input-validation-limits-to-post-apichat-food-endpoint)
-
-### Fix 1: Add input validation limits to POST /api/chat-food endpoint
-**Linear Issue:** [FOO-374](https://linear.app/lw-claude/issue/FOO-374/add-input-validation-limits-to-post-apichat-food-endpoint)
-
-1. Add tests to `src/app/api/chat-food/__tests__/route.test.ts`:
-   - Test: returns 400 when messages array exceeds max size (e.g., 20 messages)
-   - Test: returns 400 when images array exceeds MAX_IMAGES (9)
-   - Test: returns 400 when base64 image string is not valid base64
-   - Test: returns 400 when decoded image exceeds MAX_IMAGE_SIZE (10MB)
-2. Modify `src/app/api/chat-food/route.ts`:
-   - Import `MAX_IMAGES`, `MAX_IMAGE_SIZE` from `@/lib/image-validation`
-   - Add `MAX_MESSAGES = 20` constant
-   - Validate `messages.length <= MAX_MESSAGES`
-   - Validate `images.length <= MAX_IMAGES` (when images provided)
-   - Validate each image string is valid base64 format
-   - Validate decoded image size <= MAX_IMAGE_SIZE
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-02-13
-**Method:** Single-agent (worker unresponsive, lead implemented directly)
-
-### Tasks Completed This Iteration
-- Fix 1: Add input validation limits to POST /api/chat-food endpoint (FOO-374)
-
-### Files Modified
-- `src/app/api/chat-food/route.ts` — Added MAX_MESSAGES (20), MAX_IMAGES, MAX_IMAGE_SIZE imports; messages array length validation; images count validation; base64 format validation; decoded image size validation
-- `src/app/api/chat-food/__tests__/route.test.ts` — Added 6 tests: max messages exceeded, max images exceeded, invalid base64, oversized image, boundary tests for exactly MAX_MESSAGES and MAX_IMAGES
-
-### Linear Updates
-- FOO-374: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 1 HIGH (regex empty match — fixed), 2 MEDIUM (documented only)
-- verifier: All 1598 tests pass, zero TS errors, zero lint warnings, clean build
-
-### Continuation Status
-All fix plan tasks completed.
-
-### Review Findings
-
-Summary: 0 issues requiring fix (Team: security, reliability, quality reviewers)
-- HIGH: 0
-- MEDIUM: 3 (documented only)
-
-**Documented (no fix needed):**
-- [MEDIUM] SECURITY: Hardcoded mimeType "image/jpeg" for all chat images (`src/app/api/chat-food/route.ts:96`) — client-side image compression pipeline already outputs JPEG; low risk since images are pre-processed before reaching this endpoint
-- [MEDIUM] EDGE CASE: Base64 validation regex allows non-multiple-of-4 length strings (`src/app/api/chat-food/route.ts:83`) — regex `/^[A-Za-z0-9+/]+={0,2}$/` accepts strings like "A" or "AB" that aren't valid base64 length; downstream decoding would fail gracefully, and the primary purpose is blocking obviously malicious input
-- [MEDIUM] TIMEOUT: No explicit timeout on conversationalRefine() Claude API call (`src/app/api/chat-food/route.ts:110-114`) — applies to all Claude API calls in codebase (analyzeFood, etc.); mitigated by Claude SDK default timeouts and Next.js platform-level request timeouts
-
-**Note:** Security reviewer also flagged missing per-message content length validation — this was already documented in Iteration 1 review as MEDIUM (mitigated by auth + rate limiting + Claude API token limits). Not re-documented.
-
-### Linear Updates
-- FOO-374: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | SECURITY | `src/app/api/chat-food/route.ts:55-57` | Missing per-message content length validation | Mitigated by auth (single-user app) + rate limiting + Claude API token limits |
-| MEDIUM | CONVENTION | `src/components/food-analyzer.tsx:42` | Dead state variable `logging` — useState(false) with no setter | Component uses `logResponse` for optimistic UI instead; no runtime impact |
-| MEDIUM | SECURITY | `src/app/api/chat-food/route.ts:96` | Hardcoded mimeType "image/jpeg" for all chat images | Client-side compression pipeline already outputs JPEG |
-| MEDIUM | EDGE CASE | `src/app/api/chat-food/route.ts:83` | Base64 regex allows non-multiple-of-4 length strings | Downstream decoding fails gracefully; primary purpose is blocking malicious input |
-| MEDIUM | TIMEOUT | `src/app/api/chat-food/route.ts:110-114` | No explicit timeout on conversationalRefine() Claude API call | Mitigated by Claude SDK defaults and Next.js platform-level timeouts |
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Adding new camera functionality in chat (PhotoCapture in chat is a placeholder)
+- Chat message persistence across sessions
+- Any changes to the chat API (`/api/chat-food`)
+- Any changes to the food analysis API
