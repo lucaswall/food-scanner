@@ -88,7 +88,7 @@ export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
                 stroke="currentColor"
                 strokeWidth={2}
                 strokeLinecap="round"
-                className="text-amber-500"
+                className="text-warning"
               />
             );
           })()}

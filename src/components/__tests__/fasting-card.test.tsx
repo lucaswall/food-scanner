@@ -37,7 +37,7 @@ describe("FastingCard", () => {
     expect(skeleton).toBeInTheDocument();
   });
 
-  it("shows no data message when window is null", () => {
+  it("shows actionable message when window is null", () => {
     const response: FastingResponse = {
       window: null,
       live: null,
@@ -51,7 +51,7 @@ describe("FastingCard", () => {
 
     render(<FastingCard date="2026-02-12" />);
 
-    expect(screen.getByText("No data")).toBeInTheDocument();
+    expect(screen.getByText(/log.*meal.*start tracking/i)).toBeInTheDocument();
   });
 
   it("displays completed fasting window with duration and time range", () => {

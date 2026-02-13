@@ -94,7 +94,7 @@ describe("WeeklyNutritionChart", () => {
     expect(goalMarkers.length).toBeGreaterThan(0);
   });
 
-  it("applies green color when under goal", () => {
+  it("applies success color when under goal", () => {
     const underGoalDays: DailyNutritionTotals[] = [
       {
         date: "2026-02-08",
@@ -114,10 +114,10 @@ describe("WeeklyNutritionChart", () => {
     render(<WeeklyNutritionChart days={underGoalDays} weekStart="2026-02-08" />);
 
     const bar = screen.getByTestId("day-bar-2026-02-08");
-    expect(bar.className).toMatch(/bg-green/);
+    expect(bar.className).toMatch(/bg-success/);
   });
 
-  it("applies amber color when over goal", () => {
+  it("applies warning color when over goal", () => {
     const overGoalDays: DailyNutritionTotals[] = [
       {
         date: "2026-02-08",
@@ -137,7 +137,7 @@ describe("WeeklyNutritionChart", () => {
     render(<WeeklyNutritionChart days={overGoalDays} weekStart="2026-02-08" />);
 
     const bar = screen.getByTestId("day-bar-2026-02-08");
-    expect(bar.className).toMatch(/bg-amber/);
+    expect(bar.className).toMatch(/bg-warning/);
   });
 
   it("applies primary color when no goal is set", () => {
@@ -375,7 +375,7 @@ describe("WeeklyNutritionChart", () => {
   });
 
   // Task 6: Net surplus/deficit summary tests
-  it("shows negative value with 'under' label in green when net is under target", () => {
+  it("shows negative value with 'under' label in success color when net is under target", () => {
     const underTargetDays: DailyNutritionTotals[] = [
       {
         date: "2026-02-08",
@@ -410,10 +410,10 @@ describe("WeeklyNutritionChart", () => {
     // Net: -300 kcal under
     const netSummary = screen.getByTestId("net-surplus-deficit");
     expect(netSummary).toHaveTextContent("-300 kcal under");
-    expect(netSummary.className).toMatch(/text-green/);
+    expect(netSummary.className).toMatch(/text-success/);
   });
 
-  it("shows positive value with 'over' label in amber when net is over target", () => {
+  it("shows positive value with 'over' label in warning color when net is over target", () => {
     const overTargetDays: DailyNutritionTotals[] = [
       {
         date: "2026-02-08",
@@ -448,10 +448,10 @@ describe("WeeklyNutritionChart", () => {
     // Net: +500 kcal over
     const netSummary = screen.getByTestId("net-surplus-deficit");
     expect(netSummary).toHaveTextContent("+500 kcal over");
-    expect(netSummary.className).toMatch(/text-amber/);
+    expect(netSummary.className).toMatch(/text-warning/);
   });
 
-  it("shows 'On target' in green when exactly on target", () => {
+  it("shows 'On target' in success color when exactly on target", () => {
     const onTargetDays: DailyNutritionTotals[] = [
       {
         date: "2026-02-08",
@@ -486,7 +486,7 @@ describe("WeeklyNutritionChart", () => {
     // Net: 0 (balanced)
     const netSummary = screen.getByTestId("net-surplus-deficit");
     expect(netSummary).toHaveTextContent("On target");
-    expect(netSummary.className).toMatch(/text-green/);
+    expect(netSummary.className).toMatch(/text-success/);
   });
 
   it("uses 'kcal' unit for calories and 'g' unit for protein/carbs/fat", () => {
@@ -616,5 +616,42 @@ describe("WeeklyNutritionChart", () => {
     fireEvent.click(screen.getByTestId("metric-protein"));
     netSummary = screen.getByTestId("net-surplus-deficit");
     expect(netSummary).toHaveTextContent("+10 g over");
+  });
+
+  // Task 7: Goal overflow test
+  it("scales chart to include goal markers when goal exceeds actual values", () => {
+    // Create data where goal significantly exceeds actual values
+    const highGoalDays: DailyNutritionTotals[] = [
+      {
+        date: "2026-02-08",
+        calories: 500, // actual is much lower than goal
+        proteinG: 50,
+        carbsG: 60,
+        fatG: 20,
+        fiberG: 10,
+        sodiumMg: 1000,
+        calorieGoal: 2000, // goal is 4x the actual value
+        proteinGoalG: 150,
+        carbsGoalG: 200,
+        fatGoalG: 70,
+      },
+    ];
+
+    render(<WeeklyNutritionChart days={highGoalDays} weekStart="2026-02-08" />);
+
+    // The goal marker should be rendered and positioned correctly
+    const goalMarker = screen.getByTestId("goal-marker-2026-02-08");
+    expect(goalMarker).toBeInTheDocument();
+
+    // Extract the bottom style value
+    const bottomStyle = goalMarker.style.bottom;
+    expect(bottomStyle).toBeDefined();
+
+    // Parse percentage value (e.g., "80%" -> 80)
+    const bottomPercent = parseFloat(bottomStyle);
+
+    // Goal marker should be within the visible chart range (0-100%)
+    expect(bottomPercent).toBeGreaterThanOrEqual(0);
+    expect(bottomPercent).toBeLessThanOrEqual(100);
   });
 });

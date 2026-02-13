@@ -131,14 +131,14 @@ export function SettingsContent() {
               <p>
                 Fitbit:{" "}
                 {session.fitbitConnected && !session.hasFitbitCredentials ? (
-                  <span className="text-amber-600 dark:text-amber-400">
+                  <span className="text-warning">
                     Connected (credentials missing)
                   </span>
                 ) : (
                   <span
                     className={
                       session.fitbitConnected
-                        ? "text-green-600 dark:text-green-400"
+                        ? "text-success"
                         : "text-destructive"
                     }
                   >
@@ -183,10 +183,11 @@ export function SettingsContent() {
           {credentials?.hasCredentials && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Client ID</label>
+                <label htmlFor="fitbit-client-id" className="text-sm font-medium">Client ID</label>
                 {editingClientId ? (
                   <div className="flex gap-2">
                     <Input
+                      id="fitbit-client-id"
                       value={clientIdValue}
                       onChange={(e) => setClientIdValue(e.target.value)}
                       className="min-h-[44px]"
@@ -228,10 +229,11 @@ export function SettingsContent() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Client Secret</label>
+                <label htmlFor="fitbit-client-secret" className="text-sm font-medium">Client Secret</label>
                 {replacingSecret ? (
                   <div className="flex gap-2">
                     <Input
+                      id="fitbit-client-secret"
                       type="password"
                       value={secretValue}
                       onChange={(e) => setSecretValue(e.target.value)}
@@ -289,7 +291,6 @@ export function SettingsContent() {
               size="sm"
               className="flex-1 min-h-[44px]"
               onClick={() => setTheme("light")}
-              aria-label="Light"
             >
               <Sun className="mr-2 h-4 w-4" />
               Light
@@ -299,7 +300,6 @@ export function SettingsContent() {
               size="sm"
               className="flex-1 min-h-[44px]"
               onClick={() => setTheme("dark")}
-              aria-label="Dark"
             >
               <Moon className="mr-2 h-4 w-4" />
               Dark
@@ -309,7 +309,6 @@ export function SettingsContent() {
               size="sm"
               className="flex-1 min-h-[44px]"
               onClick={() => setTheme("system")}
-              aria-label="System"
             >
               <Monitor className="mr-2 h-4 w-4" />
               System

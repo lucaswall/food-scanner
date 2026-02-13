@@ -1,5 +1,7 @@
 "use client";
 
+import { Label } from "@/components/ui/label";
+
 const MAX_LENGTH = 500;
 const PLACEHOLDER = "e.g., 250g pollo asado con chimichurri";
 
@@ -17,14 +19,15 @@ export function DescriptionInput({ value, onChange, disabled = false }: Descript
 
   return (
     <div className="space-y-1">
+      <Label htmlFor="food-description">Food description (optional)</Label>
       <textarea
+        id="food-description"
         value={value}
         onChange={handleChange}
         placeholder={PLACEHOLDER}
         maxLength={MAX_LENGTH}
         rows={3}
         disabled={disabled}
-        aria-label="Food description"
         className="w-full px-3 py-2 text-sm border rounded-md border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       />
       <p className="text-xs text-muted-foreground text-right">

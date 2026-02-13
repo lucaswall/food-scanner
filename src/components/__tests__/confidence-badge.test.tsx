@@ -27,23 +27,23 @@ describe("ConfidenceBadge", () => {
     expect(screen.getByTestId("confidence-icon-alert")).toBeInTheDocument();
   });
 
-  it("renders AlertTriangle with red color for low confidence", () => {
+  it("renders AlertTriangle with destructive color for low confidence", () => {
     render(<ConfidenceBadge confidence="low" />);
     const icon = screen.getByTestId("confidence-icon-alert");
     expect(icon).toBeInTheDocument();
-    expect(icon).toHaveClass("text-red-500");
+    expect(icon).toHaveClass("text-destructive");
   });
 
-  it("renders AlertTriangle with yellow color for medium confidence", () => {
+  it("renders AlertTriangle with warning color for medium confidence", () => {
     render(<ConfidenceBadge confidence="medium" />);
     const icon = screen.getByTestId("confidence-icon-alert");
-    expect(icon).toHaveClass("text-yellow-500");
+    expect(icon).toHaveClass("text-warning");
   });
 
   it("shows confidence indicator dot with correct color", () => {
     render(<ConfidenceBadge confidence="high" />);
     const indicator = screen.getByTestId("confidence-indicator");
-    expect(indicator).toHaveClass("bg-green-500");
+    expect(indicator).toHaveClass("bg-success");
   });
 
   it("shows confidence text label", () => {

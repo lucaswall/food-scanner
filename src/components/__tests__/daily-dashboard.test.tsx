@@ -437,12 +437,12 @@ describe("DailyDashboard", () => {
       // "Update Lumen goals" button should be visible
       expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
 
-      // "No food logged" text SHOULD be present when meals array is empty
-      expect(screen.getByText(/no food logged/i)).toBeInTheDocument();
+      // Actionable message SHOULD be present when meals array is empty
+      expect(screen.getByText(/log.*first meal.*daily nutrition/i)).toBeInTheDocument();
     });
   });
 
-  it("empty state includes no food logged message", async () => {
+  it("empty state includes actionable message", async () => {
     const emptySummary = {
       date: "2026-02-10",
       totals: {
@@ -481,7 +481,7 @@ describe("DailyDashboard", () => {
       expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
       expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
       // Empty state message should also be present
-      expect(screen.getByText(/no food logged/i)).toBeInTheDocument();
+      expect(screen.getByText(/log.*first meal.*daily nutrition/i)).toBeInTheDocument();
     });
   });
 
@@ -1305,7 +1305,7 @@ describe("DailyDashboard", () => {
     expect(nextButton).toBeDisabled();
   });
 
-  it("shows 'No food logged' empty state when nutrition summary returns no meals", async () => {
+  it("shows actionable message empty state when nutrition summary returns no meals", async () => {
     const emptySummaryForDate = {
       date: "2026-02-09",
       totals: {
@@ -1348,7 +1348,7 @@ describe("DailyDashboard", () => {
     renderDailyDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/no food logged/i)).toBeInTheDocument();
+      expect(screen.getByText(/log.*first meal.*daily nutrition/i)).toBeInTheDocument();
     });
   });
 

@@ -40,7 +40,7 @@ export function FoodLogConfirmation({
     >
       <CheckCircle
         data-testid="success-icon"
-        className="w-16 h-16 text-green-500"
+        className="w-16 h-16 text-success"
         aria-hidden="true"
       />
 

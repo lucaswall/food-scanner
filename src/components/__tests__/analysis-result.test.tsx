@@ -55,11 +55,11 @@ describe("AnalysisResult", () => {
     expect(screen.getByText(/320/)).toBeInTheDocument();
 
     // Check macros - use more specific patterns to avoid ambiguity
-    expect(screen.getByText("12g")).toBeInTheDocument(); // protein
-    expect(screen.getByText("28g")).toBeInTheDocument(); // carbs
-    expect(screen.getByText("18g")).toBeInTheDocument(); // fat
-    expect(screen.getByText("2g")).toBeInTheDocument(); // fiber
-    expect(screen.getByText("450mg")).toBeInTheDocument(); // sodium
+    expect(screen.getByText("12 g")).toBeInTheDocument(); // protein
+    expect(screen.getByText("28 g")).toBeInTheDocument(); // carbs
+    expect(screen.getByText("18 g")).toBeInTheDocument(); // fat
+    expect(screen.getByText("2 g")).toBeInTheDocument(); // fiber
+    expect(screen.getByText("450 mg")).toBeInTheDocument(); // sodium
   });
 
   it("displays cup unit correctly", () => {
@@ -102,10 +102,10 @@ describe("AnalysisResult", () => {
     );
 
     const confidenceElement = screen.getByTestId("confidence-indicator");
-    expect(confidenceElement).toHaveClass("bg-green-500");
+    expect(confidenceElement).toHaveClass("bg-success");
   });
 
-  it("shows confidence indicator with correct color - medium (yellow)", () => {
+  it("shows confidence indicator with correct color - medium (warning)", () => {
     const onRetry = vi.fn();
     render(
       <AnalysisResult
@@ -117,10 +117,10 @@ describe("AnalysisResult", () => {
     );
 
     const confidenceElement = screen.getByTestId("confidence-indicator");
-    expect(confidenceElement).toHaveClass("bg-yellow-500");
+    expect(confidenceElement).toHaveClass("bg-warning");
   });
 
-  it("shows confidence indicator with correct color - low (red)", () => {
+  it("shows confidence indicator with correct color - low (destructive)", () => {
     const onRetry = vi.fn();
     render(
       <AnalysisResult
@@ -132,7 +132,7 @@ describe("AnalysisResult", () => {
     );
 
     const confidenceElement = screen.getByTestId("confidence-indicator");
-    expect(confidenceElement).toHaveClass("bg-red-500");
+    expect(confidenceElement).toHaveClass("bg-destructive");
   });
 
   it("food name heading should be an h2", () => {
