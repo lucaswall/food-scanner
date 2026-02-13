@@ -1,7 +1,7 @@
 ---
 name: push-to-production
 description: Promote main to release with production DB backup and migration handling. Use when user says "push to production", "release", "deploy to production", or "promote to release". Backs up production DB, assesses MIGRATIONS.md, writes migration code if needed, and merges main to release.
-allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Task
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Task, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__update_issue
 argument-hint: [version]
 disable-model-invocation: true
 ---
@@ -10,7 +10,11 @@ Promote `main` to `release` with automated backup, migration assessment, and mer
 
 ## Phase 1: Pre-flight Checks
 
-### 1.1 Git State
+### 1.1 Verify Linear MCP
+
+Call `mcp__linear__list_teams`. If unavailable, **STOP** and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
+
+### 1.2 Git State
 
 ```bash
 git branch --show-current
@@ -24,7 +28,7 @@ git status --porcelain
 
 If any check fails, **STOP** and tell the user what to fix.
 
-### 1.2 Docker (OrbStack)
+### 1.3 Docker (OrbStack)
 
 Ensure OrbStack and Docker are available for migration validation:
 
@@ -44,7 +48,7 @@ docker compose ps
 
 If the `db` service is not running, start it: `docker compose up -d`
 
-### 1.3 Verify Drizzle Migration Internals
+### 1.4 Verify Drizzle Migration Internals
 
 Only needed if MIGRATIONS.md has entries (checked in Phase 2, but verify early to fail fast). Read the Drizzle migrator source from the exact version in `node_modules` and confirm our assumptions about the journal table still hold:
 
@@ -62,7 +66,7 @@ All four must match. If any fails, **STOP**: "Drizzle migration internals have c
 
 This verification is safe because we deploy the same `node_modules` — the code we check here is the code that will run in production.
 
-### 1.4 Build & Tests
+### 1.5 Build & Tests
 
 Run the `verifier` agent to confirm build and tests pass:
 
@@ -72,7 +76,7 @@ Use Task tool with subagent_type "verifier"
 
 If verifier reports failures, **STOP**. Do not proceed with a broken build.
 
-### 1.5 Release Branch Exists
+### 1.6 Release Branch Exists
 
 ```bash
 git rev-parse --verify origin/release
@@ -80,7 +84,7 @@ git rev-parse --verify origin/release
 
 If `release` branch doesn't exist, **STOP** and tell the user to create it.
 
-### 1.6 Diff Assessment
+### 1.7 Diff Assessment
 
 Check what's changing between `release` and `main`:
 
@@ -180,7 +184,7 @@ Create a migration file at `_migrations/release-YYYYMMDD.sql` with:
 
 **PRIVACY RULE: Never hardcode user data in migration SQL.** The migration file lives in gitignored `_migrations/`, but always write data-agnostic SQL that derives values from existing database content (e.g., `SELECT DISTINCT email FROM sessions`) rather than hardcoding emails, names, or other personal data. This makes the migration work for any data state and avoids accidental leaks.
 
-**Drizzle journal compatibility.** Drizzle decides which migrations to run by checking the `created_at` of the **most recent** row in `"drizzle"."__drizzle_migrations"` and running all migrations with a `when` timestamp (from `drizzle/meta/_journal.json`) greater than that value. The manual script must insert journal rows so Drizzle skips the covered migrations at deploy startup. These internals are verified in Phase 1.3 against the exact `node_modules` code that will run in production.
+**Drizzle journal compatibility.** Drizzle decides which migrations to run by checking the `created_at` of the **most recent** row in `"drizzle"."__drizzle_migrations"` and running all migrations with a `when` timestamp (from `drizzle/meta/_journal.json`) greater than that value. The manual script must insert journal rows so Drizzle skips the covered migrations at deploy startup. These internals are verified in Phase 1.4 against the exact `node_modules` code that will run in production.
 
 **Journal table details:**
 - Schema-qualified: `"drizzle"."__drizzle_migrations"` (NOT `public`)
@@ -343,7 +347,7 @@ Log potential production data migrations here during development. These notes ar
    - Validate it's valid semver (X.Y.Z)
    - Validate it's strictly higher than current version
    - If invalid, **STOP**: "Invalid version. Must be higher than current [current]."
-3. If no argument, **deduce the bump from the commits being promoted** (from Phase 1.6):
+3. If no argument, **deduce the bump from the commits being promoted** (from Phase 1.7):
    - **MAJOR** (`x+1.0.0`): Incompatible/breaking changes — removed or renamed API routes, changed API response shapes, DB schema changes that break existing clients, removed features
    - **MINOR** (`x.y+1.0`): Backward-compatible new functionality — new screens, new API endpoints, new features, significant UI additions
    - **PATCH** (`x.y.z+1`): Backward-compatible bug fixes — bug fixes, UI tweaks, refactoring, performance improvements, documentation, dependency updates
@@ -356,7 +360,7 @@ See [references/changelog-guidelines.md](references/changelog-guidelines.md) for
 
 **Process:**
 
-1. Review the commit list from Phase 1.6
+1. Review the commit list from Phase 1.7
 2. Filter out purely internal changes (they get zero entries)
 3. Move any items from the `## [Unreleased]` section into the new version entry
 4. Write a `## [version] - YYYY-MM-DD` entry, grouping changes under these section headers (omit empty sections):
