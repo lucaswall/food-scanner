@@ -600,3 +600,27 @@ Summary: 4 issue(s) found (Team: security, reliability, quality reviewers)
    - Validate `images.length <= MAX_IMAGES` (when images provided)
    - Validate each image string is valid base64 format
    - Validate decoded image size <= MAX_IMAGE_SIZE
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-13
+**Method:** Single-agent (worker unresponsive, lead implemented directly)
+
+### Tasks Completed This Iteration
+- Fix 1: Add input validation limits to POST /api/chat-food endpoint (FOO-374)
+
+### Files Modified
+- `src/app/api/chat-food/route.ts` — Added MAX_MESSAGES (20), MAX_IMAGES, MAX_IMAGE_SIZE imports; messages array length validation; images count validation; base64 format validation; decoded image size validation
+- `src/app/api/chat-food/__tests__/route.test.ts` — Added 6 tests: max messages exceeded, max images exceeded, invalid base64, oversized image, boundary tests for exactly MAX_MESSAGES and MAX_IMAGES
+
+### Linear Updates
+- FOO-374: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 HIGH (regex empty match — fixed), 2 MEDIUM (documented only)
+- verifier: All 1598 tests pass, zero TS errors, zero lint warnings, clean build
+
+### Continuation Status
+All fix plan tasks completed.

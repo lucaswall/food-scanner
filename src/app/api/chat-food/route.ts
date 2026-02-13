@@ -3,9 +3,11 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { conversationalRefine } from "@/lib/claude";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { MAX_IMAGES, MAX_IMAGE_SIZE } from "@/lib/image-validation";
 import type { ConversationMessage } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
+const MAX_MESSAGES = 20;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function POST(request: Request) {
@@ -42,6 +44,10 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", "messages array cannot be empty", 400);
   }
 
+  if (data.messages.length > MAX_MESSAGES) {
+    return errorResponse("VALIDATION_ERROR", `messages array exceeds maximum of ${MAX_MESSAGES}`, 400);
+  }
+
   // Validate each message has required fields
   for (let i = 0; i < data.messages.length; i++) {
     const msg = data.messages[i];
@@ -65,9 +71,23 @@ export async function POST(request: Request) {
     if (!Array.isArray(data.images)) {
       return errorResponse("VALIDATION_ERROR", "images must be an array", 400);
     }
+    if (data.images.length > MAX_IMAGES) {
+      return errorResponse("VALIDATION_ERROR", `images array exceeds maximum of ${MAX_IMAGES}`, 400);
+    }
     for (let i = 0; i < data.images.length; i++) {
       if (typeof data.images[i] !== "string") {
         return errorResponse("VALIDATION_ERROR", `images[${i}] must be a base64 string`, 400);
+      }
+      const imageStr = data.images[i] as string;
+      // Validate base64 format (only valid base64 characters, non-empty)
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(imageStr)) {
+        return errorResponse("VALIDATION_ERROR", `images[${i}] is not valid base64`, 400);
+      }
+      // Validate decoded size does not exceed MAX_IMAGE_SIZE
+      const decodedSize = Math.floor((imageStr.length * 3) / 4) -
+        (imageStr.endsWith("==") ? 2 : imageStr.endsWith("=") ? 1 : 0);
+      if (decodedSize > MAX_IMAGE_SIZE) {
+        return errorResponse("VALIDATION_ERROR", `images[${i}] exceeds maximum size of 10MB`, 400);
       }
     }
     // Convert base64 strings to ImageInput format

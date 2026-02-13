@@ -299,4 +299,74 @@ describe("POST /api/chat-food", () => {
       expect.any(Number)
     );
   });
+
+  it("returns 400 when messages array exceeds max size (20 messages)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    // Create 21 messages (exceeds limit)
+    const messages = Array.from({ length: 21 }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: `Message ${i}`,
+    }));
+
+    const request = createMockRequest({ messages });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("20");
+  });
+
+  it("returns 400 when images array exceeds MAX_IMAGES (9)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    // Create 10 images (exceeds limit of 9)
+    const images = Array.from({ length: 10 }, () => "validbase64data");
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test" }],
+      images,
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("9");
+  });
+
+  it("returns 400 when image string is not valid base64", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test" }],
+      images: ["invalid base64 with spaces and @#$%"],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("base64");
+  });
+
+  it("returns 400 when decoded image exceeds MAX_IMAGE_SIZE (10MB)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    // Create a base64 string that decodes to >10MB
+    // 10MB * 1.34 (base64 overhead) ≈ 13.4MB base64
+    const largeBase64 = "A".repeat(14 * 1024 * 1024); // 14MB of 'A' characters
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test" }],
+      images: [largeBase64],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("10MB");
+  });
 });
