@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Branch:** feat/FOO-360-bugfixes-and-improvements
 **Issues:** FOO-360, FOO-363, FOO-366, FOO-367, FOO-368
 **Created:** 2026-02-13
@@ -381,3 +381,41 @@ A batch of bugfixes, a security hardening, a convention fix, and one improvement
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Files reviewed: 19
+Reviewers: security, reliability, quality (agent team)
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+
+**Documented (no fix needed):**
+- [MEDIUM] ASYNC: `src/app/api/auth/google/callback/route.ts:77-92` — DB operations (getOrCreateUser, createSession, getFitbitTokens, hasFitbitCredentials) outside try/catch. Pre-existing pattern not introduced by this iteration. Next.js framework catches unhandled errors. User can re-initiate OAuth on failure.
+- [MEDIUM] ASYNC: `src/app/api/auth/fitbit/callback/route.ts:69-74` — upsertFitbitTokens outside try/catch. Pre-existing pattern. Framework-level error handling provides safety net.
+- [LOW] SECURITY: `src/app/api/auth/google/callback/route.ts:23` — IP-based rate limiting via x-forwarded-for could be spoofed behind untrusted proxies. Railway sets trusted proxy headers, mitigating this in production.
+
+### Linear Updates
+- FOO-360: Review → Merge
+- FOO-363: Review → Merge
+- FOO-366: Review → Merge
+- FOO-367: Review → Merge
+- FOO-368: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Skipped Findings Summary
+
+Findings documented but not fixed across all review iterations:
+
+| Severity | Category | File | Finding | Rationale |
+|----------|----------|------|---------|-----------|
+| MEDIUM | ASYNC | `src/app/api/auth/google/callback/route.ts:77-92` | DB operations outside try/catch | Pre-existing pattern; Next.js catches unhandled errors |
+| MEDIUM | ASYNC | `src/app/api/auth/fitbit/callback/route.ts:69-74` | upsertFitbitTokens outside try/catch | Pre-existing pattern; framework safety net |
+| LOW | SECURITY | `src/app/api/auth/google/callback/route.ts:23` | IP rate limiting spoofable behind untrusted proxies | Railway sets trusted proxy headers |
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
