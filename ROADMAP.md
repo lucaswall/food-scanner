@@ -7,6 +7,7 @@
 | [Conversational Analysis](#conversational-analysis) | Multi-turn chat to refine food analysis before logging |
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Contextual Memory from Food History](#contextual-memory) | Claude queries past food logs during chat |
+| [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
 
 ---
@@ -189,6 +190,88 @@ Claude can query the user's food log database during the chat to give contextual
 2. `get_daily_totals` Claude tool (nutrition sums for a date)
 3. Prompt engineering for contextual responses
 4. Pattern detection ("you've had this X times this week")
+
+---
+
+## Conversational Food Editing
+
+### Problem
+
+Once a food entry is logged, the only way to fix it is to delete and re-scan from scratch. Users frequently need small adjustments after the fact: "I actually only ate half", "we split this between three people", "I forgot I added an extra potato". These corrections are natural to express in conversation but impossible in the current UI.
+
+### Prerequisites
+
+[Conversational Analysis](#conversational-analysis) — editing reuses the same multi-turn chat infrastructure.
+
+### Goal
+
+Let users open a chat on any logged food entry to conversationally edit it. Claude understands the original entry, processes corrections, and replaces the Fitbit log + local DB entry with the updated version.
+
+### Design
+
+#### Entry Points
+
+- **Today screen:** Each food entry card gets an "Edit" action (e.g., tap → action sheet or swipe).
+- **History screen:** Same "Edit" action on any past entry.
+- Both open the same chat view, pre-loaded with the entry's context.
+
+#### Chat Flow
+
+1. **Context message:** Claude's first message summarizes the existing entry conversationally: *"This is your lunch from today — Milanesa con puré (520 cal, 28g protein). What would you like to change?"*
+2. **User describes corrections** in natural language:
+   - Portion adjustments: *"I only ate half"* → Claude halves all nutrition values.
+   - Sharing: *"We were three people"* → Claude divides by three.
+   - Additions: *"I also had a side of fries"* → Claude adds to the entry or suggests splitting.
+   - Replacements: *"It was quinoa, not rice"* → Claude recalculates.
+   - Removals: *"I didn't eat the bread"* → Claude subtracts.
+3. **Claude confirms** each change with an updated summary: *"Got it — updated to half portion: Milanesa con puré (260 cal, 14g protein). Save?"*
+4. **Save button** (pinned, always visible) replaces the old entry. **Cancel** discards changes.
+5. **Post-save:** Returns to the screen the user came from. No "log another" flow.
+
+#### Chat Behavior Rules
+
+1. **Always show the delta** — after any change, Claude mentions what changed and the new totals.
+2. **Cumulative corrections** — multiple messages accumulate: "half portion" then "add fries" results in half the original plus fries.
+3. **No new photos** — editing is text-only. For a completely different meal, delete and re-scan.
+4. **Respect the original analysis context** — Claude sees the original food name, nutrition, notes, and description to make informed adjustments.
+
+#### UI Details
+
+- **Chat view:** Same layout as the conversational analysis chat (assistant left, user right).
+- **Save button:** Pinned at bottom, labeled "Save Changes". Disabled until Claude has produced at least one updated analysis.
+- **Cancel button:** Top-left X. No confirmation dialog — changes aren't saved until explicitly saved.
+- **Entry context header:** Shows the food name and date at the top of the chat for orientation.
+
+### Architecture
+
+- **Edit API route:** New `POST /api/edit-food` endpoint. Accepts the `foodLogEntryId`, conversation history, and the final updated `FoodAnalysis`. Orchestrates the replace operation:
+  1. Delete the old Fitbit food log via `deleteFoodLog(fitbitLogId)`.
+  2. Create a new `custom_food` row with the updated nutrition (never mutate the existing one — see below).
+  3. Create a new Fitbit food via `findOrCreateFood()` and log it via `logFood()`.
+  4. Update the `food_log_entry` row to point to the new `custom_food` and new `fitbitLogId`.
+  5. Orphan-clean the old `custom_food` if no other entries reference it.
+- **Custom food immutability:** A `custom_food` may be referenced by multiple `food_log_entries` (reuse/quick-select). Editing an entry must **never mutate** a shared custom food — always create a new one. After relinking the entry, delete the old custom food only if its reference count drops to zero. This preserves historical accuracy for all other entries.
+- **Claude integration:** New function `editAnalysis(originalEntry, conversationHistory, userId)` in `src/lib/claude.ts`. Uses the same `report_nutrition` tool as `analyzeFood()` but with a system prompt tailored for editing: Claude receives the original nutrition data and applies corrections.
+- **Conversation state:** Ephemeral, client-side only (same pattern as conversational analysis). No DB persistence of the chat.
+- **Fitbit replace strategy:** Delete-then-log (not update-in-place). Fitbit's food log API doesn't support editing nutrition on logged entries — the only path is delete + re-log. The entry keeps its original `date` and `mealTypeId`.
+- **Compensation:** If the new Fitbit log succeeds but the DB update fails, delete the new Fitbit log to rollback. If the old Fitbit log deletion succeeds but creating the new one fails, re-log the original entry to restore it.
+
+### Edge Cases
+
+- Entry has no `fitbitLogId` (dry-run or Fitbit was down) → skip Fitbit delete/re-log, only update the local DB.
+- User makes no actual changes and taps Save → no-op, return to previous screen.
+- Original custom food has `fitbitFoodId` but the new one needs a different food → creates a new Fitbit food; the old Fitbit food persists (Fitbit foods are global and may be referenced elsewhere).
+- User tries to edit an entry from weeks ago → allowed. Date stays the same; Fitbit log is replaced at the original date.
+- Multiple edits to the same entry in sequence → each edit creates a new custom food and orphan-cleans the previous one if unreferenced.
+
+### Implementation Order
+
+1. `editAnalysis()` function in `src/lib/claude.ts` (multi-turn editing with original entry context)
+2. `POST /api/edit-food` endpoint (delete old + create new Fitbit log + custom food immutability + orphan cleanup)
+3. Edit chat view component (reuses conversational analysis chat UI)
+4. Entry point UI on Today screen (edit action on food cards)
+5. Entry point UI on History screen (edit action on past entries)
+6. Compensation/rollback logic for partial failures
 
 ---
 
