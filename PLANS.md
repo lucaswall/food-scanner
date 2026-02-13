@@ -335,3 +335,54 @@ Three improvements: (1) Remove the broken budget marker from the calorie ring si
 - Chat message persistence across sessions
 - Any changes to the chat API (`/api/chat-food`)
 - Any changes to the food analysis API
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-13
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Remove budget marker from CalorieRing (FOO-375) — removed budget prop, budgetPosition calc, isAtOrOverGoal variable, budget marker SVG rendering (worker-1)
+- Task 2: Remove activity data fetching from DailyDashboard (FOO-375) — removed ActivitySummary import, useSWR activity call, budget calculation, activityError display (worker-1)
+- Task 3: Delete browser-facing activity-summary route and simplify types (FOO-375) — removed estimatedCaloriesOut from type, simplified getActivitySummary, deleted browser route (worker-2)
+- Task 4: Replace chat hint div with CTA button (FOO-377) — replaced div with Button variant="outline" + MessageSquare icon (worker-3)
+- Task 5: Restructure FoodChat as full-screen view (FOO-376) — removed max-h constraint, replaced X with ArrowLeft back button, reordered bottom controls (worker-4)
+- Task 6: Wire full-screen chat into FoodAnalyzer (FOO-376) — early return pattern for full-screen chat, removed nested chatOpen ternary (worker-3)
+
+### Files Modified
+- `src/components/calorie-ring.tsx` — Removed budget prop, budgetPosition, isAtOrOverGoal, budget marker SVG
+- `src/components/__tests__/calorie-ring.test.tsx` — Deleted budget marker describe block, added canonical no-budget test
+- `src/components/daily-dashboard.tsx` — Removed activity SWR hook, budget calculation, activityError block, unused isToday import
+- `src/components/__tests__/daily-dashboard.test.tsx` — Removed budget/activity tests, cleaned up activity-summary mock handlers
+- `src/types/index.ts` — Removed estimatedCaloriesOut from ActivitySummary interface
+- `src/lib/fitbit.ts` — Simplified getActivitySummary to return only caloriesOut
+- `src/lib/__tests__/fitbit.test.ts` — Updated getActivitySummary tests, removed fallback test case
+- `src/app/api/v1/activity-summary/__tests__/route.test.ts` — Updated mocks to exclude estimatedCaloriesOut
+- `src/components/food-analyzer.tsx` — Added MessageSquare import, replaced chat hint div with Button, added full-screen chat early return with height wrapper
+- `src/components/__tests__/food-analyzer.test.tsx` — Updated tests for button CTA, added full-screen behavior tests
+- `src/components/food-chat.tsx` — Removed max-h-[80vh], replaced X with ArrowLeft, reordered bottom controls
+- `src/components/__tests__/food-chat.test.tsx` — Updated tests for back button
+
+### Files Deleted
+- `src/app/api/activity-summary/route.ts` — Browser-facing route (no remaining consumers)
+- `src/app/api/activity-summary/__tests__/route.test.ts` — Tests for deleted route
+
+### Linear Updates
+- FOO-375: Todo → In Progress → Review
+- FOO-376: Todo → In Progress → Review
+- FOO-377: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 critical (height containment), 2 medium (pre-existing PhotoCapture no-op, testid convention) — critical fixed
+- verifier: All 1,571 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1, 2 (calorie-ring, daily-dashboard files)
+- Worker 2: Task 3 (types, fitbit lib, activity-summary routes)
+- Worker 3: Tasks 4, 6 (food-analyzer files)
+- Worker 4: Task 5 (food-chat files)
+
+### Continuation Status
+All tasks completed.

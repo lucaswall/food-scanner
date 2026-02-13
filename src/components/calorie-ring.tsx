@@ -1,10 +1,9 @@
 interface CalorieRingProps {
   calories: number;
   goal: number;
-  budget?: number;
 }
 
-export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
+export function CalorieRing({ calories, goal }: CalorieRingProps) {
   // SVG circle parameters
   const size = 128;
   const strokeWidth = 8;
@@ -19,12 +18,6 @@ export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
 
   // Over-goal indicators
   const isOverGoal = goal > 0 && calories > goal;
-  const isAtOrOverGoal = goal > 0 && calories >= goal;
-
-  // Calculate budget marker position: shows total ceiling (consumed + remaining) as fraction of goal
-  const budgetPosition = budget != null && goal > 0
-    ? Math.max(0, Math.min(1, (calories + budget) / goal))
-    : null;
 
   // Format numbers with commas
   const formatNumber = (num: number): string => {
@@ -67,35 +60,6 @@ export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
             strokeLinecap="round"
             className="text-primary transition-all duration-300"
           />
-
-          {/* Budget marker */}
-          {budgetPosition !== null && !isAtOrOverGoal && (() => {
-            // Calculate angle in radians (0 = SVG 3 o'clock, CSS rotation handles 12 o'clock start)
-            const angle = budgetPosition * 2 * Math.PI;
-            const markerLength = 6;
-            const innerRadius = radius - strokeWidth / 2 - markerLength;
-            const outerRadius = radius - strokeWidth / 2 + markerLength;
-
-            // Calculate start and end points of the marker line
-            const x1 = size / 2 + innerRadius * Math.cos(angle);
-            const y1 = size / 2 + innerRadius * Math.sin(angle);
-            const x2 = size / 2 + outerRadius * Math.cos(angle);
-            const y2 = size / 2 + outerRadius * Math.sin(angle);
-
-            return (
-              <line
-                data-testid="budget-marker"
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                className="text-warning"
-              />
-            );
-          })()}
         </svg>
 
         {/* Center text */}

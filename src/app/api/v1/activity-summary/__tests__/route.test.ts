@@ -36,7 +36,6 @@ describe("GET /api/v1/activity-summary", () => {
 
     const mockActivity: ActivitySummary = {
       caloriesOut: 2500,
-      estimatedCaloriesOut: 2450,
     };
 
     mockGetActivitySummary.mockResolvedValue(mockActivity);
@@ -169,7 +168,6 @@ describe("GET /api/v1/activity-summary", () => {
     mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
     mockGetActivitySummary.mockResolvedValue({
       caloriesOut: 2500,
-      estimatedCaloriesOut: 2450,
     });
 
     const request = createRequest(
