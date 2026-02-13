@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { FoodAnalysis } from "@/types";
+import type { FoodAnalysis, ConversationMessage } from "@/types";
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { recordUsage } from "@/lib/claude-usage";
@@ -22,6 +22,17 @@ Analyze food images and descriptions to provide accurate nutritional information
 Consider typical Argentine portions and preparation methods.
 Choose the most natural measurement unit for each food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).
 Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calories_from_fat) when possible. Use null only when truly unknown.`;
+
+export const CHAT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+You are having a conversational interaction with the user about their meal. Follow these rules:
+- When the user provides corrections or additional information, always confirm the changes with an updated summary of the meal
+- Don't repeat information that hasn't changed — only mention what was updated
+- When new photos are provided, they add to the existing meal unless the user explicitly says otherwise
+- Corrections from the user override previous values
+- If the user's intent is ambiguous, ask clarifying questions before updating the analysis
+- Be concise and conversational in your responses
+- Use the report_nutrition tool only when you have complete nutritional information to report or update`;
 
 const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
@@ -314,84 +325,85 @@ export async function analyzeFood(
   }
 }
 
-export async function refineAnalysis(
+export async function conversationalRefine(
+  messages: ConversationMessage[],
   images: ImageInput[],
-  previousAnalysis: FoodAnalysis,
-  correction: string,
   userId?: string
-): Promise<FoodAnalysis> {
+): Promise<{ message: string; analysis?: FoodAnalysis }> {
   try {
     logger.info(
-      { imageCount: images.length, hasCorrection: !!correction },
-      "calling Claude API for food analysis refinement"
+      { messageCount: messages.length, imageCount: images.length },
+      "calling Claude API for conversational refinement"
     );
 
-    const refinementText = `I previously analyzed this food and got the following result:
+    // Convert ConversationMessage[] to Anthropic SDK message format
+    const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg, index) => {
+      const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
 
-Food: ${previousAnalysis.food_name}
-Amount: ${previousAnalysis.amount} (unit_id: ${previousAnalysis.unit_id})
-Calories: ${previousAnalysis.calories}
-Protein: ${previousAnalysis.protein_g}g, Carbs: ${previousAnalysis.carbs_g}g, Fat: ${previousAnalysis.fat_g}g, Fiber: ${previousAnalysis.fiber_g}g, Sodium: ${previousAnalysis.sodium_mg}mg
-Confidence: ${previousAnalysis.confidence}
-Notes: ${previousAnalysis.notes}
-Description: ${previousAnalysis.description}
+      // Add images to the first user message
+      if (msg.role === "user" && index === 0 && images.length > 0) {
+        content.push(
+          ...images.map((img) => ({
+            type: "image" as const,
+            source: {
+              type: "base64" as const,
+              media_type: img.mimeType as
+                | "image/jpeg"
+                | "image/png"
+                | "image/gif"
+                | "image/webp",
+              data: img.base64,
+            },
+          }))
+        );
+      }
 
-The user has provided this correction: "${correction}"
+      // Add the text content
+      content.push({
+        type: "text" as const,
+        text: msg.content,
+      });
 
-Please re-analyze the food considering this correction and provide updated nutritional information.`;
+      return {
+        role: msg.role,
+        content,
+      };
+    });
 
     const response = await getClient().messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
-      system: SYSTEM_PROMPT,
+      max_tokens: 2048,
+      system: CHAT_SYSTEM_PROMPT,
       tools: [REPORT_NUTRITION_TOOL],
-      tool_choice: { type: "tool", name: "report_nutrition" },
-      messages: [
-        {
-          role: "user",
-          content: [
-            ...images.map((img) => ({
-              type: "image" as const,
-              source: {
-                type: "base64" as const,
-                media_type: img.mimeType as
-                  | "image/jpeg"
-                  | "image/png"
-                  | "image/gif"
-                  | "image/webp",
-                data: img.base64,
-              },
-            })),
-            {
-              type: "text" as const,
-              text: refinementText,
-            },
-          ],
-        },
-      ],
+      tool_choice: { type: "auto" },
+      messages: anthropicMessages,
     });
 
+    // Extract text blocks into message string
+    const textBlocks = response.content.filter(
+      (block) => block.type === "text"
+    ) as Anthropic.TextBlock[];
+    const message = textBlocks.map((block) => block.text).join("\n");
+
+    // Check for tool_use block
     const toolUseBlock = response.content.find(
       (block) => block.type === "tool_use"
     );
 
-    if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
-      logger.error(
-        { contentTypes: response.content.map((b) => b.type) },
-        "no tool_use block in Claude refinement response"
+    let analysis: FoodAnalysis | undefined;
+    if (toolUseBlock && toolUseBlock.type === "tool_use") {
+      analysis = validateFoodAnalysis(toolUseBlock.input);
+      logger.info(
+        { foodName: analysis.food_name, confidence: analysis.confidence },
+        "conversational refinement with analysis completed"
       );
-      throw new ClaudeApiError("No tool_use block in response");
+    } else {
+      logger.info("conversational refinement completed (text only)");
     }
-
-    const analysis = validateFoodAnalysis(toolUseBlock.input);
-    logger.info(
-      { foodName: analysis.food_name, confidence: analysis.confidence },
-      "food analysis refinement completed"
-    );
 
     // Record usage (fire-and-forget)
     if (userId) {
-      recordUsage(userId, response.model, "food-refinement", {
+      recordUsage(userId, response.model, "food-chat", {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
         cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
@@ -404,7 +416,7 @@ Please re-analyze the food considering this correction and provide updated nutri
       });
     }
 
-    return analysis;
+    return { message, analysis };
   } catch (error) {
     if (error instanceof ClaudeApiError) {
       throw error;
@@ -412,7 +424,7 @@ Please re-analyze the food considering this correction and provide updated nutri
 
     logger.error(
       { error: error instanceof Error ? error.message : String(error) },
-      "Claude API refinement error"
+      "Claude API conversational refinement error"
     );
     throw new ClaudeApiError(
       `API request failed: ${error instanceof Error ? error.message : String(error)}`

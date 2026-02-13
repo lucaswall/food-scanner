@@ -493,3 +493,63 @@ Implement conversational food analysis refinement (multi-turn chat replacing sin
 - Contextual memory / querying past food logs (ROADMAP.md feature, not in these issues)
 - Editing previously logged food entries via chat (ROADMAP.md feature, not in these issues)
 - Service worker / offline support
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-13
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: CalorieRing over-goal visual indicators (worker-1) — FOO-373
+- Task 2: Safe JSON parse utility for fetch calls (worker-3) — FOO-369
+- Task 3: Apply safe JSON parsing to FoodAnalyzer (worker-3) — FOO-369
+- Task 4: ConversationMessage type and chat system prompt (worker-2) — FOO-370
+- Task 5: conversationalRefine function (worker-2) — FOO-370
+- Task 6: POST /api/chat-food endpoint (worker-2) — FOO-370
+- Task 7: FoodChat component (worker-4) — FOO-371
+- Task 8: Wire FoodChat into FoodAnalyzer (worker-3) — FOO-372
+- Task 9: Delete old refinement code (worker-2) — FOO-372
+- Task 10: Integration & Verification (lead) — all issues
+
+### Files Modified
+- `src/components/calorie-ring.tsx` — Budget marker hidden when at/over goal, text-destructive when over
+- `src/components/__tests__/calorie-ring.test.tsx` — Added over-goal tests
+- `src/components/macro-bars.tsx` — Labels turn text-destructive when macro exceeds goal
+- `src/components/__tests__/macro-bars.test.tsx` — Added over-goal tests
+- `src/lib/safe-json.ts` — Created safe JSON parse utility
+- `src/lib/__tests__/safe-json.test.ts` — Created tests for safe-json
+- `src/components/food-analyzer.tsx` — Replaced correction UI with FoodChat wiring, safe JSON parsing
+- `src/components/__tests__/food-analyzer.test.tsx` — Updated for chat flow, safe JSON mocks
+- `src/components/__tests__/food-analyzer-reconnect.test.tsx` — Updated mocks for safe JSON
+- `src/components/__tests__/food-analyzer-reprompt.test.tsx` — Deleted (old correction UI)
+- `src/types/index.ts` — Added ConversationMessage, ChatFoodResponse types
+- `src/lib/claude.ts` — Added conversationalRefine(), CHAT_SYSTEM_PROMPT; deleted refineAnalysis()
+- `src/lib/__tests__/claude.test.ts` — Added conversationalRefine tests; deleted refineAnalysis tests
+- `src/app/api/chat-food/route.ts` — Created chat endpoint with auth, rate limiting, validation
+- `src/app/api/chat-food/__tests__/route.test.ts` — Created chat endpoint tests
+- `src/components/food-chat.tsx` — Created FoodChat component
+- `src/components/__tests__/food-chat.test.tsx` — Created FoodChat tests
+- `src/app/api/refine-food/route.ts` — Deleted
+- `src/app/api/refine-food/__tests__/route.test.ts` — Deleted
+
+### Linear Updates
+- FOO-369: Todo → In Progress → Review
+- FOO-370: Todo → In Progress → Review
+- FOO-371: Todo → In Progress → Review
+- FOO-372: Todo → In Progress → Review
+- FOO-373: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 7 bugs (2 HIGH, 3 MEDIUM, 2 LOW), 4 critical bugs fixed before proceeding
+- verifier: All 1594 tests pass, zero TS errors, zero lint warnings, clean build
+
+### Work Partition
+- Worker 1: Task 1 (calorie-ring, macro-bars files)
+- Worker 2: Tasks 4, 5, 6, 9 (types, claude.ts, chat-food API, refine-food deletion)
+- Worker 3: Tasks 2, 3, 8 (safe-json, food-analyzer files)
+- Worker 4: Task 7 (food-chat component)
+
+### Continuation Status
+All tasks completed.

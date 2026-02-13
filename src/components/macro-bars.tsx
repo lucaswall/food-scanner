@@ -28,7 +28,7 @@ export function MacroBars({
     consumed: number,
     goal: number | undefined,
     relativeTotalPercent: number
-  ): { percent: number; label: string } => {
+  ): { percent: number; label: string; isOverGoal: boolean } => {
     // Check if goal is provided and valid (> 0)
     const hasGoal = goal !== undefined && goal > 0;
 
@@ -36,10 +36,11 @@ export function MacroBars({
       // Goal-based calculation: min(consumed / goal, 1) * 100, capped at 100%
       const percent = Math.min((consumed / goal) * 100, 100);
       const label = `${consumed} / ${goal}g`;
-      return { percent, label };
+      const isOverGoal = consumed > goal;
+      return { percent, label, isOverGoal };
     } else {
       // Fallback to relative-to-total behavior
-      return { percent: relativeTotalPercent, label: `${consumed}g` };
+      return { percent: relativeTotalPercent, label: `${consumed}g`, isOverGoal: false };
     }
   };
 
@@ -61,6 +62,7 @@ export function MacroBars({
       name: "Protein",
       percent: proteinData.percent,
       label: proteinData.label,
+      isOverGoal: proteinData.isOverGoal,
       color: "bg-info",
       testId: "macro-bar-protein",
     },
@@ -68,6 +70,7 @@ export function MacroBars({
       name: "Carbs",
       percent: carbsData.percent,
       label: carbsData.label,
+      isOverGoal: carbsData.isOverGoal,
       color: "bg-success",
       testId: "macro-bar-carbs",
     },
@@ -75,6 +78,7 @@ export function MacroBars({
       name: "Fat",
       percent: fatData.percent,
       label: fatData.label,
+      isOverGoal: fatData.isOverGoal,
       color: "bg-warning",
       testId: "macro-bar-fat",
     },
@@ -86,7 +90,7 @@ export function MacroBars({
         <div key={macro.name} className="flex flex-col gap-1">
           <div className="flex justify-between items-center text-sm">
             <span className="font-medium">{macro.name}</span>
-            <span className="text-muted-foreground tabular-nums">
+            <span className={`tabular-nums ${macro.isOverGoal ? 'text-destructive' : 'text-muted-foreground'}`}>
               {macro.label}
             </span>
           </div>
