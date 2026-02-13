@@ -553,3 +553,50 @@ Implement conversational food analysis refinement (multi-turn chat replacing sin
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 4 issue(s) found (Team: security, reliability, quality reviewers)
+- HIGH: 2
+- MEDIUM: 2 (documented only)
+
+**Issues requiring fix:**
+- [HIGH] SECURITY: Missing input array size limits in `/api/chat-food` (`src/app/api/chat-food/route.ts:37-78`) — messages and images arrays have no maximum size, enabling memory exhaustion or excessive API costs via a single malicious request
+- [HIGH] SECURITY: Missing base64 image validation in `/api/chat-food` (`src/app/api/chat-food/route.ts:68-77`) — images accepted without validating base64 format, decoded size (MAX_IMAGE_SIZE), or total payload size
+
+**Documented (no fix needed):**
+- [MEDIUM] SECURITY: Missing message content length validation (`src/app/api/chat-food/route.ts:55-57`) — no per-message character limit; mitigated by auth (single-user app) + rate limiting + Claude API token limits
+- [MEDIUM] CONVENTION: Dead state variable `logging` in food-analyzer (`src/components/food-analyzer.tsx:42`) — `useState(false)` with no setter, always false, referenced in multiple conditions with no effect; component uses `logResponse` for optimistic UI instead
+
+### Linear Updates
+- FOO-369: Review → Merge
+- FOO-370: Review → Merge
+- FOO-371: Review → Merge
+- FOO-372: Review → Merge
+- FOO-373: Review → Merge
+- FOO-374: Created in Todo (Fix: input validation limits on chat-food endpoint)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-374](https://linear.app/lw-claude/issue/FOO-374/add-input-validation-limits-to-post-apichat-food-endpoint)
+
+### Fix 1: Add input validation limits to POST /api/chat-food endpoint
+**Linear Issue:** [FOO-374](https://linear.app/lw-claude/issue/FOO-374/add-input-validation-limits-to-post-apichat-food-endpoint)
+
+1. Add tests to `src/app/api/chat-food/__tests__/route.test.ts`:
+   - Test: returns 400 when messages array exceeds max size (e.g., 20 messages)
+   - Test: returns 400 when images array exceeds MAX_IMAGES (9)
+   - Test: returns 400 when base64 image string is not valid base64
+   - Test: returns 400 when decoded image exceeds MAX_IMAGE_SIZE (10MB)
+2. Modify `src/app/api/chat-food/route.ts`:
+   - Import `MAX_IMAGES`, `MAX_IMAGE_SIZE` from `@/lib/image-validation`
+   - Add `MAX_MESSAGES = 20` constant
+   - Validate `messages.length <= MAX_MESSAGES`
+   - Validate `images.length <= MAX_IMAGES` (when images provided)
+   - Validate each image string is valid base64 format
+   - Validate decoded image size <= MAX_IMAGE_SIZE
