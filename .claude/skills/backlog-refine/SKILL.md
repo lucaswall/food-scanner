@@ -52,6 +52,8 @@ Rate each issue 1–5 based **only** on the data returned from `list_issues` (ti
 - Scope is ambiguous (could mean multiple things) → −1
 - Priority or labels seem mismatched with description → −1
 
+**Truncation rule:** `list_issues` truncates descriptions at ~300-400 chars, which systematically hides acceptance criteria (they come last in the standard template). When the visible description uses the structured template format (`**Problem:**`, `**Context:**`, `**Impact:**`, `**Fix:**` section headers) and is truncated, **assume acceptance criteria are present** — do NOT deduct for them. Only deduct for acceptance criteria when the full description is visible (short enough to not be truncated) and they're genuinely missing.
+
 Minimum score is 1. Issues scoring 5 can still be selected — refinement may find minor improvements after reading full details and source code.
 
 ### Drop Assessment
