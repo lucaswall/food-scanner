@@ -4,83 +4,10 @@
 
 | Feature | Summary |
 |---------|---------|
-| [Conversational Analysis](#conversational-analysis) | Multi-turn chat to refine food analysis before logging |
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Contextual Memory from Food History](#contextual-memory) | Claude queries past food logs during chat |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
-
----
-
-## Conversational Analysis
-
-### Problem
-
-The app supports a single correction after analysis (type a correction → Claude re-analyzes), but there's no multi-turn conversation. Users can't iteratively refine ("that's two apples" → "also add peanut butter" → "I only ate half"), add more photos mid-conversation, or ask questions about the food before logging.
-
-Users can't validate nutritional numbers — nobody looks at "23g protein" and knows whether that's right. What users *can* validate is the text description. The conversation itself is the validation mechanism, but the current single-correction flow limits this to one round.
-
-### Goal
-
-Extend the existing correction flow into a full inline chat. The chat is ephemeral — it exists only to produce a better food log entry through iterative refinement. Once logged, the conversation is gone.
-
-### Design
-
-#### UX Flow
-
-1. **Initial analysis** works as today: photo/description → AI analyzes → analysis card appears.
-2. Below the analysis card, a **collapsed input hint** appears: *"Add details or correct something..."*
-3. Tapping **Log** logs immediately (current flow, unchanged).
-4. Tapping the **input hint** transforms the screen into a chat:
-   - Analysis card reflows into a chat bubble (first assistant message).
-   - Input expands with a text field and an inline camera button.
-   - **Log** button stays pinned and always accessible.
-   - **Close** button (X) available to abandon without logging.
-5. User can send text messages, attach new photos, or both.
-6. Claude responds conversationally. When food items or quantities change, Claude confirms the updated analysis naturally.
-7. Tapping **Log** logs the latest agreed-upon analysis (same post-log flow: `FoodLogConfirmation` with "Done" and "Log Another").
-8. Tapping **Close** discards everything, returns to Home.
-
-#### Chat Behavior Rules
-
-1. **Always confirm what will be logged** — after any change, Claude's response includes the updated summary conversationally: *"Got it — updated to 2 apples with peanut butter (~340 cal)."*
-2. **Don't repeat unchanged information** — if the user asks a question and nothing changed, Claude answers without re-listing the analysis.
-3. **New photos add to the meal** — sending another photo adds items, doesn't replace.
-4. **Text-only input works** — *"I also had a coffee with oat milk."*
-5. **Corrections override** — *"That's not rice, it's quinoa"* → Claude updates and confirms.
-6. **Portion adjustments** — *"I only ate half"* → Claude halves quantities and confirms.
-
-#### UI Details
-
-- **Chat bubbles:** Standard layout (assistant left, user right). Assistant messages use the accent color.
-- **Camera button:** Inline in chat input bar. Opens the same camera/gallery picker as the analyze flow.
-- **Log button:** Pinned, always visible. No calorie preview on the button.
-- **Close button:** Top-left X or alongside Log. No "are you sure?" confirmation.
-
-### Architecture
-
-- **Existing foundation:** `refineAnalysis()` in `src/lib/claude.ts` and `/api/refine-food` already handle a single correction round. This feature extends that into multi-turn by accumulating conversation history client-side.
-- **Ephemeral chat state:** Conversation history lives in client-side React state only. No DB persistence. Discarded on log, close, or navigation.
-- **Multi-turn Anthropic API:** Each user message sends the full conversation history to the API via `tool_use`. Extends the existing single-correction pattern to N turns.
-- **Final log uses latest analysis:** The most recent `FoodAnalysis` from the conversation (last tool_use response with food data).
-- **Auto-expire on navigation:** Leaving the screen discards the chat state. No resume.
-
-### Edge Cases
-
-- User navigates away mid-chat → state discarded silently, no prompt.
-- User sends only questions (no food changes) → Log button still uses the original analysis.
-- User sends a photo that Claude can't identify → Claude asks for clarification, doesn't discard previous items.
-
-### Implementation Order
-
-1. Refactor existing correction state into a chat message history format (extends current `food-analyzer.tsx` correction flow)
-2. Replace single-correction input with collapsed input hint UI
-3. Chat screen transition (analysis card → first chat bubble)
-4. Multi-turn API integration (extend `refineAnalysis()` to accept full conversation history)
-5. Inline camera button in chat input
-6. Log button reads latest analysis from conversation history
-7. Close/discard behavior
-8. Post-log flow (reuse existing `FoodLogConfirmation` screen)
 
 ---
 
@@ -92,7 +19,7 @@ Complex meals are logged as a single monolithic food entry ("grilled chicken wit
 
 ### Prerequisites
 
-[Conversational Analysis](#conversational-analysis) — splitting happens during the chat refinement flow.
+Conversational Analysis — splitting happens during the chat refinement flow.
 
 ### Goal
 
@@ -150,7 +77,7 @@ Every food analysis is treated in isolation. Claude has no knowledge of what the
 
 ### Prerequisites
 
-[Conversational Analysis](#conversational-analysis) — memory queries happen during the chat flow.
+Conversational Analysis — memory queries happen during the chat flow.
 
 ### Goal
 
@@ -201,7 +128,7 @@ Once a food entry is logged, the only way to fix it is to delete and re-scan fro
 
 ### Prerequisites
 
-[Conversational Analysis](#conversational-analysis) — editing reuses the same multi-turn chat infrastructure.
+Conversational Analysis — editing reuses the same multi-turn chat infrastructure.
 
 ### Goal
 
@@ -379,7 +306,7 @@ Every feature **must** have these sections in this order:
 
 - New features are appended before the Conventions section. Position in the contents table reflects rough priority.
 - When a feature is fully moved to Linear (all issues created), **remove it** from the file. Do not leave stubs.
-- When removing a feature, update the Contents table and fix any cross-references in remaining features.
+- When removing a feature, update the Contents table and fix any cross-references in remaining features. Use the plain feature name in prerequisite references — no Linear issue IDs, links, or "moved to" annotations. The backlog is always fully processed before pulling more features from this file.
 
 ### When to Move to Linear
 
