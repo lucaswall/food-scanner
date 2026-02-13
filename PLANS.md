@@ -172,3 +172,35 @@ Fix two related bugs in the chat refinement flow: (1) the nutrition confirmation
 - Changing the `/api/log-food` response to echo back the analysis (alternative approach, not needed)
 - Clearing the `?autoCapture` URL parameter (ref-based approach is simpler)
 - Any changes to `PhotoCapture` component itself
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-13
+**Method:** Single-agent (no team requested)
+
+### Tasks Completed This Iteration
+- Task 1: Test — auto-capture should not re-trigger after photos taken (FOO-380) - Added autoCapture guard tests
+- Task 2: Implement — guard auto-capture in FoodAnalyzer (FOO-380) - Added useRef guard in handlePhotosChange
+- Task 3: Test — onLogged should pass refined analysis from chat (FOO-379) - Updated FoodChat mock, added refined name test
+- Task 4: Implement — bubble refined analysis through onLogged callback (FOO-379) - Extended onLogged signature, updated FoodChat and FoodAnalyzer
+- Task 5: Update FoodChat tests for new onLogged signature (FOO-379) - Verified onLogged called with both response and analysis
+- Task 6: Integration & Verification - Full suite passed
+
+### Files Modified
+- `src/components/food-analyzer.tsx` - Added autoCaptureUsedRef guard, updated onLogged handler to accept refined analysis
+- `src/components/food-chat.tsx` - Changed onLogged signature to pass latestAnalysis as second argument
+- `src/components/__tests__/food-analyzer.test.tsx` - Updated PhotoCapture mock for autoCapture prop, added autoCapture guard tests, updated FoodChat mock for 2-arg onLogged, added refined food name confirmation test
+- `src/components/__tests__/food-chat.test.tsx` - Added assertions verifying onLogged receives both response and analysis
+
+### Linear Updates
+- FOO-380: Todo → In Progress → Review
+- FOO-379: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed (0 bugs found)
+- verifier: All 1584 tests pass, zero warnings, build succeeds
+
+### Continuation Status
+All tasks completed.

@@ -332,6 +332,14 @@ describe("FoodChat", () => {
     const logBody = JSON.parse(logCallArgs![1].body);
     expect(logBody.calories).toBe(640);
     expect(logBody.amount).toBe(300);
+
+    // onLogged should receive the refined analysis (updated one with 640 calories)
+    await waitFor(() => {
+      expect(defaultProps.onLogged).toHaveBeenCalledWith(
+        mockLogResponse,
+        expect.objectContaining({ calories: 640, amount: 300 })
+      );
+    });
   });
 
   it("clicking Log to Fitbit calls /api/log-food with the latest analysis", async () => {
@@ -355,6 +363,14 @@ describe("FoodChat", () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
         })
+      );
+    });
+
+    // onLogged should receive both the response and the initial analysis (no refinement)
+    await waitFor(() => {
+      expect(defaultProps.onLogged).toHaveBeenCalledWith(
+        mockLogResponse,
+        mockAnalysis
       );
     });
   });
