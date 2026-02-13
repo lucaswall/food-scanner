@@ -35,6 +35,7 @@ const mockFrom = vi.fn();
 const mockOnConflictDoUpdate = vi.fn();
 const mockValues = vi.fn();
 const mockWhere = vi.fn();
+const mockOrderBy = vi.fn();
 
 vi.mock("@/db/index", () => ({
   getDb: () => ({
@@ -61,13 +62,15 @@ function setupMocks() {
   mockOnConflictDoUpdate.mockReset();
   mockValues.mockReset();
   mockWhere.mockReset();
+  mockOrderBy.mockReset();
 
   // Setup default mock chain for insert
   mockValues.mockReturnValue({ onConflictDoUpdate: mockOnConflictDoUpdate });
   mockInsert.mockReturnValue({ values: mockValues });
 
   // Setup default mock chain for select
-  mockWhere.mockResolvedValue([]);
+  mockOrderBy.mockResolvedValue([]);
+  mockWhere.mockReturnValue({ orderBy: mockOrderBy });
   mockFrom.mockReturnValue({ where: mockWhere });
   mockSelect.mockReturnValue({ from: mockFrom });
 }
@@ -397,7 +400,8 @@ describe("getLumenGoalsByDate", () => {
   });
 
   it("returns goals when row exists", async () => {
-    mockWhere.mockResolvedValueOnce([
+    // Override the default chain for this test (getLumenGoalsByDate doesn't use orderBy)
+    const mockWhereForThisTest = vi.fn().mockResolvedValueOnce([
       {
         date: "2026-02-10",
         dayType: "High Carb",
@@ -406,6 +410,7 @@ describe("getLumenGoalsByDate", () => {
         fatGoal: 60,
       },
     ]);
+    mockFrom.mockReturnValueOnce({ where: mockWhereForThisTest });
 
     const { getLumenGoalsByDate } = await import("@/lib/lumen");
     const result = await getLumenGoalsByDate("user-123", "2026-02-10");
@@ -419,15 +424,87 @@ describe("getLumenGoalsByDate", () => {
     });
     expect(mockSelect).toHaveBeenCalled();
     expect(mockFrom).toHaveBeenCalled();
-    expect(mockWhere).toHaveBeenCalled();
+    expect(mockWhereForThisTest).toHaveBeenCalled();
   });
 
   it("returns null when no row exists", async () => {
-    mockWhere.mockResolvedValueOnce([]);
+    // Override the default chain for this test (getLumenGoalsByDate doesn't use orderBy)
+    const mockWhereForThisTest = vi.fn().mockResolvedValueOnce([]);
+    mockFrom.mockReturnValueOnce({ where: mockWhereForThisTest });
 
     const { getLumenGoalsByDate } = await import("@/lib/lumen");
     const result = await getLumenGoalsByDate("user-123", "2026-02-10");
 
     expect(result).toBeNull();
+  });
+});
+
+describe("getLumenGoalsByDateRange", () => {
+  beforeEach(() => {
+    setupMocks();
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("returns goals for all dates in range", async () => {
+    mockOrderBy.mockResolvedValueOnce([
+      {
+        date: "2026-02-10",
+        proteinGoal: 120,
+        carbsGoal: 200,
+        fatGoal: 60,
+      },
+      {
+        date: "2026-02-11",
+        proteinGoal: 130,
+        carbsGoal: 180,
+        fatGoal: 70,
+      },
+      {
+        date: "2026-02-12",
+        proteinGoal: 125,
+        carbsGoal: 190,
+        fatGoal: 65,
+      },
+    ]);
+
+    const { getLumenGoalsByDateRange } = await import("@/lib/lumen");
+    const result = await getLumenGoalsByDateRange("user-123", "2026-02-10", "2026-02-12");
+
+    expect(result).toEqual([
+      {
+        date: "2026-02-10",
+        proteinGoal: 120,
+        carbsGoal: 200,
+        fatGoal: 60,
+      },
+      {
+        date: "2026-02-11",
+        proteinGoal: 130,
+        carbsGoal: 180,
+        fatGoal: 70,
+      },
+      {
+        date: "2026-02-12",
+        proteinGoal: 125,
+        carbsGoal: 190,
+        fatGoal: 65,
+      },
+    ]);
+    expect(mockSelect).toHaveBeenCalled();
+    expect(mockFrom).toHaveBeenCalled();
+    expect(mockWhere).toHaveBeenCalled();
+    expect(mockOrderBy).toHaveBeenCalled();
+  });
+
+  it("returns empty array when no goals exist in range", async () => {
+    mockOrderBy.mockResolvedValueOnce([]);
+
+    const { getLumenGoalsByDateRange } = await import("@/lib/lumen");
+    const result = await getLumenGoalsByDateRange("user-123", "2026-02-10", "2026-02-12");
+
+    expect(result).toEqual([]);
   });
 });

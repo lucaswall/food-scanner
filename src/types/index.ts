@@ -369,6 +369,9 @@ export interface DailyNutritionTotals {
   fiberG: number;
   sodiumMg: number;
   calorieGoal: number | null;
+  proteinGoalG: number | null;
+  carbsGoalG: number | null;
+  fatGoalG: number | null;
 }
 
 export interface DateRangeNutritionResponse {

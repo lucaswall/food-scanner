@@ -5,8 +5,7 @@ import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { getTodayDate, getWeekBounds } from "@/lib/date-utils";
 import { WeekNavigator } from "@/components/week-navigator";
-import { WeeklyCalorieChart } from "@/components/weekly-calorie-chart";
-import { WeeklyMacroAverages } from "@/components/weekly-macro-averages";
+import { WeeklyNutritionChart } from "@/components/weekly-nutrition-chart";
 import { WeeklyFastingChart } from "@/components/weekly-fasting-chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { DateRangeNutritionResponse, FastingWindow } from "@/types";
@@ -21,16 +20,17 @@ function DashboardSkeleton() {
         <Skeleton className="h-[44px] w-[44px] rounded-md" />
       </div>
 
-      {/* Calorie chart skeleton */}
+      {/* Nutrition chart skeleton (metric selector + chart) */}
       <div className="space-y-4">
+        {/* Metric selector skeleton */}
+        <div className="flex gap-1 p-1 bg-muted rounded-full">
+          <Skeleton className="h-[44px] flex-1 rounded-full" />
+          <Skeleton className="h-[44px] flex-1 rounded-full" />
+          <Skeleton className="h-[44px] flex-1 rounded-full" />
+          <Skeleton className="h-[44px] flex-1 rounded-full" />
+        </div>
+        {/* Chart area skeleton */}
         <Skeleton className="h-48 w-full" />
-      </div>
-
-      {/* Macro averages skeleton */}
-      <div className="space-y-3">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
       </div>
 
       {/* Fasting chart skeleton */}
@@ -103,11 +103,8 @@ export function WeeklyDashboard() {
       {/* Week Navigator */}
       <WeekNavigator weekStart={weekStart} onWeekChange={setWeekStart} />
 
-      {/* Weekly Calorie Chart */}
-      <WeeklyCalorieChart days={days} weekStart={weekStart} />
-
-      {/* Weekly Macro Averages */}
-      <WeeklyMacroAverages days={days} />
+      {/* Weekly Nutrition Chart */}
+      <WeeklyNutritionChart days={days} weekStart={weekStart} />
 
       {/* Weekly Fasting Chart */}
       <WeeklyFastingChart windows={windows} weekStart={weekStart} />

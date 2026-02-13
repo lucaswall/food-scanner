@@ -72,17 +72,11 @@ vi.mock("@/components/week-navigator", () => ({
   ),
 }));
 
-vi.mock("@/components/weekly-calorie-chart", () => ({
-  WeeklyCalorieChart: ({ days, weekStart }: { days: DailyNutritionTotals[]; weekStart: string }) => (
-    <div data-testid="weekly-calorie-chart">
-      Calorie Chart: {days.length} days, week: {weekStart}
+vi.mock("@/components/weekly-nutrition-chart", () => ({
+  WeeklyNutritionChart: ({ days, weekStart }: { days: DailyNutritionTotals[]; weekStart: string }) => (
+    <div data-testid="weekly-nutrition-chart">
+      Nutrition Chart: {days.length} days, week: {weekStart}
     </div>
-  ),
-}));
-
-vi.mock("@/components/weekly-macro-averages", () => ({
-  WeeklyMacroAverages: ({ days }: { days: DailyNutritionTotals[] }) => (
-    <div data-testid="weekly-macro-averages">Macro Averages: {days.length} days</div>
   ),
 }));
 
@@ -108,21 +102,12 @@ describe("WeeklyDashboard", () => {
     });
   });
 
-  it("renders WeeklyCalorieChart with nutrition data", async () => {
+  it("renders WeeklyNutritionChart with nutrition data", async () => {
     render(<WeeklyDashboard />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("weekly-calorie-chart")).toBeInTheDocument();
-      expect(screen.getByText(/Calorie Chart: 1 days/)).toBeInTheDocument();
-    });
-  });
-
-  it("renders WeeklyMacroAverages with nutrition data", async () => {
-    render(<WeeklyDashboard />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("weekly-macro-averages")).toBeInTheDocument();
-      expect(screen.getByText(/Macro Averages: 1 days/)).toBeInTheDocument();
+      expect(screen.getByTestId("weekly-nutrition-chart")).toBeInTheDocument();
+      expect(screen.getByText(/Nutrition Chart: 1 days/)).toBeInTheDocument();
     });
   });
 
