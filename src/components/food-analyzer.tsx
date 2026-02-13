@@ -416,17 +416,15 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     );
   }
 
-  // Show full-screen chat if open
+  // Show full-screen chat if open (FoodChat uses fixed positioning)
   if (chatOpen && analysis) {
     return (
-      <div className="h-[calc(100dvh-12rem)]">
-        <FoodChat
-          initialAnalysis={analysis}
-          compressedImages={compressedImages || []}
-          onClose={() => setChatOpen(false)}
-          onLogged={setLogResponse}
-        />
-      </div>
+      <FoodChat
+        initialAnalysis={analysis}
+        compressedImages={compressedImages || []}
+        onClose={() => setChatOpen(false)}
+        onLogged={setLogResponse}
+      />
     );
   }
 

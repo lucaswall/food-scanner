@@ -21,25 +21,7 @@ beforeAll(() => {
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-// Mock child components
-vi.mock("../photo-capture", () => ({
-  PhotoCapture: ({
-    onPhotosChange,
-  }: {
-    onPhotosChange: (files: File[]) => void;
-  }) => (
-    <div data-testid="photo-capture">
-      <button
-        onClick={() =>
-          onPhotosChange([new File(["test"], "test.jpg", { type: "image/jpeg" })])
-        }
-      >
-        Add Photo
-      </button>
-    </div>
-  ),
-}));
-
+// Mock MealTypeSelector (uses Radix Select internally)
 vi.mock("../meal-type-selector", () => ({
   MealTypeSelector: ({
     value,
@@ -59,21 +41,6 @@ vi.mock("../meal-type-selector", () => ({
       </select>
     </div>
   ),
-}));
-
-vi.mock("../food-log-confirmation", () => ({
-  FoodLogConfirmation: ({
-    response,
-    foodName,
-  }: {
-    response: FoodLogResponse | null;
-    foodName: string;
-  }) =>
-    response ? (
-      <div data-testid="food-log-confirmation">
-        <span>Successfully logged {foodName}</span>
-      </div>
-    ) : null,
 }));
 
 const mockAnalysis: FoodAnalysis = {
@@ -148,7 +115,7 @@ describe("FoodChat", () => {
     expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
   });
 
-  it("renders back button with ArrowLeft icon in header", () => {
+  it("renders floating back button", () => {
     render(
       <FoodChat
         initialAnalysis={mockAnalysis}
@@ -158,7 +125,6 @@ describe("FoodChat", () => {
       />
     );
 
-    // Header should have a back button instead of close (X)
     const backButton = screen.getByRole("button", { name: /back/i });
     expect(backButton).toBeInTheDocument();
   });
@@ -174,6 +140,19 @@ describe("FoodChat", () => {
     );
 
     expect(screen.getByTestId("meal-type-selector")).toBeInTheDocument();
+  });
+
+  it("renders add photo button for camera menu", () => {
+    render(
+      <FoodChat
+        initialAnalysis={mockAnalysis}
+        compressedImages={mockCompressedImages}
+        onClose={vi.fn()}
+        onLogged={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /add photo/i })).toBeInTheDocument();
   });
 
   it("typing and sending a message calls POST /api/chat-food with message history", async () => {

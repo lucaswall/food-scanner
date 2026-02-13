@@ -1,11 +1,24 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealTypeSelector } from "./meal-type-selector";
-import { PhotoCapture } from "./photo-capture";
-import { Send, ArrowLeft, Loader2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Send,
+  ArrowLeft,
+  Loader2,
+  Camera,
+  ImageIcon,
+  ChevronDown,
+  Plus,
+} from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import type {
@@ -28,7 +41,6 @@ export function FoodChat({
   onClose,
   onLogged,
 }: FoodChatProps) {
-  // Generate initial assistant message
   const initialMessage: ConversationMessage = {
     role: "assistant",
     content: `I analyzed your food as ${initialAnalysis.food_name} (${initialAnalysis.calories} cal). Anything you'd like to correct?`,
@@ -43,10 +55,13 @@ export function FoodChat({
   const [error, setError] = useState<string | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
   const [images] = useState<Blob[]>(compressedImages);
+  const [showScrollDown, setShowScrollDown] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
-  // Extract latest analysis from messages (last message with analysis field)
   const latestAnalysis =
     [...messages]
       .reverse()
@@ -55,7 +70,20 @@ export function FoodChat({
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
+
+  // Track scroll position for scroll-to-bottom button
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    setShowScrollDown(distanceFromBottom > 100);
+  }, []);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -65,17 +93,14 @@ export function FoodChat({
       content: input.trim(),
     };
 
-    // Add user message to state
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
     setError(null);
 
     try {
-      // Build API messages: skip the initial assistant message (UI-only)
-      // so the conversation starts with user (required by Anthropic API)
       const allMessages = [...messages, userMessage];
-      const apiMessages = allMessages.slice(1); // drop initial assistant
+      const apiMessages = allMessages.slice(1);
 
       const requestBody: {
         messages: ConversationMessage[];
@@ -119,7 +144,6 @@ export function FoodChat({
         return;
       }
 
-      // Add assistant response to state
       const assistantMessage: ConversationMessage = {
         role: "assistant",
         content: result.data.message,
@@ -158,7 +182,6 @@ export function FoodChat({
         return;
       }
 
-      // Call parent callback with the response
       onLogged(result.data);
     } catch (err) {
       setError(
@@ -168,23 +191,46 @@ export function FoodChat({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header with back button */}
-      <div className="flex items-center justify-between p-4 border-b">
-        <h2 className="text-lg font-semibold">Chat about your food</h2>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-          aria-label="Back"
-          className="min-h-[44px] min-w-[44px]"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-      </div>
+    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+      {/* Floating back button */}
+      <button
+        onClick={onClose}
+        aria-label="Back"
+        className="fixed top-3 left-3 z-[51] flex items-center justify-center size-11 rounded-full bg-background/80 backdrop-blur-sm shadow-md border"
+      >
+        <ArrowLeft className="h-5 w-5" />
+      </button>
 
-      {/* Message list (scrollable) */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      {/* Hidden file inputs for camera menu */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
+        capture="environment"
+        className="hidden"
+        data-testid="chat-camera-input"
+        onChange={() => {
+          if (cameraInputRef.current) cameraInputRef.current.value = "";
+        }}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
+        multiple
+        className="hidden"
+        data-testid="chat-gallery-input"
+        onChange={() => {
+          if (galleryInputRef.current) galleryInputRef.current.value = "";
+        }}
+      />
+
+      {/* Messages — full screen scrollable */}
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-3 pt-16 pb-2 space-y-2"
+      >
         {messages.map((msg, idx) => (
           <div
             key={idx}
@@ -193,10 +239,10 @@ export function FoodChat({
             }`}
           >
             <div
-              className={`max-w-[80%] p-3 rounded-lg ${
+              className={`max-w-[80%] px-3 py-2 rounded-2xl ${
                 msg.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
+                  ? "bg-primary text-primary-foreground rounded-br-sm"
+                  : "bg-muted rounded-bl-sm"
               }`}
             >
               <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
@@ -206,14 +252,14 @@ export function FoodChat({
 
         {loading && (
           <div className="flex justify-start" data-testid="chat-loading">
-            <div className="max-w-[80%] p-3 rounded-lg bg-muted">
+            <div className="px-3 py-2 rounded-2xl bg-muted rounded-bl-sm">
               <Loader2 className="h-4 w-4 animate-spin" />
             </div>
           </div>
         )}
 
         {error && (
-          <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <div className="px-3 py-2 bg-destructive/10 border border-destructive/20 rounded-2xl">
             <p className="text-sm text-destructive">{error}</p>
           </div>
         )}
@@ -221,15 +267,50 @@ export function FoodChat({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Pinned controls at bottom */}
-      <div className="border-t p-4 space-y-3">
-        {/* Input bar with text input and send button */}
-        <div className="flex gap-2">
-          <PhotoCapture
-            onPhotosChange={() => {
-              // Inline camera for adding more photos - placeholder for now
-            }}
-          />
+      {/* Bottom anchored area */}
+      <div className="relative border-t bg-background">
+        {/* Scroll-to-bottom button */}
+        {showScrollDown && (
+          <button
+            onClick={scrollToBottom}
+            aria-label="Scroll to bottom"
+            className="absolute -top-12 right-3 flex items-center justify-center size-9 rounded-full bg-background shadow-md border"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        )}
+
+        {/* Line 1: Camera menu + Text input + Send */}
+        <div className="flex items-center gap-1.5 px-2 pt-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                aria-label="Add photo"
+              >
+                <Plus className="h-5 w-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="min-w-0">
+              <DropdownMenuItem
+                onClick={() => cameraInputRef.current?.click()}
+                aria-label="Take photo"
+                className="justify-center px-3"
+              >
+                <Camera className="h-5 w-5" />
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => galleryInputRef.current?.click()}
+                aria-label="Choose from gallery"
+                className="justify-center px-3"
+              >
+                <ImageIcon className="h-5 w-5" />
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Input
             placeholder="Type a message..."
             value={input}
@@ -241,13 +322,15 @@ export function FoodChat({
               }
             }}
             disabled={loading}
-            className="flex-1 min-h-[44px]"
+            className="flex-1 min-h-[44px] rounded-full"
           />
+
           <Button
             onClick={handleSend}
             disabled={!input.trim() || loading}
             aria-label="Send"
-            className="min-h-[44px] min-w-[44px]"
+            size="icon"
+            className="shrink-0 rounded-full"
           >
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -257,19 +340,19 @@ export function FoodChat({
           </Button>
         </div>
 
-        {/* Meal type selector */}
-        <div className="space-y-2">
-          <MealTypeSelector value={mealTypeId} onChange={setMealTypeId} />
+        {/* Line 2: Meal type (left) + Log to Fitbit (right) */}
+        <div className="flex items-center gap-2 px-2 py-2">
+          <div className="flex-1">
+            <MealTypeSelector
+              value={mealTypeId}
+              onChange={setMealTypeId}
+              showTimeHint={false}
+            />
+          </div>
+          <Button onClick={handleLog} className="flex-1 min-h-[44px]">
+            Log to Fitbit
+          </Button>
         </div>
-
-        {/* Log to Fitbit button */}
-        <Button
-          onClick={handleLog}
-          className="w-full min-h-[44px]"
-          variant="default"
-        >
-          Log to Fitbit
-        </Button>
       </div>
     </div>
   );
