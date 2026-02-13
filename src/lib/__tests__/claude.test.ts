@@ -951,351 +951,6 @@ describe("analyzeFood", () => {
   });
 });
 
-describe("refineAnalysis", () => {
-  beforeEach(() => {
-    setupMocks();
-    mockRecordUsage.mockResolvedValue(undefined);
-  });
-
-  afterEach(() => {
-    vi.resetModules();
-  });
-
-  it("calls Claude API with images, previous analysis, and correction text", async () => {
-    mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
-      content: [
-        {
-          type: "tool_use",
-          id: "tool_456",
-          name: "report_nutrition",
-          input: { ...validAnalysis, calories: 500 },
-        },
-      ],
-      usage: {
-        input_tokens: 2000,
-        output_tokens: 350,
-      },
-    });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Actually this is a larger portion, about 500 calories",
-      "user-123"
-    );
-
-    expect(mockCreate).toHaveBeenCalledTimes(1);
-    const call = mockCreate.mock.calls[0][0];
-
-    // Should include images in user message
-    const imageBlocks = call.messages[0].content.filter(
-      (block: { type: string }) => block.type === "image"
-    );
-    expect(imageBlocks).toHaveLength(1);
-    expect(imageBlocks[0].source.data).toBe("abc123");
-
-    // Should include previous analysis and correction in text block
-    const textBlocks = call.messages[0].content.filter(
-      (block: { type: string }) => block.type === "text"
-    );
-    expect(textBlocks).toHaveLength(1);
-    expect(textBlocks[0].text).toContain("Empanada de carne");
-    expect(textBlocks[0].text).toContain("320"); // calories
-    expect(textBlocks[0].text).toContain("Actually this is a larger portion, about 500 calories");
-  });
-
-  it("system prompt includes refinement instruction", async () => {
-    mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "tool_use",
-          id: "tool_456",
-          name: "report_nutrition",
-          input: validAnalysis,
-        },
-      ],
-    });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Make it 200 calories"
-    );
-
-    const call = mockCreate.mock.calls[0][0];
-    expect(call.system).toContain("nutrition analyst");
-  });
-
-  it("returns validated FoodAnalysis", async () => {
-    const refinedAnalysis: FoodAnalysis = {
-      ...validAnalysis,
-      calories: 500,
-      notes: "Larger portion as specified by user",
-    };
-
-    mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
-      content: [
-        {
-          type: "tool_use",
-          id: "tool_456",
-          name: "report_nutrition",
-          input: refinedAnalysis,
-        },
-      ],
-      usage: {
-        input_tokens: 2000,
-        output_tokens: 350,
-      },
-    });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    const result = await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Larger portion",
-      "user-123"
-    );
-
-    expect(result).toEqual(refinedAnalysis);
-  });
-
-  it("calls recordUsage with correct arguments for refinement", async () => {
-    mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
-      content: [
-        {
-          type: "tool_use",
-          id: "tool_456",
-          name: "report_nutrition",
-          input: validAnalysis,
-        },
-      ],
-      usage: {
-        input_tokens: 2000,
-        output_tokens: 350,
-        cache_read_input_tokens: 100,
-      },
-    });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Correction",
-      "user-123"
-    );
-
-    expect(mockRecordUsage).toHaveBeenCalledWith(
-      "user-123",
-      "claude-sonnet-4-20250514",
-      "food-refinement",
-      {
-        inputTokens: 2000,
-        outputTokens: 350,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 100,
-      }
-    );
-  });
-
-  it("succeeds even if recordUsage throws during refinement", async () => {
-    mockRecordUsage.mockRejectedValueOnce(new Error("Database error"));
-
-    mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
-      content: [
-        {
-          type: "tool_use",
-          id: "tool_456",
-          name: "report_nutrition",
-          input: validAnalysis,
-        },
-      ],
-      usage: {
-        input_tokens: 2000,
-        output_tokens: 350,
-      },
-    });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    const result = await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Correction",
-      "user-123"
-    );
-
-    expect(result).toEqual(validAnalysis);
-    expect(mockRecordUsage).toHaveBeenCalled();
-  });
-
-
-  it("throws CLAUDE_API_ERROR on failure", async () => {
-    mockCreate.mockRejectedValueOnce(new Error("API connection failed"));
-
-    const { refineAnalysis } = await import("@/lib/claude");
-
-    await expect(
-      refineAnalysis(
-        [{ base64: "abc123", mimeType: "image/jpeg" }],
-        validAnalysis,
-        "Fix it",
-        "user-123"
-      )
-    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
-
-    // Should be called exactly once (no retry)
-    expect(mockCreate).toHaveBeenCalledTimes(1);
-    // recordUsage should NOT be called on failure
-    expect(mockRecordUsage).not.toHaveBeenCalled();
-  });
-
-  it("uses same model and tool configuration as analyzeFood", async () => {
-    mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "tool_use",
-          id: "tool_456",
-          name: "report_nutrition",
-          input: validAnalysis,
-        },
-      ],
-    });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Correction"
-    );
-
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1024,
-        tools: expect.arrayContaining([
-          expect.objectContaining({ name: "report_nutrition" }),
-        ]),
-        tool_choice: { type: "tool", name: "report_nutrition" },
-      })
-    );
-  });
-
-  it("supports multiple images", async () => {
-    mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "tool_use",
-          id: "tool_456",
-          name: "report_nutrition",
-          input: validAnalysis,
-        },
-      ],
-    });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    await refineAnalysis(
-      [
-        { base64: "img1", mimeType: "image/jpeg" },
-        { base64: "img2", mimeType: "image/png" },
-      ],
-      validAnalysis,
-      "Correction"
-    );
-
-    const call = mockCreate.mock.calls[0][0];
-    const imageBlocks = call.messages[0].content.filter(
-      (block: { type: string }) => block.type === "image"
-    );
-    expect(imageBlocks).toHaveLength(2);
-    expect(imageBlocks[0].source.data).toBe("img1");
-    expect(imageBlocks[1].source.data).toBe("img2");
-  });
-
-  it("works with text-only refinement (no images)", async () => {
-    const refinedAnalysis: FoodAnalysis = {
-      ...validAnalysis,
-      food_name: "3 medialunas",
-      calories: 480,
-      notes: "Corrected to 3 medialunas instead of 2",
-    };
-
-    mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "tool_use",
-          id: "tool_456",
-          name: "report_nutrition",
-          input: refinedAnalysis,
-        },
-      ],
-    });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    const result = await refineAnalysis(
-      [],
-      validAnalysis,
-      "Actually it was 3 medialunas"
-    );
-
-    expect(result).toEqual(refinedAnalysis);
-
-    // Verify no image blocks in the API call
-    const call = mockCreate.mock.calls[0][0];
-    const imageBlocks = call.messages[0].content.filter(
-      (block: { type: string }) => block.type === "image"
-    );
-    expect(imageBlocks).toHaveLength(0);
-
-    // Verify only text block with refinement context
-    const textBlocks = call.messages[0].content.filter(
-      (block: { type: string }) => block.type === "text"
-    );
-    expect(textBlocks).toHaveLength(1);
-    expect(textBlocks[0].text).toContain("Actually it was 3 medialunas");
-    expect(textBlocks[0].text).toContain("Empanada de carne"); // previous analysis context
-  });
-
-
-  it("includes all nutrition fields from previous analysis in prompt", async () => {
-    mockCreate.mockResolvedValueOnce({
-      content: [
-        {
-          type: "tool_use",
-          id: "tool_456",
-          name: "report_nutrition",
-          input: validAnalysis,
-        },
-      ],
-    });
-
-    const { refineAnalysis } = await import("@/lib/claude");
-    await refineAnalysis(
-      [{ base64: "abc123", mimeType: "image/jpeg" }],
-      validAnalysis,
-      "Correction"
-    );
-
-    const call = mockCreate.mock.calls[0][0];
-    const textBlock = call.messages[0].content.find(
-      (block: { type: string }) => block.type === "text"
-    );
-    expect(textBlock.text).toContain("Empanada de carne"); // food_name
-    expect(textBlock.text).toContain("150"); // amount
-    expect(textBlock.text).toContain("320"); // calories
-    expect(textBlock.text).toContain("12"); // protein_g
-    expect(textBlock.text).toContain("28"); // carbs_g
-    expect(textBlock.text).toContain("18"); // fat_g
-    expect(textBlock.text).toContain("2"); // fiber_g (as string in context)
-    expect(textBlock.text).toContain("450"); // sodium_mg
-    expect(textBlock.text).toContain("high"); // confidence
-  });
-});
-
 describe("validateFoodAnalysis with Tier 1 nutrients", () => {
   beforeEach(() => {
     setupMocks();
@@ -1546,5 +1201,368 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
     expect(result.trans_fat_g).toBe(0);
     expect(result.sugars_g).toBe(0);
     expect(result.calories_from_fat).toBe(0);
+  });
+});
+
+describe("conversationalRefine", () => {
+  beforeEach(() => {
+    setupMocks();
+    mockRecordUsage.mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("returns message and analysis when Claude responds with text + tool_use", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "I've updated the portion size to 200g",
+        },
+        {
+          type: "tool_use",
+          id: "tool_789",
+          name: "report_nutrition",
+          input: { ...validAnalysis, amount: 200 },
+        },
+      ],
+      usage: {
+        input_tokens: 1800,
+        output_tokens: 400,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const result = await conversationalRefine(
+      [
+        { role: "user", content: "I had an empanada" },
+        { role: "assistant", content: "Got it", analysis: validAnalysis },
+        { role: "user", content: "Actually it was 200g" },
+      ],
+      [],
+      "user-123"
+    );
+
+    expect(result).toEqual({
+      message: "I've updated the portion size to 200g",
+      analysis: { ...validAnalysis, amount: 200 },
+    });
+  });
+
+  it("returns only message when Claude responds with text only (no tool_use)", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "Got it! Anything else you'd like to add?",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const result = await conversationalRefine(
+      [
+        { role: "user", content: "I had an empanada" },
+        { role: "assistant", content: "Recorded", analysis: validAnalysis },
+        { role: "user", content: "Thanks!" },
+      ],
+      [],
+      "user-123"
+    );
+
+    expect(result).toEqual({
+      message: "Got it! Anything else you'd like to add?",
+    });
+    expect(result.analysis).toBeUndefined();
+  });
+
+  it("uses tool_choice auto (not forced)", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "Understood",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "I had a coffee" }],
+      [],
+      "user-123"
+    );
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool_choice: { type: "auto" },
+      })
+    );
+  });
+
+  it("uses CHAT_SYSTEM_PROMPT", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "OK",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine, CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Test" }],
+      [],
+      "user-123"
+    );
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system: CHAT_SYSTEM_PROMPT,
+      })
+    );
+  });
+
+  it("uses max_tokens 2048", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "OK",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Test" }],
+      [],
+      "user-123"
+    );
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        max_tokens: 2048,
+      })
+    );
+  });
+
+  it("includes images when provided", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "I see the food",
+        },
+        {
+          type: "tool_use",
+          id: "tool_789",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 300,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "What's this?" }],
+      [{ base64: "img123", mimeType: "image/jpeg" }],
+      "user-123"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    const firstMessage = call.messages[0];
+    const imageBlocks = firstMessage.content.filter(
+      (block: { type: string }) => block.type === "image"
+    );
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0].source.data).toBe("img123");
+  });
+
+  it("does not include images when not provided", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "OK",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [
+        { role: "user", content: "I had an empanada" },
+        { role: "assistant", content: "Logged", analysis: validAnalysis },
+      ],
+      [],
+      "user-123"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    call.messages.forEach((msg: { content: Array<{ type: string }> }) => {
+      const imageBlocks = msg.content.filter(
+        (block: { type: string }) => block.type === "image"
+      );
+      expect(imageBlocks).toHaveLength(0);
+    });
+  });
+
+  it("records usage as food-chat operation", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "Done",
+        },
+      ],
+      usage: {
+        input_tokens: 1700,
+        output_tokens: 120,
+        cache_creation_input_tokens: 80,
+        cache_read_input_tokens: 200,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Test" }],
+      [],
+      "user-123"
+    );
+
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      "user-123",
+      "claude-sonnet-4-20250514",
+      "food-chat",
+      {
+        inputTokens: 1700,
+        outputTokens: 120,
+        cacheCreationTokens: 80,
+        cacheReadTokens: 200,
+      }
+    );
+  });
+
+  it("throws CLAUDE_API_ERROR on API failure", async () => {
+    mockCreate.mockRejectedValueOnce(new Error("API connection failed"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+
+    await expect(
+      conversationalRefine(
+        [{ role: "user", content: "Test" }],
+        [],
+        "user-123"
+      )
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockRecordUsage).not.toHaveBeenCalled();
+  });
+
+  it("succeeds even if recordUsage throws", async () => {
+    mockRecordUsage.mockRejectedValueOnce(new Error("Database error"));
+
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "Done",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const result = await conversationalRefine(
+      [{ role: "user", content: "Test" }],
+      [],
+      "user-123"
+    );
+
+    expect(result).toEqual({ message: "Done" });
+    expect(mockRecordUsage).toHaveBeenCalled();
+  });
+
+  it("converts ConversationMessage array to Anthropic message format", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "OK",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [
+        { role: "user", content: "I had pizza" },
+        { role: "assistant", content: "Logged", analysis: validAnalysis },
+        { role: "user", content: "Add more cheese" },
+      ],
+      [],
+      "user-123"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.messages).toHaveLength(3);
+    expect(call.messages[0].role).toBe("user");
+    expect(call.messages[0].content).toEqual([
+      { type: "text", text: "I had pizza" },
+    ]);
+    expect(call.messages[1].role).toBe("assistant");
+    expect(call.messages[1].content).toEqual([
+      { type: "text", text: "Logged" },
+    ]);
+    expect(call.messages[2].role).toBe("user");
+    expect(call.messages[2].content).toEqual([
+      { type: "text", text: "Add more cheese" },
+    ]);
   });
 });

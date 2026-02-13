@@ -7,19 +7,19 @@ import { AnalysisResult } from "./analysis-result";
 import { MealTypeSelector } from "./meal-type-selector";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { FoodMatchCard } from "./food-match-card";
+import { FoodChat } from "./food-chat";
 import { compressImage } from "@/lib/image";
 import { vibrateError } from "@/lib/haptics";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Send, Loader2 } from "lucide-react";
 import {
   savePendingSubmission,
   getPendingSubmission,
   clearPendingSubmission,
 } from "@/lib/pending-submission";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
+import { safeResponseJson } from "@/lib/safe-json";
 import type { FoodAnalysis, FoodLogResponse, FoodMatch } from "@/types";
 
 interface FoodAnalyzerProps {
@@ -45,10 +45,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [matches, setMatches] = useState<FoodMatch[]>([]);
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
-  const [correction, setCorrection] = useState("");
-  const [refining, setRefining] = useState(false);
-  const [refineError, setRefineError] = useState<string | null>(null);
   const [compressedImages, setCompressedImages] = useState<Blob[] | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
 
   const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
@@ -67,9 +65,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setLogError(null);
     setLogResponse(null);
     setMatches([]);
-    setCorrection("");
-    setRefineError(null);
     setCompressedImages(null);
+    setChatOpen(false);
   };
 
   const handleAnalyze = async () => {
@@ -77,7 +74,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
     setError(null);
     setLogError(null);
-    setRefineError(null);
 
     let compressedBlobs: Blob[] = [];
 
@@ -142,7 +138,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         body: formData,
       });
 
-      const result = await response.json();
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data?: FoodAnalysis;
+        error?: { code: string; message: string };
+      };
 
       if (!response.ok || !result.success) {
         setError(result.error?.message || "Failed to analyze food");
@@ -150,7 +150,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         return;
       }
 
-      setAnalysis(result.data);
+      setAnalysis(result.data ?? null);
 
       // Fire async match search (non-blocking)
       fetch("/api/find-matches", {
@@ -181,62 +181,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     handleAnalyze();
   };
 
-  const handleRefine = async () => {
-    if (!analysis || !correction.trim()) return;
-
-    setRefining(true);
-    setRefineError(null);
-
-    try {
-      const formData = new FormData();
-      if (compressedImages) {
-        compressedImages.forEach((blob, index) => {
-          formData.append("images", blob, `image-${index}.jpg`);
-        });
-      }
-      formData.append("previousAnalysis", JSON.stringify(analysis));
-      formData.append("correction", correction.trim());
-
-      const response = await fetch("/api/refine-food", {
-        method: "POST",
-        body: formData,
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        setRefineError(result.error?.message || "Failed to refine analysis");
-        return;
-      }
-
-      setAnalysis(result.data);
-      setCorrection("");
-      setRefineError(null);
-
-      // Re-fetch food matches since keywords may change
-      fetch("/api/find-matches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result.data),
-      })
-        .then((r) => r.json())
-        .then((matchResult) => {
-          if (matchResult.success && matchResult.data?.matches) {
-            setMatches(matchResult.data.matches);
-          }
-        })
-        .catch(() => {
-          // Silently ignore match errors — matching is optional
-        });
-    } catch (err) {
-      setRefineError(
-        err instanceof Error ? err.message : "An unexpected error occurred"
-      );
-    } finally {
-      setRefining(false);
-    }
-  };
-
   const handleLogToFitbit = async () => {
     if (!analysis) return;
 
@@ -261,7 +205,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         }),
       });
 
-      const result = await response.json();
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data?: FoodLogResponse;
+        error?: { code: string; message: string };
+      };
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
@@ -288,7 +236,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       }
 
       // Replace optimistic response with real data
-      setLogResponse(result.data);
+      setLogResponse(result.data ?? null);
     } catch (err) {
       // Revert optimistic update
       setLogResponse(null);
@@ -329,7 +277,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         body: JSON.stringify(requestBody),
       });
 
-      const result = await response.json();
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data?: FoodLogResponse;
+        error?: { code: string; message: string };
+      };
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
@@ -357,7 +309,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       }
 
       // Replace optimistic response with real data
-      setLogResponse(result.data);
+      setLogResponse(result.data ?? null);
     } catch (err) {
       // Revert optimistic update
       setLogResponse(null);
@@ -412,11 +364,16 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     })
-      .then((r) => r.json())
-      .then((result) => {
+      .then((r) => safeResponseJson(r))
+      .then((raw) => {
+        const result = raw as {
+          success: boolean;
+          data?: FoodLogResponse;
+          error?: { code: string; message: string };
+        };
         clearPendingSubmission();
         if (result.success) {
-          setLogResponse(result.data);
+          setLogResponse(result.data ?? null);
         } else {
           setLogError(result.error?.message || "Failed to resubmit food log");
         }
@@ -516,7 +473,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       </div>
 
       {/* Food matches section */}
-      {analysis && !loading && matches.length > 0 && (
+      {analysis && !loading && !chatOpen && matches.length > 0 && (
         <div className="space-y-3">
           <p className="text-sm font-medium">Similar foods you&apos;ve logged before</p>
           {matches.slice(0, 3).map((match) => (
@@ -530,104 +487,69 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         </div>
       )}
 
-      {/* Post-analysis controls */}
+      {/* Chat or Post-analysis controls */}
       {analysis && !loading && (
-        <div className="space-y-4">
-          {/* Refining indicator */}
-          {refining && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Refining analysis...</span>
-            </div>
-          )}
-
-          {/* Correction input */}
-          <div className="flex gap-2">
-            <Input
-              placeholder="Correct something..."
-              value={correction}
-              onChange={(e) => setCorrection(e.target.value)}
-              disabled={logging || refining}
-              onKeyDown={(e) =>
-                e.key === "Enter" && correction.trim() && !refining && !logging && handleRefine()
-              }
-              aria-label="Correction"
-              className="flex-1 min-h-[44px]"
+        <>
+          {chatOpen ? (
+            <FoodChat
+              initialAnalysis={analysis}
+              compressedImages={compressedImages || []}
+              onClose={() => setChatOpen(false)}
+              onLogged={setLogResponse}
             />
-            <Button
-              onClick={handleRefine}
-              disabled={!correction.trim() || logging || refining}
-              variant="outline"
-              className="min-h-[44px]"
-              aria-label="Send correction"
-            >
-              {refining ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Chat hint */}
+              <div
+                className="p-3 bg-muted/50 rounded-lg cursor-pointer hover:bg-muted transition-colors"
+                onClick={() => setChatOpen(true)}
+              >
+                <p className="text-sm text-muted-foreground">
+                  Add details or correct something...
+                </p>
+              </div>
 
-          {/* Refine error display */}
-          {refineError && (
-            <div
-              className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
-              aria-live="polite"
-            >
-              <p className="text-sm text-destructive">{refineError}</p>
-            </div>
-          )}
+              {/* Meal type selector */}
+              <div className="space-y-2">
+                <Label htmlFor="meal-type-analyzer">Meal Type</Label>
+                <MealTypeSelector
+                  value={mealTypeId}
+                  onChange={setMealTypeId}
+                  disabled={logging}
+                  id="meal-type-analyzer"
+                />
+              </div>
 
-          {/* Re-analyze button */}
-          <Button
-            onClick={handleAnalyze}
-            variant="ghost"
-            className="w-full min-h-[44px]"
-            disabled={logging || refining}
-          >
-            Re-analyze
-          </Button>
-
-          {/* Meal type selector */}
-          <div className="space-y-2">
-            <Label htmlFor="meal-type-analyzer">Meal Type</Label>
-            <MealTypeSelector
-              value={mealTypeId}
-              onChange={setMealTypeId}
-              disabled={logging}
-              id="meal-type-analyzer"
-            />
-          </div>
-
-          {/* Log error display */}
-          {logError && (
-            <div
-              data-testid="log-error"
-              className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
-              aria-live="polite"
-            >
-              <p className="text-sm text-destructive">{logError}</p>
-              {(logError.includes("reconnect") || logError.includes("Settings")) && (
-                <a
-                  href="/settings"
-                  className="text-sm text-destructive underline mt-1 inline-block"
+              {/* Log error display */}
+              {logError && (
+                <div
+                  data-testid="log-error"
+                  className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
+                  aria-live="polite"
                 >
-                  Go to Settings
-                </a>
+                  <p className="text-sm text-destructive">{logError}</p>
+                  {(logError.includes("reconnect") || logError.includes("Settings")) && (
+                    <a
+                      href="/settings"
+                      className="text-sm text-destructive underline mt-1 inline-block"
+                    >
+                      Go to Settings
+                    </a>
+                  )}
+                </div>
               )}
+
+              {/* Log to Fitbit button */}
+              <Button
+                onClick={handleLogToFitbit}
+                disabled={logging}
+                className="w-full min-h-[44px]"
+              >
+                {logging ? "Logging..." : matches.length > 0 ? "Log as new" : "Log to Fitbit"}
+              </Button>
             </div>
           )}
-
-          {/* Log to Fitbit button */}
-          <Button
-            onClick={handleLogToFitbit}
-            disabled={logging}
-            className="w-full min-h-[44px]"
-          >
-            {logging ? "Logging..." : matches.length > 0 ? "Log as new" : "Log to Fitbit"}
-          </Button>
-        </div>
+        </>
       )}
     </div>
   );

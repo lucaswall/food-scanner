@@ -234,4 +234,93 @@ describe("MacroBars", () => {
       expect(fatBar).toHaveStyle({ width: "50%" });
     });
   });
+
+  describe("over-goal visual indicators", () => {
+    it("label has text-destructive class when consumed exceeds goal", () => {
+      const { container } = render(
+        <MacroBars
+          proteinG={150}
+          carbsG={300}
+          fatG={80}
+          proteinGoal={100}
+          carbsGoal={200}
+          fatGoal={60}
+        />
+      );
+
+      // Find all labels - they should be the spans with tabular-nums class
+      const labels = container.querySelectorAll('.tabular-nums');
+
+      // Protein label (150 / 100g) should have text-destructive
+      expect(labels[0]).toHaveClass('text-destructive');
+
+      // Carbs label (300 / 200g) should have text-destructive
+      expect(labels[1]).toHaveClass('text-destructive');
+
+      // Fat label (80 / 60g) should have text-destructive
+      expect(labels[2]).toHaveClass('text-destructive');
+    });
+
+    it("label does not have text-destructive when consumed is within goal", () => {
+      const { container } = render(
+        <MacroBars
+          proteinG={50}
+          carbsG={100}
+          fatG={30}
+          proteinGoal={100}
+          carbsGoal={200}
+          fatGoal={60}
+        />
+      );
+
+      const labels = container.querySelectorAll('.tabular-nums');
+
+      // All labels should have text-muted-foreground, not text-destructive
+      expect(labels[0]).toHaveClass('text-muted-foreground');
+      expect(labels[0]).not.toHaveClass('text-destructive');
+      expect(labels[1]).toHaveClass('text-muted-foreground');
+      expect(labels[1]).not.toHaveClass('text-destructive');
+      expect(labels[2]).toHaveClass('text-muted-foreground');
+      expect(labels[2]).not.toHaveClass('text-destructive');
+    });
+
+    it("label does not have text-destructive when exactly at goal", () => {
+      const { container } = render(
+        <MacroBars
+          proteinG={100}
+          carbsG={200}
+          fatG={60}
+          proteinGoal={100}
+          carbsGoal={200}
+          fatGoal={60}
+        />
+      );
+
+      const labels = container.querySelectorAll('.tabular-nums');
+
+      // At goal should use text-muted-foreground, not text-destructive
+      expect(labels[0]).toHaveClass('text-muted-foreground');
+      expect(labels[0]).not.toHaveClass('text-destructive');
+    });
+
+    it("label does not have text-destructive when no goal is set", () => {
+      const { container } = render(
+        <MacroBars
+          proteinG={150}
+          carbsG={300}
+          fatG={80}
+        />
+      );
+
+      const labels = container.querySelectorAll('.tabular-nums');
+
+      // Without goals, should use text-muted-foreground, not text-destructive
+      expect(labels[0]).toHaveClass('text-muted-foreground');
+      expect(labels[0]).not.toHaveClass('text-destructive');
+      expect(labels[1]).toHaveClass('text-muted-foreground');
+      expect(labels[1]).not.toHaveClass('text-destructive');
+      expect(labels[2]).toHaveClass('text-muted-foreground');
+      expect(labels[2]).not.toHaveClass('text-destructive');
+    });
+  });
 });

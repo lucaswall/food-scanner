@@ -14,6 +14,23 @@ beforeAll(() => {
 
 // Mock fetch
 const mockFetch = vi.fn();
+const originalMockResolvedValueOnce = mockFetch.mockResolvedValueOnce.bind(mockFetch);
+
+// Intercept mockResolvedValueOnce to auto-add .text() method if only .json() is present
+mockFetch.mockResolvedValueOnce = (value: unknown) => {
+  if (value && typeof value === "object" && "json" in value && !("text" in value)) {
+    const enhanced = {
+      ...value,
+      text: async () => {
+        const jsonResult = await (value as { json: () => Promise<unknown> }).json();
+        return JSON.stringify(jsonResult);
+      },
+    };
+    return originalMockResolvedValueOnce(enhanced);
+  }
+  return originalMockResolvedValueOnce(value);
+};
+
 vi.stubGlobal("fetch", mockFetch);
 
 // Mock pending-submission module

@@ -14,6 +14,23 @@ beforeAll(() => {
 
 // Mock fetch (must be before component mocks that might use it)
 const mockFetch = vi.fn();
+const originalMockResolvedValueOnce = mockFetch.mockResolvedValueOnce.bind(mockFetch);
+
+// Intercept mockResolvedValueOnce to auto-add .text() method if only .json() is present
+mockFetch.mockResolvedValueOnce = (value: unknown) => {
+  if (value && typeof value === "object" && "json" in value && !("text" in value)) {
+    const enhanced = {
+      ...value,
+      text: async () => {
+        const jsonResult = await (value as { json: () => Promise<unknown> }).json();
+        return JSON.stringify(jsonResult);
+      },
+    };
+    return originalMockResolvedValueOnce(enhanced);
+  }
+  return originalMockResolvedValueOnce(value);
+};
+
 vi.stubGlobal("fetch", mockFetch);
 
 // Mock pending-submission (returns null by default — no pending data)
@@ -153,6 +170,35 @@ vi.mock("../food-log-confirmation", () => ({
     ) : null,
 }));
 
+vi.mock("../food-chat", () => ({
+  FoodChat: ({
+    initialAnalysis,
+    onClose,
+    onLogged,
+  }: {
+    initialAnalysis: FoodAnalysis;
+    compressedImages: Blob[];
+    onClose: () => void;
+    onLogged: (response: FoodLogResponse) => void;
+  }) => (
+    <div data-testid="food-chat">
+      <span data-testid="chat-food-name">{initialAnalysis.food_name}</span>
+      <button onClick={onClose}>Close Chat</button>
+      <button
+        onClick={() =>
+          onLogged({
+            success: true,
+            reusedFood: false,
+            foodLogId: 999,
+          })
+        }
+      >
+        Log from Chat
+      </button>
+    </div>
+  ),
+}));
+
 // Mock image compression - must be defined after vi.mock calls
 vi.mock("@/lib/image", () => ({
   compressImage: vi.fn().mockResolvedValue(new Blob(["compressed"])),
@@ -206,7 +252,7 @@ const mockMatches: FoodMatch[] = [
 
 const emptyMatchesResponse = () => ({
   ok: true,
-  json: () => Promise.resolve({ success: true, data: { matches: [] } }),
+  text: () => Promise.resolve(JSON.stringify({ success: true, data: { matches: [] } })),
 });
 
 beforeEach(() => {
@@ -1325,8 +1371,8 @@ describe("FoodAnalyzer", () => {
     });
   });
 
-  describe("aria-labels on inputs", () => {
-    it("correction input has aria-label", async () => {
+  describe("conversational food chat", () => {
+    it("shows chat hint after analysis", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
@@ -1341,7 +1387,169 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByRole("textbox", { name: /correction/i })).toBeInTheDocument();
+        expect(screen.getByText(/add details or correct something/i)).toBeInTheDocument();
+      });
+    });
+
+    it("tapping chat hint opens FoodChat component", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/add details or correct something/i)).toBeInTheDocument();
+      });
+
+      // Click the hint
+      fireEvent.click(screen.getByText(/add details or correct something/i));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+    });
+
+    it("quick-log path works without opening chat", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      // Log directly without using chat
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      });
+
+      // Chat should never have been opened
+      expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
+    });
+
+    it("hides food matches when FoodChat is open", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/similar foods you've logged before/i)).toBeInTheDocument();
+      });
+
+      // Open chat
+      fireEvent.click(screen.getByText(/add details or correct something/i));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+        // Food matches should be hidden
+        expect(screen.queryByText(/similar foods you've logged before/i)).not.toBeInTheDocument();
+      });
+    });
+
+    it("returns to post-analysis view when FoodChat onClose is called", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/add details or correct something/i)).toBeInTheDocument();
+      });
+
+      // Open chat
+      fireEvent.click(screen.getByText(/add details or correct something/i));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+
+      // Close chat
+      fireEvent.click(screen.getByRole("button", { name: /close chat/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+    });
+
+    it("shows FoodLogConfirmation when FoodChat onLogged is called", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/add details or correct something/i)).toBeInTheDocument();
+      });
+
+      // Open chat
+      fireEvent.click(screen.getByText(/add details or correct something/i));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+
+      // Log from chat
+      fireEvent.click(screen.getByRole("button", { name: /log from chat/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+        expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
       });
     });
   });
@@ -1406,6 +1614,60 @@ describe("FoodAnalyzer", () => {
       await waitFor(() => {
         const confirmationSection = screen.getByTestId("food-log-confirmation").parentElement;
         expect(confirmationSection).toHaveFocus();
+      });
+    });
+  });
+
+  describe("HTML error response handling", () => {
+    it("shows friendly error message when analyze-food returns HTML", async () => {
+      // Mock a response that returns HTML when text() is called
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: () => Promise.resolve("<!DOCTYPE html><html><body>Error</body></html>"),
+      } as Response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/server returned an unexpected response/i)).toBeInTheDocument();
+      });
+    });
+
+    it("shows friendly error message when log-food returns HTML", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () => Promise.resolve(JSON.stringify({ success: true, data: mockAnalysis })),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: false,
+          text: () => Promise.resolve("<html><body>Service Unavailable</body></html>"),
+        } as Response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("log-error")).toBeInTheDocument();
+        expect(screen.getByText(/server returned an unexpected response/i)).toBeInTheDocument();
       });
     });
   });

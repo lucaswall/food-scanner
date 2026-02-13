@@ -180,5 +180,49 @@ describe("CalorieRing", () => {
       const marker = container.querySelector('[data-testid="budget-marker"]');
       expect(marker).toBeInTheDocument();
     });
+
+    it("does not render marker when calories equal goal", () => {
+      const { container } = render(<CalorieRing calories={2000} goal={2000} budget={500} />);
+      const marker = container.querySelector('[data-testid="budget-marker"]');
+      expect(marker).not.toBeInTheDocument();
+    });
+
+    it("does not render marker when calories exceed goal", () => {
+      const { container } = render(<CalorieRing calories={2500} goal={2000} budget={500} />);
+      const marker = container.querySelector('[data-testid="budget-marker"]');
+      expect(marker).not.toBeInTheDocument();
+    });
+
+    it("still renders marker when calories are below goal", () => {
+      const { container } = render(<CalorieRing calories={1500} goal={2000} budget={300} />);
+      const marker = container.querySelector('[data-testid="budget-marker"]');
+      expect(marker).toBeInTheDocument();
+    });
+  });
+
+  describe("over-goal visual indicators", () => {
+    it("calorie count has text-destructive class when over goal", () => {
+      const { container } = render(<CalorieRing calories={2500} goal={2000} />);
+      const calorieText = container.querySelector('.text-2xl');
+      expect(calorieText).toHaveClass('text-destructive');
+    });
+
+    it("calorie count does not have text-destructive when below goal", () => {
+      const { container } = render(<CalorieRing calories={1500} goal={2000} />);
+      const calorieText = container.querySelector('.text-2xl');
+      expect(calorieText).not.toHaveClass('text-destructive');
+    });
+
+    it("calorie count does not have text-destructive when exactly at goal", () => {
+      const { container } = render(<CalorieRing calories={2000} goal={2000} />);
+      const calorieText = container.querySelector('.text-2xl');
+      expect(calorieText).not.toHaveClass('text-destructive');
+    });
+
+    it("calorie count does not have text-destructive when goal is zero", () => {
+      const { container } = render(<CalorieRing calories={1000} goal={0} />);
+      const calorieText = container.querySelector('.text-2xl');
+      expect(calorieText).not.toHaveClass('text-destructive');
+    });
   });
 });

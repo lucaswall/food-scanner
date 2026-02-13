@@ -17,6 +17,10 @@ export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
   // Stroke dashoffset: full circumference = 0% progress, 0 = 100% progress
   const dashOffset = circumference * (1 - progress);
 
+  // Over-goal indicators
+  const isOverGoal = goal > 0 && calories > goal;
+  const isAtOrOverGoal = goal > 0 && calories >= goal;
+
   // Calculate budget marker position: shows total ceiling (consumed + remaining) as fraction of goal
   const budgetPosition = budget != null && goal > 0
     ? Math.max(0, Math.min(1, (calories + budget) / goal))
@@ -65,7 +69,7 @@ export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
           />
 
           {/* Budget marker */}
-          {budgetPosition !== null && (() => {
+          {budgetPosition !== null && !isAtOrOverGoal && (() => {
             // Calculate angle in radians (0 = SVG 3 o'clock, CSS rotation handles 12 o'clock start)
             const angle = budgetPosition * 2 * Math.PI;
             const markerLength = 6;
@@ -96,7 +100,7 @@ export function CalorieRing({ calories, goal, budget }: CalorieRingProps) {
 
         {/* Center text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-bold tabular-nums">
+          <span className={`text-2xl font-bold tabular-nums ${isOverGoal ? 'text-destructive' : ''}`}>
             {formatNumber(calories)}
           </span>
           <span className="text-xs text-muted-foreground tabular-nums">

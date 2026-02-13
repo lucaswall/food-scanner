@@ -377,3 +377,19 @@ export interface DailyNutritionTotals {
 export interface DateRangeNutritionResponse {
   days: DailyNutritionTotals[];
 }
+
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string;
+  analysis?: FoodAnalysis;
+}
+
+export interface ChatFoodRequest {
+  messages: ConversationMessage[];
+  images?: string[];
+}
+
+export interface ChatFoodResponse {
+  message: string;
+  analysis?: FoodAnalysis;
+}
