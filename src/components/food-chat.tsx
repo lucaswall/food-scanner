@@ -191,12 +191,12 @@ export function FoodChat({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    <div className="fixed inset-0 z-[60] flex flex-col bg-background">
       {/* Floating back button */}
       <button
         onClick={onClose}
         aria-label="Back"
-        className="fixed top-3 left-3 z-[51] flex items-center justify-center size-11 rounded-full bg-background/80 backdrop-blur-sm shadow-md border"
+        className="fixed top-3 left-3 z-[61] flex items-center justify-center size-11 rounded-full bg-background/80 backdrop-blur-sm shadow-md border"
       >
         <ArrowLeft className="h-5 w-5" />
       </button>
@@ -341,7 +341,7 @@ export function FoodChat({
         </div>
 
         {/* Line 2: Meal type (left) + Log to Fitbit (right) */}
-        <div className="flex items-center gap-2 px-2 py-2">
+        <div className="flex items-center gap-2 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <div className="flex-1">
             <MealTypeSelector
               value={mealTypeId}
