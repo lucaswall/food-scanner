@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Branch:** feat/FOO-345-weekly-nutrition-chart
 **Issues:** FOO-345, FOO-346, FOO-347
 **Created:** 2026-02-12
@@ -324,3 +324,53 @@ Replace the separate weekly calorie chart and macro averages components with a u
 - Persistent metric selection across page navigations
 - Any changes to the daily dashboard view
 - Changes to the fasting chart
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-12
+**Method:** Agent team (2 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Add getLumenGoalsByDateRange to lumen module (worker-1)
+- Task 2: Extend DailyNutritionTotals with macro goal fields (worker-1)
+- Task 3: Update getDateRangeNutritionSummary to include macro goals (worker-1)
+- Task 4: Create unified WeeklyNutritionChart component with metric selector (worker-2)
+- Task 5: Add goal consistency indicator (worker-2)
+- Task 6: Add net surplus/deficit summary (worker-2)
+- Task 7: Wire into WeeklyDashboard, delete old components (worker-2)
+- Task 8: Integration & Verification (lead)
+
+### Files Modified
+- `src/lib/lumen.ts` - Added getLumenGoalsByDateRange function
+- `src/lib/__tests__/lumen.test.ts` - Added tests for getLumenGoalsByDateRange
+- `src/types/index.ts` - Added proteinGoalG, carbsGoalG, fatGoalG to DailyNutritionTotals
+- `src/lib/food-log.ts` - Updated getDateRangeNutritionSummary to fetch and merge macro goals
+- `src/lib/__tests__/food-log.test.ts` - Added tests for macro goal integration
+- `src/components/weekly-nutrition-chart.tsx` - Created unified chart with metric selector, goal consistency, net surplus/deficit
+- `src/components/__tests__/weekly-nutrition-chart.test.tsx` - Created comprehensive test suite (21 tests)
+- `src/components/weekly-dashboard.tsx` - Replaced old components with WeeklyNutritionChart, updated skeleton
+- `src/components/__tests__/weekly-dashboard.test.tsx` - Updated mocks and assertions
+
+### Files Deleted
+- `src/components/weekly-calorie-chart.tsx`
+- `src/components/__tests__/weekly-calorie-chart.test.tsx`
+- `src/components/weekly-macro-averages.tsx`
+- `src/components/__tests__/weekly-macro-averages.test.tsx`
+
+### Linear Updates
+- FOO-345: Todo → In Progress → Review
+- FOO-346: Todo → In Progress → Review
+- FOO-347: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 bugs (redundant type assertion, unused variable), fixed before proceeding
+- verifier: All tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3 (backend data layer: lumen module, types, food-log integration)
+- Worker 2: Tasks 4, 5, 6, 7 (frontend component, goal consistency, surplus/deficit, wiring + deletions)
+
+### Continuation Status
+All tasks completed.

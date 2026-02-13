@@ -5,7 +5,7 @@ import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { getDb } from "@/db/index";
 import { lumenGoals } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, between, asc } from "drizzle-orm";
 import { recordUsage } from "@/lib/claude-usage";
 
 let _client: Anthropic | null = null;
@@ -239,4 +239,28 @@ export async function getLumenGoalsByDate(
     carbsGoal: rows[0].carbsGoal,
     fatGoal: rows[0].fatGoal,
   };
+}
+
+export async function getLumenGoalsByDateRange(
+  userId: string,
+  fromDate: string,
+  toDate: string
+): Promise<Array<{ date: string; proteinGoal: number; carbsGoal: number; fatGoal: number }>> {
+  const rows = await getDb()
+    .select({
+      date: lumenGoals.date,
+      proteinGoal: lumenGoals.proteinGoal,
+      carbsGoal: lumenGoals.carbsGoal,
+      fatGoal: lumenGoals.fatGoal,
+    })
+    .from(lumenGoals)
+    .where(
+      and(
+        eq(lumenGoals.userId, userId),
+        between(lumenGoals.date, fromDate, toDate)
+      )
+    )
+    .orderBy(asc(lumenGoals.date));
+
+  return rows;
 }

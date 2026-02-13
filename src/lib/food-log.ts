@@ -3,6 +3,7 @@ import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
 import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry, FoodLogEntryDetail, DailyNutritionTotals } from "@/types";
 import { getCalorieGoalsByDateRange } from "@/lib/nutrition-goals";
+import { getLumenGoalsByDateRange } from "@/lib/lumen";
 
 export interface CustomFoodInput {
   foodName: string;
@@ -804,7 +805,7 @@ export async function getDateRangeNutritionSummary(
     .orderBy(asc(foodLogEntries.date));
 
   // Group by date and aggregate nutrition totals
-  const dailyTotals = new Map<string, Omit<DailyNutritionTotals, "calorieGoal">>();
+  const dailyTotals = new Map<string, Omit<DailyNutritionTotals, "calorieGoal" | "proteinGoalG" | "carbsGoalG" | "fatGoalG">>();
 
   for (const row of rows) {
     const date = row.food_log_entries.date;
@@ -837,16 +838,26 @@ export async function getDateRangeNutritionSummary(
     }
   }
 
-  // Get calorie goals for the date range
-  const calorieGoals = await getCalorieGoalsByDateRange(userId, fromDate, toDate);
-  const calorieGoalsByDate = new Map(calorieGoals.map(g => [g.date, g.calorieGoal]));
+  // Get calorie goals and lumen goals for the date range
+  const [calorieGoals, lumenGoals] = await Promise.all([
+    getCalorieGoalsByDateRange(userId, fromDate, toDate),
+    getLumenGoalsByDateRange(userId, fromDate, toDate),
+  ]);
 
-  // Merge nutrition totals with calorie goals
+  const calorieGoalsByDate = new Map(calorieGoals.map(g => [g.date, g.calorieGoal]));
+  const macroGoalsByDate = new Map(
+    lumenGoals.map(g => [g.date, { proteinGoal: g.proteinGoal, carbsGoal: g.carbsGoal, fatGoal: g.fatGoal }])
+  );
+
+  // Merge nutrition totals with calorie goals and macro goals
   const result: DailyNutritionTotals[] = [];
   for (const [date, totals] of dailyTotals) {
     result.push({
       ...totals,
       calorieGoal: calorieGoalsByDate.get(date) ?? null,
+      proteinGoalG: macroGoalsByDate.get(date)?.proteinGoal ?? null,
+      carbsGoalG: macroGoalsByDate.get(date)?.carbsGoal ?? null,
+      fatGoalG: macroGoalsByDate.get(date)?.fatGoal ?? null,
     });
   }
 

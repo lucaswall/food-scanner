@@ -92,6 +92,11 @@ vi.mock("@/lib/nutrition-goals", () => ({
   getCalorieGoalsByDateRange: (...args: unknown[]) => mockGetCalorieGoalsByDateRange(...args),
 }));
 
+const mockGetLumenGoalsByDateRange = vi.fn();
+vi.mock("@/lib/lumen", () => ({
+  getLumenGoalsByDateRange: (...args: unknown[]) => mockGetLumenGoalsByDateRange(...args),
+}));
+
 const {
   insertCustomFood,
   insertFoodLogEntry,
@@ -1821,6 +1826,7 @@ describe("getDateRangeNutritionSummary", () => {
     mockFrom.mockReturnValue({ where: mockWhere, innerJoin: mockInnerJoin });
     mockInnerJoin.mockReturnValue({ where: mockWhere });
     mockWhere.mockReturnValue({ orderBy: mockOrderBy });
+    mockGetLumenGoalsByDateRange.mockResolvedValue([]);
   });
 
   it("returns daily nutrition totals for date range", async () => {
@@ -1877,6 +1883,9 @@ describe("getDateRangeNutritionSummary", () => {
         fiberG: 8,
         sodiumMg: 350,
         calorieGoal: 2000,
+        proteinGoalG: null,
+        carbsGoalG: null,
+        fatGoalG: null,
       },
       {
         date: "2026-02-09",
@@ -1887,6 +1896,9 @@ describe("getDateRangeNutritionSummary", () => {
         fiberG: 8,
         sodiumMg: 300,
         calorieGoal: 2200,
+        proteinGoalG: null,
+        carbsGoalG: null,
+        fatGoalG: null,
       },
     ]);
   });
@@ -1929,6 +1941,9 @@ describe("getDateRangeNutritionSummary", () => {
         fiberG: 5,
         sodiumMg: 200,
         calorieGoal: null,
+        proteinGoalG: null,
+        carbsGoalG: null,
+        fatGoalG: null,
       },
     ]);
   });
@@ -1945,5 +1960,74 @@ describe("getDateRangeNutritionSummary", () => {
     expect(mockWhere).toHaveBeenCalled();
     expect(mockOrderBy).toHaveBeenCalled();
     expect(mockGetCalorieGoalsByDateRange).toHaveBeenCalledWith("user-456", "2026-02-01", "2026-02-05");
+  });
+
+  it("includes macro goals from lumen data", async () => {
+    mockOrderBy.mockResolvedValue([
+      {
+        food_log_entries: { date: "2026-02-08" },
+        custom_foods: {
+          calories: 500,
+          proteinG: "20",
+          carbsG: "30",
+          fatG: "15",
+          fiberG: "5",
+          sodiumMg: "200",
+        },
+      },
+      {
+        food_log_entries: { date: "2026-02-09" },
+        custom_foods: {
+          calories: 600,
+          proteinG: "25",
+          carbsG: "50",
+          fatG: "20",
+          fiberG: "8",
+          sodiumMg: "300",
+        },
+      },
+    ]);
+
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([
+      { date: "2026-02-08", calorieGoal: 2000 },
+    ]);
+
+    mockGetLumenGoalsByDateRange.mockResolvedValue([
+      { date: "2026-02-08", proteinGoal: 120, carbsGoal: 200, fatGoal: 60 },
+      { date: "2026-02-09", proteinGoal: 130, carbsGoal: 180, fatGoal: 70 },
+    ]);
+
+    const result = await getDateRangeNutritionSummary("user-123", "2026-02-08", "2026-02-09");
+
+    expect(result).toEqual([
+      {
+        date: "2026-02-08",
+        calories: 500,
+        proteinG: 20,
+        carbsG: 30,
+        fatG: 15,
+        fiberG: 5,
+        sodiumMg: 200,
+        calorieGoal: 2000,
+        proteinGoalG: 120,
+        carbsGoalG: 200,
+        fatGoalG: 60,
+      },
+      {
+        date: "2026-02-09",
+        calories: 600,
+        proteinG: 25,
+        carbsG: 50,
+        fatG: 20,
+        fiberG: 8,
+        sodiumMg: 300,
+        calorieGoal: null,
+        proteinGoalG: 130,
+        carbsGoalG: 180,
+        fatGoalG: 70,
+      },
+    ]);
+
+    expect(mockGetLumenGoalsByDateRange).toHaveBeenCalledWith("user-123", "2026-02-08", "2026-02-09");
   });
 });
