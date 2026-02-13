@@ -1,284 +1,423 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-345-weekly-nutrition-chart
-**Issues:** FOO-345, FOO-346, FOO-347
-**Created:** 2026-02-12
-**Last Updated:** 2026-02-12
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-349-ui-polish-and-theme
+**Issues:** FOO-349, FOO-348, FOO-350, FOO-351, FOO-352, FOO-353, FOO-356, FOO-357, FOO-358
+**Created:** 2026-02-13
+**Last Updated:** 2026-02-13
 
 ## Summary
 
-Replace the separate weekly calorie chart and macro averages components with a unified nutrition chart featuring a metric selector (Calories/Protein/Carbs/Fat), per-day bars with goal dashed lines, a goal consistency indicator ("5/7 days on target"), and a net weekly surplus/deficit summary. This requires extending the data layer to include macro goals from the lumen_goals table in the date-range nutrition response.
+Batch of UI polish, accessibility fixes, a visual bug fix, and theme variable consolidation. Replaces hardcoded Tailwind colors (green-500, amber-500, blue-500, etc.) with semantic CSS variables, fixes accessibility gaps (label associations, skip links, visible labels), improves empty states, fixes a chart overflow bug, and tidies up minor UI issues.
 
 ## Issues
 
-### FOO-345: Weekly dashboard: per-day macro bars with metric selector
+### FOO-349: Replace hardcoded Tailwind colors with theme variables
+
+**Priority:** High
+**Labels:** Improvement
+**Description:** Multiple components use hardcoded Tailwind color utilities instead of theme CSS variables, creating visual inconsistency especially in dark mode. Affected files: `src/lib/confidence.ts`, `src/components/confidence-badge.tsx`, `src/components/macro-bars.tsx`, `src/components/weekly-nutrition-chart.tsx`, `src/components/fasting-card.tsx`, `src/components/calorie-ring.tsx`, `src/components/food-log-confirmation.tsx`, `src/components/lumen-banner.tsx`, `src/components/fitbit-status-banner.tsx`, `src/components/settings-content.tsx`.
+
+**Acceptance Criteria:**
+- [ ] No hardcoded Tailwind color utilities (green-500, amber-500, blue-500, red-500, yellow-500, etc.) in component files
+- [ ] New semantic color variables defined in globals.css for both light and dark themes
+- [ ] All affected components use theme variables instead of hardcoded colors
+- [ ] Visual appearance consistent in both light and dark mode
+
+### FOO-348: Weekly chart goal marker overflows when goal exceeds max actual value
+
+**Priority:** Low
+**Labels:** Bug
+**Description:** The weekly nutrition chart's goal dashed line positions above the visible chart area when `goal > maxValue`. `maxValue` (line 66-74) only considers actual data, not goals. `goalHeightPercent` can exceed 100%.
+
+**Acceptance Criteria:**
+- [ ] Goal marker stays within the chart area when goal exceeds max actual value
+- [ ] maxValue calculation includes goal values for the selected metric
+- [ ] Works for all four metrics (calories, protein, carbs, fat)
+
+### FOO-350: Add label association to settings page input fields
 
 **Priority:** Medium
-**Labels:** Feature
-**Description:** The weekly macro averages component shows aggregated averages for protein/carbs/fat, which isn't actionable. Replace it (and the calorie chart) with a unified chart component that shows per-day bars for a selectable metric (calories/protein/carbs/fat), each with a goal dashed line. Requires adding `getLumenGoalsByDateRange()` to the lumen module and extending `DailyNutritionTotals` with macro goal fields.
+**Labels:** Bug
+**Description:** Fitbit Client ID and Client Secret inputs in settings are missing `htmlFor`/`id` pairing.
 
 **Acceptance Criteria:**
-- [ ] Metric selector with 4 options: Calories, Protein, Carbs, Fat
-- [ ] Per-day bars (Sunday-Saturday) for the selected metric
-- [ ] Goal dashed line per day when a goal exists for the selected metric
-- [ ] Green bar when actual <= goal, amber when actual > goal, primary when no goal
-- [ ] Empty state message when no data
-- [ ] Old `weekly-calorie-chart.tsx` and `weekly-macro-averages.tsx` deleted
+- [ ] Client ID input has `id="fitbit-client-id"` and label has `htmlFor="fitbit-client-id"`
+- [ ] Client Secret input has `id="fitbit-client-secret"` and label has `htmlFor="fitbit-client-secret"`
+- [ ] Clicking label text focuses the corresponding input
 
-### FOO-346: Weekly dashboard: goal consistency indicator
+### FOO-351: Add skip link and main landmark to food-detail page
+
+**Priority:** Medium
+**Labels:** Bug
+**Description:** The food-detail page is missing SkipLink and `<main>` landmark, unlike all other app pages.
+
+**Acceptance Criteria:**
+- [ ] SkipLink component rendered on food-detail page
+- [ ] Content wrapped in `<main id="main-content">` landmark
+- [ ] Pattern matches other app pages (e.g. `src/app/app/page.tsx`)
+
+### FOO-352: Add space between nutrition values and units in analysis result
+
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** `NutritionItem` renders `{value}{unit}` on separate lines in JSX, but adjacent JSX expressions produce no whitespace — displays as "450kcal" not "450 kcal".
+
+**Acceptance Criteria:**
+- [ ] Nutrition values display with a space before the unit (e.g. "450 kcal", "25 g")
+- [ ] Applies to all nutrition metrics in the analysis result component
+
+### FOO-353: Replace generic empty states with actionable guidance
+
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** Fasting card (lines 76, 120) shows "No data" and daily dashboard (line 264) shows "No food logged" without guidance.
+
+**Acceptance Criteria:**
+- [ ] Fasting card empty state includes actionable message guiding user to log a meal
+- [ ] Daily dashboard empty state includes actionable message guiding user to log food
+- [ ] Messages are friendly and specific
+
+### FOO-356: Remove redundant aria-label from theme toggle buttons
 
 **Priority:** Low
-**Labels:** Feature
-**Description:** Add a small text indicator above the chart showing how many days the user hit their goal for the selected metric (e.g., "5/7 days on target"). Only count days with logged data. Updates when the metric selector changes.
+**Labels:** Improvement
+**Description:** Theme toggle buttons have visible text ("Light", "Dark", "System") and redundant `aria-label` attributes with identical values.
 
 **Acceptance Criteria:**
-- [ ] Shows "N/M days on target" text above chart bars
-- [ ] Only counts days with calories > 0 (logged data)
-- [ ] Updates dynamically when metric changes
-- [ ] Hidden when no goals exist for the selected metric
+- [ ] Theme toggle buttons have no aria-label attribute
+- [ ] Buttons still have visible text labels
+- [ ] Accessible name derived from visible text content
 
-### FOO-347: Weekly dashboard: net surplus/deficit summary
+### FOO-357: Add visible label to food description textarea
 
 **Priority:** Low
-**Labels:** Feature
-**Description:** Show a weekly net surplus/deficit below the chart: sum of (actual - goal) across all days with data. Display as "+120 kcal over" or "-50g under". Color-coded: green for on/under target, amber/red for over. Updates when the metric selector changes.
+**Labels:** Bug
+**Description:** Food description textarea uses only `aria-label` without a visible label. Placeholder disappears on typing.
 
 **Acceptance Criteria:**
-- [ ] Shows net surplus/deficit below chart
-- [ ] Calculation: sum of (actual - goal) only for days with both data and a goal
-- [ ] Unit-aware labels: "kcal" for calories, "g" for macros
-- [ ] Green text when net is at or under target, amber when over
-- [ ] Updates dynamically when metric changes
-- [ ] Hidden when no goals exist for the selected metric
+- [ ] Visible label displayed above the textarea
+- [ ] Label associated via htmlFor/id
+- [ ] Label indicates the field is optional
+
+### FOO-358: Update PWA manifest theme_color to match app theme
+
+**Priority:** Low
+**Labels:** Improvement
+**Description:** PWA manifest uses `#000000` as theme_color. The app's light mode background is `oklch(1 0 0)` which is `#ffffff`.
+
+**Acceptance Criteria:**
+- [ ] manifest.json theme_color matches the app's light mode background color
+- [ ] No jarring color flash when launching as PWA
 
 ## Prerequisites
 
-- [ ] Database has lumen_goals table with per-day macro goals (already exists)
-- [ ] Database has daily_calorie_goals table (already exists)
+- [ ] On `main` branch with clean working tree
+- [ ] All tests passing before starting
 
 ## Implementation Tasks
 
-### Task 1: Add getLumenGoalsByDateRange to lumen module
+### Task 1: Define semantic CSS color variables in globals.css
 
-**Issue:** FOO-345
+**Issue:** FOO-349
 **Files:**
-- `src/lib/__tests__/lumen.test.ts` (modify)
-- `src/lib/lumen.ts` (modify)
+- `src/app/globals.css` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Write a test for `getLumenGoalsByDateRange(userId, fromDate, toDate)` that returns an array of `{ date, proteinGoal, carbsGoal, fatGoal }` objects. Mock the DB to return rows for dates in the range. Follow the existing mock pattern in `src/lib/__tests__/lumen.test.ts` (mock `getDb`, chain `.select().from().where().orderBy()`).
-   - Run: `npm test -- lumen`
-   - Verify: Test fails — function doesn't exist yet.
+1. **RED** — Write test in a new file `src/app/__tests__/globals-theme.test.ts` that loads `globals.css` as text and asserts the presence of `--success`, `--warning`, and `--info` CSS custom properties in both `:root` and `.dark` selectors, and their corresponding `--color-*` mappings in `@theme inline`.
+   - Run: `npm test -- globals-theme`
+   - Verify: Test fails (variables don't exist yet)
 
-2. **GREEN** — Implement `getLumenGoalsByDateRange` in `src/lib/lumen.ts`. Pattern to follow: `getCalorieGoalsByDateRange` in `src/lib/nutrition-goals.ts` (uses `between()` filter on date column, `orderBy(asc(date))`). Query `lumenGoals` table selecting `date`, `proteinGoal`, `carbsGoal`, `fatGoal` where `userId = X` and `date BETWEEN fromDate AND toDate`, ordered by date ascending.
-   - Run: `npm test -- lumen`
-   - Verify: Test passes.
-
-3. **REFACTOR** — No significant refactoring expected.
+2. **GREEN** — Add semantic color variables to `globals.css`:
+   - In `@theme inline`: add `--color-success`, `--color-success-foreground`, `--color-warning`, `--color-warning-foreground`, `--color-info`, `--color-info-foreground` mappings (same pattern as existing `--color-destructive`)
+   - In `:root`: define oklch values for success (green), warning (amber), info (blue) — match the visual appearance of the current hardcoded Tailwind colors (green-500, amber-500, blue-500)
+   - In `.dark`: define dark-mode oklch values — match current dark mode appearance where components already specify `dark:` variants (e.g., `dark:text-green-400` suggests a lighter green in dark mode)
+   - Run: `npm test -- globals-theme`
+   - Verify: Test passes
 
 **Notes:**
-- The function signature: `getLumenGoalsByDateRange(userId: string, fromDate: string, toDate: string): Promise<Array<{ date: string; proteinGoal: number; carbsGoal: number; fatGoal: number }>>`
-- Import `between` and `asc` from drizzle-orm (already imported in the file: `and`, `eq` — add the new ones).
+- Follow the existing pattern: `--color-destructive: var(--destructive)` in `@theme inline`, then `--destructive: oklch(...)` in `:root`/`.dark`
+- This produces Tailwind utilities: `bg-success`, `text-success`, `border-success`, `bg-warning`, `text-warning`, `border-warning`, `bg-info`, `text-info`, `border-info`, plus foreground variants
+- The banner components (lumen-banner, fitbit-status-banner) use tinted backgrounds — these can use opacity modifiers like `bg-warning/10` or `bg-info/10` instead of dedicated variables
 
 ---
 
-### Task 2: Extend DailyNutritionTotals with macro goal fields
+### Task 2: Fix settings page accessibility and replace hardcoded colors
 
-**Issue:** FOO-345
+**Issue:** FOO-350, FOO-356, FOO-349
 **Files:**
-- `src/types/index.ts` (modify)
-
-**Steps:**
-
-1. Add three new optional fields to the `DailyNutritionTotals` interface:
-   - `proteinGoalG: number | null`
-   - `carbsGoalG: number | null`
-   - `fatGoalG: number | null`
-
-2. This is a type-only change. Existing consumers that construct `DailyNutritionTotals` objects will get TypeScript errors — those are fixed in Tasks 3 and 7.
-
-**Notes:**
-- Follow the naming convention of existing field `calorieGoal` — the new fields use the `G` suffix matching `proteinG`, `carbsG`, `fatG`.
-
----
-
-### Task 3: Update getDateRangeNutritionSummary to include macro goals
-
-**Issue:** FOO-345
-**Files:**
-- `src/lib/__tests__/food-log.test.ts` (modify)
-- `src/lib/food-log.ts` (modify)
+- `src/components/settings-content.tsx` (modify)
+- `src/components/__tests__/settings-content.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add a test for `getDateRangeNutritionSummary` that verifies macro goals are included in the returned `DailyNutritionTotals[]`. Mock `getLumenGoalsByDateRange` (from `@/lib/lumen`) to return goals for specific dates. Assert that the returned objects have `proteinGoalG`, `carbsGoalG`, `fatGoalG` fields populated from the lumen goals, and `null` for dates without lumen goals.
-   - Run: `npm test -- food-log`
-   - Verify: Test fails — function doesn't yet merge macro goals.
+1. **RED** — Add tests to `settings-content.test.tsx`:
+   - Test that Client ID label has `htmlFor="fitbit-client-id"` and input has matching `id` (FOO-350). This requires the SWR mock to return credentials data (`hasCredentials: true, clientId: "test-id"`) so the credential fields render.
+   - Test that Client Secret label has `htmlFor="fitbit-client-secret"` and input has matching `id` (FOO-350). Same SWR mock prerequisite.
+   - Test that theme toggle buttons do NOT have aria-label attributes (FOO-356). Existing SWR mock (null data) is sufficient since theme section always renders.
+   - Run: `npm test -- settings-content`
+   - Verify: Tests fail
 
-2. **GREEN** — In `getDateRangeNutritionSummary` (`src/lib/food-log.ts`):
-   - Import `getLumenGoalsByDateRange` from `@/lib/lumen`
-   - After the existing `getCalorieGoalsByDateRange` call, also call `getLumenGoalsByDateRange(userId, fromDate, toDate)`
-   - Create a `Map<string, { proteinGoal, carbsGoal, fatGoal }>` from the results
-   - When building the result array, merge macro goals: `proteinGoalG: macroGoalsByDate.get(date)?.proteinGoal ?? null`, etc.
-   - Run: `npm test -- food-log`
-   - Verify: Test passes.
-
-3. **REFACTOR** — No significant refactoring expected.
+2. **GREEN** — Modify `settings-content.tsx`:
+   - Add `htmlFor="fitbit-client-id"` to Client ID label (line 186), add `id="fitbit-client-id"` to Client ID Input (line 189)
+   - Add `htmlFor="fitbit-client-secret"` to Client Secret label (line 231), add `id="fitbit-client-secret"` to Client Secret Input (line 234)
+   - Remove `aria-label="Light"` (line 292), `aria-label="Dark"` (line 302), `aria-label="System"` (line 312)
+   - Replace hardcoded Fitbit status colors: `text-amber-600 dark:text-amber-400` → `text-warning` and `text-green-600 dark:text-green-400` → `text-success` (lines 134, 141)
+   - Run: `npm test -- settings-content`
+   - Verify: Tests pass
 
 **Notes:**
-- Pattern: matches how calorie goals are already merged (lines 840-851 of `src/lib/food-log.ts`).
-- The two goal queries (`getCalorieGoalsByDateRange` and `getLumenGoalsByDateRange`) can run in parallel with `Promise.all` for a minor efficiency gain.
+- Reference `src/components/fitbit-setup-form.tsx` for existing htmlFor/id pattern if one exists
+- The SWR mock needs a second setup for the credentials endpoint — check existing test patterns for multi-endpoint SWR mocking
 
 ---
 
-### Task 4: Create unified WeeklyNutritionChart component with metric selector
+### Task 3: Add space between nutrition values and units
 
-**Issue:** FOO-345
+**Issue:** FOO-352
 **Files:**
-- `src/components/__tests__/weekly-nutrition-chart.test.tsx` (create)
-- `src/components/weekly-nutrition-chart.tsx` (create)
+- `src/components/analysis-result.tsx` (modify)
+- `src/components/__tests__/analysis-result.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Write tests for `WeeklyNutritionChart`:
-   - Renders metric selector with 4 options: Calories, Protein, Carbs, Fat
-   - Defaults to "Calories" selected
-   - Renders 7 day columns (S M T W T F S) like the existing calorie chart
-   - Shows bars scaled to max value for the selected metric
-   - Shows goal dashed markers when goal exists for the selected metric
-   - Applies green/amber/primary color based on goal comparison
-   - Shows empty state when no data
-   - Switching metric via click updates which data is displayed (use `fireEvent.click` or `userEvent`)
-   - Mock data should include `proteinGoalG`, `carbsGoalG`, `fatGoalG` fields
-   - Run: `npm test -- weekly-nutrition-chart`
-   - Verify: Tests fail.
+1. **RED** — Update existing test assertions in `analysis-result.test.tsx`:
+   - Change `"12g"` → `"12 g"`, `"28g"` → `"28 g"`, `"18g"` → `"18 g"`, `"2g"` → `"2 g"`, `"450mg"` → `"450 mg"` (lines 58-62)
+   - Also update the `"320kcal"` assertion if one exists (search for `kcal` in test)
+   - Run: `npm test -- analysis-result`
+   - Verify: Tests fail (still rendering without space)
 
-2. **GREEN** — Implement `WeeklyNutritionChart`:
-   - Props: `{ days: DailyNutritionTotals[]; weekStart: string }`
-   - Internal state: `useState<"calories" | "protein" | "carbs" | "fat">("calories")`
-   - Metric selector: segmented control using the same CSS pattern as `dashboard-shell.tsx` (rounded-full buttons, bg-primary active state, min-h-[44px] for touch targets)
-   - Bar chart: same 7-slot layout as `weekly-calorie-chart.tsx` — `Array.from({ length: 7 })`, `addDays(weekStart, i)`, `h-48` container, `h-40` bar area
-   - For each metric, extract value and goal from the day data:
-     - calories → `day.calories` / `day.calorieGoal`
-     - protein → `day.proteinG` / `day.proteinGoalG`
-     - carbs → `day.carbsG` / `day.carbsGoalG`
-     - fat → `day.fatG` / `day.fatGoalG`
-   - Bar height, goal marker position, color logic: identical to `weekly-calorie-chart.tsx`
-   - data-testid pattern: `day-bar-{date}` for bars, `goal-marker-{date}` for goal markers, `metric-{name}` for selector buttons
-   - Run: `npm test -- weekly-nutrition-chart`
-   - Verify: Tests pass.
-
-3. **REFACTOR** — Extract the value/goal extraction into a helper object or function to avoid repetitive switch statements.
+2. **GREEN** — Modify the `NutritionItem` component in `analysis-result.tsx`:
+   - In the span at line 108-111, ensure a space character exists between `{value}` and `{unit}` — use a template literal or explicit `{" "}` JSX expression
+   - Run: `npm test -- analysis-result`
+   - Verify: Tests pass
 
 **Notes:**
-- This is a `'use client'` component (needs `useState` for metric selector).
-- The metric selector labels should show units: "Calories" (kcal), "Protein" (g), "Carbs" (g), "Fat" (g). Keep labels short for mobile — just the names, units implied.
-- Follow the existing DAY_LABELS pattern: `["S", "M", "T", "W", "T", "F", "S"]`.
+- The existing rendering at lines 108-111 has `{value}` and `{unit}` on separate lines but JSX collapses the whitespace between adjacent expressions, resulting in "450kcal"
+- A simple fix: `{value} {unit}` on a single line, or `{value}{" "}{unit}`
 
 ---
 
-### Task 5: Add goal consistency indicator
+### Task 4: Add visible label to food description textarea
 
-**Issue:** FOO-346
+**Issue:** FOO-357
 **Files:**
-- `src/components/__tests__/weekly-nutrition-chart.test.tsx` (modify)
+- `src/components/description-input.tsx` (modify)
+- `src/components/__tests__/description-input.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Add tests to `description-input.test.tsx`:
+   - Test that a visible label with text containing "Food description" is rendered
+   - Test that the label has `htmlFor="food-description"` and textarea has `id="food-description"`
+   - Test that the label text includes "(optional)" to indicate the field is not required
+   - Run: `npm test -- description-input`
+   - Verify: Tests fail
+
+2. **GREEN** — Modify `description-input.tsx`:
+   - Import `Label` from `@/components/ui/label`
+   - Add a `<Label htmlFor="food-description">` above the textarea with text like "Food description (optional)"
+   - Add `id="food-description"` to the textarea element
+   - Remove the now-redundant `aria-label="Food description"` since the visible label provides the accessible name
+   - Run: `npm test -- description-input`
+   - Verify: Tests pass
+
+**Notes:**
+- Existing test at line 12 checks for `aria-label="Food description"` via `getByRole("textbox")` — this still works since the label association provides the accessible name, but verify
+- Follow the shadcn/ui `Label` component pattern (already used elsewhere in the project)
+
+---
+
+### Task 5: Add skip link and main landmark to food-detail page
+
+**Issue:** FOO-351
+**Files:**
+- `src/app/app/food-detail/[id]/page.tsx` (modify)
+- `src/app/app/food-detail/[id]/__tests__/page.test.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** — Create test file `src/app/app/food-detail/[id]/__tests__/page.test.tsx`:
+   - Mock `@/lib/session` to return a valid session
+   - Mock `@/components/food-detail` with a stub component
+   - Test that SkipLink is rendered with `href="#main-content"`
+   - Test that a `<main>` element exists with `id="main-content"`
+   - Run: `npm test -- food-detail.*page`
+   - Verify: Tests fail
+   - Reference: `src/app/settings/__tests__/page.test.tsx` for server component testing pattern (or `src/components/__tests__/settings-content.test.tsx` for the SkipLink assertions)
+
+2. **GREEN** — Modify `src/app/app/food-detail/[id]/page.tsx`:
+   - Import `SkipLink` from `@/components/skip-link`
+   - Add `<SkipLink />` before the main content
+   - Wrap `<FoodDetail>` in `<main id="main-content">` with appropriate layout classes
+   - Follow the exact pattern from `src/app/app/page.tsx` (lines 18-47): outer div with padding, SkipLink, main with id and max-width
+   - Run: `npm test -- food-detail.*page`
+   - Verify: Tests pass
+
+**Notes:**
+- The page is a server component — the SkipLink is a client component, but that's fine (server components can render client components)
+- Match the layout pattern from `src/app/app/page.tsx`: `<div className="min-h-screen px-4 py-6">` → `<SkipLink />` → `<main id="main-content" className="mx-auto w-full max-w-md">`
+
+---
+
+### Task 6: Replace empty states with actionable guidance and replace hardcoded colors
+
+**Issue:** FOO-353, FOO-349
+**Files:**
+- `src/components/fasting-card.tsx` (modify)
+- `src/components/daily-dashboard.tsx` (modify)
+- `src/components/__tests__/fasting-card.test.tsx` (modify)
+- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update test assertions:
+   - In `fasting-card.test.tsx`: Change `screen.getByText("No data")` → assert for new actionable message (e.g., text containing "log" or "meal"). There are two "No data" states: line 76 (no window data) and line 120 (ongoing fast without live mode).
+   - In `daily-dashboard.test.tsx`: Find the assertion for "No food logged" and update to the new actionable message
+   - Run: `npm test -- fasting-card`
+   - Verify: Tests fail
+
+2. **GREEN** — Modify components:
+   - In `fasting-card.tsx` line 76: Replace "No data" with an actionable message like "Log a meal to start tracking your fasting window"
+   - In `fasting-card.tsx` line 120: Replace "No data" with a similar actionable message (this is the "ongoing fast, not today" state — message should be contextually appropriate)
+   - In `daily-dashboard.tsx` line 264: Replace "No food logged" with an actionable message like "Log your first meal to see your daily nutrition"
+   - In `fasting-card.tsx` line 91: Replace `bg-green-500` with `bg-success` on the live fasting dot
+   - In `daily-dashboard.tsx`: No hardcoded colors to replace (it uses theme vars already)
+   - Run: `npm test -- fasting-card && npm test -- daily-dashboard`
+   - Verify: Tests pass
+
+**Notes:**
+- The fasting card has two distinct empty states — make sure messages are different and contextually appropriate
+- The daily-dashboard empty state at line 263-265 is in a `py-8 text-center` container — keep the same layout structure
+
+---
+
+### Task 7: Fix chart goal marker overflow and replace hardcoded colors
+
+**Issue:** FOO-348, FOO-349
+**Files:**
 - `src/components/weekly-nutrition-chart.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add tests to the WeeklyNutritionChart test file:
-   - When goals exist and some days meet them: shows "3/5 days on target" (example with 3 of 5 logged days meeting the goal)
-   - Only counts days with `calories > 0` in the denominator
-   - When no goals exist for the selected metric: consistency indicator is not rendered
-   - Switching metric updates the consistency count
-   - Run: `npm test -- weekly-nutrition-chart`
-   - Verify: New tests fail.
-
-2. **GREEN** — Add the consistency indicator to `WeeklyNutritionChart`:
-   - Calculate: count days where `calories > 0` (logged) AND goal is not null → `totalWithGoal`. Count days where value <= goal → `onTarget`.
-   - Render above the bar chart area: `<p className="text-sm text-muted-foreground">{onTarget}/{totalWithGoal} days on target</p>`
-   - Conditionally render only when `totalWithGoal > 0`
-   - data-testid: `goal-consistency`
-   - Run: `npm test -- weekly-nutrition-chart`
-   - Verify: Tests pass.
-
-3. **REFACTOR** — No significant refactoring expected.
-
----
-
-### Task 6: Add net surplus/deficit summary
-
-**Issue:** FOO-347
-**Files:**
 - `src/components/__tests__/weekly-nutrition-chart.test.tsx` (modify)
-- `src/components/weekly-nutrition-chart.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add tests:
-   - When net is under target: shows negative value with "under" label in green (e.g., "-200 kcal under")
-   - When net is over target: shows positive value with "over" label in amber (e.g., "+120 kcal over")
-   - When exactly on target: shows "On target" in green
-   - Uses "kcal" unit for calories, "g" unit for protein/carbs/fat
-   - Only includes days with both data (calories > 0) and a goal in the calculation
-   - Not rendered when no goals exist for the selected metric
-   - Switching metric updates the summary
+1. **RED** — Add test for goal overflow scenario in `weekly-nutrition-chart.test.tsx`:
+   - Create test data where goal significantly exceeds actual values (e.g., calorieGoal=2000, actual calories=500)
+   - Assert that the goal marker's `bottom` style is capped at or below 100%
+   - Also update any existing test assertions that check for specific color classes (e.g., `bg-green-500` → `bg-success`, `bg-amber-500` → `bg-warning`)
    - Run: `npm test -- weekly-nutrition-chart`
-   - Verify: New tests fail.
+   - Verify: Tests fail
 
-2. **GREEN** — Add the net summary below the bar chart:
-   - Calculate: sum of `(actual - goal)` for all days where `calories > 0` AND goal is not null → `netDiff`
-   - Unit label: `calories` → "kcal", others → "g"
-   - Display logic:
-     - `netDiff > 0`: `+{netDiff} {unit} over` with `text-amber-500`
-     - `netDiff < 0`: `{netDiff} {unit} under` with `text-green-600`
-     - `netDiff === 0`: "On target" with `text-green-600`
-   - Round to whole number: `Math.round(netDiff)`
-   - Conditionally render only when there are days with goals
-   - data-testid: `net-surplus-deficit`
+2. **GREEN** — Modify `weekly-nutrition-chart.tsx`:
+   - In the `maxValue` calculation (lines 66-74): include goal values for the currently selected metric alongside actual data values, so the chart scales to show both bars and goal markers
+   - Implementation hint from the issue: `Math.max(...values, ...goals, 1)` — extract goal values from `weekDays` that have goals for the selected metric
+   - Replace `bg-green-500` (line 142) → `bg-success`
+   - Replace `bg-amber-500` (line 142) → `bg-warning`
+   - Replace `text-amber-500` (line 181) → `text-warning`
+   - Replace `text-green-600` (line 182) → `text-success`
    - Run: `npm test -- weekly-nutrition-chart`
-   - Verify: Tests pass.
+   - Verify: Tests pass
 
-3. **REFACTOR** — Consider extracting the shared "days with goals" filtering logic used by both the consistency indicator and the net summary into a small helper.
+**Notes:**
+- When `maxValue` includes goals, bars will be shorter proportionally (since the scale is larger), but the goal markers will always be visible — this is the correct behavior
+- The net surplus/deficit text at lines 178-193 uses hardcoded colors for positive/negative — replace those too
 
 ---
 
-### Task 7: Wire into WeeklyDashboard, delete old components
+### Task 8: Update PWA manifest theme_color
 
-**Issue:** FOO-345, FOO-346, FOO-347
+**Issue:** FOO-358
 **Files:**
-- `src/components/__tests__/weekly-dashboard.test.tsx` (modify)
-- `src/components/weekly-dashboard.tsx` (modify)
-- `src/components/weekly-calorie-chart.tsx` (delete)
-- `src/components/__tests__/weekly-calorie-chart.test.tsx` (delete)
-- `src/components/weekly-macro-averages.tsx` (delete)
-- `src/components/__tests__/weekly-macro-averages.test.tsx` (delete)
+- `public/manifest.json` (modify)
+- `src/app/__tests__/manifest.test.ts` (modify if exists, or create)
 
-**Steps:**
+**TDD Steps:**
 
-1. In `weekly-dashboard.tsx`:
-   - Remove imports of `WeeklyCalorieChart` and `WeeklyMacroAverages`
-   - Import `WeeklyNutritionChart` from `@/components/weekly-nutrition-chart`
-   - Replace the `<WeeklyCalorieChart>` and `<WeeklyMacroAverages>` JSX with a single `<WeeklyNutritionChart days={days} weekStart={weekStart} />`
-2. Delete `src/components/weekly-calorie-chart.tsx` and its test file.
-3. Delete `src/components/weekly-macro-averages.tsx` and its test file.
-4. Update `weekly-dashboard.test.tsx` if it references the deleted components.
-5. Update `DashboardSkeleton` in `weekly-dashboard.tsx`: replace the separate calorie chart and macro averages skeleton sections with a single skeleton block that matches the new unified component layout (selector skeleton + chart skeleton).
+1. **RED** — Add/update test in `src/app/__tests__/manifest.test.ts`:
+   - Read `public/manifest.json` and assert `theme_color` is `#ffffff` (matching the light mode background)
+   - Run: `npm test -- manifest`
+   - Verify: Test fails (currently `#000000`)
 
-**Verification:**
-- Run: `npm test`
-- Verify: All tests pass, no references to deleted files remain.
-- Run: `npm run typecheck`
-- Verify: No TypeScript errors.
+2. **GREEN** — Modify `public/manifest.json`:
+   - Change `"theme_color": "#000000"` to `"theme_color": "#ffffff"`
+   - This matches the `:root` background `oklch(1 0 0)` which is pure white
+   - Run: `npm test -- manifest`
+   - Verify: Test passes
+
+**Notes:**
+- `#ffffff` is the standard hex equivalent of `oklch(1 0 0)` (pure white)
+- The `background_color` is already `#ffffff` — making `theme_color` match ensures consistent PWA launch experience
 
 ---
 
-### Task 8: Integration & Verification
+### Task 9: Replace hardcoded colors in remaining components
 
-**Issue:** FOO-345, FOO-346, FOO-347
-**Files:** Various files from previous tasks
+**Issue:** FOO-349
+**Files:**
+- `src/lib/confidence.ts` (modify)
+- `src/components/confidence-badge.tsx` (modify)
+- `src/components/macro-bars.tsx` (modify)
+- `src/components/calorie-ring.tsx` (modify)
+- `src/components/food-log-confirmation.tsx` (modify)
+- `src/components/lumen-banner.tsx` (modify)
+- `src/components/fitbit-status-banner.tsx` (modify)
+- `src/components/__tests__/confidence-badge.test.tsx` (modify)
+- `src/components/__tests__/macro-bars.test.tsx` (modify)
+- `src/components/__tests__/calorie-ring.test.tsx` (modify)
+- `src/components/__tests__/food-log-confirmation.test.tsx` (modify)
+- `src/components/__tests__/lumen-banner.test.tsx` (modify)
+- `src/components/__tests__/fitbit-status-banner.test.tsx` (modify)
+
+**Depends on:** Task 1 (semantic CSS variables must exist in globals.css)
+
+**TDD Steps:**
+
+1. **RED** — Update test assertions across all affected test files. For each component, find assertions or snapshots that reference hardcoded color classes and update them to the new semantic classes. Key replacements:
+   - `bg-green-500` → `bg-success`
+   - `bg-yellow-500` → `bg-warning` (confidence medium)
+   - `bg-red-500` → `bg-destructive` (already exists in theme)
+   - `text-green-500` → `text-success`
+   - `text-yellow-500` → `text-warning`
+   - `text-red-500` → `text-destructive`
+   - `bg-blue-500` → `bg-info`
+   - `bg-amber-500` → `bg-warning`
+   - `text-amber-500` → `text-warning`
+   - `text-amber-600 dark:text-amber-500` → `text-warning`
+   - Banner patterns: `border-amber-500 bg-amber-50 dark:bg-amber-950/20` → `border-warning bg-warning/10`
+   - Banner patterns: `border-blue-500 bg-blue-50 dark:bg-blue-950/20` → `border-info bg-info/10`
+   - Banner text: `text-amber-900 dark:text-amber-100` → `text-warning-foreground` (or similar, depending on Task 1's variable structure)
+   - Banner text: `text-blue-900 dark:text-blue-100` → `text-info-foreground`
+   - Run: `npm test -- confidence-badge macro-bars calorie-ring food-log-confirmation lumen-banner fitbit-status-banner`
+   - Verify: Tests fail
+
+2. **GREEN** — Replace hardcoded colors in each component:
+   - `confidence.ts`: Replace color constants map values
+   - `confidence-badge.tsx`: Replace text color classes for icons
+   - `macro-bars.tsx`: Replace bar color classes (protein=info, carbs=success, fat=warning)
+   - `calorie-ring.tsx`: Replace budget marker color (`text-amber-500` → `text-warning`)
+   - `food-log-confirmation.tsx`: Replace success icon color (`text-green-500` → `text-success`)
+   - `lumen-banner.tsx`: Replace all blue-* classes with info semantic classes
+   - `fitbit-status-banner.tsx`: Replace all amber-* classes with warning semantic classes
+   - Run tests for each file
+   - Verify: All pass
+
+3. **REFACTOR** — Verify no hardcoded Tailwind color utilities remain:
+   - Search the entire `src/` directory for patterns: `green-500`, `amber-500`, `blue-500`, `red-500`, `yellow-500`, `green-600`, `green-400`, `amber-600`, `amber-400`, `blue-600`, `amber-50`, `amber-950`, `blue-50`, `blue-950`
+   - Any remaining instances should be addressed (might be in files not listed in the issue)
+
+**Notes:**
+- This is the largest task — touches 7 source files and 6 test files
+- The banner components (lumen-banner, fitbit-status-banner) have the most complex color patterns with border, background, icon, title, and subtitle colors all specified
+- For banners, the `bg-amber-50 dark:bg-amber-950/20` pattern can become `bg-warning/10` if the CSS variable approach supports opacity modifiers — otherwise define `--warning-bg` / `--info-bg` variables in Task 1
+- `bg-red-500` maps to `bg-destructive` which already exists in the theme — no new variable needed
+
+---
+
+### Task 10: Integration & Verification
+
+**Issue:** FOO-349, FOO-348, FOO-350, FOO-351, FOO-352, FOO-353, FOO-356, FOO-357, FOO-358
+**Files:** All files from previous tasks
 
 **Steps:**
 
@@ -286,7 +425,19 @@ Replace the separate weekly calorie chart and macro averages components with a u
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
-5. Verify no references to deleted components (`WeeklyCalorieChart`, `WeeklyMacroAverages`) remain in the codebase via grep.
+5. Manual verification:
+   - [ ] Settings page: clicking "Client ID" label focuses the input
+   - [ ] Settings page: theme buttons have no aria-label in DOM
+   - [ ] Settings page: Fitbit status colors use theme variables
+   - [ ] Food detail page: SkipLink is present, main landmark wraps content
+   - [ ] Analysis result: "450 kcal", "25 g" (with spaces)
+   - [ ] Description input: visible "Food description (optional)" label above textarea
+   - [ ] Fasting card: actionable empty state messages
+   - [ ] Daily dashboard: actionable empty state when no food logged
+   - [ ] Weekly chart: goal marker doesn't overflow when goal >> actual values
+   - [ ] PWA manifest: theme_color is #ffffff
+   - [ ] All components: no hardcoded green-500, amber-500, blue-500, etc.
+   - [ ] Dark mode: verify all replaced colors look correct
 
 ## MCP Usage During Implementation
 
@@ -298,109 +449,33 @@ Replace the separate weekly calorie chart and macro averages components with a u
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| No lumen goals for any day | Macro goal fields are null, no goal markers shown | Unit test |
-| Mixed days with/without goals | Only days with goals show markers; consistency/surplus only count those days | Unit test |
-| All days have zero calories | Empty state message shown | Unit test |
-| Selected metric has no goals | Consistency indicator and surplus/deficit summary hidden | Unit test |
+| Missing CSS variables | Components fall back to browser defaults | CSS variable test (Task 1) |
+| Label association broken | Form still works, just no click-to-focus | Unit tests (Tasks 2, 4) |
+| Goal value is null | Chart ignores null goals in maxValue | Unit test (Task 7) |
 
 ## Risks & Open Questions
 
-- [ ] **Lumen goals may not be set for all days.** The chart should gracefully handle sparse goal data — show bars without goal markers for days missing goals. The consistency indicator and surplus/deficit summary only consider days that have both data and a goal.
+- [ ] Tailwind v4 opacity modifier syntax (`bg-warning/10`) must be verified — may need fallback if oklch colors don't compose well with opacity modifiers. If not supported, define dedicated `--warning-bg` and `--info-bg` variables for banner tinted backgrounds.
+- [ ] The exact oklch values for semantic colors should visually match the current hardcoded Tailwind palette. Cross-reference Tailwind's default palette oklch values when defining variables.
+- [ ] Banner components have many color touchpoints (6+ per component) — verify the new semantic classes produce acceptable contrast ratios in both themes.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Unified nutrition chart with metric selector replacing calorie chart + macro averages
-- Per-day bars with goal dashed lines for all 4 metrics
-- Goal consistency indicator text
-- Net surplus/deficit summary text
-- `getLumenGoalsByDateRange` data layer function
-- Extended `DailyNutritionTotals` type with macro goals
-- Deletion of replaced components
+- Semantic CSS color variables in globals.css
+- Color class replacements in all affected components
+- Label/id associations for settings inputs
+- SkipLink + main landmark for food-detail page
+- Visible label for food description textarea
+- Space between value and unit in NutritionItem
+- Actionable empty state messages
+- Chart goal marker overflow fix
+- PWA manifest theme_color update
+- All associated test updates
 
 **Out of Scope:**
-- Touch/swipe gestures for metric switching
-- Animations/transitions between metrics
-- Persistent metric selection across page navigations
-- Any changes to the daily dashboard view
-- Changes to the fasting chart
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-12
-**Method:** Agent team (2 workers)
-
-### Tasks Completed This Iteration
-- Task 1: Add getLumenGoalsByDateRange to lumen module (worker-1)
-- Task 2: Extend DailyNutritionTotals with macro goal fields (worker-1)
-- Task 3: Update getDateRangeNutritionSummary to include macro goals (worker-1)
-- Task 4: Create unified WeeklyNutritionChart component with metric selector (worker-2)
-- Task 5: Add goal consistency indicator (worker-2)
-- Task 6: Add net surplus/deficit summary (worker-2)
-- Task 7: Wire into WeeklyDashboard, delete old components (worker-2)
-- Task 8: Integration & Verification (lead)
-
-### Files Modified
-- `src/lib/lumen.ts` - Added getLumenGoalsByDateRange function
-- `src/lib/__tests__/lumen.test.ts` - Added tests for getLumenGoalsByDateRange
-- `src/types/index.ts` - Added proteinGoalG, carbsGoalG, fatGoalG to DailyNutritionTotals
-- `src/lib/food-log.ts` - Updated getDateRangeNutritionSummary to fetch and merge macro goals
-- `src/lib/__tests__/food-log.test.ts` - Added tests for macro goal integration
-- `src/components/weekly-nutrition-chart.tsx` - Created unified chart with metric selector, goal consistency, net surplus/deficit
-- `src/components/__tests__/weekly-nutrition-chart.test.tsx` - Created comprehensive test suite (21 tests)
-- `src/components/weekly-dashboard.tsx` - Replaced old components with WeeklyNutritionChart, updated skeleton
-- `src/components/__tests__/weekly-dashboard.test.tsx` - Updated mocks and assertions
-
-### Files Deleted
-- `src/components/weekly-calorie-chart.tsx`
-- `src/components/__tests__/weekly-calorie-chart.test.tsx`
-- `src/components/weekly-macro-averages.tsx`
-- `src/components/__tests__/weekly-macro-averages.test.tsx`
-
-### Linear Updates
-- FOO-345: Todo → In Progress → Review
-- FOO-346: Todo → In Progress → Review
-- FOO-347: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 2 bugs (redundant type assertion, unused variable), fixed before proceeding
-- verifier: All tests pass, zero warnings
-
-### Work Partition
-- Worker 1: Tasks 1, 2, 3 (backend data layer: lumen module, types, food-log integration)
-- Worker 2: Tasks 4, 5, 6, 7 (frontend component, goal consistency, surplus/deficit, wiring + deletions)
-
-### Review Findings
-
-Summary: 0 critical/high issues found (Team: security, reliability, quality reviewers)
-- CRITICAL: 0
-- HIGH: 0
-- MEDIUM: 1 (documented only)
-
-**Documented (no fix needed):**
-- [MEDIUM] EDGE CASE: Goal marker can overflow chart when goal > max actual value (`src/components/weekly-nutrition-chart.tsx:66-74,159-165`) — `maxValue` only considers actual data values, not goal values. When goals significantly exceed actual intake, the dashed goal marker positions above the chart container. Inherited from original `weekly-calorie-chart` pattern; visual-only, no data or logic impact.
-
-### Linear Updates
-- FOO-345: Review → Merge
-- FOO-346: Review → Merge
-- FOO-347: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | EDGE CASE | `src/components/weekly-nutrition-chart.tsx:66-74,159-165` | Goal marker overflows chart when goal > max actual value | Visual-only edge case inherited from original calorie chart pattern; no data or logic impact |
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- FOO-355 (Canceled — CLS risk doesn't exist, `unoptimized` required for blob URLs)
+- Redesigning the color palette or changing visual appearance
+- Adding dark mode support where it doesn't exist yet
+- Refactoring banner component structure
+- Adding new components or pages
