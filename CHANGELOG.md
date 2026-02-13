@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-02-13
+
+### Added
+
+- Fasting window tracking with daily start/end times and duration display
+- Weekly nutrition dashboard with day-by-day breakdown
+- Weekly nutrition chart with metric selector (calories, protein, carbs, fat)
+- Weekly fasting chart showing fasting hours per day
+
+### Changed
+
+- Consolidated app theme with improved dark mode colors
+- Improved confidence badges and food detail layout
+- Better photo capture and description input UX
+
+### Fixed
+
+- Minor bug fixes across dashboard, settings, and food analysis
+
 ## [1.7.0] - 2026-02-12
 
 ### Added
@@ -125,7 +144,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/lucaswall/food-scanner/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/lucaswall/food-scanner/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/lucaswall/food-scanner/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/lucaswall/food-scanner/compare/v1.5.0...v1.5.1
