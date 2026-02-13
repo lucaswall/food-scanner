@@ -306,7 +306,6 @@ export interface NutritionGoals {
 
 export interface ActivitySummary {
   caloriesOut: number;
-  estimatedCaloriesOut: number;
 }
 
 export interface LumenGoals {

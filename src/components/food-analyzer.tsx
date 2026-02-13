@@ -13,6 +13,7 @@ import { vibrateError } from "@/lib/haptics";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { MessageSquare } from "lucide-react";
 import {
   savePendingSubmission,
   getPendingSubmission,
@@ -415,6 +416,20 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     );
   }
 
+  // Show full-screen chat if open
+  if (chatOpen && analysis) {
+    return (
+      <div className="h-[calc(100dvh-12rem)]">
+        <FoodChat
+          initialAnalysis={analysis}
+          compressedImages={compressedImages || []}
+          onClose={() => setChatOpen(false)}
+          onLogged={setLogResponse}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Resubmit error (shown when no analysis context) */}
@@ -473,7 +488,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       </div>
 
       {/* Food matches section */}
-      {analysis && !loading && !chatOpen && matches.length > 0 && (
+      {analysis && !loading && matches.length > 0 && (
         <div className="space-y-3">
           <p className="text-sm font-medium">Similar foods you&apos;ve logged before</p>
           {matches.slice(0, 3).map((match) => (
@@ -487,69 +502,58 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         </div>
       )}
 
-      {/* Chat or Post-analysis controls */}
+      {/* Post-analysis controls */}
       {analysis && !loading && (
-        <>
-          {chatOpen ? (
-            <FoodChat
-              initialAnalysis={analysis}
-              compressedImages={compressedImages || []}
-              onClose={() => setChatOpen(false)}
-              onLogged={setLogResponse}
+        <div className="space-y-4">
+          {/* CTA button for chat */}
+          <Button
+            variant="outline"
+            onClick={() => setChatOpen(true)}
+            className="w-full min-h-[44px] justify-start gap-2"
+          >
+            <MessageSquare className="h-4 w-4" />
+            Refine with chat
+          </Button>
+
+          {/* Meal type selector */}
+          <div className="space-y-2">
+            <Label htmlFor="meal-type-analyzer">Meal Type</Label>
+            <MealTypeSelector
+              value={mealTypeId}
+              onChange={setMealTypeId}
+              disabled={logging}
+              id="meal-type-analyzer"
             />
-          ) : (
-            <div className="space-y-4">
-              {/* Chat hint */}
-              <div
-                className="p-3 bg-muted/50 rounded-lg cursor-pointer hover:bg-muted transition-colors"
-                onClick={() => setChatOpen(true)}
-              >
-                <p className="text-sm text-muted-foreground">
-                  Add details or correct something...
-                </p>
-              </div>
+          </div>
 
-              {/* Meal type selector */}
-              <div className="space-y-2">
-                <Label htmlFor="meal-type-analyzer">Meal Type</Label>
-                <MealTypeSelector
-                  value={mealTypeId}
-                  onChange={setMealTypeId}
-                  disabled={logging}
-                  id="meal-type-analyzer"
-                />
-              </div>
-
-              {/* Log error display */}
-              {logError && (
-                <div
-                  data-testid="log-error"
-                  className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
-                  aria-live="polite"
+          {/* Log error display */}
+          {logError && (
+            <div
+              data-testid="log-error"
+              className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
+              aria-live="polite"
+            >
+              <p className="text-sm text-destructive">{logError}</p>
+              {(logError.includes("reconnect") || logError.includes("Settings")) && (
+                <a
+                  href="/settings"
+                  className="text-sm text-destructive underline mt-1 inline-block"
                 >
-                  <p className="text-sm text-destructive">{logError}</p>
-                  {(logError.includes("reconnect") || logError.includes("Settings")) && (
-                    <a
-                      href="/settings"
-                      className="text-sm text-destructive underline mt-1 inline-block"
-                    >
-                      Go to Settings
-                    </a>
-                  )}
-                </div>
+                  Go to Settings
+                </a>
               )}
-
-              {/* Log to Fitbit button */}
-              <Button
-                onClick={handleLogToFitbit}
-                disabled={logging}
-                className="w-full min-h-[44px]"
-              >
-                {logging ? "Logging..." : matches.length > 0 ? "Log as new" : "Log to Fitbit"}
-              </Button>
             </div>
           )}
-        </>
+
+          {/* Log to Fitbit button */}
+          <Button
+            onClick={handleLogToFitbit}
+            disabled={logging}
+            className="w-full min-h-[44px]"
+          >
+            {logging ? "Logging..." : matches.length > 0 ? "Log as new" : "Log to Fitbit"}
+          </Button>
+        </div>
       )}
     </div>
   );

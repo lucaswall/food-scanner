@@ -548,13 +548,7 @@ export async function getActivitySummary(
     throw new Error("FITBIT_API_ERROR");
   }
 
-  const goals = data.goals as Record<string, unknown> | undefined;
-  const estimatedCaloriesOut = typeof goals?.caloriesOut === "number"
-    ? goals.caloriesOut
-    : summary.caloriesOut;
-
   return {
     caloriesOut: summary.caloriesOut,
-    estimatedCaloriesOut,
   };
 }

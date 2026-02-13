@@ -148,7 +148,7 @@ describe("FoodChat", () => {
     expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
   });
 
-  it("renders close (X) button", () => {
+  it("renders back button with ArrowLeft icon in header", () => {
     render(
       <FoodChat
         initialAnalysis={mockAnalysis}
@@ -158,7 +158,9 @@ describe("FoodChat", () => {
       />
     );
 
-    expect(screen.getByRole("button", { name: /close/i })).toBeInTheDocument();
+    // Header should have a back button instead of close (X)
+    const backButton = screen.getByRole("button", { name: /back/i });
+    expect(backButton).toBeInTheDocument();
   });
 
   it("renders MealTypeSelector", () => {
@@ -353,7 +355,7 @@ describe("FoodChat", () => {
     });
   });
 
-  it("clicking close (X) calls onClose callback", () => {
+  it("clicking back button calls onClose callback", () => {
     const onClose = vi.fn();
 
     render(
@@ -365,7 +367,7 @@ describe("FoodChat", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /close/i }));
+    fireEvent.click(screen.getByRole("button", { name: /back/i }));
 
     expect(onClose).toHaveBeenCalledOnce();
   });

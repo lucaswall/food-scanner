@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import Link from "next/link";
 import { apiFetcher } from "@/lib/swr";
-import { getTodayDate, isToday } from "@/lib/date-utils";
+import { getTodayDate } from "@/lib/date-utils";
 import { DateNavigator } from "@/components/date-navigator";
 import { CalorieRing } from "@/components/calorie-ring";
 import { MacroBars } from "@/components/macro-bars";
@@ -13,7 +12,7 @@ import { FastingCard } from "@/components/fasting-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Loader2 } from "lucide-react";
-import type { NutritionSummary, NutritionGoals, ActivitySummary, LumenGoalsResponse } from "@/types";
+import type { NutritionSummary, NutritionGoals, LumenGoalsResponse } from "@/types";
 
 function DashboardSkeleton() {
   return (
@@ -102,11 +101,6 @@ export function DailyDashboard() {
   } = useSWR<NutritionGoals>("/api/nutrition-goals", apiFetcher);
 
   const {
-    data: activity,
-    error: activityError,
-  } = useSWR<ActivitySummary>(`/api/activity-summary?date=${selectedDate}`, apiFetcher);
-
-  const {
     data: lumenGoals,
     mutate: mutateLumenGoals,
   } = useSWR<LumenGoalsResponse>(`/api/lumen-goals?date=${selectedDate}`, apiFetcher);
@@ -187,12 +181,6 @@ export function DailyDashboard() {
 
   const meals = summary?.meals ?? [];
 
-  // Calculate budget if all data is available
-  const budget =
-    goals?.calories != null && activity
-      ? activity.caloriesOut - (activity.estimatedCaloriesOut - goals.calories) - totals.calories
-      : undefined;
-
   // Empty state - when there are no meals logged for this date
   const showEmptyState = !summaryLoading && meals.length === 0;
 
@@ -220,7 +208,6 @@ export function DailyDashboard() {
             <CalorieRing
               calories={totals.calories}
               goal={goals.calories}
-              budget={isToday(selectedDate) ? budget : undefined}
             />
           ) : (
             <div className="flex flex-col items-center gap-2">
@@ -231,18 +218,6 @@ export function DailyDashboard() {
             </div>
           )}
         </div>
-
-        {/* Activity error message - only show when ring is rendered */}
-        {activityError && goals?.calories != null && (
-          <div className="text-sm text-muted-foreground text-center">
-            <div className="min-h-[44px] flex items-center justify-center">
-              Fitbit permissions need updating.{" "}
-              <Link href="/settings" className="text-primary hover:underline ml-1">
-                Settings
-              </Link>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Macro Bars */}

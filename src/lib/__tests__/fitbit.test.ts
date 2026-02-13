@@ -1322,7 +1322,6 @@ describe("getActivitySummary", () => {
     );
     expect(result).toEqual({
       caloriesOut: 2345,
-      estimatedCaloriesOut: 3500,
     });
 
     vi.restoreAllMocks();
@@ -1364,23 +1363,6 @@ describe("getActivitySummary", () => {
     vi.restoreAllMocks();
   });
 
-  it("falls back to summary.caloriesOut when goals.caloriesOut is missing", async () => {
-    const mockResponse = {
-      summary: { caloriesOut: 2345 },
-    };
-
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify(mockResponse), { status: 200 }),
-    );
-
-    const result = await getActivitySummary("test-token", "2024-01-15");
-    expect(result).toEqual({
-      caloriesOut: 2345,
-      estimatedCaloriesOut: 2345,
-    });
-
-    vi.restoreAllMocks();
-  });
 
   it("throws FITBIT_SCOPE_MISSING on 403 response", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

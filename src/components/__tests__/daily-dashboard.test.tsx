@@ -575,214 +575,6 @@ describe("DailyDashboard", () => {
     expect(screen.getByText("Breakfast")).toBeInTheDocument();
   });
 
-  it("passes budget prop to CalorieRing when activity data is available", async () => {
-    const mockActivity = {
-      caloriesOut: 1800,
-      estimatedCaloriesOut: 2200,
-    };
-
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockSummary }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockGoals }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockActivity }),
-      });
-
-    const { container } = renderDailyDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
-    });
-
-    // Budget should be calculated as: caloriesOut - (estimatedCaloriesOut - goals.calories) - consumed
-    // Budget = 1800 - (2200 - 2000) - 1200 = 1800 - 200 - 1200 = 400
-    // Check that budget marker is rendered (indicates budget prop was passed)
-    const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
-    expect(budgetMarker).toBeInTheDocument();
-  });
-
-  it("does not pass budget prop to CalorieRing when activity data is unavailable", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockSummary }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockGoals }),
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        json: () =>
-          Promise.resolve({
-            success: false,
-            error: { code: "UNKNOWN_ERROR", message: "Activity data unavailable" },
-          }),
-      });
-
-    const { container } = renderDailyDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
-    });
-
-    // Budget marker should NOT be rendered when activity data fails
-    const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
-    expect(budgetMarker).not.toBeInTheDocument();
-  });
-
-  it("does not pass budget prop when goals.calories is null even if activity data exists", async () => {
-    const mockActivity = {
-      caloriesOut: 1800,
-      estimatedCaloriesOut: 2200,
-    };
-
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockSummary }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { calories: null } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockActivity }),
-      });
-
-    const { container } = renderDailyDashboard();
-
-    await waitFor(() => {
-      // Should show plain display (no CalorieRing)
-      expect(screen.queryByTestId("calorie-ring-svg")).not.toBeInTheDocument();
-      expect(screen.getByText("1,200")).toBeInTheDocument();
-    });
-
-    // Budget marker should not exist (CalorieRing not rendered)
-    const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
-    expect(budgetMarker).not.toBeInTheDocument();
-  });
-
-  it("shows reconnect message with link to settings when activity SWR returns error", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockSummary }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockGoals }),
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        json: () =>
-          Promise.resolve({
-            success: false,
-            error: { code: "FITBIT_SCOPE_MISSING", message: "Fitbit permissions need updating" },
-          }),
-      });
-
-    renderDailyDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByText(/fitbit permissions need updating/i)).toBeInTheDocument();
-    });
-
-    // Should have a link to settings
-    const settingsLink = screen.getByRole("link", { name: /settings/i });
-    expect(settingsLink).toHaveAttribute("href", "/settings");
-  });
-
-  it("CalorieRing still renders without budget when activity SWR returns error", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockSummary }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockGoals }),
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        json: () =>
-          Promise.resolve({
-            success: false,
-            error: { code: "FITBIT_SCOPE_MISSING", message: "Fitbit permissions need updating" },
-          }),
-      });
-
-    const { container } = renderDailyDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
-    });
-
-    // Budget marker should NOT be rendered when activity data fails
-    const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
-    expect(budgetMarker).not.toBeInTheDocument();
-  });
-
-  it("MacroBars and MealBreakdown still render when activity SWR returns error", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockSummary }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockGoals }),
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        json: () =>
-          Promise.resolve({
-            success: false,
-            error: { code: "FITBIT_SCOPE_MISSING", message: "Fitbit permissions need updating" },
-          }),
-      });
-
-    renderDailyDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
-      expect(screen.getByText("Breakfast")).toBeInTheDocument();
-      expect(screen.getByText("Lunch")).toBeInTheDocument();
-    });
-  });
-
   it("fetches lumen-goals with today's date", async () => {
     mockFetch.mockImplementation((url: string) => {
       if (url.includes("/api/nutrition-summary")) {
@@ -801,12 +593,6 @@ describe("DailyDashboard", () => {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
-        });
-      }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
         });
       }
       return Promise.reject(new Error("Unknown URL"));
@@ -843,12 +629,6 @@ describe("DailyDashboard", () => {
           json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
         });
       }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
-        });
-      }
       return Promise.reject(new Error("Unknown URL"));
     });
 
@@ -880,12 +660,6 @@ describe("DailyDashboard", () => {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
-        });
-      }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
         });
       }
       return Promise.reject(new Error("Unknown URL"));
@@ -928,12 +702,6 @@ describe("DailyDashboard", () => {
             }),
         });
       }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
-        });
-      }
       return Promise.reject(new Error("Unknown URL"));
     });
 
@@ -972,12 +740,6 @@ describe("DailyDashboard", () => {
           json: () => Promise.resolve({ success: true, data: { goals: null } }),
         });
       }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
-        });
-      }
       return Promise.reject(new Error("Unknown URL"));
     });
 
@@ -1011,12 +773,6 @@ describe("DailyDashboard", () => {
           json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
         });
       }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
-        });
-      }
       return Promise.reject(new Error("Unknown URL"));
     });
 
@@ -1047,12 +803,6 @@ describe("DailyDashboard", () => {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
-        });
-      }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
         });
       }
       return Promise.reject(new Error("Unknown URL"));
@@ -1093,12 +843,6 @@ describe("DailyDashboard", () => {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
-        });
-      }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
         });
       }
       return Promise.reject(new Error("Unknown URL"));
@@ -1223,12 +967,6 @@ describe("DailyDashboard", () => {
           json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
         });
       }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
-        });
-      }
       return Promise.reject(new Error("Unknown URL"));
     });
 
@@ -1242,16 +980,11 @@ describe("DailyDashboard", () => {
       const lumenCall = mockFetch.mock.calls.find((call) =>
         call[0].includes("/api/lumen-goals")
       );
-      const activityCall = mockFetch.mock.calls.find((call) =>
-        call[0].includes("/api/activity-summary")
-      );
 
       expect(summaryCall).toBeDefined();
       expect(summaryCall![0]).toMatch(/date=\d{4}-\d{2}-\d{2}/);
       expect(lumenCall).toBeDefined();
       expect(lumenCall![0]).toMatch(/date=\d{4}-\d{2}-\d{2}/);
-      expect(activityCall).toBeDefined();
-      expect(activityCall![0]).toMatch(/date=\d{4}-\d{2}-\d{2}/);
     });
   });
 
@@ -1279,12 +1012,6 @@ describe("DailyDashboard", () => {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
-        });
-      }
-      if (url.includes("/api/activity-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { caloriesOut: 1800, estimatedCaloriesOut: 2200 } }),
         });
       }
       return Promise.reject(new Error("Unknown URL"));
@@ -1654,114 +1381,6 @@ describe("DailyDashboard", () => {
 
     // File input value should be reset even though upload failed
     expect(fileInput.value).toBe("");
-  });
-
-  describe("budget marker visibility (FOO-330)", () => {
-    it("shows budget marker when viewing today with activity data", async () => {
-      const mockActivity = {
-        caloriesOut: 1800,
-        estimatedCaloriesOut: 2200,
-      };
-
-      mockFetch.mockImplementation((url: string) => {
-        if (url.includes("/api/nutrition-summary")) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ success: true, data: mockSummary }),
-          });
-        }
-        if (url.includes("/api/nutrition-goals")) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ success: true, data: mockGoals }),
-          });
-        }
-        if (url.includes("/api/earliest-entry")) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
-          });
-        }
-        if (url.includes("/api/activity-summary")) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ success: true, data: mockActivity }),
-          });
-        }
-        return Promise.reject(new Error("Unknown URL"));
-      });
-
-      const { container } = renderDailyDashboard();
-
-      await waitFor(() => {
-        expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
-      });
-
-      // Budget marker should be visible for today
-      const budgetMarker = container.querySelector('[data-testid="budget-marker"]');
-      expect(budgetMarker).toBeInTheDocument();
-    });
-
-    it("does not show budget marker when viewing a past date even with activity data", async () => {
-      const user = userEvent.setup();
-
-      const mockActivity = {
-        caloriesOut: 1800,
-        estimatedCaloriesOut: 2200,
-      };
-
-      mockFetch.mockImplementation((url: string) => {
-        if (url.includes("/api/nutrition-summary")) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ success: true, data: mockSummary }),
-          });
-        }
-        if (url.includes("/api/nutrition-goals")) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ success: true, data: mockGoals }),
-          });
-        }
-        if (url.includes("/api/earliest-entry")) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
-          });
-        }
-        if (url.includes("/api/activity-summary")) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ success: true, data: mockActivity }),
-          });
-        }
-        return Promise.reject(new Error("Unknown URL"));
-      });
-
-      const { container } = renderDailyDashboard();
-
-      // Wait for initial render (viewing today)
-      await waitFor(() => {
-        expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
-      });
-
-      // Budget marker should be visible initially (viewing today)
-      let budgetMarker = container.querySelector('[data-testid="budget-marker"]');
-      expect(budgetMarker).toBeInTheDocument();
-
-      // Navigate to previous day
-      const prevButton = screen.getByLabelText("Previous day");
-      await user.click(prevButton);
-
-      // Wait for re-render with past date
-      await waitFor(() => {
-        expect(screen.getByText("Yesterday")).toBeInTheDocument();
-      });
-
-      // Budget marker should NOT be visible for past date
-      budgetMarker = container.querySelector('[data-testid="budget-marker"]');
-      expect(budgetMarker).not.toBeInTheDocument();
-    });
   });
 
   it("renders FastingCard component with selected date", async () => {

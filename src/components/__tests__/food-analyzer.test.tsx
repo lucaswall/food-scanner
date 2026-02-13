@@ -1372,7 +1372,7 @@ describe("FoodAnalyzer", () => {
   });
 
   describe("conversational food chat", () => {
-    it("shows chat hint after analysis", async () => {
+    it("shows CTA button (not div) after analysis with proper semantics", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
@@ -1387,11 +1387,17 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/add details or correct something/i)).toBeInTheDocument();
+        // Should render a button with "Refine" text
+        const refineButton = screen.getByRole("button", { name: /refine/i });
+        expect(refineButton).toBeInTheDocument();
+        expect(refineButton.tagName).toBe("BUTTON");
+
+        // Old div text should NOT appear
+        expect(screen.queryByText(/add details or correct something/i)).not.toBeInTheDocument();
       });
     });
 
-    it("tapping chat hint opens FoodChat component", async () => {
+    it("renders ONLY FoodChat when chatOpen is true (full-screen mode)", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true, data: mockAnalysis }),
@@ -1406,11 +1412,72 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/add details or correct something/i)).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /refine/i })).toBeInTheDocument();
       });
 
-      // Click the hint
-      fireEvent.click(screen.getByText(/add details or correct something/i));
+      // Open chat
+      fireEvent.click(screen.getByRole("button", { name: /refine/i }));
+
+      await waitFor(() => {
+        // ONLY FoodChat should be in the DOM
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+
+        // These components should NOT be in the DOM
+        expect(screen.queryByTestId("photo-capture")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("description-input")).not.toBeInTheDocument();
+        expect(screen.queryByTestId("analysis-result")).not.toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+        expect(screen.queryByTestId("meal-type-selector")).not.toBeInTheDocument();
+      });
+    });
+
+    it("shows normal analyzer UI when chatOpen is false after analysis", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        // Normal UI should be shown
+        expect(screen.getByTestId("photo-capture")).toBeInTheDocument();
+        expect(screen.getByTestId("description-input")).toBeInTheDocument();
+        expect(screen.getByTestId("analysis-result")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+        expect(screen.getByTestId("meal-type-selector")).toBeInTheDocument();
+
+        // Chat should not be open
+        expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
+      });
+    });
+
+    it("tapping CTA button opens FoodChat component", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /refine/i })).toBeInTheDocument();
+      });
+
+      // Click the CTA button
+      fireEvent.click(screen.getByRole("button", { name: /refine/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId("food-chat")).toBeInTheDocument();
@@ -1475,8 +1542,8 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByText(/similar foods you've logged before/i)).toBeInTheDocument();
       });
 
-      // Open chat
-      fireEvent.click(screen.getByText(/add details or correct something/i));
+      // Open chat via CTA button
+      fireEvent.click(screen.getByRole("button", { name: /refine/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId("food-chat")).toBeInTheDocument();
@@ -1500,11 +1567,11 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/add details or correct something/i)).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /refine/i })).toBeInTheDocument();
       });
 
       // Open chat
-      fireEvent.click(screen.getByText(/add details or correct something/i));
+      fireEvent.click(screen.getByRole("button", { name: /refine/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId("food-chat")).toBeInTheDocument();
@@ -1534,11 +1601,11 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/add details or correct something/i)).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /refine/i })).toBeInTheDocument();
       });
 
       // Open chat
-      fireEvent.click(screen.getByText(/add details or correct something/i));
+      fireEvent.click(screen.getByRole("button", { name: /refine/i }));
 
       await waitFor(() => {
         expect(screen.getByTestId("food-chat")).toBeInTheDocument();

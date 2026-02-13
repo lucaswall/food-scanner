@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealTypeSelector } from "./meal-type-selector";
 import { PhotoCapture } from "./photo-capture";
-import { Send, X, Loader2 } from "lucide-react";
+import { Send, ArrowLeft, Loader2 } from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import type {
@@ -168,18 +168,18 @@ export function FoodChat({
   };
 
   return (
-    <div className="flex flex-col h-full max-h-[80vh]">
-      {/* Header with close button */}
+    <div className="flex flex-col h-full">
+      {/* Header with back button */}
       <div className="flex items-center justify-between p-4 border-b">
         <h2 className="text-lg font-semibold">Chat about your food</h2>
         <Button
           variant="ghost"
           size="sm"
           onClick={onClose}
-          aria-label="Close"
+          aria-label="Back"
           className="min-h-[44px] min-w-[44px]"
         >
-          <X className="h-5 w-5" />
+          <ArrowLeft className="h-5 w-5" />
         </Button>
       </div>
 
@@ -223,21 +223,7 @@ export function FoodChat({
 
       {/* Pinned controls at bottom */}
       <div className="border-t p-4 space-y-3">
-        {/* Meal type selector */}
-        <div className="space-y-2">
-          <MealTypeSelector value={mealTypeId} onChange={setMealTypeId} />
-        </div>
-
-        {/* Log to Fitbit button */}
-        <Button
-          onClick={handleLog}
-          className="w-full min-h-[44px]"
-          variant="default"
-        >
-          Log to Fitbit
-        </Button>
-
-        {/* Input bar with camera and send button */}
+        {/* Input bar with text input and send button */}
         <div className="flex gap-2">
           <PhotoCapture
             onPhotosChange={() => {
@@ -270,6 +256,20 @@ export function FoodChat({
             )}
           </Button>
         </div>
+
+        {/* Meal type selector */}
+        <div className="space-y-2">
+          <MealTypeSelector value={mealTypeId} onChange={setMealTypeId} />
+        </div>
+
+        {/* Log to Fitbit button */}
+        <Button
+          onClick={handleLog}
+          className="w-full min-h-[44px]"
+          variant="default"
+        >
+          Log to Fitbit
+        </Button>
       </div>
     </div>
   );

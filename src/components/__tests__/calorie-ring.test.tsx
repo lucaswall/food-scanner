@@ -103,101 +103,10 @@ describe("CalorieRing", () => {
     expect(svg).toHaveAttribute("viewBox");
   });
 
-  describe("budget marker", () => {
-    it("renders a marker when budget prop is provided", () => {
-      const { container } = render(<CalorieRing calories={1000} goal={2000} budget={1500} />);
-      const marker = container.querySelector('[data-testid="budget-marker"]');
-      expect(marker).toBeInTheDocument();
-    });
-
-    it("does not render a marker when budget prop is undefined", () => {
-      const { container } = render(<CalorieRing calories={1000} goal={2000} />);
-      const marker = container.querySelector('[data-testid="budget-marker"]');
-      expect(marker).not.toBeInTheDocument();
-    });
-
-    it("caps marker at goal position when budget exceeds goal", () => {
-      const { container } = render(<CalorieRing calories={1000} goal={2000} budget={2500} />);
-      const marker = container.querySelector('[data-testid="budget-marker"]');
-
-      // Marker should be positioned at 100% (goal position)
-      // (1000 + 2500) / 2000 = 1.75, capped at 1.0
-      expect(marker).toBeInTheDocument();
-
-      // At budgetPosition=1 (100%), marker completes full circle back to SVG 3 o'clock
-      // Same coordinates as 0%: x1=114, y1=64, x2=126, y2=64
-      const x1 = marker?.getAttribute("x1");
-      const y1 = marker?.getAttribute("y1");
-      const x2 = marker?.getAttribute("x2");
-      const y2 = marker?.getAttribute("y2");
-
-      expect(parseFloat(x1 ?? "0")).toBeCloseTo(114, 1);
-      expect(parseFloat(y1 ?? "0")).toBeCloseTo(64, 1);
-      expect(parseFloat(x2 ?? "0")).toBeCloseTo(126, 1);
-      expect(parseFloat(y2 ?? "0")).toBeCloseTo(64, 1);
-    });
-
-    it("positions marker at start when calories and budget are both 0", () => {
-      const { container } = render(<CalorieRing calories={0} goal={2000} budget={0} />);
-      const marker = container.querySelector('[data-testid="budget-marker"]');
-      expect(marker).toBeInTheDocument();
-
-      // budgetPosition = (0 + 0) / 2000 = 0, marker at SVG 3 o'clock (rightmost)
-      // After CSS -rotate-90, this appears at 12 o'clock on screen
-      // Expected coordinates: x1=114, y1=64, x2=126, y2=64 (horizontal line at right)
-      const x1 = marker?.getAttribute("x1");
-      const y1 = marker?.getAttribute("y1");
-      const x2 = marker?.getAttribute("x2");
-      const y2 = marker?.getAttribute("y2");
-
-      expect(parseFloat(x1 ?? "0")).toBeCloseTo(114, 1);
-      expect(parseFloat(y1 ?? "0")).toBeCloseTo(64, 1);
-      expect(parseFloat(x2 ?? "0")).toBeCloseTo(126, 1);
-      expect(parseFloat(y2 ?? "0")).toBeCloseTo(64, 1);
-    });
-
-    it("positions marker at 50% of goal at SVG 9 o'clock", () => {
-      const { container } = render(<CalorieRing calories={500} goal={2000} budget={500} />);
-      const marker = container.querySelector('[data-testid="budget-marker"]');
-      expect(marker).toBeInTheDocument();
-
-      // budgetPosition = (500 + 500) / 2000 = 0.5, marker at SVG 9 o'clock (leftmost)
-      // After CSS -rotate-90, this appears at 6 o'clock on screen
-      // Expected coordinates: x1=14, y1=64, x2=2, y2=64 (horizontal line at left)
-      const x1 = marker?.getAttribute("x1");
-      const y1 = marker?.getAttribute("y1");
-      const x2 = marker?.getAttribute("x2");
-      const y2 = marker?.getAttribute("y2");
-
-      expect(parseFloat(x1 ?? "0")).toBeCloseTo(14, 1);
-      expect(parseFloat(y1 ?? "0")).toBeCloseTo(64, 1);
-      expect(parseFloat(x2 ?? "0")).toBeCloseTo(2, 1);
-      expect(parseFloat(y2 ?? "0")).toBeCloseTo(64, 1);
-    });
-
-    it("positions marker at start when budget is negative", () => {
-      const { container } = render(<CalorieRing calories={1000} goal={2000} budget={-100} />);
-      const marker = container.querySelector('[data-testid="budget-marker"]');
-      expect(marker).toBeInTheDocument();
-    });
-
-    it("does not render marker when calories equal goal", () => {
-      const { container } = render(<CalorieRing calories={2000} goal={2000} budget={500} />);
-      const marker = container.querySelector('[data-testid="budget-marker"]');
-      expect(marker).not.toBeInTheDocument();
-    });
-
-    it("does not render marker when calories exceed goal", () => {
-      const { container } = render(<CalorieRing calories={2500} goal={2000} budget={500} />);
-      const marker = container.querySelector('[data-testid="budget-marker"]');
-      expect(marker).not.toBeInTheDocument();
-    });
-
-    it("still renders marker when calories are below goal", () => {
-      const { container } = render(<CalorieRing calories={1500} goal={2000} budget={300} />);
-      const marker = container.querySelector('[data-testid="budget-marker"]');
-      expect(marker).toBeInTheDocument();
-    });
+  it("does not render a budget marker", () => {
+    const { container } = render(<CalorieRing calories={1000} goal={2000} />);
+    const marker = container.querySelector('[data-testid="budget-marker"]');
+    expect(marker).not.toBeInTheDocument();
   });
 
   describe("over-goal visual indicators", () => {
