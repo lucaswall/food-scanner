@@ -210,6 +210,7 @@ When the user confirms they're done refining:
    - Use `mcp__linear__update_issue` for each updated issue (title, description, priority, labels)
    - Use `mcp__linear__create_issue` for each new split issue with `team: "Food Scanner"`, `state: "Backlog"`, and proper labels/priority
    - For canceled issues, follow the Cancellation Procedure below
+   - For kept issues when other issues in the same session were canceled, follow the Vetted Marker below
 
 ### Cancellation Procedure
 
@@ -241,6 +242,18 @@ mcp__linear__update_issue(id: "FOO-xxx", state: "<canceled-state-uuid>")
 ```
 
 **Always use the UUID, never the name**, for canceled-type state transitions.
+
+### Vetted Marker
+
+When a refinement session cancels some issues but keeps others, the kept issues must be marked as vetted so that downstream skills (plan-backlog) don't re-question or drop them.
+
+**Prepend this note** to the top of the kept issue's description (before `**Problem:**`):
+
+```
+**Refinement:** Reviewed YYYY-MM-DD — confirmed valid. [1-sentence summary of why it was kept]. Do not drop.
+```
+
+This note is added via `mcp__linear__update_issue` along with any other description changes. If the kept issue's description doesn't need other changes, still update it to add the Refinement note.
 
 ### Refined Description Format
 
