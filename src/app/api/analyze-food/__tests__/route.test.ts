@@ -185,7 +185,7 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.message).toContain("At least one image or a description is required");
   });
 
-  it("returns 400 VALIDATION_ERROR for more than 3 images", async () => {
+  it("returns 400 VALIDATION_ERROR for more than 9 images", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest([
@@ -193,13 +193,19 @@ describe("POST /api/analyze-food", () => {
       createMockFile("test2.jpg", "image/jpeg", 1000),
       createMockFile("test3.jpg", "image/jpeg", 1000),
       createMockFile("test4.jpg", "image/jpeg", 1000),
+      createMockFile("test5.jpg", "image/jpeg", 1000),
+      createMockFile("test6.jpg", "image/jpeg", 1000),
+      createMockFile("test7.jpg", "image/jpeg", 1000),
+      createMockFile("test8.jpg", "image/jpeg", 1000),
+      createMockFile("test9.jpg", "image/jpeg", 1000),
+      createMockFile("test10.jpg", "image/jpeg", 1000),
     ]);
 
     const response = await POST(request);
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
-    expect(body.error.message).toContain("3");
+    expect(body.error.message).toContain("9");
   });
 
   it("accepts GIF images (image/gif)", async () => {
@@ -453,5 +459,52 @@ describe("POST /api/analyze-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(body.error.message).toContain("text");
+  });
+
+  it("processes remaining images when one image arrayBuffer fails", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+
+    // Create a failing file mock
+    class FailingMockFile extends MockFile {
+      arrayBuffer(): Promise<ArrayBuffer> {
+        return Promise.reject(new Error("Failed to read image"));
+      }
+    }
+
+    const goodFile = createMockFile("good.jpg", "image/jpeg", 1000);
+    const failingFile = new FailingMockFile("bad.jpg", "image/jpeg", 1000);
+    const anotherGoodFile = createMockFile("good2.jpg", "image/jpeg", 1000);
+
+    const formData = {
+      getAll: (key: string) => (key === "images" ? [goodFile, failingFile, anotherGoodFile] : []),
+      get: (key: string) => (key === "description" ? null : null),
+    };
+
+    const request = {
+      formData: () => Promise.resolve(formData),
+    } as unknown as Request;
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+
+    // Verify only successful images were passed to analyzeFood (2 images, not 3)
+    expect(mockAnalyzeFood).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ mimeType: "image/jpeg" }),
+        expect.objectContaining({ mimeType: "image/jpeg" }),
+      ]),
+      undefined,
+      "user-uuid-123"
+    );
+    expect(mockAnalyzeFood.mock.calls[0][0]).toHaveLength(2);
+
+    // Verify a warning was logged for the failed image
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "analyze_food_image_processing" }),
+      expect.stringContaining("Failed to process image")
+    );
   });
 });

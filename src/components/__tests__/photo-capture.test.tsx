@@ -706,9 +706,9 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files: [heicFile] } });
 
-      // Should show error message
+      // Should show error message (resilient implementation)
       await waitFor(() => {
-        expect(screen.getByText(/failed to process heic/i)).toBeInTheDocument();
+        expect(screen.getByText(/all images failed to process/i)).toBeInTheDocument();
       });
 
       // onPhotosChange should NOT have been called
@@ -988,9 +988,9 @@ describe("PhotoCapture", () => {
 
       fireEvent.change(galleryInput, { target: { files: [heicFile] } });
 
-      // Wait for error to be displayed
+      // Wait for error to be displayed (resilient implementation)
       await waitFor(() => {
-        expect(screen.getByText(/failed to process heic/i)).toBeInTheDocument();
+        expect(screen.getByText(/all images failed to process/i)).toBeInTheDocument();
       });
 
       // Placeholder should be cleared after error

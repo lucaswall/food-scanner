@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
-import { isToday } from "@/lib/date-utils";
+import { isToday, addDays } from "@/lib/date-utils";
 import type { FastingResponse } from "@/types";
 
 function isValidDateFormat(date: string): boolean {
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
       if (window && isToday(date) && window.firstMealTime === null) {
         live = {
           lastMealTime: window.lastMealTime,
-          startDate: date,
+          startDate: addDays(date, -1), // lastMealTime comes from previous day
         };
       }
 

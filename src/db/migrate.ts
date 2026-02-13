@@ -1,5 +1,5 @@
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { getDb, closeDb } from "./index";
+import { getDb, closeDb } from "@/db/index";
 import { logger } from "@/lib/logger";
 
 const MAX_RETRIES = 5;

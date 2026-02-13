@@ -21,6 +21,10 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
+  // Consume OAuth state immediately after validation
+  delete rawSession.oauthState;
+  await rawSession.save();
+
   if (!rawSession.sessionId) {
     logger.warn({ action: "fitbit_callback_no_session" }, "fitbit callback without authenticated session");
     return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
@@ -68,10 +72,6 @@ export async function GET(request: Request) {
     refreshToken: tokens.refresh_token,
     expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
   });
-
-  // Clear the OAuth state from session
-  delete rawSession.oauthState;
-  await rawSession.save();
 
   logger.info({ action: "fitbit_connect_success" }, "fitbit connected successfully");
 

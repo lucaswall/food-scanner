@@ -325,3 +325,59 @@ A batch of bugfixes, a security hardening, a convention fix, and one improvement
 - OAuth flow restructuring beyond state consumption timing
 - Image processing retry logic or progressive upload
 - Adding new photo grid layouts for 9 images (existing grid-cols-3 is fine)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-13
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Fix fasting live timer negative duration (FOO-360) — Changed startDate to previous day in live mode using `addDays(date, -1)` (worker-1)
+- Task 2: Consume OAuth state before token exchange (FOO-363) — Moved state deletion to immediately after validation in both Google and Fitbit callbacks (worker-2)
+- Task 3: Fix relative imports in src/db/ (FOO-367) — Changed 2 relative imports to @/ path alias (worker-3)
+- Task 4: Increase max photo limit from 3 to 9 (FOO-368) — Updated constant, default prop, and CLAUDE.md docs (worker-4)
+- Task 5: Replace Promise.all with resilient image processing (FOO-366) — Promise.allSettled in analyze-food, refine-food, food-analyzer, photo-capture (worker-4)
+- Task 6: Integration & Verification — Full test suite, lint, typecheck, build all pass
+
+### Files Modified
+- `src/app/api/fasting/route.ts` — Fixed live mode startDate to use previous day
+- `src/app/api/fasting/__tests__/route.test.ts` — Updated test expectation for startDate
+- `src/components/__tests__/fasting-card.test.tsx` — Updated 3 live mode tests with realistic dates
+- `src/app/api/auth/google/callback/route.ts` — Moved state deletion before token exchange
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Added state consumption test
+- `src/app/api/auth/fitbit/callback/route.ts` — Moved state deletion before token exchange
+- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Added state consumption test
+- `src/db/index.ts` — Changed relative import to @/db/schema
+- `src/db/migrate.ts` — Changed relative import to @/db/index
+- `src/lib/image-validation.ts` — Changed MAX_IMAGES from 3 to 9
+- `src/lib/__tests__/image-validation.test.ts` — Updated test to expect 9
+- `src/components/photo-capture.tsx` — Changed maxPhotos default to 9, Promise.allSettled for HEIC
+- `src/components/__tests__/photo-capture.test.tsx` — Updated tests for resilient error messages
+- `CLAUDE.md` — Updated max images from 3 to 9
+- `src/app/api/analyze-food/route.ts` — Promise.allSettled for image buffers
+- `src/app/api/analyze-food/__tests__/route.test.ts` — Added resilience test, updated limit test
+- `src/app/api/refine-food/route.ts` — Promise.allSettled for image buffers + all-failed validation
+- `src/app/api/refine-food/__tests__/route.test.ts` — Updated limit test
+- `src/components/food-analyzer.tsx` — Promise.allSettled for image compression
+
+### Linear Updates
+- FOO-360: Todo → In Progress → Review
+- FOO-363: Todo → In Progress → Review
+- FOO-366: Todo → In Progress → Review
+- FOO-367: Todo → In Progress → Review
+- FOO-368: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 HIGH bug (missing all-images-failed validation in refine-food), fixed before proceeding
+- verifier: All 1573 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Task 1 (fasting API files)
+- Worker 2: Task 2 (OAuth callback files)
+- Worker 3: Task 3 (db import files)
+- Worker 4: Tasks 4, 5 (image validation, photo components, API routes)
+
+### Continuation Status
+All tasks completed.

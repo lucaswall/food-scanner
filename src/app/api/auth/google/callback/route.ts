@@ -40,6 +40,10 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
+  // Consume OAuth state immediately after validation
+  delete rawSession.oauthState;
+  await rawSession.save();
+
   const redirectUri = buildUrl("/api/auth/google/callback");
 
   let tokens: { access_token: string };
@@ -73,8 +77,6 @@ export async function GET(request: Request) {
   const user = await getOrCreateUser(profile.email, profile.name);
   const sessionId = await createSession(user.id);
   rawSession.sessionId = sessionId;
-  // Clear the OAuth state from session
-  delete rawSession.oauthState;
   await rawSession.save();
 
   logger.info({ action: "google_login_success", email: maskEmail(profile.email) }, "google login successful");

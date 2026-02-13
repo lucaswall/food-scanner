@@ -265,4 +265,30 @@ describe("GET /api/auth/fitbit/callback", () => {
     const body = await response.json();
     expect(body.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
   });
+
+  it("consumes OAuth state before token exchange", async () => {
+    let stateAtExchangeTime: string | undefined;
+    let saveCallCount = 0;
+
+    // Capture state value and save call count when exchangeFitbitCode is called
+    mockExchangeFitbitCode.mockImplementation(async () => {
+      stateAtExchangeTime = mockRawSession.oauthState as string | undefined;
+      saveCallCount = (mockRawSession.save as ReturnType<typeof vi.fn>).mock.calls.length;
+      return {
+        access_token: "fitbit-access-token",
+        refresh_token: "fitbit-refresh-token",
+        user_id: "fitbit-user-123",
+        expires_in: 28800,
+      };
+    });
+
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(response.status).toBe(302);
+
+    // State should already be undefined when token exchange happens
+    expect(stateAtExchangeTime).toBeUndefined();
+
+    // Save should have been called at least once before token exchange
+    expect(saveCallCount).toBeGreaterThanOrEqual(1);
+  });
 });
