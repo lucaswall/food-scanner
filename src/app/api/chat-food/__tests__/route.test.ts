@@ -261,7 +261,31 @@ describe("POST /api/chat-food", () => {
         { base64: "base64imagedata1", mimeType: "image/jpeg" },
         { base64: "base64imagedata2", mimeType: "image/jpeg" },
       ],
-      "user-uuid-123"
+      "user-uuid-123",
+      undefined
+    );
+  });
+
+  it("passes initialAnalysis to conversationalRefine when provided", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockResolvedValue({
+      message: "Updated to 200g",
+      analysis: { ...validAnalysis, amount: 200 },
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Actually it was 200g" }],
+      initialAnalysis: validAnalysis,
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    expect(mockConversationalRefine).toHaveBeenCalledWith(
+      [{ role: "user", content: "Actually it was 200g" }],
+      [],
+      "user-uuid-123",
+      validAnalysis
     );
   });
 

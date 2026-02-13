@@ -386,6 +386,7 @@ export interface ConversationMessage {
 export interface ChatFoodRequest {
   messages: ConversationMessage[];
   images?: string[];
+  initialAnalysis?: FoodAnalysis;
 }
 
 export interface ChatFoodResponse {

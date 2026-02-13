@@ -422,6 +422,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       <FoodChat
         initialAnalysis={analysis}
         compressedImages={compressedImages || []}
+        initialMealTypeId={mealTypeId}
         onClose={() => setChatOpen(false)}
         onLogged={setLogResponse}
       />

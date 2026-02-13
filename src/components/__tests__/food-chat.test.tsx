@@ -43,6 +43,11 @@ vi.mock("../meal-type-selector", () => ({
   ),
 }));
 
+// Mock compressImage
+vi.mock("@/lib/image", () => ({
+  compressImage: vi.fn((file: File) => Promise.resolve(new Blob([file.name]))),
+}));
+
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
@@ -68,94 +73,78 @@ const mockLogResponse: FoodLogResponse = {
 
 const mockCompressedImages = [new Blob(["image1"]), new Blob(["image2"])];
 
+const defaultProps = {
+  initialAnalysis: mockAnalysis,
+  compressedImages: mockCompressedImages,
+  initialMealTypeId: 3,
+  onClose: vi.fn(),
+  onLogged: vi.fn(),
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("FoodChat", () => {
   it("renders initial assistant message from the initial analysis", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
-    // Should show a summary of the initial analysis
     expect(screen.getByText(/empanada de carne/i)).toBeInTheDocument();
     expect(screen.getByText(/320 cal/i)).toBeInTheDocument();
   });
 
   it("renders text input with send button at bottom", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     expect(screen.getByPlaceholderText(/type a message/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /send/i })).toBeInTheDocument();
   });
 
   it("renders Log to Fitbit button always visible", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
   });
 
   it("renders floating back button", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     const backButton = screen.getByRole("button", { name: /back/i });
     expect(backButton).toBeInTheDocument();
   });
 
-  it("renders MealTypeSelector", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+  it("renders MealTypeSelector with initialMealTypeId", () => {
+    render(<FoodChat {...defaultProps} />);
 
-    expect(screen.getByTestId("meal-type-selector")).toBeInTheDocument();
+    const selector = screen.getByTestId("meal-type-selector");
+    expect(selector).toBeInTheDocument();
+    const select = selector.querySelector("select") as HTMLSelectElement;
+    expect(select.value).toBe("3");
   });
 
-  it("renders add photo button for camera menu", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+  it("does not show photo indicator on entry (initial images are sent silently)", () => {
+    render(<FoodChat {...defaultProps} />);
 
-    expect(screen.getByRole("button", { name: /add photo/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("photo-indicator")).not.toBeInTheDocument();
   });
 
-  it("typing and sending a message calls POST /api/chat-food with message history", async () => {
+  it("plus button toggles inline photo menu", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    const plusButton = screen.getByRole("button", { name: /add photo/i });
+    expect(screen.queryByTestId("photo-menu")).not.toBeInTheDocument();
+
+    fireEvent.click(plusButton);
+    expect(screen.getByTestId("photo-menu")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /choose from gallery/i })).toBeInTheDocument();
+
+    // Click again to close
+    fireEvent.click(plusButton);
+    expect(screen.queryByTestId("photo-menu")).not.toBeInTheDocument();
+  });
+
+  it("typing and sending a message calls POST /api/chat-food with initialAnalysis", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       text: () =>
@@ -167,19 +156,11 @@ describe("FoodChat", () => {
         })),
     });
 
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     const input = screen.getByPlaceholderText(/type a message/i);
     const sendButton = screen.getByRole("button", { name: /send/i });
 
-    // Type a message
     fireEvent.change(input, { target: { value: "Actually it was 2 empanadas" } });
     fireEvent.click(sendButton);
 
@@ -193,13 +174,83 @@ describe("FoodChat", () => {
       );
     });
 
-    // Verify the request body: initial assistant message is UI-only,
-    // so only the user message is sent (Anthropic API requires user-first)
     const callArgs = mockFetch.mock.calls[0];
     const body = JSON.parse(callArgs[1].body);
     expect(body.messages).toHaveLength(1);
     expect(body.messages[0].role).toBe("user");
     expect(body.messages[0].content).toBe("Actually it was 2 empanadas");
+    expect(body.initialAnalysis).toEqual(mockAnalysis);
+  });
+
+  it("sends initial images silently with first message", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: { message: "I see the food" },
+        })),
+    });
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "What's this?" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith("/api/chat-food", expect.any(Object));
+    });
+
+    const callArgs = mockFetch.mock.calls[0];
+    const body = JSON.parse(callArgs[1].body);
+    // Initial compressed images sent silently
+    expect(body.images).toBeDefined();
+    expect(body.images).toHaveLength(2);
+  });
+
+  it("does not re-send initial images on second message", async () => {
+    // First message
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: { message: "Got it!" },
+        })),
+    });
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "first" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Got it!")).toBeInTheDocument();
+    });
+
+    // Second message
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: { message: "OK" },
+        })),
+    });
+
+    fireEvent.change(input, { target: { value: "second" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    const secondCallArgs = mockFetch.mock.calls[1];
+    const secondBody = JSON.parse(secondCallArgs[1].body);
+    // No images on second message
+    expect(secondBody.images).toBeUndefined();
   });
 
   it("assistant response is displayed in message list", async () => {
@@ -214,20 +265,11 @@ describe("FoodChat", () => {
         })),
     });
 
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     const input = screen.getByPlaceholderText(/type a message/i);
-    const sendButton = screen.getByRole("button", { name: /send/i });
-
     fireEvent.change(input, { target: { value: "Make it 2" } });
-    fireEvent.click(sendButton);
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/got it, updating to 2 empanadas!/i)).toBeInTheDocument();
@@ -262,16 +304,8 @@ describe("FoodChat", () => {
           })),
       });
 
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
-    // Send a message that returns updated analysis
     const input = screen.getByPlaceholderText(/type a message/i);
     fireEvent.change(input, { target: { value: "Make it 2" } });
     fireEvent.click(screen.getByRole("button", { name: /send/i }));
@@ -280,7 +314,6 @@ describe("FoodChat", () => {
       expect(screen.getByText(/updated to 2 empanadas/i)).toBeInTheDocument();
     });
 
-    // Click log button
     fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
     await waitFor(() => {
@@ -293,7 +326,6 @@ describe("FoodChat", () => {
       );
     });
 
-    // Verify the updated analysis was logged
     const logCallArgs = mockFetch.mock.calls.find(
       (call: unknown[]) => call[0] === "/api/log-food"
     );
@@ -312,14 +344,7 @@ describe("FoodChat", () => {
         })),
     });
 
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
@@ -334,17 +359,25 @@ describe("FoodChat", () => {
     });
   });
 
+  it("Log to Fitbit button shows loading state while logging", async () => {
+    mockFetch.mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(resolve, 1000))
+    );
+
+    render(<FoodChat {...defaultProps} />);
+
+    const logButton = screen.getByRole("button", { name: /log to fitbit/i });
+    fireEvent.click(logButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/logging/i)).toBeInTheDocument();
+    });
+  });
+
   it("clicking back button calls onClose callback", () => {
     const onClose = vi.fn();
 
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={onClose}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} onClose={onClose} />);
 
     fireEvent.click(screen.getByRole("button", { name: /back/i }));
 
@@ -356,14 +389,7 @@ describe("FoodChat", () => {
       () => new Promise((resolve) => setTimeout(resolve, 1000))
     );
 
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     const input = screen.getByPlaceholderText(/type a message/i);
     fireEvent.change(input, { target: { value: "Test message" } });
@@ -384,14 +410,7 @@ describe("FoodChat", () => {
         })),
     });
 
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     const input = screen.getByPlaceholderText(/type a message/i);
     fireEvent.change(input, { target: { value: "Test message" } });
@@ -403,91 +422,10 @@ describe("FoodChat", () => {
   });
 
   it("send button is disabled when input is empty", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     const sendButton = screen.getByRole("button", { name: /send/i });
     expect(sendButton).toBeDisabled();
-  });
-
-  it("shows photo attachment indicator with count and remove button", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
-
-    const indicator = screen.getByTestId("photo-indicator");
-    expect(indicator).toBeInTheDocument();
-    expect(indicator).toHaveTextContent("2 photos");
-    expect(screen.getByRole("button", { name: /remove photos/i })).toBeInTheDocument();
-  });
-
-  it("removes photos when remove button is clicked", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /remove photos/i }));
-
-    expect(screen.queryByTestId("photo-indicator")).not.toBeInTheDocument();
-  });
-
-  it("hides photo indicator after first message is sent", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      text: () =>
-        Promise.resolve(JSON.stringify({
-          success: true,
-          data: { message: "Got it!" },
-        })),
-    });
-
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
-
-    expect(screen.getByTestId("photo-indicator")).toBeInTheDocument();
-
-    const input = screen.getByPlaceholderText(/type a message/i);
-    fireEvent.change(input, { target: { value: "test" } });
-    fireEvent.click(screen.getByRole("button", { name: /send/i }));
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("photo-indicator")).not.toBeInTheDocument();
-    });
-  });
-
-  it("shows no photo indicator when no images provided", () => {
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={[]}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
-
-    expect(screen.queryByTestId("photo-indicator")).not.toBeInTheDocument();
   });
 
   it("shows analysis summary in assistant message when analysis is present", async () => {
@@ -512,14 +450,7 @@ describe("FoodChat", () => {
         })),
     });
 
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     const input = screen.getByPlaceholderText(/type a message/i);
     fireEvent.change(input, { target: { value: "Mix them" } });
@@ -537,14 +468,7 @@ describe("FoodChat", () => {
       () => new Promise((resolve) => setTimeout(resolve, 1000))
     );
 
-    render(
-      <FoodChat
-        initialAnalysis={mockAnalysis}
-        compressedImages={mockCompressedImages}
-        onClose={vi.fn()}
-        onLogged={vi.fn()}
-      />
-    );
+    render(<FoodChat {...defaultProps} />);
 
     const input = screen.getByPlaceholderText(/type a message/i);
     const sendButton = screen.getByRole("button", { name: /send/i });
@@ -555,5 +479,30 @@ describe("FoodChat", () => {
     await waitFor(() => {
       expect(sendButton).toBeDisabled();
     });
+  });
+
+  it("does not send images when no initial or pending images exist", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: { message: "OK" },
+        })),
+    });
+
+    render(<FoodChat {...defaultProps} compressedImages={[]} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "test" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalled();
+    });
+
+    const callArgs = mockFetch.mock.calls[0];
+    const body = JSON.parse(callArgs[1].body);
+    expect(body.images).toBeUndefined();
   });
 });

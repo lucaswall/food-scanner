@@ -1313,7 +1313,7 @@ describe("conversationalRefine", () => {
     );
   });
 
-  it("uses CHAT_SYSTEM_PROMPT", async () => {
+  it("uses CHAT_SYSTEM_PROMPT without initial analysis", async () => {
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-20250514",
       content: [
@@ -1340,6 +1340,35 @@ describe("conversationalRefine", () => {
         system: CHAT_SYSTEM_PROMPT,
       })
     );
+  });
+
+  it("includes initial analysis context in system prompt when provided", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [
+        {
+          type: "text",
+          text: "OK",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Make it 2" }],
+      [],
+      "user-123",
+      validAnalysis
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.system).toContain(validAnalysis.food_name);
+    expect(call.system).toContain(String(validAnalysis.calories));
+    expect(call.system).toContain("baseline");
   });
 
   it("uses max_tokens 2048", async () => {
@@ -1371,7 +1400,7 @@ describe("conversationalRefine", () => {
     );
   });
 
-  it("includes images when provided", async () => {
+  it("attaches images to the last user message", async () => {
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-20250514",
       content: [
@@ -1394,18 +1423,30 @@ describe("conversationalRefine", () => {
 
     const { conversationalRefine } = await import("@/lib/claude");
     await conversationalRefine(
-      [{ role: "user", content: "What's this?" }],
+      [
+        { role: "user", content: "I had an empanada" },
+        { role: "assistant", content: "Logged" },
+        { role: "user", content: "Here's a photo" },
+      ],
       [{ base64: "img123", mimeType: "image/jpeg" }],
       "user-123"
     );
 
     const call = mockCreate.mock.calls[0][0];
+    // First user message should NOT have images
     const firstMessage = call.messages[0];
-    const imageBlocks = firstMessage.content.filter(
+    const firstImageBlocks = firstMessage.content.filter(
       (block: { type: string }) => block.type === "image"
     );
-    expect(imageBlocks).toHaveLength(1);
-    expect(imageBlocks[0].source.data).toBe("img123");
+    expect(firstImageBlocks).toHaveLength(0);
+
+    // Last user message SHOULD have images
+    const lastMessage = call.messages[2];
+    const lastImageBlocks = lastMessage.content.filter(
+      (block: { type: string }) => block.type === "image"
+    );
+    expect(lastImageBlocks).toHaveLength(1);
+    expect(lastImageBlocks[0].source.data).toBe("img123");
   });
 
   it("does not include images when not provided", async () => {

@@ -328,7 +328,8 @@ export async function analyzeFood(
 export async function conversationalRefine(
   messages: ConversationMessage[],
   images: ImageInput[],
-  userId?: string
+  userId?: string,
+  initialAnalysis?: FoodAnalysis
 ): Promise<{ message: string; analysis?: FoodAnalysis }> {
   try {
     logger.info(
@@ -336,12 +337,21 @@ export async function conversationalRefine(
       "calling Claude API for conversational refinement"
     );
 
+    // Find the index of the last user message to attach images
+    let lastUserIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        lastUserIndex = i;
+        break;
+      }
+    }
+
     // Convert ConversationMessage[] to Anthropic SDK message format
     const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg, index) => {
       const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
 
-      // Add images to the first user message
-      if (msg.role === "user" && index === 0 && images.length > 0) {
+      // Attach images to the last user message
+      if (msg.role === "user" && index === lastUserIndex && images.length > 0) {
         content.push(
           ...images.map((img) => ({
             type: "image" as const,
@@ -370,10 +380,25 @@ export async function conversationalRefine(
       };
     });
 
+    // Build system prompt with initial analysis context if available
+    let systemPrompt = CHAT_SYSTEM_PROMPT;
+    if (initialAnalysis) {
+      const unitLabel = initialAnalysis.unit_id === 147 ? "g" : initialAnalysis.unit_id === 209 ? "ml" : "units";
+      systemPrompt += `\n\nThe initial analysis of this meal is:
+- Food: ${initialAnalysis.food_name}
+- Amount: ${initialAnalysis.amount}${unitLabel}
+- Calories: ${initialAnalysis.calories}
+- Protein: ${initialAnalysis.protein_g}g, Carbs: ${initialAnalysis.carbs_g}g, Fat: ${initialAnalysis.fat_g}g
+- Fiber: ${initialAnalysis.fiber_g}g, Sodium: ${initialAnalysis.sodium_mg}mg
+- Confidence: ${initialAnalysis.confidence}
+- Notes: ${initialAnalysis.notes}
+Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
+    }
+
     const response = await getClient().messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2048,
-      system: CHAT_SYSTEM_PROMPT,
+      system: systemPrompt,
       tools: [REPORT_NUTRITION_TOOL],
       tool_choice: { type: "auto" },
       messages: anthropicMessages,

@@ -5,12 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealTypeSelector } from "./meal-type-selector";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Send,
   ArrowLeft,
   Loader2,
@@ -22,7 +16,8 @@ import {
   Paperclip,
 } from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
-import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
+import { compressImage } from "@/lib/image";
+import { getLocalDateTime } from "@/lib/meal-type";
 import type {
   FoodAnalysis,
   FoodLogResponse,
@@ -30,25 +25,62 @@ import type {
   ChatFoodResponse,
 } from "@/types";
 
+const MAX_MESSAGES = 20;
+
 interface FoodChatProps {
   initialAnalysis: FoodAnalysis;
   compressedImages: Blob[];
+  initialMealTypeId: number;
   onClose: () => void;
   onLogged: (response: FoodLogResponse) => void;
 }
 
-function AnalysisSummary({ analysis }: { analysis: FoodAnalysis }) {
+function getUnitLabel(unitId: number): string {
+  if (unitId === 147) return "g";
+  if (unitId === 209) return "ml";
+  return " units";
+}
+
+function AnalysisSummary({
+  analysis,
+  previousAnalysis,
+}: {
+  analysis: FoodAnalysis;
+  previousAnalysis?: FoodAnalysis;
+}) {
+  const changed = (field: keyof FoodAnalysis) =>
+    previousAnalysis && previousAnalysis[field] !== analysis[field];
+
+  const highlight = (isChanged: boolean | undefined) =>
+    isChanged ? "font-semibold" : "";
+
   return (
     <div className="mt-2 pt-2 border-t border-current/10 text-xs space-y-0.5">
-      <p className="font-medium">{analysis.food_name}</p>
+      <p className={`font-medium ${highlight(changed("food_name"))}`}>
+        {analysis.food_name}
+      </p>
       <p className="opacity-80">
-        {analysis.amount}
-        {analysis.unit_id === 147 ? "g" : analysis.unit_id === 209 ? "ml" : " units"}
+        <span className={highlight(changed("amount") || changed("unit_id"))}>
+          {analysis.amount}
+          {getUnitLabel(analysis.unit_id)}
+        </span>
         {" · "}
-        {analysis.calories} cal
+        <span className={highlight(changed("calories"))}>
+          {analysis.calories} cal
+        </span>
       </p>
       <p className="opacity-60">
-        P: {analysis.protein_g}g · C: {analysis.carbs_g}g · F: {analysis.fat_g}g
+        <span className={highlight(changed("protein_g"))}>
+          P: {analysis.protein_g}g
+        </span>
+        {" · "}
+        <span className={highlight(changed("carbs_g"))}>
+          C: {analysis.carbs_g}g
+        </span>
+        {" · "}
+        <span className={highlight(changed("fat_g"))}>
+          F: {analysis.fat_g}g
+        </span>
       </p>
     </div>
   );
@@ -57,6 +89,7 @@ function AnalysisSummary({ analysis }: { analysis: FoodAnalysis }) {
 export function FoodChat({
   initialAnalysis,
   compressedImages,
+  initialMealTypeId,
   onClose,
   onLogged,
 }: FoodChatProps) {
@@ -71,11 +104,14 @@ export function FoodChat({
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [logging, setLogging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
-  const [images, setImages] = useState<Blob[]>(compressedImages);
-  const [imagesSent, setImagesSent] = useState(false);
+  const [mealTypeId, setMealTypeId] = useState(initialMealTypeId);
+  // Initial images sent silently with first message; user-added images shown in indicator
+  const [initialImagesSent, setInitialImagesSent] = useState(false);
+  const [pendingImages, setPendingImages] = useState<Blob[]>([]);
   const [showScrollDown, setShowScrollDown] = useState(false);
+  const [showPhotoMenu, setShowPhotoMenu] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -87,8 +123,10 @@ export function FoodChat({
       .reverse()
       .find((msg) => msg.analysis)?.analysis || initialAnalysis;
 
-  // Images are pending if we have them and haven't sent the first message yet
-  const pendingImageCount = imagesSent ? 0 : images.length;
+  // Count messages excluding the initial client-generated assistant message
+  const apiMessageCount = messages.length - 1;
+  const nearLimit = apiMessageCount >= MAX_MESSAGES - 4;
+  const atLimit = apiMessageCount >= MAX_MESSAGES;
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -109,7 +147,42 @@ export function FoodChat({
   };
 
   const handleClearImages = () => {
-    setImages([]);
+    setPendingImages([]);
+  };
+
+  const handleFileSelected = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    setShowPhotoMenu(false);
+    const fileArray = Array.from(files);
+    const compressionResults = await Promise.allSettled(
+      fileArray.map(compressImage)
+    );
+    const compressed = compressionResults
+      .filter(
+        (r): r is PromiseFulfilledResult<Blob> => r.status === "fulfilled"
+      )
+      .map((r) => r.value);
+
+    if (compressed.length > 0) {
+      setPendingImages((prev) => [...prev, ...compressed]);
+    }
+  };
+
+  const blobsToBase64 = async (blobs: Blob[]): Promise<string[]> => {
+    return Promise.all(
+      blobs.map(async (blob) => {
+        const reader = new FileReader();
+        return new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const base64 = (reader.result as string).split(",")[1];
+            resolve(base64);
+          };
+          reader.onerror = () => reject(new Error("Failed to read image"));
+          reader.readAsDataURL(blob);
+        });
+      })
+    );
   };
 
   const handleSend = async () => {
@@ -120,8 +193,11 @@ export function FoodChat({
       content: input.trim(),
     };
 
+    const userAddedImages = [...pendingImages];
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
+    setPendingImages([]);
+    setShowPhotoMenu(false);
     setLoading(true);
     setError(null);
 
@@ -132,27 +208,22 @@ export function FoodChat({
       const requestBody: {
         messages: ConversationMessage[];
         images?: string[];
+        initialAnalysis: FoodAnalysis;
       } = {
         messages: apiMessages,
+        initialAnalysis,
       };
 
-      // Include images on first user turn
-      if (!imagesSent && images.length > 0) {
-        const base64Images = await Promise.all(
-          images.map(async (blob) => {
-            const reader = new FileReader();
-            return new Promise<string>((resolve, reject) => {
-              reader.onload = () => {
-                const base64 = (reader.result as string).split(",")[1];
-                resolve(base64);
-              };
-              reader.onerror = () => reject(new Error("Failed to read image"));
-              reader.readAsDataURL(blob);
-            });
-          })
-        );
-        requestBody.images = base64Images;
-        setImagesSent(true);
+      // Collect all images to send: initial images (first time only) + user-added
+      const allImagesToSend: Blob[] = [];
+      if (!initialImagesSent && compressedImages.length > 0) {
+        allImagesToSend.push(...compressedImages);
+        setInitialImagesSent(true);
+      }
+      allImagesToSend.push(...userAddedImages);
+
+      if (allImagesToSend.length > 0) {
+        requestBody.images = await blobsToBase64(allImagesToSend);
       }
 
       const response = await fetch("/api/chat-food", {
@@ -188,6 +259,11 @@ export function FoodChat({
   };
 
   const handleLog = async () => {
+    if (logging) return;
+
+    setLogging(true);
+    setError(null);
+
     try {
       const response = await fetch("/api/log-food", {
         method: "POST",
@@ -215,21 +291,14 @@ export function FoodChat({
       setError(
         err instanceof Error ? err.message : "An unexpected error occurred"
       );
+    } finally {
+      setLogging(false);
     }
   };
 
   return (
     <div className="fixed inset-0 z-[60] flex flex-col bg-background">
-      {/* Floating back button */}
-      <button
-        onClick={onClose}
-        aria-label="Back"
-        className="fixed top-3 left-3 z-[61] flex items-center justify-center size-11 rounded-full bg-background/80 backdrop-blur-sm shadow-md border"
-      >
-        <ArrowLeft className="h-5 w-5" />
-      </button>
-
-      {/* Hidden file inputs for camera menu */}
+      {/* Hidden file inputs */}
       <input
         ref={cameraInputRef}
         type="file"
@@ -237,7 +306,8 @@ export function FoodChat({
         capture="environment"
         className="hidden"
         data-testid="chat-camera-input"
-        onChange={() => {
+        onChange={(e) => {
+          handleFileSelected(e.target.files);
           if (cameraInputRef.current) cameraInputRef.current.value = "";
         }}
       />
@@ -248,38 +318,89 @@ export function FoodChat({
         multiple
         className="hidden"
         data-testid="chat-gallery-input"
-        onChange={() => {
+        onChange={(e) => {
+          handleFileSelected(e.target.files);
           if (galleryInputRef.current) galleryInputRef.current.value = "";
         }}
       />
 
-      {/* Messages — full screen scrollable */}
+      {/* Top header: Back + Meal type + Log to Fitbit */}
+      <div className="border-b bg-background px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onClose}
+            aria-label="Back"
+            className="shrink-0 flex items-center justify-center size-11 rounded-full"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          <div className="flex-1">
+            <MealTypeSelector
+              value={mealTypeId}
+              onChange={setMealTypeId}
+              showTimeHint={false}
+            />
+          </div>
+          <Button
+            onClick={handleLog}
+            disabled={logging}
+            className="shrink-0 min-h-[44px]"
+          >
+            {logging ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Logging...
+              </>
+            ) : (
+              "Log to Fitbit"
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Messages — scrollable area */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-3 pt-16 pb-2 space-y-2"
+        className="flex-1 overflow-y-auto px-3 py-2 space-y-2"
       >
-        {messages.map((msg, idx) => (
-          <div
-            key={idx}
-            className={`flex ${
-              msg.role === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
+        {messages.map((msg, idx) => {
+          // Find previous analysis for diff highlighting on this message
+          let prevAnalysisForMsg: FoodAnalysis | undefined;
+          if (msg.role === "assistant" && msg.analysis && idx > 0) {
+            for (let i = idx - 1; i >= 0; i--) {
+              if (messages[i].analysis) {
+                prevAnalysisForMsg = messages[i].analysis;
+                break;
+              }
+            }
+          }
+
+          return (
             <div
-              className={`max-w-[80%] px-3 py-2 rounded-2xl ${
-                msg.role === "user"
-                  ? "bg-primary text-primary-foreground rounded-br-sm"
-                  : "bg-muted rounded-bl-sm"
+              key={idx}
+              className={`flex ${
+                msg.role === "user" ? "justify-end" : "justify-start"
               }`}
             >
-              <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-              {msg.role === "assistant" && msg.analysis && idx > 0 && (
-                <AnalysisSummary analysis={msg.analysis} />
-              )}
+              <div
+                className={`max-w-[80%] px-3 py-2 rounded-2xl ${
+                  msg.role === "user"
+                    ? "bg-primary text-primary-foreground rounded-br-sm"
+                    : "bg-muted rounded-bl-sm"
+                }`}
+              >
+                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                {msg.role === "assistant" && msg.analysis && idx > 0 && (
+                  <AnalysisSummary
+                    analysis={msg.analysis}
+                    previousAnalysis={prevAnalysisForMsg}
+                  />
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {loading && (
           <div className="flex justify-start" data-testid="chat-loading">
@@ -298,7 +419,7 @@ export function FoodChat({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Bottom anchored area */}
+      {/* Bottom input area */}
       <div className="relative border-t bg-background">
         {/* Scroll-to-bottom button */}
         {showScrollDown && (
@@ -311,8 +432,17 @@ export function FoodChat({
           </button>
         )}
 
-        {/* Photo attachment indicator */}
-        {pendingImageCount > 0 && (
+        {/* Conversation limit warning */}
+        {nearLimit && !atLimit && (
+          <div className="px-3 pt-2">
+            <p data-testid="limit-warning" className="text-xs text-muted-foreground text-center">
+              {MAX_MESSAGES - apiMessageCount} messages remaining
+            </p>
+          </div>
+        )}
+
+        {/* Photo attachment indicator (only user-added photos) */}
+        {pendingImages.length > 0 && (
           <div className="flex items-center gap-1.5 px-3 pt-2">
             <div
               data-testid="photo-indicator"
@@ -320,7 +450,7 @@ export function FoodChat({
             >
               <Paperclip className="h-3 w-3" />
               <span>
-                {pendingImageCount} photo{pendingImageCount !== 1 ? "s" : ""}
+                {pendingImages.length} photo{pendingImages.length !== 1 ? "s" : ""}
               </span>
               <button
                 onClick={handleClearImages}
@@ -333,36 +463,50 @@ export function FoodChat({
           </div>
         )}
 
-        {/* Line 1: Camera menu + Text input + Send */}
-        <div className="flex items-center gap-1.5 px-2 pt-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="shrink-0"
-                aria-label="Add photo"
-              >
-                <Plus className="h-5 w-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="min-w-0">
-              <DropdownMenuItem
-                onClick={() => cameraInputRef.current?.click()}
-                aria-label="Take photo"
-                className="justify-center px-3"
-              >
-                <Camera className="h-5 w-5" />
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => galleryInputRef.current?.click()}
-                aria-label="Choose from gallery"
-                className="justify-center px-3"
-              >
-                <ImageIcon className="h-5 w-5" />
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {/* Inline photo menu */}
+        {showPhotoMenu && (
+          <div data-testid="photo-menu" className="flex items-center gap-2 px-3 pt-2">
+            <button
+              onClick={() => {
+                cameraInputRef.current?.click();
+                setShowPhotoMenu(false);
+              }}
+              aria-label="Take photo"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted text-sm min-h-[36px]"
+            >
+              <Camera className="h-4 w-4" />
+              Camera
+            </button>
+            <button
+              onClick={() => {
+                galleryInputRef.current?.click();
+                setShowPhotoMenu(false);
+              }}
+              aria-label="Choose from gallery"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted text-sm min-h-[36px]"
+            >
+              <ImageIcon className="h-4 w-4" />
+              Gallery
+            </button>
+          </div>
+        )}
+
+        {/* Photo toggle + Text input + Send */}
+        <div className="flex items-center gap-1.5 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            aria-label="Add photo"
+            disabled={loading}
+            onClick={() => setShowPhotoMenu((prev) => !prev)}
+          >
+            {showPhotoMenu ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <Plus className="h-5 w-5" />
+            )}
+          </Button>
 
           <Input
             placeholder="Type a message..."
@@ -374,13 +518,13 @@ export function FoodChat({
                 handleSend();
               }
             }}
-            disabled={loading}
+            disabled={loading || atLimit}
             className="flex-1 min-h-[44px] rounded-full"
           />
 
           <Button
             onClick={handleSend}
-            disabled={!input.trim() || loading}
+            disabled={!input.trim() || loading || atLimit}
             aria-label="Send"
             size="icon"
             className="shrink-0 rounded-full"
@@ -390,20 +534,6 @@ export function FoodChat({
             ) : (
               <Send className="h-4 w-4" />
             )}
-          </Button>
-        </div>
-
-        {/* Line 2: Meal type (left) + Log to Fitbit (right) */}
-        <div className="flex items-center gap-2 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          <div className="flex-1">
-            <MealTypeSelector
-              value={mealTypeId}
-              onChange={setMealTypeId}
-              showTimeHint={false}
-            />
-          </div>
-          <Button onClick={handleLog} className="flex-1 min-h-[44px]">
-            Log to Fitbit
           </Button>
         </div>
       </div>

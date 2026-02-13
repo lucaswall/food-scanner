@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger";
 import { conversationalRefine } from "@/lib/claude";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { MAX_IMAGES, MAX_IMAGE_SIZE } from "@/lib/image-validation";
-import type { ConversationMessage } from "@/types";
+import type { ConversationMessage, FoodAnalysis } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
 const MAX_MESSAGES = 20;
@@ -65,6 +65,15 @@ export async function POST(request: Request) {
 
   const messages = data.messages as ConversationMessage[];
 
+  // Parse optional initialAnalysis
+  let initialAnalysis: FoodAnalysis | undefined;
+  if (data.initialAnalysis !== undefined) {
+    if (!data.initialAnalysis || typeof data.initialAnalysis !== "object" || Array.isArray(data.initialAnalysis)) {
+      return errorResponse("VALIDATION_ERROR", "initialAnalysis must be an object", 400);
+    }
+    initialAnalysis = data.initialAnalysis as FoodAnalysis;
+  }
+
   // Parse optional images array
   let images: Array<{ base64: string; mimeType: string }> = [];
   if (data.images !== undefined) {
@@ -110,7 +119,8 @@ export async function POST(request: Request) {
     const result = await conversationalRefine(
       messages,
       images,
-      session!.userId
+      session!.userId,
+      initialAnalysis
     );
 
     logger.info(
