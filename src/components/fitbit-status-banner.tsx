@@ -27,10 +27,10 @@ export function FitbitStatusBanner() {
   // Transitional state: tokens exist but no credentials → will break on refresh
   if (fitbitConnected && !hasFitbitCredentials) {
     return (
-      <Alert variant="default" className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
-        <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
+      <Alert variant="default" className="border-warning bg-warning/10">
+        <AlertCircle className="h-4 w-4 text-warning" />
         <AlertDescription className="flex items-center justify-between gap-4">
-          <span className="text-sm text-amber-900 dark:text-amber-100">
+          <span className="text-sm text-warning-foreground">
             Set up Fitbit credentials to keep logging food
           </span>
           <Button variant="outline" size="sm" asChild className="shrink-0">
@@ -47,10 +47,10 @@ export function FitbitStatusBanner() {
   // Case 1: No credentials at all → redirect to setup page
   if (!hasFitbitCredentials) {
     return (
-      <Alert variant="default" className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
-        <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
+      <Alert variant="default" className="border-warning bg-warning/10">
+        <AlertCircle className="h-4 w-4 text-warning" />
         <AlertDescription className="flex items-center justify-between gap-4">
-          <span className="text-sm text-amber-900 dark:text-amber-100">
+          <span className="text-sm text-warning-foreground">
             Set up Fitbit to start logging food
           </span>
           <Button variant="outline" size="sm" asChild className="shrink-0">
@@ -63,10 +63,10 @@ export function FitbitStatusBanner() {
 
   // Case 2: Has credentials but not connected → reconnect flow
   return (
-    <Alert variant="default" className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
-      <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-500" />
+    <Alert variant="default" className="border-warning bg-warning/10">
+      <AlertCircle className="h-4 w-4 text-warning" />
       <AlertDescription className="flex items-center justify-between gap-4">
-        <span className="text-sm text-amber-900 dark:text-amber-100">
+        <span className="text-sm text-warning-foreground">
           Fitbit disconnected
         </span>
         <form action="/api/auth/fitbit" method="POST">

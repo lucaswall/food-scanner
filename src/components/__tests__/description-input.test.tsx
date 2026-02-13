@@ -83,4 +83,34 @@ describe("DescriptionInput", () => {
 
     expect(screen.getByRole("textbox", { name: /food description/i })).toBeInTheDocument();
   });
+
+  describe("visible label", () => {
+    it("renders a visible label with text 'Food description (optional)'", () => {
+      const onChange = vi.fn();
+      render(<DescriptionInput value="" onChange={onChange} />);
+
+      const label = screen.getByText(/food description.*optional/i);
+      expect(label.tagName).toBe("LABEL");
+    });
+
+    it("label has htmlFor='food-description' and textarea has matching id", () => {
+      const onChange = vi.fn();
+      render(<DescriptionInput value="" onChange={onChange} />);
+
+      const label = screen.getByText(/food description.*optional/i, { selector: "label" });
+      expect(label).toHaveAttribute("for", "food-description");
+
+      const textarea = screen.getByRole("textbox");
+      expect(textarea).toHaveAttribute("id", "food-description");
+    });
+
+    it("textarea is accessible via label association", () => {
+      const onChange = vi.fn();
+      render(<DescriptionInput value="" onChange={onChange} />);
+
+      // Should be able to find textarea by its associated label text
+      const textarea = screen.getByRole("textbox", { name: /food description.*optional/i });
+      expect(textarea).toBeInTheDocument();
+    });
+  });
 });

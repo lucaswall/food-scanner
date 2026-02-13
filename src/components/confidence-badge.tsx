@@ -26,13 +26,13 @@ export function ConfidenceBadge({ confidence }: ConfidenceBadgeProps) {
             {confidence === "high" ? (
               <CheckCircle
                 data-testid="confidence-icon-check"
-                className="w-4 h-4 text-green-500"
+                className="w-4 h-4 text-success"
                 aria-hidden="true"
               />
             ) : (
               <AlertTriangle
                 data-testid="confidence-icon-alert"
-                className={`w-4 h-4 ${confidence === "medium" ? "text-yellow-500" : "text-red-500"}`}
+                className={`w-4 h-4 ${confidence === "medium" ? "text-warning" : "text-destructive"}`}
                 aria-hidden="true"
               />
             )}

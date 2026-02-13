@@ -88,19 +88,19 @@ export function LumenBanner() {
     <>
       <Alert
         variant="default"
-        className="border-blue-500 bg-blue-50 dark:bg-blue-950/20 cursor-pointer min-h-[44px]"
+        className="border-info bg-info/10 cursor-pointer min-h-[44px]"
         onClick={handleBannerClick}
       >
         {isUploading ? (
-          <Loader2 data-testid="upload-spinner" className="h-4 w-4 text-blue-600 dark:text-blue-500 animate-spin" />
+          <Loader2 data-testid="upload-spinner" className="h-4 w-4 text-info animate-spin" />
         ) : (
-          <Upload className="h-4 w-4 text-blue-600 dark:text-blue-500" />
+          <Upload className="h-4 w-4 text-info" />
         )}
         <AlertDescription className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-blue-900 dark:text-blue-100">
+          <span className="text-sm font-medium text-info-foreground">
             Set today&apos;s macro goals
           </span>
-          <span className="text-xs text-blue-700 dark:text-blue-300">
+          <span className="text-xs text-info-foreground">
             Upload Lumen screenshot
           </span>
         </AlertDescription>

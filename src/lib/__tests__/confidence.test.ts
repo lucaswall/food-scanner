@@ -17,20 +17,20 @@ describe("confidence", () => {
 
     it("all color values are valid Tailwind bg classes", () => {
       for (const [, color] of Object.entries(confidenceColors)) {
-        expect(color).toMatch(/^bg-\w+-\d+$/);
+        expect(color).toMatch(/^bg-\w+$/);
       }
     });
 
-    it("high is green", () => {
-      expect(confidenceColors.high).toBe("bg-green-500");
+    it("high is success", () => {
+      expect(confidenceColors.high).toBe("bg-success");
     });
 
-    it("medium is yellow", () => {
-      expect(confidenceColors.medium).toBe("bg-yellow-500");
+    it("medium is warning", () => {
+      expect(confidenceColors.medium).toBe("bg-warning");
     });
 
-    it("low is red", () => {
-      expect(confidenceColors.low).toBe("bg-red-500");
+    it("low is destructive", () => {
+      expect(confidenceColors.low).toBe("bg-destructive");
     });
   });
 

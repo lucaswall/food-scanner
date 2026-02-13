@@ -261,7 +261,7 @@ export function DailyDashboard() {
       {/* Empty state or Meal Breakdown */}
       {showEmptyState ? (
         <div className="flex flex-col items-center justify-center py-8 text-center">
-          <p className="text-muted-foreground">No food logged</p>
+          <p className="text-muted-foreground">Log your first meal to see your daily nutrition</p>
         </div>
       ) : (
         <MealBreakdown meals={meals} />

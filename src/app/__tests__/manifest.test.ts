@@ -18,7 +18,7 @@ describe('PWA Manifest', () => {
     expect(manifest.start_url).toBe('/app')
     expect(manifest.display).toBe('standalone')
     expect(manifest.background_color).toBe('#ffffff')
-    expect(manifest.theme_color).toBe('#000000')
+    expect(manifest.theme_color).toBe('#ffffff') // Match light mode background
     expect(manifest.orientation).toBe('portrait')
   })
 

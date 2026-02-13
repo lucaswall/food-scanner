@@ -106,8 +106,7 @@ function NutritionItem({ label, value, unit }: NutritionItemProps) {
     <div className="flex justify-between items-center">
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="text-sm font-medium">
-        {value}
-        {unit}
+        {value} {unit}
       </span>
     </div>
   );

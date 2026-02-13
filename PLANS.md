@@ -479,3 +479,80 @@ Batch of UI polish, accessibility fixes, a visual bug fix, and theme variable co
 - Adding dark mode support where it doesn't exist yet
 - Refactoring banner component structure
 - Adding new components or pages
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-13
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Define semantic CSS color variables in globals.css (FOO-349) - Added success, warning, info variables with @theme inline mappings and :root/.dark oklch values (worker-1)
+- Task 2: Fix settings page accessibility and replace hardcoded colors (FOO-350, FOO-356, FOO-349) - Added htmlFor/id label associations, removed redundant aria-labels, replaced hardcoded colors (worker-2)
+- Task 3: Add space between nutrition values and units (FOO-352) - Modified NutritionItem to render "450 kcal" instead of "450kcal" (worker-2)
+- Task 4: Add visible label to food description textarea (FOO-357) - Added Label component with htmlFor/id association (worker-2)
+- Task 5: Add skip link and main landmark to food-detail page (FOO-351) - Added SkipLink and main landmark matching other app pages (worker-3)
+- Task 6: Replace empty states with actionable guidance and replace hardcoded colors (FOO-353, FOO-349) - Updated empty states with actionable messages, replaced bg-green-500 with bg-success (worker-3)
+- Task 7: Fix chart goal marker overflow and replace hardcoded colors (FOO-348, FOO-349) - Fixed maxValue to include goals, replaced hardcoded colors with semantic classes (worker-4)
+- Task 8: Update PWA manifest theme_color (FOO-358) - Changed #000000 to #ffffff (worker-4)
+- Task 9: Replace hardcoded colors in remaining components (FOO-349) - Replaced all hardcoded Tailwind colors across 7 components with semantic theme classes (worker-1)
+- Task 10: Integration & Verification - Lead verified all changes, fixed lint warning and bug-hunter findings
+
+### Files Modified
+- `src/app/globals.css` - Added semantic color variables (success, warning, info) with light/dark mode
+- `src/app/__tests__/globals-theme.test.ts` - Created CSS theme variable tests
+- `src/components/settings-content.tsx` - Label associations, removed aria-labels, semantic colors
+- `src/components/__tests__/settings-content.test.tsx` - Added accessibility tests
+- `src/components/analysis-result.tsx` - Added space between value and unit
+- `src/components/__tests__/analysis-result.test.tsx` - Updated spacing and color assertions
+- `src/components/description-input.tsx` - Added visible Label component
+- `src/components/__tests__/description-input.test.tsx` - Added label tests
+- `src/app/app/food-detail/[id]/page.tsx` - Added SkipLink and main landmark
+- `src/app/app/food-detail/[id]/__tests__/page.test.tsx` - Created page tests
+- `src/components/fasting-card.tsx` - Actionable empty states, bg-success
+- `src/components/__tests__/fasting-card.test.tsx` - Updated empty state assertions
+- `src/components/daily-dashboard.tsx` - Actionable empty state
+- `src/components/__tests__/daily-dashboard.test.tsx` - Updated empty state assertions
+- `src/components/weekly-nutrition-chart.tsx` - Goal overflow fix, semantic colors
+- `src/components/__tests__/weekly-nutrition-chart.test.tsx` - Goal overflow test, color assertions
+- `public/manifest.json` - theme_color #000000 → #ffffff
+- `src/app/__tests__/manifest.test.ts` - Updated theme_color assertion
+- `src/lib/confidence.ts` - Semantic color classes
+- `src/lib/__tests__/confidence.test.ts` - Updated color assertions
+- `src/components/confidence-badge.tsx` - Semantic color classes
+- `src/components/__tests__/confidence-badge.test.tsx` - Updated color assertions
+- `src/components/macro-bars.tsx` - Semantic color classes (info, success, warning)
+- `src/components/__tests__/macro-bars.test.tsx` - Updated color assertions
+- `src/components/calorie-ring.tsx` - text-warning
+- `src/components/__tests__/calorie-ring.test.tsx` - Updated color assertions
+- `src/components/food-log-confirmation.tsx` - text-success
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Updated color assertions
+- `src/components/lumen-banner.tsx` - info semantic classes
+- `src/components/__tests__/lumen-banner.test.tsx` - Updated color assertions
+- `src/components/fitbit-status-banner.tsx` - warning semantic classes
+- `src/components/__tests__/fitbit-status-banner.test.tsx` - Updated color assertions
+
+### Linear Updates
+- FOO-349: Todo → In Progress → Review
+- FOO-348: Todo → In Progress → Review
+- FOO-350: Todo → In Progress → Review
+- FOO-351: Todo → In Progress → Review
+- FOO-352: Todo → In Progress → Review
+- FOO-353: Todo → In Progress → Review
+- FOO-356: Todo → In Progress → Review
+- FOO-357: Todo → In Progress → Review
+- FOO-358: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 high (missing SkipLink mock) + 1 medium (fasting empty state wording), fixed before proceeding
+- verifier: All 1570 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1, 9 (CSS theme variables + color replacements in 7 components)
+- Worker 2: Tasks 2, 3, 4 (settings accessibility, nutrition spacing, description label)
+- Worker 3: Tasks 5, 6 (food-detail landmarks, empty states)
+- Worker 4: Tasks 7, 8 (chart overflow fix, PWA manifest)
+
+### Continuation Status
+All tasks completed.

@@ -73,7 +73,7 @@ export function FastingCard({ date }: FastingCardProps) {
   if (!data?.window) {
     return (
       <div className="rounded-lg border bg-card p-4">
-        <p className="text-sm text-muted-foreground">No data</p>
+        <p className="text-sm text-muted-foreground">Log a meal to start tracking your fasting window</p>
       </div>
     );
   }
@@ -88,7 +88,7 @@ export function FastingCard({ date }: FastingCardProps) {
           <span className="text-sm font-medium">Fasting</span>
           <div
             data-testid="fasting-live-dot"
-            className="w-2 h-2 rounded-full bg-green-500 animate-pulse"
+            className="w-2 h-2 rounded-full bg-success animate-pulse"
           />
         </div>
         <div className="text-2xl font-bold">{formatDuration(liveDuration)}</div>
@@ -117,7 +117,7 @@ export function FastingCard({ date }: FastingCardProps) {
   // Ongoing fast (not today, no live mode)
   return (
     <div className="rounded-lg border bg-card p-4">
-      <p className="text-sm text-muted-foreground">No data</p>
+      <p className="text-sm text-muted-foreground">No completed fasting window for this date</p>
     </div>
   );
 }

@@ -62,13 +62,14 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
     );
   }
 
-  // Find max value for scaling (only from days with data)
+  // Find max value for scaling (include both actual values and goals)
   const maxValue = Math.max(
     ...weekDays
       .filter((day) => day.data !== null && day.data.calories > 0)
-      .map((day) => {
-        const { value } = getMetricData(day.data, selectedMetric);
-        return value;
+      .flatMap((day) => {
+        const { value, goal } = getMetricData(day.data, selectedMetric);
+        // Include both value and goal (if goal exists) in the max calculation
+        return goal !== null ? [value, goal] : [value];
       }),
     1 // Minimum of 1 to avoid division by zero
   );
@@ -139,7 +140,7 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
           // Determine bar color
           let barColor = "bg-primary";
           if (!isEmpty && goal !== null) {
-            barColor = value <= goal ? "bg-green-500" : "bg-amber-500";
+            barColor = value <= goal ? "bg-success" : "bg-warning";
           }
 
           return (
@@ -179,8 +180,8 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
         <p
           className={`text-sm font-medium ${
             netDiff > 0
-              ? "text-amber-500"
-              : "text-green-600"
+              ? "text-warning"
+              : "text-success"
           }`}
           data-testid="net-surplus-deficit"
         >
