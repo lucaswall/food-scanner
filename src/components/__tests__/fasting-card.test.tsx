@@ -134,7 +134,7 @@ describe("FastingCard", () => {
       },
       live: {
         lastMealTime: "20:00:00",
-        startDate: "2026-02-12",
+        startDate: "2026-02-11", // Previous day since lastMealTime is from yesterday
       },
     };
 
@@ -145,8 +145,8 @@ describe("FastingCard", () => {
     });
 
     // Mock Date.now() to return a known time for testing
-    // 2026-02-12 23:00:00 local time (3 hours after last meal at 20:00:00)
-    const mockNow = new Date("2026-02-12T23:00:00").getTime();
+    // 2026-02-12 07:00:00 local time (11 hours after last meal at 20:00:00 yesterday)
+    const mockNow = new Date("2026-02-12T07:00:00").getTime();
     vi.setSystemTime(mockNow);
 
     render(<FastingCard date="2026-02-12" />);
@@ -156,8 +156,8 @@ describe("FastingCard", () => {
     expect(pulsingDot).toBeInTheDocument();
     expect(pulsingDot).toHaveClass("animate-pulse");
 
-    // Check for live duration display (3 hours = 180 minutes)
-    expect(screen.getByText(/3h 0m/)).toBeInTheDocument();
+    // Check for live duration display (11 hours after 8 PM yesterday)
+    expect(screen.getByText(/11h 0m/)).toBeInTheDocument();
   });
 
   it("updates live counter every minute", async () => {
@@ -170,7 +170,7 @@ describe("FastingCard", () => {
       },
       live: {
         lastMealTime: "20:00:00",
-        startDate: "2026-02-12",
+        startDate: "2026-02-11", // Previous day since lastMealTime is from yesterday
       },
     };
 
@@ -180,14 +180,14 @@ describe("FastingCard", () => {
       isLoading: false,
     });
 
-    // Start at 2026-02-12 23:00:00 local time (3 hours after last meal)
-    const mockNow = new Date("2026-02-12T23:00:00").getTime();
+    // Start at 2026-02-12 07:00:00 local time (11 hours after last meal at 8 PM yesterday)
+    const mockNow = new Date("2026-02-12T07:00:00").getTime();
     vi.setSystemTime(mockNow);
 
     render(<FastingCard date="2026-02-12" />);
 
-    // Initial state: 3h 0m
-    expect(screen.getByText(/3h 0m/)).toBeInTheDocument();
+    // Initial state: 11h 0m
+    expect(screen.getByText(/11h 0m/)).toBeInTheDocument();
 
     // Advance time by 1 minute
     act(() => {
@@ -195,7 +195,7 @@ describe("FastingCard", () => {
     });
 
     // Check the updated state
-    expect(screen.getByText(/3h 1m/)).toBeInTheDocument();
+    expect(screen.getByText(/11h 1m/)).toBeInTheDocument();
   });
 
   it("cleans up timer on unmount", () => {
@@ -208,7 +208,7 @@ describe("FastingCard", () => {
       },
       live: {
         lastMealTime: "20:00:00",
-        startDate: "2026-02-12",
+        startDate: "2026-02-11", // Previous day since lastMealTime is from yesterday
       },
     };
 

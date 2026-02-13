@@ -340,4 +340,30 @@ describe("GET /api/auth/google/callback", () => {
     const body = await response.json();
     expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
   });
+
+  it("consumes OAuth state before token exchange", async () => {
+    let stateAtExchangeTime: string | undefined;
+    let saveCallCount = 0;
+
+    // Capture state value and save call count when exchangeGoogleCode is called
+    mockExchangeGoogleCode.mockImplementation(async () => {
+      stateAtExchangeTime = mockRawSession.oauthState as string | undefined;
+      saveCallCount = (mockRawSession.save as ReturnType<typeof vi.fn>).mock.calls.length;
+      return { access_token: "google-token" };
+    });
+
+    mockGetGoogleProfile.mockResolvedValue({
+      email: "test@example.com",
+      name: "Test User",
+    });
+
+    const response = await GET(makeCallbackRequest("valid-code", "test-state"));
+    expect(response.status).toBe(302);
+
+    // State should already be undefined when token exchange happens
+    expect(stateAtExchangeTime).toBeUndefined();
+
+    // Save should have been called at least once before token exchange
+    expect(saveCallCount).toBeGreaterThanOrEqual(1);
+  });
 });

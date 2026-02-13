@@ -99,8 +99,8 @@ export async function POST(request: Request) {
   );
 
   try {
-    // Convert images to base64
-    const imageInputs = await Promise.all(
+    // Convert images to base64 (resilient to individual image failures)
+    const imageResults = await Promise.allSettled(
       images.map(async (image) => {
         const buffer = await image.arrayBuffer();
         const base64 = Buffer.from(buffer).toString("base64");
@@ -110,6 +110,33 @@ export async function POST(request: Request) {
         };
       })
     );
+
+    // Filter out failed images and keep only successful ones
+    const imageInputs = imageResults
+      .map((result, index) => {
+        if (result.status === "rejected") {
+          logger.warn(
+            { action: "analyze_food_image_processing", imageIndex: index },
+            `Failed to process image ${index}: ${result.reason}`
+          );
+          return null;
+        }
+        return {
+          base64: result.value.base64,
+          mimeType: result.value.mimeType,
+        };
+      })
+      .filter((input): input is { base64: string; mimeType: string } => input !== null);
+
+    // If all images failed and there's no description, return an error
+    if (imageInputs.length === 0 && (!description || description.trim().length === 0)) {
+      logger.warn({ action: "analyze_food_validation" }, "all images failed to process and no description");
+      return errorResponse(
+        "VALIDATION_ERROR",
+        "Failed to process images. Please try again with different photos.",
+        400
+      );
+    }
 
     const analysis = await analyzeFood(
       imageInputs,

@@ -86,7 +86,31 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       setLoadingStep("Preparing images...");
 
       try {
-        compressedBlobs = await Promise.all(photos.map(compressImage));
+        const compressionResults = await Promise.allSettled(photos.map(compressImage));
+        compressedBlobs = compressionResults
+          .filter((result): result is PromiseFulfilledResult<Blob> => result.status === "fulfilled")
+          .map((result) => result.value);
+
+        const failedCount = compressionResults.filter((result) => result.status === "rejected").length;
+
+        if (compressedBlobs.length === 0) {
+          setError("All images failed to process. Please try different photos.");
+          vibrateError();
+          setCompressing(false);
+          setLoadingStep(undefined);
+          return;
+        }
+
+        if (failedCount > 0) {
+          const warningMessage = failedCount === 1
+            ? "1 image could not be processed and was skipped"
+            : `${failedCount} images could not be processed and were skipped`;
+          console.warn(warningMessage);
+          // Show warning to user but continue with successful images
+          setError(warningMessage);
+          // Clear the warning after analysis starts
+          setTimeout(() => setError(null), 3000);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to compress images");
         vibrateError();

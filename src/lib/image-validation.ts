@@ -1,4 +1,4 @@
-export const MAX_IMAGES = 3;
+export const MAX_IMAGES = 9;
 export const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
 // Note: HEIC not included - client converts HEIC to JPEG before upload
 export const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];

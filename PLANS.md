@@ -1,423 +1,287 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Branch:** feat/FOO-349-ui-polish-and-theme
-**Issues:** FOO-349, FOO-348, FOO-350, FOO-351, FOO-352, FOO-353, FOO-356, FOO-357, FOO-358
+**Branch:** feat/FOO-360-bugfixes-and-improvements
+**Issues:** FOO-360, FOO-363, FOO-366, FOO-367, FOO-368
 **Created:** 2026-02-13
 **Last Updated:** 2026-02-13
 
 ## Summary
 
-Batch of UI polish, accessibility fixes, a visual bug fix, and theme variable consolidation. Replaces hardcoded Tailwind colors (green-500, amber-500, blue-500, etc.) with semantic CSS variables, fixes accessibility gaps (label associations, skip links, visible labels), improves empty states, fixes a chart overflow bug, and tidies up minor UI issues.
+A batch of bugfixes, a security hardening, a convention fix, and one improvement:
+
+1. **FOO-360 (High, Bug):** Fix fasting live timer negative duration — API sends today as `startDate` but `lastMealTime` is from yesterday, producing a future timestamp on the client.
+2. **FOO-363 (Low, Security):** Consume OAuth state immediately after validation — both Google and Fitbit callbacks currently delete state after the full flow completes.
+3. **FOO-366 (Low, Bug):** Replace `Promise.all` with `Promise.allSettled` for image processing — a single corrupt image currently kills the entire batch.
+4. **FOO-367 (Low, Convention):** Fix relative imports in `src/db/` to use `@/` path alias.
+5. **FOO-368 (Medium, Improvement):** Increase max photo limit from 3 to 9.
 
 ## Issues
 
-### FOO-349: Replace hardcoded Tailwind colors with theme variables
+### FOO-360: Fasting live timer shows negative duration
 
 **Priority:** High
-**Labels:** Improvement
-**Description:** Multiple components use hardcoded Tailwind color utilities instead of theme CSS variables, creating visual inconsistency especially in dark mode. Affected files: `src/lib/confidence.ts`, `src/components/confidence-badge.tsx`, `src/components/macro-bars.tsx`, `src/components/weekly-nutrition-chart.tsx`, `src/components/fasting-card.tsx`, `src/components/calorie-ring.tsx`, `src/components/food-log-confirmation.tsx`, `src/components/lumen-banner.tsx`, `src/components/fitbit-status-banner.tsx`, `src/components/settings-content.tsx`.
+**Labels:** Bug
+**Description:** The fasting card's live timer displays negative hours/minutes. The API route sets `startDate` to today's date, but `lastMealTime` comes from the previous day's last meal. The client constructs `new Date("${startDate}T${lastMealTime}")` — combining today's date with yesterday's meal time creates a future timestamp, so `now - future = negative`.
 
 **Acceptance Criteria:**
-- [ ] No hardcoded Tailwind color utilities (green-500, amber-500, blue-500, red-500, yellow-500, etc.) in component files
-- [ ] New semantic color variables defined in globals.css for both light and dark themes
-- [ ] All affected components use theme variables instead of hardcoded colors
-- [ ] Visual appearance consistent in both light and dark mode
+- [ ] Live fasting timer shows positive elapsed time
+- [ ] `startDate` in live mode is the previous day (when `lastMealTime` originated)
+- [ ] Existing tests updated to verify correct `startDate`
+- [ ] Fasting card test updated to use the previous day's date in `live.startDate`
 
-### FOO-348: Weekly chart goal marker overflows when goal exceeds max actual value
+### FOO-363: OAuth state token has replay window before invalidation
+
+**Priority:** Low
+**Labels:** Security
+**Description:** Both Google and Fitbit OAuth callbacks validate the state parameter but delete it from the session only after the full flow completes. Moving state consumption to immediately after validation closes the replay window.
+
+**Acceptance Criteria:**
+- [ ] OAuth state is deleted from session immediately after validation, before token exchange begins
+- [ ] Both Google and Fitbit callbacks are fixed
+- [ ] Existing tests verify state is consumed before token exchange
+
+### FOO-366: Promise.all on image operations fails entire batch on single error
 
 **Priority:** Low
 **Labels:** Bug
-**Description:** The weekly nutrition chart's goal dashed line positions above the visible chart area when `goal > maxValue`. `maxValue` (line 66-74) only considers actual data, not goals. `goalHeightPercent` can exceed 100%.
+**Description:** Three locations use `Promise.all` for parallel image processing where a single corrupt file causes all images to fail. Using `Promise.allSettled` and filtering out failures allows partial success.
 
 **Acceptance Criteria:**
-- [ ] Goal marker stays within the chart area when goal exceeds max actual value
-- [ ] maxValue calculation includes goal values for the selected metric
-- [ ] Works for all four metrics (calories, protein, carbs, fat)
+- [ ] A single corrupt image in a multi-image batch does not prevent valid images from being processed
+- [ ] User is notified which specific image(s) failed
+- [ ] Server-side (`analyze-food/route.ts`) gracefully skips failed image buffers
+- [ ] Client-side (`food-analyzer.tsx`) gracefully skips failed compressions
+- [ ] Client-side (`photo-capture.tsx`) gracefully skips failed HEIC conversions
 
-### FOO-350: Add label association to settings page input fields
-
-**Priority:** Medium
-**Labels:** Bug
-**Description:** Fitbit Client ID and Client Secret inputs in settings are missing `htmlFor`/`id` pairing.
-
-**Acceptance Criteria:**
-- [ ] Client ID input has `id="fitbit-client-id"` and label has `htmlFor="fitbit-client-id"`
-- [ ] Client Secret input has `id="fitbit-client-secret"` and label has `htmlFor="fitbit-client-secret"`
-- [ ] Clicking label text focuses the corresponding input
-
-### FOO-351: Add skip link and main landmark to food-detail page
-
-**Priority:** Medium
-**Labels:** Bug
-**Description:** The food-detail page is missing SkipLink and `<main>` landmark, unlike all other app pages.
-
-**Acceptance Criteria:**
-- [ ] SkipLink component rendered on food-detail page
-- [ ] Content wrapped in `<main id="main-content">` landmark
-- [ ] Pattern matches other app pages (e.g. `src/app/app/page.tsx`)
-
-### FOO-352: Add space between nutrition values and units in analysis result
-
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** `NutritionItem` renders `{value}{unit}` on separate lines in JSX, but adjacent JSX expressions produce no whitespace — displays as "450kcal" not "450 kcal".
-
-**Acceptance Criteria:**
-- [ ] Nutrition values display with a space before the unit (e.g. "450 kcal", "25 g")
-- [ ] Applies to all nutrition metrics in the analysis result component
-
-### FOO-353: Replace generic empty states with actionable guidance
-
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** Fasting card (lines 76, 120) shows "No data" and daily dashboard (line 264) shows "No food logged" without guidance.
-
-**Acceptance Criteria:**
-- [ ] Fasting card empty state includes actionable message guiding user to log a meal
-- [ ] Daily dashboard empty state includes actionable message guiding user to log food
-- [ ] Messages are friendly and specific
-
-### FOO-356: Remove redundant aria-label from theme toggle buttons
+### FOO-367: Relative imports in src/db/ violate @/ path alias convention
 
 **Priority:** Low
+**Labels:** Convention
+**Description:** Two files in `src/db/` use relative imports instead of the `@/` path alias required by CLAUDE.md.
+
+**Acceptance Criteria:**
+- [ ] `src/db/index.ts` imports schema via `@/db/schema`
+- [ ] `src/db/migrate.ts` imports via `@/db/index`
+- [ ] No relative imports remain in `src/db/`
+
+### FOO-368: Increase max photo limit from 3 to 9
+
+**Priority:** Medium
 **Labels:** Improvement
-**Description:** Theme toggle buttons have visible text ("Light", "Dark", "System") and redundant `aria-label` attributes with identical values.
+**Description:** Photo capture allows only 3 images per analysis. The Claude API supports up to 20 images per request. Increasing to 9 allows multi-dish meals and multiple angles while keeping the grid layout clean (3x3).
 
 **Acceptance Criteria:**
-- [ ] Theme toggle buttons have no aria-label attribute
-- [ ] Buttons still have visible text labels
-- [ ] Accessible name derived from visible text content
-
-### FOO-357: Add visible label to food description textarea
-
-**Priority:** Low
-**Labels:** Bug
-**Description:** Food description textarea uses only `aria-label` without a visible label. Placeholder disappears on typing.
-
-**Acceptance Criteria:**
-- [ ] Visible label displayed above the textarea
-- [ ] Label associated via htmlFor/id
-- [ ] Label indicates the field is optional
-
-### FOO-358: Update PWA manifest theme_color to match app theme
-
-**Priority:** Low
-**Labels:** Improvement
-**Description:** PWA manifest uses `#000000` as theme_color. The app's light mode background is `oklch(1 0 0)` which is `#ffffff`.
-
-**Acceptance Criteria:**
-- [ ] manifest.json theme_color matches the app's light mode background color
-- [ ] No jarring color flash when launching as PWA
+- [ ] `MAX_IMAGES` constant changed from 3 to 9
+- [ ] `maxPhotos` default prop changed from 3 to 9
+- [ ] `CLAUDE.md` Security section updated to reflect new limit
+- [ ] Tests updated to reflect new constant value
 
 ## Prerequisites
 
 - [ ] On `main` branch with clean working tree
-- [ ] All tests passing before starting
+- [ ] All existing tests pass
 
 ## Implementation Tasks
 
-### Task 1: Define semantic CSS color variables in globals.css
+### Task 1: Fix fasting live timer negative duration (FOO-360)
 
-**Issue:** FOO-349
+**Issue:** FOO-360
 **Files:**
-- `src/app/globals.css` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Write test in a new file `src/app/__tests__/globals-theme.test.ts` that loads `globals.css` as text and asserts the presence of `--success`, `--warning`, and `--info` CSS custom properties in both `:root` and `.dark` selectors, and their corresponding `--color-*` mappings in `@theme inline`.
-   - Run: `npm test -- globals-theme`
-   - Verify: Test fails (variables don't exist yet)
-
-2. **GREEN** — Add semantic color variables to `globals.css`:
-   - In `@theme inline`: add `--color-success`, `--color-success-foreground`, `--color-warning`, `--color-warning-foreground`, `--color-info`, `--color-info-foreground` mappings (same pattern as existing `--color-destructive`)
-   - In `:root`: define oklch values for success (green), warning (amber), info (blue) — match the visual appearance of the current hardcoded Tailwind colors (green-500, amber-500, blue-500)
-   - In `.dark`: define dark-mode oklch values — match current dark mode appearance where components already specify `dark:` variants (e.g., `dark:text-green-400` suggests a lighter green in dark mode)
-   - Run: `npm test -- globals-theme`
-   - Verify: Test passes
-
-**Notes:**
-- Follow the existing pattern: `--color-destructive: var(--destructive)` in `@theme inline`, then `--destructive: oklch(...)` in `:root`/`.dark`
-- This produces Tailwind utilities: `bg-success`, `text-success`, `border-success`, `bg-warning`, `text-warning`, `border-warning`, `bg-info`, `text-info`, `border-info`, plus foreground variants
-- The banner components (lumen-banner, fitbit-status-banner) use tinted backgrounds — these can use opacity modifiers like `bg-warning/10` or `bg-info/10` instead of dedicated variables
-
----
-
-### Task 2: Fix settings page accessibility and replace hardcoded colors
-
-**Issue:** FOO-350, FOO-356, FOO-349
-**Files:**
-- `src/components/settings-content.tsx` (modify)
-- `src/components/__tests__/settings-content.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add tests to `settings-content.test.tsx`:
-   - Test that Client ID label has `htmlFor="fitbit-client-id"` and input has matching `id` (FOO-350). This requires the SWR mock to return credentials data (`hasCredentials: true, clientId: "test-id"`) so the credential fields render.
-   - Test that Client Secret label has `htmlFor="fitbit-client-secret"` and input has matching `id` (FOO-350). Same SWR mock prerequisite.
-   - Test that theme toggle buttons do NOT have aria-label attributes (FOO-356). Existing SWR mock (null data) is sufficient since theme section always renders.
-   - Run: `npm test -- settings-content`
-   - Verify: Tests fail
-
-2. **GREEN** — Modify `settings-content.tsx`:
-   - Add `htmlFor="fitbit-client-id"` to Client ID label (line 186), add `id="fitbit-client-id"` to Client ID Input (line 189)
-   - Add `htmlFor="fitbit-client-secret"` to Client Secret label (line 231), add `id="fitbit-client-secret"` to Client Secret Input (line 234)
-   - Remove `aria-label="Light"` (line 292), `aria-label="Dark"` (line 302), `aria-label="System"` (line 312)
-   - Replace hardcoded Fitbit status colors: `text-amber-600 dark:text-amber-400` → `text-warning` and `text-green-600 dark:text-green-400` → `text-success` (lines 134, 141)
-   - Run: `npm test -- settings-content`
-   - Verify: Tests pass
-
-**Notes:**
-- Reference `src/components/fitbit-setup-form.tsx` for existing htmlFor/id pattern if one exists
-- The SWR mock needs a second setup for the credentials endpoint — check existing test patterns for multi-endpoint SWR mocking
-
----
-
-### Task 3: Add space between nutrition values and units
-
-**Issue:** FOO-352
-**Files:**
-- `src/components/analysis-result.tsx` (modify)
-- `src/components/__tests__/analysis-result.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update existing test assertions in `analysis-result.test.tsx`:
-   - Change `"12g"` → `"12 g"`, `"28g"` → `"28 g"`, `"18g"` → `"18 g"`, `"2g"` → `"2 g"`, `"450mg"` → `"450 mg"` (lines 58-62)
-   - Also update the `"320kcal"` assertion if one exists (search for `kcal` in test)
-   - Run: `npm test -- analysis-result`
-   - Verify: Tests fail (still rendering without space)
-
-2. **GREEN** — Modify the `NutritionItem` component in `analysis-result.tsx`:
-   - In the span at line 108-111, ensure a space character exists between `{value}` and `{unit}` — use a template literal or explicit `{" "}` JSX expression
-   - Run: `npm test -- analysis-result`
-   - Verify: Tests pass
-
-**Notes:**
-- The existing rendering at lines 108-111 has `{value}` and `{unit}` on separate lines but JSX collapses the whitespace between adjacent expressions, resulting in "450kcal"
-- A simple fix: `{value} {unit}` on a single line, or `{value}{" "}{unit}`
-
----
-
-### Task 4: Add visible label to food description textarea
-
-**Issue:** FOO-357
-**Files:**
-- `src/components/description-input.tsx` (modify)
-- `src/components/__tests__/description-input.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add tests to `description-input.test.tsx`:
-   - Test that a visible label with text containing "Food description" is rendered
-   - Test that the label has `htmlFor="food-description"` and textarea has `id="food-description"`
-   - Test that the label text includes "(optional)" to indicate the field is not required
-   - Run: `npm test -- description-input`
-   - Verify: Tests fail
-
-2. **GREEN** — Modify `description-input.tsx`:
-   - Import `Label` from `@/components/ui/label`
-   - Add a `<Label htmlFor="food-description">` above the textarea with text like "Food description (optional)"
-   - Add `id="food-description"` to the textarea element
-   - Remove the now-redundant `aria-label="Food description"` since the visible label provides the accessible name
-   - Run: `npm test -- description-input`
-   - Verify: Tests pass
-
-**Notes:**
-- Existing test at line 12 checks for `aria-label="Food description"` via `getByRole("textbox")` — this still works since the label association provides the accessible name, but verify
-- Follow the shadcn/ui `Label` component pattern (already used elsewhere in the project)
-
----
-
-### Task 5: Add skip link and main landmark to food-detail page
-
-**Issue:** FOO-351
-**Files:**
-- `src/app/app/food-detail/[id]/page.tsx` (modify)
-- `src/app/app/food-detail/[id]/__tests__/page.test.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** — Create test file `src/app/app/food-detail/[id]/__tests__/page.test.tsx`:
-   - Mock `@/lib/session` to return a valid session
-   - Mock `@/components/food-detail` with a stub component
-   - Test that SkipLink is rendered with `href="#main-content"`
-   - Test that a `<main>` element exists with `id="main-content"`
-   - Run: `npm test -- food-detail.*page`
-   - Verify: Tests fail
-   - Reference: `src/app/settings/__tests__/page.test.tsx` for server component testing pattern (or `src/components/__tests__/settings-content.test.tsx` for the SkipLink assertions)
-
-2. **GREEN** — Modify `src/app/app/food-detail/[id]/page.tsx`:
-   - Import `SkipLink` from `@/components/skip-link`
-   - Add `<SkipLink />` before the main content
-   - Wrap `<FoodDetail>` in `<main id="main-content">` with appropriate layout classes
-   - Follow the exact pattern from `src/app/app/page.tsx` (lines 18-47): outer div with padding, SkipLink, main with id and max-width
-   - Run: `npm test -- food-detail.*page`
-   - Verify: Tests pass
-
-**Notes:**
-- The page is a server component — the SkipLink is a client component, but that's fine (server components can render client components)
-- Match the layout pattern from `src/app/app/page.tsx`: `<div className="min-h-screen px-4 py-6">` → `<SkipLink />` → `<main id="main-content" className="mx-auto w-full max-w-md">`
-
----
-
-### Task 6: Replace empty states with actionable guidance and replace hardcoded colors
-
-**Issue:** FOO-353, FOO-349
-**Files:**
-- `src/components/fasting-card.tsx` (modify)
-- `src/components/daily-dashboard.tsx` (modify)
+- `src/app/api/fasting/route.ts` (modify)
+- `src/app/api/fasting/__tests__/route.test.ts` (modify)
 - `src/components/__tests__/fasting-card.test.tsx` (modify)
-- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update test assertions:
-   - In `fasting-card.test.tsx`: Change `screen.getByText("No data")` → assert for new actionable message (e.g., text containing "log" or "meal"). There are two "No data" states: line 76 (no window data) and line 120 (ongoing fast without live mode).
-   - In `daily-dashboard.test.tsx`: Find the assertion for "No food logged" and update to the new actionable message
-   - Run: `npm test -- fasting-card`
-   - Verify: Tests fail
+1. **RED** — Update the existing test "returns live mode for today with ongoing fast" in `src/app/api/fasting/__tests__/route.test.ts`:
+   - Change the expected `startDate` from `"2026-02-12"` (today) to `"2026-02-11"` (previous day)
+   - The mock already has `isToday` returning true for `"2026-02-12"`, and `getFastingWindow` returns a window with `lastMealTime` from the previous day
+   - Run: `npm test -- src/app/api/fasting/__tests__/route.test.ts`
+   - Verify: Test fails because `startDate` still equals today's date
 
-2. **GREEN** — Modify components:
-   - In `fasting-card.tsx` line 76: Replace "No data" with an actionable message like "Log a meal to start tracking your fasting window"
-   - In `fasting-card.tsx` line 120: Replace "No data" with a similar actionable message (this is the "ongoing fast, not today" state — message should be contextually appropriate)
-   - In `daily-dashboard.tsx` line 264: Replace "No food logged" with an actionable message like "Log your first meal to see your daily nutrition"
-   - In `fasting-card.tsx` line 91: Replace `bg-green-500` with `bg-success` on the live fasting dot
-   - In `daily-dashboard.tsx`: No hardcoded colors to replace (it uses theme vars already)
-   - Run: `npm test -- fasting-card && npm test -- daily-dashboard`
-   - Verify: Tests pass
-
-**Notes:**
-- The fasting card has two distinct empty states — make sure messages are different and contextually appropriate
-- The daily-dashboard empty state at line 263-265 is in a `py-8 text-center` container — keep the same layout structure
-
----
-
-### Task 7: Fix chart goal marker overflow and replace hardcoded colors
-
-**Issue:** FOO-348, FOO-349
-**Files:**
-- `src/components/weekly-nutrition-chart.tsx` (modify)
-- `src/components/__tests__/weekly-nutrition-chart.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test for goal overflow scenario in `weekly-nutrition-chart.test.tsx`:
-   - Create test data where goal significantly exceeds actual values (e.g., calorieGoal=2000, actual calories=500)
-   - Assert that the goal marker's `bottom` style is capped at or below 100%
-   - Also update any existing test assertions that check for specific color classes (e.g., `bg-green-500` → `bg-success`, `bg-amber-500` → `bg-warning`)
-   - Run: `npm test -- weekly-nutrition-chart`
-   - Verify: Tests fail
-
-2. **GREEN** — Modify `weekly-nutrition-chart.tsx`:
-   - In the `maxValue` calculation (lines 66-74): include goal values for the currently selected metric alongside actual data values, so the chart scales to show both bars and goal markers
-   - Implementation hint from the issue: `Math.max(...values, ...goals, 1)` — extract goal values from `weekDays` that have goals for the selected metric
-   - Replace `bg-green-500` (line 142) → `bg-success`
-   - Replace `bg-amber-500` (line 142) → `bg-warning`
-   - Replace `text-amber-500` (line 181) → `text-warning`
-   - Replace `text-green-600` (line 182) → `text-success`
-   - Run: `npm test -- weekly-nutrition-chart`
-   - Verify: Tests pass
-
-**Notes:**
-- When `maxValue` includes goals, bars will be shorter proportionally (since the scale is larger), but the goal markers will always be visible — this is the correct behavior
-- The net surplus/deficit text at lines 178-193 uses hardcoded colors for positive/negative — replace those too
-
----
-
-### Task 8: Update PWA manifest theme_color
-
-**Issue:** FOO-358
-**Files:**
-- `public/manifest.json` (modify)
-- `src/app/__tests__/manifest.test.ts` (modify if exists, or create)
-
-**TDD Steps:**
-
-1. **RED** — Add/update test in `src/app/__tests__/manifest.test.ts`:
-   - Read `public/manifest.json` and assert `theme_color` is `#ffffff` (matching the light mode background)
-   - Run: `npm test -- manifest`
-   - Verify: Test fails (currently `#000000`)
-
-2. **GREEN** — Modify `public/manifest.json`:
-   - Change `"theme_color": "#000000"` to `"theme_color": "#ffffff"`
-   - This matches the `:root` background `oklch(1 0 0)` which is pure white
-   - Run: `npm test -- manifest`
+2. **GREEN** — Fix `src/app/api/fasting/route.ts`:
+   - Import `addDays` from `@/lib/date-utils`
+   - In the live mode block (around line 47-51), change `startDate: date` to `startDate: addDays(date, -1)` — because `lastMealTime` comes from the previous day's entries
+   - Run: `npm test -- src/app/api/fasting/__tests__/route.test.ts`
    - Verify: Test passes
 
+3. **REFACTOR** — Update `src/components/__tests__/fasting-card.test.tsx`:
+   - In the "displays live mode with pulsing indicator" and "updates live counter every minute" tests, the `live.startDate` is currently `"2026-02-12"` (same as window date). After the API fix, this should be the previous day `"2026-02-11"` for realism, since the API will now return the previous day
+   - Adjust the mock `Date.now()` value and expected duration accordingly — with `startDate: "2026-02-11"` and `lastMealTime: "20:00:00"`, at `2026-02-12T23:00:00` the duration would be 27 hours. For simpler test math, change mock time to something like `2026-02-12T07:00:00` (11 hours after 8 PM yesterday)
+   - Also update "cleans up timer on unmount" test's `live.startDate` to use previous day
+   - Run: `npm test -- src/components/__tests__/fasting-card.test.tsx`
+   - Verify: All fasting card tests pass
+
 **Notes:**
-- `#ffffff` is the standard hex equivalent of `oklch(1 0 0)` (pure white)
-- The `background_color` is already `#ffffff` — making `theme_color` match ensures consistent PWA launch experience
+- The `getFastingWindow` function in `src/lib/fasting.ts` already correctly queries the previous day and returns `lastMealTime` from `previousDayEntries` — no changes needed there
+- The client-side `calculateLiveDuration` in `fasting-card.tsx` already works correctly with any `startDate` — the fix is purely in the API response
 
----
+### Task 2: Consume OAuth state before token exchange (FOO-363)
 
-### Task 9: Replace hardcoded colors in remaining components
-
-**Issue:** FOO-349
+**Issue:** FOO-363
 **Files:**
-- `src/lib/confidence.ts` (modify)
-- `src/components/confidence-badge.tsx` (modify)
-- `src/components/macro-bars.tsx` (modify)
-- `src/components/calorie-ring.tsx` (modify)
-- `src/components/food-log-confirmation.tsx` (modify)
-- `src/components/lumen-banner.tsx` (modify)
-- `src/components/fitbit-status-banner.tsx` (modify)
-- `src/components/__tests__/confidence-badge.test.tsx` (modify)
-- `src/components/__tests__/macro-bars.test.tsx` (modify)
-- `src/components/__tests__/calorie-ring.test.tsx` (modify)
-- `src/components/__tests__/food-log-confirmation.test.tsx` (modify)
-- `src/components/__tests__/lumen-banner.test.tsx` (modify)
-- `src/components/__tests__/fitbit-status-banner.test.tsx` (modify)
-
-**Depends on:** Task 1 (semantic CSS variables must exist in globals.css)
+- `src/app/api/auth/google/callback/route.ts` (modify)
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` (modify)
+- `src/app/api/auth/fitbit/callback/route.ts` (modify)
+- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update test assertions across all affected test files. For each component, find assertions or snapshots that reference hardcoded color classes and update them to the new semantic classes. Key replacements:
-   - `bg-green-500` → `bg-success`
-   - `bg-yellow-500` → `bg-warning` (confidence medium)
-   - `bg-red-500` → `bg-destructive` (already exists in theme)
-   - `text-green-500` → `text-success`
-   - `text-yellow-500` → `text-warning`
-   - `text-red-500` → `text-destructive`
-   - `bg-blue-500` → `bg-info`
-   - `bg-amber-500` → `bg-warning`
-   - `text-amber-500` → `text-warning`
-   - `text-amber-600 dark:text-amber-500` → `text-warning`
-   - Banner patterns: `border-amber-500 bg-amber-50 dark:bg-amber-950/20` → `border-warning bg-warning/10`
-   - Banner patterns: `border-blue-500 bg-blue-50 dark:bg-blue-950/20` → `border-info bg-info/10`
-   - Banner text: `text-amber-900 dark:text-amber-100` → `text-warning-foreground` (or similar, depending on Task 1's variable structure)
-   - Banner text: `text-blue-900 dark:text-blue-100` → `text-info-foreground`
-   - Run: `npm test -- confidence-badge macro-bars calorie-ring food-log-confirmation lumen-banner fitbit-status-banner`
-   - Verify: Tests fail
+1. **RED** — Add a new test in `src/app/api/auth/google/callback/__tests__/route.test.ts`:
+   - Test name: "consumes OAuth state before token exchange"
+   - Set up `mockExchangeGoogleCode` to capture the moment it's called and assert that `mockRawSession.oauthState` is already `undefined` at that point (use a mock implementation that checks `mockRawSession.oauthState` and stores the result)
+   - Also verify `mockRawSession.save` was called before `exchangeGoogleCode`
+   - Run: `npm test -- src/app/api/auth/google/callback/__tests__/route.test.ts`
+   - Verify: Test fails because state is still present during token exchange
 
-2. **GREEN** — Replace hardcoded colors in each component:
-   - `confidence.ts`: Replace color constants map values
-   - `confidence-badge.tsx`: Replace text color classes for icons
-   - `macro-bars.tsx`: Replace bar color classes (protein=info, carbs=success, fat=warning)
-   - `calorie-ring.tsx`: Replace budget marker color (`text-amber-500` → `text-warning`)
-   - `food-log-confirmation.tsx`: Replace success icon color (`text-green-500` → `text-success`)
-   - `lumen-banner.tsx`: Replace all blue-* classes with info semantic classes
-   - `fitbit-status-banner.tsx`: Replace all amber-* classes with warning semantic classes
-   - Run tests for each file
-   - Verify: All pass
+2. **GREEN** — Fix `src/app/api/auth/google/callback/route.ts`:
+   - Move `delete rawSession.oauthState; await rawSession.save();` to immediately after the state validation block (after line 41, before the token exchange at line 47)
+   - Remove the duplicate `delete rawSession.oauthState;` from line 77 (it will already be deleted)
+   - Keep the `await rawSession.save()` at the end (line 78) since it now saves `sessionId`
+   - Run: `npm test -- src/app/api/auth/google/callback/__tests__/route.test.ts`
+   - Verify: All tests pass
 
-3. **REFACTOR** — Verify no hardcoded Tailwind color utilities remain:
-   - Search the entire `src/` directory for patterns: `green-500`, `amber-500`, `blue-500`, `red-500`, `yellow-500`, `green-600`, `green-400`, `amber-600`, `amber-400`, `blue-600`, `amber-50`, `amber-950`, `blue-50`, `blue-950`
-   - Any remaining instances should be addressed (might be in files not listed in the issue)
+3. **RED** — Add the same test pattern in `src/app/api/auth/fitbit/callback/__tests__/route.test.ts`:
+   - Test name: "consumes OAuth state before token exchange"
+   - Same approach: verify `mockRawSession.oauthState` is `undefined` when `exchangeFitbitCode` is called
+   - Run: `npm test -- src/app/api/auth/fitbit/callback/__tests__/route.test.ts`
+   - Verify: Test fails
+
+4. **GREEN** — Fix `src/app/api/auth/fitbit/callback/route.ts`:
+   - Move `delete rawSession.oauthState; await rawSession.save();` to immediately after state validation (after line 22, before the session check at line 24)
+   - Remove the duplicate at lines 73-74
+   - Keep `rawSession.save()` at end is no longer needed since there are no further session mutations — but the existing `save()` call is gone now. Actually, the Fitbit callback doesn't set any new session fields, so the only `save()` call was the one at line 74. After moving the state deletion earlier, we still need a `save()` call to persist the state deletion. The moved `save()` handles that.
+   - Run: `npm test -- src/app/api/auth/fitbit/callback/__tests__/route.test.ts`
+   - Verify: All tests pass
 
 **Notes:**
-- This is the largest task — touches 7 source files and 6 test files
-- The banner components (lumen-banner, fitbit-status-banner) have the most complex color patterns with border, background, icon, title, and subtitle colors all specified
-- For banners, the `bg-amber-50 dark:bg-amber-950/20` pattern can become `bg-warning/10` if the CSS variable approach supports opacity modifiers — otherwise define `--warning-bg` / `--info-bg` variables in Task 1
-- `bg-red-500` maps to `bg-destructive` which already exists in the theme — no new variable needed
+- The Google callback has two session mutations: (1) delete oauthState, (2) set sessionId. After the fix, `oauthState` is cleared and saved early, then `sessionId` is set and saved at the end. Two `save()` calls total.
+- The Fitbit callback only has one mutation: delete oauthState. After the fix, one `save()` call right after validation.
+- Reference existing test patterns in `route.test.ts` — both files already have `mockRawSession` with `save` mock.
 
----
+### Task 3: Fix relative imports in src/db/ (FOO-367)
 
-### Task 10: Integration & Verification
+**Issue:** FOO-367
+**Files:**
+- `src/db/index.ts` (modify)
+- `src/db/migrate.ts` (modify)
 
-**Issue:** FOO-349, FOO-348, FOO-350, FOO-351, FOO-352, FOO-353, FOO-356, FOO-357, FOO-358
-**Files:** All files from previous tasks
+**TDD Steps:**
+
+1. **GREEN** — Fix `src/db/index.ts`:
+   - Change `import * as schema from "./schema"` to `import * as schema from "@/db/schema"` (line 4)
+   - Run: `npm run typecheck`
+   - Verify: No type errors
+
+2. **GREEN** — Fix `src/db/migrate.ts`:
+   - Change `import { getDb, closeDb } from "./index"` to `import { getDb, closeDb } from "@/db/index"` (line 2)
+   - Run: `npm run typecheck`
+   - Verify: No type errors
+
+3. **Verify** — Run full test suite:
+   - Run: `npm test`
+   - Verify: All tests pass (import resolution unchanged)
+
+**Notes:**
+- No new tests needed — this is a purely mechanical import path change
+- The `@/` alias resolves to `src/` per tsconfig, so `@/db/schema` and `./schema` resolve to the same file
+
+### Task 4: Increase max photo limit from 3 to 9 (FOO-368)
+
+**Issue:** FOO-368
+**Files:**
+- `src/lib/image-validation.ts` (modify)
+- `src/lib/__tests__/image-validation.test.ts` (modify)
+- `src/components/photo-capture.tsx` (modify)
+- `CLAUDE.md` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update `src/lib/__tests__/image-validation.test.ts`:
+   - Change the `"MAX_IMAGES is 3"` test to expect `MAX_IMAGES` to be `9`
+   - Run: `npm test -- src/lib/__tests__/image-validation.test.ts`
+   - Verify: Test fails because `MAX_IMAGES` is still 3
+
+2. **GREEN** — Update `src/lib/image-validation.ts`:
+   - Change `export const MAX_IMAGES = 3` to `export const MAX_IMAGES = 9`
+   - Run: `npm test -- src/lib/__tests__/image-validation.test.ts`
+   - Verify: Test passes
+
+3. **GREEN** — Update `src/components/photo-capture.tsx`:
+   - Change default prop `maxPhotos = 3` to `maxPhotos = 9` (line 37)
+   - Run: `npm test -- src/components/__tests__/photo-capture.test.tsx`
+   - Verify: All photo-capture tests still pass
+
+4. **GREEN** — Update `CLAUDE.md`:
+   - In the Security section, change `max 3 images` to `max 9 images`
+   - No test needed for documentation
+
+**Notes:**
+- The existing `grid-cols-3` CSS class in `photo-capture.tsx` handles 9 images cleanly (3 rows of 3)
+- The `analyze-food` and `refine-food` routes both validate against `MAX_IMAGES` from `image-validation.ts`, so they automatically pick up the new limit
+- No layout changes needed — the grid already works with any number of items
+
+### Task 5: Replace Promise.all with resilient image processing (FOO-366)
+
+**Issue:** FOO-366
+**Files:**
+- `src/app/api/analyze-food/route.ts` (modify)
+- `src/app/api/analyze-food/__tests__/route.test.ts` (modify or create)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/photo-capture.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Add a test for server-side resilience in `src/app/api/analyze-food/__tests__/route.test.ts` (create if needed):
+   - Test that when one image's `arrayBuffer()` throws, the other images are still processed
+   - Mock the session, create a FormData with 2 images where one has a failing `arrayBuffer()`
+   - Expect the request to succeed with only the valid image(s) passed to `analyzeFood`
+   - Run: `npm test -- src/app/api/analyze-food/__tests__/route.test.ts`
+   - Verify: Test fails because `Promise.all` rejects on the first failure
+
+2. **GREEN** — Fix `src/app/api/analyze-food/route.ts`:
+   - Replace `Promise.all` (lines 103-112) with `Promise.allSettled`
+   - Filter out rejected results, keeping only fulfilled ones
+   - If all images fail, return an error response
+   - Log a warning for each failed image (include index, not the image data)
+   - If some images fail but at least one succeeds (and/or a description is present), proceed with the successful images
+   - Run: `npm test -- src/app/api/analyze-food/__tests__/route.test.ts`
+   - Verify: Test passes
+
+3. **RED/GREEN** — Fix client-side `Promise.all` in `src/components/food-analyzer.tsx`:
+   - Replace `Promise.all(photos.map(compressImage))` (line 89) with `Promise.allSettled`
+   - Filter out rejected results, keeping only fulfilled blobs
+   - If some images fail to compress, show a warning (not an error) via `setError` — e.g., "1 image could not be processed and was skipped"
+   - If all images fail, show the error as before
+   - This is a client component — no server-side test. Existing component tests should still pass.
+
+4. **RED/GREEN** — Fix client-side `Promise.all` in `src/components/photo-capture.tsx`:
+   - Replace `Promise.all(previewBlobPromises)` (line 131) with `Promise.allSettled`
+   - Filter out rejected HEIC conversions, keeping successful previews
+   - For failed HEIC conversions, exclude those photos from the preview list and notify the user
+   - Match indices between `combinedPhotos` and settled results to correctly pair files with their previews
+   - If all conversions fail, show error as before
+
+5. **Verify** — Run full test suite:
+   - Run: `npm test`
+   - Verify: All tests pass
+
+**Notes:**
+- Pattern to follow for `Promise.allSettled`:
+  ```
+  const results = await Promise.allSettled(items.map(fn));
+  const successes = results.filter(r => r.status === "fulfilled").map(r => r.value);
+  const failCount = results.filter(r => r.status === "rejected").length;
+  ```
+- For the server-side route, log warnings for failed images using the standard pino logger
+- For the client-side components, use `console.warn` (acceptable per CLAUDE.md for `'use client'` components)
+- The user notification should be a non-blocking warning, not an error that prevents the flow
+
+### Task 6: Integration & Verification
+
+**Issue:** FOO-360, FOO-363, FOO-366, FOO-367, FOO-368
+**Files:** Various files from previous tasks
 
 **Steps:**
 
@@ -425,19 +289,7 @@ Batch of UI polish, accessibility fixes, a visual bug fix, and theme variable co
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
-5. Manual verification:
-   - [ ] Settings page: clicking "Client ID" label focuses the input
-   - [ ] Settings page: theme buttons have no aria-label in DOM
-   - [ ] Settings page: Fitbit status colors use theme variables
-   - [ ] Food detail page: SkipLink is present, main landmark wraps content
-   - [ ] Analysis result: "450 kcal", "25 g" (with spaces)
-   - [ ] Description input: visible "Food description (optional)" label above textarea
-   - [ ] Fasting card: actionable empty state messages
-   - [ ] Daily dashboard: actionable empty state when no food logged
-   - [ ] Weekly chart: goal marker doesn't overflow when goal >> actual values
-   - [ ] PWA manifest: theme_color is #ffffff
-   - [ ] All components: no hardcoded green-500, amber-500, blue-500, etc.
-   - [ ] Dark mode: verify all replaced colors look correct
+5. Verify zero warnings across all checks
 
 ## MCP Usage During Implementation
 
@@ -449,36 +301,30 @@ Batch of UI polish, accessibility fixes, a visual bug fix, and theme variable co
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| Missing CSS variables | Components fall back to browser defaults | CSS variable test (Task 1) |
-| Label association broken | Form still works, just no click-to-focus | Unit tests (Tasks 2, 4) |
-| Goal value is null | Chart ignores null goals in maxValue | Unit test (Task 7) |
+| Negative fasting duration | Show positive elapsed time from previous day | Unit test (route + component) |
+| OAuth state replay | State consumed before token exchange | Unit test (both callbacks) |
+| Single image fails in batch | Other images processed, user warned | Unit test (server route) |
+| All images fail in batch | Error returned/shown | Unit test |
 
 ## Risks & Open Questions
 
-- [ ] Tailwind v4 opacity modifier syntax (`bg-warning/10`) must be verified — may need fallback if oklch colors don't compose well with opacity modifiers. If not supported, define dedicated `--warning-bg` and `--info-bg` variables for banner tinted backgrounds.
-- [ ] The exact oklch values for semantic colors should visually match the current hardcoded Tailwind palette. Cross-reference Tailwind's default palette oklch values when defining variables.
-- [ ] Banner components have many color touchpoints (6+ per component) — verify the new semantic classes produce acceptable contrast ratios in both themes.
+- [ ] FOO-366: The `photo-capture.tsx` HEIC conversion uses matched indices between `combinedPhotos` and preview blobs. When filtering out failed conversions, the indices must stay aligned — the implementer needs to carefully pair photos with their corresponding previews.
+- [ ] FOO-366: The `refine-food/route.ts` also has a `Promise.all` for image buffers (same pattern as `analyze-food`). The issue only lists `analyze-food` but the implementer should check and fix `refine-food` too for consistency.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Semantic CSS color variables in globals.css
-- Color class replacements in all affected components
-- Label/id associations for settings inputs
-- SkipLink + main landmark for food-detail page
-- Visible label for food description textarea
-- Space between value and unit in NutritionItem
-- Actionable empty state messages
-- Chart goal marker overflow fix
-- PWA manifest theme_color update
-- All associated test updates
+- Fix fasting live timer `startDate` calculation
+- Move OAuth state consumption before token exchange (both callbacks)
+- Replace `Promise.all` with `Promise.allSettled` for image processing (3 locations + refine-food)
+- Fix 2 relative imports in `src/db/`
+- Change `MAX_IMAGES` from 3 to 9 and update docs
 
 **Out of Scope:**
-- FOO-355 (Canceled — CLS risk doesn't exist, `unoptimized` required for blob URLs)
-- Redesigning the color palette or changing visual appearance
-- Adding dark mode support where it doesn't exist yet
-- Refactoring banner component structure
-- Adding new components or pages
+- Fasting calculation logic changes beyond `startDate` fix
+- OAuth flow restructuring beyond state consumption timing
+- Image processing retry logic or progressive upload
+- Adding new photo grid layouts for 9 images (existing grid-cols-3 is fine)
 
 ---
 
@@ -488,100 +334,73 @@ Batch of UI polish, accessibility fixes, a visual bug fix, and theme variable co
 **Method:** Agent team (4 workers)
 
 ### Tasks Completed This Iteration
-- Task 1: Define semantic CSS color variables in globals.css (FOO-349) - Added success, warning, info variables with @theme inline mappings and :root/.dark oklch values (worker-1)
-- Task 2: Fix settings page accessibility and replace hardcoded colors (FOO-350, FOO-356, FOO-349) - Added htmlFor/id label associations, removed redundant aria-labels, replaced hardcoded colors (worker-2)
-- Task 3: Add space between nutrition values and units (FOO-352) - Modified NutritionItem to render "450 kcal" instead of "450kcal" (worker-2)
-- Task 4: Add visible label to food description textarea (FOO-357) - Added Label component with htmlFor/id association (worker-2)
-- Task 5: Add skip link and main landmark to food-detail page (FOO-351) - Added SkipLink and main landmark matching other app pages (worker-3)
-- Task 6: Replace empty states with actionable guidance and replace hardcoded colors (FOO-353, FOO-349) - Updated empty states with actionable messages, replaced bg-green-500 with bg-success (worker-3)
-- Task 7: Fix chart goal marker overflow and replace hardcoded colors (FOO-348, FOO-349) - Fixed maxValue to include goals, replaced hardcoded colors with semantic classes (worker-4)
-- Task 8: Update PWA manifest theme_color (FOO-358) - Changed #000000 to #ffffff (worker-4)
-- Task 9: Replace hardcoded colors in remaining components (FOO-349) - Replaced all hardcoded Tailwind colors across 7 components with semantic theme classes (worker-1)
-- Task 10: Integration & Verification - Lead verified all changes, fixed lint warning and bug-hunter findings
+- Task 1: Fix fasting live timer negative duration (FOO-360) — Changed startDate to previous day in live mode using `addDays(date, -1)` (worker-1)
+- Task 2: Consume OAuth state before token exchange (FOO-363) — Moved state deletion to immediately after validation in both Google and Fitbit callbacks (worker-2)
+- Task 3: Fix relative imports in src/db/ (FOO-367) — Changed 2 relative imports to @/ path alias (worker-3)
+- Task 4: Increase max photo limit from 3 to 9 (FOO-368) — Updated constant, default prop, and CLAUDE.md docs (worker-4)
+- Task 5: Replace Promise.all with resilient image processing (FOO-366) — Promise.allSettled in analyze-food, refine-food, food-analyzer, photo-capture (worker-4)
+- Task 6: Integration & Verification — Full test suite, lint, typecheck, build all pass
 
 ### Files Modified
-- `src/app/globals.css` - Added semantic color variables (success, warning, info) with light/dark mode
-- `src/app/__tests__/globals-theme.test.ts` - Created CSS theme variable tests
-- `src/components/settings-content.tsx` - Label associations, removed aria-labels, semantic colors
-- `src/components/__tests__/settings-content.test.tsx` - Added accessibility tests
-- `src/components/analysis-result.tsx` - Added space between value and unit
-- `src/components/__tests__/analysis-result.test.tsx` - Updated spacing and color assertions
-- `src/components/description-input.tsx` - Added visible Label component
-- `src/components/__tests__/description-input.test.tsx` - Added label tests
-- `src/app/app/food-detail/[id]/page.tsx` - Added SkipLink and main landmark
-- `src/app/app/food-detail/[id]/__tests__/page.test.tsx` - Created page tests
-- `src/components/fasting-card.tsx` - Actionable empty states, bg-success
-- `src/components/__tests__/fasting-card.test.tsx` - Updated empty state assertions
-- `src/components/daily-dashboard.tsx` - Actionable empty state
-- `src/components/__tests__/daily-dashboard.test.tsx` - Updated empty state assertions
-- `src/components/weekly-nutrition-chart.tsx` - Goal overflow fix, semantic colors
-- `src/components/__tests__/weekly-nutrition-chart.test.tsx` - Goal overflow test, color assertions
-- `public/manifest.json` - theme_color #000000 → #ffffff
-- `src/app/__tests__/manifest.test.ts` - Updated theme_color assertion
-- `src/lib/confidence.ts` - Semantic color classes
-- `src/lib/__tests__/confidence.test.ts` - Updated color assertions
-- `src/components/confidence-badge.tsx` - Semantic color classes
-- `src/components/__tests__/confidence-badge.test.tsx` - Updated color assertions
-- `src/components/macro-bars.tsx` - Semantic color classes (info, success, warning)
-- `src/components/__tests__/macro-bars.test.tsx` - Updated color assertions
-- `src/components/calorie-ring.tsx` - text-warning
-- `src/components/__tests__/calorie-ring.test.tsx` - Updated color assertions
-- `src/components/food-log-confirmation.tsx` - text-success
-- `src/components/__tests__/food-log-confirmation.test.tsx` - Updated color assertions
-- `src/components/lumen-banner.tsx` - info semantic classes
-- `src/components/__tests__/lumen-banner.test.tsx` - Updated color assertions
-- `src/components/fitbit-status-banner.tsx` - warning semantic classes
-- `src/components/__tests__/fitbit-status-banner.test.tsx` - Updated color assertions
+- `src/app/api/fasting/route.ts` — Fixed live mode startDate to use previous day
+- `src/app/api/fasting/__tests__/route.test.ts` — Updated test expectation for startDate
+- `src/components/__tests__/fasting-card.test.tsx` — Updated 3 live mode tests with realistic dates
+- `src/app/api/auth/google/callback/route.ts` — Moved state deletion before token exchange
+- `src/app/api/auth/google/callback/__tests__/route.test.ts` — Added state consumption test
+- `src/app/api/auth/fitbit/callback/route.ts` — Moved state deletion before token exchange
+- `src/app/api/auth/fitbit/callback/__tests__/route.test.ts` — Added state consumption test
+- `src/db/index.ts` — Changed relative import to @/db/schema
+- `src/db/migrate.ts` — Changed relative import to @/db/index
+- `src/lib/image-validation.ts` — Changed MAX_IMAGES from 3 to 9
+- `src/lib/__tests__/image-validation.test.ts` — Updated test to expect 9
+- `src/components/photo-capture.tsx` — Changed maxPhotos default to 9, Promise.allSettled for HEIC
+- `src/components/__tests__/photo-capture.test.tsx` — Updated tests for resilient error messages
+- `CLAUDE.md` — Updated max images from 3 to 9
+- `src/app/api/analyze-food/route.ts` — Promise.allSettled for image buffers
+- `src/app/api/analyze-food/__tests__/route.test.ts` — Added resilience test, updated limit test
+- `src/app/api/refine-food/route.ts` — Promise.allSettled for image buffers + all-failed validation
+- `src/app/api/refine-food/__tests__/route.test.ts` — Updated limit test
+- `src/components/food-analyzer.tsx` — Promise.allSettled for image compression
 
 ### Linear Updates
-- FOO-349: Todo → In Progress → Review
-- FOO-348: Todo → In Progress → Review
-- FOO-350: Todo → In Progress → Review
-- FOO-351: Todo → In Progress → Review
-- FOO-352: Todo → In Progress → Review
-- FOO-353: Todo → In Progress → Review
-- FOO-356: Todo → In Progress → Review
-- FOO-357: Todo → In Progress → Review
-- FOO-358: Todo → In Progress → Review
+- FOO-360: Todo → In Progress → Review
+- FOO-363: Todo → In Progress → Review
+- FOO-366: Todo → In Progress → Review
+- FOO-367: Todo → In Progress → Review
+- FOO-368: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 1 high (missing SkipLink mock) + 1 medium (fasting empty state wording), fixed before proceeding
-- verifier: All 1570 tests pass, zero warnings, build clean
+- bug-hunter: Found 1 HIGH bug (missing all-images-failed validation in refine-food), fixed before proceeding
+- verifier: All 1573 tests pass, zero warnings
 
 ### Work Partition
-- Worker 1: Tasks 1, 9 (CSS theme variables + color replacements in 7 components)
-- Worker 2: Tasks 2, 3, 4 (settings accessibility, nutrition spacing, description label)
-- Worker 3: Tasks 5, 6 (food-detail landmarks, empty states)
-- Worker 4: Tasks 7, 8 (chart overflow fix, PWA manifest)
-
-### Review Findings
-
-Files reviewed: 32 (16 source + 16 test)
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-**Issues requiring fix:** None
-
-**Documented (no fix needed):**
-- [MEDIUM] EDGE CASE: `formatTime12Hour()` doesn't validate input format (`src/components/fasting-card.tsx:20`) — internal data from own API, project convention is to trust internal code
-- [MEDIUM] EDGE CASE: `calculateLiveDuration()` doesn't validate Date construction (`src/components/fasting-card.tsx:26`) — internal data from own API, same rationale
-- [LOW] TYPE: Optional `credentials.clientId` accessed without explicit null check (`src/components/settings-content.tsx:214`) — safe by API contract, guarded by `hasCredentials` conditional
-
-### Linear Updates
-- FOO-349: Review → Merge
-- FOO-348: Review → Merge
-- FOO-350: Review → Merge
-- FOO-351: Review → Merge
-- FOO-352: Review → Merge
-- FOO-353: Review → Merge
-- FOO-356: Review → Merge
-- FOO-357: Review → Merge
-- FOO-358: Review → Merge
-
-<!-- REVIEW COMPLETE -->
+- Worker 1: Task 1 (fasting API files)
+- Worker 2: Task 2 (OAuth callback files)
+- Worker 3: Task 3 (db import files)
+- Worker 4: Tasks 4, 5 (image validation, photo components, API routes)
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Files reviewed: 19
+Reviewers: security, reliability, quality (agent team)
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+
+**Documented (no fix needed):**
+- [MEDIUM] ASYNC: `src/app/api/auth/google/callback/route.ts:77-92` — DB operations (getOrCreateUser, createSession, getFitbitTokens, hasFitbitCredentials) outside try/catch. Pre-existing pattern not introduced by this iteration. Next.js framework catches unhandled errors. User can re-initiate OAuth on failure.
+- [MEDIUM] ASYNC: `src/app/api/auth/fitbit/callback/route.ts:69-74` — upsertFitbitTokens outside try/catch. Pre-existing pattern. Framework-level error handling provides safety net.
+- [LOW] SECURITY: `src/app/api/auth/google/callback/route.ts:23` — IP-based rate limiting via x-forwarded-for could be spoofed behind untrusted proxies. Railway sets trusted proxy headers, mitigating this in production.
+
+### Linear Updates
+- FOO-360: Review → Merge
+- FOO-363: Review → Merge
+- FOO-366: Review → Merge
+- FOO-367: Review → Merge
+- FOO-368: Review → Merge
+
+<!-- REVIEW COMPLETE -->
 
 ---
 
@@ -591,9 +410,9 @@ Findings documented but not fixed across all review iterations:
 
 | Severity | Category | File | Finding | Rationale |
 |----------|----------|------|---------|-----------|
-| MEDIUM | EDGE CASE | `src/components/fasting-card.tsx:20` | `formatTime12Hour()` doesn't validate input format | Internal data from own API; project convention is to trust internal code |
-| MEDIUM | EDGE CASE | `src/components/fasting-card.tsx:26` | `calculateLiveDuration()` doesn't validate Date construction | Internal data from own API; same rationale |
-| LOW | TYPE | `src/components/settings-content.tsx:214` | Optional `credentials.clientId` accessed without null check | Safe by API contract; guarded by `hasCredentials` conditional |
+| MEDIUM | ASYNC | `src/app/api/auth/google/callback/route.ts:77-92` | DB operations outside try/catch | Pre-existing pattern; Next.js catches unhandled errors |
+| MEDIUM | ASYNC | `src/app/api/auth/fitbit/callback/route.ts:69-74` | upsertFitbitTokens outside try/catch | Pre-existing pattern; framework safety net |
+| LOW | SECURITY | `src/app/api/auth/google/callback/route.ts:23` | IP rate limiting spoofable behind untrusted proxies | Railway sets trusted proxy headers |
 
 ---
 

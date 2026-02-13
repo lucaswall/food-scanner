@@ -156,7 +156,7 @@ describe("GET /api/fasting", () => {
       window: mockWindow,
       live: {
         lastMealTime: "20:00:00",
-        startDate: "2026-02-12",
+        startDate: "2026-02-11", // Previous day since lastMealTime is from yesterday
       },
     });
   });

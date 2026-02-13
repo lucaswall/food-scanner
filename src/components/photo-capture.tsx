@@ -34,7 +34,7 @@ interface PhotoCaptureProps {
 
 export function PhotoCapture({
   onPhotosChange,
-  maxPhotos = 3,
+  maxPhotos = 9,
   autoCapture = false,
 }: PhotoCaptureProps) {
   const [photos, setPhotos] = useState<File[]>([]);
@@ -120,6 +120,7 @@ export function PhotoCapture({
     // Convert HEIC files to JPEG for preview (browsers can't display HEIC natively)
     // Original files are preserved for upload (conversion happens again in FoodAnalyzer)
     let previewBlobs: (File | Blob)[];
+    let validPhotos: File[];
     try {
       const previewBlobPromises = combinedPhotos.map(async (file) => {
         if (isHeicFile(file)) {
@@ -128,9 +129,48 @@ export function PhotoCapture({
         return file;
       });
 
-      previewBlobs = await Promise.all(previewBlobPromises);
-    } catch {
-      setError("Failed to process HEIC image. Please try a different photo.");
+      const results = await Promise.allSettled(previewBlobPromises);
+
+      // Filter out failed conversions and match indices
+      const successfulPairs: Array<{ photo: File; blob: File | Blob }> = [];
+      const failedIndices: number[] = [];
+
+      results.forEach((result, index) => {
+        if (result.status === "fulfilled") {
+          successfulPairs.push({ photo: combinedPhotos[index], blob: result.value });
+        } else {
+          failedIndices.push(index);
+        }
+      });
+
+      if (successfulPairs.length === 0) {
+        setError("All images failed to process. Please try different photos.");
+        setProcessingCount(0);
+        // Reset inputs
+        if (cameraInputRef.current) {
+          cameraInputRef.current.value = "";
+        }
+        if (galleryInputRef.current) {
+          galleryInputRef.current.value = "";
+        }
+        return;
+      }
+
+      if (failedIndices.length > 0) {
+        const failedCount = failedIndices.length;
+        const warningMessage = failedCount === 1
+          ? "1 image could not be processed and was skipped"
+          : `${failedCount} images could not be processed and were skipped`;
+        console.warn(warningMessage, failedIndices);
+        setError(warningMessage);
+        // Clear the warning after a few seconds
+        setTimeout(() => setError(null), 3000);
+      }
+
+      validPhotos = successfulPairs.map((pair) => pair.photo);
+      previewBlobs = successfulPairs.map((pair) => pair.blob);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to process HEIC image. Please try a different photo.");
       setProcessingCount(0);
       // Reset inputs
       if (cameraInputRef.current) {
@@ -149,9 +189,9 @@ export function PhotoCapture({
     previews.forEach((url) => URL.revokeObjectURL(url));
 
     setProcessingCount(0);
-    setPhotos(combinedPhotos);
+    setPhotos(validPhotos);
     setPreviews(newPreviews);
-    onPhotosChange(combinedPhotos);
+    onPhotosChange(validPhotos);
 
     // Reset inputs to allow selecting the same file again
     if (cameraInputRef.current) {

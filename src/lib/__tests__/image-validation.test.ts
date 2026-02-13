@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { isFileLike, MAX_IMAGES, MAX_IMAGE_SIZE, ALLOWED_TYPES } from "@/lib/image-validation";
 
 describe("image-validation constants", () => {
-  it("MAX_IMAGES is 3", () => {
-    expect(MAX_IMAGES).toBe(3);
+  it("MAX_IMAGES is 9", () => {
+    expect(MAX_IMAGES).toBe(9);
   });
 
   it("MAX_IMAGE_SIZE is 10MB", () => {

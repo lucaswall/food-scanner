@@ -334,7 +334,7 @@ describe("POST /api/refine-food", () => {
     expect(body.error.message).toContain("10MB");
   });
 
-  it("returns 400 for more than 3 images", async () => {
+  it("returns 400 for more than 9 images", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest(
@@ -343,6 +343,12 @@ describe("POST /api/refine-food", () => {
         createMockFile("test2.jpg", "image/jpeg", 1000),
         createMockFile("test3.jpg", "image/jpeg", 1000),
         createMockFile("test4.jpg", "image/jpeg", 1000),
+        createMockFile("test5.jpg", "image/jpeg", 1000),
+        createMockFile("test6.jpg", "image/jpeg", 1000),
+        createMockFile("test7.jpg", "image/jpeg", 1000),
+        createMockFile("test8.jpg", "image/jpeg", 1000),
+        createMockFile("test9.jpg", "image/jpeg", 1000),
+        createMockFile("test10.jpg", "image/jpeg", 1000),
       ],
       JSON.stringify(validAnalysis),
       "Fix it"
@@ -352,7 +358,7 @@ describe("POST /api/refine-food", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
-    expect(body.error.message).toContain("3");
+    expect(body.error.message).toContain("9");
   });
 
   it("returns 429 when rate limit exceeded", async () => {
