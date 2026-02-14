@@ -235,4 +235,20 @@ describe("POST /api/find-matches", () => {
     const body = await response.json();
     expect(body.success).toBe(false);
   });
+
+  describe("FOO-416: handle empty keywords array", () => {
+    it("returns empty matches for empty keywords array instead of 400", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockFindMatchingFoods.mockResolvedValue([]);
+
+      const bodyWithEmptyKeywords = { ...validBody, keywords: [] };
+      const request = createMockRequest(bodyWithEmptyKeywords);
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.data.matches).toEqual([]);
+    });
+  });
 });

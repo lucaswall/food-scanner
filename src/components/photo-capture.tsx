@@ -27,7 +27,7 @@ const ALLOWED_TYPES = [
   "image/heif",
 ];
 interface PhotoCaptureProps {
-  onPhotosChange: (files: File[]) => void;
+  onPhotosChange: (files: File[], convertedBlobs?: (File | Blob)[]) => void;
   maxPhotos?: number;
   autoCapture?: boolean;
 }
@@ -191,7 +191,7 @@ export function PhotoCapture({
     setProcessingCount(0);
     setPhotos(validPhotos);
     setPreviews(newPreviews);
-    onPhotosChange(validPhotos);
+    onPhotosChange(validPhotos, previewBlobs);
 
     // Reset inputs to allow selecting the same file again
     if (cameraInputRef.current) {
@@ -219,7 +219,7 @@ export function PhotoCapture({
     setPhotos([]);
     setPreviews([]);
     setError(null);
-    onPhotosChange([]);
+    onPhotosChange([], []);
     setShowClearConfirm(false);
     setPreviewDialogOpen(false);
     setSelectedPreviewIndex(null);

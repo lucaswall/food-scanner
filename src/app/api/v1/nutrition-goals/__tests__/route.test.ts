@@ -19,6 +19,11 @@ vi.mock("@/lib/fitbit", () => ({
   getFoodGoals: (...args: unknown[]) => mockGetFoodGoals(...args),
 }));
 
+const mockCheckRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 const { GET } = await import("@/app/api/v1/nutrition-goals/route");
 
 function createRequest(url: string, headers?: HeadersInit): Request {
@@ -32,6 +37,7 @@ describe("GET /api/v1/nutrition-goals", () => {
 
   it("returns nutrition goals for valid API key", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
     mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
 
     const mockGoals: NutritionGoals = {
@@ -73,6 +79,7 @@ describe("GET /api/v1/nutrition-goals", () => {
 
   it("returns 424 when Fitbit credentials are missing", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
 
     const request = createRequest(
@@ -88,6 +95,7 @@ describe("GET /api/v1/nutrition-goals", () => {
 
   it("returns 401 when Fitbit token is invalid", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
 
     const request = createRequest(
@@ -103,6 +111,7 @@ describe("GET /api/v1/nutrition-goals", () => {
 
   it("returns 403 when Fitbit scope is missing", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
     mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
     mockGetFoodGoals.mockRejectedValue(new Error("FITBIT_SCOPE_MISSING"));
 
@@ -119,6 +128,7 @@ describe("GET /api/v1/nutrition-goals", () => {
 
   it("returns 502 when Fitbit API returns an error", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
     mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
     mockGetFoodGoals.mockRejectedValue(new Error("FITBIT_API_ERROR"));
 
@@ -135,6 +145,7 @@ describe("GET /api/v1/nutrition-goals", () => {
 
   it("sets Cache-Control header to private, no-cache", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
     mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
     mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
 
@@ -145,5 +156,41 @@ describe("GET /api/v1/nutrition-goals", () => {
     const response = await GET(request);
 
     expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+
+  it("returns 429 when rate limit is exceeded", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/nutrition-goals",
+      { Authorization: "Bearer test-api-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    expect(data.error.message).toMatch(/too many requests/i);
+  });
+
+  it("uses API key as rate limit key with 30 req/min for Fitbit API route", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/nutrition-goals",
+      { Authorization: "Bearer test-api-key-abc" }
+    );
+    await GET(request);
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      "v1:nutrition-goals:test-api-key-abc",
+      30,
+      60000
+    );
   });
 });

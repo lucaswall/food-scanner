@@ -15,6 +15,7 @@ export async function GET(request: Request) {
   const date = searchParams.get("date");
   const from = searchParams.get("from");
   const to = searchParams.get("to");
+  const clientDate = searchParams.get("clientDate");
 
   // Single date mode
   if (!from && !to) {
@@ -35,8 +36,10 @@ export async function GET(request: Request) {
       const window = await getFastingWindow(session!.userId, date);
 
       // Determine if live mode (date is today AND window has null firstMealTime)
+      // Use clientDate if provided, otherwise fall back to server's isToday check
       let live: { lastMealTime: string; startDate: string } | null = null;
-      if (window && isToday(date) && window.firstMealTime === null) {
+      const isTodayCheck = clientDate ? date === clientDate : isToday(date);
+      if (window && isTodayCheck && window.firstMealTime === null) {
         live = {
           lastMealTime: window.lastMealTime,
           startDate: addDays(date, -1), // lastMealTime comes from previous day

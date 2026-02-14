@@ -168,7 +168,8 @@ describe("PhotoCapture", () => {
         expect(onPhotosChange).toHaveBeenCalledWith(
           expect.arrayContaining([
             expect.objectContaining({ name: "camera-photo.jpg" }),
-          ])
+          ]),
+          expect.any(Array) // convertedBlobs parameter
         );
       });
     });
@@ -212,7 +213,8 @@ describe("PhotoCapture", () => {
           expect.arrayContaining([
             expect.objectContaining({ name: "gallery1.jpg", type: "image/jpeg" }),
             expect.objectContaining({ name: "gallery2.png", type: "image/png" }),
-          ])
+          ]),
+          expect.any(Array) // convertedBlobs parameter
         );
       });
     });
@@ -253,7 +255,8 @@ describe("PhotoCapture", () => {
           expect.objectContaining({ name: "camera.jpg" }),
           expect.objectContaining({ name: "gallery1.jpg" }),
           expect.objectContaining({ name: "gallery2.jpg" }),
-        ])
+        ]),
+        expect.any(Array) // convertedBlobs parameter
       );
     });
 
@@ -305,7 +308,8 @@ describe("PhotoCapture", () => {
         expect(onPhotosChange).toHaveBeenCalledWith(
           expect.arrayContaining([
             expect.objectContaining({ name: "test.gif", type: "image/gif" }),
-          ])
+          ]),
+          expect.any(Array)
         );
       });
     });
@@ -324,7 +328,8 @@ describe("PhotoCapture", () => {
         expect(onPhotosChange).toHaveBeenCalledWith(
           expect.arrayContaining([
             expect.objectContaining({ name: "test.webp", type: "image/webp" }),
-          ])
+          ]),
+          expect.any(Array)
         );
       });
     });
@@ -343,7 +348,8 @@ describe("PhotoCapture", () => {
         expect(onPhotosChange).toHaveBeenCalledWith(
           expect.arrayContaining([
             expect.objectContaining({ name: "test.heic", type: "image/heic" }),
-          ])
+          ]),
+          expect.any(Array)
         );
       });
     });
@@ -362,7 +368,8 @@ describe("PhotoCapture", () => {
         expect(onPhotosChange).toHaveBeenCalledWith(
           expect.arrayContaining([
             expect.objectContaining({ name: "test.heif", type: "image/heif" }),
-          ])
+          ]),
+          expect.any(Array)
         );
       });
     });
@@ -384,7 +391,8 @@ describe("PhotoCapture", () => {
         expect(onPhotosChange).toHaveBeenCalledWith(
           expect.arrayContaining([
             expect.objectContaining({ name: "photo.heic" }),
-          ])
+          ]),
+          expect.any(Array) // convertedBlobs parameter
         );
       });
     });
@@ -476,7 +484,7 @@ describe("PhotoCapture", () => {
       await waitFor(() => {
         expect(screen.queryAllByRole("img")).toHaveLength(0);
       });
-      expect(onPhotosChange).toHaveBeenLastCalledWith([]);
+      expect(onPhotosChange).toHaveBeenLastCalledWith([], []);
     });
 
     it("clears immediately with 1 photo (no confirmation)", async () => {
@@ -501,7 +509,7 @@ describe("PhotoCapture", () => {
       await waitFor(() => {
         expect(screen.queryAllByRole("img")).toHaveLength(0);
       });
-      expect(onPhotosChange).toHaveBeenLastCalledWith([]);
+      expect(onPhotosChange).toHaveBeenLastCalledWith([], []);
     });
 
     it("shows confirmation dialog with 2+ photos", async () => {
@@ -687,10 +695,13 @@ describe("PhotoCapture", () => {
         expect(mockConvertHeicToJpeg).toHaveBeenCalled();
       });
 
-      // onPhotosChange should receive the original File, not the converted Blob
-      // (conversion for upload happens separately in FoodAnalyzer)
+      // onPhotosChange receives both original File AND converted Blob
+      // (FOO-417: avoid double conversion by passing converted blob to FoodAnalyzer)
       await waitFor(() => {
-        expect(onPhotosChange).toHaveBeenCalledWith([heicFile]);
+        expect(onPhotosChange).toHaveBeenCalledWith(
+          [heicFile],
+          expect.arrayContaining([expect.any(Blob)]) // convertedBlobs with JPEG blob
+        );
       });
     });
 
@@ -973,7 +984,7 @@ describe("PhotoCapture", () => {
       });
 
       // onPhotosChange should only have been called with the first file
-      expect(onPhotosChange).toHaveBeenLastCalledWith([heicFile]);
+      expect(onPhotosChange).toHaveBeenLastCalledWith([heicFile], expect.any(Array));
     });
 
     it("clears processing count on HEIC conversion error", async () => {

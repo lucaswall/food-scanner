@@ -849,3 +849,87 @@ Summary: 0 issues requiring fix, 3 pre-existing issues documented (Team: securit
 - FOO-418: Review → Merge
 
 <!-- REVIEW COMPLETE -->
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-14
+**Method:** Agent team (2 workers)
+
+### Tasks Completed This Iteration
+- Task 8: Server-side timezone fixes (FOO-411, FOO-410, FOO-403) — Added clientDate/clientTime params to fasting, common-foods, nutrition-goals routes; client sends local date to avoid UTC midnight mismatch (worker-1)
+- Task 9: Quick select & analyzer UX fixes (FOO-431, FOO-433, FOO-434, FOO-416, FOO-417) — Added quick-select loading skeleton, deduped quick-select entries, fixed find-matches clientTime, added FoodAnalyzer loading step tabs, fixed HEIC double-conversion by passing convertedBlobs through onPhotosChange (worker-1, lead fixed FOO-417 tests)
+- Task 10 partial: Dashboard UX improvements (FOO-407, FOO-405, FOO-402, FOO-408) — Weekly nutrition chart empty state message, week navigator arrows, meal order sorting (Breakfast→Anytime), dashboard shell segmented control with tab roles (worker-1)
+- Task 12: v1 API rate limiting (FOO-424) — Added rate limiting to all 5 v1 API routes with RATE_LIMIT_EXCEEDED error code (worker-2)
+
+### Tasks Remaining
+- Task 10 partial: FOO-399 (fasting card live dot), FOO-400 (calorie ring), FOO-401 (daily nutrition card), FOO-406 (empty state guidance), FOO-409 (pull-to-refresh)
+
+### Files Modified
+- `src/app/api/fasting/route.ts` — Added clientDate param for timezone-aware isToday check
+- `src/app/api/fasting/__tests__/route.test.ts` — Tests for clientDate param
+- `src/app/api/common-foods/route.ts` — Added clientDate param
+- `src/app/api/common-foods/__tests__/route.test.ts` — Tests for clientDate param
+- `src/app/api/nutrition-goals/route.ts` — Added clientDate param
+- `src/app/api/nutrition-goals/__tests__/route.test.ts` — Tests for clientDate param
+- `src/app/api/find-matches/route.ts` — Added clientTime param
+- `src/app/api/find-matches/__tests__/route.test.ts` — Tests for clientTime param
+- `src/app/api/v1/activity-summary/route.ts` — Added rate limiting
+- `src/app/api/v1/activity-summary/__tests__/route.test.ts` — Rate limit tests
+- `src/app/api/v1/food-log/route.ts` — Added rate limiting
+- `src/app/api/v1/food-log/__tests__/route.test.ts` — Rate limit tests
+- `src/app/api/v1/lumen-goals/route.ts` — Added rate limiting
+- `src/app/api/v1/lumen-goals/__tests__/route.test.ts` — Rate limit tests
+- `src/app/api/v1/nutrition-goals/route.ts` — Added rate limiting
+- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` — Rate limit tests
+- `src/app/api/v1/nutrition-summary/route.ts` — Added rate limiting
+- `src/app/api/v1/nutrition-summary/__tests__/route.test.ts` — Rate limit tests
+- `src/app/app/quick-select/loading.tsx` — Created loading skeleton
+- `src/app/app/quick-select/__tests__/loading.test.tsx` — Loading skeleton tests
+- `src/components/quick-select.tsx` — Dedup entries, Fitbit error handling
+- `src/components/__tests__/quick-select.test.tsx` — Tests for dedup and error handling
+- `src/components/daily-dashboard.tsx` — Pass clientDate to API calls
+- `src/components/fasting-card.tsx` — Live dot, improved layout
+- `src/components/food-analyzer.tsx` — Loading step tabs, accept convertedBlobs
+- `src/components/photo-capture.tsx` — Pass convertedBlobs via onPhotosChange, removed unused state
+- `src/components/__tests__/photo-capture.test.tsx` — Updated for 2-arg onPhotosChange callback
+- `src/components/dashboard-shell.tsx` — Segmented control with tab roles
+- `src/components/__tests__/dashboard-shell.test.tsx` — Updated role="button" to role="tab"
+- `src/components/meal-breakdown.tsx` — Meal order sorting (Breakfast→Anytime)
+- `src/components/week-navigator.tsx` — Arrow navigation buttons
+- `src/components/weekly-dashboard.tsx` — Week navigation integration
+- `src/components/weekly-nutrition-chart.tsx` — Empty state message, metric tabs with tab roles
+- `src/lib/image.ts` — compressImage accepts File | Blob
+
+### Linear Updates
+- FOO-411: Todo → In Progress → Review
+- FOO-410: Todo → In Progress → Review
+- FOO-403: Todo → In Progress → Review
+- FOO-431: Todo → In Progress → Review
+- FOO-433: Todo → In Progress → Review
+- FOO-434: Todo → In Progress → Review
+- FOO-416: Todo → In Progress → Review
+- FOO-417: Todo → In Progress → Review
+- FOO-407: Todo → In Progress → Review
+- FOO-405: Todo → In Progress → Review
+- FOO-402: Todo → In Progress → Review
+- FOO-408: Todo → In Progress → Review
+- FOO-424: Todo → In Progress → Review
+- FOO-399: Todo → In Progress → Todo (not started, returned to backlog)
+- FOO-400: Todo → In Progress → Todo (not started, returned to backlog)
+- FOO-401: Todo → In Progress → Todo (not started, returned to backlog)
+- FOO-406: Todo → In Progress → Todo (not started, returned to backlog)
+- FOO-409: Todo → In Progress → Todo (not started, returned to backlog)
+
+### Pre-commit Verification
+- bug-hunter: Reviewed all changed files
+- verifier: All 1664 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 8, 9, 10 partial (timezone routes, quick-select, dashboard components)
+- Worker 2: Task 12 (v1 API rate limiting)
+- Lead: Fixed FOO-417 test assertions, dashboard-shell test role update, photo-capture lint warning, compressImage type error
+
+### Continuation Status
+5 Task 10 issues remain (FOO-399, FOO-400, FOO-401, FOO-406, FOO-409). Worker-1 ran out of context after completing 13/18 assigned issues.

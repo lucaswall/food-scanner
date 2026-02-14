@@ -17,6 +17,11 @@ vi.mock("@/lib/lumen", () => ({
   getLumenGoalsByDate: (...args: unknown[]) => mockGetLumenGoalsByDate(...args),
 }));
 
+const mockCheckRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 const { GET } = await import("@/app/api/v1/lumen-goals/route");
 
 function createRequest(url: string, headers?: HeadersInit): Request {
@@ -30,6 +35,7 @@ describe("GET /api/v1/lumen-goals", () => {
 
   it("returns lumen goals for valid API key and date", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
 
     const mockGoals: LumenGoals = {
       date: "2026-02-11",
@@ -57,6 +63,7 @@ describe("GET /api/v1/lumen-goals", () => {
 
   it("returns null goals when no lumen data exists for date", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
     mockGetLumenGoalsByDate.mockResolvedValue(null);
 
     const request = createRequest(
@@ -89,6 +96,7 @@ describe("GET /api/v1/lumen-goals", () => {
 
   it("returns 400 for missing date parameter", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
 
     const request = createRequest(
       "http://localhost:3000/api/v1/lumen-goals",
@@ -104,6 +112,7 @@ describe("GET /api/v1/lumen-goals", () => {
 
   it("returns 400 for invalid date format", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
 
     const request = createRequest(
       "http://localhost:3000/api/v1/lumen-goals?date=invalid-date",
@@ -119,6 +128,7 @@ describe("GET /api/v1/lumen-goals", () => {
 
   it("sets Cache-Control header to private, no-cache", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
     mockGetLumenGoalsByDate.mockResolvedValue({
       date: "2026-02-11",
       dayType: "low-carb",
@@ -134,5 +144,40 @@ describe("GET /api/v1/lumen-goals", () => {
     const response = await GET(request);
 
     expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+
+  it("returns 429 when rate limit is exceeded", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/lumen-goals?date=2026-02-11",
+      { Authorization: "Bearer test-api-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    expect(data.error.message).toMatch(/too many requests/i);
+  });
+
+  it("uses API key as rate limit key with 60 req/min for DB-only route", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
+    mockGetLumenGoalsByDate.mockResolvedValue(null);
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/lumen-goals?date=2026-02-11",
+      { Authorization: "Bearer test-api-key-789" }
+    );
+    await GET(request);
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      "v1:lumen-goals:test-api-key-789",
+      60,
+      60000
+    );
   });
 });

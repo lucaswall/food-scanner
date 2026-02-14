@@ -2,10 +2,31 @@ import { validateApiRequest } from "@/lib/api-auth";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { ensureFreshToken, getFoodGoals } from "@/lib/fitbit";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+const RATE_LIMIT_MAX = 30; // Fitbit API route
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export async function GET(request: Request) {
   const authResult = await validateApiRequest(request);
   if (authResult instanceof Response) return authResult;
+
+  // Extract API key from Authorization header for rate limiting
+  const authHeader = request.headers.get("Authorization");
+  const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || "";
+
+  const { allowed } = checkRateLimit(
+    `v1:nutrition-goals:${apiKey}`,
+    RATE_LIMIT_MAX,
+    RATE_LIMIT_WINDOW_MS
+  );
+  if (!allowed) {
+    return errorResponse(
+      "RATE_LIMIT_EXCEEDED",
+      "Too many requests. Please try again later.",
+      429
+    );
+  }
 
   try {
     const accessToken = await ensureFreshToken(authResult.userId);

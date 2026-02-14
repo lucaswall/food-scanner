@@ -47,9 +47,12 @@ export async function GET(request: Request) {
       return response;
     }
 
+    // Use client-provided time/date if available, otherwise fall back to server time/date
+    const clientTime = url.searchParams.get("clientTime");
+    const clientDate = url.searchParams.get("clientDate");
     const now = new Date();
-    const currentTime = now.toTimeString().slice(0, 8);
-    const currentDate = now.toISOString().slice(0, 10);
+    const currentTime = clientTime || now.toTimeString().slice(0, 8);
+    const currentDate = clientDate || now.toISOString().slice(0, 10);
     const cursorParam = url.searchParams.get("cursor");
     let cursor: { score: number; id: number } | undefined;
     if (cursorParam) {

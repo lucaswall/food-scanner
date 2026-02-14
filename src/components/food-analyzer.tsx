@@ -29,6 +29,7 @@ interface FoodAnalyzerProps {
 
 export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [photos, setPhotos] = useState<File[]>([]);
+  const [convertedPhotoBlobs, setConvertedPhotoBlobs] = useState<(File | Blob)[]>([]);
   const [description, setDescription] = useState("");
   const [analysis, setAnalysis] = useState<FoodAnalysis | null>(null);
 
@@ -55,8 +56,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
 
-  const handlePhotosChange = (files: File[]) => {
+  const handlePhotosChange = (files: File[], convertedBlobs?: (File | Blob)[]) => {
     setPhotos(files);
+    setConvertedPhotoBlobs(convertedBlobs || []);
     if (files.length > 0) {
       autoCaptureUsedRef.current = true;
     }
@@ -94,7 +96,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       setLoadingStep("Preparing images...");
 
       try {
-        const compressionResults = await Promise.allSettled(photos.map(compressImage));
+        // Use converted blobs if available (already converted from HEIC in PhotoCapture)
+        // Otherwise use original photo files
+        const filesToCompress = convertedPhotoBlobs.length > 0 ? convertedPhotoBlobs : photos;
+        const compressionResults = await Promise.allSettled(filesToCompress.map(compressImage));
         compressedBlobs = compressionResults
           .filter((result): result is PromiseFulfilledResult<Blob> => result.status === "fulfilled")
           .map((result) => result.value);

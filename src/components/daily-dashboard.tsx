@@ -70,9 +70,17 @@ export function DailyDashboard() {
         const oneHourInMs = 3_600_000;
 
         if (dateChanged || elapsed > oneHourInMs) {
-          // Reset to today and revalidate all SWR caches
+          // Reset to today and revalidate only dashboard-related caches
           setSelectedDate(today);
-          globalMutate(() => true);
+          globalMutate(
+            (key) =>
+              typeof key === "string" &&
+              (key.startsWith("/api/nutrition-summary") ||
+                key.startsWith("/api/nutrition-goals") ||
+                key.startsWith("/api/lumen-goals") ||
+                key.startsWith("/api/fasting") ||
+                key === "/api/earliest-entry")
+          );
         }
       }
     };
@@ -93,12 +101,13 @@ export function DailyDashboard() {
     data: summary,
     error: summaryError,
     isLoading: summaryLoading,
+    mutate: mutateSummary,
   } = useSWR<NutritionSummary>(`/api/nutrition-summary?date=${selectedDate}`, apiFetcher);
 
   const {
     data: goals,
     isLoading: goalsLoading,
-  } = useSWR<NutritionGoals>("/api/nutrition-goals", apiFetcher);
+  } = useSWR<NutritionGoals>(`/api/nutrition-goals?clientDate=${selectedDate}`, apiFetcher);
 
   const {
     data: lumenGoals,
@@ -144,8 +153,8 @@ export function DailyDashboard() {
     }
   };
 
-  // Loading state
-  if (summaryLoading || goalsLoading) {
+  // Loading state (only wait for summary - goals can load in background)
+  if (summaryLoading) {
     return <DashboardSkeleton />;
   }
 
@@ -156,6 +165,15 @@ export function DailyDashboard() {
         <p className="text-destructive">
           {summaryError.message || "Failed to load nutrition summary"}
         </p>
+        <Button
+          onClick={() => mutateSummary()}
+          variant="outline"
+          size="sm"
+          className="min-h-[44px]"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Retry
+        </Button>
       </div>
     );
   }

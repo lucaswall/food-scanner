@@ -5,19 +5,24 @@ import { ensureFreshToken, getFoodGoals } from "@/lib/fitbit";
 import { upsertCalorieGoal } from "@/lib/nutrition-goals";
 import { getTodayDate } from "@/lib/date-utils";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getSession();
 
   const validationError = validateSession(session, { requireFitbit: true });
   if (validationError) return validationError;
+
+  // Extract client-provided date if available
+  const { searchParams } = new URL(request.url);
+  const clientDate = searchParams.get("clientDate");
 
   try {
     const accessToken = await ensureFreshToken(session!.userId);
     const goals = await getFoodGoals(accessToken);
 
     // Capture calorie goal in database (fire-and-forget)
+    // Use client's local date if provided, otherwise fall back to server UTC
     if (goals.calories !== null && goals.calories !== undefined) {
-      const todayDate = getTodayDate();
+      const todayDate = clientDate || getTodayDate();
       upsertCalorieGoal(session!.userId, todayDate, goals.calories).catch((error) => {
         logger.warn(
           { error: error instanceof Error ? error.message : String(error), userId: session!.userId },

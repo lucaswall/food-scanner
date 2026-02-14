@@ -64,6 +64,10 @@ const validSession: FullSession = {
   destroy: vi.fn(),
 };
 
+function createRequest(url = "http://localhost:3000/api/nutrition-goals"): Request {
+  return new Request(url);
+}
+
 describe("GET /api/nutrition-goals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -76,7 +80,7 @@ describe("GET /api/nutrition-goals", () => {
     mockEnsureFreshToken.mockResolvedValue("mock-access-token");
     mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -92,7 +96,7 @@ describe("GET /api/nutrition-goals", () => {
   it("returns 401 when session is missing", async () => {
     mockGetSession.mockResolvedValue(null);
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(401);
@@ -109,7 +113,7 @@ describe("GET /api/nutrition-goals", () => {
   it("returns 400 when Fitbit is not connected", async () => {
     mockGetSession.mockResolvedValue({ ...validSession, fitbitConnected: false });
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(400);
@@ -126,7 +130,7 @@ describe("GET /api/nutrition-goals", () => {
   it("returns 400 when Fitbit credentials are missing (session flag)", async () => {
     mockGetSession.mockResolvedValue({ ...validSession, hasFitbitCredentials: false });
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(400);
@@ -144,7 +148,7 @@ describe("GET /api/nutrition-goals", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(424);
@@ -162,7 +166,7 @@ describe("GET /api/nutrition-goals", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(401);
@@ -181,7 +185,7 @@ describe("GET /api/nutrition-goals", () => {
     mockEnsureFreshToken.mockResolvedValue("mock-access-token");
     mockGetFoodGoals.mockRejectedValue(new Error("FITBIT_API_ERROR"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(502);
@@ -199,7 +203,7 @@ describe("GET /api/nutrition-goals", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_SCOPE_MISSING"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(403);
@@ -210,7 +214,7 @@ describe("GET /api/nutrition-goals", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_RATE_LIMIT"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(429);
@@ -221,7 +225,7 @@ describe("GET /api/nutrition-goals", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TIMEOUT"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(504);
@@ -232,7 +236,7 @@ describe("GET /api/nutrition-goals", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_REFRESH_TRANSIENT"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(502);
@@ -243,7 +247,7 @@ describe("GET /api/nutrition-goals", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_SAVE_FAILED"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(500);
@@ -254,7 +258,7 @@ describe("GET /api/nutrition-goals", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("Something unexpected"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(500);
@@ -273,7 +277,7 @@ describe("GET /api/nutrition-goals", () => {
     mockEnsureFreshToken.mockResolvedValue("mock-access-token");
     mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
 
-    const response = await GET();
+    const response = await GET(createRequest());
 
     expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
   });
@@ -285,7 +289,7 @@ describe("GET /api/nutrition-goals", () => {
     mockGetTodayDate.mockReturnValue("2026-02-10");
     mockUpsertCalorieGoal.mockResolvedValue(undefined);
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -300,7 +304,7 @@ describe("GET /api/nutrition-goals", () => {
     mockEnsureFreshToken.mockResolvedValue("mock-access-token");
     mockGetFoodGoals.mockResolvedValue({ calories: null });
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -316,11 +320,45 @@ describe("GET /api/nutrition-goals", () => {
     mockGetTodayDate.mockReturnValue("2026-02-10");
     mockUpsertCalorieGoal.mockRejectedValue(new Error("Database error"));
 
-    const response = await GET();
+    const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
     expect(data.data).toEqual({ calories: 2000 });
+  });
+
+  it("uses clientDate query param for calorie goal capture instead of server UTC (FOO-403)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+    mockGetTodayDate.mockReturnValue("2026-02-10"); // Server UTC date
+    mockUpsertCalorieGoal.mockResolvedValue(undefined);
+
+    const response = await GET(createRequest("http://localhost:3000/api/nutrition-goals?clientDate=2026-02-11"));
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    // Client's local date should be used, not server's
+    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-11", 2000);
+  });
+
+  it("falls back to server UTC date when clientDate is not provided (FOO-403)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+    mockGetTodayDate.mockReturnValue("2026-02-10");
+    mockUpsertCalorieGoal.mockResolvedValue(undefined);
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    // Should fall back to server date
+    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-10", 2000);
   });
 });

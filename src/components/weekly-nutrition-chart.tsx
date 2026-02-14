@@ -98,12 +98,14 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
   return (
     <div className="space-y-4">
       {/* Metric selector */}
-      <div className="flex gap-1 p-1 bg-muted rounded-full">
+      <div role="tablist" className="flex gap-1 p-1 bg-muted rounded-full">
         {METRICS.map((metric) => {
           const isSelected = selectedMetric === metric.key;
           return (
             <button
               key={metric.key}
+              role="tab"
+              aria-selected={isSelected}
               data-testid={`metric-${metric.key}`}
               onClick={() => setSelectedMetric(metric.key)}
               className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
@@ -128,8 +130,8 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
       {/* Chart container */}
       <div className="flex items-end gap-2 h-48">
         {weekDays.map((day, index) => {
-          const isEmpty = day.data === null || day.data.calories === 0;
           const { value, goal } = getMetricData(day.data, selectedMetric);
+          const isEmpty = day.data === null || value === 0;
 
           // Calculate bar height as percentage of max
           const barHeightPercent = isEmpty ? 0 : (value / maxValue) * 100;
