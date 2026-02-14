@@ -44,10 +44,12 @@ vi.mock("@/lib/pending-submission", () => ({
 vi.mock("../photo-capture", () => ({
   PhotoCapture: ({
     onPhotosChange,
+    autoCapture,
   }: {
     onPhotosChange: (files: File[]) => void;
+    autoCapture?: boolean;
   }) => (
-    <div data-testid="photo-capture">
+    <div data-testid="photo-capture" data-auto-capture={String(!!autoCapture)}>
       <button
         onClick={() =>
           onPhotosChange([new File(["test"], "test.jpg", { type: "image/jpeg" })])
@@ -179,18 +181,25 @@ vi.mock("../food-chat", () => ({
     initialAnalysis: FoodAnalysis;
     compressedImages: Blob[];
     onClose: () => void;
-    onLogged: (response: FoodLogResponse) => void;
+    onLogged: (response: FoodLogResponse, analysis: FoodAnalysis) => void;
   }) => (
     <div data-testid="food-chat">
       <span data-testid="chat-food-name">{initialAnalysis.food_name}</span>
       <button onClick={onClose}>Close Chat</button>
       <button
         onClick={() =>
-          onLogged({
-            success: true,
-            reusedFood: false,
-            foodLogId: 999,
-          })
+          onLogged(
+            {
+              success: true,
+              reusedFood: false,
+              foodLogId: 999,
+            },
+            {
+              ...initialAnalysis,
+              food_name: "Mixed drink: beer and gin",
+              calories: 250,
+            }
+          )
         }
       >
         Log from Chat
@@ -1619,6 +1628,40 @@ describe("FoodAnalyzer", () => {
         expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
       });
     });
+
+    it("shows refined food name on confirmation card after logging from chat", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /refine/i })).toBeInTheDocument();
+      });
+
+      // Open chat
+      fireEvent.click(screen.getByRole("button", { name: /refine/i }));
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+
+      // Log from chat (mock sends refined analysis with food_name "Mixed drink: beer and gin")
+      fireEvent.click(screen.getByRole("button", { name: /log from chat/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+        // Should show the refined name, not the original "Empanada de carne"
+        expect(screen.getByText(/Mixed drink: beer and gin/)).toBeInTheDocument();
+      });
+    });
   });
 
   describe("focus management", () => {
@@ -1736,6 +1779,78 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByTestId("log-error")).toBeInTheDocument();
         expect(screen.getByText(/server returned an unexpected response/i)).toBeInTheDocument();
       });
+    });
+  });
+
+  describe("autoCapture guard", () => {
+    it("passes autoCapture to PhotoCapture on initial render", () => {
+      render(<FoodAnalyzer autoCapture />);
+
+      const photoCapture = screen.getByTestId("photo-capture");
+      expect(photoCapture).toHaveAttribute("data-auto-capture", "true");
+    });
+
+    it("does not pass autoCapture after photos are taken and analysis exists", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer autoCapture />);
+
+      // Initially autoCapture is true
+      expect(screen.getByTestId("photo-capture")).toHaveAttribute("data-auto-capture", "true");
+
+      // Add photo
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      // Analyze
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne");
+      });
+
+      // After analysis, autoCapture should be false
+      expect(screen.getByTestId("photo-capture")).toHaveAttribute("data-auto-capture", "false");
+    });
+
+    it("does not pass autoCapture after returning from chat", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      });
+
+      render(<FoodAnalyzer autoCapture />);
+
+      // Add photo and analyze
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /refine/i })).toBeInTheDocument();
+      });
+
+      // Open chat
+      fireEvent.click(screen.getByRole("button", { name: /refine/i }));
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+
+      // Close chat
+      fireEvent.click(screen.getByRole("button", { name: /close chat/i }));
+      await waitFor(() => {
+        expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
+      });
+
+      // After returning from chat, autoCapture should be false
+      expect(screen.getByTestId("photo-capture")).toHaveAttribute("data-auto-capture", "false");
     });
   });
 });

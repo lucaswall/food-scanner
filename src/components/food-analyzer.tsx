@@ -48,12 +48,16 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
   const [compressedImages, setCompressedImages] = useState<Blob[] | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const autoCaptureUsedRef = useRef(false);
 
   const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
 
   const handlePhotosChange = (files: File[]) => {
     setPhotos(files);
+    if (files.length > 0) {
+      autoCaptureUsedRef.current = true;
+    }
     // Clear previous analysis when photos change
     if (files.length === 0) {
       resetAnalysisState();
@@ -424,7 +428,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         compressedImages={compressedImages || []}
         initialMealTypeId={mealTypeId}
         onClose={() => setChatOpen(false)}
-        onLogged={setLogResponse}
+        onLogged={(response, refinedAnalysis) => {
+          setAnalysis(refinedAnalysis);
+          setLogResponse(response);
+        }}
       />
     );
   }
@@ -442,7 +449,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         </div>
       )}
 
-      <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture} />
+      <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} />
 
       <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging} />
 

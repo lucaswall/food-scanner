@@ -32,7 +32,7 @@ interface FoodChatProps {
   compressedImages: Blob[];
   initialMealTypeId: number;
   onClose: () => void;
-  onLogged: (response: FoodLogResponse) => void;
+  onLogged: (response: FoodLogResponse, analysis: FoodAnalysis) => void;
 }
 
 function getUnitLabel(unitId: number): string {
@@ -286,7 +286,7 @@ export function FoodChat({
         return;
       }
 
-      onLogged(result.data);
+      onLogged(result.data, latestAnalysis);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "An unexpected error occurred"
