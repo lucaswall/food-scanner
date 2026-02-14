@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FoodChat } from "../food-chat";
 import type { FoodAnalysis, FoodLogResponse } from "@/types";
+import { compressImage } from "@/lib/image";
 
 // Mock ResizeObserver for Radix UI and scrollIntoView for auto-scroll
 beforeAll(() => {
@@ -26,14 +27,17 @@ vi.mock("../meal-type-selector", () => ({
   MealTypeSelector: ({
     value,
     onChange,
+    ariaLabel,
   }: {
     value: number;
     onChange: (id: number) => void;
+    ariaLabel?: string;
   }) => (
     <div data-testid="meal-type-selector">
       <select
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
+        aria-label={ariaLabel}
       >
         <option value="1">Breakfast</option>
         <option value="3">Lunch</option>
@@ -444,7 +448,7 @@ describe("FoodChat", () => {
     expect(sendButton).toBeDisabled();
   });
 
-  it("shows analysis summary in assistant message when analysis is present", async () => {
+  it("shows nutrition card in assistant message when analysis is present", async () => {
     const updatedAnalysis: FoodAnalysis = {
       ...mockAnalysis,
       food_name: "Mixed cocktail",
@@ -474,7 +478,8 @@ describe("FoodChat", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Mixed cocktail")).toBeInTheDocument();
-      expect(screen.getByText(/165 cal/)).toBeInTheDocument();
+      expect(screen.getByText("165")).toBeInTheDocument();
+      expect(screen.getByText("cal")).toBeInTheDocument();
       expect(screen.getByText(/P: 0g/)).toBeInTheDocument();
     });
   });
@@ -520,5 +525,314 @@ describe("FoodChat", () => {
     const callArgs = mockFetch.mock.calls[0];
     const body = JSON.parse(callArgs[1].body);
     expect(body.images).toBeUndefined();
+  });
+
+  it("shows correct unit label for non-gram units in nutrition card", async () => {
+    const cupsAnalysis: FoodAnalysis = {
+      ...mockAnalysis,
+      food_name: "Orange juice",
+      amount: 2,
+      unit_id: 91, // cups
+      calories: 220,
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: {
+            message: "Analyzed",
+            analysis: cupsAnalysis,
+          },
+        })),
+    });
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "What is this?" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Orange juice")).toBeInTheDocument();
+      // Should show "2 cups" not "2 units" in the nutrition card
+      expect(screen.queryByText(/2 units/)).not.toBeInTheDocument();
+      expect(screen.getByText(/2 cups/)).toBeInTheDocument();
+    });
+  });
+
+  it("scroll-to-bottom button has 44px touch target", () => {
+    const { container } = render(<FoodChat {...defaultProps} />);
+
+    // Simulate scroll state to show the button
+    const scrollContainer = container.querySelector('[class*="overflow-y-auto"]') as HTMLElement;
+    Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1000, configurable: true });
+    Object.defineProperty(scrollContainer, 'scrollTop', { value: 0, configurable: true });
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 500, configurable: true });
+
+    fireEvent.scroll(scrollContainer);
+
+    const scrollButton = screen.getByRole("button", { name: /scroll to bottom/i });
+    expect(scrollButton).toHaveClass("size-11"); // 44px x 44px
+  });
+
+  it("MealTypeSelector has accessible label", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    const selector = screen.getByLabelText("Meal type");
+    expect(selector).toBeInTheDocument();
+  });
+
+  it("plus button is disabled at message limit", async () => {
+    // MAX_MESSAGES = 20. apiMessageCount = messages.length - 1 (excludes initial)
+    // Each user+assistant pair adds 2 to messages. To hit limit: 1 + 2*10 = 21 messages, apiMessageCount = 20
+    const messagesToSend = 10;
+
+    for (let i = 0; i < messagesToSend; i++) {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({
+            success: true,
+            data: { message: `Response ${i}` },
+          })),
+      });
+    }
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    const sendButton = screen.getByRole("button", { name: /send/i });
+
+    // Send messages to hit the limit
+    for (let i = 0; i < messagesToSend; i++) {
+      fireEvent.change(input, { target: { value: `Message ${i}` } });
+      fireEvent.click(sendButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(`Response ${i}`)).toBeInTheDocument();
+      });
+    }
+
+    // Now at limit, plus button should be disabled
+    const plusButton = screen.getByRole("button", { name: /add photo/i });
+    expect(plusButton).toBeDisabled();
+  });
+
+  it("chat input has maxLength of 500", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i) as HTMLInputElement;
+    expect(input.maxLength).toBe(500);
+  });
+
+  it("error message is dismissible", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: false,
+          error: { code: "ERROR", message: "Test error message" },
+        })),
+    });
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/test error message/i)).toBeInTheDocument();
+    });
+
+    // Find and click dismiss button
+    const dismissButton = screen.getByRole("button", { name: /dismiss error/i });
+    fireEvent.click(dismissButton);
+
+    // Error should be removed
+    expect(screen.queryByText(/test error message/i)).not.toBeInTheDocument();
+  });
+
+  it("shows improved near-limit warning text", async () => {
+    // Send 8 messages to get to near-limit (apiMessageCount = 16, 4 remaining out of 20)
+    for (let i = 0; i < 8; i++) {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({
+            success: true,
+            data: { message: `Response ${i}` },
+          })),
+      });
+    }
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    const sendButton = screen.getByRole("button", { name: /send/i });
+
+    // Send messages
+    for (let i = 0; i < 8; i++) {
+      fireEvent.change(input, { target: { value: `Message ${i}` } });
+      fireEvent.click(sendButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(`Response ${i}`)).toBeInTheDocument();
+      });
+    }
+
+    // Should show "refinements remaining" not "messages remaining"
+    expect(screen.getByText(/refinements remaining/i)).toBeInTheDocument();
+    expect(screen.queryByText(/messages remaining/i)).not.toBeInTheDocument();
+  });
+
+  it("shows at-limit message when limit is reached", async () => {
+    // Send 10 messages to hit the limit
+    for (let i = 0; i < 10; i++) {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({
+            success: true,
+            data: { message: `Response ${i}` },
+          })),
+      });
+    }
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    const sendButton = screen.getByRole("button", { name: /send/i });
+
+    // Send messages to hit limit
+    for (let i = 0; i < 10; i++) {
+      fireEvent.change(input, { target: { value: `Message ${i}` } });
+      fireEvent.click(sendButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(`Response ${i}`)).toBeInTheDocument();
+      });
+    }
+
+    // Should show "Refinement limit reached"
+    expect(screen.getByText(/refinement limit reached/i)).toBeInTheDocument();
+  });
+
+  it("shows warning when some photos fail compression", async () => {
+    // Mock compressImage to fail for the second file
+    const mockCompressImage = vi.mocked(compressImage);
+    mockCompressImage
+      .mockResolvedValueOnce(new Blob(["file1"]))
+      .mockRejectedValueOnce(new Error("Compression failed"))
+      .mockResolvedValueOnce(new Blob(["file3"]));
+
+    render(<FoodChat {...defaultProps} />);
+
+    // Open photo menu and select gallery
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    const galleryInput = screen.getByTestId("chat-gallery-input");
+
+    // Select 3 files
+    const files = [
+      new File(["file1"], "photo1.jpg", { type: "image/jpeg" }),
+      new File(["file2"], "photo2.jpg", { type: "image/jpeg" }),
+      new File(["file3"], "photo3.jpg", { type: "image/jpeg" }),
+    ];
+    Object.defineProperty(galleryInput, "files", { value: files });
+    fireEvent.change(galleryInput);
+
+    // Should show compression warning
+    await waitFor(() => {
+      expect(screen.getByText(/1 of 3 photos couldn't be processed/i)).toBeInTheDocument();
+    });
+
+    // Should still show 2 successful photos in indicator
+    expect(screen.getByText(/2 photos/i)).toBeInTheDocument();
+  });
+
+  it("shows loading indicator during photo compression", async () => {
+    // Mock compressImage with delay
+    const mockCompressImage = vi.mocked(compressImage);
+    mockCompressImage.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(new Blob(["file"])), 100))
+    );
+
+    render(<FoodChat {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    const galleryInput = screen.getByTestId("chat-gallery-input");
+
+    const files = [new File(["file1"], "photo1.jpg", { type: "image/jpeg" })];
+    Object.defineProperty(galleryInput, "files", { value: files });
+    fireEvent.change(galleryInput);
+
+    // Should show loading indicator
+    expect(screen.getByText(/processing photos/i)).toBeInTheDocument();
+
+    // Wait for compression to complete
+    await waitFor(() => {
+      expect(screen.queryByText(/processing photos/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it("closes photo menu on Escape key", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    // Open photo menu
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    expect(screen.getByTestId("photo-menu")).toBeInTheDocument();
+
+    // Press Escape
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    // Menu should close
+    expect(screen.queryByTestId("photo-menu")).not.toBeInTheDocument();
+  });
+
+  it("closes photo menu on outside click", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    // Open photo menu
+    const plusButton = screen.getByRole("button", { name: /add photo/i });
+    fireEvent.click(plusButton);
+    expect(screen.getByTestId("photo-menu")).toBeInTheDocument();
+
+    // Click outside (on document body)
+    fireEvent.mouseDown(document.body);
+
+    // Menu should close
+    expect(screen.queryByTestId("photo-menu")).not.toBeInTheDocument();
+  });
+
+  it("shows timeout error for chat API timeout", async () => {
+    mockFetch.mockRejectedValueOnce(
+      new DOMException("signal timed out", "TimeoutError")
+    );
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows timeout error for log API timeout", async () => {
+    mockFetch.mockRejectedValueOnce(
+      new DOMException("signal timed out", "TimeoutError")
+    );
+
+    render(<FoodChat {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+    });
   });
 });

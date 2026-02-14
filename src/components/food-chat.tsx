@@ -18,6 +18,7 @@ import {
 import { safeResponseJson } from "@/lib/safe-json";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime } from "@/lib/meal-type";
+import { MiniNutritionCard } from "./mini-nutrition-card";
 import type {
   FoodAnalysis,
   FoodLogResponse,
@@ -33,57 +34,6 @@ interface FoodChatProps {
   initialMealTypeId: number;
   onClose: () => void;
   onLogged: (response: FoodLogResponse, analysis: FoodAnalysis) => void;
-}
-
-function getUnitLabel(unitId: number): string {
-  if (unitId === 147) return "g";
-  if (unitId === 209) return "ml";
-  return " units";
-}
-
-function AnalysisSummary({
-  analysis,
-  previousAnalysis,
-}: {
-  analysis: FoodAnalysis;
-  previousAnalysis?: FoodAnalysis;
-}) {
-  const changed = (field: keyof FoodAnalysis) =>
-    previousAnalysis && previousAnalysis[field] !== analysis[field];
-
-  const highlight = (isChanged: boolean | undefined) =>
-    isChanged ? "font-semibold" : "";
-
-  return (
-    <div className="mt-2 pt-2 border-t border-current/10 text-xs space-y-0.5">
-      <p className={`font-medium ${highlight(changed("food_name"))}`}>
-        {analysis.food_name}
-      </p>
-      <p className="opacity-80">
-        <span className={highlight(changed("amount") || changed("unit_id"))}>
-          {analysis.amount}
-          {getUnitLabel(analysis.unit_id)}
-        </span>
-        {" · "}
-        <span className={highlight(changed("calories"))}>
-          {analysis.calories} cal
-        </span>
-      </p>
-      <p className="opacity-60">
-        <span className={highlight(changed("protein_g"))}>
-          P: {analysis.protein_g}g
-        </span>
-        {" · "}
-        <span className={highlight(changed("carbs_g"))}>
-          C: {analysis.carbs_g}g
-        </span>
-        {" · "}
-        <span className={highlight(changed("fat_g"))}>
-          F: {analysis.fat_g}g
-        </span>
-      </p>
-    </div>
-  );
 }
 
 export function FoodChat({
@@ -112,11 +62,16 @@ export function FoodChat({
   const [pendingImages, setPendingImages] = useState<Blob[]>([]);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
+  const [compressionWarning, setCompressionWarning] = useState<string | null>(null);
+  const [compressing, setCompressing] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const photoMenuRef = useRef<HTMLDivElement>(null);
+  const plusButtonRef = useRef<HTMLButtonElement>(null);
+  const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const latestAnalysis =
     [...messages]
@@ -132,6 +87,44 @@ export function FoodChat({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // Close photo menu on Escape key or outside click
+  useEffect(() => {
+    if (!showPhotoMenu) return;
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowPhotoMenu(false);
+      }
+    };
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        photoMenuRef.current &&
+        !photoMenuRef.current.contains(e.target as Node) &&
+        !plusButtonRef.current?.contains(e.target as Node)
+      ) {
+        setShowPhotoMenu(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleEscape);
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showPhotoMenu]);
+
+  // Cleanup compression warning timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (compressionWarningTimeoutRef.current) {
+        clearTimeout(compressionWarningTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Track scroll position for scroll-to-bottom button
   const handleScroll = useCallback(() => {
@@ -154,6 +147,9 @@ export function FoodChat({
     if (!files || files.length === 0) return;
 
     setShowPhotoMenu(false);
+    setCompressing(true);
+    setCompressionWarning(null);
+
     const fileArray = Array.from(files);
     const compressionResults = await Promise.allSettled(
       fileArray.map(compressImage)
@@ -163,6 +159,21 @@ export function FoodChat({
         (r): r is PromiseFulfilledResult<Blob> => r.status === "fulfilled"
       )
       .map((r) => r.value);
+    const failed = compressionResults.filter((r) => r.status === "rejected").length;
+
+    setCompressing(false);
+
+    if (failed > 0) {
+      if (compressionWarningTimeoutRef.current) {
+        clearTimeout(compressionWarningTimeoutRef.current);
+      }
+      const warning = `${failed} of ${fileArray.length} photo${fileArray.length !== 1 ? "s" : ""} couldn't be processed`;
+      setCompressionWarning(warning);
+      compressionWarningTimeoutRef.current = setTimeout(() => {
+        setCompressionWarning(null);
+        compressionWarningTimeoutRef.current = null;
+      }, 5000);
+    }
 
     if (compressed.length > 0) {
       setPendingImages((prev) => [...prev, ...compressed]);
@@ -186,7 +197,7 @@ export function FoodChat({
   };
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || compressing) return;
 
     const userMessage: ConversationMessage = {
       role: "user",
@@ -230,6 +241,7 @@ export function FoodChat({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(30000),
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -250,9 +262,13 @@ export function FoodChat({
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "An unexpected error occurred"
-      );
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setError("Request timed out. Please try again.");
+      } else {
+        setError(
+          err instanceof Error ? err.message : "An unexpected error occurred"
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -273,6 +289,7 @@ export function FoodChat({
           mealTypeId,
           ...getLocalDateTime(),
         }),
+        signal: AbortSignal.timeout(15000),
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -288,9 +305,13 @@ export function FoodChat({
 
       onLogged(result.data, latestAnalysis);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "An unexpected error occurred"
-      );
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setError("Request timed out. Please try again.");
+      } else {
+        setError(
+          err instanceof Error ? err.message : "An unexpected error occurred"
+        );
+      }
     } finally {
       setLogging(false);
     }
@@ -339,6 +360,7 @@ export function FoodChat({
               value={mealTypeId}
               onChange={setMealTypeId}
               showTimeHint={false}
+              ariaLabel="Meal type"
             />
           </div>
           <Button
@@ -392,10 +414,12 @@ export function FoodChat({
               >
                 <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                 {msg.role === "assistant" && msg.analysis && idx > 0 && (
-                  <AnalysisSummary
-                    analysis={msg.analysis}
-                    previousAnalysis={prevAnalysisForMsg}
-                  />
+                  <div className="mt-2">
+                    <MiniNutritionCard
+                      analysis={msg.analysis}
+                      previousAnalysis={prevAnalysisForMsg}
+                    />
+                  </div>
                 )}
               </div>
             </div>
@@ -411,8 +435,15 @@ export function FoodChat({
         )}
 
         {error && (
-          <div className="px-3 py-2 bg-destructive/10 border border-destructive/20 rounded-2xl">
-            <p className="text-sm text-destructive">{error}</p>
+          <div className="flex items-start gap-2 px-3 py-2 bg-destructive/10 border border-destructive/20 rounded-2xl">
+            <p className="flex-1 text-sm text-destructive">{error}</p>
+            <button
+              onClick={() => setError(null)}
+              aria-label="Dismiss error"
+              className="shrink-0 flex items-center justify-center size-11 rounded-full hover:bg-destructive/10"
+            >
+              <X className="h-4 w-4 text-destructive" />
+            </button>
           </div>
         )}
 
@@ -426,17 +457,24 @@ export function FoodChat({
           <button
             onClick={scrollToBottom}
             aria-label="Scroll to bottom"
-            className="absolute -top-12 right-3 flex items-center justify-center size-9 rounded-full bg-background shadow-md border"
+            className="absolute -top-14 right-3 flex items-center justify-center size-11 rounded-full bg-background shadow-md border"
           >
             <ChevronDown className="h-4 w-4" />
           </button>
         )}
 
         {/* Conversation limit warning */}
+        {atLimit && (
+          <div className="px-3 pt-2">
+            <p data-testid="limit-warning" className="text-xs text-muted-foreground text-center">
+              Refinement limit reached — log your food to save.
+            </p>
+          </div>
+        )}
         {nearLimit && !atLimit && (
           <div className="px-3 pt-2">
             <p data-testid="limit-warning" className="text-xs text-muted-foreground text-center">
-              {MAX_MESSAGES - apiMessageCount} messages remaining
+              {MAX_MESSAGES - apiMessageCount} refinements remaining — log when ready
             </p>
           </div>
         )}
@@ -463,9 +501,26 @@ export function FoodChat({
           </div>
         )}
 
+        {/* Compression warning */}
+        {compressionWarning && (
+          <div className="px-3 pt-2">
+            <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+              {compressionWarning}
+            </p>
+          </div>
+        )}
+
+        {/* Photo compression loading */}
+        {compressing && (
+          <div className="flex items-center justify-center gap-1.5 px-3 pt-2">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span className="text-xs text-muted-foreground">Processing photos...</span>
+          </div>
+        )}
+
         {/* Inline photo menu */}
         {showPhotoMenu && (
-          <div data-testid="photo-menu" className="flex items-center gap-2 px-3 pt-2">
+          <div ref={photoMenuRef} data-testid="photo-menu" className="flex items-center gap-2 px-3 pt-2">
             <button
               onClick={() => {
                 cameraInputRef.current?.click();
@@ -494,11 +549,12 @@ export function FoodChat({
         {/* Photo toggle + Text input + Send */}
         <div className="flex items-center gap-1.5 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           <Button
+            ref={plusButtonRef}
             variant="ghost"
             size="icon"
             className="shrink-0"
             aria-label="Add photo"
-            disabled={loading}
+            disabled={loading || atLimit || compressing}
             onClick={() => setShowPhotoMenu((prev) => !prev)}
           >
             {showPhotoMenu ? (
@@ -519,12 +575,13 @@ export function FoodChat({
               }
             }}
             disabled={loading || atLimit}
+            maxLength={500}
             className="flex-1 min-h-[44px] rounded-full"
           />
 
           <Button
             onClick={handleSend}
-            disabled={!input.trim() || loading || atLimit}
+            disabled={!input.trim() || loading || atLimit || compressing}
             aria-label="Send"
             size="icon"
             className="shrink-0 rounded-full"
