@@ -271,6 +271,64 @@ Comprehensive checklist for frontend code review covering accessibility, visual 
 
 ---
 
+## Visual QA (Screenshot-Based)
+
+This section is checked by analyzing rendered screenshots, not source code. It catches issues that code-only reviewers cannot detect.
+
+### Layout & Composition
+- [ ] Pages feel visually balanced (not lopsided or top-heavy)
+- [ ] Whitespace is intentional: groups related elements, separates unrelated ones
+- [ ] Vertical rhythm: consistent spacing cadence down each page
+- [ ] Elements aligned to a grid or to neighbors (no "almost aligned" sloppiness)
+- [ ] Content fills the viewport appropriately (not too sparse, not too cramped)
+
+### Visual Hierarchy (as rendered)
+- [ ] Primary action/content on each screen is immediately obvious
+- [ ] Heading sizes create clear visual levels
+- [ ] Secondary and tertiary elements are visually subordinate
+- [ ] Eye follows a natural path through the content without jarring breaks
+
+### Typography (as rendered)
+- [ ] Font sizes readable at mobile scale without zooming
+- [ ] Clear hierarchy between headings, body text, and labels
+- [ ] No text truncated unexpectedly, overflowing containers, or visually cramped
+- [ ] Numbers and data (calories, macros) are prominently readable
+
+### Touch Targets (visual assessment)
+- [ ] Interactive elements (buttons, links, nav items) look large enough to tap comfortably
+- [ ] Adequate visual spacing between tappable items (no risk of accidental taps)
+- [ ] Primary actions within thumb reach (lower 2/3 of screen)
+- [ ] Bottom navigation items evenly spaced with comfortable tap zones
+
+### Empty & Guard States
+- [ ] "Set up Fitbit" guard screens look intentional, not broken
+- [ ] Clear visual guidance on what to do next (CTA is prominent)
+- [ ] Blank space in empty states feels like a design choice, not a missing feature
+- [ ] Guard state messaging is centered and inviting
+
+### Cross-Screen Consistency
+- [ ] Same components (cards, buttons, inputs) look identical across all screens
+- [ ] Spacing and padding consistent between similar elements on different pages
+- [ ] Bottom navigation bar position, size, and active state highlighting consistent
+- [ ] Page heading style (size, weight, position) consistent across screens
+- [ ] Card/panel styling (border radius, shadow, internal padding) consistent
+- [ ] Color usage consistent (same semantic meaning across screens)
+
+### Overall Polish
+- [ ] App feels cohesive — all screens look like they belong to the same product
+- [ ] Visual density appropriate for a mobile utility app (functional, not decorative)
+- [ ] Design communicates competence and reliability (clean, not cluttered)
+- [ ] No screen feels visually "off" compared to the others
+
+### Best Practices for Screenshot Analysis
+- **Compare screens side-by-side mentally** — note any inconsistency in element sizing, spacing, or style
+- **Trace the user journey** — landing → dashboard → analyze/quick-select → history → food-detail → settings
+- **Check the "squint test"** — blur your focus: does the visual hierarchy still communicate clearly?
+- **Evaluate empty states critically** — these are often the first thing new users see
+- **Note first impressions** — what stands out immediately on each screen? Is it the right thing?
+
+---
+
 ## Search Patterns Quick Reference
 
 Use Grep on frontend files to find common issues:
