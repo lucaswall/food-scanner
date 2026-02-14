@@ -489,3 +489,59 @@ Polish the chat refinement UX in `food-chat.tsx` — fix bugs (wrong unit labels
 - Service worker / offline support
 - API-side validation changes
 - Changes to other pages or components beyond what's needed for these fixes
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-14
+**Method:** Agent team (1 worker)
+
+### Tasks Completed This Iteration
+- Task 1: Fix unit labels — imported canonical getUnitLabel from @/types (worker-1)
+- Task 2: Fix scroll button touch target — size-9 to size-11 (worker-1)
+- Task 3: Add accessibility label to MealTypeSelector — ariaLabel prop (worker-1)
+- Task 4: Disable photo menu at message limit — plus button disabled when atLimit (worker-1)
+- Task 5: Add maxLength to chat input — maxLength={500} (worker-1)
+- Task 6: Make error message dismissible — X button with 44px touch target (worker-1)
+- Task 7: Improve limit warning text — "refinements remaining" and at-limit message (worker-1)
+- Task 8: Add feedback for compression failures — compressionWarning state with 5s auto-dismiss (worker-1)
+- Task 9: Add loading indicator during photo compression — compressing state with spinner (worker-1)
+- Task 10: Add outside click and Escape to close photo menu — useEffect with listeners (worker-1)
+- Task 11: Add AbortController timeout to fetch calls — 30s chat, 15s log (worker-1)
+- Task 12: Replace AnalysisSummary with MiniNutritionCard — new FDA-inspired compact card (worker-1)
+
+### Files Modified
+- `src/components/food-chat.tsx` - Removed local getUnitLabel stub, added MiniNutritionCard import, added compressionWarning/compressing states, added photoMenuRef/plusButtonRef/compressionWarningTimeoutRef, updated handleFileSelected with compression feedback and cleanup, added Escape/click-outside handlers, added AbortSignal.timeout to fetch calls, updated error handling for timeouts/AbortError, updated limit warnings text, replaced AnalysisSummary with MiniNutritionCard, deleted AnalysisSummary component, updated button disabled states, added compression warning/loading UI, added compressing guard to handleSend
+- `src/components/__tests__/food-chat.test.tsx` - Added 13 new tests, updated 2 existing tests for MiniNutritionCard (35 total)
+- `src/components/meal-type-selector.tsx` - Added ariaLabel prop to interface, forwarded to SelectTrigger
+- `src/components/mini-nutrition-card.tsx` - Created FDA-inspired compact nutrition card with change highlighting
+- `src/components/__tests__/mini-nutrition-card.test.tsx` - Created 6 tests for component behavior
+
+### Linear Updates
+- FOO-382: Todo → In Progress → Review
+- FOO-389: Todo → In Progress → Review
+- FOO-398: Todo → In Progress → Review
+- FOO-386: Todo → In Progress → Review
+- FOO-397: Todo → In Progress → Review
+- FOO-390: Todo → In Progress → Review
+- FOO-394: Todo → In Progress → Review
+- FOO-385: Todo → In Progress → Review
+- FOO-392: Todo → In Progress → Review
+- FOO-391: Todo → In Progress → Review
+- FOO-388: Todo → In Progress → Review
+- FOO-381: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (2 HIGH, 2 MEDIUM), all fixed before proceeding:
+  1. setTimeout memory leak in compression warning — added ref-based cleanup
+  2. Race condition: handleSend missing compressing guard — added check
+  3. Photo menu outside-click using fragile aria-label selector — switched to ref
+  4. Timeout detection missing AbortError check — added to both catch blocks
+- verifier: All 1604 tests pass, zero warnings (lint, typecheck, build)
+
+### Work Partition
+- Worker 1: Tasks 1-12 (all tasks share food-chat.tsx — single work unit)
+
+### Continuation Status
+All tasks completed.
