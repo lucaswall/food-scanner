@@ -29,6 +29,12 @@ npm-debug.log*
 # Test coverage
 coverage/
 
+# Playwright E2E
+test-results/
+playwright-report/
+e2e/screenshots/
+e2e/.auth/
+
 # TypeScript
 *.tsbuildinfo
 
