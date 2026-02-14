@@ -110,31 +110,36 @@ Once all reviewer findings are collected:
 - Same code location reported by multiple reviewers → merge into the one with higher priority
 - Same root cause in multiple locations → combine into one finding
 
-### Evaluate Severity
+### Classify Each Finding
 
-| Severity | Criteria | Action |
-|----------|----------|--------|
-| **CRITICAL** | Security vulnerabilities, data corruption, crashes | Must fix before merge |
-| **HIGH** | Logic errors, race conditions, auth issues, resource leaks | Must fix before merge |
-| **MEDIUM** | Edge cases, type safety, error handling gaps | Should fix |
-| **LOW** | Convention violations, style (only if egregious) | Document only |
+Every finding MUST be classified as either **FIX** or **DISCARD**. There is no "document only" category — PLANS.md is overwritten by the next plan, so anything left there is lost.
 
-**Fix Required (CRITICAL/HIGH):**
-- Would cause runtime errors or crashes
+| Classification | When to use | Action |
+|----------------|-------------|--------|
+| **FIX** | Real bug at ANY severity (critical, high, medium, low) | Create Linear issue + Fix Plan |
+| **DISCARD** | False positive, misdiagnosed, impossible in context, or not a bug | Report to user with reasoning |
+
+**FIX — real bugs at any severity:**
+- Would cause runtime errors or crashes (any severity)
 - Could corrupt or lose data
 - Security vulnerability (OWASP categories)
 - Resource leak affecting production
 - Test doesn't actually test the behavior
 - Violates CLAUDE.md critical rules
+- Edge cases that could realistically occur
+- Test flakiness from shared mutable state
+- Convention violations that affect correctness
 
-**Document Only (MEDIUM/LOW):**
-- Edge cases unlikely to occur
-- Style preferences not in CLAUDE.md
-- "Nice to have" improvements
+**DISCARD — not actual bugs:**
+- False positive: reviewer misread the code or missed context
+- Misdiagnosed: the flagged pattern is actually correct/intentional
+- Impossible in context: the scenario cannot occur given the app's constraints (e.g., "SQL injection" in a query that only accepts validated enum values)
+- Style-only: cosmetic preference not enforced by CLAUDE.md, with no correctness impact
+- Already handled: the issue is mitigated elsewhere in the codebase
 
 ## Document Findings
 
-### If Issues Found (CRITICAL/HIGH)
+### If Issues Found (any that need fixing)
 
 Add Review Findings to the current Iteration section, then add Fix Plan at h2 level AFTER the iteration:
 
@@ -142,21 +147,22 @@ Add Review Findings to the current Iteration section, then add Fix Plan at h2 le
 ### Review Findings
 
 Summary: N issue(s) found (Team: security, reliability, quality reviewers)
-- CRITICAL: X
-- HIGH: Y
-- MEDIUM: Z (documented only)
+- FIX: X issue(s) — Linear issues created
+- DISCARDED: Y finding(s) — false positives / not applicable
 
 **Issues requiring fix:**
 - [CRITICAL] SECURITY: SQL injection in query builder (`src/db.ts:45`) - OWASP A03:2021
 - [HIGH] BUG: Race condition in cache invalidation (`src/cache.ts:120`)
+- [MEDIUM] TEST: Parallel test interference in api-keys assertions (`e2e/tests/api-keys.spec.ts:97`)
 
-**Documented (no fix needed):**
-- [MEDIUM] EDGE CASE: Unicode filenames not tested (`src/upload.ts:30`)
+**Discarded findings (not bugs):**
+- [DISCARDED] EDGE CASE: Unicode filenames not tested (`src/upload.ts:30`) — App only accepts JPEG/PNG/GIF/WebP/HEIC via validated content-type check; Unicode filenames are normalized by the browser before upload
 
 ### Linear Updates
 - FOO-123: Review → Merge (original task completed)
 - FOO-125: Created in Todo (Fix: SQL injection)
 - FOO-126: Created in Todo (Fix: Race condition)
+- FOO-127: Created in Todo (Fix: Parallel test interference)
 
 <!-- REVIEW COMPLETE -->
 
@@ -165,7 +171,7 @@ Summary: N issue(s) found (Team: security, reliability, quality reviewers)
 ## Fix Plan
 
 **Source:** Review findings from Iteration N
-**Linear Issues:** [FOO-125](...), [FOO-126](...)
+**Linear Issues:** [FOO-125](...), [FOO-126](...), [FOO-127](...)
 
 ### Fix 1: SQL injection in query builder
 **Linear Issue:** [FOO-125](...)
@@ -178,11 +184,17 @@ Summary: N issue(s) found (Team: security, reliability, quality reviewers)
 
 1. Write test in `src/cache.test.ts` for concurrent invalidation
 2. Add mutex/lock in `src/cache.ts:120`
+
+### Fix 3: Parallel test interference
+**Linear Issue:** [FOO-127](...)
+
+1. Remove fragile `No API keys` assertion after revoke
+2. Verify revoked key absence without assuming empty state
 ```
 
 **Note:** `<!-- REVIEW COMPLETE -->` is added even when issues are found — the review itself is complete. Fix Plan is at h2 level so `plan-implement` can find it.
 
-### If No Issues Found
+### If No Issues Found (or all findings discarded)
 
 ```markdown
 ### Review Findings
@@ -192,6 +204,9 @@ Reviewers: security, reliability, quality (agent team)
 Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
 
 No issues found - all implementations are correct and follow project conventions.
+
+**Discarded findings (not bugs):**
+- [DISCARDED] ... (if any findings were raised but classified as not-bugs)
 
 ### Linear Updates
 - FOO-123: Review → Merge
@@ -211,45 +226,50 @@ After documenting findings for the current batch of iterations:
 
 ## After ALL Iterations Reviewed
 
-### Collect Skipped Findings
+### Report Findings to User
 
-Before determining final status, scan ALL `<!-- REVIEW COMPLETE -->` iteration sections for "Documented (no fix needed)" entries. These are findings that were evaluated as MEDIUM/LOW and documented but not fixed.
+**MANDATORY:** After all iterations are reviewed, present a direct summary to the user. PLANS.md is overwritten by the next plan, so the user must see all findings NOW.
 
-If any documented-only findings exist across any iteration, prepare a **Skipped Findings Summary** to be appended just before `## Status: COMPLETE`.
+**Report format (output directly to user as text):**
+
+```
+Review complete for [N] iteration(s). [M] files reviewed.
+
+BUGS FIXED (Linear issues created):
+- [CRITICAL] SECURITY: SQL injection in query builder (FOO-125)
+- [HIGH] BUG: Race condition in cache invalidation (FOO-126)
+
+DISCARDED FINDINGS (not bugs):
+- EDGE CASE: Unicode filenames not tested — App only accepts validated content-types; filenames normalized by browser
+- TYPE: Potential null in response — Actually guarded by early return on line 42
+
+[or: No issues found — clean review.]
+```
+
+If there were no findings at all (clean review), a brief "No issues found" summary is sufficient.
+
+### Determine Completion
 
 - **If Fix Plan exists OR tasks remain unfinished** → Do NOT mark complete. More implementation needed.
   1. **Commit and push** (see Termination section)
   2. Inform user: "Review complete. Changes committed and pushed. Run `/plan-implement` to continue implementation."
 
-- **If all tasks complete and no issues** → Run E2E tests, update header status, append final status, then create PR:
+- **If all tasks complete and no fix plans needed** → Run E2E tests, update header status, append final status, then create PR:
   1. **Run E2E tests** using the verifier agent in E2E mode:
      ```
      Use Task tool with subagent_type "verifier" with prompt "e2e"
      ```
      If E2E tests fail, do NOT mark complete — create new Linear issues in Todo for the failures (same as review findings), add a Fix Plan, commit/push, and inform user to run `/plan-implement`.
   2. **Update the header** on line 3: change `**Status:** IN_PROGRESS` to `**Status:** COMPLETE`
-  3. **Append** the final status section at the bottom of the file
-  4. If skipped findings exist, insert the summary before the status marker:
+  3. **Append** the final status section at the bottom of the file:
 
 ```markdown
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | EDGE CASE | `src/upload.ts:30` | Unicode filenames not tested | Unlikely in current usage |
-
 ---
 
 ## Status: COMPLETE
 
 All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
 ```
-
-**Note:** The Skipped Findings Summary section is only added when documented-only findings actually exist. If all iterations passed clean, omit it entirely.
 
 **Then create the PR:**
 1. Commit any uncommitted changes
@@ -305,7 +325,7 @@ If `TeamCreate` fails, perform the review as a single agent:
 | CLAUDE.md doesn't exist | Use general coding best practices |
 | TeamCreate fails | Switch to single-agent fallback mode |
 | Reviewer stops without reporting | Send follow-up message, note domain as incomplete |
-| Too many issues found | Prioritize by severity, create fix plan for critical/high only |
+| Too many issues found | Create fix plan for all real bugs; discard false positives with reasoning |
 
 ## Termination: Commit, Push, and PR
 
@@ -342,5 +362,6 @@ If `TeamCreate` fails, perform the review as a single agent:
 - **Lead handles all Linear/git writes** — Reviewers NEVER create issues or modify PLANS.md
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
-- **Check MIGRATIONS.md** — If implementation changed DB schema, column names, session/token formats, or env vars, verify that `MIGRATIONS.md` has a corresponding note. If missing, add it as a MEDIUM finding: "Missing MIGRATIONS.md entry for [change description]". The lead should append the missing note to `MIGRATIONS.md` before committing.
-- **Always append Skipped Findings Summary when documented-only findings exist** — Before marking a plan COMPLETE, scan all `<!-- REVIEW COMPLETE -->` sections for "Documented (no fix needed)" entries and include the summary table if any exist
+- **Check MIGRATIONS.md** — If implementation changed DB schema, column names, session/token formats, or env vars, verify that `MIGRATIONS.md` has a corresponding note. If missing, add it as a finding and create a Fix Plan task. The lead should append the missing note to `MIGRATIONS.md` before committing.
+- **Every finding is FIX or DISCARD** — No "document only" category. Real bugs at any severity get Linear issues + Fix Plan. Non-bugs get discarded with reasoning.
+- **Always report findings to user** — PLANS.md is overwritten by the next plan. The user must see all findings (fixed and discarded) directly in the conversation output before the skill terminates.
