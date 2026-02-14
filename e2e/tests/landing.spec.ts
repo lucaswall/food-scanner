@@ -24,7 +24,7 @@ test.describe('Landing Page', () => {
 
     // Capture screenshot
     await page.waitForLoadState('networkidle');
-    await page.screenshot({ path: 'e2e/screenshots/landing.png', fullPage: true });
+    await page.screenshot({ path: 'e2e/screenshots/landing.png' });
   });
 
   test('has no console errors', async ({ page }) => {

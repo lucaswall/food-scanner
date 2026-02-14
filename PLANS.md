@@ -563,3 +563,68 @@ Expand E2E test coverage from the current 5 smoke tests to comprehensive page-le
 - Visual regression tooling (screenshot comparison)
 - CI/CD pipeline for E2E tests (separate backlog item)
 - Seeding Fitbit credentials for deeper quick-select/analyze testing
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-14
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Fix seed data mealTypeId bug (FOO-455) - Changed mealTypeId from 7 to 5 for Steamed Broccoli entry (worker-1)
+- Task 2: Switch Playwright to mobile viewport (FOO-454) - Replaced Desktop Chrome with 390x844 mobile viewport (worker-1)
+- Task 3: Fix existing screenshot calls to remove fullPage (FOO-454) - Removed fullPage: true from 3 existing test files (worker-1)
+- Task 4: Add API route auth protection tests (FOO-453) - Created api-auth.spec.ts with 8 tests verifying 401 responses (worker-2)
+- Task 5: Add bottom navigation tests (FOO-449) - Created navigation.spec.ts with 6 tests for nav visibility, active state, routing (worker-2)
+- Task 6: Add dashboard action link navigation tests (FOO-450) - Added test verifying Take Photo and Quick Select navigation (worker-1)
+- Task 7: Add history page tests (FOO-444) - Created history.spec.ts with 6 tests for entries, date grouping, detail dialog (worker-4)
+- Task 8: Add quick select page tests (FOO-445) - Created quick-select.spec.ts with 2 tests for page load and FitbitSetupGuard (worker-3)
+- Task 9: Add analyze page tests (FOO-446) - Created analyze.spec.ts with 4 tests including autoCapture and console errors (worker-3)
+- Task 10: Add setup-fitbit page tests (FOO-447) - Created setup-fitbit.spec.ts with 3 tests for form and back navigation (worker-3)
+- Task 11: Add food detail page tests (FOO-448) - Created food-detail.spec.ts with 3 tests using API-discovered entry IDs (worker-4)
+- Task 12: Add settings interaction tests (FOO-451) - Added 5 tests for session info, theme, credentials, logout button (worker-1)
+- Task 13: Add logout flow test (FOO-452) - Created logout.spec.ts with isolated browser context test (worker-2)
+- Task 14: Integration & Verification - Full verification suite passed (lead)
+
+### Files Modified
+- `e2e/fixtures/db.ts` - Fixed mealTypeId from 7 to 5 for Steamed Broccoli entry
+- `playwright.config.ts` - Mobile viewport (390x844), removed devices import
+- `e2e/tests/dashboard.spec.ts` - Removed fullPage screenshot, added navigation test
+- `e2e/tests/landing.spec.ts` - Removed fullPage screenshot
+- `e2e/tests/settings.spec.ts` - Removed fullPage screenshot, added 5 interaction tests
+- `e2e/tests/api-auth.spec.ts` - Created: 8 API auth boundary tests
+- `e2e/tests/navigation.spec.ts` - Created: 6 bottom nav tests
+- `e2e/tests/logout.spec.ts` - Created: 1 isolated logout flow test
+- `e2e/tests/quick-select.spec.ts` - Created: 2 quick select page tests
+- `e2e/tests/analyze.spec.ts` - Created: 4 analyze page tests
+- `e2e/tests/setup-fitbit.spec.ts` - Created: 3 setup-fitbit page tests
+- `e2e/tests/history.spec.ts` - Created: 6 history page tests
+- `e2e/tests/food-detail.spec.ts` - Created: 3 food detail page tests
+
+### Linear Updates
+- FOO-455: Todo → In Progress → Review
+- FOO-454: Todo → In Progress → Review
+- FOO-453: Todo → In Progress → Review
+- FOO-449: Todo → In Progress → Review
+- FOO-450: Todo → In Progress → Review
+- FOO-451: Todo → In Progress → Review
+- FOO-452: Todo → In Progress → Review
+- FOO-445: Todo → In Progress → Review
+- FOO-446: Todo → In Progress → Review
+- FOO-447: Todo → In Progress → Review
+- FOO-444: Todo → In Progress → Review
+- FOO-448: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 issues — fixed fullPage inconsistency (5 files) and APIResponse type error (1 file)
+- verifier: All 271 unit tests pass, 52 E2E tests pass, zero warnings, clean build
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3, 6, 12 (config fixes + existing test modifications)
+- Worker 2: Tasks 4, 5, 13 (API auth + navigation + logout tests)
+- Worker 3: Tasks 8, 9, 10 (Fitbit-related page tests)
+- Worker 4: Tasks 7, 11 (history + food detail page tests)
+
+### Continuation Status
+All tasks completed.

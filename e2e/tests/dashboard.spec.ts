@@ -19,7 +19,7 @@ test.describe('Dashboard', () => {
 
     // Capture screenshot
     await page.waitForLoadState('networkidle');
-    await page.screenshot({ path: 'e2e/screenshots/dashboard.png', fullPage: true });
+    await page.screenshot({ path: 'e2e/screenshots/dashboard.png' });
   });
 
   test('displays dashboard shell with daily/weekly tabs', async ({ page }) => {
@@ -46,5 +46,20 @@ test.describe('Dashboard', () => {
     // It might show a setup prompt or connected status
     // Just verify the page loads without errors
     await expect(page.getByRole('heading', { name: 'Food Scanner', level: 1 })).toBeVisible();
+  });
+
+  test('action links navigate to correct pages', async ({ page }) => {
+    await page.goto('/app');
+
+    // Click "Take Photo" and verify navigation to analyze with autoCapture
+    await page.getByText('Take Photo').first().click();
+    await expect(page).toHaveURL('/app/analyze?autoCapture=true');
+
+    // Go back to dashboard
+    await page.goto('/app');
+
+    // Click "Quick Select" and verify navigation
+    await page.getByText('Quick Select').first().click();
+    await expect(page).toHaveURL('/app/quick-select');
   });
 });
