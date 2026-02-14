@@ -223,7 +223,7 @@ export function FoodChat({
         initialAnalysis: FoodAnalysis;
       } = {
         messages: apiMessages,
-        initialAnalysis,
+        initialAnalysis: latestAnalysis,
       };
 
       // Collect all images to send: initial images (first time only) + user-added

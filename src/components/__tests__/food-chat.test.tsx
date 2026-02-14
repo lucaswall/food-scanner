@@ -534,6 +534,62 @@ describe("FoodChat", () => {
     expect(body.images).toBeUndefined();
   });
 
+  it("sends latest analysis (not stale initial) on second chat turn", async () => {
+    const updatedAnalysis: FoodAnalysis = {
+      ...mockAnalysis,
+      calories: 200,
+      amount: 100,
+    };
+
+    // First message returns updated analysis
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: {
+            message: "Updated to 200 cal",
+            analysis: updatedAnalysis,
+          },
+        })),
+    });
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+
+    // Send first message
+    fireEvent.change(input, { target: { value: "It's smaller" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Updated to 200 cal")).toBeInTheDocument();
+    });
+
+    // Second message
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: { message: "Got it" },
+        })),
+    });
+
+    fireEvent.change(input, { target: { value: "And less fat" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    const secondCallArgs = mockFetch.mock.calls[1];
+    const secondBody = JSON.parse(secondCallArgs[1].body);
+    // Should send the UPDATED analysis (200 cal), not the original (320 cal)
+    expect(secondBody.initialAnalysis.calories).toBe(200);
+    expect(secondBody.initialAnalysis.amount).toBe(100);
+  });
+
   it("shows correct unit label for non-gram units in nutrition card", async () => {
     const cupsAnalysis: FoodAnalysis = {
       ...mockAnalysis,

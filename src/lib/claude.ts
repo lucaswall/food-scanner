@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { FoodAnalysis, ConversationMessage } from "@/types";
+import { getUnitLabel } from "@/types";
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { recordUsage } from "@/lib/claude-usage";
@@ -374,6 +375,23 @@ export async function conversationalRefine(
         text: msg.content,
       });
 
+      // Append structured analysis summary for assistant messages with analysis
+      if (msg.role === "assistant" && msg.analysis) {
+        const a = msg.analysis;
+        const amtLabel = getUnitLabel(a.unit_id, a.amount);
+        let summary = `[Current values: food_name=${a.food_name}, amount=${amtLabel}, calories=${a.calories}, protein_g=${a.protein_g}, carbs_g=${a.carbs_g}, fat_g=${a.fat_g}, fiber_g=${a.fiber_g}, sodium_mg=${a.sodium_mg}`;
+        // Include Tier 1 nutrients only if present
+        if (a.saturated_fat_g != null) summary += `, saturated_fat_g=${a.saturated_fat_g}`;
+        if (a.trans_fat_g != null) summary += `, trans_fat_g=${a.trans_fat_g}`;
+        if (a.sugars_g != null) summary += `, sugars_g=${a.sugars_g}`;
+        if (a.calories_from_fat != null) summary += `, calories_from_fat=${a.calories_from_fat}`;
+        summary += `, confidence=${a.confidence}]`;
+        content.push({
+          type: "text" as const,
+          text: summary,
+        });
+      }
+
       return {
         role: msg.role,
         content,
@@ -383,10 +401,10 @@ export async function conversationalRefine(
     // Build system prompt with initial analysis context if available
     let systemPrompt = CHAT_SYSTEM_PROMPT;
     if (initialAnalysis) {
-      const unitLabel = initialAnalysis.unit_id === 147 ? "g" : initialAnalysis.unit_id === 209 ? "ml" : "units";
+      const amountLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
       systemPrompt += `\n\nThe initial analysis of this meal is:
 - Food: ${initialAnalysis.food_name}
-- Amount: ${initialAnalysis.amount}${unitLabel}
+- Amount: ${amountLabel}
 - Calories: ${initialAnalysis.calories}
 - Protein: ${initialAnalysis.protein_g}g, Carbs: ${initialAnalysis.carbs_g}g, Fat: ${initialAnalysis.fat_g}g
 - Fiber: ${initialAnalysis.fiber_g}g, Sodium: ${initialAnalysis.sodium_mg}mg
