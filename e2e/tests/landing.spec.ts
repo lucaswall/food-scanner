@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { captureScreenshots } from '../fixtures/screenshots';
 
 test.describe('Landing Page', () => {
   // Override storage state to test as unauthenticated user
@@ -24,7 +25,7 @@ test.describe('Landing Page', () => {
 
     // Capture screenshot
     await page.waitForLoadState('networkidle');
-    await page.screenshot({ path: 'e2e/screenshots/landing.png' });
+    await captureScreenshots(page, 'landing');
   });
 
   test('has no console errors', async ({ page }) => {

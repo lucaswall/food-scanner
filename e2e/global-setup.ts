@@ -1,6 +1,10 @@
 import { chromium } from '@playwright/test';
+import { config } from 'dotenv';
 import { STORAGE_STATE_PATH } from './fixtures/auth';
 import { truncateAllTables, seedTestData } from './fixtures/db';
+
+// Ensure .env.test values are loaded (override any .env.local values)
+config({ path: '.env.test', override: true });
 
 /**
  * Global setup for Playwright E2E tests.

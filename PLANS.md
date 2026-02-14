@@ -556,3 +556,101 @@ Expand E2E test coverage from layout-only verification to full functional testin
 - Lumen goals upload testing (requires screenshot image mocking)
 - Frontend-review skill update for dual screenshot analysis
 - CI pipeline changes for E2E test execution
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-14
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Seed Fitbit mock data in E2E global setup (worker-1) — FOO-457
+- Task 2: Update existing guard tests for real UI behind guards (worker-1) — FOO-457
+- Task 3: Authenticated API data verification tests (worker-2) — FOO-464
+- Task 4: Fitbit credentials save/update flow tests (worker-1) — FOO-463
+- Task 5: Dashboard nutrition display functional tests (worker-1) — FOO-461
+- Task 6: Quick Select functional tests (worker-1) — FOO-458
+- Task 7: History interaction tests (worker-1) — FOO-459
+- Task 8: Food detail action tests (worker-1) — FOO-460
+- Task 9: API key management CRUD tests (worker-2) — FOO-462
+- Task 10: v1 external API tests with valid key (worker-3) — FOO-465
+- Task 11: Empty and error state tests (worker-3) — FOO-466
+- Task 12: Dark mode screenshot capture (worker-2) — FOO-456
+
+### Tasks Remaining
+- Task 13: Integration & Verification — all E2E tests must pass, lint, typecheck, build
+
+### BLOCKER: SESSION_SECRET Mismatch Between Seed and Server Processes
+
+**Status:** UNSOLVED — blocks 67 of 95 E2E tests
+
+**Symptom:** All tests that load authenticated pages fail with `Invalid authentication tag length: 0` thrown by `decryptToken()` in `src/lib/token-encryption.ts`. This crashes SSR rendering of any page that calls `getFitbitCredentials()`.
+
+**Root Cause Analysis:**
+- `seedTestData()` in `e2e/fixtures/db.ts` calls `encryptToken('TEST_CLIENT_SECRET')` using the `SESSION_SECRET` from `.env.test` (`test-session-secret-min-32-chars-required-for-iron-session`)
+- The Next.js server subprocess (started by Playwright's `webServer` config) decrypts the same value with `decryptToken()` — but uses a DIFFERENT `SESSION_SECRET`, producing the auth tag error
+- `.env.local` has a different `SESSION_SECRET` (`xqdBSzCvlmYkM1/yUUPEeBtP0jNO+4sqQPe21evooPk=`)
+- Despite `NODE_ENV=test` in the webServer command (which should prevent Next.js from loading `.env.local`) and `dotenv.config({ override: true })` in both `playwright.config.ts` and `global-setup.ts`, the server subprocess still appears to use the wrong key
+
+**What Was Tried:**
+1. Added `dotenv.config({ path: '.env.test', override: true })` to `playwright.config.ts` and `e2e/global-setup.ts`
+2. Changed webServer command to prefix `NODE_ENV=test` (prevents `@next/env` from loading `.env.local`)
+3. Verified `encryptToken` roundtrip works in isolation (`npx tsx` script confirmed)
+4. Verified the seed process uses the correct `.env.test` SECRET (debug log confirmed)
+5. Cleaned `.next/` cache and rebuilt
+6. Reviewed `@next/env` source code — claims it doesn't override existing env vars
+
+**What the Next Agent Should Try:**
+1. Add a temporary `console.log('SERVER SESSION_SECRET:', process.env.SESSION_SECRET?.substring(0, 10))` in `src/lib/token-encryption.ts` `getKey()` function, then run `npm run e2e` and check the server output to definitively confirm what SECRET the server is using
+2. If the server IS using `.env.local`'s secret, the fix may be to: (a) set `SESSION_SECRET` explicitly in the webServer command env, or (b) rename/remove `.env.local` during E2E runs, or (c) use Playwright's `env` option on the webServer config to force the variable
+3. If the server is using the correct secret, the problem may be in how the seed process imports `token-encryption.ts` (module caching, env var timing)
+
+### Bug Fixes Applied (from bug-hunter)
+- `e2e/tests/quick-select.spec.ts` line 101: Fixed syntax error `broccoli Visible` → `broccoliVisible`
+- `e2e/tests/quick-select.spec.ts` line 106: Fixed incorrect assertion `expect(a || b).not.toBe(true)` → separate `expect(a).toBe(false); expect(b).toBe(false)`
+- `e2e/tests/food-detail.spec.ts`: Fixed race condition — replaced `waitForTimeout(1000)` with `waitFor({ state: 'visible', timeout: 3000 })` for confirmation dialog
+- `e2e/tests/api-keys.spec.ts`: Fixed unsafe array access — added `await expect(keyElement).toBeVisible()` before `.textContent()`
+
+### Files Modified
+- `e2e/fixtures/db.ts` — Added Fitbit credentials + tokens seeding with `encryptToken()`
+- `e2e/fixtures/screenshots.ts` — Created shared light+dark mode screenshot helper
+- `e2e/global-setup.ts` — Added dotenv with override: true for .env.test
+- `e2e/tests/analyze.spec.ts` — Updated guard tests → real UI tests, added dark mode screenshots
+- `e2e/tests/api-data.spec.ts` — Created: 7 authenticated API data verification tests
+- `e2e/tests/api-keys.spec.ts` — Created: API key CRUD lifecycle tests (serial)
+- `e2e/tests/api-v1.spec.ts` — Created: 7 v1 external API tests with Bearer auth
+- `e2e/tests/dashboard.spec.ts` — Added nutrition display + dark mode screenshots
+- `e2e/tests/empty-states.spec.ts` — Created: 3 empty/error state tests
+- `e2e/tests/food-detail.spec.ts` — Added delete, nutrition values, error state tests
+- `e2e/tests/history.spec.ts` — Added 4 interaction tests (jump-to-date, navigation, meal types)
+- `e2e/tests/landing.spec.ts` — Updated to use shared screenshot helper
+- `e2e/tests/quick-select.spec.ts` — Added functional tests (tabs, search, select, log food)
+- `e2e/tests/settings.spec.ts` — Added Fitbit credentials display + theme tests
+- `e2e/tests/setup-fitbit.spec.ts` — Added form validation + OAuth redirect tests
+- `playwright.config.ts` — Added dotenv override + NODE_ENV=test in webServer command
+
+### Linear Updates
+- FOO-457: Todo → In Progress → Review
+- FOO-458: Todo → In Progress → Review
+- FOO-459: Todo → In Progress → Review
+- FOO-460: Todo → In Progress (incomplete — blocked by SESSION_SECRET issue)
+- FOO-461: Todo → In Progress → Review
+- FOO-462: Todo → In Progress → Review
+- FOO-463: Todo → In Progress → Review
+- FOO-464: Todo → In Progress → Review
+- FOO-465: Todo → In Progress (incomplete — blocked by SESSION_SECRET issue)
+- FOO-466: Todo → In Progress → Review
+- FOO-456: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 7 bugs, 4 high-priority fixed before stopping
+- verifier (E2E): 16 passed, 67 failed, 12 skipped — blocked by SESSION_SECRET mismatch
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 4, 5, 6, 7, 8 (guard bypass, UI functional tests)
+- Worker 2: Tasks 3, 9, 12 (API data, API keys, screenshots)
+- Worker 3: Tasks 10, 11 (v1 API, empty states)
+
+### Continuation Status
+Tasks 1-12 code written. Task 13 (Integration & Verification) NOT completed — blocked by SESSION_SECRET encryption mismatch causing 67/95 E2E test failures. Fresh agent needed to debug the env var inheritance issue between Playwright's webServer subprocess and the seed process.

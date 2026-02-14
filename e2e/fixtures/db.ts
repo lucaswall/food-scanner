@@ -12,6 +12,7 @@ import {
   dailyCalorieGoals,
 } from '@/db/schema';
 import { eq } from 'drizzle-orm';
+import { encryptToken } from '@/lib/token-encryption';
 
 /**
  * Tables in reverse-dependency order for safe truncation.
@@ -163,4 +164,23 @@ export async function seedTestData() {
       time: currentTime,
     },
   ]);
+
+  // Seed Fitbit credentials for guard bypass
+  await db.insert(fitbitCredentials).values({
+    userId: testUser.id,
+    fitbitClientId: 'TEST_CLIENT_ID',
+    encryptedClientSecret: encryptToken('TEST_CLIENT_SECRET'),
+  });
+
+  // Seed Fitbit tokens for guard bypass
+  const oneYearFromNow = new Date();
+  oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+
+  await db.insert(fitbitTokens).values({
+    userId: testUser.id,
+    fitbitUserId: 'TEST_FITBIT_USER',
+    accessToken: 'TEST_ACCESS_TOKEN',
+    refreshToken: 'TEST_REFRESH_TOKEN',
+    expiresAt: oneYearFromNow,
+  });
 }
