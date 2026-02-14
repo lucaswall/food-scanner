@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { captureScreenshots } from '../fixtures/screenshots';
 
 test.describe('Settings Page', () => {
   // Use default authenticated storage state
@@ -17,7 +18,7 @@ test.describe('Settings Page', () => {
     expect(headings).toBeGreaterThan(0);
 
     // Capture screenshot
-    await page.screenshot({ path: 'e2e/screenshots/settings.png' });
+    await captureScreenshots(page, 'settings');
   });
 
   test('API key manager section is present', async ({ page }) => {
@@ -57,6 +58,48 @@ test.describe('Settings Page', () => {
 
     // Verify "Fitbit App Credentials" heading is visible
     await expect(page.getByRole('heading', { name: 'Fitbit App Credentials' })).toBeVisible();
+  });
+
+  test('displays saved Fitbit Client ID', async ({ page }) => {
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+
+    // With seeded credentials (TEST_CLIENT_ID from global setup),
+    // the Fitbit App Credentials section should show the client ID (masked or full)
+    // Verify the section contains the test client ID or a masked version
+    const credentialsSection = page.locator('text=Fitbit App Credentials').locator('..');
+    const hasClientId = await credentialsSection.locator('text=/TEST_CLIENT_ID|Client ID/i').count();
+    expect(hasClientId).toBeGreaterThan(0);
+  });
+
+  test('update credentials from settings succeeds', async ({ page }) => {
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+
+    // The Fitbit App Credentials section shows Client ID in a <code> element
+    // with an "Edit" button, and Client Secret as masked with a "Replace Secret" button.
+
+    // Click "Edit" to enable Client ID editing
+    const editButton = page.getByRole('button', { name: 'Edit' });
+    await editButton.click();
+
+    // Now the Client ID input should be visible
+    const clientIdInput = page.getByLabel('Client ID');
+    await expect(clientIdInput).toBeVisible();
+
+    // Clear and fill with updated value
+    await clientIdInput.clear();
+    await clientIdInput.fill('UPDATED_CLIENT_ID');
+
+    // Click Save
+    const saveButton = page.getByRole('button', { name: 'Save' }).first();
+    await saveButton.click();
+
+    // Wait for the save to complete
+    await page.waitForTimeout(1000);
+
+    // Verify the updated Client ID is now displayed
+    await expect(page.locator('code', { hasText: 'UPDATED_CLIENT_ID' })).toBeVisible();
   });
 
   test('displays Appearance section with theme buttons', async ({ page }) => {

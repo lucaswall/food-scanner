@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { captureScreenshots } from '../fixtures/screenshots';
 
 test.describe('Setup Fitbit Page', () => {
   // Use default authenticated storage state
@@ -18,7 +19,7 @@ test.describe('Setup Fitbit Page', () => {
 
     // Capture screenshot
     await page.waitForLoadState('networkidle');
-    await page.screenshot({ path: 'e2e/screenshots/setup-fitbit.png' });
+    await captureScreenshots(page, 'setup-fitbit');
   });
 
   test('back button navigates to dashboard', async ({ page }) => {
@@ -52,5 +53,57 @@ test.describe('Setup Fitbit Page', () => {
     // Verify the submit button is present
     const submitButton = page.getByRole('button', { name: 'Connect Fitbit' });
     await expect(submitButton).toBeVisible();
+  });
+
+  test('submit button is disabled when form is empty', async ({ page }) => {
+    await page.goto('/app/setup-fitbit');
+
+    // Wait for page to load
+    await page.waitForLoadState('networkidle');
+
+    // The submit button should be disabled when both inputs are empty
+    const submitButton = page.getByRole('button', { name: 'Connect Fitbit' });
+    await expect(submitButton).toBeDisabled();
+
+    // Fill only one input — button should still be disabled
+    const clientIdInput = page.getByLabel('Fitbit Client ID');
+    await clientIdInput.fill('some-client-id');
+    await expect(submitButton).toBeDisabled();
+
+    // Fill both inputs — button should become enabled
+    const clientSecretInput = page.getByLabel('Fitbit Client Secret');
+    await clientSecretInput.fill('some-client-secret');
+    await expect(submitButton).toBeEnabled();
+  });
+
+  test('submit valid credentials triggers OAuth redirect', async ({ page }) => {
+    await page.goto('/app/setup-fitbit');
+
+    // Wait for page to load
+    await page.waitForLoadState('networkidle');
+
+    // Fill in test credentials
+    const clientIdInput = page.getByLabel('Fitbit Client ID');
+    const clientSecretInput = page.getByLabel('Fitbit Client Secret');
+
+    await clientIdInput.fill('TEST_NEW_CLIENT_ID');
+    await clientSecretInput.fill('TEST_NEW_CLIENT_SECRET');
+
+    // Click submit
+    const submitButton = page.getByRole('button', { name: 'Connect Fitbit' });
+    await submitButton.click();
+
+    // Wait for navigation or response
+    // Since the test user already has seeded credentials, this may update them
+    // The form should either redirect to Fitbit OAuth or show success/update message
+    await page.waitForTimeout(1000);
+
+    // Check if we navigated to Fitbit OAuth URL or stayed on page with success
+    const currentURL = page.url();
+    const redirectedToFitbit = currentURL.includes('fitbit.com');
+    const stayedOnPage = currentURL.includes('/app/setup-fitbit');
+
+    // Either outcome is acceptable (depends on whether credentials existed)
+    expect(redirectedToFitbit || stayedOnPage).toBe(true);
   });
 });

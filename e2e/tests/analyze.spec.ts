@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { captureScreenshots } from '../fixtures/screenshots';
 
 test.describe('Analyze Page', () => {
   // Use default authenticated storage state
@@ -14,24 +15,23 @@ test.describe('Analyze Page', () => {
 
     // Capture screenshot
     await page.waitForLoadState('networkidle');
-    await page.screenshot({ path: 'e2e/screenshots/analyze.png' });
+    await captureScreenshots(page, 'analyze');
   });
 
-  test('shows Fitbit setup guard when user has no credentials', async ({ page }) => {
+  test('shows analyze UI when Fitbit is connected', async ({ page }) => {
     await page.goto('/app/analyze');
 
     // Wait for page to load
     await page.waitForLoadState('networkidle');
 
-    // Test user has no Fitbit credentials, so FitbitSetupGuard shows setup prompt
-    // Wait for the setup prompt to appear (gives time for API request and guard to render)
-    const setupPrompt = page.getByText('Set up your Fitbit credentials to start logging food');
-    await expect(setupPrompt).toBeVisible({ timeout: 10000 });
+    // With seeded Fitbit credentials and tokens, FitbitSetupGuard passes and real UI renders
+    // Verify the analyze UI is visible (description input label)
+    const descriptionLabel = page.getByText('Food description (optional)');
+    await expect(descriptionLabel).toBeVisible({ timeout: 10000 });
 
-    // Verify the "Set up Fitbit" button is present and links to correct page
-    const setupButton = page.getByRole('link', { name: 'Set up Fitbit' });
-    await expect(setupButton).toBeVisible();
-    await expect(setupButton).toHaveAttribute('href', '/app/setup-fitbit');
+    // Verify analyze button is present
+    const analyzeButton = page.getByRole('button', { name: 'Analyze' });
+    await expect(analyzeButton).toBeVisible();
   });
 
   test('loads with autoCapture query parameter without errors', async ({ page }) => {

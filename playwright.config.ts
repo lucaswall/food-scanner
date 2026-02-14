@@ -2,8 +2,8 @@ import { defineConfig } from '@playwright/test';
 import { config } from 'dotenv';
 import { STORAGE_STATE_PATH } from './e2e/fixtures/auth';
 
-// Load test environment variables
-config({ path: '.env.test' });
+// Load test environment variables (override ensures .env.local doesn't take precedence)
+config({ path: '.env.test', override: true });
 
 export default defineConfig({
   testDir: './e2e/tests',
@@ -48,8 +48,9 @@ export default defineConfig({
   ],
 
   // Run your local dev server before starting the tests
+  // NODE_ENV=test prevents Next.js from loading .env.local (which has different SESSION_SECRET)
   webServer: {
-    command: 'npm run build && PORT=3001 npm start',
+    command: 'NODE_ENV=test npm run build && PORT=3001 NODE_ENV=test npm start',
     url: 'http://localhost:3001',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000, // 2 minutes for build + start
