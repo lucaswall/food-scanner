@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-02-14
+
+### Added
+
+- Conversational food chat with WhatsApp-style UI and multi-turn refinement
+- Inline analysis summaries in chat bubbles with photo attachment indicators
+
+### Changed
+
+- Replaced budget marker and separate analysis screen with full-screen chat experience
+- Improved chat accessibility, mobile layout, and floating controls
+
+### Fixed
+
+- Chat refinement bugs: stale analysis, lost context, unit labels, and light mode styling
+- Chat overlay z-index and safe-area padding on mobile
+
 ## [1.8.0] - 2026-02-13
 
 ### Added
@@ -144,7 +161,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/lucaswall/food-scanner/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/lucaswall/food-scanner/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/lucaswall/food-scanner/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/lucaswall/food-scanner/compare/v1.5.1...v1.6.0
