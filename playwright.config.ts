@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig } from '@playwright/test';
 import { config } from 'dotenv';
 import { STORAGE_STATE_PATH } from './e2e/fixtures/auth';
 
@@ -39,7 +39,8 @@ export default defineConfig({
     {
       name: 'chromium',
       use: {
-        ...devices['Desktop Chrome'],
+        browserName: 'chromium',
+        viewport: { width: 390, height: 844 },
         // Use authenticated storage state for all tests by default
         storageState: STORAGE_STATE_PATH,
       },

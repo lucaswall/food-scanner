@@ -156,7 +156,7 @@ export async function seedTestData() {
     {
       userId: testUser.id,
       customFoodId: customFood3!.id,
-      mealTypeId: 7, // Dinner
+      mealTypeId: 5, // Dinner
       amount: '100',
       unitId: 226,
       date: today,
