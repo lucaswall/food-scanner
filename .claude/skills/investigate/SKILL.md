@@ -16,11 +16,29 @@ Investigate issues and report findings. Does NOT create plans or modify code.
 - Examine configuration and environment issues
 - **Report findings only** - user decides next steps
 
+## Railway Environments
+
+This project has two Railway environments. **Always determine the target environment before pulling logs or deployments.**
+
+| Environment | Railway name | Branch | URL | Fitbit API |
+|---|---|---|---|---|
+| **Production** | `production` | `release` | `food.lucaswall.me` | Live |
+| **Staging** | `staging` | `main` | `food-test.lucaswall.me` | Dry-run |
+
+**How to determine the target environment:**
+1. If user explicitly says "production", "prod", "live", or "food.lucaswall.me" → use `production`
+2. If user explicitly says "staging", "stage", "dev", or "food-test.lucaswall.me" → use `staging`
+3. If user mentions a specific branch: `release` → `production`, `main` → `staging`
+4. If ambiguous, **ask the user** which environment to investigate before pulling logs
+
+**CRITICAL: Always pass `environment` explicitly to Railway MCP tools.** The Railway CLI may be linked to any environment — do NOT rely on the default. Every call to `get-logs`, `list-deployments`, or `list-variables` MUST include the `environment` parameter matching the target.
+
 ## Arguments
 
 $ARGUMENTS should describe what to investigate:
 - What happened vs what was expected
 - Error messages or unexpected values
+- Which environment (production or staging) — if not specified, ask
 - Deployment ID if it's a deployment issue
 - Any context that helps narrow the scope
 
@@ -64,11 +82,12 @@ Based on $ARGUMENTS, determine what you're investigating:
 - Read relevant source files, configs, and tests
 
 **For Deployment Issues (via Railway MCP):**
-1. Check Railway MCP status
-2. List services to find affected service
-3. List recent deployments with statuses
-4. Get deployment and build logs
-5. Search logs for errors using filters (e.g., `@level:error`)
+1. **Determine target environment** from $ARGUMENTS (see "Railway Environments" above). If unclear, ask user.
+2. Check Railway MCP status
+3. List services to find affected service
+4. List recent deployments with statuses — pass `environment: "<target>"` explicitly
+5. Get deployment and build logs — pass `environment: "<target>"` explicitly
+6. Search logs for errors using filters (e.g., `@level:error`)
 
 **For API Issues:**
 - Trace the request flow through the codebase
@@ -100,10 +119,12 @@ Write findings to the conversation (NOT to a file):
 ## Investigation Report
 
 **Subject:** [What was investigated]
+**Environment:** [production | staging | codebase-only]
 **Conclusion:** [Root Cause Identified | Suspected | Multiple Possibilities | Nothing Wrong | Cannot Determine]
 
 ### Context
 - **MCPs used:** [list MCPs accessed]
+- **Railway environment queried:** [production | staging | N/A]
 - **Files examined:** [list key files checked]
 - **Logs reviewed:** [deployment IDs, time ranges if applicable]
 
@@ -124,11 +145,12 @@ If uncertain, list possibilities ranked by likelihood.]
 
 When investigating deployment issues (via Railway MCP):
 
-1. **Check status first** - Verify MCP access
-2. **List recent deployments** - Get deployment IDs and statuses
-3. **Get targeted logs** - Search for errors using filters
-4. **Look for patterns** - Repeated errors, timing correlations
-5. **Check configuration** - Environment variables, settings
+1. **Identify target environment** - Determine `production` or `staging` from user context (see "Railway Environments" section)
+2. **Check status first** - Verify MCP access
+3. **List recent deployments** - Get deployment IDs and statuses (pass `environment` param)
+4. **Get targeted logs** - Search for errors using filters (pass `environment` param)
+5. **Look for patterns** - Repeated errors, timing correlations
+6. **Check configuration** - Environment variables, settings (pass `environment` param to `list-variables`)
 
 ## Error Handling
 
@@ -146,6 +168,7 @@ When investigating deployment issues (via Railway MCP):
 - **Report only** - Do NOT modify source code or files
 - **No plans** - Do NOT write PLANS.md or fix plans
 - **Discover MCPs** - Read CLAUDE.md to find available tools
+- **Explicit environment** - ALWAYS pass the `environment` parameter to Railway MCP tools; never rely on CLI defaults
 - **Be thorough** - Check multiple sources before concluding
 - **Be specific** - Include exact values, line numbers, timestamps
 - **Be honest** - If uncertain, say so; if nothing wrong, say so

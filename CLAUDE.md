@@ -96,7 +96,7 @@ Do NOT flag these in code reviews:
 | Environment | Branch | URL | Fitbit API |
 |---|---|---|---|
 | Production | `release` | `food.lucaswall.me` | Live |
-| Staging | `main` | Railway-generated URL | Dry-run (`FITBIT_DRY_RUN=true`) |
+| Staging | `main` | `food-test.lucaswall.me` | Dry-run (`FITBIT_DRY_RUN=true`) |
 
 **Promotion:** `main` → `release` via `/push-to-production` skill only.
 **Env vars:** See `.env.sample`. MCP Fitbit credentials are shell-only (not in Railway).
