@@ -131,6 +131,7 @@ Do NOT flag these in code reviews:
 | **backlog-refine** | Opus | "refine FOO-123" | Interactive refinement of vague issues |
 | **plan-review-implementation** | Opus (lead) / Sonnet (reviewers) | After plan-implement | Agent team QA review |
 | **frontend-review** | Opus (lead) / Sonnet (reviewers) | "review frontend" | Agent team frontend review → Linear Backlog issues |
+| **deep-review** | Opus | "deep review X", "analyse this screen" | Focused cross-domain analysis of a single screen/feature |
 | **tools-improve** | Opus | Before modifying skills/agents/CLAUDE.md | Best practices for Claude Code extensibility |
 | **push-to-production** | Opus | "push to production", "release" | Backup DB, migrate, merge `main` → `release` |
 
