@@ -1565,6 +1565,65 @@ describe("conversationalRefine", () => {
     expect(mockRecordUsage).toHaveBeenCalled();
   });
 
+  it("system prompt shows 'cup' for unit_id 91", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [{ type: "text", text: "OK" }],
+      usage: { input_tokens: 1500, output_tokens: 50 },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Test" }],
+      [],
+      "user-123",
+      { ...validAnalysis, unit_id: 91, amount: 2 }
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.system).toContain("2 cups");
+    expect(call.system).not.toContain("2 units");
+  });
+
+  it("system prompt shows 'oz' for unit_id 226", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [{ type: "text", text: "OK" }],
+      usage: { input_tokens: 1500, output_tokens: 50 },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Test" }],
+      [],
+      "user-123",
+      { ...validAnalysis, unit_id: 226, amount: 8 }
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.system).toContain("8oz");
+    expect(call.system).not.toContain("8 units");
+  });
+
+  it("system prompt falls back to 'units' for unknown unit_id", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [{ type: "text", text: "OK" }],
+      usage: { input_tokens: 1500, output_tokens: 50 },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Test" }],
+      [],
+      "user-123",
+      { ...validAnalysis, unit_id: 999, amount: 3 }
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.system).toContain("3 units");
+  });
+
   it("converts ConversationMessage array to Anthropic message format", async () => {
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-20250514",
@@ -1584,7 +1643,7 @@ describe("conversationalRefine", () => {
     await conversationalRefine(
       [
         { role: "user", content: "I had pizza" },
-        { role: "assistant", content: "Logged", analysis: validAnalysis },
+        { role: "assistant", content: "Logged" },
         { role: "user", content: "Add more cheese" },
       ],
       [],
@@ -1605,5 +1664,102 @@ describe("conversationalRefine", () => {
     expect(call.messages[2].content).toEqual([
       { type: "text", text: "Add more cheese" },
     ]);
+  });
+
+  it("includes structured analysis summary in assistant messages that have analysis", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [{ type: "text", text: "OK" }],
+      usage: { input_tokens: 1500, output_tokens: 50 },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [
+        { role: "user", content: "I had pizza" },
+        { role: "assistant", content: "Logged it", analysis: validAnalysis },
+        { role: "user", content: "Add cheese" },
+      ],
+      [],
+      "user-123"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    const assistantMsg = call.messages[1];
+    // Should have 2 text blocks: the original text + the analysis summary
+    expect(assistantMsg.content).toHaveLength(2);
+    expect(assistantMsg.content[0].text).toBe("Logged it");
+    const summary = assistantMsg.content[1].text;
+    expect(summary).toContain("Empanada de carne");
+    expect(summary).toContain("150g");    // amount with unit
+    expect(summary).toContain("calories=320");
+    expect(summary).toContain("protein_g=12");
+    expect(summary).toContain("carbs_g=28");
+    expect(summary).toContain("fat_g=18");
+  });
+
+  it("does not include analysis summary in assistant messages without analysis", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [{ type: "text", text: "OK" }],
+      usage: { input_tokens: 1500, output_tokens: 50 },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [
+        { role: "user", content: "I had pizza" },
+        { role: "assistant", content: "What kind?" },
+        { role: "user", content: "Pepperoni" },
+      ],
+      [],
+      "user-123"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    const assistantMsg = call.messages[1];
+    // Should only have 1 text block (no analysis summary)
+    expect(assistantMsg.content).toHaveLength(1);
+    expect(assistantMsg.content[0].text).toBe("What kind?");
+  });
+
+  it("analysis summary includes key nutritional fields", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-20250514",
+      content: [{ type: "text", text: "OK" }],
+      usage: { input_tokens: 1500, output_tokens: 50 },
+    });
+
+    const analysisWithTier1: FoodAnalysis = {
+      ...validAnalysis,
+      saturated_fat_g: 5.5,
+      sugars_g: 3.0,
+    };
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [
+        { role: "user", content: "Log it" },
+        { role: "assistant", content: "Done", analysis: analysisWithTier1 },
+        { role: "user", content: "Update" },
+      ],
+      [],
+      "user-123"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    const summary = call.messages[1].content[1].text;
+    // Core fields
+    expect(summary).toContain("food_name");
+    expect(summary).toContain("calories");
+    expect(summary).toContain("protein_g");
+    expect(summary).toContain("carbs_g");
+    expect(summary).toContain("fat_g");
+    expect(summary).toContain("fiber_g");
+    expect(summary).toContain("sodium_mg");
+    expect(summary).toContain("confidence");
+    // Tier 1 present fields
+    expect(summary).toContain("saturated_fat_g");
+    expect(summary).toContain("sugars_g");
   });
 });
