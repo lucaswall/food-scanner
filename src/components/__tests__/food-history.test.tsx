@@ -1106,4 +1106,91 @@ describe("FoodHistory", () => {
     });
     expect(screen.queryByText("Cached Entry")).not.toBeInTheDocument();
   });
+
+  // FOO-425: FoodHistory delete error shows no recovery action for FITBIT_TOKEN_INVALID
+  it("shows reconnect link when delete fails with FITBIT_TOKEN_INVALID", async () => {
+    const errorResponse = {
+      success: false,
+      error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+    };
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve(errorResponse),
+      });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Click delete button
+    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+    fireEvent.click(deleteButtons[0]);
+
+    // Confirm deletion in dialog
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    const confirmButton = screen.getByRole("button", { name: /confirm/i });
+    fireEvent.click(confirmButton);
+
+    // Should show error with reconnect link
+    await waitFor(() => {
+      expect(screen.getByText(/token expired/i)).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /reconnect fitbit/i })).toBeInTheDocument();
+    });
+
+    // Verify link points to auth endpoint
+    const reconnectLink = screen.getByRole("link", { name: /reconnect fitbit/i });
+    expect(reconnectLink).toHaveAttribute("href", "/api/auth/fitbit");
+  });
+
+  it("shows Settings link when delete fails with FITBIT_CREDENTIALS_MISSING", async () => {
+    const errorResponse = {
+      success: false,
+      error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+    };
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve(errorResponse),
+      });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Click delete button
+    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+    fireEvent.click(deleteButtons[0]);
+
+    // Confirm deletion in dialog
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    const confirmButton = screen.getByRole("button", { name: /confirm/i });
+    fireEvent.click(confirmButton);
+
+    // Should show error with Settings link
+    await waitFor(() => {
+      expect(screen.getByText(/credentials.*settings/i)).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
+    });
+  });
 });

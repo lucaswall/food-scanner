@@ -71,7 +71,7 @@ describe("GET /api/v1/nutrition-goals", () => {
     expect(response.status).toBe(401);
   });
 
-  it("returns 404 when Fitbit credentials are missing", async () => {
+  it("returns 424 when Fitbit credentials are missing", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
 
@@ -82,7 +82,7 @@ describe("GET /api/v1/nutrition-goals", () => {
     const response = await GET(request);
     const data = await response.json();
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(424);
     expect(data.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
   });
 

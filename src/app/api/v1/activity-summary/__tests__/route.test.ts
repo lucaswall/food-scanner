@@ -112,7 +112,7 @@ describe("GET /api/v1/activity-summary", () => {
     const response = await GET(request);
     const data = await response.json();
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(424);
     expect(data.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
   });
 

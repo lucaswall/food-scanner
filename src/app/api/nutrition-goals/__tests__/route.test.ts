@@ -140,14 +140,14 @@ describe("GET /api/nutrition-goals", () => {
     });
   });
 
-  it("returns 404 when ensureFreshToken throws FITBIT_CREDENTIALS_MISSING", async () => {
+  it("returns 424 when ensureFreshToken throws FITBIT_CREDENTIALS_MISSING", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
 
     const response = await GET();
     const data = await response.json();
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(424);
     expect(data).toEqual({
       success: false,
       error: {
@@ -193,6 +193,61 @@ describe("GET /api/nutrition-goals", () => {
       },
       timestamp: expect.any(Number),
     });
+  });
+
+  it("returns 403 when ensureFreshToken throws FITBIT_SCOPE_MISSING (FOO-420)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_SCOPE_MISSING"));
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data.error.code).toBe("FITBIT_SCOPE_MISSING");
+  });
+
+  it("returns 429 when ensureFreshToken throws FITBIT_RATE_LIMIT (FOO-420)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_RATE_LIMIT"));
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(data.error.code).toBe("FITBIT_RATE_LIMIT");
+  });
+
+  it("returns 504 when ensureFreshToken throws FITBIT_TIMEOUT (FOO-420)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TIMEOUT"));
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(response.status).toBe(504);
+    expect(data.error.code).toBe("FITBIT_TIMEOUT");
+  });
+
+  it("returns 502 when ensureFreshToken throws FITBIT_REFRESH_TRANSIENT (FOO-420)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_REFRESH_TRANSIENT"));
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(data.error.code).toBe("FITBIT_REFRESH_TRANSIENT");
+  });
+
+  it("returns 500 when ensureFreshToken throws FITBIT_TOKEN_SAVE_FAILED (FOO-420)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_SAVE_FAILED"));
+
+    const response = await GET();
+    const data = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(data.error.code).toBe("FITBIT_TOKEN_SAVE_FAILED");
   });
 
   it("returns 500 on generic/unknown error", async () => {

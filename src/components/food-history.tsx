@@ -87,6 +87,7 @@ export function FoodHistory() {
   const [hasMore, setHasMore] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteErrorCode, setDeleteErrorCode] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
@@ -166,6 +167,7 @@ export function FoodHistory() {
 
     setDeletingId(id);
     setDeleteError(null);
+    setDeleteErrorCode(null);
 
     try {
       const response = await fetch(`/api/food-history/${id}`, {
@@ -174,7 +176,15 @@ export function FoodHistory() {
       const result = await response.json();
 
       if (!response.ok || !result.success) {
+        const errorCode = result.error?.code;
         setDeleteError(result.error?.message || "Failed to delete entry");
+        setDeleteErrorCode(errorCode || null);
+
+        // Handle missing credentials - show specific error
+        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+          setDeleteError("Fitbit is not set up. Please configure your credentials in Settings.");
+        }
+
         vibrateError();
         return;
       }
@@ -250,6 +260,22 @@ export function FoodHistory() {
       {deleteError && (
         <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
           <p className="text-sm text-destructive">{deleteError}</p>
+          {deleteErrorCode === "FITBIT_TOKEN_INVALID" && (
+            <a
+              href="/api/auth/fitbit"
+              className="text-sm text-destructive underline mt-2 inline-block font-medium"
+            >
+              Reconnect Fitbit
+            </a>
+          )}
+          {(deleteErrorCode === "FITBIT_CREDENTIALS_MISSING" || deleteErrorCode === "FITBIT_NOT_CONNECTED") && (
+            <a
+              href="/settings"
+              className="text-sm text-destructive underline mt-2 inline-block font-medium"
+            >
+              Go to Settings
+            </a>
+          )}
         </div>
       )}
 

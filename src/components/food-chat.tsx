@@ -18,6 +18,7 @@ import {
 import { safeResponseJson } from "@/lib/safe-json";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime } from "@/lib/meal-type";
+import { savePendingSubmission } from "@/lib/pending-submission";
 import { MiniNutritionCard } from "./mini-nutrition-card";
 import type {
   FoodAnalysis,
@@ -299,6 +300,26 @@ export function FoodChat({
       };
 
       if (!response.ok || !result.success || !result.data) {
+        const errorCode = result.error?.code;
+
+        // Handle token expiration - save pending and redirect to re-auth
+        if (errorCode === "FITBIT_TOKEN_INVALID") {
+          savePendingSubmission({
+            analysis: latestAnalysis,
+            mealTypeId,
+            foodName: latestAnalysis.food_name,
+            ...getLocalDateTime(),
+          });
+          window.location.href = "/api/auth/fitbit";
+          return;
+        }
+
+        // Handle missing credentials - show specific error
+        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+          setError("Fitbit is not set up. Please configure your credentials in Settings.");
+          return;
+        }
+
         setError(result.error?.message || "Failed to log food to Fitbit");
         return;
       }

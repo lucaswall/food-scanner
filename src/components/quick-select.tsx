@@ -148,10 +148,30 @@ export function QuickSelect() {
     })
       .then((r) => r.json())
       .then((result) => {
-        clearPendingSubmission();
         if (result.success) {
+          clearPendingSubmission();
           setLogResponse(result.data);
         } else {
+          const errorCode = result.error?.code;
+
+          // Clear any stale success response before showing error
+          setLogResponse(null);
+
+          // Handle token expiration - re-save pending and redirect to re-auth
+          if (errorCode === "FITBIT_TOKEN_INVALID") {
+            savePendingSubmission(pending);
+            window.location.href = "/api/auth/fitbit";
+            return;
+          }
+
+          // Handle missing credentials - show specific error
+          if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+            clearPendingSubmission();
+            setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
+            return;
+          }
+
+          clearPendingSubmission();
           setLogError(result.error?.message || "Failed to resubmit food log");
         }
       })

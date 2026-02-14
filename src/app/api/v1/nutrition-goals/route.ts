@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 
     if (error instanceof Error) {
       if (error.message === "FITBIT_CREDENTIALS_MISSING") {
-        return errorResponse("FITBIT_CREDENTIALS_MISSING", "Fitbit credentials not found", 404);
+        return errorResponse("FITBIT_CREDENTIALS_MISSING", "Fitbit credentials not found", 424);
       }
       if (error.message === "FITBIT_TOKEN_INVALID") {
         return errorResponse("FITBIT_TOKEN_INVALID", "Fitbit token is invalid or expired", 401);

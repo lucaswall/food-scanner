@@ -52,6 +52,13 @@ vi.mock("@/lib/image", () => ({
   compressImage: vi.fn((file: File) => Promise.resolve(new Blob([file.name]))),
 }));
 
+// Mock pending-submission
+vi.mock("@/lib/pending-submission", () => ({
+  savePendingSubmission: vi.fn(),
+  getPendingSubmission: vi.fn().mockReturnValue(null),
+  clearPendingSubmission: vi.fn(),
+}));
+
 const mockAnalysis: FoodAnalysis = {
   food_name: "Empanada de carne",
   amount: 150,
@@ -833,6 +840,59 @@ describe("FoodChat", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+    });
+  });
+
+  // FOO-413: FoodChat missing FITBIT_TOKEN_INVALID handling
+  it("saves pending and redirects on FITBIT_TOKEN_INVALID", async () => {
+    // Override window.location for this test
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...originalLocation, href: "" },
+    });
+
+    const { savePendingSubmission } = await import("@/lib/pending-submission");
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      text: () => Promise.resolve(JSON.stringify({
+        success: false,
+        error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+      })),
+    });
+
+    render(<FoodChat {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      expect(savePendingSubmission).toHaveBeenCalled();
+      expect(window.location.href).toBe("/api/auth/fitbit");
+    });
+
+    // Restore
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: originalLocation,
+    });
+  });
+
+  it("shows specific error for FITBIT_CREDENTIALS_MISSING", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      text: () => Promise.resolve(JSON.stringify({
+        success: false,
+        error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+      })),
+    });
+
+    render(<FoodChat {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/credentials in Settings/i)).toBeInTheDocument();
     });
   });
 });

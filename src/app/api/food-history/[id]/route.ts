@@ -22,7 +22,7 @@ export async function GET(
   try {
     const entry = await getFoodLogEntryDetail(session!.userId, id);
     if (!entry) {
-      return errorResponse("VALIDATION_ERROR", "Food log entry not found", 404);
+      return errorResponse("NOT_FOUND", "Food log entry not found", 404);
     }
 
     const response = successResponse(entry);
@@ -54,7 +54,7 @@ export async function DELETE(
 
   const entry = await getFoodLogEntry(session!.userId, id);
   if (!entry) {
-    return errorResponse("VALIDATION_ERROR", "Food log entry not found", 404);
+    return errorResponse("NOT_FOUND", "Food log entry not found", 404);
   }
 
   try {
@@ -108,6 +108,6 @@ export async function DELETE(
       { action: "delete_food_log_error", error: errorMessage },
       "failed to delete food log entry",
     );
-    return errorResponse("FITBIT_API_ERROR", "Failed to delete food log entry", 500);
+    return errorResponse("FITBIT_API_ERROR", "Failed to delete food log entry", 502);
   }
 }

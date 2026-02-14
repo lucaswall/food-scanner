@@ -2,14 +2,7 @@ import { validateApiRequest } from "@/lib/api-auth";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { getDailyNutritionSummary } from "@/lib/food-log";
-
-function isValidDateFormat(date: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
-  const [year, month, day] = date.split("-").map(Number);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
-  const parsed = new Date(year, month - 1, day);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
-}
+import { isValidDateFormat } from "@/lib/date-utils";
 
 export async function GET(request: Request) {
   const authResult = await validateApiRequest(request);

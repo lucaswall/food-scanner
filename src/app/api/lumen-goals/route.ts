@@ -4,18 +4,10 @@ import { logger } from "@/lib/logger";
 import { parseLumenScreenshot, upsertLumenGoals, getLumenGoalsByDate, LumenParseError } from "@/lib/lumen";
 import { isFileLike, MAX_IMAGE_SIZE, ALLOWED_TYPES } from "@/lib/image-validation";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getTodayDate } from "@/lib/date-utils";
+import { getTodayDate, isValidDateFormat } from "@/lib/date-utils";
 
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-
-function isValidDateFormat(date: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
-  const [year, month, day] = date.split("-").map(Number);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
-  const parsed = new Date(year, month - 1, day);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
-}
 
 export async function GET(request: Request) {
   const session = await getSession();

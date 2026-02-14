@@ -25,11 +25,19 @@ export async function DELETE(_request: Request, context: RouteContext) {
     "Revoking API key",
   );
 
-  const revoked = await revokeApiKey(session!.userId, id);
+  try {
+    const revoked = await revokeApiKey(session!.userId, id);
 
-  if (!revoked) {
-    return errorResponse("VALIDATION_ERROR", "API key not found or access denied", 404);
+    if (!revoked) {
+      return errorResponse("NOT_FOUND", "API key not found or access denied", 404);
+    }
+
+    return successResponse({ revoked: true });
+  } catch (error) {
+    logger.error(
+      { action: "revoke_api_key_error", error: error instanceof Error ? error.message : String(error) },
+      "Failed to revoke API key",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to revoke API key", 500);
   }
-
-  return successResponse({ revoked: true });
 }

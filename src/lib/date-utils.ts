@@ -125,3 +125,15 @@ export function formatWeekRange(start: string, end: string): string {
 export function addWeeks(dateStr: string, weeks: number): string {
   return addDays(dateStr, weeks * 7);
 }
+
+/**
+ * Validate that a date string is in YYYY-MM-DD format and represents a valid date.
+ * Returns false for invalid formats, invalid months/days, or dates that don't exist (e.g., Feb 30).
+ */
+export function isValidDateFormat(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const [year, month, day] = date.split("-").map(Number);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const parsed = new Date(year, month - 1, day);
+  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
+}

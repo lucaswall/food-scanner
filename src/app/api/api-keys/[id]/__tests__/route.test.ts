@@ -78,7 +78,7 @@ describe("DELETE /api/api-keys/[id]", () => {
 
     expect(response.status).toBe(404);
     const body = await response.json();
-    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.code).toBe("NOT_FOUND");
     expect(body.error.message).toContain("not found");
   });
 
@@ -103,5 +103,17 @@ describe("DELETE /api/api-keys/[id]", () => {
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
+  });
+
+  it("returns 500 INTERNAL_ERROR when revokeApiKey throws (FOO-421)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockRevokeApiKey.mockRejectedValue(new Error("Database connection error"));
+
+    const request = createRequest();
+    const response = await DELETE(request, { params: Promise.resolve({ id: "1" }) });
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
   });
 });

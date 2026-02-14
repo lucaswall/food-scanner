@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { SWRConfig } from "swr";
 import { QuickSelect } from "../quick-select";
-import type { CommonFood, FoodLogResponse } from "@/types";
+import type { CommonFood, FoodLogResponse, FoodAnalysis } from "@/types";
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -97,6 +97,22 @@ const MockIntersectionObserver = vi.fn(function (this: IntersectionObserver) {
   this.unobserve = vi.fn();
 } as unknown as () => void);
 vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
+
+const mockAnalysis: FoodAnalysis = {
+  food_name: "Empanada de carne",
+  amount: 150,
+  unit_id: 147,
+  calories: 320,
+  protein_g: 12,
+  carbs_g: 28,
+  fat_g: 18,
+  fiber_g: 2,
+  sodium_mg: 450,
+  confidence: "high",
+  notes: "Standard Argentine beef empanada",
+  description: "A golden-brown baked empanada on a white plate",
+  keywords: ["empanada", "carne", "beef"],
+};
 
 const mockFoods: CommonFood[] = [
   {
@@ -972,6 +988,81 @@ describe("QuickSelect", () => {
         expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
         expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
       });
+    });
+  });
+
+  // FOO-432: Pending resubmit ignores error codes
+  describe("pending resubmit error handling", () => {
+    it("redirects to re-auth when resubmit fails with FITBIT_TOKEN_INVALID", async () => {
+      // Override window.location for this test
+      const originalLocation = window.location;
+      Object.defineProperty(window, "location", {
+        writable: true,
+        value: { ...originalLocation, href: "" },
+      });
+
+      mockGetPending.mockReturnValueOnce({
+        analysis: mockAnalysis,
+        mealTypeId: 3,
+        foodName: "Empanada",
+        date: "2026-02-06",
+        time: "12:00:00",
+      });
+
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () => Promise.resolve({
+            success: false,
+            error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+          }),
+        });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(mockSavePending).toHaveBeenCalled();
+        expect(window.location.href).toBe("/api/auth/fitbit");
+      });
+
+      // Restore
+      Object.defineProperty(window, "location", {
+        writable: true,
+        value: originalLocation,
+      });
+    });
+
+    it("shows Settings error when resubmit fails with FITBIT_CREDENTIALS_MISSING", async () => {
+      mockGetPending.mockReturnValueOnce({
+        analysis: mockAnalysis,
+        mealTypeId: 3,
+        foodName: "Empanada",
+        date: "2026-02-06",
+        time: "12:00:00",
+      });
+
+      const errorResponse = {
+        success: false,
+        error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+      };
+
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () => Promise.resolve(errorResponse),
+        });
+
+      renderQuickSelect();
+
+      // Wait for error to be displayed (success screen should NOT appear)
+      await waitFor(() => {
+        expect(screen.getByText(/fitbit is not set up/i)).toBeInTheDocument();
+      }, { timeout: 3000 });
+
+      // Verify success screen is not shown
+      expect(screen.queryByText(/successfully logged/i)).not.toBeInTheDocument();
     });
   });
 });

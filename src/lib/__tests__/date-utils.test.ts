@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getTodayDate, formatDisplayDate, addDays, isToday, getWeekBounds, formatWeekRange, addWeeks } from "@/lib/date-utils";
+import { getTodayDate, formatDisplayDate, addDays, isToday, getWeekBounds, formatWeekRange, addWeeks, isValidDateFormat } from "@/lib/date-utils";
 
 describe("getTodayDate", () => {
   it("returns today's date in YYYY-MM-DD format", () => {
@@ -221,5 +221,62 @@ describe("addWeeks", () => {
   it("returns same date when adding 0 weeks", () => {
     const result = addWeeks("2026-02-10", 0);
     expect(result).toBe("2026-02-10");
+  });
+});
+
+describe("isValidDateFormat", () => {
+  it("returns true for valid date", () => {
+    const result = isValidDateFormat("2026-02-14");
+    expect(result).toBe(true);
+  });
+
+  it("returns false for invalid month", () => {
+    const result = isValidDateFormat("2026-13-01");
+    expect(result).toBe(false);
+  });
+
+  it("returns false for invalid day (Feb 30 doesn't exist)", () => {
+    const result = isValidDateFormat("2026-02-30");
+    expect(result).toBe(false);
+  });
+
+  it("returns false for non-date string", () => {
+    const result = isValidDateFormat("not-a-date");
+    expect(result).toBe(false);
+  });
+
+  it("returns false for invalid format (wrong separator)", () => {
+    const result = isValidDateFormat("2026/02/14");
+    expect(result).toBe(false);
+  });
+
+  it("returns false for incomplete date", () => {
+    const result = isValidDateFormat("2026-02");
+    expect(result).toBe(false);
+  });
+
+  it("returns true for leap year Feb 29", () => {
+    const result = isValidDateFormat("2024-02-29");
+    expect(result).toBe(true);
+  });
+
+  it("returns false for non-leap year Feb 29", () => {
+    const result = isValidDateFormat("2026-02-29");
+    expect(result).toBe(false);
+  });
+
+  it("returns false for day 32", () => {
+    const result = isValidDateFormat("2026-01-32");
+    expect(result).toBe(false);
+  });
+
+  it("returns false for month 0", () => {
+    const result = isValidDateFormat("2026-00-15");
+    expect(result).toBe(false);
+  });
+
+  it("returns false for day 0", () => {
+    const result = isValidDateFormat("2026-02-00");
+    expect(result).toBe(false);
   });
 });

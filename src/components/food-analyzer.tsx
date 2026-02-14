@@ -40,7 +40,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [loadingStep, setLoadingStep] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
-  const [logging] = useState(false);
+  const [logging, setLogging] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
   const [matches, setMatches] = useState<FoodMatch[]>([]);
@@ -49,6 +49,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [compressedImages, setCompressedImages] = useState<Blob[] | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const autoCaptureUsedRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
@@ -65,6 +67,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   };
 
   const resetAnalysisState = () => {
+    // Abort any in-flight analysis fetches
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setAnalysis(null);
     setError(null);
     setLogError(null);
@@ -110,7 +117,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           // Show warning to user but continue with successful images
           setError(warningMessage);
           // Clear the warning after analysis starts
-          setTimeout(() => setError(null), 3000);
+          compressionWarningTimeoutRef.current = setTimeout(() => setError(null), 3000);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to compress images");
@@ -127,6 +134,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setLoading(true);
     setLoadingStep("Analyzing food...");
 
+    // Create AbortController for this analysis
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       // Create FormData
       const formData = new FormData();
@@ -141,6 +152,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       const response = await fetch("/api/analyze-food", {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -150,6 +162,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       };
 
       if (!response.ok || !result.success) {
+        // Clear compression warning timeout before setting real error
+        if (compressionWarningTimeoutRef.current) {
+          clearTimeout(compressionWarningTimeoutRef.current);
+          compressionWarningTimeoutRef.current = null;
+        }
         setError(result.error?.message || "Failed to analyze food");
         vibrateError();
         return;
@@ -162,6 +179,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(result.data),
+        signal: controller.signal,
       })
         .then((r) => r.json())
         .then((matchResult) => {
@@ -169,16 +187,27 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             setMatches(matchResult.data.matches);
           }
         })
-        .catch(() => {
-          // Silently ignore match errors — matching is optional
+        .catch((err) => {
+          // Silently ignore match errors and abort errors
+          if (err.name === "AbortError") return;
         });
     } catch (err) {
+      // Ignore abort errors
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+      // Clear compression warning timeout before setting real error
+      if (compressionWarningTimeoutRef.current) {
+        clearTimeout(compressionWarningTimeoutRef.current);
+        compressionWarningTimeoutRef.current = null;
+      }
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
     } finally {
       setCompressing(false);
       setLoading(false);
       setLoadingStep(undefined);
+      abortControllerRef.current = null;
     }
   };
 
@@ -190,6 +219,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     if (!analysis) return;
 
     setLogError(null);
+    setLogging(true);
 
     // Optimistic: show confirmation immediately
     const optimisticResponse: FoodLogResponse = {
@@ -247,11 +277,14 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       setLogResponse(null);
       setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
+    } finally {
+      setLogging(false);
     }
   };
 
   const handleUseExisting = async (match: FoodMatch) => {
     setLogError(null);
+    setLogging(true);
 
     // Optimistic: show confirmation immediately
     const optimisticResponse: FoodLogResponse = {
@@ -320,6 +353,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       setLogResponse(null);
       setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
+    } finally {
+      setLogging(false);
     }
   };
 

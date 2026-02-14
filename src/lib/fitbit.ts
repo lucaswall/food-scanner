@@ -412,7 +412,11 @@ export async function refreshFitbitToken(
         { action: "fitbit_token_refresh_failed", status: response.status, statusText: response.statusText },
         "fitbit token refresh http failure",
       );
-      throw new Error("FITBIT_TOKEN_INVALID");
+      // Classify errors: 400/401 = invalid token, 429/5xx = transient
+      if (response.status === 400 || response.status === 401) {
+        throw new Error("FITBIT_TOKEN_INVALID");
+      }
+      throw new Error("FITBIT_REFRESH_TRANSIENT");
     }
 
     const data = await jsonWithTimeout<Record<string, unknown>>(response);
@@ -457,12 +461,33 @@ export async function ensureFreshToken(userId: string): Promise<string> {
     const promise = (async () => {
       try {
         const tokens = await refreshFitbitToken(tokenRow.refreshToken, credentials);
-        await upsertFitbitTokens(userId, {
+        const tokenData = {
           fitbitUserId: tokens.user_id,
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-        });
+        };
+
+        // Try to save tokens with retry logic (FOO-430)
+        try {
+          await upsertFitbitTokens(userId, tokenData);
+        } catch (upsertError) {
+          logger.warn(
+            { error: upsertError instanceof Error ? upsertError.message : String(upsertError) },
+            "fitbit token upsert failed, retrying once",
+          );
+          // Retry once
+          try {
+            await upsertFitbitTokens(userId, tokenData);
+          } catch (retryError) {
+            logger.error(
+              { error: retryError instanceof Error ? retryError.message : String(retryError) },
+              "fitbit token upsert retry failed",
+            );
+            throw new Error("FITBIT_TOKEN_SAVE_FAILED");
+          }
+        }
+
         return tokens.access_token;
       } finally {
         refreshInFlight.delete(userId);

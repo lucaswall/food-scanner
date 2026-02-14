@@ -347,6 +347,70 @@ describe("ensureFreshToken", () => {
 
     vi.restoreAllMocks();
   });
+
+  it("retries upsertFitbitTokens once on failure (FOO-430)", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000), // expired
+    });
+
+    // Fail on first call, succeed on retry
+    mockUpsertFitbitTokens
+      .mockRejectedValueOnce(new Error("Database connection error"))
+      .mockResolvedValueOnce(undefined);
+
+    const token = await ensureFreshToken("user-uuid-123");
+    expect(token).toBe("new-token");
+    expect(mockUpsertFitbitTokens).toHaveBeenCalledTimes(2);
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_SAVE_FAILED when upsert retry also fails (FOO-430)", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000), // expired
+    });
+
+    // Fail on both attempts
+    mockUpsertFitbitTokens
+      .mockRejectedValueOnce(new Error("Database connection error"))
+      .mockRejectedValueOnce(new Error("Database connection error"));
+
+    await expect(ensureFreshToken("user-uuid-123")).rejects.toThrow("FITBIT_TOKEN_SAVE_FAILED");
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe("exchangeFitbitCode", () => {
@@ -515,6 +579,46 @@ describe("refreshFitbitToken", () => {
     await expect(refreshFitbitToken("token", testCredentials)).rejects.toThrow(
       "Invalid Fitbit token response: missing user_id",
     );
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID for 401 response (FOO-428)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(refreshFitbitToken("bad-refresh", testCredentials)).rejects.toThrow("FITBIT_TOKEN_INVALID");
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID for 400 response (FOO-428)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 400 }),
+    );
+
+    await expect(refreshFitbitToken("bad-refresh", testCredentials)).rejects.toThrow("FITBIT_TOKEN_INVALID");
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_REFRESH_TRANSIENT for 500 response (FOO-428)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 500 }),
+    );
+
+    await expect(refreshFitbitToken("refresh-token", testCredentials)).rejects.toThrow("FITBIT_REFRESH_TRANSIENT");
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_REFRESH_TRANSIENT for 429 rate limit response (FOO-428)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 429 }),
+    );
+
+    await expect(refreshFitbitToken("refresh-token", testCredentials)).rejects.toThrow("FITBIT_REFRESH_TRANSIENT");
 
     vi.restoreAllMocks();
   });

@@ -720,3 +720,97 @@ Comprehensive backlog sweep addressing 36 issues across error handling, timezone
 - Refactoring code not directly affected by the issues
 - Database schema changes (none needed)
 - Deployment or environment changes
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-14
+**Method:** Agent team (2 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Code deduplication foundation (FOO-419, FOO-404) — Extracted isValidDateFormat to date-utils.ts, replaced 8 local copies; renamed MEAL_TYPE_LABELS → FITBIT_MEAL_TYPE_LABELS (worker-1)
+- Task 2: Critical client-side bugs (FOO-412, FOO-414, FOO-415) — Fixed logging setter in food-analyzer, added AbortController cancellation, fixed setTimeout clearing (worker-2)
+- Task 3: Fitbit token management hardening (FOO-430, FOO-428, FOO-426) — Added retry logic to ensureFreshToken, classified HTTP errors in refreshFitbitToken, added FITBIT_TIMEOUT handling, added 4 new ErrorCode types (worker-1)
+- Task 4: SWR error code preservation (FOO-427) — Created ApiError class with code property, updated apiFetcher to preserve error codes (worker-2)
+- Task 5: API convention fixes (FOO-423, FOO-422, FOO-429) — Fixed 404→NOT_FOUND, standardized FITBIT_API_ERROR→502, FITBIT_CREDENTIALS_MISSING→424 (worker-1)
+- Task 6: Consistent route error handling + DB safety (FOO-420, FOO-421) — Added complete Fitbit error handling to nutrition-goals, wrapped DB ops in try/catch for api-keys routes (worker-1)
+- Task 7: Client-side Fitbit error handling (FOO-413, FOO-425, FOO-432) — Added Fitbit error handling to FoodChat, FoodHistory, QuickSelect components (worker-2)
+- Task 11: Log Another button (FOO-418) — Added "Log Another" button to FoodLogConfirmation component (worker-2)
+
+### Tasks Remaining
+- Task 8: Timezone consistency (FOO-399, FOO-400, FOO-401, FOO-402, FOO-403)
+- Task 9: Quick-select UX improvements (FOO-405, FOO-406, FOO-407, FOO-408)
+- Task 10: Dashboard UX improvements (FOO-409, FOO-410, FOO-411, FOO-416, FOO-417)
+- Task 12: v1 API rate limiting (FOO-433, FOO-434, FOO-424, FOO-431)
+
+### Files Modified
+- `src/lib/date-utils.ts` — Added isValidDateFormat function
+- `src/lib/__tests__/date-utils.test.ts` — Tests for isValidDateFormat
+- `src/lib/fitbit.ts` — Retry logic, HTTP error classification, FITBIT_TIMEOUT
+- `src/lib/__tests__/fitbit.test.ts` — Tests for retry/timeout/error handling
+- `src/lib/swr.ts` — ApiError class, updated apiFetcher
+- `src/lib/__tests__/swr.test.ts` — Tests for ApiError and error code preservation
+- `src/types/index.ts` — Added FITBIT_TIMEOUT, FITBIT_REFRESH_TRANSIENT, FITBIT_TOKEN_SAVE_FAILED, FITBIT_RATE_LIMIT error codes
+- `src/components/food-analyzer.tsx` — Fixed logging setter, AbortController, setTimeout cleanup
+- `src/components/__tests__/food-analyzer.test.tsx` — Tests for client-side bug fixes
+- `src/components/food-chat.tsx` — Fitbit error handling
+- `src/components/__tests__/food-chat.test.tsx` — Tests for Fitbit error display
+- `src/components/food-history.tsx` — Fitbit error handling
+- `src/components/__tests__/food-history.test.tsx` — Tests for Fitbit error display
+- `src/components/quick-select.tsx` — Fitbit error handling in resubmit flow
+- `src/components/__tests__/quick-select.test.tsx` — Tests for pending resubmit error handling + SWR cache fix
+- `src/components/food-log-confirmation.tsx` — Added Log Another button
+- `src/components/__tests__/food-log-confirmation.test.tsx` — Tests for Log Another
+- `src/components/meal-breakdown.tsx` — Use FITBIT_MEAL_TYPE_LABELS from shared types
+- `src/app/api/fasting/route.ts` — Use shared isValidDateFormat
+- `src/app/api/log-food/route.ts` — Use shared isValidDateFormat
+- `src/app/api/log-food/__tests__/route.test.ts` — Updated for new error handling
+- `src/app/api/lumen-goals/route.ts` — Use shared isValidDateFormat
+- `src/app/api/nutrition-summary/route.ts` — Use shared isValidDateFormat
+- `src/app/api/nutrition-goals/route.ts` — Added complete Fitbit error handling
+- `src/app/api/nutrition-goals/__tests__/route.test.ts` — Tests for error handling
+- `src/app/api/food-history/[id]/route.ts` — Standardized error codes
+- `src/app/api/food-history/[id]/__tests__/route.test.ts` — Updated expectations
+- `src/app/api/api-keys/route.ts` — DB error wrapping with try/catch
+- `src/app/api/api-keys/__tests__/route.test.ts` — Tests for DB error handling
+- `src/app/api/api-keys/[id]/route.ts` — DB error wrapping with try/catch
+- `src/app/api/api-keys/[id]/__tests__/route.test.ts` — Tests for DB error handling
+- `src/app/api/v1/activity-summary/route.ts` — Standardized FITBIT error codes
+- `src/app/api/v1/activity-summary/__tests__/route.test.ts` — Updated 404→424
+- `src/app/api/v1/food-log/route.ts` — Standardized FITBIT error codes
+- `src/app/api/v1/lumen-goals/route.ts` — Standardized FITBIT error codes
+- `src/app/api/v1/nutrition-summary/route.ts` — Standardized FITBIT error codes
+- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` — Updated expectations
+- `src/app/api/v1/nutrition-goals/route.ts` — Standardized error code
+
+### Linear Updates
+- FOO-419: Todo → In Progress → Review
+- FOO-404: Todo → In Progress → Review
+- FOO-412: Todo → In Progress → Review
+- FOO-414: Todo → In Progress → Review
+- FOO-415: Todo → In Progress → Review
+- FOO-430: Todo → In Progress → Review
+- FOO-428: Todo → In Progress → Review
+- FOO-426: Todo → In Progress → Review
+- FOO-427: Todo → In Progress → Review
+- FOO-423: Todo → In Progress → Review
+- FOO-422: Todo → In Progress → Review
+- FOO-429: Todo → In Progress → Review
+- FOO-420: Todo → In Progress → Review
+- FOO-421: Todo → In Progress → Review
+- FOO-413: Todo → In Progress → Review
+- FOO-425: Todo → In Progress → Review
+- FOO-432: Todo → In Progress → Review
+- FOO-418: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — 0 bugs found across 35 files
+- verifier: All 1644 tests pass, zero warnings
+
+### Work Partition
+- Worker 1: Tasks 1, 3, 5, 6 (route/API foundation — date-utils, fitbit.ts, API routes, types)
+- Worker 2: Tasks 2, 4, 7, 11 (client components — food-analyzer, swr, food-chat, food-history, quick-select, food-log-confirmation)
+
+### Continuation Status
+Tasks 8, 9, 10, 12 deferred to Iteration 2 due to file ownership overlap with Iteration 1 tasks (quick-select.tsx, fasting-card.tsx, daily-dashboard.tsx cross-connect these work units).

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { apiFetcher } from "@/lib/swr";
+import { apiFetcher, ApiError } from "@/lib/swr";
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -58,5 +58,68 @@ describe("apiFetcher", () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new TypeError("Failed to fetch"));
 
     await expect(apiFetcher("/api/test")).rejects.toThrow("Failed to fetch");
+  });
+
+  // FOO-427: SWR error code preservation
+  it("preserves error code from API response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        success: false,
+        error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+      }),
+    );
+
+    try {
+      await apiFetcher("/api/test");
+      // Should not reach here
+      expect(true).toBe(false);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).code).toBe("FITBIT_TOKEN_INVALID");
+      expect((error as ApiError).message).toBe("Token expired");
+    }
+  });
+
+  it("preserves error code from HTTP error response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+        }),
+        {
+          status: 424,
+          headers: { "Content-Type": "application/json" },
+        }
+      ),
+    );
+
+    try {
+      await apiFetcher("/api/test");
+      // Should not reach here
+      expect(true).toBe(false);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).code).toBe("FITBIT_CREDENTIALS_MISSING");
+      expect((error as ApiError).message).toBe("Credentials not found");
+    }
+  });
+
+  it("uses UNKNOWN_ERROR code when no code provided", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({
+        success: false,
+        error: { message: "Something went wrong" },
+      }),
+    );
+
+    try {
+      await apiFetcher("/api/test");
+      // Should not reach here
+      expect(true).toBe(false);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).code).toBe("UNKNOWN_ERROR");
+      expect((error as ApiError).message).toBe("Something went wrong");
+    }
   });
 });
