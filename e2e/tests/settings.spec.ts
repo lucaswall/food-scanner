@@ -76,29 +76,30 @@ test.describe('Settings Page', () => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
 
-    // Find the Fitbit credentials inputs in the settings page
-    // Note: Input labels might differ from setup page - verify actual labels
-    const clientIdInput = page.getByLabel(/Client ID/i);
-    const clientSecretInput = page.getByLabel(/Client Secret/i);
+    // The Fitbit App Credentials section shows Client ID in a <code> element
+    // with an "Edit" button, and Client Secret as masked with a "Replace Secret" button.
 
-    // Fill with updated test values
+    // Click "Edit" to enable Client ID editing
+    const editButton = page.getByRole('button', { name: 'Edit' });
+    await editButton.click();
+
+    // Now the Client ID input should be visible
+    const clientIdInput = page.getByLabel('Client ID');
+    await expect(clientIdInput).toBeVisible();
+
+    // Clear and fill with updated value
+    await clientIdInput.clear();
     await clientIdInput.fill('UPDATED_CLIENT_ID');
-    await clientSecretInput.fill('UPDATED_CLIENT_SECRET');
 
-    // Find and click the update/save button
-    const updateButton = page.getByRole('button', { name: /Save|Update|Submit/i });
-    await updateButton.click();
+    // Click Save
+    const saveButton = page.getByRole('button', { name: 'Save' }).first();
+    await saveButton.click();
 
-    // Wait for response
+    // Wait for the save to complete
     await page.waitForTimeout(1000);
 
-    // Verify success (could be a success message, toast, or the updated value displayed)
-    // Check for success indicators
-    const hasSuccessMessage = await page.locator('text=/success|saved|updated/i').count();
-    const stillOnSettings = page.url().includes('/settings');
-
-    // Either a success message appeared or we stayed on settings (indicating save completed)
-    expect(hasSuccessMessage > 0 || stillOnSettings).toBe(true);
+    // Verify the updated Client ID is now displayed
+    await expect(page.locator('code', { hasText: 'UPDATED_CLIENT_ID' })).toBeVisible();
   });
 
   test('displays Appearance section with theme buttons', async ({ page }) => {

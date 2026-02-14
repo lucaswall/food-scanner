@@ -3,18 +3,16 @@ import { test, expect } from '@playwright/test';
 test.describe('API Key Management', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('API key section shows empty state initially', async ({ page }) => {
+  test('API key section is present on settings page', async ({ page }) => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
 
     // Verify API key manager section is present with the heading
     await expect(page.getByRole('heading', { name: 'API Keys' })).toBeVisible();
 
-    // Verify empty state message is shown (no seeded API keys)
-    await expect(page.getByText('No API keys')).toBeVisible();
-
-    // Verify Generate API Key button is visible
-    await expect(page.getByRole('button', { name: 'Generate API Key' })).toBeVisible();
+    // Wait for API key data to load and verify Generate button is visible
+    // Note: Other parallel tests (api-v1) may have created keys, so we don't assert empty state
+    await expect(page.getByRole('button', { name: 'Generate API Key' })).toBeVisible({ timeout: 10000 });
   });
 
   test('create API key with name shows full key', async ({ page }) => {

@@ -55,23 +55,25 @@ test.describe('Setup Fitbit Page', () => {
     await expect(submitButton).toBeVisible();
   });
 
-  test('submit empty form shows validation errors', async ({ page }) => {
+  test('submit button is disabled when form is empty', async ({ page }) => {
     await page.goto('/app/setup-fitbit');
 
     // Wait for page to load
     await page.waitForLoadState('networkidle');
 
-    // Click submit without filling inputs
+    // The submit button should be disabled when both inputs are empty
     const submitButton = page.getByRole('button', { name: 'Connect Fitbit' });
-    await submitButton.click();
+    await expect(submitButton).toBeDisabled();
 
-    // Wait a moment for validation to trigger
-    await page.waitForTimeout(500);
+    // Fill only one input — button should still be disabled
+    const clientIdInput = page.getByLabel('Fitbit Client ID');
+    await clientIdInput.fill('some-client-id');
+    await expect(submitButton).toBeDisabled();
 
-    // Verify validation errors appear (form should prevent submission or show required field errors)
-    // The actual error message depends on the form implementation - check for common patterns
-    const hasError = await page.locator('text=/required|must be|cannot be empty/i').count();
-    expect(hasError).toBeGreaterThan(0);
+    // Fill both inputs — button should become enabled
+    const clientSecretInput = page.getByLabel('Fitbit Client Secret');
+    await clientSecretInput.fill('some-client-secret');
+    await expect(submitButton).toBeEnabled();
   });
 
   test('submit valid credentials triggers OAuth redirect', async ({ page }) => {

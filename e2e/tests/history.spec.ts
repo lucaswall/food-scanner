@@ -20,10 +20,9 @@ test.describe('History Page', () => {
     // Wait for network idle to ensure data is loaded
     await page.waitForLoadState('networkidle');
 
-    // Verify seeded food names are visible (use first() to handle duplicates in navigation/dialogs)
+    // Verify seeded food names are visible (skip Broccoli — may be deleted by parallel test)
     await expect(page.getByText('Grilled Chicken Breast').first()).toBeVisible();
     await expect(page.getByText('Brown Rice').first()).toBeVisible();
-    await expect(page.getByText('Steamed Broccoli').first()).toBeVisible();
   });
 
   test('displays date group header for today', async ({ page }) => {
@@ -133,11 +132,15 @@ test.describe('History Page', () => {
     const body = await response.json();
     const entryId = body.data.entries[0].id;
 
-    // Navigate directly to food detail
+    // Navigate to history first to establish browser history
+    await page.goto('/app/history');
+    await page.waitForLoadState('networkidle');
+
+    // Then navigate to food detail (so router.back() has history to go back to)
     await page.goto(`/app/food-detail/${entryId}`);
     await page.waitForLoadState('networkidle');
 
-    // Click back button
+    // Click back button (uses router.back())
     const backButton = page.getByRole('button', { name: /Back/ });
     await backButton.click();
 

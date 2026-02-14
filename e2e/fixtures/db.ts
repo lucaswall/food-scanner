@@ -165,22 +165,17 @@ export async function seedTestData() {
     },
   ]);
 
-  // Seed Fitbit credentials for guard bypass
-  await db.insert(fitbitCredentials).values({
-    userId: testUser.id,
-    fitbitClientId: 'TEST_CLIENT_ID',
-    encryptedClientSecret: encryptToken('TEST_CLIENT_SECRET'),
-  });
-
   // Seed Fitbit tokens for guard bypass
+  // Note: Fitbit credentials are seeded via POST /api/fitbit-credentials in global-setup.ts
+  // to avoid SESSION_SECRET mismatch between seed process and Next.js server
   const oneYearFromNow = new Date();
   oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
 
   await db.insert(fitbitTokens).values({
     userId: testUser.id,
     fitbitUserId: 'TEST_FITBIT_USER',
-    accessToken: 'TEST_ACCESS_TOKEN',
-    refreshToken: 'TEST_REFRESH_TOKEN',
+    accessToken: encryptToken('TEST_ACCESS_TOKEN'),
+    refreshToken: encryptToken('TEST_REFRESH_TOKEN'),
     expiresAt: oneYearFromNow,
   });
 }

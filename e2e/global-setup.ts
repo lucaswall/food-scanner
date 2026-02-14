@@ -26,15 +26,27 @@ export default async function globalSetup() {
   const page = await context.newPage();
 
   // Authenticate via test-login endpoint (creates test user + session in DB)
-  const response = await page.request.post(`${baseURL}/api/auth/test-login`);
+  const loginResponse = await page.request.post(`${baseURL}/api/auth/test-login`);
 
-  if (!response.ok()) {
+  if (!loginResponse.ok()) {
     throw new Error(
-      `Test login failed: ${response.status()} ${await response.text()}`
+      `Test login failed: ${loginResponse.status()} ${await loginResponse.text()}`
     );
   }
 
-  // Seed test data (test user now exists in DB)
+  // Seed Fitbit credentials via API so the server encrypts with its own SESSION_SECRET.
+  // Direct DB insert would use the seed process's key, which may differ from the server's.
+  const credResponse = await page.request.post(`${baseURL}/api/fitbit-credentials`, {
+    data: { clientId: 'TEST_CLIENT_ID', clientSecret: 'TEST_CLIENT_SECRET' },
+  });
+
+  if (!credResponse.ok()) {
+    throw new Error(
+      `Fitbit credentials seed failed: ${credResponse.status()} ${await credResponse.text()}`
+    );
+  }
+
+  // Seed remaining test data (custom foods, food log entries, Fitbit tokens)
   await seedTestData();
 
   // Save the authenticated state (includes session cookies)
