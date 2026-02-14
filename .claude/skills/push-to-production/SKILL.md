@@ -68,7 +68,7 @@ This verification is safe because we deploy the same `node_modules` — the code
 
 ### 1.5 Build & Tests
 
-Run the `verifier` agent to confirm build and tests pass:
+Run the `verifier` agent (full mode) to confirm unit tests, lint, and build pass:
 
 ```
 Use Task tool with subagent_type "verifier"
@@ -76,7 +76,19 @@ Use Task tool with subagent_type "verifier"
 
 If verifier reports failures, **STOP**. Do not proceed with a broken build.
 
-### 1.6 Release Branch Exists
+### 1.6 E2E Tests
+
+Run the `verifier` agent in E2E mode to confirm end-to-end tests pass:
+
+```
+Use Task tool with subagent_type "verifier" with prompt "e2e"
+```
+
+Docker/OrbStack is already verified in Phase 1.3, so prerequisites are met.
+
+If E2E tests fail, **STOP**. Do not proceed — E2E failures indicate integration issues that must be fixed before release.
+
+### 1.7 Release Branch Exists
 
 ```bash
 git rev-parse --verify origin/release
@@ -84,7 +96,7 @@ git rev-parse --verify origin/release
 
 If `release` branch doesn't exist, **STOP** and tell the user to create it.
 
-### 1.7 Diff Assessment
+### 1.8 Diff Assessment
 
 Check what's changing between `release` and `main`:
 
@@ -347,7 +359,7 @@ Log potential production data migrations here during development. These notes ar
    - Validate it's valid semver (X.Y.Z)
    - Validate it's strictly higher than current version
    - If invalid, **STOP**: "Invalid version. Must be higher than current [current]."
-3. If no argument, **deduce the bump from the commits being promoted** (from Phase 1.7):
+3. If no argument, **deduce the bump from the commits being promoted** (from Phase 1.8):
    - **MAJOR** (`x+1.0.0`): Incompatible/breaking changes — removed or renamed API routes, changed API response shapes, DB schema changes that break existing clients, removed features
    - **MINOR** (`x.y+1.0`): Backward-compatible new functionality — new screens, new API endpoints, new features, significant UI additions
    - **PATCH** (`x.y.z+1`): Backward-compatible bug fixes — bug fixes, UI tweaks, refactoring, performance improvements, documentation, dependency updates

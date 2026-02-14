@@ -221,10 +221,15 @@ If any documented-only findings exist across any iteration, prepare a **Skipped 
   1. **Commit and push** (see Termination section)
   2. Inform user: "Review complete. Changes committed and pushed. Run `/plan-implement` to continue implementation."
 
-- **If all tasks complete and no issues** → Update header status and append final status, then create PR:
-  1. **Update the header** on line 3: change `**Status:** IN_PROGRESS` to `**Status:** COMPLETE`
-  2. **Append** the final status section at the bottom of the file
-  3. If skipped findings exist, insert the summary before the status marker:
+- **If all tasks complete and no issues** → Run E2E tests, update header status, append final status, then create PR:
+  1. **Run E2E tests** using the verifier agent in E2E mode:
+     ```
+     Use Task tool with subagent_type "verifier" with prompt "e2e"
+     ```
+     If E2E tests fail, do NOT mark complete — create new Linear issues in Todo for the failures (same as review findings), add a Fix Plan, commit/push, and inform user to run `/plan-implement`.
+  2. **Update the header** on line 3: change `**Status:** IN_PROGRESS` to `**Status:** COMPLETE`
+  3. **Append** the final status section at the bottom of the file
+  4. If skipped findings exist, insert the summary before the status marker:
 
 ```markdown
 ---

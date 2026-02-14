@@ -10,7 +10,7 @@ Run tests and build, report combined results concisely.
 
 ## Modes
 
-The verifier supports two modes based on the prompt argument:
+The verifier supports three modes based on the prompt argument:
 
 ### TDD Mode (with argument)
 
@@ -36,6 +36,18 @@ When invoked without arguments:
 5. If lint passes, run `npm run build`
 6. Parse compiler output
 7. Report combined results
+
+### E2E Mode (argument is "e2e")
+
+When invoked with the exact argument `"e2e"`:
+- `verifier "e2e"` - Run Playwright E2E tests
+
+**Prerequisites:** Local PostgreSQL must be running (Docker/OrbStack). The E2E command handles its own build and server startup.
+
+**E2E Workflow:**
+1. Run `npm run e2e`
+2. Parse Playwright output
+3. Report results (NO unit tests, lint, or build step — Playwright config handles the build internally)
 
 ## Output Format
 
@@ -131,9 +143,37 @@ src/file.ts:42:5 - warning TS6133: 'unusedVar' is declared but never used.
 Repro: npm run build
 ```
 
+**E2E Mode - All pass:**
+```
+VERIFIER REPORT (E2E Mode)
+
+All [N] E2E tests passed. ([duration])
+```
+
+**E2E Mode - Tests fail:**
+```
+VERIFIER REPORT (E2E Mode)
+
+FAILED: [N] test(s), [M] passed
+
+## [spec file]
+### [Test name]
+Error: [message]
+
+```
+[Error details / stack trace snippet]
+```
+
+---
+[Next failure...]
+
+Repro: npm run e2e
+```
+
 ## Rules
 
-- **Check for prompt argument first** - Determines TDD vs Full mode
+- **Check for prompt argument first** - Determines TDD vs Full vs E2E mode
+- **E2E Mode:** Triggered only when argument is exactly "e2e". Run `npm run e2e`, skip unit tests/lint/build entirely.
 - **TDD Mode:** Run only filtered tests, skip build entirely
 - **Full Mode:** Run all tests, then build only if tests pass
 - Include complete error details for test failures:

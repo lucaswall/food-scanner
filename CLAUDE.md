@@ -45,6 +45,31 @@ e2e/               # Playwright E2E tests (fixtures/, tests/, global-setup.ts, g
 
 ---
 
+## TESTING STRATEGY
+
+Two test suites with different purposes and runtimes:
+
+| Suite | Command | Runtime | Infrastructure | When to run |
+|---|---|---|---|---|
+| **Unit/Integration** (Vitest) | `npm test` | ~5s | None | After every code change (TDD loop) |
+| **E2E** (Playwright) | `npm run e2e` | ~20s + build | Local PostgreSQL (Docker) | Before release, after full implementation review |
+
+**E2E tests are NOT part of the regular TDD loop.** They require a full production build (`npm run build`) and a running PostgreSQL instance. The Playwright config handles the build and server startup automatically.
+
+**Verifier agent modes:**
+- `verifier` (no args) — Unit tests + lint + build. Use during development.
+- `verifier "pattern"` — Specific unit tests only. Use during TDD.
+- `verifier "e2e"` — E2E tests only. Use before release or after major UI changes.
+
+**When E2E tests run in the workflow:**
+- **push-to-production** — Phase 1.6, after unit tests pass. Required gate before release.
+- **plan-review-implementation** — Before creating PR when plan is marked COMPLETE.
+- **Manual** — When explicitly requested by user.
+
+**E2E tests do NOT run in:** plan-implement (workers use unit tests for TDD), code-audit, bug-hunter, or any planning skill.
+
+---
+
 ## STYLE (deviations from defaults only)
 
 - **Use `@/` path alias** for all imports (e.g., `import { getSession } from '@/lib/session'`)
