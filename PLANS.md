@@ -1,668 +1,181 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-399-backlog-sweep
-**Issues:** FOO-399, FOO-400, FOO-401, FOO-402, FOO-403, FOO-404, FOO-405, FOO-406, FOO-407, FOO-408, FOO-409, FOO-410, FOO-411, FOO-412, FOO-413, FOO-414, FOO-415, FOO-416, FOO-417, FOO-418, FOO-419, FOO-420, FOO-421, FOO-422, FOO-423, FOO-424, FOO-425, FOO-426, FOO-427, FOO-428, FOO-429, FOO-430, FOO-431, FOO-432, FOO-433, FOO-434
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-436-refinement-chat-fixes
+**Issues:** FOO-436, FOO-437, FOO-438, FOO-435
 **Created:** 2026-02-14
 **Last Updated:** 2026-02-14
 
 ## Summary
 
-Comprehensive backlog sweep addressing 36 issues across error handling, timezone consistency, dashboard UX, code quality, and security. Issues originate from code audits and frontend reviews. Tasks are ordered by dependency — foundational library changes first, then route-level fixes, then UI improvements.
+Fix 4 bugs across the refinement chat and Lumen banner. Three issues affect the refinement chat conversation quality — stale baseline values, lost tool_use context, and incomplete unit labels — causing Claude to produce incorrect or inconsistent nutrition updates across turns. One CSS variable issue makes the Lumen banner text invisible in light mode.
 
 ## Issues
 
-### FOO-419: isValidDateFormat duplicated across 8 route handlers — extract to date-utils
-**Priority:** Low | **Labels:** Convention
-**Description:** Identical `isValidDateFormat` function copy-pasted in `fasting/route.ts`, `log-food/route.ts`, `lumen-goals/route.ts`, `nutrition-summary/route.ts`, and 4 v1 routes. `src/lib/date-utils.ts` already exists but lacks this function.
+### FOO-435: Lumen banner text invisible in light mode
 
-### FOO-404: MealBreakdown duplicates MEAL_TYPE_LABELS instead of using shared constant
-**Priority:** Low | **Labels:** Convention
-**Description:** `src/components/meal-breakdown.tsx` (lines 7-14) defines local `MEAL_TYPE_LABELS` identical to `FITBIT_MEAL_TYPE_LABELS` in `src/types/index.ts` (lines 141-148).
-
-### FOO-412: FoodAnalyzer `logging` setter dropped — keyboard shortcut can double-submit
-**Priority:** High | **Labels:** Bug
-**Description:** `const [logging] = useState(false)` on line 43 of `food-analyzer.tsx` has no setter. `logging` is always `false`, making `canLog`, `disabled={logging}`, and button text guards ineffective. Keyboard shortcuts via `useKeyboardShortcuts` can trigger `handleLogToFitbit` during in-flight requests.
-
-### FOO-414: No AbortController on analysis fetch — stale results display after photos cleared
-**Priority:** High | **Labels:** Bug
-**Description:** `handleAnalyze` calls `fetch("/api/analyze-food")` (line 141) and `fetch("/api/find-matches")` (line 161) without AbortController. If `resetAnalysisState()` is called while fetches are in-flight, they resolve and call `setAnalysis`/`setMatches`, displaying stale results.
-
-### FOO-415: Image compression warning setTimeout can clear real analysis errors
 **Priority:** Medium | **Labels:** Bug
-**Description:** `setTimeout(() => setError(null), 3000)` (line 113) fires regardless. If the analysis API returns an error within 3 seconds (line 153, `setError`), the timeout clears the real error message.
+**Description:** The `--info-foreground` CSS variable in `:root` (light mode) is `oklch(0.985 0 0)` (near-white), identical to the dark mode value. Combined with `bg-info/10` on a white background, both `text-info-foreground` spans in `lumen-banner.tsx` are invisible. The `--warning-foreground` variable handles this correctly — dark value in light mode, light value in dark mode.
 
-### FOO-430: ensureFreshToken doesn't handle upsertFitbitTokens failure — refresh token corruption
-**Priority:** High | **Labels:** Bug
-**Description:** In `ensureFreshToken` (lines 457-468), if `refreshFitbitToken` succeeds but `upsertFitbitTokens` throws (DB error), new tokens are lost. Fitbit's refresh token rotation invalidates the old token, so the DB retains a now-invalid refresh token.
+**Acceptance Criteria:**
+- [ ] Lumen banner text is readable in light mode
+- [ ] Lumen banner text remains readable in dark mode
+- [ ] No other components using `text-info-foreground` are broken
 
-### FOO-428: refreshFitbitToken treats all HTTP errors as FITBIT_TOKEN_INVALID
+### FOO-438: Refinement chat system prompt shows "units" for non-gram/ml unit types
+
 **Priority:** Low | **Labels:** Bug
-**Description:** Line 415: any `!response.ok` throws `Error("FITBIT_TOKEN_INVALID")`. Transient 500s and 429s from Fitbit's OAuth server are misclassified, causing unnecessary "reconnect your Fitbit" prompts.
+**Description:** In `src/lib/claude.ts` line 386, the unit label ternary only handles `unit_id === 147` (g) and `unit_id === 209` (ml). All other valid unit IDs (cups=91, oz=226, slices=311, servings=304, tbsp=349, tsp=364) fall through to the meaningless string "units". The project already has `getUnitById()` in `src/types/index.ts` that maps unit IDs to their labels.
 
-### FOO-426: FITBIT_TIMEOUT error never surfaced as timeout to users
-**Priority:** Medium | **Labels:** Bug
-**Description:** `fetchWithRetry` throws `Error("FITBIT_TIMEOUT")` when `DEADLINE_MS` is exceeded. No route handler checks for this error message. It falls to generic catch-all, returning "Failed to log food to Fitbit" without indicating it was a timeout.
+**Acceptance Criteria:**
+- [ ] System prompt shows correct unit label for all supported unit IDs (g, ml, cup, oz, tbsp, tsp, slice, serving)
+- [ ] Unknown unit IDs still fall back to "units"
+- [ ] Reuses existing `getUnitById()` from `src/types/index.ts` (no duplicate map)
 
-### FOO-427: SWR apiFetcher discards error code — Fitbit errors unactionable on dashboard
-**Priority:** Medium | **Labels:** Bug
-**Description:** `apiFetcher` (line 5) extracts only `body.error?.message`, discarding the error `code`. Components using SWR cannot distinguish `FITBIT_TOKEN_INVALID` from `FITBIT_API_ERROR` from `FITBIT_CREDENTIALS_MISSING`.
+### FOO-436: Refinement chat sends stale initial analysis on every turn
 
-### FOO-423: 404 responses use VALIDATION_ERROR error code instead of NOT_FOUND
-**Priority:** Low | **Labels:** Convention
-**Description:** `food-history/[id]/route.ts` lines 25, 54 return 404 with `VALIDATION_ERROR` instead of `NOT_FOUND`. The `NOT_FOUND` code exists in `ErrorCode` type.
-
-### FOO-422: Inconsistent HTTP status for Fitbit upstream errors — 500 vs 502
-**Priority:** Low | **Labels:** Convention
-**Description:** Some routes return 502 for `FITBIT_API_ERROR` (nutrition-goals, v1 routes), others return 500 (log-food, food-history DELETE). 502 is semantically correct.
-
-### FOO-429: Inconsistent HTTP status for FITBIT_CREDENTIALS_MISSING — 400 vs 404
-**Priority:** Low | **Labels:** Convention
-**Description:** Routes returning `FITBIT_CREDENTIALS_MISSING` use different HTTP status codes (400 in log-food, 404 in nutrition-goals and v1 routes). 424 (Failed Dependency) would be more accurate semantically. Standardize to one code.
-
-### FOO-420: Inconsistent Fitbit error handling — routes miss SCOPE_MISSING and RATE_LIMIT
-**Priority:** Medium | **Labels:** Bug
-**Description:** v1 routes handle `FITBIT_SCOPE_MISSING` but browser routes don't. `FITBIT_RATE_LIMIT` handled only in `log-food`. `FITBIT_TIMEOUT` handled nowhere (see FOO-426).
-
-### FOO-421: Database operations unprotected by try/catch in 7 route handlers
-**Priority:** Medium | **Labels:** Bug
-**Description:** Seven route handlers call DB functions outside try/catch. If DB calls throw, error propagates unhandled to Next.js, returning `{"error": "Internal Server Error"}` instead of `ApiErrorResponse`.
-
-### FOO-413: FoodChat missing FITBIT_TOKEN_INVALID handling — no reconnect path
 **Priority:** High | **Labels:** Bug
-**Description:** `handleLog` (line 301-302) shows generic error message but never checks `result.error?.code` for `FITBIT_TOKEN_INVALID`. User sees "Failed to log food to Fitbit" with no way to reconnect from chat.
+**Description:** In `food-chat.tsx`, the request body at line 226 always sends the original `initialAnalysis` prop. The component already computes `latestAnalysis` (line 77-80) by finding the most recent message with an analysis, but this value is only used for the "Log to Fitbit" button — never sent to the API. This causes Claude to see stale baseline values in the system prompt, potentially reverting corrections.
 
-### FOO-425: FoodHistory delete error shows no recovery action for FITBIT_TOKEN_INVALID
+**Acceptance Criteria:**
+- [ ] Each chat turn sends the most recent analysis (from the latest assistant message with an analysis) to the API
+- [ ] First turn still sends the original `initialAnalysis` (no prior refinements exist)
+- [ ] The "Log to Fitbit" button still uses the latest analysis (existing behavior, should not break)
+
+### FOO-437: Refinement chat loses tool_use context between turns
+
 **Priority:** High | **Labels:** Bug
-**Description:** `handleDeleteConfirm` (line 177) shows `result.error?.message` but never checks error code. No link to Settings or reconnect button for token-related errors.
+**Description:** When `conversationalRefine()` converts `ConversationMessage[]` to Anthropic message format (lines 350-381), it only extracts `msg.content` (text) and ignores `msg.analysis`. This means Claude cannot see its own previous `report_nutrition` tool calls or the exact numerical values it reported. Over multiple turns, Claude loses track of the current nutritional state and produces inconsistent values. The `analysis` field IS present on `ConversationMessage` and IS sent by the client — it's just ignored during message conversion.
 
-### FOO-432: Pending resubmit ignores error codes — no redirect or Settings link
-**Priority:** Medium | **Labels:** Bug
-**Description:** Pending resubmit in QuickSelect (lines 144-164) treats all errors generically. Doesn't inspect `result.error?.code` for `FITBIT_TOKEN_INVALID` or `FITBIT_CREDENTIALS_MISSING`.
-
-### FOO-411: Fasting API live mode uses server-side isToday() — fails after UTC midnight
-**Priority:** Medium | **Labels:** Bug
-**Description:** `isToday(date)` on line 47 of `fasting/route.ts` uses server's `getTodayDate()` (UTC on Railway). Client sending its local "today" may mismatch after UTC midnight.
-
-### FOO-410: Common-foods API ranks suggestions using server UTC date/time
-**Priority:** Medium | **Labels:** Bug
-**Description:** Lines 50-52 of `common-foods/route.ts`: `const now = new Date(); const currentTime = now.toTimeString().slice(0, 8); const currentDate = now.toISOString().slice(0, 10);` — server UTC time used for time-of-day ranking. A 3-hour offset (UTC-3 user) means breakfast foods suggested at wrong times.
-
-### FOO-403: Nutrition-goals API captures calorie goal with server-side date
-**Priority:** Medium | **Labels:** Bug
-**Description:** Line 20: `const todayDate = getTodayDate()` — server UTC date. Client's local date may differ, causing goal captured for wrong date.
-
-### FOO-431: Optimistic success + haptic fires before API confirmation — reverts on error
-**Priority:** Medium | **Labels:** Improvement
-**Description:** `handleLogToFitbit` in QuickSelect sets `logResponse` optimistically (line 190) before the API call. `FoodLogConfirmation` triggers `vibrateSuccess()` on mount. If API fails, success screen disappears and error appears — user already received false positive feedback.
-
-### FOO-433: foodToAnalysis drops Tier 1 nutrients — success screen shows fewer details
-**Priority:** Low | **Labels:** Bug
-**Description:** `foodToAnalysis()` (lines 32-48) omits `saturated_fat_g`, `trans_fat_g`, `sugars_g`, and `calories_from_fat`. The detail view passes these from `selectedFood` to `NutritionFactsCard`, but the success screen gets the incomplete `foodToAnalysis()` result.
-
-### FOO-434: Quick select loading.tsx skeleton doesn't match page layout
-**Priority:** Low | **Labels:** Convention
-**Description:** Loading skeleton shows heading + 3 food card skeletons. Actual page renders heading + tab bar (Suggested/Recent) + search input + food cards.
-
-### FOO-416: find-matches API rejects empty keywords array — matches silently suppressed
-**Priority:** Medium | **Labels:** Bug
-**Description:** `/api/find-matches` (lines 23-24) returns 400 when `keywords.length === 0`. If Claude's analysis returns `keywords: []`, match search silently fails. Should return empty matches instead.
-
-### FOO-417: HEIC files are converted twice — preview and upload paths both convert
-**Priority:** Low | **Labels:** Performance
-**Description:** HEIC → JPEG conversion happens in `photo-capture.tsx:127` for preview, then again in `compressImage()` at `image.ts:48` when the original `File` objects (not converted blobs) are passed to `handleAnalyze`.
-
-### FOO-399: Dashboard error states lack retry action
-**Priority:** Medium | **Labels:** Improvement
-**Description:** DailyDashboard (lines 153-161) and WeeklyDashboard (lines 78-96) display error text only. No retry button despite `useSWR` supporting `mutate()` for manual revalidation.
-
-### FOO-400: WeeklyDashboard does not reset to current week on tab re-focus
-**Priority:** Medium | **Labels:** Bug
-**Description:** DailyDashboard resets to today on visibility change, but WeeklyDashboard has no equivalent. User returning after idle sees stale past-week view.
-
-### FOO-401: DailyDashboard visibility change revalidates all SWR caches
-**Priority:** Medium | **Labels:** Performance
-**Description:** `globalMutate(() => true)` on line 75 triggers revalidation of every SWR cache key — common-foods, food-history, auth/session, prefetched data — not just dashboard endpoints.
-
-### FOO-402: Dashboard segmented controls lack ARIA tab/pressed attributes
-**Priority:** Medium | **Labels:** Improvement
-**Description:** Daily/Weekly toggle in `dashboard-shell.tsx` (lines 15-36) and metric selector in `weekly-nutrition-chart.tsx` use plain `<button>` with visual-only active styling. No `role="tab"`, `aria-selected`, or `aria-pressed`.
-
-### FOO-405: WeeklyNutritionChart empty-day check always uses calories regardless of metric
-**Priority:** Low | **Labels:** Bug
-**Description:** Line 131: `const isEmpty = day.data === null || day.data.calories === 0` — checks calories even when viewing protein/carbs/fat.
-
-### FOO-406: WeekNavigator allows infinite backward navigation with no lower bound
-**Priority:** Low | **Labels:** Improvement
-**Description:** `handlePrevious` (line 23) has no `disabled` guard. Users can scroll infinitely into the past, making unnecessary API calls for weeks with no data. DateNavigator already uses `earliestDate` prop for this.
-
-### FOO-407: FastingCard live duration can display negative values on timezone mismatch
-**Priority:** Low | **Labels:** Bug
-**Description:** `calculateLiveDuration` (lines 26-31) returns `Math.floor(diffMs / 60000)` with no lower bound clamp. If `startDateTime` is ahead of `now` due to timezone edge cases, displays negative duration.
-
-### FOO-408: MealBreakdown food entries don't link to food detail page
-**Priority:** Low | **Labels:** Improvement
-**Description:** Entries in expanded meal accordion (lines 84-100) rendered as plain `<div>`. Food detail page exists at `/app/food-detail/[id]` but is only reachable from history page, not dashboard.
-
-### FOO-409: DailyDashboard loading state blocks entire view when goals endpoint is slow
-**Priority:** Low | **Labels:** Performance
-**Description:** Line 148: `if (summaryLoading || goalsLoading)` — both loading states block entire dashboard skeleton. Nutrition summary data could render while goals are still loading.
-
-### FOO-418: FoodLogConfirmation has no "Log Another" action
-**Priority:** Low | **Labels:** Improvement
-**Description:** Only "Done" button (lines 84-92) navigating to `/app`. No option to immediately log another food item for users logging multiple items in succession.
-
-### FOO-424: v1 API routes have no rate limiting — external API keys can exhaust Fitbit quotas
-**Priority:** Medium | **Labels:** Security
-**Description:** All 5 v1 routes authenticate via Bearer token but have no rate limiting. `checkRateLimit` from `src/lib/rate-limit.ts` is used in browser routes (`analyze-food`, `chat-food`, `lumen-goals`) but not in any v1 equivalent.
+**Acceptance Criteria:**
+- [ ] Assistant messages that have an `analysis` field include a structured summary of the nutritional values in the Anthropic conversation history
+- [ ] Claude can see the exact numerical values from its previous tool calls
+- [ ] The format is concise (not wasteful with tokens) but includes all key nutritional fields
+- [ ] Messages without `analysis` are unaffected
 
 ## Prerequisites
 
-- [ ] All existing tests pass
 - [ ] On `main` branch with clean working tree
+- [ ] `npm test` passes before starting
 
 ## Implementation Tasks
 
-### Task 1: Code deduplication foundation (FOO-419, FOO-404)
+### Task 1: Fix light mode `--info-foreground` CSS variable
 
-**Issues:** FOO-419, FOO-404
+**Issue:** FOO-435
 **Files:**
-- `src/lib/date-utils.ts` (modify)
-- `src/lib/__tests__/date-utils.test.ts` (create — no existing test file for date-utils)
-- `src/app/api/fasting/route.ts` (modify)
-- `src/app/api/log-food/route.ts` (modify)
-- `src/app/api/lumen-goals/route.ts` (modify)
-- `src/app/api/nutrition-summary/route.ts` (modify)
-- `src/app/api/v1/nutrition-summary/route.ts` (modify)
-- `src/app/api/v1/lumen-goals/route.ts` (modify)
-- `src/app/api/v1/activity-summary/route.ts` (modify)
-- `src/app/api/v1/food-log/route.ts` (modify)
-- `src/components/meal-breakdown.tsx` (modify)
-- `src/components/__tests__/meal-breakdown.test.tsx` (modify if existing tests reference local constant)
+- `src/app/globals.css` (modify)
+- `src/components/__tests__/lumen-banner.test.tsx` (modify — add visibility assertion)
 
 **TDD Steps:**
 
-1. **RED** — Write tests for `isValidDateFormat` in `src/lib/__tests__/date-utils.test.ts`:
-   - Valid: `"2026-02-14"` → true
-   - Invalid: `"2026-13-01"` → false (bad month)
-   - Invalid: `"2026-02-30"` → false (Feb 30 doesn't exist)
-   - Invalid: `"not-a-date"` → false
-   - Run: `npm test -- date-utils`
+1. **RED** — Add a test in `lumen-banner.test.tsx` that renders the banner in the "no goals" state and asserts that the text elements do NOT use a near-white color class that would be invisible on a white background. This test will rely on checking the rendered class names include `text-info-foreground`, which is already the case — the real fix is the CSS variable value. Since CSS variables aren't computed in jsdom, the test should verify the banner renders the expected text content visibly (already covered by existing "shows banner when SWR returns error" test). Skip adding a new test — this is a CSS-only fix verifiable by visual inspection and the existing tests.
 
-2. **GREEN** — Export `isValidDateFormat` from `src/lib/date-utils.ts` (move the existing implementation from any route file). Replace all 8 local copies with `import { isValidDateFormat } from "@/lib/date-utils"`.
+2. **GREEN** — In `src/app/globals.css` `:root` block (line 79), change `--info-foreground` from `oklch(0.985 0 0)` to `oklch(0.205 0 0)` (dark text for light backgrounds — same pattern as `--warning-foreground` on line 77).
 
-3. **GREEN** — In `meal-breakdown.tsx`, replace the local `MEAL_TYPE_LABELS` constant with `import { FITBIT_MEAL_TYPE_LABELS } from "@/types"` and update all references from `MEAL_TYPE_LABELS[...]` to `FITBIT_MEAL_TYPE_LABELS[...]`.
-
-4. **REFACTOR** — Verify all 8 route files still import `isValidDateFormat` correctly. Run affected route tests.
+3. **REFACTOR** — Verify no other components use `text-info-foreground` (already confirmed — only `lumen-banner.tsx`). Run the existing `lumen-banner.test.tsx` tests to ensure nothing breaks.
 
 **Notes:**
-- The local `isValidDateFormat` implementations are identical across all 8 files
-- `FITBIT_MEAL_TYPE_LABELS` in `src/types/index.ts` (lines 141-148) is identical to local `MEAL_TYPE_LABELS` in `meal-breakdown.tsx` (lines 7-14)
+- Follow the pattern of `--warning-foreground` which uses `oklch(0.205 0 0)` in light mode
+- The dark mode `.dark` block (line 120) already has `--info-foreground: oklch(0.985 0 0)` which is correct (light text on dark background)
+- Only `src/components/lumen-banner.tsx` lines 100 and 103 use `text-info-foreground`
 
----
+### Task 2: Use `getUnitById()` for system prompt unit label
 
-### Task 2: Critical client-side bugs (FOO-412, FOO-414, FOO-415)
-
-**Issues:** FOO-412, FOO-414, FOO-415
+**Issue:** FOO-438
 **Files:**
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/__tests__/food-analyzer.test.tsx` (create if not exists, or modify)
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** — FOO-412: Write test that `logging` state setter exists and is called during `handleLogToFitbit`:
-   - After calling the log function, verify the log button becomes disabled
-   - Verify `canLog` evaluates to false during the API call
-   - Run: `npm test -- food-analyzer`
+1. **RED** — Add tests in the `conversationalRefine` describe block:
+   - Test that the system prompt contains "cup" (not "units") when `initialAnalysis.unit_id` is 91
+   - Test that the system prompt contains "oz" when `initialAnalysis.unit_id` is 226
+   - Test that the system prompt falls back to "units" for an unknown unit_id (e.g., 999)
+   - Run: `npm test -- claude.test`
+   - Verify: Tests fail because the current code only handles 147 and 209
 
-2. **GREEN** — FOO-412: Change `const [logging] = useState(false)` to `const [logging, setLogging] = useState(false)`. Add `setLogging(true)` at start of `handleLogToFitbit` and `setLogging(false)` in the finally block (matching the pattern already used in `food-chat.tsx:280-316`).
+2. **GREEN** — In `src/lib/claude.ts`:
+   - Import `getUnitById` from `@/types`
+   - Replace the ternary on line 386 with a call to `getUnitById(initialAnalysis.unit_id)` — use `unit.name` if found, fall back to "units"
+   - Run: `npm test -- claude.test`
+   - Verify: All tests pass
 
-3. **RED** — FOO-414: Write test that clearing photos aborts in-flight analysis fetch:
-   - Start analysis, then clear photos before response
-   - Verify `setAnalysis` is NOT called with stale data
-   - Run: `npm test -- food-analyzer`
-
-4. **GREEN** — FOO-414: Add `AbortController` ref to `FoodAnalyzer`. In `handleAnalyze`, create a new controller, pass its `signal` to both `fetch("/api/analyze-food")` and the match search fetch. In `resetAnalysisState`, call `controller.abort()`. Handle `AbortError` silently in catch blocks. Reference pattern: `food-chat.tsx:244` already uses `AbortSignal.timeout(30000)`.
-
-5. **RED** — FOO-415: Write test that a real analysis error is NOT cleared by the compression warning timeout:
-   - Simulate partial compression failure (warning with setTimeout)
-   - Then simulate analysis API error within 3 seconds
-   - Verify the analysis error message persists after 3+ seconds
-   - Run: `npm test -- food-analyzer`
-
-6. **GREEN** — FOO-415: Store the warning timeout ID in a ref. In the error handler (line 153), clear the warning timeout if it exists before setting the new error. This ensures the warning timeout cannot clear a real error.
+3. **REFACTOR** — Remove the now-unnecessary inline ternary. The import of `getUnitById` is the only change needed.
 
 **Notes:**
-- The `logging` setter pattern already exists in `food-chat.tsx` (line 57: `const [logging, setLogging] = useState(false)`) and `quick-select.tsx` (line 112) — follow those patterns
-- For AbortController, use a `useRef<AbortController | null>(null)` pattern
+- `getUnitById()` is defined at `src/types/index.ts:40-45` and returns `{ id, name, plural }` or `undefined`
+- The `name` field (e.g., "g", "cup", "oz") is suitable for the system prompt label
+- Existing test at line 1345 ("includes initial analysis context in system prompt when provided") uses `validAnalysis` which has `unit_id: 147` — it will still pass since `getUnitById(147)` returns `{ name: "g" }`
 
----
+### Task 3: Send latest analysis instead of stale initial analysis
 
-### Task 3: Fitbit token management (FOO-430, FOO-428, FOO-426)
-
-**Issues:** FOO-430, FOO-428, FOO-426
-**Files:**
-- `src/lib/fitbit.ts` (modify)
-- `src/lib/__tests__/fitbit.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — FOO-430: Write test for `ensureFreshToken` when `upsertFitbitTokens` throws:
-   - Mock `refreshFitbitToken` to succeed with new tokens
-   - Mock `upsertFitbitTokens` to throw on first call, succeed on retry
-   - Verify function retries the DB upsert once
-   - Verify the new access_token is returned (not thrown)
-   - Write another test where retry also fails — verify error propagates with descriptive message
-   - Run: `npm test -- fitbit`
-
-2. **GREEN** — FOO-430: Wrap `upsertFitbitTokens` in a try/catch within `ensureFreshToken`. On failure, log a warning and retry once. If retry also fails, throw an error with a message like `"FITBIT_TOKEN_SAVE_FAILED"` (distinct from `FITBIT_TOKEN_INVALID`) so the caller can handle it differently.
-
-3. **RED** — FOO-428: Write tests for `refreshFitbitToken` HTTP error classification:
-   - 401 response → throws `FITBIT_TOKEN_INVALID` (genuine token issue)
-   - 500 response → throws `FITBIT_REFRESH_TRANSIENT` (server error, retryable)
-   - 429 response → throws `FITBIT_REFRESH_TRANSIENT` (rate limit, retryable)
-   - Run: `npm test -- fitbit`
-
-4. **GREEN** — FOO-428: In `refreshFitbitToken`, check `response.status` before throwing. Only throw `FITBIT_TOKEN_INVALID` for 400/401 responses (client errors indicating genuinely bad credentials). For 429/5xx, throw `FITBIT_REFRESH_TRANSIENT`.
-
-5. **RED** — FOO-426: Write test for route handling of `FITBIT_TIMEOUT`:
-   - In `log-food` route test, mock `ensureFreshToken` to throw `Error("FITBIT_TIMEOUT")`
-   - Verify response returns a timeout-specific error message (e.g., "Request timed out") with appropriate code
-   - Run: `npm test -- log-food`
-
-6. **GREEN** — FOO-426: Add `FITBIT_TIMEOUT` to the `ErrorCode` union in `src/types/index.ts`. In route handler catch blocks, check for `error.message === "FITBIT_TIMEOUT"` and return `errorResponse("FITBIT_TIMEOUT", "Request to Fitbit timed out. Please try again.", 504)`.
-
-**Notes:**
-- `FITBIT_TIMEOUT` handling will be applied consistently across routes in Task 6 (FOO-420)
-- `FITBIT_REFRESH_TRANSIENT` won't cause "reconnect your Fitbit" prompts — `ensureFreshToken` should re-throw it as-is so callers can display "Temporary error, try again" instead
-- `FITBIT_TOKEN_SAVE_FAILED` should also be added to `ErrorCode` in `src/types/index.ts`
-
----
-
-### Task 4: SWR error code preservation (FOO-427)
-
-**Issues:** FOO-427
-**Files:**
-- `src/lib/swr.ts` (modify)
-- `src/lib/__tests__/swr.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Write test that `apiFetcher` preserves the error code from API responses:
-   - Mock `fetch` to return `{ success: false, error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" } }`
-   - Catch the thrown error and verify it has a `code` property set to `"FITBIT_TOKEN_INVALID"`
-   - Run: `npm test -- swr`
-
-2. **GREEN** — Create an `ApiError` class extending `Error` with a `code: string` property. Update `apiFetcher` to throw `new ApiError(message, code)` instead of `new Error(message)`. Export `ApiError` so components can check `error instanceof ApiError && error.code === "FITBIT_TOKEN_INVALID"`.
-
-3. **REFACTOR** — Verify existing SWR test cases still pass. The change should be backward-compatible since `ApiError extends Error`.
-
-**Notes:**
-- Components receiving SWR errors can now do `if (error instanceof ApiError && error.code === "FITBIT_TOKEN_INVALID") { /* redirect */ }`
-- This is a foundation for Task 7 (Fitbit error recovery UI) which will use the error code in components
-
----
-
-### Task 5: API convention fixes (FOO-423, FOO-422, FOO-429)
-
-**Issues:** FOO-423, FOO-422, FOO-429
-**Files:**
-- `src/app/api/food-history/[id]/route.ts` (modify)
-- `src/app/api/food-history/[id]/__tests__/route.test.ts` (modify)
-- `src/app/api/log-food/route.ts` (modify)
-- `src/app/api/log-food/__tests__/route.test.ts` (modify)
-- Multiple route files for HTTP status standardization
-
-**TDD Steps:**
-
-1. **RED** — FOO-423: Update existing `food-history/[id]` route tests:
-   - Verify GET for non-existent entry returns `{ error: { code: "NOT_FOUND" } }` with 404
-   - Verify DELETE for non-existent entry returns `{ error: { code: "NOT_FOUND" } }` with 404
-   - Run: `npm test -- food-history`
-
-2. **GREEN** — FOO-423: Change `errorResponse("VALIDATION_ERROR", ...)` to `errorResponse("NOT_FOUND", ...)` for 404 responses in `food-history/[id]/route.ts` (lines 25 and ~54 for GET and DELETE).
-
-3. **RED** — FOO-422: Update route tests to expect 502 for `FITBIT_API_ERROR`:
-   - In `log-food` and `food-history` DELETE route tests, verify `FITBIT_API_ERROR` returns 502, not 500
-   - Run: `npm test -- log-food`
-
-4. **GREEN** — FOO-422: In routes that return 500 for `FITBIT_API_ERROR`, change to 502. Search for `errorResponse("FITBIT_API_ERROR"` across all route files and standardize to HTTP 502.
-
-5. **RED** — FOO-429: Update route tests to expect consistent HTTP status for `FITBIT_CREDENTIALS_MISSING`:
-   - All routes should return the same status (pick 424 Failed Dependency)
-   - Run: `npm test -- log-food nutrition-goals`
-
-6. **GREEN** — FOO-429: Standardize all `FITBIT_CREDENTIALS_MISSING` responses to HTTP 424 (Failed Dependency). Update `log-food/route.ts` (currently 400), `nutrition-goals/route.ts` (currently 404), and v1 routes.
-
-**Notes:**
-- `NOT_FOUND` already exists in the `ErrorCode` type
-- HTTP 424 (Failed Dependency) semantically means "the request failed because it depends on another action" — appropriate for missing Fitbit credentials
-- `FITBIT_TIMEOUT` should also be added to ErrorCode here (from Task 3)
-
----
-
-### Task 6: Consistent route error handling + DB safety (FOO-420, FOO-421)
-
-**Issues:** FOO-420, FOO-421
-**Files:**
-- `src/app/api/nutrition-goals/route.ts` (modify)
-- `src/app/api/nutrition-goals/__tests__/route.test.ts` (modify)
-- `src/app/api/food-history/[id]/route.ts` (modify)
-- `src/app/api/food-history/[id]/__tests__/route.test.ts` (modify)
-- `src/app/api/api-keys/route.ts` (modify)
-- `src/app/api/api-keys/__tests__/route.test.ts` (modify)
-- `src/app/api/api-keys/[id]/route.ts` (modify)
-- `src/app/api/api-keys/[id]/__tests__/route.test.ts` (modify)
-- Additional routes as identified in FOO-421
-
-**TDD Steps:**
-
-1. **RED** — FOO-420: Write test for `nutrition-goals` route handling `FITBIT_SCOPE_MISSING`:
-   - Mock `ensureFreshToken` to throw `Error("FITBIT_SCOPE_MISSING")`
-   - Verify response returns error code `FITBIT_SCOPE_MISSING` with 403 and reconnect message
-   - Run: `npm test -- nutrition-goals`
-
-2. **RED** — FOO-420: Write test for `nutrition-goals` route handling `FITBIT_RATE_LIMIT`:
-   - Mock to throw `Error("FITBIT_RATE_LIMIT")`
-   - Verify 429 response with rate limit message
-   - Run: `npm test -- nutrition-goals`
-
-3. **RED** — FOO-420: Write test for `nutrition-goals` route handling `FITBIT_TIMEOUT` (from Task 3):
-   - Mock to throw `Error("FITBIT_TIMEOUT")`
-   - Verify 504 response with timeout message
-   - Run: `npm test -- nutrition-goals`
-
-4. **GREEN** — FOO-420: Add `FITBIT_SCOPE_MISSING`, `FITBIT_RATE_LIMIT`, `FITBIT_TIMEOUT`, and `FITBIT_REFRESH_TRANSIENT` handling to ALL routes that call Fitbit APIs. Follow the pattern from `v1/activity-summary/route.ts` (lines 58-59) for SCOPE_MISSING and `log-food/route.ts` (line 417) for RATE_LIMIT. Apply to: `nutrition-goals`, `food-history/[id]` DELETE, `fasting` (if it calls Fitbit), and any others.
-
-5. **RED** — FOO-421: Write test for `api-keys` route when DB throws:
-   - Mock DB function to throw `Error("Connection refused")`
-   - Verify response returns `INTERNAL_ERROR` with 500, NOT an unhandled exception
-   - Run: `npm test -- api-keys`
-
-6. **GREEN** — FOO-421: Wrap unprotected DB operations in try/catch blocks. Return `errorResponse("INTERNAL_ERROR", "...", 500)` on DB failure. Apply to all 7 route handlers identified in the issue.
-
-**Notes:**
-- The standard Fitbit error handling pattern should be:
-  - `FITBIT_CREDENTIALS_MISSING` → 424
-  - `FITBIT_TOKEN_INVALID` → 401
-  - `FITBIT_SCOPE_MISSING` → 403
-  - `FITBIT_RATE_LIMIT` → 429
-  - `FITBIT_TIMEOUT` → 504
-  - `FITBIT_REFRESH_TRANSIENT` → 502
-  - `FITBIT_API_ERROR` → 502
-  - `FITBIT_TOKEN_SAVE_FAILED` → 500
-
----
-
-### Task 7: Fitbit error recovery UI (FOO-413, FOO-425, FOO-432)
-
-**Issues:** FOO-413, FOO-425, FOO-432
+**Issue:** FOO-436
 **Files:**
 - `src/components/food-chat.tsx` (modify)
-- `src/components/food-history.tsx` (modify)
-- `src/components/quick-select.tsx` (modify)
-- Tests for each component (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — FOO-413: Write test for FoodChat handling `FITBIT_TOKEN_INVALID` on log:
-   - Mock `/api/log-food` to return `{ success: false, error: { code: "FITBIT_TOKEN_INVALID", message: "..." } }`
-   - Verify the component saves pending submission data and redirects to `/api/auth/fitbit`
-   - Run: `npm test -- food-chat`
+1. **RED** — Add a test in `food-chat.test.tsx`:
+   - Render `FoodChat` with `initialAnalysis` (100 cal)
+   - Send a user message and mock the API response with an updated analysis (200 cal)
+   - Send a second user message
+   - Assert that the second `fetch` call's request body contains `initialAnalysis` with 200 cal (the updated value from the first response), NOT 100 cal
+   - Run: `npm test -- food-chat.test`
+   - Verify: Test fails because `initialAnalysis` always sends the original prop value
 
-2. **GREEN** — FOO-413: In `handleLog`, after checking `!response.ok || !result.success`, inspect `result.error?.code`:
-   - If `FITBIT_TOKEN_INVALID`: save pending submission via `savePendingSubmission()` (include analysis + mealTypeId + date/time), then redirect to `/api/auth/fitbit`. Follow the pattern from `food-analyzer.tsx` (which already does this) and `quick-select.tsx` handleLogToFitbit (lines 206-217).
-   - If `FITBIT_CREDENTIALS_MISSING`: show specific error message with Settings guidance
+2. **GREEN** — In `src/components/food-chat.tsx` `handleSend()`:
+   - Change line 226 from `initialAnalysis,` to `initialAnalysis: latestAnalysis,`
+   - This uses the already-computed `latestAnalysis` (line 77-80) which tracks the most recent analysis from messages
+   - Run: `npm test -- food-chat.test`
+   - Verify: Test passes
 
-3. **RED** — FOO-425: Write test for FoodHistory showing reconnect action on token error:
-   - Mock DELETE to return `FITBIT_TOKEN_INVALID`
-   - Verify a "Reconnect Fitbit" button or link to Settings appears
-   - Run: `npm test -- food-history`
-
-4. **GREEN** — FOO-425: In `handleDeleteConfirm`, inspect `result.error?.code`. If `FITBIT_TOKEN_INVALID`, show the error message plus a "Reconnect" button that redirects to `/api/auth/fitbit` (or a link to Settings). Use the existing `deleteError` state but render a button alongside the error text when the code indicates a recoverable auth issue.
-
-5. **RED** — FOO-432: Write test for pending resubmit inspecting error codes:
-   - Mock `/api/log-food` resubmit to return `FITBIT_TOKEN_INVALID`
-   - Verify the component redirects to re-auth (save pending again, redirect to `/api/auth/fitbit`)
-   - Run: `npm test -- quick-select`
-
-6. **GREEN** — FOO-432: In the pending resubmit `.then()` handler (lines 150-156), check `result.error?.code`:
-   - `FITBIT_TOKEN_INVALID`: re-save the pending submission and redirect to `/api/auth/fitbit`
-   - `FITBIT_CREDENTIALS_MISSING`: show "configure credentials in Settings" error with link
+3. **REFACTOR** — No refactoring needed — the change is minimal and `latestAnalysis` already exists.
 
 **Notes:**
-- The reconnect-via-redirect pattern already exists in `food-analyzer.tsx` handleLogToFitbit (lines 228-248) and `quick-select.tsx` handleLogToFitbit (lines 206-217) — follow those patterns
-- Pending submission is managed by `src/lib/pending-submission.ts` (savePendingSubmission, getPendingSubmission, clearPendingSubmission)
+- `latestAnalysis` at line 77-80 walks the messages array in reverse to find the most recent `analysis` field, falling back to `initialAnalysis`
+- On the first turn (before any refinement), `latestAnalysis === initialAnalysis` so behavior is unchanged
+- The "Log to Fitbit" button already uses `latestAnalysis` (line 289) — this is existing correct behavior
+- Existing tests that mock a single turn with `initialAnalysis` should still pass because `latestAnalysis` equals `initialAnalysis` before any responses
 
----
+### Task 4: Include analysis context in conversation history
 
-### Task 8: Server-side timezone fixes (FOO-411, FOO-410, FOO-403)
-
-**Issues:** FOO-411, FOO-410, FOO-403
+**Issue:** FOO-437
 **Files:**
-- `src/app/api/fasting/route.ts` (modify)
-- `src/app/api/fasting/__tests__/route.test.ts` (modify)
-- `src/app/api/common-foods/route.ts` (modify)
-- `src/app/api/common-foods/__tests__/route.test.ts` (modify)
-- `src/app/api/nutrition-goals/route.ts` (modify)
-- `src/app/api/nutrition-goals/__tests__/route.test.ts` (modify)
-- Client components that call these APIs (modify to pass date/time)
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** — FOO-411: Write test for fasting API accepting client-provided `clientDate` query param:
-   - Send request with `?date=2026-02-14&clientDate=2026-02-14`
-   - Verify the `isToday` check uses `clientDate` instead of server's `getTodayDate()`
-   - Run: `npm test -- fasting`
+1. **RED** — Add tests in the `conversationalRefine` describe block:
+   - Test: when an assistant message has an `analysis` field, the corresponding Anthropic message's text content includes a structured summary with the nutritional values (food name, amount, unit, calories, macros)
+   - Test: when an assistant message has NO `analysis` field, the Anthropic message only contains the original text content
+   - Test: verify the summary format includes key fields (food_name, amount, calories, protein_g, carbs_g, fat_g) so Claude can reference exact values
+   - Run: `npm test -- claude.test`
+   - Verify: Tests fail because the current code ignores the `analysis` field
 
-2. **GREEN** — FOO-411: Accept optional `clientDate` query parameter in the fasting route. Use it instead of `isToday(date)` for the live mode check: `const liveCheck = clientDate ? date === clientDate : isToday(date)`. Update the client-side `FastingCard` component to pass `clientDate` via `getTodayDate()` (runs client-side in browser, so it returns local date).
+2. **GREEN** — In `src/lib/claude.ts` `conversationalRefine()`, in the message mapping (line 350-381):
+   - After adding the text content block (line 372-375), check if `msg.analysis` exists
+   - If it does, append a second text block with a structured summary, e.g.: `[Current values: {food_name}, {amount}{unitLabel}, {calories} cal, P:{protein_g}g C:{carbs_g}g F:{fat_g}g Fiber:{fiber_g}g Na:{sodium_mg}mg | Conf: {confidence}]`
+   - Use `getUnitById` (already imported in Task 2) for the unit label
+   - Run: `npm test -- claude.test`
+   - Verify: Tests pass
 
-3. **RED** — FOO-410: Write test for common-foods API accepting client-provided time:
-   - Send request with `?clientTime=14:30:00&clientDate=2026-02-14`
-   - Verify the ranking function receives the client time/date, not server time
-   - Run: `npm test -- common-foods`
-
-4. **GREEN** — FOO-410: Accept optional `clientTime` and `clientDate` query parameters. If provided, use them instead of `new Date()` for ranking. Update `QuickSelect` component to pass these params from `getLocalDateTime()`.
-
-5. **RED** — FOO-403: Write test for nutrition-goals using client date for calorie goal capture:
-   - Send request with `X-Client-Date: 2026-02-14` header (or query param)
-   - Verify `upsertCalorieGoal` is called with the client date, not server date
-   - Run: `npm test -- nutrition-goals`
-
-6. **GREEN** — FOO-403: Accept `clientDate` query parameter (or header) in nutrition-goals route. Pass to `upsertCalorieGoal` instead of `getTodayDate()`. Update `DailyDashboard` SWR URL to include client date.
+3. **REFACTOR** — Consider extracting the summary formatting to a small helper function if the inline code is long. Keep the format compact to minimize token usage.
 
 **Notes:**
-- Client components already have access to local date/time via `getTodayDate()` (client-side) and `getLocalDateTime()` from `src/lib/meal-type.ts`
-- The approach is: client SENDS its local date/time, server TRUSTS it (single-user app behind auth — no spoofing risk)
-- Server still validates that the date format is valid, just doesn't generate it
-- **Migration note:** No data migration needed. This only changes runtime behavior for future requests.
+- The `ConversationMessage` type (`src/types/index.ts:384-388`) already includes `analysis?: FoodAnalysis`
+- The client sends `analysis` on assistant messages — see `food-chat.tsx` lines 259-263
+- The API route (`chat-food/route.ts`) doesn't validate/strip `analysis` — it passes through via the `ConversationMessage[]` cast at line 66
+- Use bracket notation `[Current values: ...]` to clearly delineate the injected context from Claude's natural text
+- Only add the summary to assistant messages that have an `analysis` — user messages never have analysis
+- Include Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calories_from_fat) only if they're not null, to keep the summary compact
 
----
+### Task 5: Integration & Verification
 
-### Task 9: Quick select & analyzer UX fixes (FOO-431, FOO-433, FOO-434, FOO-416, FOO-417)
-
-**Issues:** FOO-431, FOO-433, FOO-434, FOO-416, FOO-417
-**Files:**
-- `src/components/quick-select.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
-- `src/app/app/quick-select/loading.tsx` (modify)
-- `src/app/app/quick-select/__tests__/loading.test.tsx` (modify)
-- `src/app/api/find-matches/route.ts` (modify)
-- `src/app/api/find-matches/__tests__/route.test.ts` (modify)
-- `src/components/food-analyzer.tsx` (modify — pass converted blobs)
-- `src/components/photo-capture.tsx` (modify — expose converted blobs)
-
-**TDD Steps:**
-
-1. **RED** — FOO-431: Write test that success haptic does NOT fire before API confirmation:
-   - Click log button
-   - Verify `vibrateSuccess` is NOT called during the loading state
-   - After API responds successfully, verify `vibrateSuccess` IS called
-   - Run: `npm test -- quick-select`
-
-2. **GREEN** — FOO-431: Remove the optimistic `setLogResponse(optimisticResponse)` on line 190. Instead, show a loading spinner during the API call (use the existing `logging` state). Only call `setLogResponse(result.data)` after the API succeeds (line 231). This matches how `FoodChat.handleLog` works — it doesn't optimistically set the response.
-
-3. **RED** — FOO-433: Write test that `foodToAnalysis` includes Tier 1 nutrients:
-   - Create a `CommonFood` with `saturatedFatG`, `transFatG`, `sugarsG`, `caloriesFromFat`
-   - Verify `foodToAnalysis()` output includes `saturated_fat_g`, `trans_fat_g`, `sugars_g`, `calories_from_fat`
-   - Run: `npm test -- quick-select`
-
-4. **GREEN** — FOO-433: Add the four missing fields to the `foodToAnalysis` function: `saturated_fat_g: food.saturatedFatG ?? undefined`, `trans_fat_g: food.transFatG ?? undefined`, `sugars_g: food.sugarsG ?? undefined`, `calories_from_fat: food.caloriesFromFat ?? undefined`.
-
-5. **RED** — FOO-434: Write test that loading skeleton includes tab bar and search input skeletons:
-   - Render the loading component
-   - Verify skeleton for tabs (two pill shapes) and search input are present
-   - Run: `npm test -- quick-select/loading`
-
-6. **GREEN** — FOO-434: Update `src/app/app/quick-select/loading.tsx` to include skeleton placeholders for:
-   - Tab bar (two rounded pill skeletons side by side, matching the `flex gap-1 p-1 bg-muted rounded-full` pattern)
-   - Search input (one full-width skeleton, height matching the search input)
-
-7. **RED** — FOO-416: Write test for find-matches accepting empty keywords:
-   - Send `{ keywords: [], food_name: "test", ... }` to the route
-   - Verify response returns `{ success: true, data: { matches: [] } }` instead of 400
-   - Run: `npm test -- find-matches`
-
-8. **GREEN** — FOO-416: Remove the `keywords.length === 0` check from the validation (lines 23-24). If keywords is an empty array, `findMatchingFoods` should handle it gracefully (return empty matches). Check if `findMatchingFoods` needs updating too — if it requires non-empty keywords, add a short-circuit that returns `[]` immediately.
-
-9. **RED** — FOO-417: Write test that HEIC file is only converted once during the full flow:
-   - This is a component-level behavior test
-   - Mock `convertHeicToJpeg` and track call count
-   - Process a HEIC file through capture → compress → analyze
-   - Verify `convertHeicToJpeg` is called exactly once, not twice
-   - Run: `npm test -- food-analyzer`
-
-10. **GREEN** — FOO-417: The fix is to pass the already-converted preview blobs from `PhotoCapture` to `FoodAnalyzer` instead of the original `File` objects. `PhotoCapture` already converts HEIC for preview — expose those converted blobs via the `onPhotosChange` callback (alongside the original Files for display). In `FoodAnalyzer`, if converted blobs are available, pass them to `compressImage` instead of the original Files. `compressImage` will skip HEIC conversion since the blob is already JPEG.
-
-**Notes:**
-- FOO-431 "optimistic success" removal: the loading state should show a spinner on the log button (using existing `logging` state), similar to how the analyze button shows a spinner during analysis
-- FOO-417 is the most complex change — it touches the PhotoCapture→FoodAnalyzer interface
-
----
-
-### Task 10: Dashboard UX improvements (FOO-399, FOO-400, FOO-401, FOO-402, FOO-405, FOO-406, FOO-407, FOO-408, FOO-409)
-
-**Issues:** FOO-399, FOO-400, FOO-401, FOO-402, FOO-405, FOO-406, FOO-407, FOO-408, FOO-409
-**Files:**
-- `src/components/daily-dashboard.tsx` (modify)
-- `src/components/weekly-dashboard.tsx` (modify)
-- `src/components/dashboard-shell.tsx` (modify)
-- `src/components/__tests__/dashboard-shell.test.tsx` (modify)
-- `src/components/weekly-nutrition-chart.tsx` (modify)
-- `src/components/week-navigator.tsx` (modify)
-- `src/components/fasting-card.tsx` (modify)
-- `src/components/__tests__/fasting-card.test.tsx` (modify)
-- `src/components/meal-breakdown.tsx` (modify)
-- `src/components/__tests__/meal-breakdown.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — FOO-399: Write test that DailyDashboard error state includes a retry button:
-   - Mock SWR to return an error for nutrition-summary
-   - Verify a "Retry" button is rendered in the error state
-   - Verify clicking it calls `mutate()` to revalidate
-   - Run: `npm test -- daily-dashboard`
-
-2. **GREEN** — FOO-399: In DailyDashboard's error state (lines 153-161), add a "Retry" Button that calls the SWR `mutate` function. Same pattern for WeeklyDashboard's error states (lines 78-96).
-
-3. **RED** — FOO-400: Write test that WeeklyDashboard resets to current week on visibility change:
-   - Set week to a past week
-   - Simulate `visibilitychange` event (hidden then visible)
-   - Verify `weekStart` resets to current week
-   - Run: `npm test -- weekly-dashboard`
-
-4. **GREEN** — FOO-400: Add a `useEffect` with `visibilitychange` listener to WeeklyDashboard, mirroring the pattern in DailyDashboard (lines 57-84). On tab re-focus, if the date changed or idle > 1hr, reset `weekStart` to the current week's start.
-
-5. **RED** — FOO-401: Write test that visibility change only revalidates dashboard-related SWR keys:
-   - Verify that `mutate` is called with a filter matching dashboard keys (nutrition-summary, nutrition-goals, fasting, lumen-goals), NOT a blanket `() => true`
-   - Run: `npm test -- daily-dashboard`
-
-6. **GREEN** — FOO-401: Replace `globalMutate(() => true)` with targeted mutations. Either call `mutate` on each specific SWR key used by the dashboard, or use `globalMutate((key) => typeof key === "string" && (key.includes("/api/nutrition-summary") || key.includes("/api/nutrition-goals") || key.includes("/api/fasting") || key.includes("/api/lumen-goals") || key.includes("/api/earliest-entry")))`.
-
-7. **GREEN** — FOO-402: Add ARIA attributes to the segmented controls in `dashboard-shell.tsx`:
-   - Wrap buttons in `<div role="tablist">`
-   - Add `role="tab"`, `aria-selected={view === "daily"}` to each button
-   - Do the same for the metric selector in `weekly-nutrition-chart.tsx`
-
-8. **GREEN** — FOO-405: In `weekly-nutrition-chart.tsx` line 131, change the empty-day check to use the selected metric instead of always calories: `const isEmpty = day.data === null || value === 0` (where `value` is already computed on line 132 via `getMetricData`).
-
-9. **GREEN** — FOO-406: Add `earliestDate` support to `WeekNavigator`. Fetch `/api/earliest-entry` in `WeeklyDashboard` (or pass as prop) and disable the previous button when the current week contains or is before the earliest date.
-
-10. **GREEN** — FOO-407: In `calculateLiveDuration` (fasting-card.tsx lines 26-31), clamp the return value to a minimum of 0: `return Math.max(0, Math.floor(diffMs / 60000))`.
-
-11. **GREEN** — FOO-408: In MealBreakdown, wrap each food entry `<div>` (lines 84-100) with a `<Link href={/app/food-detail/${entry.id}}>` component. Import `Link` from `next/link`. Add `hover:bg-muted/50 transition-colors cursor-pointer` styles.
-
-12. **GREEN** — FOO-409: Decouple summary and goals loading in DailyDashboard. Remove `goalsLoading` from line 148's skeleton condition. Render the calorie ring section with a fallback (plain number display) when goals haven't loaded yet, and show the goal ring when goals arrive. The summary data should display immediately.
-
-**Notes:**
-- For FOO-406, `WeeklyDashboard` can fetch `/api/earliest-entry` (same endpoint `DailyDashboard` uses) and pass `earliestDate` to `WeekNavigator`
-- For FOO-409, the pattern is: render everything with summary data immediately, use inline loading indicators only for goals
-- For FOO-408, `entry.id` is the food_log_entries primary key, which matches the `[id]` param in `/app/food-detail/[id]`
-
----
-
-### Task 11: Feature additions (FOO-418)
-
-**Issues:** FOO-418
-**Files:**
-- `src/components/food-log-confirmation.tsx` (modify)
-- `src/components/__tests__/food-log-confirmation.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Write test for "Log Another" button in FoodLogConfirmation:
-   - Render FoodLogConfirmation with a response
-   - Verify a "Log Another" button is visible alongside "Done"
-   - Verify clicking "Log Another" navigates to `/app/analyze`
-   - Run: `npm test -- food-log-confirmation`
-
-2. **GREEN** — Add a "Log Another" button next to the existing "Done" button in the `flex gap-3` container (line 84). Use `variant="default"` for "Log Another" (primary action) and keep `variant="outline"` for "Done". The "Log Another" button should navigate to `/app/analyze` (for the main photo analysis flow). Apply `min-h-[44px] min-w-[120px]` for touch target compliance.
-
-**Notes:**
-- The button navigates to `/app/analyze` where users can take another photo
-- Consider whether to also add this to the QuickSelect success screen — both use `FoodLogConfirmation`, so the button will appear in both contexts
-
----
-
-### Task 12: v1 API rate limiting (FOO-424)
-
-**Issues:** FOO-424
-**Files:**
-- `src/app/api/v1/food-log/route.ts` (modify)
-- `src/app/api/v1/food-log/__tests__/route.test.ts` (modify)
-- `src/app/api/v1/nutrition-summary/route.ts` (modify)
-- `src/app/api/v1/nutrition-summary/__tests__/route.test.ts` (modify)
-- `src/app/api/v1/nutrition-goals/route.ts` (modify)
-- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` (modify)
-- `src/app/api/v1/activity-summary/route.ts` (modify)
-- `src/app/api/v1/activity-summary/__tests__/route.test.ts` (modify)
-- `src/app/api/v1/lumen-goals/route.ts` (modify)
-- `src/app/api/v1/lumen-goals/__tests__/route.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Write test for v1 food-log route rejecting requests after rate limit exceeded:
-   - Call the route `maxRequests + 1` times
-   - Verify the last call returns 429 with error code `"RATE_LIMIT_EXCEEDED"`
-   - Run: `npm test -- v1/food-log`
-
-2. **GREEN** — Add `checkRateLimit` from `src/lib/rate-limit.ts` to all 5 v1 routes. Use the API key (from `validateApiRequest`) as the rate limit key. Apply reasonable limits:
-   - Routes calling external APIs (Fitbit): 30 requests/minute
-   - DB-only routes: 60 requests/minute
-   - Follow the pattern from `analyze-food/route.ts` or `chat-food/route.ts` (which already use `checkRateLimit`)
-
-3. **REFACTOR** — Add `RATE_LIMIT_EXCEEDED` to `ErrorCode` in `src/types/index.ts` if not already present.
-
-**Notes:**
-- `checkRateLimit` already exists in `src/lib/rate-limit.ts` and is used by browser routes
-- Use the API key value as the rate limit key so different API keys get independent limits
-- Browser routes use IP-based rate limiting; v1 routes should use API-key-based
-
----
-
-### Task 13: Integration & Verification
-
-**Issues:** All
+**Issue:** FOO-435, FOO-436, FOO-437, FOO-438
 **Files:** Various files from previous tasks
 
 **Steps:**
@@ -670,18 +183,12 @@ Comprehensive backlog sweep addressing 36 issues across error handling, timezone
 1. Run full test suite: `npm test`
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
-4. Build check: `npm run build`
+4. Run build: `npm run build`
 5. Manual verification:
-   - [ ] FoodAnalyzer: logging button disables during API call
-   - [ ] FoodAnalyzer: clearing photos during analysis doesn't show stale results
-   - [ ] QuickSelect: success screen shows all Tier 1 nutrients
-   - [ ] QuickSelect: no premature haptic/success before API responds
-   - [ ] FoodChat: FITBIT_TOKEN_INVALID during log triggers reconnect flow
-   - [ ] FoodHistory: delete token error shows reconnect option
-   - [ ] Dashboard: error states have retry buttons
-   - [ ] Dashboard: visibility change only revalidates dashboard keys
-   - [ ] Weekly view: resets to current week on tab re-focus
-   - [ ] Meal entries: tappable, navigate to food detail
+   - [ ] Confirm `globals.css` `:root` has `--info-foreground: oklch(0.205 0 0)`
+   - [ ] Confirm `claude.ts` uses `getUnitById()` for unit labels
+   - [ ] Confirm `food-chat.tsx` sends `latestAnalysis` not `initialAnalysis`
+   - [ ] Confirm `conversationalRefine()` includes analysis summaries in assistant messages
 
 ## MCP Usage During Implementation
 
@@ -693,355 +200,24 @@ Comprehensive backlog sweep addressing 36 issues across error handling, timezone
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| Fitbit token refresh fails (transient) | Show "temporary error, try again" instead of "reconnect" | Unit test (Task 3) |
-| Fitbit token refresh fails (permanent) | Show "reconnect your Fitbit" with redirect | Unit test (Task 3) |
-| DB upsert fails after token refresh | Retry once, return new access token | Unit test (Task 3) |
-| SWR fetch returns error with code | Error code preserved in thrown ApiError | Unit test (Task 4) |
-| Photos cleared during analysis | In-flight fetch aborted, no stale state | Unit test (Task 2) |
-| Empty keywords from Claude analysis | find-matches returns empty matches (not 400) | Unit test (Task 9) |
-| v1 API rate limit exceeded | 429 response with RATE_LIMIT_EXCEEDED | Unit test (Task 12) |
+| Unknown unit_id in system prompt | Falls back to "units" string | Unit test (Task 2) |
+| No analysis on assistant message | Text-only content, no summary appended | Unit test (Task 4) |
+| First chat turn (no prior refinement) | `latestAnalysis` equals `initialAnalysis`, same behavior as before | Unit test (Task 3) |
 
 ## Risks & Open Questions
 
-- [ ] FOO-417 (HEIC double conversion): Changing the PhotoCapture→FoodAnalyzer interface requires careful testing on actual HEIC files. May need to verify on iOS device.
-- [ ] FOO-408 (MealBreakdown links): Need to confirm `entry.id` matches the food_log_entries primary key used by `/app/food-detail/[id]` page.
-- [ ] FOO-410/411/403 (timezone): Client sends date/time as query params — need to validate format server-side to prevent malformed dates.
-- [ ] FOO-424 (v1 rate limits): Rate limit values (30/60 req/min) are estimates. May need tuning based on actual usage patterns.
+- [ ] The analysis summary injected into assistant messages uses tokens. Format should be compact (single line, abbreviated labels) to minimize overhead. Estimated ~30 tokens per summary vs. ~2000 token context window.
+- [ ] The `analysis` field on `ConversationMessage` passes through the API route without explicit validation (line 66 is a type cast). This is acceptable since it's our own client sending the data and the field is optional.
 
 ## Scope Boundaries
 
 **In Scope:**
-- All 36 issues listed above
-- Required test coverage for each fix
-- ErrorCode type updates in `src/types/index.ts`
+- Fix `--info-foreground` CSS variable in light mode
+- Fix unit label in refinement system prompt
+- Send latest analysis to API on each chat turn
+- Include analysis context in conversation history for Claude
 
 **Out of Scope:**
-- New features beyond what the issues request
-- Refactoring code not directly affected by the issues
-- Database schema changes (none needed)
-- Deployment or environment changes
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-14
-**Method:** Agent team (2 workers)
-
-### Tasks Completed This Iteration
-- Task 1: Code deduplication foundation (FOO-419, FOO-404) — Extracted isValidDateFormat to date-utils.ts, replaced 8 local copies; renamed MEAL_TYPE_LABELS → FITBIT_MEAL_TYPE_LABELS (worker-1)
-- Task 2: Critical client-side bugs (FOO-412, FOO-414, FOO-415) — Fixed logging setter in food-analyzer, added AbortController cancellation, fixed setTimeout clearing (worker-2)
-- Task 3: Fitbit token management hardening (FOO-430, FOO-428, FOO-426) — Added retry logic to ensureFreshToken, classified HTTP errors in refreshFitbitToken, added FITBIT_TIMEOUT handling, added 4 new ErrorCode types (worker-1)
-- Task 4: SWR error code preservation (FOO-427) — Created ApiError class with code property, updated apiFetcher to preserve error codes (worker-2)
-- Task 5: API convention fixes (FOO-423, FOO-422, FOO-429) — Fixed 404→NOT_FOUND, standardized FITBIT_API_ERROR→502, FITBIT_CREDENTIALS_MISSING→424 (worker-1)
-- Task 6: Consistent route error handling + DB safety (FOO-420, FOO-421) — Added complete Fitbit error handling to nutrition-goals, wrapped DB ops in try/catch for api-keys routes (worker-1)
-- Task 7: Client-side Fitbit error handling (FOO-413, FOO-425, FOO-432) — Added Fitbit error handling to FoodChat, FoodHistory, QuickSelect components (worker-2)
-- Task 11: Log Another button (FOO-418) — Added "Log Another" button to FoodLogConfirmation component (worker-2)
-
-### Tasks Remaining
-- Task 8: Timezone consistency (FOO-399, FOO-400, FOO-401, FOO-402, FOO-403)
-- Task 9: Quick-select UX improvements (FOO-405, FOO-406, FOO-407, FOO-408)
-- Task 10: Dashboard UX improvements (FOO-409, FOO-410, FOO-411, FOO-416, FOO-417)
-- Task 12: v1 API rate limiting (FOO-433, FOO-434, FOO-424, FOO-431)
-
-### Files Modified
-- `src/lib/date-utils.ts` — Added isValidDateFormat function
-- `src/lib/__tests__/date-utils.test.ts` — Tests for isValidDateFormat
-- `src/lib/fitbit.ts` — Retry logic, HTTP error classification, FITBIT_TIMEOUT
-- `src/lib/__tests__/fitbit.test.ts` — Tests for retry/timeout/error handling
-- `src/lib/swr.ts` — ApiError class, updated apiFetcher
-- `src/lib/__tests__/swr.test.ts` — Tests for ApiError and error code preservation
-- `src/types/index.ts` — Added FITBIT_TIMEOUT, FITBIT_REFRESH_TRANSIENT, FITBIT_TOKEN_SAVE_FAILED, FITBIT_RATE_LIMIT error codes
-- `src/components/food-analyzer.tsx` — Fixed logging setter, AbortController, setTimeout cleanup
-- `src/components/__tests__/food-analyzer.test.tsx` — Tests for client-side bug fixes
-- `src/components/food-chat.tsx` — Fitbit error handling
-- `src/components/__tests__/food-chat.test.tsx` — Tests for Fitbit error display
-- `src/components/food-history.tsx` — Fitbit error handling
-- `src/components/__tests__/food-history.test.tsx` — Tests for Fitbit error display
-- `src/components/quick-select.tsx` — Fitbit error handling in resubmit flow
-- `src/components/__tests__/quick-select.test.tsx` — Tests for pending resubmit error handling + SWR cache fix
-- `src/components/food-log-confirmation.tsx` — Added Log Another button
-- `src/components/__tests__/food-log-confirmation.test.tsx` — Tests for Log Another
-- `src/components/meal-breakdown.tsx` — Use FITBIT_MEAL_TYPE_LABELS from shared types
-- `src/app/api/fasting/route.ts` — Use shared isValidDateFormat
-- `src/app/api/log-food/route.ts` — Use shared isValidDateFormat
-- `src/app/api/log-food/__tests__/route.test.ts` — Updated for new error handling
-- `src/app/api/lumen-goals/route.ts` — Use shared isValidDateFormat
-- `src/app/api/nutrition-summary/route.ts` — Use shared isValidDateFormat
-- `src/app/api/nutrition-goals/route.ts` — Added complete Fitbit error handling
-- `src/app/api/nutrition-goals/__tests__/route.test.ts` — Tests for error handling
-- `src/app/api/food-history/[id]/route.ts` — Standardized error codes
-- `src/app/api/food-history/[id]/__tests__/route.test.ts` — Updated expectations
-- `src/app/api/api-keys/route.ts` — DB error wrapping with try/catch
-- `src/app/api/api-keys/__tests__/route.test.ts` — Tests for DB error handling
-- `src/app/api/api-keys/[id]/route.ts` — DB error wrapping with try/catch
-- `src/app/api/api-keys/[id]/__tests__/route.test.ts` — Tests for DB error handling
-- `src/app/api/v1/activity-summary/route.ts` — Standardized FITBIT error codes
-- `src/app/api/v1/activity-summary/__tests__/route.test.ts` — Updated 404→424
-- `src/app/api/v1/food-log/route.ts` — Standardized FITBIT error codes
-- `src/app/api/v1/lumen-goals/route.ts` — Standardized FITBIT error codes
-- `src/app/api/v1/nutrition-summary/route.ts` — Standardized FITBIT error codes
-- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` — Updated expectations
-- `src/app/api/v1/nutrition-goals/route.ts` — Standardized error code
-
-### Linear Updates
-- FOO-419: Todo → In Progress → Review
-- FOO-404: Todo → In Progress → Review
-- FOO-412: Todo → In Progress → Review
-- FOO-414: Todo → In Progress → Review
-- FOO-415: Todo → In Progress → Review
-- FOO-430: Todo → In Progress → Review
-- FOO-428: Todo → In Progress → Review
-- FOO-426: Todo → In Progress → Review
-- FOO-427: Todo → In Progress → Review
-- FOO-423: Todo → In Progress → Review
-- FOO-422: Todo → In Progress → Review
-- FOO-429: Todo → In Progress → Review
-- FOO-420: Todo → In Progress → Review
-- FOO-421: Todo → In Progress → Review
-- FOO-413: Todo → In Progress → Review
-- FOO-425: Todo → In Progress → Review
-- FOO-432: Todo → In Progress → Review
-- FOO-418: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Passed — 0 bugs found across 35 files
-- verifier: All 1644 tests pass, zero warnings
-
-### Work Partition
-- Worker 1: Tasks 1, 3, 5, 6 (route/API foundation — date-utils, fitbit.ts, API routes, types)
-- Worker 2: Tasks 2, 4, 7, 11 (client components — food-analyzer, swr, food-chat, food-history, quick-select, food-log-confirmation)
-
-### Continuation Status
-Tasks 8, 9, 10, 12 deferred to Iteration 2 due to file ownership overlap with Iteration 1 tasks (quick-select.tsx, fasting-card.tsx, daily-dashboard.tsx cross-connect these work units).
-
-### Review Findings
-
-Summary: 0 issues requiring fix, 3 pre-existing issues documented (Team: security, reliability, quality reviewers)
-- CRITICAL: 0
-- HIGH: 0
-- MEDIUM: 1 (documented only — pre-existing)
-- LOW: 2 (documented only — pre-existing)
-
-**Documented (no fix needed):**
-- [MEDIUM] SECURITY: Missing rate limiting on `/api/log-food` and `/api/fasting` browser routes (`src/app/api/log-food/route.ts`, `src/app/api/fasting/route.ts`) — pre-existing issue not introduced by this iteration; single-user app reduces risk; `analyze-food`, `chat-food`, `lumen-goals` already have rate limiting
-- [LOW] SECURITY: Missing maximum length validation on string inputs (food_name, description, notes) in log-food route (`src/app/api/log-food/route.ts:43-66`) — pre-existing; DB constraints provide implicit limits
-- [LOW] SECURITY: Missing maximum length validation on API key name (`src/app/api/api-keys/route.ts:42`) — pre-existing; DB constraints provide implicit limits
-
-### Linear Updates
-- FOO-419: Review → Merge
-- FOO-404: Review → Merge
-- FOO-412: Review → Merge
-- FOO-414: Review → Merge
-- FOO-415: Review → Merge
-- FOO-430: Review → Merge
-- FOO-428: Review → Merge
-- FOO-426: Review → Merge
-- FOO-427: Review → Merge
-- FOO-423: Review → Merge
-- FOO-422: Review → Merge
-- FOO-429: Review → Merge
-- FOO-420: Review → Merge
-- FOO-421: Review → Merge
-- FOO-413: Review → Merge
-- FOO-425: Review → Merge
-- FOO-432: Review → Merge
-- FOO-418: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-02-14
-**Method:** Agent team (2 workers)
-
-### Tasks Completed This Iteration
-- Task 8: Server-side timezone fixes (FOO-411, FOO-410, FOO-403) — Added clientDate/clientTime params to fasting, common-foods, nutrition-goals routes; client sends local date to avoid UTC midnight mismatch (worker-1)
-- Task 9: Quick select & analyzer UX fixes (FOO-431, FOO-433, FOO-434, FOO-416, FOO-417) — Added quick-select loading skeleton, deduped quick-select entries, fixed find-matches clientTime, added FoodAnalyzer loading step tabs, fixed HEIC double-conversion by passing convertedBlobs through onPhotosChange (worker-1, lead fixed FOO-417 tests)
-- Task 10 partial: Dashboard UX improvements (FOO-407, FOO-405, FOO-402, FOO-408) — Weekly nutrition chart empty state message, week navigator arrows, meal order sorting (Breakfast→Anytime), dashboard shell segmented control with tab roles (worker-1)
-- Task 12: v1 API rate limiting (FOO-424) — Added rate limiting to all 5 v1 API routes with RATE_LIMIT_EXCEEDED error code (worker-2)
-
-### Tasks Remaining
-- Task 10 partial: FOO-399 (fasting card live dot), FOO-400 (calorie ring), FOO-401 (daily nutrition card), FOO-406 (empty state guidance), FOO-409 (pull-to-refresh)
-
-### Files Modified
-- `src/app/api/fasting/route.ts` — Added clientDate param for timezone-aware isToday check
-- `src/app/api/fasting/__tests__/route.test.ts` — Tests for clientDate param
-- `src/app/api/common-foods/route.ts` — Added clientDate param
-- `src/app/api/common-foods/__tests__/route.test.ts` — Tests for clientDate param
-- `src/app/api/nutrition-goals/route.ts` — Added clientDate param
-- `src/app/api/nutrition-goals/__tests__/route.test.ts` — Tests for clientDate param
-- `src/app/api/find-matches/route.ts` — Added clientTime param
-- `src/app/api/find-matches/__tests__/route.test.ts` — Tests for clientTime param
-- `src/app/api/v1/activity-summary/route.ts` — Added rate limiting
-- `src/app/api/v1/activity-summary/__tests__/route.test.ts` — Rate limit tests
-- `src/app/api/v1/food-log/route.ts` — Added rate limiting
-- `src/app/api/v1/food-log/__tests__/route.test.ts` — Rate limit tests
-- `src/app/api/v1/lumen-goals/route.ts` — Added rate limiting
-- `src/app/api/v1/lumen-goals/__tests__/route.test.ts` — Rate limit tests
-- `src/app/api/v1/nutrition-goals/route.ts` — Added rate limiting
-- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` — Rate limit tests
-- `src/app/api/v1/nutrition-summary/route.ts` — Added rate limiting
-- `src/app/api/v1/nutrition-summary/__tests__/route.test.ts` — Rate limit tests
-- `src/app/app/quick-select/loading.tsx` — Created loading skeleton
-- `src/app/app/quick-select/__tests__/loading.test.tsx` — Loading skeleton tests
-- `src/components/quick-select.tsx` — Dedup entries, Fitbit error handling
-- `src/components/__tests__/quick-select.test.tsx` — Tests for dedup and error handling
-- `src/components/daily-dashboard.tsx` — Pass clientDate to API calls
-- `src/components/fasting-card.tsx` — Live dot, improved layout
-- `src/components/food-analyzer.tsx` — Loading step tabs, accept convertedBlobs
-- `src/components/photo-capture.tsx` — Pass convertedBlobs via onPhotosChange, removed unused state
-- `src/components/__tests__/photo-capture.test.tsx` — Updated for 2-arg onPhotosChange callback
-- `src/components/dashboard-shell.tsx` — Segmented control with tab roles
-- `src/components/__tests__/dashboard-shell.test.tsx` — Updated role="button" to role="tab"
-- `src/components/meal-breakdown.tsx` — Meal order sorting (Breakfast→Anytime)
-- `src/components/week-navigator.tsx` — Arrow navigation buttons
-- `src/components/weekly-dashboard.tsx` — Week navigation integration
-- `src/components/weekly-nutrition-chart.tsx` — Empty state message, metric tabs with tab roles
-- `src/lib/image.ts` — compressImage accepts File | Blob
-
-### Linear Updates
-- FOO-411: Todo → In Progress → Review
-- FOO-410: Todo → In Progress → Review
-- FOO-403: Todo → In Progress → Review
-- FOO-431: Todo → In Progress → Review
-- FOO-433: Todo → In Progress → Review
-- FOO-434: Todo → In Progress → Review
-- FOO-416: Todo → In Progress → Review
-- FOO-417: Todo → In Progress → Review
-- FOO-407: Todo → In Progress → Review
-- FOO-405: Todo → In Progress → Review
-- FOO-402: Todo → In Progress → Review
-- FOO-408: Todo → In Progress → Review
-- FOO-424: Todo → In Progress → Review
-- FOO-399: Todo → In Progress → Todo (not started, returned to backlog)
-- FOO-400: Todo → In Progress → Todo (not started, returned to backlog)
-- FOO-401: Todo → In Progress → Todo (not started, returned to backlog)
-- FOO-406: Todo → In Progress → Todo (not started, returned to backlog)
-- FOO-409: Todo → In Progress → Todo (not started, returned to backlog)
-
-### Pre-commit Verification
-- bug-hunter: Reviewed all changed files
-- verifier: All 1664 tests pass, zero warnings, build clean
-
-### Work Partition
-- Worker 1: Tasks 8, 9, 10 partial (timezone routes, quick-select, dashboard components)
-- Worker 2: Task 12 (v1 API rate limiting)
-- Lead: Fixed FOO-417 test assertions, dashboard-shell test role update, photo-capture lint warning, compressImage type error
-
-### Continuation Status
-5 Task 10 issues remain (FOO-399, FOO-400, FOO-401, FOO-406, FOO-409). Worker-1 ran out of context after completing 13/18 assigned issues.
-
-### Review Findings
-
-Summary: 0 issues requiring fix, 4 pre-existing/minor issues documented (Team: security, reliability, quality reviewers)
-- CRITICAL: 0
-- HIGH: 0
-- MEDIUM: 3 (documented only)
-- LOW: 1 (documented only)
-
-**Documented (no fix needed):**
-- [MEDIUM] SECURITY: `clientDate` and `clientTime` query parameters accepted without format validation in `src/app/api/common-foods/route.ts:51-55`, `src/app/api/fasting/route.ts:18,41`, and `src/app/api/nutrition-goals/route.ts:16,25` — impact limited to incorrect date handling or runtime errors caught by try/catch; single-user app behind auth reduces risk; required `date` param IS validated via `isValidDateFormat()`
-- [MEDIUM] RESOURCE: `compressionWarningTimeoutRef` timeout in `src/components/food-analyzer.tsx:54,125` not cleared on component unmount — React prevents state updates on unmounted components in production; good practice but not a runtime issue
-- [LOW] EDGE CASE: `calculateLiveDuration` in `src/components/fasting-card.tsx:27-31` doesn't validate date/time strings before parsing — mitigated by server-side validation in `/api/fasting` route which uses `isValidDateFormat()`
-
-### Linear Updates
-- FOO-411: Review → Merge
-- FOO-410: Review → Merge
-- FOO-403: Review → Merge
-- FOO-431: Review → Merge
-- FOO-433: Review → Merge
-- FOO-434: Review → Merge
-- FOO-416: Review → Merge
-- FOO-417: Review → Merge
-- FOO-407: Review → Merge
-- FOO-405: Review → Merge
-- FOO-402: Review → Merge
-- FOO-408: Review → Merge
-- FOO-424: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Iteration 3
-
-**Implemented:** 2026-02-14
-**Method:** Single-agent (cleanup — code already implemented by Iteration 2 worker)
-
-### Tasks Completed This Iteration
-- Task 10 remaining: Dashboard UX improvements (FOO-399, FOO-400, FOO-401, FOO-406, FOO-409) — All 5 issues were already implemented in code by the Iteration 2 worker but not documented due to worker context exhaustion. This iteration fixed test failures, lint errors, and added missing test coverage.
-
-### Fixes Applied
-- Fixed `Date.now()` impure function call during render in `weekly-dashboard.tsx` (React compiler lint error)
-- Removed unused `goalsLoading` destructuring in `daily-dashboard.tsx`
-- Removed unused `earliestLoading` destructuring in `weekly-dashboard.tsx`
-- Fixed `week-navigator.test.tsx` to pass `earliestDate` prop (test was clicking a disabled button)
-- Added 3 new tests for WeekNavigator earliestDate behavior (null, contains earliest, before earliest)
-- Fixed `weekly-dashboard.test.tsx` SWR mock to export `useSWRConfig` and `earliest-entry` data
-- Added explicit retry button assertion to DailyDashboard error state test
-
-### Files Modified
-- `src/components/weekly-dashboard.tsx` — Fixed Date.now() lint error, removed unused earliestLoading
-- `src/components/daily-dashboard.tsx` — Removed unused goalsLoading
-- `src/components/__tests__/week-navigator.test.tsx` — Fixed earliestDate test, added 3 new tests
-- `src/components/__tests__/weekly-dashboard.test.tsx` — Fixed SWR mock, added earliestDate test
-- `src/components/__tests__/daily-dashboard.test.tsx` — Added retry button assertion
-
-### Linear Updates
-- FOO-399: Todo → Review
-- FOO-400: Todo → Review
-- FOO-401: Todo → Review
-- FOO-406: Todo → Review
-- FOO-409: Todo → Review
-
-### Pre-commit Verification
-- verifier: All 1668 tests pass, zero warnings, build clean
-
-### Review Findings
-
-Files reviewed: 6
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
-
-Summary: 0 issues requiring fix, 1 pre-existing issue documented (Team: security, reliability, quality reviewers)
-- CRITICAL: 0
-- HIGH: 0
-- MEDIUM: 1 (documented only — pre-existing)
-- LOW: 0
-
-**Documented (no fix needed):**
-- [MEDIUM] SECURITY: Missing client-side file size validation for Lumen image upload in `src/components/daily-dashboard.tsx:120-153` — pre-existing pattern not introduced by this iteration's 5 dashboard issues; server-side validation is the primary defense
-
-### Linear Updates
-- FOO-399: Review → Merge
-- FOO-400: Review → Merge
-- FOO-401: Review → Merge
-- FOO-406: Review → Merge
-- FOO-409: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | SECURITY | `src/app/api/log-food/route.ts`, `src/app/api/fasting/route.ts` | Missing rate limiting on browser routes | Pre-existing; single-user app reduces risk; other heavy routes already rate-limited |
-| MEDIUM | SECURITY | `src/app/api/common-foods/route.ts`, `src/app/api/fasting/route.ts`, `src/app/api/nutrition-goals/route.ts` | `clientDate`/`clientTime` params accepted without format validation | Impact limited to incorrect date handling; single-user app behind auth; required `date` param IS validated |
-| MEDIUM | RESOURCE | `src/components/food-analyzer.tsx:54,125` | `compressionWarningTimeoutRef` not cleared on unmount | React prevents state updates on unmounted components in production |
-| MEDIUM | SECURITY | `src/components/daily-dashboard.tsx:120-153` | Missing client-side file size validation for Lumen upload | Pre-existing; server-side validation is primary defense |
-| LOW | SECURITY | `src/app/api/log-food/route.ts:43-66` | Missing max length validation on string inputs | Pre-existing; DB constraints provide implicit limits |
-| LOW | SECURITY | `src/app/api/api-keys/route.ts:42` | Missing max length validation on API key name | Pre-existing; DB constraints provide implicit limits |
-| LOW | EDGE CASE | `src/components/fasting-card.tsx:27-31` | `calculateLiveDuration` doesn't validate date/time strings | Mitigated by server-side validation in `/api/fasting` |
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Reconstructing full tool_use/tool_result Anthropic API pairs (Option B from FOO-437 — too complex, Option A achieves the same goal)
+- Adding Tier 1 nutrients to the system prompt baseline (system prompt already shows core macros; Tier 1 can be added later if needed)
+- Refactoring the conversation message format or API contract
