@@ -8,7 +8,7 @@
 | [Contextual Memory from Food History](#contextual-memory) | Claude queries past food logs during chat |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
-| [E2E Testing with Playwright](#e2e-testing-with-playwright) | Browser-based testing with test auth bypass and visual verification |
+| [CI/CD Pipeline](#cicd-pipeline) | Automated test, build, and E2E runs in GitHub Actions |
 
 ---
 
@@ -271,67 +271,53 @@ User picks in Settings:
 
 ---
 
-## E2E Testing with Playwright
+## CI/CD Pipeline
 
 ### Problem
 
-All tests run against jsdom, a simulated DOM. There's no way to verify the app in a real browser — OAuth flows, client-side hydration, page navigation, and visual layout are untested. Bugs that only manifest in a real browser go undetected until manual testing.
+No automated test or build pipeline exists. Unit tests (`npm test`), type checking (`npm run typecheck`), linting (`npm run lint`), and E2E tests (once Playwright is set up) only run locally. Regressions can be merged without any automated gate.
+
+### Prerequisites
+
+E2E Testing with Playwright (FOO-439 through FOO-443) — the E2E tests must exist before CI can run them.
 
 ### Goal
 
-Run automated tests in a real browser against the running app with test data, including visual verification via screenshots.
+Automated GitHub Actions workflow that runs unit tests, type checking, linting, build verification, and E2E tests on every push and PR.
 
 ### Design
 
-#### Test Auth Bypass
+#### Workflow Triggers
 
-- A test-only login route (`/api/auth/test-login`) creates a real iron-session for a test user, bypassing Google OAuth.
-- The route only exists when `NODE_ENV=test`. Next.js tree-shakes it from production builds.
-- Playwright's `globalSetup` hits this route to get an authenticated session cookie, shared across all tests.
+- On push to `main` and `release` branches
+- On pull request targeting `main`
 
-#### Fitbit Dry-Run
+#### Jobs
 
-- E2E tests run with `FITBIT_DRY_RUN=true` (same as staging). No real Fitbit API calls.
-
-#### Test Data Seeding
-
-- A seed script populates the Docker Postgres with a test user, sample food entries, custom foods, and nutrition history.
-- Runs in `globalSetup` before tests, tears down in `globalTeardown`.
-- Tests can also seed per-test data via API calls or direct DB access.
-
-#### Screenshot Verification
-
-- Playwright captures screenshots at key points (pages, modals, error states).
-- Screenshots saved to a known directory for visual review and diffing.
-
-#### Dev Server Management
-
-- Playwright config starts the dev server (`npm run dev`) automatically before tests and stops it after.
-- Uses the Docker Postgres database with test-specific seed data.
+1. **Lint + Typecheck** — `npm run lint` and `npm run typecheck` (fast, no DB needed)
+2. **Unit Tests** — `npm test` (jsdom, no DB needed)
+3. **Build** — `npm run build` (catches build errors)
+4. **E2E Tests** — Postgres service container, `ENABLE_TEST_AUTH=true`, `FITBIT_DRY_RUN=true`, production build, `npx playwright test`
 
 ### Architecture
 
-- **Playwright config:** `playwright.config.ts` with `webServer` directive for auto-starting the dev server.
-- **Auth fixture:** A Playwright fixture that handles test login and provides an authenticated `page` to all tests.
-- **Seed utilities:** Functions in `e2e/fixtures/` that insert/clean test data via Drizzle (direct DB access).
-- **Test files:** `e2e/` directory at project root (separate from unit tests in `src/`).
-- **CI:** Playwright runs in GitHub Actions with a Postgres service container.
+- **GitHub Actions** workflow file at `.github/workflows/ci.yml`
+- **Postgres service container** for E2E job (matches Docker Compose config: Postgres 17 Alpine)
+- **Playwright browsers** cached between runs
+- **Parallel jobs** where possible (lint/typecheck + unit tests can run concurrently)
 
 ### Edge Cases
 
-- Dev server port conflict → Playwright config uses a dedicated port (e.g., 3001).
-- Test data leaks between tests → each test suite seeds and cleans its own data within a transaction or truncation.
-- Slow dev server startup → Playwright `webServer.timeout` set generously; consider `npm run build && npm start` for faster test runs.
+- Flaky E2E tests → retry configuration in Playwright config (`retries: 1` in CI)
+- Long build times → consider caching `node_modules` and `.next` build cache
+- Secrets needed → `ANTHROPIC_API_KEY` not needed (Claude is mocked in E2E), only `SESSION_SECRET` and DB connection string
 
 ### Implementation Order
 
-1. Install Playwright and configure `playwright.config.ts` with `webServer`
-2. Test-only login route (`/api/auth/test-login`, gated on `NODE_ENV=test`)
-3. Auth fixture (login + cookie reuse across tests)
-4. Test data seed/teardown utilities
-5. First smoke tests: landing page, login, main dashboard, food history
-6. Screenshot capture at key screens
-7. CI integration (GitHub Actions with Postgres service)
+1. GitHub Actions workflow with lint + typecheck + unit tests + build
+2. Add E2E job with Postgres service container
+3. Playwright browser caching
+4. Branch protection rules requiring CI pass
 
 ---
 
