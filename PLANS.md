@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Branch:** feat/FOO-382-chat-ux-polish
 **Issues:** FOO-382, FOO-385, FOO-386, FOO-388, FOO-389, FOO-390, FOO-391, FOO-392, FOO-394, FOO-397, FOO-398, FOO-381
 **Created:** 2026-02-14
@@ -545,3 +545,48 @@ Polish the chat refinement UX in `food-chat.tsx` — fix bugs (wrong unit labels
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Files reviewed: 5
+Reviewers: security, reliability, quality (agent team)
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+
+**Documented (no fix needed):**
+- [MEDIUM] RACE CONDITION: `handleFileSelected` has theoretical race condition with concurrent calls (`src/components/food-chat.tsx:146-181`) — mitigated by UI guards: plus button is disabled during compression (`compressing` state), and file pickers are modal
+- [MEDIUM] SECURITY: No client-side validation that total images (initial + pending) doesn't exceed 9-image limit (`src/components/food-chat.tsx:229-238`) — enforced server-side by API route
+- [MEDIUM] TYPE: API responses type-cast without runtime validation of `data` shape (`src/components/food-chat.tsx:247,295`) — defensive checks on `result.success` and `result.data` presence exist
+
+### Linear Updates
+- FOO-382: Review → Merge
+- FOO-385: Review → Merge
+- FOO-386: Review → Merge
+- FOO-388: Review → Merge
+- FOO-389: Review → Merge
+- FOO-390: Review → Merge
+- FOO-391: Review → Merge
+- FOO-392: Review → Merge
+- FOO-394: Review → Merge
+- FOO-397: Review → Merge
+- FOO-398: Review → Merge
+- FOO-381: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Skipped Findings Summary
+
+Findings documented but not fixed across all review iterations:
+
+| Severity | Category | File | Finding | Rationale |
+|----------|----------|------|---------|-----------|
+| MEDIUM | RACE CONDITION | `src/components/food-chat.tsx:146-181` | Concurrent handleFileSelected calls could cause images in wrong message | Plus button disabled during compression; file pickers are modal — not triggerable via UI |
+| MEDIUM | SECURITY | `src/components/food-chat.tsx:229-238` | Total image count not validated against 9-image limit client-side | Enforced server-side by API route; client-side is defense-in-depth |
+| MEDIUM | TYPE | `src/components/food-chat.tsx:247,295` | API response data shape not runtime-validated after type cast | Defensive checks on success/data presence exist; full schema validation is over-engineering for single-user app |
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
