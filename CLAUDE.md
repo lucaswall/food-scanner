@@ -68,6 +68,8 @@ Two test suites with different purposes and runtimes:
 
 **E2E tests do NOT run in:** plan-implement (workers use unit tests for TDD), code-audit, bug-hunter, or any planning skill.
 
+**Concurrency rule:** Team workers must ONLY use verifier in TDD mode (`verifier "pattern"`). Full verification (`verifier` with no args) and E2E tests (`verifier "e2e"`) are lead-only. Concurrent runs corrupt shared resources (`.next/` build dir, port 3001, database state).
+
 ---
 
 ## STYLE (deviations from defaults only)

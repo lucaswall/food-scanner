@@ -136,7 +136,7 @@ RULES:
 - Follow TDD strictly: write test → run test (expect fail) → implement → run test (expect pass)
 - Never modify files outside your ownership list
 - Read CLAUDE.md for project conventions before starting
-- Use the verifier agent (Task tool with subagent_type "verifier") after each task to confirm tests pass
+- Run tests using the verifier agent in TDD mode ONLY: Task tool with subagent_type "verifier" and prompt set to your test file pattern (e.g., "session" or "src/lib/__tests__/session.test.ts"). NEVER run verifier without a test pattern. NEVER run verifier with "e2e". Only the lead runs full verification and E2E tests.
 - Report progress to the lead after completing each task
 - Report the FINAL summary to the lead when ALL your tasks are done
 - Do NOT attempt to update Linear issues — the lead handles all Linear state transitions
@@ -147,9 +147,9 @@ WORKFLOW FOR EACH TASK:
 1. Send progress message to lead: "Starting Task N: [title] [FOO-XXX]" (include issue ID)
 2. Read relevant existing source files to understand patterns
 3. Write failing test(s) in the appropriate __tests__/ directory
-4. Run tests with verifier agent — confirm test fails
+4. Run tests with verifier in TDD mode (pass your test file pattern as prompt) — confirm test fails
 5. Implement the minimal code to make test pass
-6. Run tests with verifier agent — confirm test passes
+6. Run tests with verifier in TDD mode (same pattern) — confirm test passes
 7. Send progress message to lead: "Completed Task N: [title] [FOO-XXX]" (include issue ID)
 8. Move to next task
 
@@ -407,6 +407,7 @@ If `TeamCreate` fails (agent teams unavailable), implement the plan sequentially
 - **Cap at 4 workers** — More workers = more overhead, diminishing returns
 - **Lead does NOT implement** — Delegate all implementation to workers. Lead only coordinates, verifies, and documents. (Does not apply in single-agent fallback mode.)
 - **Lead runs all CLI generators** — Tasks involving `drizzle-kit generate`, `prisma generate`, or similar CLI tools that produce generated files (migrations, snapshots) are reserved for the lead in the post-implementation phase. Workers must never hand-write these files.
+- **Workers use TDD-mode verifier only** — Workers must always pass a test pattern to the verifier (e.g., `verifier "session"`). Full verification (unit + lint + build) and E2E tests are exclusive to the lead. Concurrent full/E2E verifier runs corrupt shared resources (`.next/`, port 3001, database).
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
 - **Log migrations in MIGRATIONS.md** — If any task changes DB schema, renames columns, changes session/token formats, or renames env vars, append a note to `MIGRATIONS.md` describing what changed and what production data is affected. Workers should report migration-relevant changes to the lead; the lead appends to `MIGRATIONS.md` during post-implementation. Do NOT write migration code — only describe the change.
