@@ -1,146 +1,441 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-379-chat-refinement-bugs
-**Issues:** FOO-379, FOO-380
-**Created:** 2026-02-13
-**Last Updated:** 2026-02-13
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-382-chat-ux-polish
+**Issues:** FOO-382, FOO-385, FOO-386, FOO-388, FOO-389, FOO-390, FOO-391, FOO-392, FOO-394, FOO-397, FOO-398, FOO-381
+**Created:** 2026-02-14
+**Last Updated:** 2026-02-14
 
 ## Summary
 
-Fix two related bugs in the chat refinement flow: (1) the nutrition confirmation card shows stale data after logging from chat, and (2) the camera re-opens automatically when navigating back from chat to the analysis screen.
+Polish the chat refinement UX in `food-chat.tsx` — fix bugs (wrong unit labels, silent compression failures, photo menu at limit, no API timeouts), fix convention violations (touch target, accessibility), improve interactions (dismissible errors, outside-click menus, compression loading, clearer warnings, input limits), and replace the inline nutrition text with a mini nutrition card.
 
 ## Issues
 
-### FOO-379: Nutrition card shows stale food name after chat refinement
+### FOO-382: Wrong unit labels in chat refinement
 
 **Priority:** High
 **Labels:** Bug
-**Description:** After refining a food item via chat (e.g., "Heineken 0.0" → "Mixed drink: beer and gin"), the confirmation nutrition card still displays the original food name. The Fitbit log and history page correctly show the refined name because the API receives the correct data — only the client-side display is stale.
-
-**Root Cause:** `FoodAnalyzer` passes its original `analysis` state to `FoodLogConfirmation` (line 410-411). `FoodChat` correctly derives `latestAnalysis` from chat messages and sends it to `/api/log-food`, but only passes the `FoodLogResponse` back via `onLogged` — never the refined analysis.
+**Description:** Chat refinement uses a local `getUnitLabel` stub that only handles `g` (147) and `ml` (209), falling back to "units". The proper version in `src/types/index.ts:47-53` handles 8 unit types with pluralization. Users see "2 units" instead of "2 cups".
 
 **Acceptance Criteria:**
-- [ ] After chat refinement + logging, confirmation card shows the refined food name and nutrition
-- [ ] `FoodLogConfirmation` receives the analysis that was actually sent to `/api/log-food`
-- [ ] History page and confirmation card show consistent data
+- [ ] Local `getUnitLabel` stub deleted from `food-chat.tsx`
+- [ ] `getUnitLabel` imported from `@/types` (same as `analysis-result.tsx`)
+- [ ] Unit display shows correct labels (cups, slices, servings, etc.)
 
-### FOO-380: Camera re-opens automatically after closing chat refinement
+### FOO-385: No feedback when image compression fails in chat
 
-**Priority:** High
+**Priority:** Medium
 **Labels:** Bug
-**Description:** After entering chat refinement and pressing back, the camera opens automatically instead of returning to the analysis screen with the original analysis and log/refine options.
-
-**Root Cause:** Home CTA navigates to `/app/analyze?autoCapture=true`. `PhotoCapture`'s `useEffect` (line 62-66) clicks the camera input whenever `autoCapture` is true. When chat closes, `PhotoCapture` remounts and the URL param is still set, triggering the camera again.
+**Description:** `Promise.allSettled` silently drops failed image compressions. If 5 images are selected and 2 fail, only 3 are added with zero notification.
 
 **Acceptance Criteria:**
-- [ ] Camera auto-opens only once — on initial navigation from Home CTA
-- [ ] Closing chat returns to analysis screen showing the original (pre-chat) analysis
-- [ ] User can log the original analysis or enter chat refinement again (starting fresh)
-- [ ] No camera prompt appears when returning from chat
+- [ ] When some images fail compression, user sees a warning message
+- [ ] Warning specifies how many images failed (e.g., "2 of 5 photos couldn't be processed")
+- [ ] Successfully compressed images are still added to pending
+
+### FOO-386: Photo menu still interactive at message limit
+
+**Priority:** Medium
+**Labels:** Bug
+**Description:** The text input has `disabled={loading || atLimit}` but the plus button only has `disabled={loading}`. Users can add photos at the limit but can't send them.
+
+**Acceptance Criteria:**
+- [ ] Plus button disabled when `atLimit` is true
+- [ ] Photo menu cannot be opened at the limit
+
+### FOO-388: No timeout protection on chat API calls
+
+**Priority:** Medium
+**Labels:** Bug
+**Description:** Both `/api/chat-food` and `/api/log-food` fetch calls have no timeout. The UI can hang indefinitely on slow connections.
+
+**Acceptance Criteria:**
+- [ ] Both fetch calls use `AbortSignal.timeout()` with a reasonable timeout (30s for chat, 15s for log)
+- [ ] Timeout errors display a user-friendly message
+- [ ] AbortController provides cleanup on component unmount
+
+### FOO-389: Scroll-to-bottom button below minimum touch target
+
+**Priority:** Medium
+**Labels:** Convention
+**Description:** The scroll-to-bottom button uses `size-9` (36px), violating the 44px minimum touch target requirement.
+
+**Acceptance Criteria:**
+- [ ] Button uses `size-11` (44px) instead of `size-9`
+- [ ] Icon size unchanged, only the tappable area increases
+
+### FOO-390: Chat error message not dismissible
+
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** Error messages persist until the next send attempt. No close button or auto-dismiss.
+
+**Acceptance Criteria:**
+- [ ] Error message has a dismiss (X) button
+- [ ] Clicking dismiss clears the error
+- [ ] Error is still cleared on next send attempt (existing behavior preserved)
+
+### FOO-391: Photo menu doesn't close on outside click or Escape
+
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** The photo menu can only be closed by clicking the plus button. No outside-click or Escape key support.
+
+**Acceptance Criteria:**
+- [ ] Pressing Escape closes the photo menu
+- [ ] Clicking outside the photo menu area closes it
+- [ ] Plus button toggle still works
+
+### FOO-392: No loading indicator during photo compression
+
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** After selecting photos, there's no visual feedback during compression (1-2s on slow devices). The UI appears frozen.
+
+**Acceptance Criteria:**
+- [ ] A loading state is shown while images are compressing
+- [ ] Send button disabled during compression
+- [ ] Loading state clears when compression finishes
+
+### FOO-394: Message limit warning unclear in chat
+
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** The "X messages remaining" warning doesn't explain what happens at the limit or encourage logging.
+
+**Acceptance Criteria:**
+- [ ] Warning text provides context (e.g., "X refinements remaining")
+- [ ] At-limit state shows a message explaining the limit is reached and encouraging logging
+- [ ] Warning is clear and actionable
+
+### FOO-397: No maxLength on chat text input
+
+**Priority:** Low
+**Labels:** Improvement
+**Description:** The chat text input has no `maxLength`. Users could paste arbitrarily long text.
+
+**Acceptance Criteria:**
+- [ ] Input has a `maxLength` of 500 characters
+- [ ] No character counter needed (low priority, simple guard)
+
+### FOO-398: Missing accessibility label on meal type selector in chat
+
+**Priority:** Low
+**Labels:** Convention
+**Description:** The `MealTypeSelector` in the chat header has no associated Label or aria-label. Screen readers can't identify its purpose.
+
+**Acceptance Criteria:**
+- [ ] MealTypeSelector has an `aria-label` prop or a visually-hidden Label
+- [ ] Screen reader announces the purpose of the selector
+
+### FOO-381: Replace inline nutrition text with mini nutrition card in chat refinement
+
+**Priority:** Medium
+**Labels:** Feature
+**Description:** The AnalysisSummary sub-component displays nutrition as inline P:/C:/F: abbreviations. Replace with a compact card based on the FDA-style NutritionFactsCard layout.
+
+**Acceptance Criteria:**
+- [ ] New `MiniNutritionCard` component created
+- [ ] Compact layout: food name, serving, calories prominent, macros in a row
+- [ ] Change highlighting preserved (bold changed values vs previous analysis)
+- [ ] Replaces AnalysisSummary in assistant chat bubbles
+- [ ] Old AnalysisSummary code deleted
 
 ## Prerequisites
 
 - [ ] On `main` branch with clean working tree
+- [ ] Dependencies installed (`npm install`)
 
 ## Implementation Tasks
 
-### Task 1: Test — auto-capture should not re-trigger after photos taken (FOO-380)
+### Task 1: Fix unit labels — import canonical getUnitLabel
 
-**Issue:** FOO-380
-**Files:**
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update the `PhotoCapture` mock (line 44-61) to also capture the `autoCapture` prop and expose it as a `data-auto-capture` attribute on the container div.
-
-2. **RED** — Add a new `describe("autoCapture guard")` block with these tests:
-   - "passes autoCapture to PhotoCapture on initial render" — render `<FoodAnalyzer autoCapture />`, assert `data-auto-capture="true"` on the photo-capture element.
-   - "does not pass autoCapture after photos are taken and analysis exists" — render with `autoCapture`, simulate photo add + analyze (mock fetch returns analysis), then assert `data-auto-capture="false"`.
-   - "does not pass autoCapture after returning from chat" — render with `autoCapture`, simulate photo add + analyze, open chat via refine button, close chat via close button, then assert `data-auto-capture="false"` on the re-rendered PhotoCapture.
-
-3. Run: `npm test -- food-analyzer`
-4. Verify: All three new tests fail (PhotoCapture always gets `autoCapture` prop as-is).
-
-### Task 2: Implement — guard auto-capture in FoodAnalyzer (FOO-380)
-
-**Issue:** FOO-380
-**Files:**
-- `src/components/food-analyzer.tsx` (modify)
-
-**TDD Steps:**
-
-1. **GREEN** — Add a `useRef(false)` in `FoodAnalyzer` to track whether auto-capture has already been used. In `handlePhotosChange`, when `files.length > 0`, set the ref to `true`. Pass `autoCapture={autoCapture && !ref.current}` to `PhotoCapture` (line 445).
-
-2. Run: `npm test -- food-analyzer`
-3. Verify: All three new tests from Task 1 pass, plus all existing tests still pass.
-
-**Notes:**
-- Use a ref (not state) because we don't need a re-render when the flag changes — it's read on the next render cycle when chat closes or photos change.
-- Do NOT modify `PhotoCapture` itself — the fix belongs in the parent that decides whether to pass the prop.
-
-### Task 3: Test — onLogged should pass refined analysis from chat (FOO-379)
-
-**Issue:** FOO-379
-**Files:**
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update the `FoodChat` mock (line 173-200) to:
-   - Accept an `onLogged` callback that takes `(response: FoodLogResponse, analysis: FoodAnalysis)` (two arguments).
-   - The "Log from Chat" button should call `onLogged` with both a mock response AND a refined analysis object (different `food_name` from the initial, e.g., `"Mixed drink: beer and gin"`).
-
-2. **RED** — Update the `FoodLogConfirmation` mock (line 158-171) to display the `foodName` prop so we can assert on it.
-
-3. **RED** — Add a test in the `"conversational food chat"` describe block:
-   - "shows refined food name on confirmation card after logging from chat" — render `<FoodAnalyzer />`, add photo, analyze, open chat, click "Log from Chat", then assert the confirmation displays the refined food name (not the original "Empanada de carne").
-
-4. Run: `npm test -- food-analyzer`
-5. Verify: New test fails because `FoodAnalyzer` ignores the second argument from `onLogged`.
-
-### Task 4: Implement — bubble refined analysis through onLogged callback (FOO-379)
-
-**Issue:** FOO-379
+**Issue:** FOO-382
 **Files:**
 - `src/components/food-chat.tsx` (modify)
-- `src/components/food-analyzer.tsx` (modify)
-
-**TDD Steps:**
-
-1. **GREEN** — In `FoodChatProps` (line 35), change `onLogged` signature from `(response: FoodLogResponse) => void` to `(response: FoodLogResponse, analysis: FoodAnalysis) => void`.
-
-2. **GREEN** — In `FoodChat.handleLog` (line 289), change `onLogged(result.data)` to `onLogged(result.data, latestAnalysis)`.
-
-3. **GREEN** — In `FoodAnalyzer` (line 427), change `onLogged={setLogResponse}` to a handler that updates both `analysis` and `logResponse`:
-   - Set analysis to the refined analysis first
-   - Then set logResponse to the response
-   - This ensures `FoodLogConfirmation` receives the refined analysis via the `analysis` state variable (line 411).
-
-4. Run: `npm test -- food-analyzer`
-5. Verify: New test from Task 3 passes, plus all existing tests still pass.
-
-### Task 5: Update FoodChat tests for new onLogged signature (FOO-379)
-
-**Issue:** FOO-379
-**Files:**
 - `src/components/__tests__/food-chat.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **GREEN** — Update the `defaultProps.onLogged` mock and assertions:
-   - Tests that check `onLogged` was called should now verify it was called with two arguments: the response AND `latestAnalysis`.
-   - Update "clicking Log to Fitbit calls /api/log-food" (line 337-360) to verify `onLogged` receives both the response and the initial analysis (since no chat refinement happened, `latestAnalysis` equals `initialAnalysis`).
-   - Update "when assistant response includes analysis, that analysis is used by Log button" (line 279-335) to verify `onLogged` receives the refined analysis (the updated one with 640 calories), not the initial one.
+1. **RED** — Update existing test `"shows analysis summary in assistant message when analysis is present"` to assert correct unit label output. Create a new test with a non-gram unit (e.g., `unit_id: 91` for cups) that asserts the display shows "2 cups" not "2 units". Use a mock analysis with `amount: 2, unit_id: 91`.
+   - Run: `npm test -- food-chat`
+   - Verify: New test fails because local stub returns "units" for cup unit
 
-2. Run: `npm test -- food-chat`
-3. Verify: All FoodChat tests pass.
+2. **GREEN** — Delete the local `getUnitLabel` function (lines 38-42). Add `getUnitLabel` to the import from `@/types`. Update `AnalysisSummary` to call `getUnitLabel(analysis.unit_id, analysis.amount)` instead of `{analysis.amount}{getUnitLabel(analysis.unit_id)}`.
+   - Run: `npm test -- food-chat`
+   - Verify: All tests pass, including new unit label test
 
-### Task 6: Integration & Verification
+**Notes:**
+- Reference `src/components/analysis-result.tsx:4` for the import pattern
+- The canonical `getUnitLabel` in `src/types/index.ts:47-53` takes `(unitId, amount)` and returns a full string like "2 cups" — adjust the template accordingly since the old code concatenated `{analysis.amount}{getUnitLabel(...)}` separately
 
-**Issue:** FOO-379, FOO-380
-**Files:** Various files from previous tasks
+### Task 2: Fix scroll button touch target
+
+**Issue:** FOO-389
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write a test that renders the chat, simulates scrolling to show the scroll-down button, and asserts the button has the `size-11` class (or a minimum 44px dimension check). The button appears when `showScrollDown` is true — trigger this by manipulating the scroll container's scroll state.
+   - Run: `npm test -- food-chat`
+   - Verify: Fails because button has `size-9`
+
+2. **GREEN** — Change `size-9` to `size-11` on the scroll-to-bottom button at line 429. Keep the icon classes unchanged.
+   - Run: `npm test -- food-chat`
+   - Verify: Test passes
+
+**Notes:**
+- Testing scroll state may be tricky in jsdom. An alternative is to test the rendered className directly by mocking the scroll state. Consider setting `showScrollDown` via internal component state manipulation or just verifying the button element's class when it's visible.
+- The button also needs `absolute -top-14` instead of `-top-12` to account for the larger size — adjust the positioning offset.
+
+### Task 3: Add accessibility label to MealTypeSelector in chat
+
+**Issue:** FOO-398
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/meal-type-selector.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write a test that the MealTypeSelector in the chat has an accessible label. Since the component is mocked in tests, update the mock to accept and render an `aria-label` prop. Assert `screen.getByLabelText("Meal type")` finds the selector.
+   - Run: `npm test -- food-chat`
+   - Verify: Fails because no aria-label is set
+
+2. **GREEN** — Add `aria-label="Meal type"` to the `MealTypeSelector` component's `SelectTrigger`. Pass it through the `MealTypeSelectorProps` interface or apply it internally. In `food-chat.tsx`, the component already receives the selector — ensure the label reaches the trigger. The simplest approach: add an `ariaLabel` prop to `MealTypeSelector` and forward it to `SelectTrigger`'s `aria-label`.
+   - Run: `npm test -- food-chat`
+   - Verify: Test passes
+
+**Notes:**
+- The `MealTypeSelector` already accepts an `id` prop (line 18). Add a similar `ariaLabel` prop. The analyzer page can continue without one since it has a visible `<Label>` element.
+
+### Task 4: Disable photo menu at message limit
+
+**Issue:** FOO-386
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write a test that creates a FoodChat at the message limit (set up messages state to hit `MAX_MESSAGES`), then asserts the plus (add photo) button is disabled. The tricky part is reaching the limit — you'll need to send enough messages via mocked fetch responses to hit `apiMessageCount >= MAX_MESSAGES`.
+   - Run: `npm test -- food-chat`
+   - Verify: Fails because plus button is only disabled when loading
+
+2. **GREEN** — Change the plus button's `disabled` prop from `disabled={loading}` to `disabled={loading || atLimit}` at line 501. Also close the photo menu when atLimit transitions to true (to handle edge case where menu is open when last message comes back).
+   - Run: `npm test -- food-chat`
+   - Verify: Test passes
+
+**Notes:**
+- Setting up the at-limit state in tests requires either: (a) rendering with enough initial messages in the state, or (b) mocking multiple send/response cycles. Option (a) is simpler — consider creating a helper that builds the initial `messages` prop or testing the disabled state directly.
+- Since `messages` is internal state initialized from `initialMessage`, testing the limit requires sending messages through the API flow. Consider extracting `MAX_MESSAGES` to a named constant export for test access, or hardcode the number in the test since it's unlikely to change.
+
+### Task 5: Add maxLength to chat input
+
+**Issue:** FOO-397
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write a test asserting the input element has `maxLength` attribute set to 500.
+   - Run: `npm test -- food-chat`
+   - Verify: Fails because no maxLength is set
+
+2. **GREEN** — Add `maxLength={500}` to the `<Input>` component at line 511.
+   - Run: `npm test -- food-chat`
+   - Verify: Test passes
+
+### Task 6: Make error message dismissible
+
+**Issue:** FOO-390
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Extend the existing error test: after the error message appears, find a dismiss button (`aria-label="Dismiss error"`), click it, and assert the error message is removed.
+   - Run: `npm test -- food-chat`
+   - Verify: Fails because no dismiss button exists
+
+2. **GREEN** — Add an X button to the error div at lines 413-417. The button calls `setError(null)`. Use the `X` icon already imported from lucide-react. Ensure the dismiss button has `aria-label="Dismiss error"` and meets the 44px touch target.
+   - Run: `npm test -- food-chat`
+   - Verify: Test passes
+
+**Notes:**
+- Keep the error inside the scrollable area (existing positioning). Add the X button inline, e.g., a flex row with the error text and a dismiss button on the right.
+
+### Task 7: Improve limit warning text
+
+**Issue:** FOO-394
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write tests for the improved warning copy:
+   - Near-limit warning should contain "refinements remaining" (not just "messages remaining")
+   - At-limit state should show a message like "Refinement limit reached"
+   - Run: `npm test -- food-chat`
+   - Verify: Fails because current text is "X messages remaining"
+
+2. **GREEN** — Update the nearLimit warning text from `"{count} messages remaining"` to `"{count} refinements remaining — log when ready"`. Add an at-limit message below the input area: `"Refinement limit reached — log your food to save."` (only shown when `atLimit` is true).
+   - Run: `npm test -- food-chat`
+   - Verify: Tests pass
+
+**Notes:**
+- The at-limit message is a new addition — currently nothing tells the user why the input is disabled when at limit. Place it in the same location as the nearLimit warning.
+
+### Task 8: Add feedback for compression failures
+
+**Issue:** FOO-385
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Mock `compressImage` to reject for some files. Select 3 files where 1 fails compression. Assert a warning message appears (e.g., "1 of 3 photos couldn't be processed"). Assert the 2 successful images are still added to pending.
+   - Run: `npm test -- food-chat`
+   - Verify: Fails because no warning is shown
+
+2. **GREEN** — In `handleFileSelected`, after filtering fulfilled results, count rejected results. If any rejections exist, show a temporary warning using the existing `error` state or a separate `compressionWarning` state. A separate state is cleaner — display it near the photo indicator area. Auto-dismiss after 5 seconds using a timeout.
+   - Run: `npm test -- food-chat`
+   - Verify: Tests pass
+
+**Notes:**
+- Use a separate `compressionWarning` state (not `error`) to avoid conflicting with API error messages. Render the warning above the photo indicator if present.
+- The warning should auto-dismiss. Use `setTimeout` with cleanup in a `useEffect` or directly in the handler.
+
+### Task 9: Add loading indicator during photo compression
+
+**Issue:** FOO-392
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Mock `compressImage` to return a delayed promise. Select files and assert a "Processing photos..." indicator appears. Also assert the send button is disabled during compression.
+   - Run: `npm test -- food-chat`
+   - Verify: Fails because no compression loading state exists
+
+2. **GREEN** — Add a `compressing` boolean state. Set it `true` before `Promise.allSettled`, `false` after. While `compressing`, show a small indicator in the photo area (e.g., "Processing photos..." with a Loader2 spinner). Add `compressing` to the send button's disabled condition.
+   - Run: `npm test -- food-chat`
+   - Verify: Tests pass
+
+**Notes:**
+- The `compressing` state should also disable the plus button to prevent selecting more photos while processing.
+- Display location: same area as the photo indicator (`pendingImages.length > 0` section), but shown when `compressing` is true regardless of pending count.
+
+### Task 10: Add outside click and Escape to close photo menu
+
+**Issue:** FOO-391
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write two tests:
+   - Open photo menu, press Escape, assert menu closes
+   - Open photo menu, click outside the menu area, assert menu closes
+   - Run: `npm test -- food-chat`
+   - Verify: Both fail
+
+2. **GREEN** — Add a `useEffect` that listens for keydown `Escape` when `showPhotoMenu` is true. For click-outside, add a ref to the photo menu area and a mousedown listener on the document that checks if the click target is outside the menu ref and the plus button. Call `setShowPhotoMenu(false)` in both handlers.
+   - Run: `npm test -- food-chat`
+   - Verify: Both tests pass
+
+**Notes:**
+- Use `mousedown` (not `click`) for outside detection to handle edge cases where click events are consumed.
+- Clean up event listeners when the menu closes or the component unmounts.
+- The plus button already toggles the menu — ensure the outside-click handler doesn't interfere with the toggle (exclude the plus button from outside-click detection).
+
+### Task 11: Add AbortController timeout to fetch calls
+
+**Issue:** FOO-388
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write tests for timeout behavior:
+   - Chat send: mock fetch to never resolve, assert that after timeout the error message shows a timeout-specific message
+   - Log food: same pattern for the log endpoint
+   - Note: Use `AbortSignal.timeout()` which is available in modern environments. For testing, mock the fetch to reject with an `AbortError`.
+   - Run: `npm test -- food-chat`
+   - Verify: Tests fail
+
+2. **GREEN** — Add `signal: AbortSignal.timeout(30000)` to the `/api/chat-food` fetch call. Add `signal: AbortSignal.timeout(15000)` to the `/api/log-food` fetch call. In the catch blocks, detect `AbortError` (or `TimeoutError`) and set a user-friendly message like "Request timed out. Please try again."
+   - Run: `npm test -- food-chat`
+   - Verify: Tests pass
+
+3. **REFACTOR** — Extract the timeout values to named constants at the top of the file: `const CHAT_TIMEOUT_MS = 30_000` and `const LOG_TIMEOUT_MS = 15_000`.
+
+**Notes:**
+- `AbortSignal.timeout()` is a static method available in modern browsers and Node 17.3+. It throws a `TimeoutError` (name: "TimeoutError") which is a subclass of `DOMException`.
+- For component unmount cleanup: the timeout signal handles the primary use case. Full unmount cleanup with a separate `AbortController` per request is a nice-to-have but not required for this issue.
+- Test approach: mock `fetch` to reject with `new DOMException("signal timed out", "TimeoutError")`.
+
+### Task 12: Replace AnalysisSummary with MiniNutritionCard
+
+**Issue:** FOO-381
+**Files:**
+- `src/components/mini-nutrition-card.tsx` (create)
+- `src/components/__tests__/mini-nutrition-card.test.tsx` (create)
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Create test file `src/components/__tests__/mini-nutrition-card.test.tsx`. Test that the component renders:
+   - Food name
+   - Serving size with correct unit label (uses `getUnitLabel` from `@/types`)
+   - Calories prominently
+   - Macro row: protein, carbs, fat values
+   - Change highlighting: when `previousAnalysis` is provided, changed fields render with a visual indicator (bold/highlight class)
+   - Run: `npm test -- mini-nutrition-card`
+   - Verify: Fails (file doesn't exist)
+
+2. **GREEN** — Create `src/components/mini-nutrition-card.tsx`. Build a compact FDA-inspired card:
+   - Food name and serving line at top
+   - Calories displayed prominently
+   - Macros (P/C/F) in a horizontal row
+   - Accept `analysis: FoodAnalysis` and `previousAnalysis?: FoodAnalysis` props
+   - Use `getUnitLabel` from `@/types` for serving display
+   - Apply `font-semibold` class to values that differ from `previousAnalysis`
+   - Style: `border rounded-lg p-2 text-sm` — compact but readable
+   - Run: `npm test -- mini-nutrition-card`
+   - Verify: Tests pass
+
+3. **RED** — Update `food-chat.test.tsx`: change the analysis summary assertion from checking for "P: 0g" inline text to checking for the MiniNutritionCard rendered output (e.g., "Protein" label with "0g" value). Update the mock to include the new component's expected output.
+   - Run: `npm test -- food-chat`
+   - Verify: Fails because food-chat still uses AnalysisSummary
+
+4. **GREEN** — In `food-chat.tsx`:
+   - Import `MiniNutritionCard` from `@/components/mini-nutrition-card`
+   - Replace the `<AnalysisSummary>` usage in the message rendering with `<MiniNutritionCard>`
+   - Delete the `AnalysisSummary` function component entirely
+   - Run: `npm test -- food-chat`
+   - Verify: All tests pass
+
+**Notes:**
+- Reference `src/components/nutrition-facts-card.tsx` for the FDA-style layout pattern but make it significantly more compact — this goes inside a chat bubble.
+- The card should work within the `max-w-[80%]` chat bubble constraint.
+- Keep the same `previousAnalysis` diffing logic to highlight changed values.
+
+### Task 13: Integration & Verification
+
+**Issues:** All
+**Files:** All modified files
 
 **Steps:**
 
@@ -148,100 +443,49 @@ Fix two related bugs in the chat refinement flow: (1) the nutrition confirmation
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
+5. Manual verification:
+   - [ ] Open chat with a food analysis
+   - [ ] Verify correct unit labels for non-gram units
+   - [ ] Verify mini nutrition card displays in chat bubbles
+   - [ ] Verify scroll-to-bottom button is tappable
+   - [ ] Verify photo menu closes on Escape and outside click
+   - [ ] Verify error dismiss button works
+   - [ ] Verify compression loading indicator appears
+   - [ ] Verify limit warning text is clear
+   - [ ] Verify input has maxLength
+   - [ ] Verify photo menu disabled at limit
+
+## MCP Usage During Implementation
+
+| MCP Server | Tool | Purpose |
+|------------|------|---------|
+| Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
 
 ## Error Handling
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| Chat logging fails (API error) | Error shown in chat, no analysis update | Existing test |
-| Chat logging succeeds but analysis is somehow null | Falls back to initial analysis | Defensive — `latestAnalysis` always has a value (falls back to `initialAnalysis`) |
-| autoCapture prop with no URL param | Same as before — no camera trigger | Existing test |
+| Non-gram unit display | Shows correct label (cups, slices, etc.) | Unit test (Task 1) |
+| Image compression failure | Shows warning with failure count | Unit test (Task 8) |
+| API timeout | Shows "Request timed out" message | Unit test (Task 11) |
+| At message limit | Plus button disabled, warning shown | Unit test (Tasks 4, 7) |
 
 ## Risks & Open Questions
 
-- [ ] None identified — both fixes are small, localized changes with clear test coverage.
+- [ ] `AbortSignal.timeout()` browser support: available in all modern browsers (Chrome 103+, Safari 16+, Firefox 100+). Should be fine for a mobile food app targeting recent devices.
+- [ ] MiniNutritionCard layout within 80% chat bubble: needs visual testing on iPhone SE (320px viewport * 0.8 = 256px available). Keep the card simple to fit.
+- [ ] Photo menu outside-click detection: need to ensure it doesn't interfere with the file input dialogs triggered by Camera/Gallery buttons (the menu already closes via `setShowPhotoMenu(false)` in those handlers).
 
 ## Scope Boundaries
 
 **In Scope:**
-- Fix stale analysis on confirmation card after chat logging (FOO-379)
-- Fix camera re-opening after returning from chat (FOO-380)
-- Update tests for both fixes
+- All 12 valid Backlog issues listed above
+- Changes to `food-chat.tsx` and its tests
+- New `MiniNutritionCard` component
+- Minor change to `MealTypeSelector` for accessibility
 
 **Out of Scope:**
-- Changing the `/api/log-food` response to echo back the analysis (alternative approach, not needed)
-- Clearing the `?autoCapture` URL parameter (ref-based approach is simpler)
-- Any changes to `PhotoCapture` component itself
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-13
-**Method:** Single-agent (no team requested)
-
-### Tasks Completed This Iteration
-- Task 1: Test — auto-capture should not re-trigger after photos taken (FOO-380) - Added autoCapture guard tests
-- Task 2: Implement — guard auto-capture in FoodAnalyzer (FOO-380) - Added useRef guard in handlePhotosChange
-- Task 3: Test — onLogged should pass refined analysis from chat (FOO-379) - Updated FoodChat mock, added refined name test
-- Task 4: Implement — bubble refined analysis through onLogged callback (FOO-379) - Extended onLogged signature, updated FoodChat and FoodAnalyzer
-- Task 5: Update FoodChat tests for new onLogged signature (FOO-379) - Verified onLogged called with both response and analysis
-- Task 6: Integration & Verification - Full suite passed
-
-### Files Modified
-- `src/components/food-analyzer.tsx` - Added autoCaptureUsedRef guard, updated onLogged handler to accept refined analysis
-- `src/components/food-chat.tsx` - Changed onLogged signature to pass latestAnalysis as second argument
-- `src/components/__tests__/food-analyzer.test.tsx` - Updated PhotoCapture mock for autoCapture prop, added autoCapture guard tests, updated FoodChat mock for 2-arg onLogged, added refined food name confirmation test
-- `src/components/__tests__/food-chat.test.tsx` - Added assertions verifying onLogged receives both response and analysis
-
-### Linear Updates
-- FOO-380: Todo → In Progress → Review
-- FOO-379: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Passed (0 bugs found)
-- verifier: All 1584 tests pass, zero warnings, build succeeds
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Summary: 0 critical/high issues, 5 medium/low findings documented (Team: security, reliability, quality reviewers)
-- CRITICAL: 0
-- HIGH: 0
-- MEDIUM: 4 (documented only)
-- LOW: 1 (documented only)
-
-**Documented (no fix needed):**
-- [MEDIUM] ASYNC: `blobsToBase64()` uses `Promise.all()` instead of `Promise.allSettled()` (`src/components/food-chat.tsx:173`) — Downgraded from HIGH: user's text message is preserved in state (line 197) before the try block, and FileReader on in-memory compressed Blobs essentially never fails. Inconsistency with `handleFileSelected` which uses `allSettled`, but practical risk is near-zero.
-- [MEDIUM] SECURITY: Base64 image encoding without explicit size check (`src/components/food-chat.tsx:172-186`) — Defense in depth concern only; images are already validated and compressed upstream in `handleFileSelected`.
-- [MEDIUM] SECURITY: File input `accept` attribute relies on browser hints (`src/components/food-chat.tsx:302-325`) — Server-side validation in API routes is the primary defense; client `accept` is UX only.
-- [MEDIUM] RESOURCE: FileReader event handlers in `blobsToBase64()` have no cleanup on unmount (`src/components/food-chat.tsx:172-186`) — React 18+ mostly handles state updates on unmounted components; component unmount during in-memory FileReader is extremely unlikely.
-- [LOW] ASYNC: `useEffect` auto-resubmit fetch lacks AbortController cleanup (`src/components/food-analyzer.tsx:367-392`) — React 18+ handles this; unmount during this fetch is unlikely.
-
-### Linear Updates
-- FOO-379: Review → Merge
-- FOO-380: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Skipped Findings Summary
-
-Findings documented but not fixed across all review iterations:
-
-| Severity | Category | File | Finding | Rationale |
-|----------|----------|------|---------|-----------|
-| MEDIUM | ASYNC | `src/components/food-chat.tsx:173` | `blobsToBase64` uses `Promise.all` instead of `Promise.allSettled` | User text preserved in state; FileReader on in-memory Blobs never fails |
-| MEDIUM | SECURITY | `src/components/food-chat.tsx:172-186` | Base64 encoding without explicit size check | Images validated/compressed upstream |
-| MEDIUM | SECURITY | `src/components/food-chat.tsx:302-325` | File input `accept` relies on browser hints | Server-side validation is primary defense |
-| MEDIUM | RESOURCE | `src/components/food-chat.tsx:172-186` | FileReader handlers no cleanup on unmount | React 18+ handles; scenario extremely unlikely |
-| LOW | ASYNC | `src/components/food-analyzer.tsx:367-392` | Auto-resubmit fetch lacks AbortController | React 18+ handles; scenario unlikely |
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- FOO-393 (Canceled: superseded by FOO-381 — AnalysisSummary being replaced entirely)
+- Service worker / offline support
+- API-side validation changes
+- Changes to other pages or components beyond what's needed for these fixes
