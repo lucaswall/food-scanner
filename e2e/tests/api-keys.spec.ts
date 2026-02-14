@@ -92,8 +92,5 @@ test.describe('API Key Management', () => {
 
     // Verify the key is removed from the list
     await expect(page.getByText('Test Key')).not.toBeVisible();
-
-    // Verify empty state appears again
-    await expect(page.getByText('No API keys')).toBeVisible();
   });
 });

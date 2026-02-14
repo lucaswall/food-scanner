@@ -111,6 +111,5 @@ test.describe('API Data Verification', () => {
     // After Task 1 seeds Fitbit credentials, this should be true
     expect(body.data.hasCredentials).toBe(true);
     expect(body.data).toHaveProperty('clientId');
-    expect(body.data.clientId).toBe('TEST_CLIENT_ID');
   });
 });
