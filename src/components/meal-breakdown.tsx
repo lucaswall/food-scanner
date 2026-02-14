@@ -1,17 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import type { MealGroup } from "@/types";
-
-const MEAL_TYPE_LABELS: Record<number, string> = {
-  1: "Breakfast",
-  2: "Morning Snack",
-  3: "Lunch",
-  4: "Afternoon Snack",
-  5: "Dinner",
-  7: "Anytime",
-};
+import { FITBIT_MEAL_TYPE_LABELS } from "@/types";
 
 interface MealBreakdownProps {
   meals: MealGroup[];
@@ -71,7 +64,7 @@ export function MealBreakdown({ meals }: MealBreakdownProps) {
                     isExpanded ? "rotate-180" : ""
                   }`}
                 />
-                <span className="font-medium">{MEAL_TYPE_LABELS[meal.mealTypeId] ?? "Other"}</span>
+                <span className="font-medium">{FITBIT_MEAL_TYPE_LABELS[meal.mealTypeId] ?? "Other"}</span>
               </div>
               <span className="text-sm text-muted-foreground tabular-nums">
                 {meal.subtotal.calories} cal
@@ -82,9 +75,10 @@ export function MealBreakdown({ meals }: MealBreakdownProps) {
             {isExpanded && (
               <div className="border-t bg-muted/20">
                 {meal.entries.map((entry) => (
-                  <div
+                  <Link
                     key={entry.id}
-                    className="flex items-center justify-between p-4 border-b last:border-b-0"
+                    href={`/app/food-detail/${entry.id}`}
+                    className="flex items-center justify-between p-4 border-b last:border-b-0 hover:bg-muted/50 transition-colors cursor-pointer"
                   >
                     <div className="flex flex-col gap-1">
                       <span className="text-sm font-medium">
@@ -97,7 +91,7 @@ export function MealBreakdown({ meals }: MealBreakdownProps) {
                     <span className="text-sm text-muted-foreground tabular-nums">
                       {entry.calories} cal
                     </span>
-                  </div>
+                  </Link>
                 ))}
               </div>
             )}

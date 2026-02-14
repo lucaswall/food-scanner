@@ -41,10 +41,10 @@ export async function convertHeicToJpeg(file: File): Promise<Blob> {
   return result;
 }
 
-export async function compressImage(file: File): Promise<Blob> {
+export async function compressImage(file: File | Blob): Promise<Blob> {
   // Convert HEIC to JPEG first if needed
   let processFile: File | Blob = file;
-  if (isHeicFile(file)) {
+  if (file instanceof File && isHeicFile(file)) {
     processFile = await convertHeicToJpeg(file);
   }
 

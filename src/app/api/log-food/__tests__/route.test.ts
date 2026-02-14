@@ -221,14 +221,14 @@ describe("POST /api/log-food", () => {
     expect(body.error.code).toBe("FITBIT_API_ERROR");
   });
 
-  it("returns 400 FITBIT_CREDENTIALS_MISSING when ensureFreshToken throws FITBIT_CREDENTIALS_MISSING", async () => {
+  it("returns 424 FITBIT_CREDENTIALS_MISSING when ensureFreshToken throws FITBIT_CREDENTIALS_MISSING", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(424);
     const body = await response.json();
     expect(body.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
     expect(body.error.message).toContain("credentials");
@@ -245,6 +245,19 @@ describe("POST /api/log-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("FITBIT_TOKEN_INVALID");
     expect(body.error.message).toContain("reconnect");
+  });
+
+  it("returns 504 FITBIT_TIMEOUT when request times out (FOO-426)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TIMEOUT"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(504);
+    const body = await response.json();
+    expect(body.error.code).toBe("FITBIT_TIMEOUT");
+    expect(body.error.message).toContain("timed out");
   });
 
   it("returns reusedFood=false when food is logged", async () => {

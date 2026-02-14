@@ -83,9 +83,18 @@ export function FoodLogConfirmation({
 
       <div className="flex gap-3">
         <Button
+          onClick={() => router.push("/app/analyze")}
+          variant="default"
+          className="min-h-[44px] min-w-[120px]"
+          data-variant="default"
+        >
+          Log Another
+        </Button>
+        <Button
           onClick={() => router.push("/app")}
           variant="outline"
           className="min-h-[44px] min-w-[120px]"
+          data-variant="outline"
         >
           Done
         </Button>

@@ -40,6 +40,10 @@ function foodToAnalysis(food: CommonFood): FoodAnalysis {
     fat_g: food.fatG,
     fiber_g: food.fiberG,
     sodium_mg: food.sodiumMg,
+    saturated_fat_g: food.saturatedFatG ?? undefined,
+    trans_fat_g: food.transFatG ?? undefined,
+    sugars_g: food.sugarsG ?? undefined,
+    calories_from_fat: food.caloriesFromFat ?? undefined,
     confidence: "high",
     notes: "",
     description: "",
@@ -58,17 +62,20 @@ export function QuickSelect() {
   const debouncedQuery = useDebounce(searchQuery, 300);
   const isSearchActive = debouncedQuery.length >= 2;
 
+  // Get client's local time and date for time-of-day ranking
+  const { time: clientTime, date: clientDate } = getLocalDateTime();
+
   const getKey = useCallback(
     (pageIndex: number, previousPageData: PaginatedFoodsPage | null) => {
       if (previousPageData && !previousPageData.nextCursor) return null;
       const base = activeTab === "recent"
         ? "/api/common-foods?tab=recent&limit=10"
-        : "/api/common-foods?limit=10";
+        : `/api/common-foods?limit=10&clientTime=${clientTime}&clientDate=${clientDate}`;
       if (pageIndex === 0) return base;
       const cursorParam = buildCursorParam(previousPageData!.nextCursor);
       return `${base}${cursorParam}`;
     },
-    [activeTab]
+    [activeTab, clientTime, clientDate]
   );
 
   const {
@@ -148,10 +155,30 @@ export function QuickSelect() {
     })
       .then((r) => r.json())
       .then((result) => {
-        clearPendingSubmission();
         if (result.success) {
+          clearPendingSubmission();
           setLogResponse(result.data);
         } else {
+          const errorCode = result.error?.code;
+
+          // Clear any stale success response before showing error
+          setLogResponse(null);
+
+          // Handle token expiration - re-save pending and redirect to re-auth
+          if (errorCode === "FITBIT_TOKEN_INVALID") {
+            savePendingSubmission(pending);
+            window.location.href = "/api/auth/fitbit";
+            return;
+          }
+
+          // Handle missing credentials - show specific error
+          if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+            clearPendingSubmission();
+            setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
+            return;
+          }
+
+          clearPendingSubmission();
           setLogError(result.error?.message || "Failed to resubmit food log");
         }
       })
@@ -181,14 +208,6 @@ export function QuickSelect() {
     setLogging(true);
     setLogError(null);
 
-    // Optimistic UI: show success immediately
-    const optimisticResponse: FoodLogResponse = {
-      success: true,
-      fitbitLogId: 0,
-      reusedFood: true,
-    };
-    setLogResponse(optimisticResponse);
-
     try {
       const response = await fetch("/api/log-food", {
         method: "POST",
@@ -205,7 +224,6 @@ export function QuickSelect() {
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
         if (errorCode === "FITBIT_TOKEN_INVALID") {
-          setLogResponse(null);
           savePendingSubmission({
             analysis: null,
             mealTypeId,
@@ -217,20 +235,18 @@ export function QuickSelect() {
           return;
         }
         if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-          setLogResponse(null);
           setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
           vibrateError();
           return;
         }
-        setLogResponse(null);
         setLogError(result.error?.message || "Failed to log food");
         vibrateError();
         return;
       }
 
+      // Only set response after API confirms success
       setLogResponse(result.data);
     } catch (err) {
-      setLogResponse(null);
       setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
     } finally {

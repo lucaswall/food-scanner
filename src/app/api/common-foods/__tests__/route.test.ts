@@ -285,4 +285,46 @@ describe("GET /api/common-foods", () => {
       expect(data.error.code).toBe("VALIDATION_ERROR");
     });
   });
+
+  describe("client-provided time/date (FOO-410)", () => {
+    it("uses clientTime and clientDate query params for ranking when provided", async () => {
+      mockGetSession.mockResolvedValue({
+        sessionId: "test-session",
+        userId: "user-uuid-123",
+        fitbitConnected: true,
+      });
+
+      mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
+
+      const response = await GET(makeRequest({ clientTime: "14:30:00", clientDate: "2026-02-14" }));
+
+      expect(response.status).toBe(200);
+      expect(mockGetCommonFoods).toHaveBeenCalledWith(
+        "user-uuid-123",
+        "14:30:00", // Client's local time, not server time
+        "2026-02-14", // Client's local date, not server date
+        { limit: 10, cursor: undefined },
+      );
+    });
+
+    it("falls back to server time/date when clientTime and clientDate are not provided", async () => {
+      mockGetSession.mockResolvedValue({
+        sessionId: "test-session",
+        userId: "user-uuid-123",
+        fitbitConnected: true,
+      });
+
+      mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
+
+      const response = await GET(makeRequest());
+
+      expect(response.status).toBe(200);
+      expect(mockGetCommonFoods).toHaveBeenCalledWith(
+        "user-uuid-123",
+        expect.stringMatching(/^\d{2}:\d{2}:\d{2}$/), // Server-generated time
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), // Server-generated date
+        { limit: 10, cursor: undefined },
+      );
+    });
+  });
 });

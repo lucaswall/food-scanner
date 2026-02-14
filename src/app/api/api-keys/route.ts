@@ -14,13 +14,21 @@ export async function GET() {
     "Fetching API keys",
   );
 
-  const keys = await listApiKeys(session!.userId);
+  try {
+    const keys = await listApiKeys(session!.userId);
 
-  const response = successResponse({ keys });
+    const response = successResponse({ keys });
 
-  // Add Cache-Control header
-  response.headers.set("Cache-Control", "private, no-cache");
-  return response;
+    // Add Cache-Control header
+    response.headers.set("Cache-Control", "private, no-cache");
+    return response;
+  } catch (error) {
+    logger.error(
+      { action: "list_api_keys_error", error: error instanceof Error ? error.message : String(error) },
+      "Failed to list API keys",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to list API keys", 500);
+  }
 }
 
 interface PostRequestBody {
@@ -66,7 +74,15 @@ export async function POST(request: Request) {
     "Creating API key",
   );
 
-  const result = await createApiKey(session!.userId, body.name);
+  try {
+    const result = await createApiKey(session!.userId, body.name);
 
-  return successResponse(result, 201);
+    return successResponse(result, 201);
+  } catch (error) {
+    logger.error(
+      { action: "create_api_key_error", error: error instanceof Error ? error.message : String(error) },
+      "Failed to create API key",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to create API key", 500);
+  }
 }

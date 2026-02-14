@@ -3,6 +3,7 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood, deleteFoodLog } from "@/lib/fitbit";
 import { insertCustomFood, insertFoodLogEntry, getCustomFoodById, updateCustomFoodMetadata } from "@/lib/food-log";
+import { isValidDateFormat } from "@/lib/date-utils";
 import type { FoodLogRequest, FoodLogResponse } from "@/types";
 import { FitbitMealType } from "@/types";
 
@@ -86,13 +87,6 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   return true;
 }
 
-function isValidDateFormat(date: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
-  const [year, month, day] = date.split("-").map(Number);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
-  const parsed = new Date(year, month - 1, day);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
-}
 
 function isValidTimeFormat(time: string): boolean {
   if (!/^\d{2}:\d{2}:\d{2}$/.test(time)) return false;
@@ -398,7 +392,7 @@ export async function POST(request: Request) {
       return errorResponse(
         "FITBIT_CREDENTIALS_MISSING",
         "Fitbit credentials not configured. Please set up your credentials in Settings.",
-        400
+        424
       );
     }
 
@@ -411,6 +405,15 @@ export async function POST(request: Request) {
         "FITBIT_TOKEN_INVALID",
         "Fitbit session expired. Please reconnect your Fitbit account.",
         401
+      );
+    }
+
+    if (errorMessage === "FITBIT_TIMEOUT") {
+      logger.warn({ action: "log_food_timeout" }, "Fitbit request timed out");
+      return errorResponse(
+        "FITBIT_TIMEOUT",
+        "Request to Fitbit timed out. Please try again.",
+        504
       );
     }
 

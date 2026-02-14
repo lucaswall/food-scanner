@@ -144,6 +144,18 @@ describe("POST /api/api-keys", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
+
+  it("returns 500 INTERNAL_ERROR when createApiKey throws (FOO-421)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockCreateApiKey.mockRejectedValue(new Error("Database connection error"));
+
+    const request = createRequest({ name: "My Script" });
+    const response = await POST(request);
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
 });
 
 describe("GET /api/api-keys", () => {
@@ -202,5 +214,16 @@ describe("GET /api/api-keys", () => {
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
+  });
+
+  it("returns 500 INTERNAL_ERROR when listApiKeys throws (FOO-421)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockListApiKeys.mockRejectedValue(new Error("Database connection error"));
+
+    const response = await GET();
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
   });
 });

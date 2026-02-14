@@ -2,18 +2,32 @@ import { validateApiRequest } from "@/lib/api-auth";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { ensureFreshToken, getActivitySummary } from "@/lib/fitbit";
+import { isValidDateFormat } from "@/lib/date-utils";
+import { checkRateLimit } from "@/lib/rate-limit";
 
-function isValidDateFormat(date: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
-  const [year, month, day] = date.split("-").map(Number);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
-  const parsed = new Date(year, month - 1, day);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
-}
+const RATE_LIMIT_MAX = 30; // Fitbit API route
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export async function GET(request: Request) {
   const authResult = await validateApiRequest(request);
   if (authResult instanceof Response) return authResult;
+
+  // Extract API key from Authorization header for rate limiting
+  const authHeader = request.headers.get("Authorization");
+  const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || "";
+
+  const { allowed } = checkRateLimit(
+    `v1:activity-summary:${apiKey}`,
+    RATE_LIMIT_MAX,
+    RATE_LIMIT_WINDOW_MS
+  );
+  if (!allowed) {
+    return errorResponse(
+      "RATE_LIMIT_EXCEEDED",
+      "Too many requests. Please try again later.",
+      429
+    );
+  }
 
   const { searchParams } = new URL(request.url);
   const date = searchParams.get("date");
@@ -50,7 +64,7 @@ export async function GET(request: Request) {
 
     if (error instanceof Error) {
       if (error.message === "FITBIT_CREDENTIALS_MISSING") {
-        return errorResponse("FITBIT_CREDENTIALS_MISSING", "Fitbit credentials not found", 404);
+        return errorResponse("FITBIT_CREDENTIALS_MISSING", "Fitbit credentials not found", 424);
       }
       if (error.message === "FITBIT_TOKEN_INVALID") {
         return errorResponse("FITBIT_TOKEN_INVALID", "Fitbit token is invalid or expired", 401);

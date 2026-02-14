@@ -17,6 +17,11 @@ vi.mock("@/lib/food-log", () => ({
   getDailyNutritionSummary: (...args: unknown[]) => mockGetDailyNutritionSummary(...args),
 }));
 
+const mockCheckRateLimit = vi.fn();
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 const { GET } = await import("@/app/api/v1/nutrition-summary/route");
 
 function createRequest(url: string, headers?: HeadersInit): Request {
@@ -30,6 +35,7 @@ describe("GET /api/v1/nutrition-summary", () => {
 
   it("returns nutrition summary for valid API key and date", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
 
     const mockSummary: NutritionSummary = {
       date: "2026-02-11",
@@ -132,6 +138,7 @@ describe("GET /api/v1/nutrition-summary", () => {
 
   it("returns 400 for missing date parameter", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
 
     const request = createRequest(
       "http://localhost:3000/api/v1/nutrition-summary",
@@ -148,6 +155,7 @@ describe("GET /api/v1/nutrition-summary", () => {
 
   it("returns 400 for invalid date format", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
 
     const request = createRequest(
       "http://localhost:3000/api/v1/nutrition-summary?date=invalid-date",
@@ -164,6 +172,7 @@ describe("GET /api/v1/nutrition-summary", () => {
 
   it("sets Cache-Control header to private, no-cache", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
 
     const mockSummary: NutritionSummary = {
       date: "2026-02-11",
@@ -191,5 +200,58 @@ describe("GET /api/v1/nutrition-summary", () => {
     const response = await GET(request);
 
     expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+
+  it("returns 429 when rate limit is exceeded", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/nutrition-summary?date=2026-02-11",
+      { Authorization: "Bearer test-api-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("RATE_LIMIT_EXCEEDED");
+    expect(data.error.message).toMatch(/too many requests/i);
+  });
+
+  it("uses API key as rate limit key with 60 req/min for DB-only route", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
+
+    const mockSummary: NutritionSummary = {
+      date: "2026-02-11",
+      meals: [],
+      totals: {
+        calories: 0,
+        proteinG: 0,
+        carbsG: 0,
+        fatG: 0,
+        fiberG: 0,
+        sodiumMg: 0,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+    };
+
+    mockGetDailyNutritionSummary.mockResolvedValue(mockSummary);
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/nutrition-summary?date=2026-02-11",
+      { Authorization: "Bearer test-api-key-456" }
+    );
+    await GET(request);
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      "v1:nutrition-summary:test-api-key-456",
+      60,
+      60000
+    );
   });
 });

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
+import { getTodayDate } from "@/lib/date-utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { FastingResponse } from "@/types";
 
@@ -27,12 +28,14 @@ function calculateLiveDuration(lastMealTime: string, startDate: string): number 
   const startDateTime = new Date(`${startDate}T${lastMealTime}`);
   const now = new Date();
   const diffMs = now.getTime() - startDateTime.getTime();
-  return Math.floor(diffMs / 60000);
+  return Math.max(0, Math.floor(diffMs / 60000));
 }
 
 export function FastingCard({ date }: FastingCardProps) {
+  // Pass client's local "today" so server can determine live mode correctly
+  const clientDate = getTodayDate();
   const { data, error, isLoading } = useSWR<FastingResponse>(
-    `/api/fasting?date=${date}`,
+    `/api/fasting?date=${date}&clientDate=${clientDate}`,
     apiFetcher
   );
 

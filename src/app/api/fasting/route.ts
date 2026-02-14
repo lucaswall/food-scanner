@@ -2,16 +2,8 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
-import { isToday, addDays } from "@/lib/date-utils";
+import { isToday, addDays, isValidDateFormat } from "@/lib/date-utils";
 import type { FastingResponse } from "@/types";
-
-function isValidDateFormat(date: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
-  const [year, month, day] = date.split("-").map(Number);
-  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
-  const parsed = new Date(year, month - 1, day);
-  return parsed.getFullYear() === year && parsed.getMonth() === month - 1 && parsed.getDate() === day;
-}
 
 export async function GET(request: Request) {
   const session = await getSession();
@@ -23,6 +15,7 @@ export async function GET(request: Request) {
   const date = searchParams.get("date");
   const from = searchParams.get("from");
   const to = searchParams.get("to");
+  const clientDate = searchParams.get("clientDate");
 
   // Single date mode
   if (!from && !to) {
@@ -43,8 +36,10 @@ export async function GET(request: Request) {
       const window = await getFastingWindow(session!.userId, date);
 
       // Determine if live mode (date is today AND window has null firstMealTime)
+      // Use clientDate if provided, otherwise fall back to server's isToday check
       let live: { lastMealTime: string; startDate: string } | null = null;
-      if (window && isToday(date) && window.firstMealTime === null) {
+      const isTodayCheck = clientDate ? date === clientDate : isToday(date);
+      if (window && isTodayCheck && window.firstMealTime === null) {
         live = {
           lastMealTime: window.lastMealTime,
           startDate: addDays(date, -1), // lastMealTime comes from previous day

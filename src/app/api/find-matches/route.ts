@@ -21,7 +21,6 @@ export async function POST(request: Request) {
     typeof body !== "object" ||
     !("keywords" in body) ||
     !Array.isArray((body as Record<string, unknown>).keywords) ||
-    (body as Record<string, unknown[]>).keywords.length === 0 ||
     !(body as Record<string, unknown[]>).keywords.every(
       (k: unknown) => typeof k === "string",
     )

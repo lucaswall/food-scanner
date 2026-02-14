@@ -64,6 +64,7 @@ describe("WeekNavigator", () => {
       <WeekNavigator
         weekStart="2026-02-08"
         onWeekChange={onWeekChange}
+        earliestDate="2026-01-01"
       />
     );
 
@@ -71,6 +72,44 @@ describe("WeekNavigator", () => {
     await user.click(leftArrow);
 
     expect(onWeekChange).toHaveBeenCalledWith("2026-02-01");
+  });
+
+  it("disables left arrow when earliestDate is null", () => {
+    render(
+      <WeekNavigator
+        weekStart="2026-02-08"
+        onWeekChange={() => {}}
+      />
+    );
+
+    const leftArrow = screen.getByLabelText("Previous week");
+    expect(leftArrow).toBeDisabled();
+  });
+
+  it("disables left arrow when current week contains earliestDate", () => {
+    render(
+      <WeekNavigator
+        weekStart="2026-02-08"
+        onWeekChange={() => {}}
+        earliestDate="2026-02-10"
+      />
+    );
+
+    const leftArrow = screen.getByLabelText("Previous week");
+    expect(leftArrow).toBeDisabled();
+  });
+
+  it("enables left arrow when earliestDate is before current week", () => {
+    render(
+      <WeekNavigator
+        weekStart="2026-02-08"
+        onWeekChange={() => {}}
+        earliestDate="2026-01-15"
+      />
+    );
+
+    const leftArrow = screen.getByLabelText("Previous week");
+    expect(leftArrow).not.toBeDisabled();
   });
 
   it("calls onWeekChange with next week start when right arrow clicked", async () => {

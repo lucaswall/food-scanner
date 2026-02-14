@@ -7,11 +7,13 @@ import { formatWeekRange, addWeeks, getTodayDate, getWeekBounds } from "@/lib/da
 interface WeekNavigatorProps {
   weekStart: string;
   onWeekChange: (newStart: string) => void;
+  earliestDate?: string | null;
 }
 
 export function WeekNavigator({
   weekStart,
   onWeekChange,
+  earliestDate = null,
 }: WeekNavigatorProps) {
   const today = getTodayDate();
   const currentWeekBounds = getWeekBounds(today);
@@ -20,8 +22,17 @@ export function WeekNavigator({
   const weekBounds = getWeekBounds(weekStart);
   const weekLabel = formatWeekRange(weekBounds.start, weekBounds.end);
 
+  // Check if current week contains the earliest date
+  const isEarliestWeek =
+    earliestDate !== null &&
+    earliestDate >= weekBounds.start &&
+    earliestDate <= weekBounds.end;
+  const canGoBack = !isEarliestWeek && earliestDate !== null;
+
   const handlePrevious = () => {
-    onWeekChange(addWeeks(weekStart, -1));
+    if (canGoBack) {
+      onWeekChange(addWeeks(weekStart, -1));
+    }
   };
 
   const handleNext = () => {
@@ -37,6 +48,7 @@ export function WeekNavigator({
         variant="ghost"
         size="icon"
         onClick={handlePrevious}
+        disabled={!canGoBack}
         aria-label="Previous week"
         className="min-h-[44px] min-w-[44px] shrink-0"
       >

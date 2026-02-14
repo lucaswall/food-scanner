@@ -302,4 +302,51 @@ describe("GET /api/fasting", () => {
     expect(data.success).toBe(false);
     expect(data.error.code).toBe("INTERNAL_ERROR");
   });
+
+  it("uses clientDate query param instead of server UTC for live mode check (FOO-411)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const mockWindow: FastingWindow = {
+      date: "2026-02-13",
+      lastMealTime: "20:00:00",
+      firstMealTime: null,
+      durationMinutes: null,
+    };
+    mockGetFastingWindow.mockResolvedValue(mockWindow);
+
+    // Client sends date=2026-02-13 and clientDate=2026-02-13 (their local today)
+    // Even though server's isToday() returns false for "2026-02-13" (server today is "2026-02-12"),
+    // the route should use clientDate and enable live mode
+    const req = createRequest("http://localhost:3000/api/fasting?date=2026-02-13&clientDate=2026-02-13");
+    const res = await GET(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.data.live).toEqual({
+      lastMealTime: "20:00:00",
+      startDate: "2026-02-12", // Previous day
+    });
+  });
+
+  it("does not enable live mode when clientDate does not match date (FOO-411)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const mockWindow: FastingWindow = {
+      date: "2026-02-13",
+      lastMealTime: "20:00:00",
+      firstMealTime: null,
+      durationMinutes: null,
+    };
+    mockGetFastingWindow.mockResolvedValue(mockWindow);
+
+    // Client sends date=2026-02-13 but clientDate=2026-02-14 (viewing past day)
+    const req = createRequest("http://localhost:3000/api/fasting?date=2026-02-13&clientDate=2026-02-14");
+    const res = await GET(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.data.live).toBeNull(); // No live mode since date !== clientDate
+  });
 });
