@@ -95,11 +95,99 @@ Should return `{ "success": true, "data": { "status": "ok" }, "timestamp": ... }
 | `npm start` | Start production server |
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript type checking |
-| `npm test` | Run tests |
+| `npm test` | Run unit/integration tests |
+| `npm run e2e` | Run E2E tests (Playwright) |
 | `docker compose up -d` | Start local PostgreSQL |
 | `docker compose down` | Stop local PostgreSQL |
 | `npx drizzle-kit generate` | Generate migration from schema changes |
 | `npx drizzle-kit studio` | Open Drizzle Studio (DB browser) |
+
+---
+
+## E2E Testing
+
+End-to-end tests use Playwright to test the full application stack against a production build.
+
+### Prerequisites
+
+1. **Docker PostgreSQL** must be running (`docker compose up -d`)
+2. **Chromium browser** installed (one-time setup):
+   ```bash
+   npx playwright install chromium
+   ```
+
+### Running E2E Tests
+
+```bash
+npm run e2e
+```
+
+This will:
+1. Load environment variables from `.env.test`
+2. Build the application (`npm run build`)
+3. Start the production server on port 3001
+4. Run global setup:
+   - Truncate all database tables
+   - Authenticate via test-login endpoint (creates test user + session)
+   - Seed test data (custom foods, food log entries)
+   - Save session cookies to storage state
+5. Run all E2E tests (13 tests covering landing, auth, dashboard, settings)
+6. Capture screenshots to `e2e/screenshots/` (landing.png, dashboard.png, settings.png)
+7. Run global teardown (truncate DB, close connections)
+
+### Test Environment
+
+E2E tests use `.env.test` for configuration. This file is checked into git (contains no secrets) and configured with:
+- `DATABASE_URL` → local Docker Postgres (`food_scanner` database)
+- `ENABLE_TEST_AUTH=true` → enables test-only auth bypass route
+- `FITBIT_DRY_RUN=true` → skips Fitbit API calls
+- `PORT=3001` → production server port (avoids conflict with dev server on 3000)
+- Test values for Google OAuth, Anthropic API (not actually called in smoke tests)
+
+### Test Structure
+
+```
+e2e/
+├── fixtures/
+│   ├── auth.ts        # Authentication helpers (storage state path, unauthenticated constant)
+│   └── db.ts          # Database utilities (seed, truncate)
+├── tests/
+│   ├── health.spec.ts        # API health check
+│   ├── landing.spec.ts       # Landing page (unauthenticated)
+│   ├── auth.spec.ts          # Auth redirects (unauthenticated + authenticated)
+│   ├── dashboard.spec.ts     # Dashboard smoke tests
+│   └── settings.spec.ts      # Settings page smoke tests
+├── global-setup.ts    # Runs before all tests (truncate, auth, seed)
+└── global-teardown.ts # Runs after all tests (cleanup)
+```
+
+### Test Data
+
+The test-login endpoint (`POST /api/auth/test-login`) is gated by `ENABLE_TEST_AUTH=true` and creates:
+- Test user: `test@example.com` / `Test User`
+- Test session (iron-session cookie)
+
+Global setup seeds:
+- 3 custom foods (chicken, rice, broccoli)
+- 3 food log entries for today's date
+
+### Screenshots
+
+Screenshots are captured to `e2e/screenshots/` (gitignored) for visual review. They are overwritten on each test run (not accumulated).
+
+### Troubleshooting
+
+**Tests fail with "Test login failed":**
+- Ensure `.env.test` has `ENABLE_TEST_AUTH=true`
+- Check that Docker Postgres is running
+
+**Tests hang during build:**
+- Remove `.next/lock` file if present
+- Ensure port 3001 is available (no other process using it)
+
+**Database errors:**
+- Run `docker compose down -v && docker compose up -d` to reset the DB
+- Ensure `DATABASE_URL` in `.env.test` points to local Docker Postgres
 
 ---
 

@@ -20,7 +20,8 @@ npm run build        # Production build (next build)
 npm start            # Start production server
 npm run lint         # ESLint check
 npm run typecheck    # TypeScript type checking (tsc --noEmit)
-npm test             # Run tests
+npm test             # Run unit/integration tests (Vitest)
+npm run e2e          # Run E2E tests (Playwright)
 ```
 
 ---
@@ -35,9 +36,12 @@ src/db/            # Drizzle schema (source of truth), connection, migrations
 src/lib/           # Business logic modules — route handlers never import from src/db/ directly
 src/types/         # Shared TypeScript types (source of truth for API contracts)
 drizzle/           # Generated SQL migration files (never hand-write — use drizzle-kit generate)
+e2e/               # Playwright E2E tests (fixtures/, tests/, global-setup.ts, global-teardown.ts)
 ```
 
-**Test file convention:** Colocated `__tests__/` subdirectories (e.g., `src/lib/__tests__/session.test.ts`).
+**Test file convention:**
+- Unit/integration tests: Colocated `__tests__/` subdirectories (e.g., `src/lib/__tests__/session.test.ts`)
+- E2E tests: `e2e/tests/*.spec.ts`
 
 ---
 
@@ -73,10 +77,11 @@ Do NOT flag these in code reviews:
 - **Never log:** Cookie values, access tokens, images, user descriptions
 - **Client-side logging:** `console.error`/`console.warn` are correct for `'use client'` components — pino is server-only
 - **Image validation:** Max 10MB/image, max 9 images, JPEG/PNG/GIF/WebP/HEIC. HEIC converted client-side via heic2any.
+- **Test-only auth bypass:** `ENABLE_TEST_AUTH=true` enables `POST /api/auth/test-login` for E2E tests. Must never be set in production.
 - **API route auth convention:**
   - `src/app/api/*` browser-facing routes: `getSession()` + `validateSession()` from `@/lib/session` (iron-session cookies)
   - `src/app/api/v1/*` external API routes: `validateApiRequest()` from `@/lib/api-auth` (Bearer API key)
-  - `src/app/api/auth/*` routes: own OAuth/session management logic
+  - `src/app/api/auth/*` routes: own OAuth/session management logic (includes test-login when `ENABLE_TEST_AUTH=true`)
   - `src/app/api/health` route: public, no auth
 
 ---
