@@ -48,10 +48,15 @@ export function WeeklyDashboard() {
   const currentWeekBounds = getWeekBounds(today);
   const [weekStart, setWeekStart] = useState(currentWeekBounds.start);
   const { mutate: globalMutate } = useSWRConfig();
-  const lastActiveRef = useRef({ weekStart: currentWeekBounds.start, timestamp: Date.now() });
+  const lastActiveRef = useRef<{ weekStart: string; timestamp: number } | null>(null);
 
   // Auto-reset to current week when tab becomes visible after week change or 1hr+ idle
   useEffect(() => {
+    if (!lastActiveRef.current) {
+      const initWeek = getWeekBounds(getTodayDate());
+      lastActiveRef.current = { weekStart: initWeek.start, timestamp: Date.now() };
+    }
+
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
         // Tab is hidden - record current week start and timestamp
@@ -65,8 +70,8 @@ export function WeeklyDashboard() {
         // Tab is visible - check if we should reset to current week
         const currentToday = getTodayDate();
         const currentWeek = getWeekBounds(currentToday);
-        const weekChanged = currentWeek.start !== lastActiveRef.current.weekStart;
-        const elapsed = Date.now() - lastActiveRef.current.timestamp;
+        const weekChanged = currentWeek.start !== lastActiveRef.current?.weekStart;
+        const elapsed = Date.now() - (lastActiveRef.current?.timestamp ?? 0);
         const oneHourInMs = 3_600_000;
 
         if (weekChanged || elapsed > oneHourInMs) {
@@ -93,7 +98,6 @@ export function WeeklyDashboard() {
 
   const {
     data: earliestEntry,
-    isLoading: earliestLoading,
   } = useSWR<{ date: string | null }>("/api/earliest-entry", apiFetcher);
 
   // Fetch nutrition data for the week

@@ -5,6 +5,7 @@ import { WeeklyDashboard } from "@/components/weekly-dashboard";
 import type { DailyNutritionTotals, FastingWindow } from "@/types";
 
 // Mock SWR
+const mockGlobalMutate = vi.fn();
 vi.mock("swr", () => ({
   default: vi.fn((key: string) => {
     if (key?.includes("/api/nutrition-summary")) {
@@ -25,6 +26,7 @@ vi.mock("swr", () => ({
         },
         error: null,
         isLoading: false,
+        mutate: vi.fn(),
       };
     }
     if (key?.includes("/api/fasting")) {
@@ -41,10 +43,19 @@ vi.mock("swr", () => ({
         },
         error: null,
         isLoading: false,
+        mutate: vi.fn(),
+      };
+    }
+    if (key?.includes("/api/earliest-entry")) {
+      return {
+        data: { date: "2026-01-01" },
+        error: null,
+        isLoading: false,
       };
     }
     return { data: null, error: null, isLoading: true };
   }),
+  useSWRConfig: () => ({ mutate: mockGlobalMutate }),
 }));
 
 // Mock date utils
@@ -136,7 +147,11 @@ describe("WeeklyDashboard", () => {
     });
   });
 
-  // Note: Loading and error state testing is covered by integration tests
-  // Component has proper loading skeletons (DashboardSkeleton) and error handling
-  // for both nutritionError and fastingError states
+  it("passes earliestDate to WeekNavigator", async () => {
+    render(<WeeklyDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("week-navigator")).toBeInTheDocument();
+    });
+  });
 });

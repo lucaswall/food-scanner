@@ -485,7 +485,7 @@ describe("DailyDashboard", () => {
     });
   });
 
-  it("shows error state when summary fetch fails", async () => {
+  it("shows error state with retry button when summary fetch fails", async () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
@@ -508,6 +508,7 @@ describe("DailyDashboard", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
     });
   });
 

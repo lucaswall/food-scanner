@@ -106,7 +106,6 @@ export function DailyDashboard() {
 
   const {
     data: goals,
-    isLoading: goalsLoading,
   } = useSWR<NutritionGoals>(`/api/nutrition-goals?clientDate=${selectedDate}`, apiFetcher);
 
   const {

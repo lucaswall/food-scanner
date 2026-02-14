@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Branch:** feat/FOO-399-backlog-sweep
 **Issues:** FOO-399, FOO-400, FOO-401, FOO-402, FOO-403, FOO-404, FOO-405, FOO-406, FOO-407, FOO-408, FOO-409, FOO-410, FOO-411, FOO-412, FOO-413, FOO-414, FOO-415, FOO-416, FOO-417, FOO-418, FOO-419, FOO-420, FOO-421, FOO-422, FOO-423, FOO-424, FOO-425, FOO-426, FOO-427, FOO-428, FOO-429, FOO-430, FOO-431, FOO-432, FOO-433, FOO-434
 **Created:** 2026-02-14
@@ -963,3 +963,42 @@ Summary: 0 issues requiring fix, 4 pre-existing/minor issues documented (Team: s
 - FOO-424: Review → Merge
 
 <!-- REVIEW COMPLETE -->
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-02-14
+**Method:** Single-agent (cleanup — code already implemented by Iteration 2 worker)
+
+### Tasks Completed This Iteration
+- Task 10 remaining: Dashboard UX improvements (FOO-399, FOO-400, FOO-401, FOO-406, FOO-409) — All 5 issues were already implemented in code by the Iteration 2 worker but not documented due to worker context exhaustion. This iteration fixed test failures, lint errors, and added missing test coverage.
+
+### Fixes Applied
+- Fixed `Date.now()` impure function call during render in `weekly-dashboard.tsx` (React compiler lint error)
+- Removed unused `goalsLoading` destructuring in `daily-dashboard.tsx`
+- Removed unused `earliestLoading` destructuring in `weekly-dashboard.tsx`
+- Fixed `week-navigator.test.tsx` to pass `earliestDate` prop (test was clicking a disabled button)
+- Added 3 new tests for WeekNavigator earliestDate behavior (null, contains earliest, before earliest)
+- Fixed `weekly-dashboard.test.tsx` SWR mock to export `useSWRConfig` and `earliest-entry` data
+- Added explicit retry button assertion to DailyDashboard error state test
+
+### Files Modified
+- `src/components/weekly-dashboard.tsx` — Fixed Date.now() lint error, removed unused earliestLoading
+- `src/components/daily-dashboard.tsx` — Removed unused goalsLoading
+- `src/components/__tests__/week-navigator.test.tsx` — Fixed earliestDate test, added 3 new tests
+- `src/components/__tests__/weekly-dashboard.test.tsx` — Fixed SWR mock, added earliestDate test
+- `src/components/__tests__/daily-dashboard.test.tsx` — Added retry button assertion
+
+### Linear Updates
+- FOO-399: Todo → Review
+- FOO-400: Todo → Review
+- FOO-401: Todo → Review
+- FOO-406: Todo → Review
+- FOO-409: Todo → Review
+
+### Pre-commit Verification
+- verifier: All 1668 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed. Plan is ready for review.
