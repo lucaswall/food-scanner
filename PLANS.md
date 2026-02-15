@@ -1,559 +1,419 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-497-swr-data-freshness
-**Issues:** FOO-497, FOO-503, FOO-498, FOO-499, FOO-502, FOO-501
 **Created:** 2026-02-15
-**Last Updated:** 2026-02-15
+**Source:** Inline request: Contextual Memory — Give Claude access to all app data during chat conversations, plus a free-form chat entry point from Home.
+**Linear Issues:** [FOO-505](https://linear.app/lw-claude/issue/FOO-505/chat-tool-definitions-and-executors-search-food-log-get-nutrition), [FOO-506](https://linear.app/lw-claude/issue/FOO-506/agentic-tool-loop-for-claude-chat), [FOO-507](https://linear.app/lw-claude/issue/FOO-507/enhance-food-refinement-chat-with-data-lookup-tools), [FOO-508](https://linear.app/lw-claude/issue/FOO-508/free-chat-backend-api-route-claude-function), [FOO-509](https://linear.app/lw-claude/issue/FOO-509/free-chat-ui-and-home-page-entry-point)
 
-## Summary
+## Context Gathered
 
-Fix a family of SWR data-freshness and error-handling bugs in the QuickSelect, Dashboard, and app-wide components. The issues cover: infinite scroll list resets from an unstable SWR key (FOO-503), no global handler for expired sessions (FOO-497), stale data after food mutations (FOO-498), the Recent tab never revalidating (FOO-499), a wasted prefetch HTTP request (FOO-502), and pending food submissions being silently lost after Fitbit re-auth (FOO-501).
+### Codebase Analysis
 
-## Issues
+**Current chat architecture:**
+- `src/lib/claude.ts` — Two functions: `analyzeFood()` (forced tool_use with `report_nutrition`) and `conversationalRefine()` (auto tool_choice, text + optional analysis)
+- `src/app/api/chat-food/route.ts` — Accepts `ConversationMessage[]` + optional images + optional `initialAnalysis`. Max 20 messages. Rate limit: 30/15min.
+- `src/components/food-chat.tsx` — Full-screen modal. Client holds all conversation state in `useState`. Messages are text-only client ↔ server; `analysis` field on assistant messages renders `MiniNutritionCard`.
+- `src/types/index.ts` — `ConversationMessage { role, content, analysis? }`, `ChatFoodRequest`, `ChatFoodResponse { message, analysis? }`
 
-### FOO-497: No global 401 handler for expired sessions
+**Existing query functions reusable as tool backends:**
+- `searchFoods(userId, query)` — Full-text search custom foods by name/keyword (src/lib/food-log.ts)
+- `getDailyNutritionSummary(userId, date)` — Per-meal breakdown + daily totals (src/lib/food-log.ts)
+- `getDateRangeNutritionSummary(userId, from, to)` — Daily totals with calorie+macro goals merged (src/lib/food-log.ts)
+- `getFoodLogHistory(userId, options)` — Paginated chronological entries (src/lib/food-log.ts)
+- `getFastingWindow(userId, date)` — Single-day fasting window (src/lib/fasting.ts)
+- `getFastingWindows(userId, from, to)` — Multi-day fasting windows (src/lib/fasting.ts)
+- `getLumenGoalsByDate(userId, date)` — Macro goals for a date (src/lib/lumen.ts)
+- `getCommonFoods(userId, time, date)` — Smart-ranked frequently eaten foods (src/lib/food-log.ts)
 
-**Priority:** High
-**Labels:** Bug
-**Description:** When a user's session expires (30-day cookie still present but DB session deleted), the middleware passes the request (cookie check only), but all API calls return 401 with `AUTH_MISSING_SESSION`. No global handler catches this — the user sees broken/empty states everywhere with no redirect to login.
+**Home page** (`src/app/app/page.tsx`):
+- 2-column grid: "Take Photo" + "Quick Select"
+- Below: LumenBanner + DashboardShell
 
-**Acceptance Criteria:**
-- [ ] Global error handler detects `AUTH_MISSING_SESSION` error code from SWR API responses
-- [ ] When detected, redirect to `/` (landing page)
-- [ ] Does not interfere with OAuth redirect flows (those happen outside `/app` layout)
+**Test patterns** (`src/lib/__tests__/claude.test.ts`):
+- Mocked Anthropic SDK (`vi.mock("@anthropic-ai/sdk")`)
+- Mocked logger, recordUsage
+- `mockCreate` controls Claude API responses
+- `validAnalysis` fixture for FoodAnalysis
 
-### FOO-503: QuickSelect infinite scroll jumps — list resets during pagination
+### API Best Practices (Anthropic Official Docs)
 
-**Priority:** High
-**Labels:** Bug
-**Description:** `getLocalDateTime()` returns `HH:mm:ss` with seconds. This is called in the QuickSelect component body on every render and embedded in the `useSWRInfinite` key via `useCallback` deps. Every re-render that crosses a second boundary creates a new SWR key, discarding all loaded pages. The sentinel div also causes layout shifts.
+**Tool lifecycle:** Request with tools → Claude returns `stop_reason: "tool_use"` with `tool_use` blocks → Execute tools server-side → Send `tool_result` in next user message → Claude responds or calls more tools → Repeat until `stop_reason: "end_turn"`.
 
-**Acceptance Criteria:**
-- [ ] SWR key is stable during the component's lifetime (compute `clientTime`/`clientDate` once on mount)
-- [ ] `keepPreviousData: true` on `useSWRInfinite` so key changes show old data while loading
-- [ ] Sentinel div has fixed minimum height so spinner doesn't cause layout shifts
-- [ ] Smooth scrolling through 30+ items with no visible jumps
+**Key rules:**
+- Tool descriptions are the #1 performance lever — 3-4+ sentences minimum per tool
+- Use `strict: true` to guarantee schema compliance
+- Use enums for constrained values
+- `tool_result` blocks MUST come before any text in a user message
+- All parallel tool results must be in ONE user message
+- `tool_result.tool_use_id` must match the corresponding `tool_use.id`
+- Use `is_error: true` on tool_result for execution errors
+- Max tool iterations should be capped to prevent infinite loops
 
-### FOO-498: No SWR cache invalidation after food mutations
+**System prompt + tools:** Anthropic injects tool definitions automatically. The user system prompt supplements the tool descriptions with behavioral rules. Use XML tags to separate prompt sections.
 
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** After logging or deleting food, no code invalidates SWR caches for related endpoints. The user sees stale calorie totals, stale food history, and stale common-foods lists until SWR's background revalidation catches up (visible "jump").
+### About the 20-Message Limit
 
-**Acceptance Criteria:**
-- [ ] After successful food log (both analyze and quick-select flows), invalidate nutrition-summary, food-history, common-foods, fasting, and earliest-entry SWR caches
-- [ ] After successful food delete in history, also invalidate nutrition-summary and fasting caches
-- [ ] Use SWR's `mutate` with a key matcher function for clean invalidation
+The 20-message limit in `/api/chat-food` exists for:
+1. **Cost control** — Each turn sends the full conversation history to Claude. Longer conversations = linearly more input tokens per turn.
+2. **Context quality** — Claude's attention degrades over very long conversations, leading to worse nutrition estimates.
+3. **UX design** — The refinement chat is task-oriented (fix the analysis, then log). 10 turns (20 messages) is generous for that use case. The limit nudges users to finish and log.
 
-### FOO-499: QuickSelect "Recent" tab never auto-revalidates on revisit
+For the new free chat (advisory/Q&A), a higher limit is appropriate since conversations are more exploratory. 30 messages (15 turns) balances usability with cost. The tool overhead per turn (tool_use + tool_result messages are internal, not counted toward the limit) adds ~500-1000 tokens per tool call, making cost control still important.
 
-**Priority:** Medium
-**Labels:** Bug
-**Description:** `useSWRInfinite` with `revalidateFirstPage: false` + `revalidateOnFocus: false` + a stable Recent tab key means the first page NEVER auto-revalidates. Newly logged foods don't appear when navigating back to quick-select.
+## Original Plan
 
-**Acceptance Criteria:**
-- [ ] Recent tab shows newly logged foods when user navigates back to quick-select
-- [ ] Infinite scroll still works correctly
-- [ ] No loading flash during revalidation (leverages `keepPreviousData` from FOO-503)
+### Task 1: Chat Tool Definitions and Executors
 
-### FOO-502: DashboardPrefetch preloads wrong common-foods key
+**Linear Issue:** [FOO-505](https://linear.app/lw-claude/issue/FOO-505/chat-tool-definitions-and-executors-search-food-log-get-nutrition)
 
-**Priority:** Low
-**Labels:** Performance
-**Description:** `DashboardPrefetch` calls `preload("/api/common-foods", apiFetcher)` but no component uses that exact SWR key. QuickSelect uses parameterized keys. The preloaded data is cached but never consumed — one wasted HTTP request per `/app` page load.
+**What:** Create the tool definitions (JSON schemas for Claude API) and server-side executor functions that map tool parameters to existing lib query functions.
 
-**Acceptance Criteria:**
-- [ ] Prefetch key matches an actual SWR key used by QuickSelect
-- [ ] Or remove the common-foods prefetch if no stable key exists
+**Three tools:**
 
-### FOO-501: Pending food submission only checked in QuickSelect
+1. **`search_food_log`** — Search food log entries by name, keyword, date, or meal type.
+   - Description: "Search the user's food log to find what they have eaten. Use this when the user references past meals, asks about foods they've eaten before, wants to see entries for a specific date or meal, or asks what they usually eat. Returns individual food entries with nutrition details, grouped by date and meal type when searching by date. When a query is provided without dates, returns the most frequently logged matches."
+   - Parameters:
+     - `query` (string, optional) — food name or keyword to search
+     - `date` (string, optional) — specific date in YYYY-MM-DD format
+     - `from_date` (string, optional) — range start in YYYY-MM-DD format
+     - `to_date` (string, optional) — range end in YYYY-MM-DD format
+     - `meal_type` (enum, optional) — "breakfast" | "morning_snack" | "lunch" | "afternoon_snack" | "dinner" | "anytime"
+     - `limit` (integer, optional) — max results, default 10
+   - At least one of `query`, `date`, or `from_date`+`to_date` must be provided
+   - Backend mapping:
+     - `query` alone → `searchFoods(userId, query)`
+     - `date` (with optional `meal_type`) → `getDailyNutritionSummary(userId, date)` filtered by mealTypeId
+     - `from_date` + `to_date` → `getFoodLogHistory(userId, { ... })` filtered by date range
+   - Result format: Human-readable text listing entries with food name, amount+unit, calories, protein/carbs/fat, date, meal type
 
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** When Fitbit token expires during food logging, the app saves a pending submission to `sessionStorage` and redirects to OAuth. After OAuth, the callback redirects to `/app` (dashboard). The pending submission is only checked in QuickSelect's `useEffect` — if the user doesn't navigate to quick-select, the food log is silently lost.
+2. **`get_nutrition_summary`** — Get aggregated nutrition totals with goal comparison for a single day or date range.
+   - Description: "Get the user's nutrition summary including total calories, protein, carbs, fat, fiber, and sodium. Always includes the user's calorie and macro goals when available, so you can tell them how they're tracking. Use this for questions about daily intake, goal progress, nutrition trends over time, or macro breakdowns. For a single date, returns per-meal breakdown. For a date range, returns daily totals with goals."
+   - Parameters:
+     - `date` (string, optional) — single date in YYYY-MM-DD format
+     - `from_date` (string, optional) — range start
+     - `to_date` (string, optional) — range end
+   - At least one of `date` or `from_date`+`to_date` must be provided
+   - Backend mapping:
+     - `date` → `getDailyNutritionSummary(userId, date)` + `getLumenGoalsByDate(userId, date)` + calorie goal from `getCalorieGoalsByDateRange`
+     - `from_date` + `to_date` → `getDateRangeNutritionSummary(userId, from, to)` (already includes goals)
+   - Result format: Human-readable text with totals, goals, and goal completion percentages
 
-**Acceptance Criteria:**
-- [ ] Check for pending submissions at the app layout level (not just QuickSelect)
-- [ ] Show a visible indicator (toast or banner) when a pending submission exists
-- [ ] Auto-resubmit and show success/failure feedback
-- [ ] Remove duplicate pending submission logic from QuickSelect
+3. **`get_fasting_info`** — Get fasting window data (time since last meal, duration, patterns).
+   - Description: "Get the user's fasting window information. Shows when they last ate, when they first ate, and the fasting duration in between. Use this when the user asks about fasting, when they last ate, or wants to see fasting patterns over time. A null firstMealTime means the user is currently fasting (hasn't eaten yet today)."
+   - Parameters:
+     - `date` (string, optional) — single date, defaults to today
+     - `from_date` (string, optional) — range start
+     - `to_date` (string, optional) — range end
+   - Backend mapping:
+     - `date` (or default) → `getFastingWindow(userId, date)`
+     - `from_date` + `to_date` → `getFastingWindows(userId, from, to)`
+   - Result format: Human-readable text with last meal time, first meal time, duration
 
-## Prerequisites
-
-- [ ] On `main` branch with clean working tree
-- [ ] No active PLANS.md (previous plan is COMPLETE)
-
-## Implementation Tasks
-
-### Task 1: Global SWR Error Provider (FOO-497)
-
-**Issue:** FOO-497
-**Files:**
-- `src/components/swr-provider.tsx` (create)
-- `src/components/__tests__/swr-provider.test.tsx` (create)
-- `src/app/app/layout.tsx` (modify)
+**File structure:**
+- `src/lib/chat-tools.ts` — Tool definitions (Anthropic tool schema objects) + executor functions + result formatters
+- `src/lib/__tests__/chat-tools.test.ts` — Unit tests
 
 **TDD Steps:**
 
-1. **RED** — Write tests for the new `SWRProvider` component:
-   - Test that it renders children normally
-   - Test that when an SWR hook throws an `ApiError` with code `AUTH_MISSING_SESSION`, `window.location.href` is set to `"/"`
-   - Test that errors with other codes (e.g., `FITBIT_TOKEN_INVALID`) do NOT trigger a redirect
-   - Test that non-`ApiError` errors do NOT trigger a redirect
-   - Run: `npm test -- swr-provider`
+1. **RED** — Write tests for each executor function:
+   - `executeSearchFoodLog`: Test with query param calls `searchFoods`, test with date param calls `getDailyNutritionSummary`, test with date+meal_type filters correctly, test with from_date+to_date calls `getFoodLogHistory`, test returns formatted string, test handles empty results
+   - `executeGetNutritionSummary`: Test with date calls `getDailyNutritionSummary` + goals, test with from+to calls `getDateRangeNutritionSummary`, test formats goals as percentages, test handles missing goals gracefully
+   - `executeGetFastingInfo`: Test with date calls `getFastingWindow`, test with range calls `getFastingWindows`, test formats ongoing fast (null firstMealTime), test handles null result (no data)
+   - `executeTool` dispatcher: Test routes tool name to correct executor, test returns `is_error: true` for unknown tool
+   - Mock all lib functions (`food-log`, `fasting`, `lumen`, `nutrition-goals`)
+   - Run: `npm test -- chat-tools`
    - Verify: Tests fail (module not found)
 
-2. **GREEN** — Create `src/components/swr-provider.tsx`:
-   - A `"use client"` component that wraps children in `<SWRConfig>` with an `onError` callback
-   - The callback checks if the error is an `ApiError` with code `AUTH_MISSING_SESSION`
-   - If so, redirect via `window.location.href = "/"`
-   - Pattern reference: `src/components/app-refresh-guard.tsx` (client wrapper in app layout)
-   - Pattern reference: `src/lib/swr.ts` for `ApiError` class
-   - Run: `npm test -- swr-provider`
+2. **GREEN** — Implement `src/lib/chat-tools.ts`:
+   - Export tool definition constants (3 Anthropic.Tool objects with `strict: true` where feasible)
+   - Export executor functions for each tool
+   - Export `executeTool(toolName, params, userId, currentDate)` dispatcher
+   - Format results as clean, human-readable text (Claude interprets these as tool results)
+   - Handle errors gracefully — return error text with `is_error: true` flag rather than throwing
+   - Run: `npm test -- chat-tools`
    - Verify: Tests pass
-
-3. **REFACTOR** — Integrate into app layout:
-   - Wrap the app layout children in `SWRProvider` in `src/app/app/layout.tsx`
-   - The provider should wrap inside `AppRefreshGuard` (or alongside it)
-   - No test needed for integration — E2E covers this
-
-**Notes:**
-- The `SWRConfig` `onError` fires for any SWR hook error within its subtree
-- OAuth flows happen at `/api/auth/*` which is outside the `/app` layout, so no interference
-- Use `window.location.href` (not `router.push`) to force a full page reload that clears client state
-- The `ApiError` class is already exported from `src/lib/swr.ts`
 
 ---
 
-### Task 2: Stabilize QuickSelect SWR Key (FOO-503)
+### Task 2: Agentic Tool Loop
 
-**Issue:** FOO-503
+**Linear Issue:** [FOO-506](https://linear.app/lw-claude/issue/FOO-506/agentic-tool-loop-for-claude-chat)
+
+**What:** Implement the server-side loop that handles Claude calling tools, executing them, and feeding results back until Claude gives a final response.
+
+**Behavior:**
+- After sending messages to Claude with `tool_choice: "auto"`, check `stop_reason`
+- If `"tool_use"`: extract all `tool_use` blocks, execute each via `executeTool()`, build `tool_result` messages, send back to Claude
+- If `"end_turn"`: extract text + optional analysis, return final response
+- Cap at 5 iterations to prevent infinite loops — if exceeded, return Claude's last text response
+- Handle parallel tool calls (multiple `tool_use` blocks in one response → all `tool_result` blocks in one user message)
+- Pass `userId` and `currentDate` to tool executors
+
 **Files:**
-- `src/lib/meal-type.ts` (modify)
-- `src/lib/__tests__/meal-type.test.ts` (modify)
-- `src/components/quick-select.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
+- `src/lib/claude.ts` — New `runToolLoop` function (or integrated into existing functions)
+- `src/lib/__tests__/claude.test.ts` — New test describe block
 
 **TDD Steps:**
 
-1. **RED** — Update `getLocalDateTime` tests to expect `HH:mm` format (no seconds):
-   - Change the test assertion from `"14:30:45"` to `"14:30"`, etc.
-   - Add a test that verifies seconds are NOT included in the time string
-   - Run: `npm test -- meal-type`
-   - Verify: Tests fail (still returns `HH:mm:ss`)
+1. **RED** — Write tests for the tool loop:
+   - Test single tool call: Mock Claude returning `stop_reason: "tool_use"` with one `tool_use` block, then mock second call returning `stop_reason: "end_turn"`. Verify `executeTool` was called, verify final response includes text.
+   - Test parallel tool calls: Mock Claude returning 2 `tool_use` blocks. Verify both executed. Verify single `tool_result` user message with both results.
+   - Test tool call then analysis: Claude calls tool, gets result, then calls `report_nutrition`. Verify analysis is extracted.
+   - Test max iterations: Mock Claude always returning `tool_use`. Verify loop stops after 5 iterations and returns whatever text Claude has produced.
+   - Test tool error: Executor returns error. Verify `tool_result` sent with `is_error: true`. Verify Claude still gets the error and responds gracefully.
+   - Test no tool calls: Claude responds directly with text only. Verify no executor called.
+   - Mock `executeTool` from `chat-tools` module
+   - Run: `npm test -- claude`
+   - Verify: Tests fail
 
-2. **GREEN** — Modify `getLocalDateTime()` in `src/lib/meal-type.ts`:
-   - Remove the seconds component from the returned time string
-   - Return format: `HH:mm` instead of `HH:mm:ss`
-   - Run: `npm test -- meal-type`
+2. **GREEN** — Implement the tool loop in `src/lib/claude.ts`:
+   - Create a loop function that takes the initial Claude response and iterates
+   - Each iteration: extract tool_use blocks → execute tools → build tool_result content → append to messages → call Claude again
+   - When `stop_reason === "end_turn"`: extract text blocks and optional `tool_use` (report_nutrition) and return
+   - Return type: same as `conversationalRefine` → `{ message: string, analysis?: FoodAnalysis }`
+   - Run: `npm test -- claude`
    - Verify: Tests pass
 
-3. **RED** — Add QuickSelect tests for key stability:
-   - Test that the SWR key remains the same across re-renders within the same component lifetime (verify `clientTime` is captured once, not recalculated)
-   - Test that the sentinel div always has a minimum height (e.g., `min-h-[48px]`) regardless of loading state
-   - Update the mock for `getLocalDateTime` in the test file — it already returns `"14:30:00"`, change to `"14:30"`
-   - Run: `npm test -- quick-select`
+---
+
+### Task 3: Enhanced Food Refinement Chat with Tools
+
+**Linear Issue:** [FOO-507](https://linear.app/lw-claude/issue/FOO-507/enhance-food-refinement-chat-with-data-lookup-tools)
+
+**What:** Wire the tool infrastructure into the existing food refinement chat so Claude can query the user's data during meal analysis conversations.
+
+**Changes:**
+1. Update `conversationalRefine()` to accept `userId` (required, not optional) and `currentDate`
+2. Include the 3 data tools alongside `report_nutrition` in the tools array
+3. After the initial Claude API call, run the tool loop if Claude calls any data tools
+4. Update `CHAT_SYSTEM_PROMPT` to tell Claude about data tools:
+   - "You have access to the user's food log database. When the user references past meals, asks about their nutrition history, or mentions goals, use the available search and summary tools to look up real data before responding. Only call tools when the user's message warrants a lookup — don't preemptively search."
+5. Update `/api/chat-food` route to pass `session.userId` and current date string to `conversationalRefine()`
+
+**Files:**
+- `src/lib/claude.ts` — Modify `conversationalRefine` signature and behavior
+- `src/lib/__tests__/claude.test.ts` — Update existing tests, add tool-aware tests
+- `src/app/api/chat-food/route.ts` — Pass userId and currentDate
+- `src/app/api/chat-food/__tests__/route.test.ts` — Update tests
+
+**TDD Steps:**
+
+1. **RED** — Add tests for `conversationalRefine` with tools:
+   - Test that when Claude calls `search_food_log` during refinement, the tool is executed and results sent back
+   - Test that `report_nutrition` still works (forced analysis output)
+   - Test that Claude can call a data tool AND report_nutrition in the same conversation turn sequence
+   - Test that existing non-tool refinement (text-only responses) still works unchanged
+   - Run: `npm test -- claude`
    - Verify: New tests fail
 
-4. **GREEN** — Modify `src/components/quick-select.tsx`:
-   - Replace the `getLocalDateTime()` call in the component body with a `useState` initializer: `const [{ time: clientTime, date: clientDate }] = useState(getLocalDateTime)` — this captures the value once on mount and never recalculates
-   - Add `keepPreviousData: true` to the `useSWRInfinite` options object
-   - Change the sentinel div to always have a fixed minimum height class (e.g., `min-h-[48px]`) instead of conditionally rendering the spinner inside it
-   - Run: `npm test -- quick-select`
+2. **GREEN** — Update `conversationalRefine`:
+   - Add data tool definitions to the tools array (alongside `report_nutrition`)
+   - After the Claude API call, check if response contains data tool calls → if so, run tool loop
+   - When tool loop completes, extract final text + optional analysis
+   - Run: `npm test -- claude`
    - Verify: Tests pass
 
-**Notes:**
-- `useState(getLocalDateTime)` (passing a function, not calling it) is the React lazy initializer pattern — it runs once on mount
-- The `handleLogToFitbit` function at line 223 also calls `getLocalDateTime()` — that call is CORRECT (it should get the current time at the moment of logging, not mount time). Do not change it.
-- The pending resubmission `useEffect` at line 139-141 also calls `getLocalDateTime()` as a fallback — that's also correct (current time at resubmit). Do not change it.
-- The `keepPreviousData` option was added in SWR 2.x — verify the project's SWR version supports it
-- Existing test mock returns `"14:30:00"` — update to `"14:30"` to match the new format
-- The `time` field sent to the API in the request body will now be `HH:mm` instead of `HH:mm:ss`. Verify `parseTimeToMinutes()` in `src/lib/food-log.ts:108-111` handles both formats (it splits on `:` and uses `parts[0]` and `parts[1]`, so `HH:mm` works fine — seconds were always ignored).
-
----
-
-### Task 3: SWR Cache Invalidation After Food Mutations (FOO-498)
-
-**Issue:** FOO-498
-**Files:**
-- `src/lib/swr.ts` (modify)
-- `src/lib/__tests__/swr.test.ts` (modify)
-- `src/components/food-log-confirmation.tsx` (modify)
-- `src/components/__tests__/food-log-confirmation.test.tsx` (modify)
-- `src/components/food-history.tsx` (modify)
-- `src/components/__tests__/food-history.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add tests for a new `invalidateFoodCaches()` function in `src/lib/__tests__/swr.test.ts`:
-   - Test that calling `invalidateFoodCaches()` calls SWR's `mutate` with a matcher function
-   - Test that the matcher function matches keys containing `/api/nutrition-summary`, `/api/food-history`, `/api/common-foods`, `/api/fasting`, `/api/earliest-entry`
-   - Test that it does NOT match unrelated keys like `/api/settings`
-   - Run: `npm test -- swr`
-   - Verify: Tests fail (function doesn't exist)
-
-2. **GREEN** — Add `invalidateFoodCaches()` to `src/lib/swr.ts`:
-   - Import `mutate` from `swr` (the global `mutate` function)
-   - Define a list of food-related key prefixes: `/api/nutrition-summary`, `/api/food-history`, `/api/common-foods`, `/api/fasting`, `/api/earliest-entry`
-   - Call `mutate(key => typeof key === 'string' && prefixes.some(p => key.startsWith(p)))` to revalidate all matching caches
-   - Export the function
-   - Run: `npm test -- swr`
-   - Verify: Tests pass
-
-3. **RED** — Add tests for FoodLogConfirmation calling `invalidateFoodCaches`:
-   - Test that `invalidateFoodCaches()` is called when the component mounts with a valid response
-   - Run: `npm test -- food-log-confirmation`
+3. **RED** — Update route tests for `/api/chat-food`:
+   - Test that `conversationalRefine` receives `userId` from the session
+   - Run: `npm test -- chat-food`
    - Verify: Test fails
 
-4. **GREEN** — Modify `src/components/food-log-confirmation.tsx`:
-   - Import `invalidateFoodCaches` from `@/lib/swr`
-   - Call it in the existing `useEffect` (alongside `vibrateSuccess()`) when `response` is truthy
-   - Run: `npm test -- food-log-confirmation`
+4. **GREEN** — Update route to pass required params:
+   - Pass `session.userId` (already available) and a date string to `conversationalRefine`
+   - Run: `npm test -- chat-food`
    - Verify: Tests pass
-
-5. **RED** — Add tests for FoodHistory calling `invalidateFoodCaches` after delete:
-   - Test that after a successful delete, `invalidateFoodCaches()` is called (in addition to the existing `mutate()`)
-   - Run: `npm test -- food-history`
-   - Verify: Test fails
-
-6. **GREEN** — Modify `src/components/food-history.tsx`:
-   - Import `invalidateFoodCaches` from `@/lib/swr`
-   - Call it in `handleDeleteConfirm` after the existing `mutate()` call on line 193
-   - Run: `npm test -- food-history`
-   - Verify: Tests pass
-
-**Notes:**
-- SWR's global `mutate` with a key matcher function revalidates all matching caches without clearing them (shows stale data while refetching)
-- The `mutate` import from `swr` is the global version, different from the per-hook `mutate` returned by `useSWR`
-- FoodLogConfirmation is used by BOTH the analyze flow and the quick-select flow, so invalidation in its `useEffect` covers both code paths
-- The existing `mutate()` call in food-history.tsx:193 only invalidates the food-history SWR key — `invalidateFoodCaches()` covers the rest
 
 ---
 
-### Task 4: Recent Tab Revalidation on Revisit (FOO-499)
+### Task 4: Free Chat Backend
 
-**Issue:** FOO-499
+**Linear Issue:** [FOO-508](https://linear.app/lw-claude/issue/FOO-508/free-chat-backend-api-route-claude-function)
+
+**What:** Create a new API route and Claude function for open-ended nutrition chat that only has data tools (no `report_nutrition`).
+
+**Behavior:**
+- User sends text messages, Claude responds with advice/information grounded in real data
+- Claude has access to: `search_food_log`, `get_nutrition_summary`, `get_fasting_info`
+- No `report_nutrition` tool — free chat is read-only/advisory
+- System prompt: nutrition advisor persona that can look up the user's data
+- Message limit: 30 (15 turns) — more generous than refinement since conversations are exploratory
+- Rate limit: 30 requests per 15 minutes (same as refinement)
+
+**System prompt for free chat:**
+```
+You are a friendly nutrition advisor. You have access to the user's food log, nutrition summaries, goals, and fasting data.
+
+When the user asks questions about their eating habits, nutrition, or goals, use the available tools to look up their actual data before responding. Base your answers on real data, not assumptions.
+
+You can help with:
+- Reviewing what they've eaten (today, this week, any date)
+- Checking progress against calorie and macro goals
+- Suggesting meals based on their eating patterns and remaining goals
+- Analyzing fasting patterns
+- Answering nutrition questions with their personal context
+
+Be concise and conversational. Use specific numbers from their data. When suggesting meals, consider their typical eating patterns and current goal progress.
+```
+
 **Files:**
-- `src/components/quick-select.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
+- `src/lib/claude.ts` — New `freeChat()` function
+- `src/lib/__tests__/claude.test.ts` — Tests for `freeChat`
+- `src/app/api/chat/route.ts` — New API route
+- `src/app/api/chat/__tests__/route.test.ts` — Route tests
+- `src/types/index.ts` — New `ChatRequest` and `ChatResponse` types (simple: messages[] → { message })
 
 **TDD Steps:**
 
-1. **RED** — Add a test that verifies the Recent tab revalidates on revisit:
-   - Render QuickSelect, load data for the Suggested tab
-   - Switch to Recent tab, load data
-   - Switch back to Suggested, then back to Recent again
-   - Verify that a new fetch is triggered for the Recent tab on the second visit (revalidation)
-   - Run: `npm test -- quick-select`
-   - Verify: Test fails (no revalidation happens)
+1. **RED** — Write tests for `freeChat()`:
+   - Test text-only response (Claude responds without calling tools)
+   - Test tool call flow (Claude calls `get_nutrition_summary`, gets results, responds)
+   - Test that `report_nutrition` is NOT available (only data tools)
+   - Test max iterations respected
+   - Test usage recording
+   - Run: `npm test -- claude`
+   - Verify: Tests fail
 
-2. **GREEN** — Modify the `useSWRInfinite` config in QuickSelect:
-   - Change `revalidateFirstPage: false` to `revalidateFirstPage: true`
-   - This is now safe because Task 2 added `keepPreviousData: true`, which prevents loading flashes during revalidation — old data shows while the new data loads
-   - The `revalidateOnFocus: false` remains unchanged (we don't want revalidation on every window focus event)
-   - Run: `npm test -- quick-select`
+2. **GREEN** — Implement `freeChat()` in `src/lib/claude.ts`:
+   - Similar structure to `conversationalRefine` but with different system prompt and tools
+   - Only data tools (no `report_nutrition`)
+   - Returns `{ message: string }` (no analysis)
+   - Run: `npm test -- claude`
    - Verify: Tests pass
 
-3. **REFACTOR** — Verify existing tests still pass:
-   - The "does not revalidate when window regains focus" test should still pass (we only changed `revalidateFirstPage`, not `revalidateOnFocus`)
-   - Run full: `npm test -- quick-select`
-   - Verify: All tests pass
+3. **RED** — Write route tests for `/api/chat`:
+   - Test requires authenticated session (401 without session)
+   - Test validates messages array (non-empty, max 30, valid roles)
+   - Test successful chat returns message
+   - Test rate limiting (30/15min)
+   - Test Claude API error returns 500
+   - Follow patterns from `src/app/api/chat-food/__tests__/route.test.ts`
+   - Run: `npm test -- chat`
+   - Verify: Tests fail
+
+4. **GREEN** — Implement `/api/chat/route.ts`:
+   - Validate session (require auth but NOT Fitbit — free chat doesn't log to Fitbit)
+   - Validate messages (max 30, valid format)
+   - Rate limit: `chat:${userId}`
+   - Call `freeChat(messages, userId, currentDate)`
+   - Return `{ message }`
+   - Run: `npm test -- chat`
+   - Verify: Tests pass
 
 **Notes:**
-- With `revalidateFirstPage: true`, SWR will revalidate the first page when the key changes (tab switch) or when the component remounts. Combined with `keepPreviousData: true` from Task 2, the old data remains visible during revalidation — no loading flash.
-- This also benefits the Suggested tab — if the user revisits after a while, the suggested foods will be refreshed in the background.
-- The infinite scroll "load more" behavior is unaffected — `revalidateFirstPage` only affects the first page's revalidation behavior, not subsequent pages.
+- Free chat does NOT require Fitbit connection (it's read-only, queries local DB only)
+- `validateSession(session, { requireFitbit: false })` — users can chat even before connecting Fitbit (they'll just have empty data)
 
 ---
 
-### Task 5: Fix Dashboard Prefetch Key (FOO-502)
+### Task 5: Free Chat UI and Home Page Entry Point
 
-**Issue:** FOO-502
+**Linear Issue:** [FOO-509](https://linear.app/lw-claude/issue/FOO-509/free-chat-ui-and-home-page-entry-point)
+
+**What:** Create the free chat page, component, and add a "Chat" CTA button to the Home page.
+
+**UI spec:**
+
+**Home page CTA:**
+- Add a third link to the grid on the home page, below the existing 2-column grid
+- Full-width button (spans both columns): `MessageCircle` icon + "Chat" label
+- Links to `/app/chat`
+- Same card styling as "Take Photo" and "Quick Select" (rounded-xl border bg-card shadow-sm hover:bg-accent)
+- More compact height than the other two buttons since it's full-width
+
+**Chat page (`/app/chat`):**
+- Full-screen layout similar to FoodChat
+- Header: Back button (navigates to `/app`) + title "Chat"
+- Scrollable message area (assistant left, user right — same styling as FoodChat)
+- Bottom input: text input + send button (no photo upload, no image support)
+- No "Log to Fitbit" button, no meal type selector, no nutrition card
+- Initial assistant message: "Hi! I can help you explore your nutrition data. Ask me anything — what you've eaten, your macro progress, fasting patterns, or meal suggestions based on your history."
+- Message limit: 30 messages. Warning at 26+ messages ("X messages remaining"). Input disabled at 30.
+- Loading state: Animated dots or spinner while waiting for Claude response
+
+**Loading skeleton (`/app/chat/loading.tsx`):**
+- Skeleton matching the chat layout: header bar + empty message area + input bar
+
 **Files:**
-- `src/components/dashboard-prefetch.tsx` (modify)
-- `src/components/__tests__/dashboard-prefetch.test.tsx` (modify)
+- `src/components/free-chat.tsx` — Chat component (client component)
+- `src/components/__tests__/free-chat.test.tsx` — Component tests
+- `src/app/app/chat/page.tsx` — Page wrapper
+- `src/app/app/chat/loading.tsx` — Loading skeleton
+- `src/app/app/page.tsx` — Add Chat CTA to home grid
 
 **TDD Steps:**
 
-1. **RED** — Update the prefetch test to expect the correct key:
-   - Change the test assertion from `"/api/common-foods"` to `"/api/common-foods?tab=recent&limit=10"`
-   - Run: `npm test -- dashboard-prefetch`
-   - Verify: Test fails (still preloads the old key)
+1. **RED** — Write component tests for `FreeChat`:
+   - Test renders initial assistant greeting message
+   - Test user can type in input and send (displays user message + loading state)
+   - Test assistant response renders after API call
+   - Test input disabled when at 30-message limit with warning text
+   - Test near-limit warning shows at 26+ messages
+   - Test send button disabled when input is empty or loading
+   - Test back button calls navigation to /app
+   - Test error display when API call fails
+   - Mock `fetch` to `/api/chat`
+   - Run: `npm test -- free-chat`
+   - Verify: Tests fail
 
-2. **GREEN** — Modify `src/components/dashboard-prefetch.tsx`:
-   - Change the preload call from `preload("/api/common-foods", apiFetcher)` to `preload("/api/common-foods?tab=recent&limit=10", apiFetcher)`
-   - This matches QuickSelect's Recent tab SWR key exactly, so the prefetched data will be consumed when the user navigates to quick-select
-   - Run: `npm test -- dashboard-prefetch`
+2. **GREEN** — Implement `src/components/free-chat.tsx`:
+   - Client component with useState for messages, input, loading, error
+   - Send handler: POST to `/api/chat` with messages array
+   - Message rendering: same styling as FoodChat (user right, assistant left) but simpler (text only, no MiniNutritionCard)
+   - Auto-scroll to bottom on new messages
+   - 30-message limit with warnings
+   - Ref: Reuse patterns from `src/components/food-chat.tsx` for layout, scrolling, message rendering
+   - Run: `npm test -- free-chat`
    - Verify: Tests pass
 
-**Notes:**
-- The Recent tab key is stable (`/api/common-foods?tab=recent&limit=10`) — it doesn't include time parameters, making it a good prefetch target
-- The Suggested tab key includes `clientTime` and `clientDate` which are different per mount, so it can't be prefetched from the dashboard
-- The food-history prefetch (`/api/food-history?limit=20`) is already correct and unchanged
+3. **REFACTOR** — Create page and loading:
+   - `src/app/app/chat/page.tsx`: Server component that checks session (redirect to `/` if not authenticated), renders `<FreeChat />`
+   - `src/app/app/chat/loading.tsx`: Skeleton with header bar + message area + input bar
+   - Pattern: follow `src/app/app/analyze/page.tsx` for auth guard pattern
 
----
+4. **RED** — Test Home page has Chat CTA:
+   - Test that the home page renders a link to `/app/chat` with "Chat" text
+   - This may be tested via existing home page tests or a new assertion
+   - Run: `npm test -- page` (or relevant home page test)
+   - Verify: Fails (no chat link yet)
 
-### Task 6: Pending Submission Handler at App Level (FOO-501)
-
-**Issue:** FOO-501
-**Files:**
-- `src/components/pending-submission-handler.tsx` (create)
-- `src/components/__tests__/pending-submission-handler.test.tsx` (create)
-- `src/app/app/layout.tsx` (modify)
-- `src/components/quick-select.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Write tests for the new `PendingSubmissionHandler` component:
-   - Test that it renders nothing when no pending submission exists
-   - Test that when a pending submission exists, it auto-resubmits to `/api/log-food`
-   - Test that on successful resubmission, it clears the pending submission and shows a success toast/banner
-   - Test that on `FITBIT_TOKEN_INVALID` error, it re-saves the pending and redirects to `/api/auth/fitbit`
-   - Test that on `FITBIT_CREDENTIALS_MISSING` error, it clears pending and shows a credentials error message
-   - Test that on generic error, it clears pending and shows an error message
-   - Pattern reference: the existing QuickSelect pending resubmission tests (lines 569-674 in `quick-select.test.tsx`)
-   - Run: `npm test -- pending-submission-handler`
-   - Verify: Tests fail (module not found)
-
-2. **GREEN** — Create `src/components/pending-submission-handler.tsx`:
-   - A `"use client"` component that checks `getPendingSubmission()` in a `useEffect` on mount
-   - If a pending submission exists: show a visible banner with "Reconnected! Resubmitting [foodName]..." text
-   - Resubmit to `/api/log-food` with the same body-building logic as QuickSelect lines 139-159
-   - Handle success: clear pending, show "Successfully resubmitted [foodName]" for ~3 seconds, then hide
-   - Handle `FITBIT_TOKEN_INVALID`: re-save pending, redirect to `/api/auth/fitbit`
-   - Handle `FITBIT_CREDENTIALS_MISSING`/`FITBIT_NOT_CONNECTED`: clear pending, show credentials error
-   - Handle generic error: clear pending, show error message
-   - Call `invalidateFoodCaches()` after successful resubmission (from Task 3)
-   - Pattern reference: `src/components/fitbit-status-banner.tsx` for banner UI patterns
-   - Run: `npm test -- pending-submission-handler`
+5. **GREEN** — Add Chat CTA to `src/app/app/page.tsx`:
+   - Add a full-width Link below the 2-column grid
+   - `MessageCircle` icon from lucide-react + "Chat" label
+   - Links to `/app/chat`
+   - Same card styling but full-width (no grid, just a standalone card)
+   - Run: `npm test -- page`
    - Verify: Tests pass
 
-3. **REFACTOR** — Integrate into app layout:
-   - Add `<PendingSubmissionHandler />` to `src/app/app/layout.tsx` alongside the existing components
-   - Place it before `{children}` so the banner appears at the top of the app
-
-4. **RED** — Update QuickSelect tests to verify the pending logic is removed:
-   - Remove all pending resubmission tests from `quick-select.test.tsx` (the "pending resubmit" describe blocks)
-   - Add a test that verifies QuickSelect does NOT check `getPendingSubmission()` on mount
-   - Run: `npm test -- quick-select`
-   - Verify: Tests fail (QuickSelect still calls `getPendingSubmission`)
-
-5. **GREEN** — Remove pending submission logic from QuickSelect:
-   - Remove the `useEffect` at lines 130-197 that handles pending resubmission
-   - Remove the `resubmitting`/`resubmitFoodName` state variables and their UI
-   - Remove the imports of `getPendingSubmission`/`clearPendingSubmission` (keep `savePendingSubmission` — it's still used for new token expiry saves)
-   - Run: `npm test -- quick-select`
-   - Verify: All tests pass
-
-**Notes:**
-- The `PendingSubmissionHandler` lives in the app layout, so it runs on every `/app/*` page load — no matter where the user lands after OAuth re-auth
-- The banner should auto-dismiss after a few seconds on success (use `setTimeout` to clear the state)
-- The `savePendingSubmission` call in QuickSelect's `handleLogToFitbit` (line 232-238) and in the analyze flow must remain — those SAVE the pending submission on token expiry. We're only moving the RECOVERY logic.
-- The `FoodLogConfirmation` component is not affected — it handles the success UI after a normal (non-pending) log
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent - Review changes for bugs
+2. Run `verifier` agent - Verify all tests pass and zero warnings
 
 ---
 
-### Task 7: Integration & Verification
+## Plan Summary
 
-**Issue:** FOO-497, FOO-503, FOO-498, FOO-499, FOO-502, FOO-501
-**Files:**
-- Various files from previous tasks
+**Objective:** Give Claude access to the user's food log, nutrition summaries, goals, and fasting data during chat conversations, and add a free-form chat entry point to the Home page.
 
-**Steps:**
+**Request:** Extend the Contextual Memory feature from the roadmap to cover all app data domains. Enhance the existing food refinement chat with data lookup tools. Add a new "Chat" option on the Home page for open-ended nutrition Q&A powered by Claude with access to real user data.
 
-1. Run full test suite: `npm test`
-2. Run linter: `npm run lint`
-3. Run type checker: `npm run typecheck`
-4. Build check: `npm run build`
-5. Manual verification:
-   - [ ] Navigate to `/app` — no wasted prefetch requests in Network tab
-   - [ ] Open QuickSelect Suggested tab — scroll through 30+ items without list resets
-   - [ ] Switch between Suggested and Recent tabs — no loading flashes
-   - [ ] Log a food, navigate to dashboard — calorie total updates immediately (no stale data jump)
-   - [ ] Delete a food in history — dashboard calorie total updates immediately
-   - [ ] (If testable) Expire session — see redirect to landing page
+**Linear Issues:** FOO-505, FOO-506, FOO-507, FOO-508, FOO-509
 
-## MCP Usage During Implementation
+**Approach:** Define 3 read-only Claude tools (`search_food_log`, `get_nutrition_summary`, `get_fasting_info`) backed by existing lib query functions. Implement an agentic tool loop server-side that transparently handles tool calls between Claude and the database. Wire tools into the existing refinement chat and create a new free chat mode with its own API route, UI component, and Home page entry point.
 
-| MCP Server | Tool | Purpose |
-|------------|------|---------|
-| Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
+**Scope:**
+- Tasks: 5
+- Files affected: ~16 (8 new, 8 modified)
+- New tests: yes (tool executors, tool loop, new route, new component)
 
-## Error Handling
+**Key Decisions:**
+- 3 tools (not more) — keeps Claude's tool selection fast and accurate. Covers the main question categories: food history, nutrition/goals, fasting.
+- Transparent tool loop (Option A) — tool calls are handled server-side and not persisted in client conversation history. Claude's text responses summarize tool results, which is sufficient context for follow-up turns. Avoids client-side complexity.
+- Free chat is read-only — no `report_nutrition` tool, no food logging. Users go to the analyze flow to log.
+- Free chat doesn't require Fitbit — allows chatting even before Fitbit setup (data may just be empty).
+- 30-message limit for free chat (vs 20 for refinement) — more exploratory, but still capped for cost control.
+- Tool results formatted as human-readable text — Claude interprets these as tool results and incorporates them naturally into responses.
 
-| Error Scenario | Expected Behavior | Test Coverage |
-|---------------|-------------------|---------------|
-| Session expired (401) | Global redirect to `/` | Unit test (Task 1) |
-| Pending resubmit fails with token invalid | Re-save pending, redirect to OAuth | Unit test (Task 6) |
-| Pending resubmit fails with credentials missing | Clear pending, show error | Unit test (Task 6) |
-| SWR key changes mid-scroll | Old data stays visible (keepPreviousData) | Unit test (Task 2) |
-| Cache invalidation after mutation | All food-related caches revalidate | Unit test (Task 3) |
-
-## Risks & Open Questions
-
-- [ ] SWR version compatibility: Verify `keepPreviousData` is supported by the installed SWR version (requires SWR 2.x+)
-- [ ] `getLocalDateTime()` format change from `HH:mm:ss` to `HH:mm`: The time value is sent in API request bodies to `/api/log-food`. Verify `parseTimeToMinutes()` handles `HH:mm` (it does — only uses `parts[0]` and `parts[1]`). Also verify any other consumers of `getLocalDateTime().time` are unaffected.
-- [ ] The `invalidateFoodCaches()` function uses SWR's global `mutate` with a key matcher. Verify this works correctly with `useSWRInfinite` keys (which are arrays internally but string-based in the key function).
-
-## Scope Boundaries
-
-**In Scope:**
-- Global 401 handler for expired sessions
-- SWR key stabilization for QuickSelect
-- Cache invalidation after food mutations
-- Recent tab revalidation on revisit
-- Dashboard prefetch key fix
-- Pending submission handler at app layout level
-
-**Out of Scope:**
-- FOO-500 (Canceled — duplicate of FOO-503, same root cause)
-- Service worker for offline support
-- Optimistic updates for food mutations (invalidation-based approach is simpler and sufficient)
-- Custom retry logic for failed API calls
-- Session expiry prevention or auto-refresh
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-15
-**Method:** Agent team (3 workers)
-
-### Tasks Completed This Iteration
-- Task 1: Global SWR Error Provider (FOO-497) - Created SWRProvider with onError handler that redirects to / on AUTH_MISSING_SESSION (worker-1)
-- Task 2: Stabilize QuickSelect SWR Key (FOO-503) - Changed getLocalDateTime to HH:mm, used useState initializer for stable key, added keepPreviousData:true, fixed sentinel div height (worker-1)
-- Task 3: SWR Cache Invalidation After Food Mutations (FOO-498) - Created invalidateFoodCaches() function, integrated into FoodLogConfirmation and FoodHistory (worker-2)
-- Task 4: Recent Tab Revalidation on Revisit (FOO-499) - Enabled revalidateFirstPage:true for automatic revalidation (worker-1)
-- Task 5: Fix Dashboard Prefetch Key (FOO-502) - Changed prefetch from /api/common-foods to /api/common-foods?tab=recent&limit=10 (worker-3)
-- Task 6: Pending Submission Handler at App Level (FOO-501) - Created PendingSubmissionHandler component in app layout, removed pending logic from QuickSelect (worker-1)
-
-### Files Modified
-- `src/components/swr-provider.tsx` - Created: SWRConfig wrapper with global 401 error handler
-- `src/components/__tests__/swr-provider.test.tsx` - Created: 4 tests for SWR provider
-- `src/app/app/layout.tsx` - Added SWRProvider and PendingSubmissionHandler wrappers
-- `src/lib/meal-type.ts` - Changed getLocalDateTime() to return HH:mm format (no seconds)
-- `src/lib/__tests__/meal-type.test.ts` - Updated tests for HH:mm format
-- `src/components/quick-select.tsx` - useState initializer for clientTime/clientDate, keepPreviousData:true, revalidateFirstPage:true, min-h sentinel, removed pending submission logic
-- `src/components/__tests__/quick-select.test.tsx` - Added key stability and revalidation tests, removed pending resubmission tests, removed unused mockAnalysis
-- `src/lib/swr.ts` - Added invalidateFoodCaches() function with global SWR mutate
-- `src/lib/__tests__/swr.test.ts` - Added 4 tests for cache invalidation
-- `src/components/food-log-confirmation.tsx` - Call invalidateFoodCaches() in success useEffect
-- `src/components/__tests__/food-log-confirmation.test.tsx` - Added cache invalidation tests, fixed mock to return Promise
-- `src/components/food-history.tsx` - Call invalidateFoodCaches() after successful delete
-- `src/components/__tests__/food-history.test.tsx` - Added delete cache invalidation tests, fixed mock to return Promise
-- `src/components/dashboard-prefetch.tsx` - Fixed preload key to match QuickSelect Recent tab
-- `src/components/__tests__/dashboard-prefetch.test.tsx` - Updated test for correct prefetch key
-- `src/components/pending-submission-handler.tsx` - Created: global pending submission handler with banner UI
-- `src/components/__tests__/pending-submission-handler.test.tsx` - Created: 8 tests for pending handler
-
-### Linear Updates
-- FOO-497: Todo → In Progress → Review
-- FOO-503: Todo → In Progress → Review
-- FOO-498: Todo → In Progress → Review
-- FOO-499: Todo → In Progress → Review
-- FOO-502: Todo → In Progress → Review
-- FOO-501: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 3 HIGH (unhandled async invalidateFoodCaches), 3 MEDIUM (setTimeout cleanup, docs), 1 LOW — all fixed before commit
-- verifier: All tests pass, zero lint errors, zero warnings
-
-### Work Partition
-- Worker 1: Tasks 1, 2, 4, 6 (SWR provider, QuickSelect stabilization, Recent tab revalidation, pending submission handler)
-- Worker 2: Task 3 (SWR cache invalidation)
-- Worker 3: Task 5 (Dashboard prefetch key fix)
-
-### Review Findings
-
-Files reviewed: 17
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-Summary: 1 issue found (Team: security, reliability, quality reviewers + E2E tests)
-- FIX: 1 issue — Linear issue created
-- DISCARDED: 3 findings — false positives / not applicable
-
-**Issues requiring fix:**
-- [HIGH] BUG: `isValidTimeFormat()` in `src/app/api/log-food/route.ts:92` rejects `HH:mm` format — `getLocalDateTime()` was changed from `HH:mm:ss` to `HH:mm` (Task 2/FOO-503) but the API validation regex `^\d{2}:\d{2}:\d{2}$` still requires seconds. ALL food logging is broken.
-
-**Discarded findings (not bugs):**
-- [DISCARDED] ERROR: Missing console.error in food-history.tsx:144 fetchEntries catch — Pre-existing code not changed in this iteration; catch block properly handles error via user-facing state
-- [DISCARDED] ERROR: Missing console.error in food-history.tsx:195 handleDeleteConfirm catch — Pre-existing catch block; only invalidateFoodCaches() was added in the try block above it
-- [DISCARDED] ERROR: Missing console.error in pending-submission-handler.tsx:93 catch — New code but properly handles error via clearPendingSubmission() + user-facing error state; CLAUDE.md says console.error is "correct for" client components, not "required in every catch"
-
-### Linear Updates
-- FOO-497: Review → Merge
-- FOO-503: Review → Merge
-- FOO-498: Review → Merge
-- FOO-499: Review → Merge
-- FOO-502: Review → Merge
-- FOO-501: Review → Merge
-- FOO-504: Created in Todo (Fix: isValidTimeFormat rejects HH:mm format)
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-All tasks completed.
-
----
-
-## Fix Plan
-
-**Source:** Review findings from Iteration 1 (E2E test failure)
-**Linear Issues:** [FOO-504](https://linear.app/lw-claude/issue/FOO-504/fix-isvalidtimeformat-rejects-hhmm-format-after-getlocaldatetime)
-
-### Fix 1: Update isValidTimeFormat to accept HH:mm format
-**Linear Issue:** [FOO-504](https://linear.app/lw-claude/issue/FOO-504/fix-isvalidtimeformat-rejects-hhmm-format-after-getlocaldatetime)
-
-1. Write test in `src/app/api/log-food/__tests__/route.test.ts` (or existing test file) that verifies `isValidTimeFormat` accepts both `HH:mm` and `HH:mm:ss` formats
-2. Update regex in `src/app/api/log-food/route.ts:92` from `^\d{2}:\d{2}:\d{2}$` to `^\d{2}:\d{2}(:\d{2})?$` to accept both formats
-3. Update validation logic to handle both 2-part and 3-part time strings
-4. Update error message from "Use HH:mm:ss" to "Use HH:mm or HH:mm:ss"
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-02-15
-**Method:** Agent team (1 worker)
-
-### Tasks Completed This Iteration
-- Fix 1: Update isValidTimeFormat to accept HH:mm format (FOO-504) - Updated regex, validation logic, error message, and tests (worker-1)
-
-### Files Modified
-- `src/app/api/log-food/route.ts` - Updated `isValidTimeFormat()`: regex from `^\d{2}:\d{2}:\d{2}$` to `^\d{2}:\d{2}(:\d{2})?$`, optional seconds handling via `parts[2] ?? 0`, error message to "Use HH:mm or HH:mm:ss"
-- `src/app/api/log-food/__tests__/route.test.ts` - Removed "12:00" from invalid times, added "1:00"/"12:0" as invalid single-digit formats, added HH:mm semantic validation tests ("24:00", "12:60", "99:99"), added acceptance test for "12:30" format
-
-### Linear Updates
-- FOO-504: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Passed (no issues found)
-- verifier: All 1720 tests pass, zero lint errors, zero warnings
-
-### Work Partition
-- Worker 1: Fix 1 (log-food route + tests)
-
-### Review Findings
-
-Files reviewed: 2
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-No issues found - all implementations are correct and follow project conventions.
-
-### Linear Updates
-- FOO-504: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-All tasks completed.
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+**Risks/Considerations:**
+- Tool execution adds latency per turn (1-2 extra Claude API round-trips when tools are called). Monitor p95 response times.
+- Cost per turn increases when tools are used (tool definitions ~400 tokens + tool results ~200-500 tokens each). The 30/15min rate limit provides a safety net.
+- Claude may over-call tools (calling `get_nutrition_summary` when the user is just chatting). The system prompt must be clear about when to use tools.
+- The free chat page needs the same session auth pattern as other `/app/*` routes. No Fitbit requirement since it's read-only.
