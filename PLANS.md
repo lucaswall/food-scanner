@@ -131,8 +131,35 @@ The `web_search_20250305` tool is a **server-side tool** — the Anthropic API e
 - bug-hunter: Passed (no bugs found)
 - verifier: All 1791 tests pass, zero warnings
 
-### Continuation Status
-All tasks completed.
+### Review Findings
+
+Summary: 1 issue found (Single-agent review: security, reliability, quality)
+- FIX: 1 issue — Linear issue created
+- DISCARDED: 0 findings
+
+**Issues requiring fix:**
+- [MEDIUM] TIMEOUT: SDK client timeout (30s) not updated for web search latency (`src/lib/claude.ts:17`) — The Anthropic SDK `timeout: 30000` was set before web search was enabled. Web search adds 2-5s per search to individual API calls. In edge cases (multiple searches, slow network), a single API call could exceed 30s and timeout. The frontend timeout was bumped to 120s (FOO-525) but the SDK timeout was missed. Also, the comment `// 30 second timeout as per ROADMAP.md` now references a removed section.
+
+### Linear Updates
+- FOO-529: Review → Merge (original task completed)
+- FOO-530: Review → Merge (original task completed)
+- FOO-531: Created in Todo (Fix: SDK timeout for web search latency)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-531](https://linear.app/lw-claude/issue/FOO-531/increase-sdk-timeout-from-30s-to-60s-for-web-search-latency)
+
+### Fix 1: SDK timeout too tight for web search
+**Linear Issue:** [FOO-531](https://linear.app/lw-claude/issue/FOO-531/increase-sdk-timeout-from-30s-to-60s-for-web-search-latency)
+
+1. Update test in `src/lib/__tests__/claude.test.ts` to assert SDK timeout is 60000 (if such a test exists, or add one)
+2. Change `timeout: 30000` to `timeout: 60000` in `src/lib/claude.ts:17`
+3. Update the stale comment from `// 30 second timeout as per ROADMAP.md` to `// 60 second timeout — accommodates web search latency`
 
 ---
 
