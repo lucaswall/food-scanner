@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-02-15
+
+### Added
+
+- Free-form chat for nutrition questions without needing a food photo
+- Chat can now recall your past meals, daily nutrition, and fasting history
+- Chat can search the web for real-time nutrition information
+
+### Changed
+
+- Unified food analysis and free chat into a single streamlined experience
+- Upgraded AI model for improved analysis accuracy
+
+### Fixed
+
+- Six chat bugs: camera reset after sending, description persistence, stale analysis after refinement, system prompt coherence, multi-turn context, and streaming reliability
+
 ## [1.9.1] - 2026-02-15
 
 ### Changed
@@ -173,7 +190,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.9.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/lucaswall/food-scanner/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/lucaswall/food-scanner/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/lucaswall/food-scanner/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/lucaswall/food-scanner/compare/v1.7.0...v1.8.0
