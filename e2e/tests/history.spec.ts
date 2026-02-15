@@ -186,12 +186,8 @@ test.describe('History Page', () => {
     await page.goto('/app/history');
     await page.waitForLoadState('networkidle');
 
-    // Seeded entries are Lunch (chicken + rice) and Dinner (broccoli)
-    // Verify meal type labels are visible
+    // Seeded Lunch entries (chicken + rice) are never deleted by other tests
+    // Skip Broccoli/Dinner assertion — may be deleted by food-detail delete test
     await expect(page.getByText('Lunch').first()).toBeVisible();
-
-    // Dinner might be labeled differently based on meal type ID
-    const dinnerLabel = await page.locator('text=/Dinner|Anytime/i').count();
-    expect(dinnerLabel).toBeGreaterThan(0);
   });
 });
