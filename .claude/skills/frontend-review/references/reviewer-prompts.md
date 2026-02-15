@@ -450,6 +450,12 @@ PWA OPTIMIZATION:
 - Start URL points to the correct authenticated route
 - Apple-specific meta tags present (apple-touch-icon, apple-mobile-web-app-capable)
 
+SECURITY HEADERS (frontend-relevant):
+- Content-Security-Policy (CSP) configured to prevent XSS
+- X-Content-Type-Options: nosniff configured
+- No inline <script> tags or style= attributes that would violate a strict CSP
+- No dangerouslySetInnerHTML without proper sanitization
+
 RESOURCE LOADING:
 - Third-party scripts loaded with appropriate strategy (defer, async, afterInteractive)
 - Prefetching used for likely navigation targets (next/link handles this)
@@ -469,4 +475,6 @@ Search patterns (use Grep on the listed files):
 - `aspect-ratio|width.*height` — CLS prevention
 - `<link.*preload|<link.*prefetch` — resource hints
 - `manifest` — PWA configuration
+- `dangerouslySetInnerHTML` — potential XSS vector
+- `<script` — inline scripts that may violate CSP
 ```

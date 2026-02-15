@@ -96,6 +96,7 @@ Trace data from source to display and back.
 - Session validation matches CLAUDE.md convention (getSession + validateSession for browser, validateApiRequest for v1)
 - OAuth tokens stay server-side, never exposed to client
 - Allowlist enforcement (ALLOWED_EMAILS) applied consistently
+- Constant-time comparison for sensitive values (tokens, API keys) — use `crypto.timingSafeEqual()`, not `===`
 
 ### Input Validation
 - User input sanitized before database operations
@@ -103,6 +104,7 @@ Trace data from source to display and back.
 - API request bodies validated with appropriate schemas
 - No path traversal via user-controlled file paths
 - No XSS via user-controlled content rendered as HTML (dangerouslySetInnerHTML, unescaped output)
+- No SSRF — server-side requests use allowlisted URLs/domains, no user-controlled URLs passed to fetch
 
 ### Sensitive Data
 - Tokens, secrets, session data not logged (check pino calls)
@@ -246,3 +248,16 @@ Follow data through the full AI pipeline:
 - AI-generated content (food names, descriptions, notes) sanitized before HTML rendering (XSS)
 - Rate limiting prevents abuse of expensive Claude API calls
 - Token usage tracked for cost monitoring
+
+## 9. AI-Generated Code Risks
+
+All code in this project is AI-assisted. When tracing data flows and interactions, watch for these AI-specific patterns:
+
+### Cross-Domain AI Issues
+- **Hallucinated APIs** — API calls to methods/endpoints that don't exist or have wrong signatures. Verify against actual library docs.
+- **Hallucinated packages** — non-existent npm packages that may be claimed by attackers. Verify every `import` references a real package in `package.json`.
+- **Contract mismatches introduced by AI** — client assumes response fields that the API doesn't return, or vice versa
+- **Copy-paste patterns** — similar handler logic duplicated across routes instead of shared through a lib module
+- **Missing validation at boundaries** — AI often generates the "happy path" and skips validation of external data (Fitbit responses, Claude outputs, user input)
+- **Inconsistent error handling** — some error paths return proper responses while others silently fail or return generic errors
+- **Over-abstraction** — unnecessary wrappers, helpers, or config for one-time operations

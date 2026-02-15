@@ -24,6 +24,7 @@ Universal checks that apply to any project. Project-specific rules should be def
 - SQL/NoSQL injection prevention (parameterized queries, ORM) - if using databases
 - Command injection prevention (avoid shell execution with user input)
 - Path traversal prevention (`../` sequences blocked)
+- SSRF prevention — server-side requests use allowlisted URLs/domains, no user-controlled URLs passed directly to fetch/HTTP clients
 - External API response validation (don't trust third-party data)
 - File path/name validation when processing external files
 
@@ -33,10 +34,19 @@ Universal checks that apply to any project. Project-specific rules should be def
 - Auth middleware applied consistently to protected routes
 - Service account credentials properly scoped
 - JWT validation complete (signature, expiry, issuer) - if using JWTs
+- Constant-time comparison for sensitive values (tokens, API keys, session IDs) — use `crypto.timingSafeEqual()` or equivalent, not `===`
 
 ### HTTPS & Transport
 - External API calls use HTTPS
 - Certificate validation not disabled
+
+### Security Headers
+- Content-Security-Policy (CSP) configured — prevents XSS and data injection
+- X-Content-Type-Options: nosniff — prevents MIME sniffing
+- X-Frame-Options or CSP frame-ancestors — prevents clickjacking
+- Strict-Transport-Security (HSTS) — enforces HTTPS
+- Referrer-Policy — limits referrer information leakage
+- Permissions-Policy — restricts browser features (camera, geolocation, etc.)
 
 ## Type Safety
 
@@ -166,7 +176,9 @@ Universal checks that apply to any project. Project-specific rules should be def
 ### Supply Chain
 - Dependencies from trusted sources
 - No typosquatting package names
+- **Hallucinated packages** — verify all imports resolve to real packages (AI frequently invents non-existent package names that may be claimed by attackers)
 - Lock files committed and up to date
+- Dependencies pinned to specific versions or known-safe ranges
 
 ## Logging
 
@@ -289,6 +301,7 @@ Use Grep tool (not bash grep) to find potential issues:
 - `password|secret|api.?key|token` (case insensitive) - potential hardcoded secrets
 - `eval\(|new Function\(` - dangerous code execution
 - `exec\(|spawn\(` with variable input - command injection risk
+- `fetch\(.*\$|fetch\(.*\+|fetch\(.*\`|axios.*\$|axios.*\+` - potential SSRF (user-controlled URLs in server-side fetch)
 
 **Type Safety:**
 - `as any` - unsafe type cast
@@ -397,3 +410,28 @@ Use Grep tool to find potential AI integration issues:
 **Cost:**
 - `max_tokens` — verify reasonable limits set
 - `recordUsage` — verify usage tracking calls exist
+
+## AI-Generated Code Risks
+
+All code in this project is AI-assisted. Apply extra scrutiny for patterns AI models commonly introduce:
+
+### Common AI Code Vulnerabilities
+- **XSS vulnerabilities** (2.74x higher frequency in AI code) — check all dynamic content rendering
+- **Logic errors** (75% more common) — verify branching, loop bounds, comparisons
+- **Missing input validation** — AI often skips server-side validation
+- **Hardcoded secrets** — AI trains on public repos full of exposed credentials
+- **Code duplication** — AI frequently generates similar code instead of reusing existing abstractions
+- **~45% of AI code contains security flaws** — treat all AI output as untrusted until reviewed
+
+### AI-Specific Anti-patterns
+- **Hallucinated APIs** — methods, functions, or library features that don't exist. Verify imports resolve to real exports.
+- **Hallucinated packages** — non-existent npm packages that may be claimed by attackers (supply chain risk). Verify every `import` references a real, trusted package.
+- **Outdated patterns** — AI may use deprecated APIs or old security practices from training data
+- **Over-engineering** — unnecessary abstractions, extra error handling for impossible scenarios
+- **Missing business context** — AI may not understand domain constraints, leading to incorrect logic
+
+### Search Patterns for AI Code Issues
+- Check `import.*from` for packages that don't exist in `package.json`
+- Check `require\(` for the same
+- Look for API method calls that don't match the library's actual interface
+- Look for copied patterns (similar code blocks in multiple files that should be shared)

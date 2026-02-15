@@ -19,6 +19,7 @@ Reference for plan-review-implementation skill.
 - [ ] Command injection prevention (avoid shell execution with user input)
 - [ ] Path traversal prevention (`../` sequences blocked)
 - [ ] XSS prevention (context-appropriate encoding: HTML, JS, CSS, URL)
+- [ ] SSRF prevention (server-side requests use allowlisted URLs, no user-controlled URLs in fetch)
 - [ ] File upload validation (content type, size, extension)
 - [ ] Input length limits enforced
 - [ ] Special characters handled appropriately
@@ -29,6 +30,7 @@ Reference for plan-review-implementation skill.
 - [ ] Session timeout for inactivity
 - [ ] Cookie flags set (HttpOnly, Secure, SameSite)
 - [ ] Refresh tokens rotated on use
+- [ ] Constant-time comparison for sensitive values (tokens, API keys) — use `crypto.timingSafeEqual()`, not `===`
 
 ### Authorization
 - [ ] Access controls enforced server-side
@@ -43,6 +45,13 @@ Reference for plan-review-implementation skill.
 - [ ] No secrets in git history
 - [ ] Sensitive data not logged
 - [ ] Error messages don't leak internal info
+
+### Security Headers
+- [ ] Content-Security-Policy (CSP) configured
+- [ ] X-Content-Type-Options: nosniff
+- [ ] X-Frame-Options or CSP frame-ancestors
+- [ ] Strict-Transport-Security (HSTS)
+- [ ] Referrer-Policy configured
 
 ## Logic & Correctness
 
@@ -170,10 +179,14 @@ Always check CLAUDE.md for project-specific rules including:
 
 ## AI-Generated Code Risks
 
-When reviewing AI-generated or AI-assisted code, pay extra attention to:
-- **Logic errors** (75% more common in AI code)
-- **XSS vulnerabilities** (2.74x higher frequency)
-- **Code duplication** (frequent AI pattern)
-- **Security flaws** (~45% of AI code contains them)
-- **Missing context** (AI may not understand business logic)
-- **Hallucinated APIs** (non-existent methods/libraries)
+All code in this project is AI-assisted. Apply extra scrutiny for these patterns:
+- **Logic errors** (75% more common in AI code) — verify branching, loop bounds, comparisons
+- **XSS vulnerabilities** (2.74x higher frequency) — check all dynamic content rendering
+- **Code duplication** (frequent AI pattern) — similar code that should use shared abstractions
+- **Security flaws** (~45% of AI code contains them) — treat all AI output as untrusted until reviewed
+- **Missing input validation** — AI often skips server-side validation
+- **Missing context** (AI may not understand business logic) — verify domain-specific constraints
+- **Hallucinated APIs** (non-existent methods/libraries) — verify imports resolve to real exports
+- **Hallucinated packages** — non-existent npm packages that may be claimed by attackers. Verify every `import` references a real package in `package.json`.
+- **Outdated patterns** — AI may use deprecated APIs or old security practices from training data
+- **Over-engineering** — unnecessary abstractions or error handling for impossible scenarios

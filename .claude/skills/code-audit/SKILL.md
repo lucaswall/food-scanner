@@ -119,9 +119,10 @@ YOUR DOMAIN: Security & Authentication
 Check for:
 - OWASP A01: Broken Access Control — public endpoints intentional? Auth middleware on protected routes? IDOR prevention?
 - OWASP A02: Secrets & Credentials — hardcoded secrets? Secrets in git? Sensitive data logged? Error messages leaking internals?
-- OWASP A03: Injection — user input sanitized? Command injection? Path traversal? XSS in rendered content?
-- OWASP A07: Authentication — tokens validated on every request? Auth middleware consistent? Session handling secure?
+- OWASP A03: Injection — user input sanitized? Command injection? Path traversal? XSS in rendered content? SSRF (user-controlled URLs in server-side fetch)?
+- OWASP A07: Authentication — tokens validated on every request? Auth middleware consistent? Session handling secure? Constant-time comparison for tokens/API keys (crypto.timingSafeEqual, not ===)?
 - HTTPS & Transport — external calls use HTTPS? Certificate validation not disabled?
+- Security Headers — CSP, X-Content-Type-Options, X-Frame-Options, HSTS configured?
 - Rate limiting — API quotas handled? Backoff for 429s?
 - Cookie security — httpOnly, secure, sameSite flags?
 
@@ -129,12 +130,14 @@ Search patterns (use Grep):
 - `password|secret|api.?key|token` (case insensitive) — potential hardcoded secrets
 - `eval\(|new Function\(` — dangerous code execution
 - `exec\(|spawn\(` with variable input — command injection
+- `fetch\(.*\$|fetch\(.*\+` — potential SSRF (user-controlled URLs)
 - Log statements containing `password|secret|token|key|auth|headers|req\.body`
 
 AI-Generated Code Risks:
 - XSS vulnerabilities (2.74x higher in AI code)
-- Missing input validation
-- Hallucinated security APIs
+- Missing input validation — AI often skips server-side validation
+- Hallucinated security APIs — verify methods exist in the actual library
+- Hallucinated packages — verify imports reference real packages in package.json
 ```
 
 ### Reliability Reviewer Prompt (name: "reliability-reviewer")

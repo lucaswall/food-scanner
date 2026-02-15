@@ -49,21 +49,24 @@ YOUR DOMAIN: Security & Authentication
 Check the changed files for:
 - OWASP A01: Broken Access Control — auth middleware on protected routes? IDOR prevention?
 - OWASP A02: Secrets & Credentials — hardcoded secrets? Sensitive data logged? Error messages leaking internals?
-- OWASP A03: Injection — user input sanitized? Command injection? Path traversal? XSS in rendered content?
-- OWASP A07: Authentication — tokens validated? Session handling secure?
+- OWASP A03: Injection — user input sanitized? Command injection? Path traversal? XSS in rendered content? SSRF (user-controlled URLs in server-side fetch)?
+- OWASP A07: Authentication — tokens validated? Session handling secure? Constant-time comparison for sensitive values (use crypto.timingSafeEqual, not ===)?
 - Cookie security — httpOnly, secure, sameSite flags?
 - Rate limiting — API quotas handled?
+- Security headers — CSP, X-Content-Type-Options, X-Frame-Options configured?
 
 Search patterns (use Grep on changed files):
 - `password|secret|api.?key|token` (case insensitive) — potential hardcoded secrets
 - `eval\(|new Function\(` — dangerous code execution
 - `exec\(|spawn\(` with variable input — command injection
+- `fetch\(.*\$|fetch\(.*\+` — potential SSRF (user-controlled URLs)
 - Log statements containing sensitive data patterns
 
 AI-Generated Code Risks:
 - XSS vulnerabilities (2.74x higher in AI code)
-- Missing input validation
-- Hallucinated security APIs
+- Missing input validation — AI often skips server-side validation
+- Hallucinated security APIs — verify methods exist in the actual library
+- Hallucinated packages — verify imports reference real packages in package.json
 ```
 
 ## Reliability Reviewer (name: "reliability-reviewer")

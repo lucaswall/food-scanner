@@ -264,6 +264,13 @@ Comprehensive checklist for frontend code review covering accessibility, visual 
 - [ ] Apple-specific meta tags present
 - [ ] Standalone display mode configured
 
+### Security Headers (Frontend-Relevant)
+- [ ] Content-Security-Policy (CSP) configured — prevents inline script injection (XSS)
+- [ ] X-Content-Type-Options: nosniff — prevents MIME sniffing
+- [ ] X-Frame-Options or CSP frame-ancestors — prevents clickjacking
+- [ ] No inline `<script>` or `style=` attributes that would violate a strict CSP
+- [ ] No `dangerouslySetInnerHTML` without proper sanitization
+
 ### Resource Loading
 - [ ] No unnecessary network requests on page load
 - [ ] Prefetching for likely navigation targets
@@ -349,3 +356,5 @@ Use Grep on frontend files to find common issues:
 | `dark:` | Dark mode styles to verify |
 | `loading="lazy"\|loading="eager"` | Lazy loading configuration |
 | `console\.log\|console\.warn` | Debug logging left in production code |
+| `dangerouslySetInnerHTML` | Potential XSS vector |
+| `<script` | Inline scripts that may violate CSP |
