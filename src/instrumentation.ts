@@ -6,6 +6,7 @@ export async function register() {
   logger.info(
     {
       action: "server_start",
+      nodeVersion: process.version,
       nodeEnv: process.env.NODE_ENV,
       logLevel: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
     },
