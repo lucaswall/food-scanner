@@ -397,3 +397,11 @@ export interface ChatFoodResponse {
   message: string;
   analysis?: FoodAnalysis;
 }
+
+export interface ChatRequest {
+  messages: ConversationMessage[];
+}
+
+export interface ChatResponse {
+  message: string;
+}

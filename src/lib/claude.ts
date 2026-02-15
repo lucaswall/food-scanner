@@ -4,6 +4,7 @@ import { getUnitLabel } from "@/types";
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { recordUsage } from "@/lib/claude-usage";
+import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } from "@/lib/chat-tools";
 
 let _client: Anthropic | null = null;
 
@@ -26,14 +27,17 @@ Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calori
 
 export const CHAT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 
-You are having a conversational interaction with the user about their meal. Follow these rules:
+You are having a conversational interaction with the user about their meal. You have access to their food log, nutrition summaries, and fasting data through the available tools.
+
+Follow these rules:
 - When the user provides corrections or additional information, always confirm the changes with an updated summary of the meal
 - Don't repeat information that hasn't changed — only mention what was updated
 - When new photos are provided, they add to the existing meal unless the user explicitly says otherwise
 - Corrections from the user override previous values
 - If the user's intent is ambiguous, ask clarifying questions before updating the analysis
 - Be concise and conversational in your responses
-- Use the report_nutrition tool only when you have complete nutritional information to report or update`;
+- Use the report_nutrition tool only when you have complete nutritional information to report or update
+- Use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) when the user asks about what they've eaten before, their nutrition goals, or fasting patterns`;
 
 const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
@@ -330,6 +334,7 @@ export async function conversationalRefine(
   messages: ConversationMessage[],
   images: ImageInput[],
   userId?: string,
+  currentDate?: string,
   initialAnalysis?: FoodAnalysis
 ): Promise<{ message: string; analysis?: FoodAnalysis }> {
   try {
@@ -413,14 +418,36 @@ export async function conversationalRefine(
 Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
     }
 
+    const allTools = [REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
+
     const response = await getClient().messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2048,
       system: systemPrompt,
-      tools: [REPORT_NUTRITION_TOOL],
+      tools: allTools,
       tool_choice: { type: "auto" },
       messages: anthropicMessages,
     });
+
+    // Check if Claude used any data tools (not report_nutrition)
+    const dataToolUseBlocks = response.content.filter(
+      (block) => block.type === "tool_use" && block.name !== "report_nutrition"
+    );
+
+    // If data tools were used, run the tool loop with the initial response
+    if (dataToolUseBlocks.length > 0 && userId && currentDate) {
+      logger.info(
+        { dataToolCount: dataToolUseBlocks.length },
+        "running tool loop for data tools in conversational refinement"
+      );
+
+      return runToolLoop(anthropicMessages, userId, currentDate, {
+        systemPrompt,
+        tools: allTools,
+        operation: "food-chat",
+        initialResponse: response,
+      });
+    }
 
     // Extract text blocks into message string
     const textBlocks = response.content.filter(
@@ -428,9 +455,9 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     ) as Anthropic.TextBlock[];
     const message = textBlocks.map((block) => block.text).join("\n");
 
-    // Check for tool_use block
+    // Check for tool_use block (report_nutrition)
     const toolUseBlock = response.content.find(
-      (block) => block.type === "tool_use"
+      (block) => block.type === "tool_use" && block.name === "report_nutrition"
     );
 
     let analysis: FoodAnalysis | undefined;
@@ -468,6 +495,208 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     logger.error(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API conversational refinement error"
+    );
+    throw new ClaudeApiError(
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+const FREE_CHAT_SYSTEM_PROMPT = `You are a friendly nutrition advisor. You have access to the user's food log, nutrition summaries, goals, and fasting data.
+
+When the user asks questions about their eating habits, nutrition, or goals, use the available tools to look up their actual data before responding. Base your answers on real data, not assumptions.
+
+You can help with:
+- Reviewing what they've eaten (today, this week, any date)
+- Checking progress against calorie and macro goals
+- Suggesting meals based on their eating patterns and remaining goals
+- Analyzing fasting patterns
+- Answering nutrition questions with their personal context
+
+Be concise and conversational. Use specific numbers from their data. When suggesting meals, consider their typical eating patterns and current goal progress.`;
+
+const DATA_TOOLS = [
+  SEARCH_FOOD_LOG_TOOL,
+  GET_NUTRITION_SUMMARY_TOOL,
+  GET_FASTING_INFO_TOOL,
+];
+
+export async function freeChat(
+  messages: ConversationMessage[],
+  userId: string,
+  currentDate: string
+): Promise<{ message: string }> {
+  // Convert ConversationMessage[] to Anthropic.MessageParam[]
+  const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => ({
+    role: msg.role,
+    content: [
+      {
+        type: "text" as const,
+        text: msg.content,
+      },
+    ],
+  }));
+
+  const result = await runToolLoop(anthropicMessages, userId, currentDate, {
+    systemPrompt: FREE_CHAT_SYSTEM_PROMPT,
+    tools: DATA_TOOLS,
+    operation: "free-chat",
+  });
+
+  return { message: result.message };
+}
+
+export async function runToolLoop(
+  messages: Anthropic.MessageParam[],
+  userId: string,
+  currentDate: string,
+  options?: {
+    systemPrompt?: string;
+    tools?: Anthropic.Tool[];
+    operation?: string;
+    initialResponse?: Anthropic.Message;
+  }
+): Promise<{ message: string; analysis?: FoodAnalysis }> {
+  const systemPrompt = options?.systemPrompt ?? FREE_CHAT_SYSTEM_PROMPT;
+  const tools = options?.tools ?? DATA_TOOLS;
+  const operation = options?.operation ?? "free-chat";
+
+  const conversationMessages: Anthropic.MessageParam[] = [...messages];
+  const MAX_ITERATIONS = 5;
+  let iteration = 0;
+  let pendingResponse = options?.initialResponse;
+
+  try {
+    while (iteration < MAX_ITERATIONS) {
+      iteration++;
+
+      let response: Anthropic.Message;
+      if (pendingResponse) {
+        response = pendingResponse;
+        pendingResponse = undefined;
+      } else {
+        logger.info(
+          { iteration, messageCount: conversationMessages.length },
+          "calling Claude API in tool loop"
+        );
+
+        response = await getClient().messages.create({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 2048,
+          system: systemPrompt,
+          tools,
+          tool_choice: { type: "auto" },
+          messages: conversationMessages,
+        });
+      }
+
+      // Record usage (fire-and-forget)
+      if (userId) {
+        recordUsage(userId, response.model, operation, {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        }).catch((error) => {
+          logger.warn(
+            { error: error instanceof Error ? error.message : String(error), userId },
+            "failed to record API usage"
+          );
+        });
+      }
+
+      if (response.stop_reason === "end_turn") {
+        // Extract text and optional analysis
+        const textBlocks = response.content.filter(
+          (block) => block.type === "text"
+        ) as Anthropic.TextBlock[];
+        const message = textBlocks.map((block) => block.text).join("\n");
+
+        const toolUseBlock = response.content.find(
+          (block) => block.type === "tool_use" && block.name === "report_nutrition"
+        );
+
+        let analysis: FoodAnalysis | undefined;
+        if (toolUseBlock && toolUseBlock.type === "tool_use") {
+          analysis = validateFoodAnalysis(toolUseBlock.input);
+        }
+
+        logger.info({ iteration, hasAnalysis: !!analysis }, "tool loop completed");
+        return { message, analysis };
+      }
+
+      if (response.stop_reason === "tool_use") {
+        // Extract all tool_use blocks
+        const toolUseBlocks = response.content.filter(
+          (block) => block.type === "tool_use"
+        ) as Anthropic.ToolUseBlock[];
+
+        logger.info(
+          { iteration, toolCount: toolUseBlocks.length },
+          "executing tools"
+        );
+
+        // Add assistant message with tool_use blocks
+        conversationMessages.push({
+          role: "assistant",
+          content: response.content,
+        });
+
+        // Execute all tools in parallel (catch errors per-tool to return is_error results)
+        const toolResults = await Promise.all(
+          toolUseBlocks.map(async (toolUse) => {
+            try {
+              const result = await executeTool(
+                toolUse.name,
+                toolUse.input as Record<string, unknown>,
+                userId,
+                currentDate
+              );
+
+              return {
+                type: "tool_result" as const,
+                tool_use_id: toolUse.id,
+                content: result,
+              };
+            } catch (error) {
+              logger.warn(
+                { tool: toolUse.name, error: error instanceof Error ? error.message : String(error) },
+                "tool execution error"
+              );
+              return {
+                type: "tool_result" as const,
+                tool_use_id: toolUse.id,
+                content: `Error: ${error instanceof Error ? error.message : String(error)}`,
+                is_error: true as const,
+              };
+            }
+          })
+        );
+
+        // Add user message with all tool_result blocks
+        conversationMessages.push({
+          role: "user",
+          content: toolResults,
+        });
+
+        // Continue loop
+        continue;
+      }
+
+      // Unknown stop_reason
+      throw new ClaudeApiError(`Unexpected stop_reason: ${response.stop_reason}`);
+    }
+
+    // Exceeded max iterations
+    throw new ClaudeApiError("Tool loop exceeded maximum iterations");
+  } catch (error) {
+    if (error instanceof ClaudeApiError) {
+      throw error;
+    }
+
+    logger.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Claude API tool loop error"
     );
     throw new ClaudeApiError(
       `API request failed: ${error instanceof Error ? error.message : String(error)}`

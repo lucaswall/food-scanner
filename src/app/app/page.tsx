@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Camera, ListChecks } from "lucide-react";
+import { Camera, ListChecks, MessageCircle } from "lucide-react";
 import { getSession } from "@/lib/session";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { DashboardPrefetch } from "@/components/dashboard-prefetch";
@@ -39,6 +39,14 @@ export default async function AppPage() {
             <span className="text-sm font-medium">Quick Select</span>
           </Link>
         </div>
+
+        <Link
+          href="/app/chat"
+          className="flex items-center justify-center gap-2 rounded-xl border bg-card p-3 min-h-[44px] text-center shadow-sm hover:bg-accent transition-colors"
+        >
+          <MessageCircle className="h-6 w-6 text-primary" />
+          <span className="text-sm font-medium">Chat</span>
+        </Link>
 
         <LumenBanner />
 

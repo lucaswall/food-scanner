@@ -262,6 +262,7 @@ describe("POST /api/chat-food", () => {
         { base64: "base64imagedata2", mimeType: "image/jpeg" },
       ],
       "user-uuid-123",
+      expect.any(String), // currentDate
       undefined
     );
   });
@@ -285,6 +286,7 @@ describe("POST /api/chat-food", () => {
       [{ role: "user", content: "Actually it was 200g" }],
       [],
       "user-uuid-123",
+      expect.any(String), // currentDate
       validAnalysis
     );
   });
