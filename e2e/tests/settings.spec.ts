@@ -19,6 +19,11 @@ test.describe('Settings Page', () => {
 
     // Capture screenshot
     await captureScreenshots(page, 'settings');
+
+    // Scroll down to show API Keys and Claude Usage sections
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(300);
+    await captureScreenshots(page, 'settings-bottom');
   });
 
   test('API key manager section is present', async ({ page }) => {

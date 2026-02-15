@@ -21,6 +21,11 @@ test.describe('Dashboard', () => {
     // Capture screenshot
     await page.waitForLoadState('networkidle');
     await captureScreenshots(page, 'dashboard');
+
+    // Scroll down to show meal breakdown sections and capture
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(300);
+    await captureScreenshots(page, 'dashboard-bottom');
   });
 
   test('displays dashboard shell with daily/weekly tabs', async ({ page }) => {
@@ -116,6 +121,9 @@ test.describe('Dashboard', () => {
     // The weekly view should show some date range or weekly summary
     const weeklyContent = await page.locator('text=/week|daily average|total/i').count();
     expect(weeklyContent).toBeGreaterThan(0);
+
+    // Capture weekly dashboard screenshot
+    await captureScreenshots(page, 'dashboard-weekly');
   });
 
   test('fasting information displays', async ({ page }) => {
