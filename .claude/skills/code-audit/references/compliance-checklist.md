@@ -335,6 +335,7 @@ This project uses Claude's tool_use API for food analysis and conversational cha
 - Tool names follow `^[a-zA-Z0-9_-]{1,64}$` pattern
 - `input_schema` uses `type: "object"` at the top level
 - Tier 1 nutrients and other nullable fields explicitly allow null in the schema
+- `strict: true` used on tool definitions for guaranteed schema conformance (eliminates parsing errors, type mismatches). Requires `additionalProperties: false` on all objects. Runtime validation still needed for `max_tokens` truncation and `refusal` edge cases.
 
 ### System Prompts
 
@@ -343,10 +344,26 @@ This project uses Claude's tool_use API for food analysis and conversational cha
 - No sensitive data embedded in system prompts (no API keys, user tokens, PII)
 - System prompt kept in sync with tool definitions (no references to removed/renamed tools)
 - Behavioral rules clear and unambiguous (Claude follows last instruction on conflict)
+- For Claude 4+ models: avoid over-prompting tool use (e.g., "CRITICAL: You MUST use this tool") — newer models follow instructions more precisely and will overtrigger
+
+### Prompt Caching
+
+- Static content (tools, system prompt) marked with `cache_control: {type: "ephemeral"}` to enable caching (up to 90% input cost reduction, 85% latency reduction)
+- Minimum cacheable length met: 1,024 tokens for Sonnet 4/4.5, 4,096 tokens for Opus 4.6/Haiku 4.5
+- Cache breakpoints placed at end of static content sections
+- In multi-turn conversations, final block of final message marked with `cache_control` each turn
+- Cache invalidation triggers understood: changing tool definitions invalidates entire cache; changing `tool_choice`, images, or thinking params invalidates message cache
+- JSON key ordering in tool_use blocks is stable (randomized key order breaks caching)
+- `cache_creation_input_tokens` and `cache_read_input_tokens` monitored in API responses
 
 ### Tool Use Lifecycle (Agentic Loop)
 
-- `stop_reason` checked for all values: `"tool_use"`, `"end_turn"`, `"max_tokens"`
+- `stop_reason` checked for ALL values:
+  - `"tool_use"` → extract tool calls, execute, send results back
+  - `"end_turn"` → extract final text + optional tool output
+  - `"max_tokens"` → handle truncation (incomplete tool_use blocks are invalid, retry with higher max_tokens)
+  - `"refusal"` → Claude refused for safety reasons. Handle gracefully with user-facing message (Claude 4+)
+  - `"model_context_window_exceeded"` → context window limit hit. Distinct from max_tokens — requires conversation compaction or message truncation (Claude 4+)
 - `tool_result.tool_use_id` matches corresponding `tool_use.id` from assistant message
 - All parallel `tool_result` blocks sent in a SINGLE user message (splitting degrades future parallel behavior)
 - `tool_result` content blocks come BEFORE any `text` blocks in user messages
@@ -357,7 +374,7 @@ This project uses Claude's tool_use API for food analysis and conversational cha
 
 ### Response Validation
 
-- `tool_use.input` validated at runtime — Claude can produce unexpected shapes even with good schemas
+- `tool_use.input` validated at runtime — Claude can produce unexpected shapes even with good schemas (and even with `strict: true` on `max_tokens` truncation or `refusal`)
 - Handle `stop_reason: "max_tokens"` where last content block is incomplete `tool_use` (retry with higher `max_tokens`)
 - Handle empty text responses (Claude may respond with only `tool_use` blocks)
 - Numeric fields validated as non-negative where appropriate
@@ -368,9 +385,19 @@ This project uses Claude's tool_use API for food analysis and conversational cha
 - `max_tokens` not unnecessarily large (wastes allocation budget)
 - Tool definitions add tokens to every request — keep descriptions useful but not bloated
 - Token usage recorded for monitoring (fire-and-forget, non-blocking — don't fail the request if recording fails)
-- `tool_choice` set appropriately: `"auto"` for optional, `{"type": "tool"}` for forced, `"any"` for must-use-one
+- `tool_choice` set appropriately: `"auto"` for optional, `{"type": "tool"}` for forced, `"any"` for must-use-one, `"none"` to disable tools
+- **`tool_choice` + thinking compatibility:** `{type: "tool"}` and `{type: "any"}` are INCOMPATIBLE with extended/adaptive thinking — only `"auto"` and `"none"` work with thinking enabled
 - Conversation message limits enforced (prevent unbounded token growth)
+- Context window management: token count checked before API calls, conversation compaction or message truncation when approaching limits
 - Rate limiting applied to routes that call Claude API
+- Prompt caching used on static content to reduce costs (see Prompt Caching section above)
+
+### Model Configuration
+
+- Production code pins exact model snapshot IDs (e.g., `claude-sonnet-4-20250514`) — aliases (e.g., `claude-sonnet-4`) can drift to newer snapshots with behavioral changes
+- `temperature` and `top_p` NOT used simultaneously — this is a breaking change in Claude 4+ (use one or the other)
+- For Claude Opus 4.6: use `thinking: {type: "adaptive"}` with `output_config: {effort: "..."}` — manual `budget_tokens` is deprecated
+- For older models (Sonnet 4, Sonnet 4.5): use `thinking: {type: "enabled", budget_tokens: N}` when extended thinking is desired
 
 ### AI-Specific Security
 
@@ -384,32 +411,42 @@ This project uses Claude's tool_use API for food analysis and conversational cha
 ### Error Handling
 
 - Claude API errors (5xx, network) caught and mapped to appropriate HTTP error codes
-- Claude API 429 (rate limit) handled with retry/backoff or propagated as user-facing error
+- Claude API 429 (rate limit) handled with retry/backoff using `Retry-After` header or propagated as user-facing error
+- Claude API 529 (overloaded) handled separately from 500 — transient, retry with exponential backoff
 - Timeouts configured on Claude API client (don't hang on slow responses)
 - Token usage recording failures don't break the main request flow
 - Partial failures handled: if analysis succeeds but usage recording fails, return the analysis
+- Request size under 32MB limit for Messages API
+- Traffic ramp-up gradual to avoid acceleration limits (sudden spikes trigger 429s)
 
 ### Search Patterns for AI Integration Issues
 
 Use Grep tool to find potential AI integration issues:
 
 **Tool definitions:**
-- `tool_choice` — verify appropriate setting for each use case
+- `tool_choice` — verify appropriate setting for each use case; check compatibility with thinking if enabled
 - `tools:.*\[` — find tool definition arrays, check descriptions are detailed
 - `report_nutrition|search_food_log|get_nutrition_summary|get_fasting_info` — tool name references
+- `strict` — check if `strict: true` is set on tool definitions for schema conformance
 
 **Response handling:**
-- `stop_reason` — verify all values handled (tool_use, end_turn, max_tokens)
+- `stop_reason` — verify ALL values handled (tool_use, end_turn, max_tokens, refusal, model_context_window_exceeded)
 - `tool_use_id|tool_result` — verify ID matching and result formatting
 - `validateFoodAnalysis|validateTool` — verify runtime validation exists
+
+**Caching:**
+- `cache_control` — verify prompt caching configured on static content (system prompt, tools)
+- `cache_creation_input_tokens|cache_read_input_tokens` — verify cache metrics monitored
 
 **Security:**
 - `ANTHROPIC_API_KEY` — verify loaded from env, not hardcoded or logged
 - `system:.*\$|system:.*user` — potential prompt injection (user input in system prompt)
 
-**Cost:**
+**Cost & model config:**
 - `max_tokens` — verify reasonable limits set
 - `recordUsage` — verify usage tracking calls exist
+- Model ID — verify pinned to snapshot (not alias) in production
+- `temperature.*top_p|top_p.*temperature` — verify not both set (breaking change in Claude 4+)
 
 ## AI-Generated Code Risks
 

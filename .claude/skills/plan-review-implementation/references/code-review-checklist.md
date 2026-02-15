@@ -177,6 +177,28 @@ Always check CLAUDE.md for project-specific rules including:
 - Security requirements (auth middleware)
 - Any other project-specific standards
 
+## Claude API Integration (When Changed Files Touch AI Code)
+
+When reviewing changes to Claude API integration code (`src/lib/claude.ts`, `src/lib/chat-tools.ts`, API routes calling Claude), verify:
+
+### Stop Reason Handling
+- `stop_reason` checked for ALL values: `"tool_use"`, `"end_turn"`, `"max_tokens"`, `"refusal"` (safety refusal, Claude 4+), `"model_context_window_exceeded"` (context limit, Claude 4+)
+- Unknown stop reasons handled gracefully (don't crash on new values)
+
+### Tool Configuration
+- `strict: true` on tool definitions for guaranteed schema conformance (runtime validation still needed for truncation/refusal)
+- `tool_choice` + thinking compatibility: `{type: "tool"}` and `{type: "any"}` are INCOMPATIBLE with extended/adaptive thinking — only `"auto"` and `"none"` work
+- `temperature` and `top_p` NOT used simultaneously (breaking change in Claude 4+)
+
+### Prompt Caching
+- Static content (tools, system prompt) marked with `cache_control: {type: "ephemeral"}` for cost reduction
+- Cache invalidation triggers not introduced (changing tool definitions invalidates entire cache)
+
+### Error Handling
+- Claude API 429 uses `Retry-After` header for backoff
+- Claude API 529 (overloaded) handled separately from 500
+- Model snapshot IDs pinned in production (not aliases)
+
 ## AI-Generated Code Risks
 
 All code in this project is AI-assisted. Apply extra scrutiny for these patterns:

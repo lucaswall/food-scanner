@@ -172,6 +172,7 @@ This project uses Claude's tool_use API for food analysis and conversational cha
 - Required vs optional parameters correctly specified
 - `input_schema` top-level type is `"object"`
 - Tool names follow `^[a-zA-Z0-9_-]{1,64}$` pattern
+- `strict: true` set on tool definitions for guaranteed schema conformance (eliminates parsing errors, type mismatches). Requires `additionalProperties: false`. Runtime validation still needed for truncation/refusal edge cases.
 
 ### System Prompt & Behavioral Design
 
@@ -181,13 +182,24 @@ This project uses Claude's tool_use API for food analysis and conversational cha
 - No sensitive data in system prompts (API keys, tokens, PII)
 - Behavioral rules unambiguous (Claude follows last instruction when conflicting)
 - Conversation context maintained: initial analysis baseline included when relevant
+- For Claude 4+ models: avoid over-prompting tool use — newer models follow instructions precisely and will overtrigger on aggressive language like "CRITICAL: You MUST use this tool"
+
+### Prompt Caching
+
+- Static content (tools, system prompt) marked with `cache_control: {type: "ephemeral"}` for up to 90% input cost reduction and 85% latency reduction
+- Minimum cacheable length met: 1,024 tokens for Sonnet 4/4.5, 4,096 tokens for Opus 4.6/Haiku 4.5
+- In multi-turn conversations, final block of final message marked with `cache_control` each turn
+- Cache invalidation triggers understood: changing tool definitions invalidates entire cache; changing tool_choice/images/thinking invalidates message cache
+- `cache_creation_input_tokens` and `cache_read_input_tokens` monitored in responses
 
 ### Tool Use Lifecycle (Agentic Loop)
 
-- `stop_reason` checked for all return values:
+- `stop_reason` checked for ALL return values:
   - `"tool_use"` → extract tool calls, execute, send results back
   - `"end_turn"` → extract final text + optional tool output
   - `"max_tokens"` → handle truncation (incomplete tool_use blocks are invalid)
+  - `"refusal"` → Claude refused for safety reasons. Handle gracefully with user-facing message (Claude 4+)
+  - `"model_context_window_exceeded"` → context window limit hit. Requires conversation compaction or message truncation (Claude 4+)
 - `tool_result.tool_use_id` matches corresponding `tool_use.id`
 - ALL parallel `tool_result` blocks in a SINGLE user message (splitting across messages degrades future parallel tool behavior)
 - `tool_result` content blocks come BEFORE any `text` blocks in user messages (API requirement — violating causes 400 error)
@@ -216,6 +228,8 @@ Follow data through the full AI pipeline:
    - Is tool_choice appropriate for the context? ("tool" for forced, "auto" for optional)
    - Is max_tokens sufficient for the expected response?
    - Are tools appropriate for this call? (no write tools in read-only contexts)
+   - Is prompt caching configured on static content (system prompt, tools)?
+   - **tool_choice + thinking compatibility:** `{type: "tool"}` and `{type: "any"}` are INCOMPATIBLE with extended/adaptive thinking — only `"auto"` and `"none"` work
 
 3. **Response processing** — Tool calls extracted, validated, executed
    - Are all tool_use blocks processed (not just the first)?
@@ -237,8 +251,17 @@ Follow data through the full AI pipeline:
 - max_tokens not unnecessarily large
 - Tool definitions concise but complete (sent with every request)
 - Conversation message limits enforced (prevent unbounded token growth)
+- Context window management: token count checked before API calls, conversation compaction when approaching limits
 - Rate limiting applied to Claude API routes
 - Token usage tracking present and non-blocking
+- Prompt caching configured on static content to reduce costs (see Prompt Caching section)
+- Production code pins exact model snapshot IDs — aliases can drift to newer snapshots with behavioral changes
+
+### Model Configuration
+
+- `temperature` and `top_p` NOT used simultaneously (breaking change in Claude 4+)
+- For Opus 4.6: use `thinking: {type: "adaptive"}` with `output_config: {effort: "..."}` — manual `budget_tokens` deprecated
+- For Sonnet 4/4.5: use `thinking: {type: "enabled", budget_tokens: N}` when thinking desired
 
 ### AI-Specific Security
 
@@ -248,6 +271,14 @@ Follow data through the full AI pipeline:
 - AI-generated content (food names, descriptions, notes) sanitized before HTML rendering (XSS)
 - Rate limiting prevents abuse of expensive Claude API calls
 - Token usage tracked for cost monitoring
+
+### Error Handling
+
+- Claude API 429 (rate limit) handled with retry/backoff using `Retry-After` header
+- Claude API 529 (overloaded) handled separately from 500 — transient, retry with exponential backoff
+- Timeouts configured on Claude API client
+- Request size under 32MB limit for Messages API
+- Token usage recording failures don't break the main request flow
 
 ## 9. AI-Generated Code Risks
 
