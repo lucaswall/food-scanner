@@ -840,6 +840,54 @@ describe("QuickSelect", () => {
       expect(mockDisconnect).toHaveBeenCalledTimes(initialDisconnectCount);
       expect(mockObserve).toHaveBeenCalledTimes(initialObserveCount);
     });
+
+    it("loading spinner has consistent w-6 h-6 border-2 sizing", async () => {
+      // FOO-485: Standardize loading spinner sizes across the app
+      // Spinner should use w-6 h-6 border-2 (not border-4)
+
+      // Set up mocks for pagination
+      let resolvePage2: ((value: unknown) => void) | null = null;
+      const page2Promise = new Promise((resolve) => {
+        resolvePage2 = resolve;
+      });
+
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods, { score: 0.5, id: 2 }))
+        .mockReturnValueOnce(page2Promise);
+
+      renderQuickSelect();
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Trigger intersection to start loading more
+      const calls = MockIntersectionObserver.mock.calls as unknown as [[IntersectionObserverCallback]];
+      calls[0][0]([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+
+      // Wait for spinner to appear
+      await waitFor(() => {
+        const spinner = document.querySelector('.animate-spin');
+        expect(spinner).toBeInTheDocument();
+
+        // Check for consistent sizing classes
+        expect(spinner?.className).toContain('w-6');
+        expect(spinner?.className).toContain('h-6');
+        expect(spinner?.className).toContain('border-2');
+        // Should NOT have border-4
+        expect(spinner?.className).not.toContain('border-4');
+      });
+
+      // Clean up
+      resolvePage2!({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          data: { foods: [], nextCursor: null }
+        }),
+      });
+    });
   });
 
   describe("aria-labels", () => {
@@ -1274,6 +1322,35 @@ describe("QuickSelect", () => {
       // Now success screen should appear
       await waitFor(() => {
         expect(screen.getByText(/successfully logged/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("FOO-479: aria-controls for tab pattern", () => {
+    it("tab buttons have aria-controls pointing to their tabpanel", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const suggestedTab = screen.getByRole("tab", { name: "Suggested" });
+      const recentTab = screen.getByRole("tab", { name: "Recent" });
+
+      // Check aria-controls attributes
+      expect(suggestedTab).toHaveAttribute("aria-controls", "panel-suggested");
+      expect(recentTab).toHaveAttribute("aria-controls", "panel-recent");
+
+      // Verify panel has matching ID
+      const panel = screen.getByRole("tabpanel");
+      expect(panel).toHaveAttribute("id", "panel-suggested");
+
+      // Switch to Recent tab
+      fireEvent.click(recentTab);
+
+      await waitFor(() => {
+        expect(panel).toHaveAttribute("id", "panel-recent");
       });
     });
   });

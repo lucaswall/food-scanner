@@ -145,4 +145,13 @@ describe("BottomNav", () => {
       expect(link).toHaveClass("min-w-[44px]");
     });
   });
+
+  it("has landscape safe area insets for left and right", () => {
+    mockPathname.mockReturnValue("/app");
+    render(<BottomNav />);
+
+    const nav = screen.getByRole("navigation");
+    expect(nav).toHaveClass("pl-[env(safe-area-inset-left)]");
+    expect(nav).toHaveClass("pr-[env(safe-area-inset-right)]");
+  });
 });

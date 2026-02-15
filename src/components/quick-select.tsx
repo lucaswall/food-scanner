@@ -371,6 +371,7 @@ export function QuickSelect() {
           role="tab"
           id="tab-suggested"
           aria-selected={activeTab === "suggested"}
+          aria-controls="panel-suggested"
           onClick={() => setActiveTab("suggested")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "suggested"
@@ -384,6 +385,7 @@ export function QuickSelect() {
           role="tab"
           id="tab-recent"
           aria-selected={activeTab === "recent"}
+          aria-controls="panel-recent"
           onClick={() => setActiveTab("recent")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "recent"
@@ -396,7 +398,12 @@ export function QuickSelect() {
       </div>
 
       {/* Tab content */}
-      <div role="tabpanel" aria-labelledby={`tab-${activeTab}`} className="space-y-4">
+      <div
+        role="tabpanel"
+        id={activeTab === "suggested" ? "panel-suggested" : "panel-recent"}
+        aria-labelledby={`tab-${activeTab}`}
+        className="space-y-4"
+      >
         {/* Search input */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -405,7 +412,7 @@ export function QuickSelect() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             aria-label="Search foods"
-            className="pl-9 min-h-[44px]"
+            className="pl-9"
           />
         </div>
 
@@ -468,7 +475,7 @@ export function QuickSelect() {
         {hasMore && (
           <div ref={sentinelRef} className="flex justify-center py-4">
             {isLoadingMore && (
-              <div className="w-6 h-6 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             )}
           </div>
         )}

@@ -429,6 +429,23 @@ describe("AnalysisResult", () => {
     });
   });
 
+  it("retry button has default variant (not outline)", () => {
+    const onRetry = vi.fn();
+    render(
+      <AnalysisResult
+        analysis={null}
+        loading={false}
+        error="Failed to analyze food image"
+        onRetry={onRetry}
+      />
+    );
+
+    const retryButton = screen.getByRole("button", { name: /retry/i });
+    // Default variant has bg-primary class, outline variant has bg-background
+    expect(retryButton).toHaveClass("bg-primary");
+    expect(retryButton).not.toHaveClass("bg-background");
+  });
+
   describe("accessible confidence indicator", () => {
     it("shows CheckCircle icon for high confidence", () => {
       const onRetry = vi.fn();

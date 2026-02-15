@@ -20,9 +20,20 @@ describe('Root Layout Metadata', () => {
     expect(metadata.manifest).toBe('/manifest.json')
   })
 
-  it('should have theme color in viewport', async () => {
+  it('should have theme color in viewport with dark mode support', async () => {
     const { viewport } = await import('../layout')
-    expect(viewport.themeColor).toBe('#000000')
+    expect(Array.isArray(viewport.themeColor)).toBe(true)
+    const themeColors = viewport.themeColor as Array<{ media: string; color: string }>
+
+    // Should have light mode theme color
+    const lightTheme = themeColors.find(t => t.media === '(prefers-color-scheme: light)')
+    expect(lightTheme).toBeDefined()
+    expect(lightTheme?.color).toBe('#ffffff')
+
+    // Should have dark mode theme color
+    const darkTheme = themeColors.find(t => t.media === '(prefers-color-scheme: dark)')
+    expect(darkTheme).toBeDefined()
+    expect(darkTheme?.color).toBe('#09090b')
   })
 
   it('should have apple touch icon', async () => {

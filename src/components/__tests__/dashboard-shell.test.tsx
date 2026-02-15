@@ -76,4 +76,28 @@ describe("DashboardShell", () => {
     // Weekly should be inactive (has text-muted-foreground or similar)
     expect(weeklyButton.className).toMatch(/text-muted-foreground/);
   });
+
+  it("tab buttons have aria-controls pointing to their respective panels", async () => {
+    const user = userEvent.setup();
+    render(<DashboardShell />);
+
+    const dailyButton = screen.getByRole("tab", { name: "Daily" });
+    const weeklyButton = screen.getByRole("tab", { name: "Weekly" });
+
+    // Check aria-controls attributes
+    expect(dailyButton).toHaveAttribute("aria-controls", "panel-daily");
+    expect(weeklyButton).toHaveAttribute("aria-controls", "panel-weekly");
+
+    // Verify panels have matching IDs
+    const dailyPanel = document.getElementById("panel-daily");
+    expect(dailyPanel).toBeInTheDocument();
+    expect(dailyPanel).toContainElement(screen.getByTestId("daily-dashboard"));
+
+    // Switch to weekly view
+    await user.click(weeklyButton);
+
+    const weeklyPanel = document.getElementById("panel-weekly");
+    expect(weeklyPanel).toBeInTheDocument();
+    expect(weeklyPanel).toContainElement(screen.getByTestId("weekly-dashboard"));
+  });
 });
