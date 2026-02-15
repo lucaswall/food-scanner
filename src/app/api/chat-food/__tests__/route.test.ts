@@ -262,6 +262,7 @@ describe("POST /api/chat-food", () => {
         { base64: "base64imagedata2", mimeType: "image/jpeg" },
       ],
       "user-uuid-123",
+      expect.any(String), // currentDate
       undefined
     );
   });
@@ -285,8 +286,53 @@ describe("POST /api/chat-food", () => {
       [{ role: "user", content: "Actually it was 200g" }],
       [],
       "user-uuid-123",
+      expect.any(String), // currentDate
       validAnalysis
     );
+  });
+
+  it("uses clientDate from request body when provided", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockResolvedValue({
+      message: "Updated",
+      analysis: validAnalysis,
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Actually it was 200g" }],
+      clientDate: "2026-01-15",
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    expect(mockConversationalRefine).toHaveBeenCalledWith(
+      [{ role: "user", content: "Actually it was 200g" }],
+      [],
+      "user-uuid-123",
+      "2026-01-15",
+      undefined
+    );
+  });
+
+  it("ignores invalid clientDate and falls back to server date", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockResolvedValue({
+      message: "Done",
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test" }],
+      clientDate: "bad-date",
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    // Should fall back to a valid YYYY-MM-DD date, not use "bad-date"
+    const calledDate = mockConversationalRefine.mock.calls[0][3];
+    expect(calledDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(calledDate).not.toBe("bad-date");
   });
 
   it("returns 500 on Claude API error", async () => {

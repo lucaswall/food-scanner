@@ -1243,7 +1243,8 @@ describe("conversationalRefine", () => {
         { role: "user", content: "Actually it was 200g" },
       ],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     expect(result).toEqual({
@@ -1275,7 +1276,8 @@ describe("conversationalRefine", () => {
         { role: "user", content: "Thanks!" },
       ],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     expect(result).toEqual({
@@ -1303,7 +1305,8 @@ describe("conversationalRefine", () => {
     await conversationalRefine(
       [{ role: "user", content: "I had a coffee" }],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     expect(mockCreate).toHaveBeenCalledWith(
@@ -1332,7 +1335,8 @@ describe("conversationalRefine", () => {
     await conversationalRefine(
       [{ role: "user", content: "Test" }],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     expect(mockCreate).toHaveBeenCalledWith(
@@ -1362,6 +1366,7 @@ describe("conversationalRefine", () => {
       [{ role: "user", content: "Make it 2" }],
       [],
       "user-123",
+      "2026-02-15",
       validAnalysis
     );
 
@@ -1390,7 +1395,8 @@ describe("conversationalRefine", () => {
     await conversationalRefine(
       [{ role: "user", content: "Test" }],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     expect(mockCreate).toHaveBeenCalledWith(
@@ -1429,7 +1435,8 @@ describe("conversationalRefine", () => {
         { role: "user", content: "Here's a photo" },
       ],
       [{ base64: "img123", mimeType: "image/jpeg" }],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     const call = mockCreate.mock.calls[0][0];
@@ -1471,7 +1478,8 @@ describe("conversationalRefine", () => {
         { role: "assistant", content: "Logged", analysis: validAnalysis },
       ],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     const call = mockCreate.mock.calls[0][0];
@@ -1504,7 +1512,8 @@ describe("conversationalRefine", () => {
     await conversationalRefine(
       [{ role: "user", content: "Test" }],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
@@ -1529,7 +1538,8 @@ describe("conversationalRefine", () => {
       conversationalRefine(
         [{ role: "user", content: "Test" }],
         [],
-        "user-123"
+        "user-123",
+        "2026-02-15"
       )
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
 
@@ -1558,7 +1568,8 @@ describe("conversationalRefine", () => {
     const result = await conversationalRefine(
       [{ role: "user", content: "Test" }],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     expect(result).toEqual({ message: "Done" });
@@ -1577,6 +1588,7 @@ describe("conversationalRefine", () => {
       [{ role: "user", content: "Test" }],
       [],
       "user-123",
+      "2026-02-15",
       { ...validAnalysis, unit_id: 91, amount: 2 }
     );
 
@@ -1597,6 +1609,7 @@ describe("conversationalRefine", () => {
       [{ role: "user", content: "Test" }],
       [],
       "user-123",
+      "2026-02-15",
       { ...validAnalysis, unit_id: 226, amount: 8 }
     );
 
@@ -1617,6 +1630,7 @@ describe("conversationalRefine", () => {
       [{ role: "user", content: "Test" }],
       [],
       "user-123",
+      "2026-02-15",
       { ...validAnalysis, unit_id: 999, amount: 3 }
     );
 
@@ -1647,7 +1661,8 @@ describe("conversationalRefine", () => {
         { role: "user", content: "Add more cheese" },
       ],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     const call = mockCreate.mock.calls[0][0];
@@ -1681,7 +1696,8 @@ describe("conversationalRefine", () => {
         { role: "user", content: "Add cheese" },
       ],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     const call = mockCreate.mock.calls[0][0];
@@ -1713,7 +1729,8 @@ describe("conversationalRefine", () => {
         { role: "user", content: "Pepperoni" },
       ],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     const call = mockCreate.mock.calls[0][0];
@@ -1744,7 +1761,8 @@ describe("conversationalRefine", () => {
         { role: "user", content: "Update" },
       ],
       [],
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     const call = mockCreate.mock.calls[0][0];
@@ -1761,5 +1779,582 @@ describe("conversationalRefine", () => {
     // Tier 1 present fields
     expect(summary).toContain("saturated_fat_g");
     expect(summary).toContain("sugars_g");
+  });
+});
+
+// Mock executeTool for runToolLoop tests
+const mockExecuteTool = vi.fn();
+vi.mock("@/lib/chat-tools", () => ({
+  executeTool: (...args: unknown[]) => mockExecuteTool(...args),
+  SEARCH_FOOD_LOG_TOOL: { name: "search_food_log", description: "Search food log", input_schema: { type: "object", properties: {} } },
+  GET_NUTRITION_SUMMARY_TOOL: { name: "get_nutrition_summary", description: "Get nutrition summary", input_schema: { type: "object", properties: {} } },
+  GET_FASTING_INFO_TOOL: { name: "get_fasting_info", description: "Get fasting info", input_schema: { type: "object", properties: {} } },
+}));
+
+describe("runToolLoop", () => {
+  beforeEach(() => {
+    setupMocks();
+    mockRecordUsage.mockResolvedValue(undefined);
+    mockExecuteTool.mockReset();
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("returns immediately on end_turn response", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "You ate 1800 calories today.",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 100,
+      },
+    });
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const result = await runToolLoop(
+      [{ role: "user", content: "How many calories did I eat today?" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toEqual({
+      message: "You ate 1800 calories today.",
+    });
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+  });
+
+  it("executes tool and sends result back to Claude", async () => {
+    // First response: tool_use
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_1",
+          name: "get_nutrition_summary",
+          input: { date: "2026-02-15" },
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 100,
+      },
+    });
+
+    // Second response: end_turn with text
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_2",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "You ate 1800 calories today, which is 90% of your 2000 cal goal.",
+        },
+      ],
+      usage: {
+        input_tokens: 1700,
+        output_tokens: 150,
+      },
+    });
+
+    mockExecuteTool.mockResolvedValueOnce("Nutrition summary for 2026-02-15:\nTotal: 1800 cal...");
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const result = await runToolLoop(
+      [{ role: "user", content: "How many calories did I eat today?" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toEqual({
+      message: "You ate 1800 calories today, which is 90% of your 2000 cal goal.",
+    });
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockExecuteTool).toHaveBeenCalledWith(
+      "get_nutrition_summary",
+      { date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    // Check that tool result was sent back
+    const secondCall = mockCreate.mock.calls[1][0];
+    expect(secondCall.messages).toHaveLength(3); // user + assistant (tool_use) + user (tool_result)
+    expect(secondCall.messages[2].content).toContainEqual({
+      type: "tool_result",
+      tool_use_id: "tool_1",
+      content: "Nutrition summary for 2026-02-15:\nTotal: 1800 cal...",
+    });
+  });
+
+  it("handles parallel tool calls", async () => {
+    // First response: multiple tool_use blocks
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_1",
+          name: "get_nutrition_summary",
+          input: { date: "2026-02-15" },
+        },
+        {
+          type: "tool_use",
+          id: "tool_2",
+          name: "get_fasting_info",
+          input: { date: "2026-02-15" },
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 150,
+      },
+    });
+
+    // Second response: end_turn
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_2",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "You ate 1800 calories and fasted for 12 hours.",
+        },
+      ],
+      usage: {
+        input_tokens: 1800,
+        output_tokens: 100,
+      },
+    });
+
+    mockExecuteTool
+      .mockResolvedValueOnce("Nutrition: 1800 cal...")
+      .mockResolvedValueOnce("Fasting: 12 hours...");
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const result = await runToolLoop(
+      [{ role: "user", content: "Tell me about my day" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toEqual({
+      message: "You ate 1800 calories and fasted for 12 hours.",
+    });
+
+    expect(mockExecuteTool).toHaveBeenCalledTimes(2);
+    expect(mockExecuteTool).toHaveBeenCalledWith(
+      "get_nutrition_summary",
+      { date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+    expect(mockExecuteTool).toHaveBeenCalledWith(
+      "get_fasting_info",
+      { date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    // Check that all tool results were sent back in one message
+    const secondCall = mockCreate.mock.calls[1][0];
+    expect(secondCall.messages[2].content).toHaveLength(2);
+    expect(secondCall.messages[2].content[0]).toEqual({
+      type: "tool_result",
+      tool_use_id: "tool_1",
+      content: "Nutrition: 1800 cal...",
+    });
+    expect(secondCall.messages[2].content[1]).toEqual({
+      type: "tool_result",
+      tool_use_id: "tool_2",
+      content: "Fasting: 12 hours...",
+    });
+  });
+
+  it("caps at 5 iterations", async () => {
+    // Respond with tool_use 5 times
+    for (let i = 0; i < 5; i++) {
+      mockCreate.mockResolvedValueOnce({
+        id: `msg_${i + 1}`,
+        model: "claude-sonnet-4-20250514",
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: `tool_${i + 1}`,
+            name: "get_nutrition_summary",
+            input: { date: "2026-02-15" },
+          },
+        ],
+        usage: {
+          input_tokens: 1500,
+          output_tokens: 100,
+        },
+      });
+      mockExecuteTool.mockResolvedValueOnce("Result...");
+    }
+
+    const { runToolLoop } = await import("@/lib/claude");
+
+    await expect(
+      runToolLoop(
+        [{ role: "user", content: "Test" }],
+        "user-123",
+        "2026-02-15"
+      )
+    ).rejects.toThrow("Tool loop exceeded maximum iterations");
+
+    expect(mockCreate).toHaveBeenCalledTimes(5);
+  });
+
+  it("records usage for each API call", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_1",
+          name: "get_nutrition_summary",
+          input: { date: "2026-02-15" },
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 100,
+        cache_creation_input_tokens: 50,
+        cache_read_input_tokens: 200,
+      },
+    });
+
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_2",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Done",
+        },
+      ],
+      usage: {
+        input_tokens: 1700,
+        output_tokens: 150,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 300,
+      },
+    });
+
+    mockExecuteTool.mockResolvedValueOnce("Result...");
+
+    const { runToolLoop } = await import("@/lib/claude");
+    await runToolLoop(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(mockRecordUsage).toHaveBeenCalledTimes(2);
+    expect(mockRecordUsage).toHaveBeenNthCalledWith(
+      1,
+      "user-123",
+      "claude-sonnet-4-20250514",
+      "free-chat",
+      {
+        inputTokens: 1500,
+        outputTokens: 100,
+        cacheCreationTokens: 50,
+        cacheReadTokens: 200,
+      }
+    );
+    expect(mockRecordUsage).toHaveBeenNthCalledWith(
+      2,
+      "user-123",
+      "claude-sonnet-4-20250514",
+      "free-chat",
+      {
+        inputTokens: 1700,
+        outputTokens: 150,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 300,
+      }
+    );
+  });
+
+  it("includes text alongside tool_use in response", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "text",
+          text: "Let me check that for you.",
+        },
+        {
+          type: "tool_use",
+          id: "tool_1",
+          name: "get_nutrition_summary",
+          input: { date: "2026-02-15" },
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 100,
+      },
+    });
+
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_2",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "You ate 1800 calories.",
+        },
+      ],
+      usage: {
+        input_tokens: 1700,
+        output_tokens: 50,
+      },
+    });
+
+    mockExecuteTool.mockResolvedValueOnce("1800 cal...");
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const result = await runToolLoop(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result.message).toBe("You ate 1800 calories.");
+  });
+
+  it("returns analysis if present in final response", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Here's the analysis.",
+        },
+        {
+          type: "tool_use",
+          id: "tool_1",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 200,
+      },
+    });
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const result = await runToolLoop(
+      [{ role: "user", content: "Analyze this" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toEqual({
+      message: "Here's the analysis.",
+      analysis: validAnalysis,
+    });
+  });
+
+  it("throws on unknown stop_reason", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "max_tokens",
+      content: [
+        {
+          type: "text",
+          text: "Incomplete",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 4096,
+      },
+    });
+
+    const { runToolLoop } = await import("@/lib/claude");
+
+    await expect(
+      runToolLoop(
+        [{ role: "user", content: "Test" }],
+        "user-123",
+        "2026-02-15"
+      )
+    ).rejects.toThrow("Unexpected stop_reason: max_tokens");
+  });
+});
+
+describe("freeChat", () => {
+  beforeEach(() => {
+    setupMocks();
+    mockRecordUsage.mockResolvedValue(undefined);
+    mockExecuteTool.mockReset();
+  });
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("converts ConversationMessage[] to Anthropic format and calls runToolLoop", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "You ate 1800 calories today.",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 100,
+      },
+    });
+
+    const { freeChat } = await import("@/lib/claude");
+    const result = await freeChat(
+      [{ role: "user", content: "How many calories did I eat today?" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toEqual({
+      message: "You ate 1800 calories today.",
+    });
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses FREE_CHAT_SYSTEM_PROMPT", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Done",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { freeChat } = await import("@/lib/claude");
+    await freeChat(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.system).toContain("nutrition advisor");
+    expect(call.system).toContain("food log");
+  });
+
+  it("uses only DATA_TOOLS (no report_nutrition)", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Done",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { freeChat } = await import("@/lib/claude");
+    await freeChat(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.tools).toHaveLength(3);
+    expect(call.tools.map((t: { name: string }) => t.name)).toEqual([
+      "search_food_log",
+      "get_nutrition_summary",
+      "get_fasting_info",
+    ]);
+    expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("report_nutrition");
+  });
+
+  it("records usage as free-chat operation", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-20250514",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Done",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 100,
+        cache_creation_input_tokens: 50,
+        cache_read_input_tokens: 200,
+      },
+    });
+
+    const { freeChat } = await import("@/lib/claude");
+    await freeChat(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      "user-123",
+      "claude-sonnet-4-20250514",
+      "free-chat",
+      {
+        inputTokens: 1500,
+        outputTokens: 100,
+        cacheCreationTokens: 50,
+        cacheReadTokens: 200,
+      }
+    );
   });
 });

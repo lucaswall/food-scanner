@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { FoodAnalyzer } from "../food-analyzer";
 import type { FoodAnalysis, FoodLogResponse, FoodMatch } from "@/types";
 
@@ -749,8 +749,10 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
       });
 
-      // Use keyboard shortcut to log
-      dispatchKeyboardEvent("Enter", { ctrlKey: true, shiftKey: true });
+      // Use keyboard shortcut to log (wrap in act to flush useEffect listener update)
+      await act(async () => {
+        dispatchKeyboardEvent("Enter", { ctrlKey: true, shiftKey: true });
+      });
 
       // Should trigger log
       await waitFor(() => {

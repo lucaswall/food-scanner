@@ -5,6 +5,8 @@
 
 /**
  * Get today's date in YYYY-MM-DD format.
+ * Uses the runtime's local timezone (browser timezone on client,
+ * server timezone on server).
  */
 export function getTodayDate(): string {
   const now = new Date();

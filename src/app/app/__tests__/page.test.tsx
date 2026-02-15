@@ -80,6 +80,15 @@ describe("/app page", () => {
     expect(link).toHaveAttribute("href", "/app/quick-select");
   });
 
+  it("renders Chat CTA button linking to /app/chat", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const jsx = await AppPage();
+    render(jsx);
+    const link = screen.getByRole("link", { name: /^chat$/i });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/app/chat");
+  });
+
   it("renders FitbitStatusBanner component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
