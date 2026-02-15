@@ -51,7 +51,18 @@ Follow these rules:
 - If the user's intent is ambiguous, ask clarifying questions before updating the analysis
 - Be concise and conversational in your responses
 - Use specific numbers from their data when available
-- When suggesting meals, consider their typical eating patterns and current goal progress`;
+- When suggesting meals, consider their typical eating patterns and current goal progress
+
+Web search guidelines:
+- You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
+- Do NOT search for generic or common foods like "an apple", "grilled chicken with rice", or "scrambled eggs" — estimate those from your training data.
+- When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
+- If web search returns nothing useful, fall back to estimation from your training data and say so.`;
+
+export const WEB_SEARCH_TOOL = {
+  type: "web_search_20250305",
+  name: "web_search",
+} as const;
 
 export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
@@ -271,10 +282,14 @@ export async function analyzeFood(
     );
 
     // Add cache_control to last tool (don't mutate original)
-    const toolsWithCache = [{
-      ...REPORT_NUTRITION_TOOL,
-      cache_control: { type: "ephemeral" as const },
-    }];
+    // web_search first so cache_control spread targets the custom tool
+    const toolsWithCache = [
+      WEB_SEARCH_TOOL,
+      {
+        ...REPORT_NUTRITION_TOOL,
+        cache_control: { type: "ephemeral" as const },
+      },
+    ];
 
     const response = await getClient().messages.create({
       model: CLAUDE_MODEL,
@@ -457,7 +472,7 @@ export async function conversationalRefine(
 Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
     }
 
-    const allTools = [REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
+    const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
 
     // Add cache_control to last tool (don't mutate originals)
     const toolsWithCache = allTools.map((tool, index) =>
@@ -624,7 +639,7 @@ export async function runToolLoop(
   currentDate: string,
   options?: {
     systemPrompt?: string;
-    tools?: Anthropic.Tool[];
+    tools?: Array<Anthropic.Tool | Anthropic.Messages.WebSearchTool20250305>;
     operation?: string;
     initialResponse?: Anthropic.Message;
     signal?: AbortSignal;
@@ -634,7 +649,7 @@ export async function runToolLoop(
   if (!options?.systemPrompt && currentDate) {
     systemPrompt += `\n\nToday's date is: ${currentDate}`;
   }
-  const tools = options?.tools ?? DATA_TOOLS;
+  const tools = options?.tools ?? [WEB_SEARCH_TOOL, ...DATA_TOOLS];
   const operation = options?.operation ?? "food-chat";
 
   // Add cache_control to last tool (don't mutate originals)

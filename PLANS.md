@@ -108,6 +108,34 @@ The `web_search_20250305` tool is a **server-side tool** — the Anthropic API e
 
 ---
 
+## Iteration 1
+
+**Implemented:** 2026-02-15
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Task 1: Add web_search tool to chat and update system prompt (FOO-529) — Defined WEB_SEARCH_TOOL constant, added to analyzeFood/conversationalRefine/runToolLoop tools arrays, updated CHAT_SYSTEM_PROMPT with web search guidance, updated runToolLoop options.tools type to accept ToolUnion
+- Task 2: Verify tool loop handles web search response blocks (FOO-529) — Added tests confirming server_tool_use and web_search_tool_result blocks are correctly ignored by the tool loop (existing code already handled this)
+- Task 3: Update ROADMAP.md (FOO-530) — Removed "Web Search for Nutrition Info" section, added "Full Tool Support in Initial Analysis" and "Nutrition Database API Integration" features, updated Contents table
+
+### Files Modified
+- `src/lib/claude.ts` — Added WEB_SEARCH_TOOL constant, added to all tools arrays, updated runToolLoop options type, added web search guidance to CHAT_SYSTEM_PROMPT
+- `src/lib/__tests__/claude.test.ts` — Added 8 new tests (web_search tool inclusion in analyzeFood/conversationalRefine/runToolLoop, web search response block handling, system prompt guidance), fixed existing test that assumed tools[0] was report_nutrition
+- `ROADMAP.md` — Removed Web Search section, added Full Tool Support and Nutrition Database API sections, updated Contents table
+
+### Linear Updates
+- FOO-529: Todo → In Progress → Review
+- FOO-530: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed (no bugs found)
+- verifier: All 1791 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.
+
+---
+
 ## Plan Summary
 
 **Objective:** Integrate Claude's native web_search tool into the food chat so Claude can look up real nutrition info from the web
