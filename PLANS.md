@@ -86,14 +86,21 @@ The `web_search_20250305` tool is a **server-side tool** — the Anthropic API e
 
 1. Remove the "Web Search for Nutrition Info" section (lines 213-270) from ROADMAP.md — it's now being implemented via Linear
 2. Update the Contents table at the top of the file to remove the Web Search row
-3. Add a new feature section: "Nutrition Database API Integration" before the Conventions section. This feature should describe:
+3. Add a new feature section: "Full Tool Support in Initial Analysis" before the Conventions section. This feature should describe:
+   - **Problem:** The initial food analysis (`analyzeFood()`) is a single-shot API call with forced `tool_choice: { type: "tool", name: "report_nutrition" }`. It can only use server-side tools (web_search). Users sometimes type rich queries in the description textarea like "similar to yesterday but half" or "same as Monday's lunch but without the bread" — these require data tools (`search_food_log`, `get_nutrition_summary`) which need a tool loop to execute.
+   - **Goal:** Let the initial analysis use all available tools (data tools + web_search + report_nutrition) so users can reference their food history directly from the description textarea.
+   - **Design:** Route the initial analysis through `runToolLoop()` instead of a single-shot API call. Change `tool_choice` from forced `report_nutrition` to `auto`. Claude searches the food log, gets context, then calls `report_nutrition` with the result. If Claude doesn't call `report_nutrition` after the loop, treat the response as text-only (prompt user to provide more info).
+   - **Architecture:** Refactor `analyzeFood()` to accept `userId` and `currentDate` as required params (currently optional). Reuse existing `runToolLoop()` infrastructure. The API route (`/api/analyze-food`) already has the session — just pass userId/currentDate through. The `analyzeFood` → `conversationalRefine` boundary may blur — consider whether `analyzeFood()` should just call `conversationalRefine()` with a single user message.
+   - **Edge Cases:** Claude uses data tools but never calls report_nutrition → return text response, no analysis. Tool loop exceeds MAX_ITERATIONS before reporting nutrition → return partial text. User provides photo + description that doesn't reference history → Claude skips data tools and calls report_nutrition directly (current behavior preserved).
+   - **Implementation Order:** 1) Refactor `analyzeFood()` to use `runToolLoop()`. 2) Change tool_choice to auto. 3) Handle no-analysis responses. 4) Update tests.
+4. Add a new feature section: "Nutrition Database API Integration" before the Conventions section. This feature should describe:
    - **Problem:** Claude's web search is a good fallback for looking up nutrition info, but a structured nutrition database would give more accurate, consistent results for branded and restaurant foods. However, the main nutrition databases (Nutritionix, FatSecret, USDA) are heavily US/Europe-focused and have poor coverage of Argentine foods and local restaurants.
    - **Goal:** Add a `search_nutrition_database` tool that queries a nutrition API for structured, verified nutrition data — complementing the existing web search with faster, more reliable results for foods that are in the database.
    - **Design:** Claude would have access to both web_search (built-in) and a dedicated nutrition database tool. For known brands/restaurants in the database, it uses the structured API. For everything else (especially Argentine/Latin American foods), it falls back to web search or its training data.
    - **Architecture:** Candidate APIs: FatSecret Platform (5K free calls/day, 1.9M+ foods in 56 countries, best free tier), USDA FoodData Central (free unlimited, US government data), Open Food Facts (free community data, 4M+ products). All are weak on Argentine food coverage.
    - **Edge Cases:** API returns no match → fall back to web search or estimation. API data conflicts with web search data → prefer structured API data. Rate limit hit → graceful degradation.
    - **Implementation Order:** 1) Evaluate API coverage for user's typical foods. 2) Integrate chosen API as a new chat tool. 3) System prompt guidance for tool selection priority.
-4. Update the Contents table to include the new feature
+5. Update the Contents table to include both new features
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent - Review changes for bugs
