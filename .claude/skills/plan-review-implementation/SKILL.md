@@ -116,8 +116,10 @@ Every finding MUST be classified as either **FIX** or **DISCARD**. There is no "
 
 | Classification | When to use | Action |
 |----------------|-------------|--------|
-| **FIX** | Real bug at ANY severity (critical, high, medium, low) | Create Linear issue + Fix Plan |
-| **DISCARD** | False positive, misdiagnosed, impossible in context, or not a bug | Report to user with reasoning |
+| **FIX** | Real bug at ANY severity, regardless of origin | Create Linear issue + Fix Plan |
+| **DISCARD** | Not a real bug — false positive, impossible, or not a bug | Report to user with reasoning |
+
+**CRITICAL RULE: Pre-existing bugs are still bugs.** If a reviewer finds a real bug in a reviewed file, it MUST be classified as FIX — even if the bug existed before this iteration, even if it was introduced by a different PR, even if it's in code the current iteration didn't modify but is visible in a changed file. The review's job is to catch bugs, not to assign blame for when they were introduced. The only question is: "Is this a real bug?" If yes → FIX.
 
 **FIX — real bugs at any severity:**
 - Would cause runtime errors or crashes (any severity)
@@ -129,13 +131,19 @@ Every finding MUST be classified as either **FIX** or **DISCARD**. There is no "
 - Edge cases that could realistically occur
 - Test flakiness from shared mutable state
 - Convention violations that affect correctness
+- Pre-existing bugs found in reviewed files (still real bugs)
 
-**DISCARD — not actual bugs:**
-- False positive: reviewer misread the code or missed context
-- Misdiagnosed: the flagged pattern is actually correct/intentional
-- Impossible in context: the scenario cannot occur given the app's constraints (e.g., "SQL injection" in a query that only accepts validated enum values)
-- Style-only: cosmetic preference not enforced by CLAUDE.md, with no correctness impact
-- Already handled: the issue is mitigated elsewhere in the codebase
+**DISCARD — genuinely not bugs (the ONLY valid reasons):**
+- False positive: reviewer misread the code or missed context — the code is actually correct
+- Misdiagnosed: the flagged pattern is actually correct/intentional design
+- Impossible in context: the scenario literally cannot occur given the app's constraints (e.g., "SQL injection" in a query that only accepts validated enum values)
+- Style-only: cosmetic preference not enforced by CLAUDE.md, with zero correctness impact
+
+**NOT valid reasons to DISCARD:**
+- "Pre-existing" — a bug doesn't stop being a bug because it was there before
+- "Already handled elsewhere" — if it's handled, prove it by citing the exact code; if you can't, it's a FIX
+- "Low severity" — low severity bugs are still FIX, just with [low] tag
+- "Out of scope for this iteration" — the review scope is the changed files, and any bug found in them is in scope
 
 ## Document Findings
 
@@ -364,4 +372,5 @@ If `TeamCreate` fails, perform the review as a single agent:
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
 - **Check MIGRATIONS.md** — If implementation changed DB schema, column names, session/token formats, or env vars, verify that `MIGRATIONS.md` has a corresponding note. If missing, add it as a finding and create a Fix Plan task. The lead should append the missing note to `MIGRATIONS.md` before committing.
 - **Every finding is FIX or DISCARD** — No "document only" category. Real bugs at any severity get Linear issues + Fix Plan. Non-bugs get discarded with reasoning.
+- **Never discard real bugs** — Pre-existing, low-severity, or "already handled" are NOT valid reasons to discard. Only discard findings that are genuinely not bugs (false positive, impossible, style-only). When in doubt, FIX.
 - **Always report findings to user** — PLANS.md is overwritten by the next plan. The user must see all findings (fixed and discarded) directly in the conversation output before the skill terminates.

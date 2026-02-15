@@ -15,6 +15,7 @@ RULES:
 - Read CLAUDE.md for project-specific rules before reviewing
 - Read the KNOWN ACCEPTED PATTERNS section in CLAUDE.md before flagging patterns. Do NOT flag patterns that are documented as accepted.
 - Read .claude/skills/plan-review-implementation/references/code-review-checklist.md for detailed checks
+- Report ALL real bugs you find — even if they appear to be pre-existing or were not introduced by this iteration. The lead decides classification; your job is to find bugs, not filter them.
 
 CHANGED FILES TO REVIEW:
 {exact list of files from the iteration's completed tasks}
