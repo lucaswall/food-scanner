@@ -1,355 +1,127 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-523-chat-bugs
-**Issues:** FOO-523, FOO-524, FOO-525, FOO-526, FOO-527, FOO-528
 **Created:** 2026-02-15
-**Last Updated:** 2026-02-15
+**Source:** Inline request: Integrate Claude native web_search tool into food chat and update ROADMAP
+**Linear Issues:** [FOO-529](https://linear.app/lw-claude/issue/FOO-529/integrate-claude-web-search-tool-into-food-chat), [FOO-530](https://linear.app/lw-claude/issue/FOO-530/update-roadmap-remove-web-search-add-nutrition-database-api-idea)
 
-## Summary
+## Context Gathered
 
-Fix 6 bugs and improvements found during deep review of the AI chat functionality. All issues are in `src/lib/claude.ts`, `src/lib/chat-tools.ts`, `src/components/food-chat.tsx`, and `src/components/chat-page-client.tsx`. Changes are focused — no new features, no schema changes, no migrations.
+### Codebase Analysis
+- **Chat backend:** `src/lib/claude.ts` — `conversationalRefine()` → `runToolLoop()` is the only chat path (unified FoodChat/FreeChat)
+- **Tool definitions:** `src/lib/chat-tools.ts` — 3 data tools (search_food_log, get_nutrition_summary, get_fasting_info) + report_nutrition in claude.ts
+- **API route:** `src/app/api/chat-food/route.ts` — calls `conversationalRefine()` with messages, images, userId, currentDate, initialAnalysis, signal
+- **SDK version:** `@anthropic-ai/sdk@0.74.0` — confirmed support for `WebSearchTool20250305`, `ServerToolUseBlock`, `WebSearchToolResultBlock`, `ToolUnion` types
+- **Current tools array in conversationalRefine (line 460):** `[REPORT_NUTRITION_TOOL, ...DATA_TOOLS]`
+- **Current tools default in runToolLoop (line 637):** `options?.tools ?? DATA_TOOLS`
+- **Cache control pattern:** `toolsWithCache` spreads `cache_control: { type: "ephemeral" }` onto the last tool in the array
+- **Tool loop filtering (line 731):** `response.content.filter((block) => block.type === "tool_use")` — already excludes `server_tool_use` blocks
+- **ROADMAP.md lines 213-270:** "Web Search for Nutrition Info" feature spec (will be removed)
+- **Test patterns:** `src/lib/__tests__/claude.test.ts` mocks `mockCreate` from SDK, tests `runToolLoop` with various response scenarios
 
-## Issues
+### Key Technical Insight
+The `web_search_20250305` tool is a **server-side tool** — the Anthropic API executes searches automatically within a single API call. No external API integration needed from our code. The response includes `server_tool_use` and `web_search_tool_result` content blocks alongside regular `text` and `tool_use` blocks. The existing tool loop already correctly handles this because it filters by `type === "tool_use"` only.
 
-### FOO-523: Chat system prompt missing current date (High/Bug)
+## Original Plan
 
-`CHAT_SYSTEM_PROMPT` has no date reference. `currentDate` is passed to `executeTool()` but never injected into the system prompt. Claude cannot resolve "today", "yesterday", "this week" to YYYY-MM-DD dates for tool calls.
+### Task 1: Add web_search tool to chat and update system prompt
+**Linear Issue:** [FOO-529](https://linear.app/lw-claude/issue/FOO-529/integrate-claude-web-search-tool-into-food-chat)
 
-**Acceptance Criteria:**
-- [ ] System prompt includes `Today's date is: {currentDate}` (injected dynamically)
-- [ ] Existing tests updated to verify date injection
-- [ ] Add test: `conversationalRefine` includes current date in system prompt text
-
-### FOO-524: search_food_log date range incomplete results (Medium/Bug)
-
-`executeSearchFoodLog` date range case calls `getFoodLogHistory(userId, { endDate: to_date, limit: effectiveLimit })` then filters client-side by `from_date`. The limit may exclude entries within the range.
-
-**Acceptance Criteria:**
-- [ ] `getFoodLogHistory` supports `startDate` parameter for server-side date range filtering
-- [ ] `executeSearchFoodLog` uses `startDate` instead of client-side filtering
-- [ ] Add test: date range search returns all entries within range regardless of limit
-
-### FOO-525: Client 30s timeout too short for tool loop (Medium/Bug)
-
-`FoodChat` uses `AbortSignal.timeout(30000)`. Server-side `runToolLoop` can make up to 5 sequential Claude API calls (each with 30s timeout). Complex queries exceed 30s.
-
-**Acceptance Criteria:**
-- [ ] Client timeout increased to 120s
-- [ ] Server propagates `request.signal` to abort Claude API calls when client disconnects
-
-### FOO-526: report_nutrition executed as "unknown tool" in tool loop (Low/Bug)
-
-When Claude emits `report_nutrition` alongside a data tool in a `stop_reason: "tool_use"` response, `runToolLoop` passes it to `executeTool()` which throws "Unknown tool". Wastes an iteration and may lose the analysis.
-
-**Acceptance Criteria:**
-- [ ] `runToolLoop` extracts `report_nutrition` from tool_use blocks before executing data tools
-- [ ] If `report_nutrition` is present, its input is validated and stored as a pending analysis
-- [ ] Only data tools are passed to `executeTool`
-- [ ] Add test: tool loop with both `report_nutrition` and data tool in same response
-
-### FOO-527: ChatPageClient missing mealTypeId in confirmation (Low/Improvement)
-
-`FoodChat.onLogged` callback only passes `(response, analysis)`, not `mealTypeId`. `ChatPageClient` renders `FoodLogConfirmation` without it.
-
-**Acceptance Criteria:**
-- [ ] `onLogged` callback includes `mealTypeId` parameter
-- [ ] `ChatPageClient` passes `mealTypeId` to `FoodLogConfirmation`
-- [ ] `FoodAnalyzer`'s `onLogged` handler updated to match new signature
-
-### FOO-528: Conversation truncation invalid role ordering (Low/Bug)
-
-`truncateConversation` keeps first message + last 4. If first is "user" and the 5th-from-last is also "user", two consecutive same-role messages violate the Anthropic API requirement.
-
-**Acceptance Criteria:**
-- [ ] After slicing, validate no two consecutive messages have the same role
-- [ ] If consecutive same-role messages found, drop the earlier one of the pair
-- [ ] Add test: truncation with even message count produces valid alternating roles
-
-## Prerequisites
-
-- [ ] On `main` branch with clean working tree
-- [ ] No pending migrations or schema changes
-
-## Implementation Tasks
-
-### Task 1: Inject current date into chat system prompt
-
-**Issue:** FOO-523
-**Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
+**Context:**
+- The web_search tool uses a different type from custom tools: `{ type: "web_search_20250305", name: "web_search" }` (SDK type: `WebSearchTool20250305`)
+- The `tools` parameter in `messages.create()` accepts `Array<ToolUnion>` which is a union of `Tool | WebSearchTool20250305 | ...`
+- The `options.tools` type in `runToolLoop` must change from `Anthropic.Tool[]` to accept the union type
+- Place web_search FIRST in the tools array so the cache_control spread (applied to LAST tool) targets a custom tool, not the server tool
 
 **TDD Steps:**
 
-1. **RED** — Add test in the `conversationalRefine` describe block: when called with `currentDate="2026-02-15"`, verify that `mockCreate` receives a system prompt containing `"Today's date is: 2026-02-15"`. The existing tests call `conversationalRefine` with `currentDate` as the 4th arg — check the system prompt in the `mockCreate` call's `system` field. Run: `npm test -- claude`
-
-2. **GREEN** — In `conversationalRefine`, change the system prompt construction (around line 442) to append `\n\nToday's date is: ${currentDate}` to `systemPrompt` when `currentDate` is provided. Also do the same in `runToolLoop` (line 614 area) where it builds the systemPrompt for subsequent iterations — but `runToolLoop` already receives the `systemPrompt` from `conversationalRefine` via `options.systemPrompt`, so the date is already baked in. Just need to ensure the standalone `runToolLoop` path (when `options.systemPrompt` is undefined) also has the date. Add `currentDate` injection in `runToolLoop` when building the default systemPrompt. Run: `npm test -- claude`
-
-3. **REFACTOR** — Extract a helper `buildSystemPrompt(basePrompt: string, currentDate?: string, initialAnalysis?: FoodAnalysis): string` to avoid duplicating the date injection + initialAnalysis appending logic. Both `conversationalRefine` and the default path in `runToolLoop` should use it.
-
-**Notes:**
-- The `CHAT_SYSTEM_PROMPT` constant stays unchanged — it's the base template
-- Date injection happens at call time, not at import time
-- Reference: `conversationalRefine` at line 442 already appends `initialAnalysis` context — follow the same pattern
-
-### Task 2: Add startDate support to getFoodLogHistory
-
-**Issue:** FOO-524
-**Files:**
-- `src/lib/food-log.ts` (modify)
-- `src/lib/__tests__/food-log.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test in the `getFoodLogHistory` describe block: call with `{ startDate: "2026-02-10", endDate: "2026-02-15" }`, verify the DB query includes a `gte(foodLogEntries.date, "2026-02-10")` condition. Mock the DB to return entries spanning the range. Run: `npm test -- food-log`
-
-2. **GREEN** — In `getFoodLogHistory`, add optional `startDate` to the options type. In the conditions array, add `gte(foodLogEntries.date, options.startDate)` when provided. Import `gte` from drizzle-orm if not already imported. Run: `npm test -- food-log`
-
-3. **REFACTOR** — No refactoring needed; this is a one-line addition.
-
-**Notes:**
-- `getFoodLogHistory` signature at line 350: add `startDate?: string` to the options type
-- The existing `endDate` condition uses `lte` — mirror it with `gte` for `startDate`
-- Check that `gte` is already imported from drizzle-orm at the top of food-log.ts
-
-### Task 3: Use startDate in executeSearchFoodLog
-
-**Issue:** FOO-524
-**Files:**
-- `src/lib/chat-tools.ts` (modify)
-- `src/lib/__tests__/chat-tools.test.ts` (modify)
-
-**Depends on:** Task 2
-
-**TDD Steps:**
-
-1. **RED** — Add test: call `executeTool("search_food_log", { from_date: "2026-02-10", to_date: "2026-02-15", ... }, userId, currentDate)`. Verify `mockGetFoodLogHistory` is called with `{ startDate: "2026-02-10", endDate: "2026-02-15" }` (no `limit` — see below). Run: `npm test -- chat-tools`
-
-2. **GREEN** — In `executeSearchFoodLog` date range case (line 182), change the `getFoodLogHistory` call to pass `startDate: from_date` and remove the `limit` parameter for date range queries (let the DB return all entries in the range). Remove the client-side `from_date` filter on line 189. Cap at a hard max of 100 entries to prevent runaway queries. Run: `npm test -- chat-tools`
-
-3. **REFACTOR** — Remove the comment on line 188 that says "getFoodLogHistory only supports endDate".
-
-**Notes:**
-- For date range queries, the limit is counterproductive — we want ALL entries in the range
-- Add a hard cap (100 entries) as a safety limit for the DB query, not for the tool output
-- The `effectiveLimit` from the user's `limit` param should still be respected for the output (truncate after fetching) — if Claude passes `limit: 5` with a date range, return only 5
-
-### Task 4: Increase client timeout and propagate abort signal
-
-**Issue:** FOO-525
-**Files:**
-- `src/components/food-chat.tsx` (modify)
-- `src/app/api/chat-food/route.ts` (modify)
-- `src/lib/claude.ts` (modify)
-- `src/components/__tests__/food-chat.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — In `food-chat.test.tsx`, update the existing timeout test (if it checks for 30000) to expect 120000 instead. Run: `npm test -- food-chat`
-
-2. **GREEN** — In `food-chat.tsx` line 258, change `AbortSignal.timeout(30000)` to `AbortSignal.timeout(120000)`. Run: `npm test -- food-chat`
-
-3. **Server-side abort** — In the API route (`route.ts`), pass `request.signal` to `conversationalRefine`. In `conversationalRefine`, accept an optional `signal?: AbortSignal` parameter and pass it through to `runToolLoop`. In `runToolLoop`, check `signal?.aborted` before each iteration and throw if aborted. This is a best-effort optimization — the Anthropic SDK doesn't natively accept AbortSignal, but we can avoid starting new iterations after the client disconnects.
-
-**Notes:**
-- The Anthropic SDK `timeout` option (30s per call) is separate from the client timeout — don't change the SDK timeout
-- The server-side abort check only prevents new iterations; it won't cancel an in-flight SDK call
-- `conversationalRefine` signature gains `signal?: AbortSignal` as the last parameter
-- `runToolLoop` `options` gains `signal?: AbortSignal`
-
-### Task 5: Handle report_nutrition in tool loop
-
-**Issue:** FOO-526
-**Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test in the `runToolLoop` describe block: mock Claude response with `stop_reason: "tool_use"` containing both a `report_nutrition` tool_use block and a `get_nutrition_summary` tool_use block. Verify that `executeTool` is only called for `get_nutrition_summary` (not for `report_nutrition`). Verify the final result includes the analysis from `report_nutrition`. Run: `npm test -- claude`
-
-2. **GREEN** — In `runToolLoop`, in the `stop_reason === "tool_use"` branch (line 698), after extracting `toolUseBlocks`, partition them:
-   - `reportNutritionBlock` = find and remove any block with `name === "report_nutrition"`
-   - `dataToolBlocks` = remaining blocks
-   - If `reportNutritionBlock` exists, validate its input via `validateFoodAnalysis` and store as `pendingAnalysis`
-   - Only execute `dataToolBlocks` via `executeTool`
-   - For the tool_result sent back to Claude, include a success result for `report_nutrition` (e.g., `"Nutrition analysis recorded."`) so Claude doesn't think it failed
-   - When the loop ends (any exit path), if `pendingAnalysis` is set and the response doesn't already have an analysis, use `pendingAnalysis`
-
+1. **RED** — Add tests in `claude.test.ts`:
+   - In the `conversationalRefine` describe block: test that `mockCreate` is called with a `tools` array containing an object with `type: "web_search_20250305"` and `name: "web_search"`. Assert it's the first element in the tools array.
+   - In the `runToolLoop` describe block: test that when `runToolLoop` is called without explicit tools (standalone path), `mockCreate` is called with a `tools` array containing the web_search tool.
+   - Test that `CHAT_SYSTEM_PROMPT` includes guidance about web search (e.g., contains "search the web" or similar).
    Run: `npm test -- claude`
 
-3. **REFACTOR** — The `pendingAnalysis` variable should be declared at the top of the function alongside `lastResponse`, to be accessible from all exit paths.
+2. **GREEN** — In `src/lib/claude.ts`:
+   - Define `WEB_SEARCH_TOOL` constant with type `{ type: "web_search_20250305", name: "web_search" }` using `as const` for type narrowing
+   - In `conversationalRefine` (line 460): change `allTools` to `[WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS]`
+   - In `runToolLoop` (line 637): change the default from `DATA_TOOLS` to `[WEB_SEARCH_TOOL, ...DATA_TOOLS]`
+   - Update the `options.tools` type in `runToolLoop` from `Anthropic.Tool[]` to `Array<Anthropic.Tool | Anthropic.WebSearchTool20250305>` (import the type from the SDK's messages module, or use `Anthropic.Messages.ToolUnion`)
+   - Update `CHAT_SYSTEM_PROMPT` to add web search guidance after the existing rules. Guidance should cover: (a) when to search — specific restaurants, branded products, unfamiliar regional dishes, packaged foods with known labels; (b) when NOT to search — generic foods like "an apple", "grilled chicken with rice"; (c) cite the source — mention where the nutrition info came from; (d) fallback — if search returns nothing useful, estimate from training data and say so
+   Run: `npm test -- claude`
+
+3. **REFACTOR** — Export `WEB_SEARCH_TOOL` for test assertions. Verify the `toolsWithCache` spread still works correctly — since web_search is first and cache_control is applied to last, no type issues arise.
 
 **Notes:**
-- Reference: `conversationalRefine` lines 480-486 already does a similar filter for the initial (non-loop) response — follow the same pattern
-- The tool_result for report_nutrition needs to be included in the `toolResults` array so the conversation stays valid (Claude expects a tool_result for every tool_use)
+- Do NOT add web_search to `analyzeFood()` — that's direct image analysis with forced tool_choice, not a chat
+- The `toolsWithCache` map uses spread `{ ...tool, cache_control }` on the last element. Since web_search is first, it won't be spread. The last element (a DATA_TOOL) is a regular `Anthropic.Tool` which supports cache_control.
+- No domain restrictions — user explicitly requested open search on any domain
 
-### Task 6: Pass mealTypeId through onLogged callback
+### Task 2: Verify tool loop handles web search response blocks
+**Linear Issue:** [FOO-529](https://linear.app/lw-claude/issue/FOO-529/integrate-claude-web-search-tool-into-food-chat)
 
-**Issue:** FOO-527
-**Files:**
-- `src/components/food-chat.tsx` (modify)
-- `src/components/chat-page-client.tsx` (modify)
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/__tests__/food-chat.test.tsx` (modify)
+**Context:**
+- When Claude uses web_search, the response contains `server_tool_use` (type: `"server_tool_use"`) and `web_search_tool_result` (type: `"web_search_tool_result"`) blocks
+- These blocks are NOT `tool_use` blocks, so the existing filter `block.type === "tool_use"` correctly excludes them
+- The response is pushed to `conversationMessages` as-is, preserving the web search blocks for conversation continuity
+- However, we should add a test to verify this behavior explicitly
 
 **TDD Steps:**
 
-1. **RED** — In `food-chat.test.tsx`, find the test that verifies `onLogged` is called after successful logging. Update the expectation to include a third argument for `mealTypeId`. Run: `npm test -- food-chat`
+1. **RED** — Add test in `runToolLoop` describe block: mock a response with `stop_reason: "tool_use"` containing a mix of `server_tool_use`, `web_search_tool_result`, `text`, and a custom `tool_use` block (e.g., `search_food_log`). Verify that `executeTool` is called only for `search_food_log` (not for web_search). Verify the final result includes text from both the web search synthesis and the data tool response. Run: `npm test -- claude`
 
-2. **GREEN** — In `food-chat.tsx`:
-   - Change the `onLogged` prop type (line 39) from `(response: FoodLogResponse, analysis: FoodAnalysis) => void` to `(response: FoodLogResponse, analysis: FoodAnalysis, mealTypeId: number) => void`
-   - In `handleLog` (line 357), change `onLogged(result.data, analysis)` to `onLogged(result.data, analysis, mealTypeId)`
+2. **GREEN** — The existing code should already pass this test. If TypeScript complains about unknown content block types in the mock, use type assertions. The key assertion: `executeTool` is called exactly once (for the data tool), not for the web search blocks.
 
-   In `chat-page-client.tsx`:
-   - Add `mealTypeId` state: `const [loggedMealTypeId, setLoggedMealTypeId] = useState<number | null>(null)`
-   - Update the `onLogged` handler to capture it: `(response, analysis, mealType) => { setLogResponse(response); setLoggedAnalysis(analysis); setLoggedMealTypeId(mealType); }`
-   - Pass to confirmation: `<FoodLogConfirmation ... mealTypeId={loggedMealTypeId ?? undefined} />`
+3. **RED** — Add test: mock a response where Claude uses ONLY web_search (no custom tools) and returns `stop_reason: "end_turn"`. Response includes `server_tool_use`, `web_search_tool_result`, and `text` blocks. Verify the result message contains the text content. Run: `npm test -- claude`
 
-   In `food-analyzer.tsx`:
-   - Update the `onLogged` handler (line 471) to accept the third arg: `(response, refinedAnalysis, _mealType) => { ... }` — the analyzer already has its own `mealTypeId` state so it doesn't need this value, but the signature must match
-
-   Run: `npm test -- food-chat`
-
-3. **REFACTOR** — No refactoring needed.
+4. **GREEN** — The existing `end_turn` code path handles this: it extracts `text` blocks and ignores other types. Should pass without code changes.
 
 **Notes:**
-- `food-analyzer.tsx` line 471 needs the signature updated even though it ignores the value — TypeScript will error on mismatched callback types
+- These tests document the expected behavior with web search responses. If the SDK type system prevents creating mock blocks with `server_tool_use` type, use `as unknown as Anthropic.ContentBlock` casts.
+- No code changes expected — this task is pure verification with tests.
 
-### Task 7: Fix conversation truncation role ordering
-
-**Issue:** FOO-528
-**Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test for `truncateConversation`: create a message array of 10 messages with very high estimated tokens (to trigger truncation). The messages alternate user/assistant. After truncation (first + last 4), check that no two consecutive messages have the same role. Specifically test the case where the result would be [user(0), user(6), assistant(7), user(8), assistant(9)] — the function should drop the first of the consecutive pair to produce [user(0), assistant(7), user(8), assistant(9)]. `truncateConversation` is not exported — either export it for testing, or test it indirectly through `conversationalRefine` by mocking `estimateTokenCount` to return a high value. Run: `npm test -- claude`
-
-2. **GREEN** — In `truncateConversation` (line 581), after building `[firstMessage, ...lastFourMessages]`, add a post-processing step: iterate the result array and if `result[i].role === result[i-1].role`, drop `result[i-1]` (keeping the more recent message). A simple filter loop works. Run: `npm test -- claude`
-
-3. **REFACTOR** — Consider whether the function should be exported for direct testing. If it's small and self-contained, exporting it is cleaner than testing indirectly.
-
-**Notes:**
-- The function is currently not exported. Either export it or test via `conversationalRefine` with mocked token estimation.
-- The safest approach is to drop earlier duplicates, preserving the most recent context.
-- Edge case: if after dropping duplicates the array starts with "assistant", that's still valid for the Anthropic API (tool_result messages can appear as "user" before the first "user" text message, but in practice the first message in this app is always "user").
-
-### Task 8: Integration verification
-
-**Issue:** FOO-523, FOO-524, FOO-525, FOO-526, FOO-527, FOO-528
+### Task 3: Update ROADMAP.md
+**Linear Issue:** [FOO-530](https://linear.app/lw-claude/issue/FOO-530/update-roadmap-remove-web-search-add-nutrition-database-api-idea)
 
 **Steps:**
 
-1. Run full test suite: `npm test`
-2. Run linter: `npm run lint`
-3. Run type checker: `npm run typecheck`
-4. Build check: `npm run build`
+1. Remove the "Web Search for Nutrition Info" section (lines 213-270) from ROADMAP.md — it's now being implemented via Linear
+2. Update the Contents table at the top of the file to remove the Web Search row
+3. Add a new feature section: "Nutrition Database API Integration" before the Conventions section. This feature should describe:
+   - **Problem:** Claude's web search is a good fallback for looking up nutrition info, but a structured nutrition database would give more accurate, consistent results for branded and restaurant foods. However, the main nutrition databases (Nutritionix, FatSecret, USDA) are heavily US/Europe-focused and have poor coverage of Argentine foods and local restaurants.
+   - **Goal:** Add a `search_nutrition_database` tool that queries a nutrition API for structured, verified nutrition data — complementing the existing web search with faster, more reliable results for foods that are in the database.
+   - **Design:** Claude would have access to both web_search (built-in) and a dedicated nutrition database tool. For known brands/restaurants in the database, it uses the structured API. For everything else (especially Argentine/Latin American foods), it falls back to web search or its training data.
+   - **Architecture:** Candidate APIs: FatSecret Platform (5K free calls/day, 1.9M+ foods in 56 countries, best free tier), USDA FoodData Central (free unlimited, US government data), Open Food Facts (free community data, 4M+ products). All are weak on Argentine food coverage.
+   - **Edge Cases:** API returns no match → fall back to web search or estimation. API data conflicts with web search data → prefer structured API data. Rate limit hit → graceful degradation.
+   - **Implementation Order:** 1) Evaluate API coverage for user's typical foods. 2) Integrate chosen API as a new chat tool. 3) System prompt guidance for tool selection priority.
+4. Update the Contents table to include the new feature
 
-## MCP Usage During Implementation
-
-| MCP Server | Tool | Purpose |
-|------------|------|---------|
-| Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
-
-## Error Handling
-
-| Error Scenario | Expected Behavior | Test Coverage |
-|---------------|-------------------|---------------|
-| Missing currentDate in conversationalRefine | System prompt omits date line (graceful) | Unit test |
-| Date range with >100 entries | Capped at 100 from DB | Unit test |
-| Client timeout at 120s | "Request timed out" error shown | Unit test |
-| report_nutrition validation fails in tool loop | Error logged, loop continues without analysis | Unit test |
-| Truncation produces empty array | Return original (already handled by length check) | Unit test |
-
-## Risks & Open Questions
-
-- [ ] Task 4 (abort signal): The Anthropic SDK doesn't accept AbortSignal. Server-side abort only prevents new loop iterations, not in-flight API calls. This is a known limitation — full abort would require SDK changes.
-- [ ] Task 5 (report_nutrition in loop): Need to verify that sending a synthetic tool_result for report_nutrition doesn't confuse Claude's subsequent responses. The result should be a simple acknowledgment string.
-
-## Scope Boundaries
-
-**In Scope:**
-- All 6 issues listed above
-- Unit test coverage for each fix
-- Type safety across modified interfaces
-
-**Out of Scope:**
-- Streaming responses for the chat endpoint (mentioned in FOO-525 as an alternative)
-- E2E test updates (run before release, not during TDD)
-- Any refactoring beyond what's needed for the fixes
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent - Review changes for bugs
+2. Run `verifier` agent - Verify all tests pass and zero warnings
 
 ---
 
-## Iteration 1
+## Plan Summary
 
-**Implemented:** 2026-02-15
-**Method:** Single-agent (fly solo)
+**Objective:** Integrate Claude's native web_search tool into the food chat so Claude can look up real nutrition info from the web
 
-### Tasks Completed This Iteration
-- Task 1: Inject current date into chat system prompt (FOO-523) — Added date injection in `conversationalRefine` and standalone `runToolLoop` path
-- Task 2: Add startDate support to getFoodLogHistory (FOO-524) — Added `startDate` option with `gte` condition
-- Task 3: Use startDate in executeSearchFoodLog (FOO-524) — Server-side date range filtering with 100-entry hard cap, user limit for output
-- Task 4: Increase client timeout and propagate abort signal (FOO-525) — 30s→120s client timeout, signal parameter through conversationalRefine→runToolLoop
-- Task 5: Handle report_nutrition in tool loop (FOO-526) — Separate report_nutrition from data tools, synthetic tool_result, pendingAnalysis at all exit paths
-- Task 6: Pass mealTypeId through onLogged callback (FOO-527) — Updated FoodChat, ChatPageClient, FoodAnalyzer signatures
-- Task 7: Fix conversation truncation role ordering (FOO-528) — Post-truncation dedup of consecutive same-role messages, exported function for direct testing
-- Task 8: Integration verification — All tests pass, lint clean, typecheck clean, build clean
+**Request:** Enable Claude's built-in web_search_20250305 tool in chat, open to all domains. Remove web search from ROADMAP (it's being implemented). Add nutrition database API idea to ROADMAP noting limited usefulness in Argentina.
 
-### Files Modified
-- `src/lib/claude.ts` — Date injection, abort signal, report_nutrition handling in tool loop, truncation fix, export truncateConversation
-- `src/lib/__tests__/claude.test.ts` — Tests for date injection, report_nutrition separation, truncation role ordering
-- `src/lib/food-log.ts` — Added startDate parameter to getFoodLogHistory
-- `src/lib/__tests__/food-log.test.ts` — Test for startDate filtering
-- `src/lib/chat-tools.ts` — Server-side date range filtering with startDate
-- `src/lib/__tests__/chat-tools.test.ts` — Updated date range test expectations, added limit test
-- `src/components/food-chat.tsx` — 120s timeout, mealTypeId in onLogged
-- `src/components/__tests__/food-chat.test.tsx` — Updated onLogged expectations for mealTypeId
-- `src/components/chat-page-client.tsx` — Capture and pass mealTypeId to FoodLogConfirmation
-- `src/components/food-analyzer.tsx` — Updated onLogged handler signature
-- `src/app/api/chat-food/route.ts` — Pass request.signal to conversationalRefine
-- `src/app/api/chat-food/__tests__/route.test.ts` — Updated for 6th signal parameter
+**Linear Issues:** FOO-529, FOO-530
 
-### Linear Updates
-- FOO-523: Todo → In Progress → Review
-- FOO-524: Todo → In Progress → Review
-- FOO-525: Todo → In Progress → Review
-- FOO-526: Todo → In Progress → Review
-- FOO-527: Todo → In Progress → Review
-- FOO-528: Todo → In Progress → Review
+**Approach:** Add the `web_search_20250305` server-side tool to the existing tools array in `conversationalRefine` and `runToolLoop`. This is a minimal integration — the Anthropic API handles search execution automatically, and the existing tool loop already correctly ignores server-side tool blocks. Update the system prompt with guidance on when to search vs. estimate. Add tests verifying web search blocks flow through the tool loop correctly.
 
-### Pre-commit Verification
-- bug-hunter: Found 2 HIGH (both false positives — abort check already covers the path, catch block correctly rethrows), 1 LOW (added timeout comment)
-- verifier: All 1,783 tests pass, zero warnings, build clean
+**Scope:**
+- Tasks: 3
+- Files affected: 3 (claude.ts, claude.test.ts, ROADMAP.md)
+- New tests: yes
 
-### Review Findings
+**Key Decisions:**
+- Use Claude's native `web_search_20250305` (not Jina or custom search APIs) — simplest integration, $10/1K searches, negligible for single-user
+- No domain restrictions — open to all domains as requested
+- Place web_search first in tools array to avoid cache_control spread issues
+- Do NOT add web_search to `analyzeFood()` — only the chat path
 
-Files reviewed: 12
-Reviewer: single-agent (fly solo)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, Claude API Integration
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Discarded findings (not bugs):**
-- [DISCARDED] CONVENTION: `food-analyzer.tsx:471` `onLogged` handler only destructures 2 params while `FoodChat` prop type expects 3 — TypeScript allows callbacks with fewer params (contravariant parameter checking). The 3rd param (`mealTypeId`) is intentionally unused in the analyzer context (it has its own `mealTypeId` state). Not a bug, cosmetic only.
-
-### Linear Updates
-- FOO-523: Review → Merge
-- FOO-524: Review → Merge
-- FOO-525: Review → Merge
-- FOO-526: Review → Merge
-- FOO-527: Review → Merge
-- FOO-528: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-All tasks completed.
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge. E2E tests pass (115/115).
+**Risks/Considerations:**
+- SDK v0.74.0 types are confirmed to support WebSearchTool20250305. If the TypeScript union type causes issues with the toolsWithCache spread, the fix is to handle server tools separately in the cache_control logic.
+- Web search adds latency to API calls (~2-5s per search), but doesn't add tool loop iterations since it's handled server-side within a single API call.
+- The client timeout was already bumped to 120s (FOO-525), which accommodates web search latency.
