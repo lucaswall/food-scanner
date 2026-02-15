@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { SWRConfig } from "swr";
 import { QuickSelect } from "../quick-select";
-import type { CommonFood, FoodLogResponse, FoodAnalysis } from "@/types";
+import type { CommonFood, FoodLogResponse } from "@/types";
 
 // Mock fetch
 const mockFetch = vi.fn();
@@ -22,7 +22,7 @@ vi.mock("@/lib/pending-submission", () => ({
 // Mock meal-type
 vi.mock("@/lib/meal-type", () => ({
   getDefaultMealType: () => 3,
-  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30:00" }),
+  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30" }),
 }));
 
 // Mock nutrition-facts-card
@@ -97,22 +97,6 @@ const MockIntersectionObserver = vi.fn(function (this: IntersectionObserver) {
   this.unobserve = vi.fn();
 } as unknown as () => void);
 vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
-
-const mockAnalysis: FoodAnalysis = {
-  food_name: "Empanada de carne",
-  amount: 150,
-  unit_id: 147,
-  calories: 320,
-  protein_g: 12,
-  carbs_g: 28,
-  fat_g: 18,
-  fiber_g: 2,
-  sodium_mg: 450,
-  confidence: "high",
-  notes: "Standard Argentine beef empanada",
-  description: "A golden-brown baked empanada on a white plate",
-  keywords: ["empanada", "carne", "beef"],
-};
 
 const mockFoods: CommonFood[] = [
   {
@@ -278,6 +262,75 @@ describe("QuickSelect", () => {
       await waitFor(() => {
         expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
       });
+    });
+
+    it("Recent tab revalidates on revisit", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods)) // Suggested initial
+        .mockResolvedValueOnce(mockPaginatedResponse([mockFoods[1]])) // Recent first visit
+        .mockResolvedValueOnce(mockPaginatedResponse([mockFoods[1]])); // Recent revisit (revalidation)
+
+      render(
+        <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+          <QuickSelect />
+        </SWRConfig>
+      );
+
+      // Wait for Suggested tab to load
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Switch to Recent tab (first visit)
+      fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
+      });
+
+      const fetchCountAfterFirstVisit = mockFetch.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("tab=recent")
+      ).length;
+
+      // Switch back to Suggested
+      fireEvent.click(screen.getByRole("tab", { name: /suggested/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Switch back to Recent (revisit - should trigger revalidation)
+      fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
+
+      await waitFor(() => {
+        const fetchCountAfterRevisit = mockFetch.mock.calls.filter(
+          (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("tab=recent")
+        ).length;
+
+        // Should have at least one more fetch for revalidation
+        expect(fetchCountAfterRevisit).toBeGreaterThan(fetchCountAfterFirstVisit);
+      });
+    });
+  });
+
+  describe("SWR key stability", () => {
+    it("sentinel div always has minimum height regardless of loading state", async () => {
+      mockFetch.mockResolvedValueOnce(
+        mockPaginatedResponse(mockFoods, { score: 10, id: 2 })
+      );
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Find the sentinel div (it's the last div with a ref in the component)
+      // We can't directly access the ref, but we can check if there's a div with min-h-[48px] class
+      const sentinels = document.querySelectorAll('[class*="min-h"]');
+
+      // The sentinel should exist and have a minimum height class
+      expect(sentinels.length).toBeGreaterThan(0);
     });
   });
 
@@ -520,7 +573,7 @@ describe("QuickSelect", () => {
       expect(logCall).toBeDefined();
       const body = JSON.parse(logCall![1].body);
       expect(body.date).toBe("2026-02-07");
-      expect(body.time).toBe("14:30:00");
+      expect(body.time).toBe("14:30");
     });
   });
 
@@ -560,117 +613,22 @@ describe("QuickSelect", () => {
       expect(mockSavePending).toHaveBeenCalledWith(
         expect.objectContaining({
           date: "2026-02-07",
-          time: "14:30:00",
+          time: "14:30",
         })
       );
     });
   });
 
-  it("pending resubmit sends date and time from pending data", async () => {
-    mockGetPending.mockReturnValue({
-      analysis: null,
-      mealTypeId: 3,
-      foodName: "Empanada de carne",
-      reuseCustomFoodId: 1,
-      date: "2026-02-06",
-      time: "12:00:00",
-    });
-
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: mockLogResponse }),
-    });
-
+  it("does not check for pending submissions on mount", async () => {
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
     renderQuickSelect();
 
     await waitFor(() => {
-      const logCall = mockFetch.mock.calls.find(
-        (call: unknown[]) => call[0] === "/api/log-food"
-      );
-      expect(logCall).toBeDefined();
-      const body = JSON.parse(logCall![1].body);
-      expect(body.date).toBe("2026-02-06");
-      expect(body.time).toBe("12:00:00");
-    });
-  });
-
-  it("pending resubmit falls back to getLocalDateTime when no saved date/time", async () => {
-    mockGetPending.mockReturnValue({
-      analysis: null,
-      mealTypeId: 3,
-      foodName: "Empanada de carne",
-      reuseCustomFoodId: 1,
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: mockLogResponse }),
-    });
-
-    renderQuickSelect();
-
-    await waitFor(() => {
-      const logCall = mockFetch.mock.calls.find(
-        (call: unknown[]) => call[0] === "/api/log-food"
-      );
-      expect(logCall).toBeDefined();
-      const body = JSON.parse(logCall![1].body);
-      expect(body.date).toBe("2026-02-07");
-      expect(body.time).toBe("14:30:00");
-    });
-  });
-
-  it("pending resubmit with reuse and analysis includes metadata", async () => {
-    const mockAnalysis = {
-      food_name: "Empanada de carne",
-      amount: 150,
-      unit_id: 147,
-      calories: 320,
-      protein_g: 12,
-      carbs_g: 28,
-      fat_g: 18,
-      fiber_g: 2,
-      sodium_mg: 450,
-      confidence: "high" as const,
-      notes: "Standard Argentine beef empanada",
-      description: "A golden-brown baked empanada on a white plate",
-      keywords: ["empanada", "carne", "beef"],
-    };
-
-    mockGetPending.mockReturnValue({
-      analysis: mockAnalysis,
-      mealTypeId: 3,
-      foodName: "Empanada de carne",
-      reuseCustomFoodId: 1,
-      date: "2026-02-06",
-      time: "12:00:00",
-    });
-
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: mockLogResponse }),
-    });
-
-    renderQuickSelect();
-
-    await waitFor(() => {
-      const logCall = mockFetch.mock.calls.find(
-        (call: unknown[]) => call[0] === "/api/log-food"
-      );
-      expect(logCall).toBeDefined();
-      const body = JSON.parse(logCall![1].body);
-
-      // Should include reuse ID and date/time
-      expect(body.reuseCustomFoodId).toBe(1);
-      expect(body.date).toBe("2026-02-06");
-      expect(body.time).toBe("12:00:00");
-
-      // Should include analysis metadata with "new" prefix
-      expect(body.newDescription).toBe(mockAnalysis.description);
-      expect(body.newNotes).toBe(mockAnalysis.notes);
-      expect(body.newKeywords).toEqual(mockAnalysis.keywords);
-      expect(body.newConfidence).toBe(mockAnalysis.confidence);
-    });
+    // QuickSelect should NOT call getPendingSubmission - that's handled by PendingSubmissionHandler
+    expect(mockGetPending).not.toHaveBeenCalled();
   });
 
   it("shows cached data instantly on re-mount (SWR cache)", async () => {
@@ -934,37 +892,6 @@ describe("QuickSelect", () => {
       });
     });
 
-    it("list view error has role=alert", async () => {
-      // Simulate a resubmit failure to get logError in list view
-      mockGetPending.mockReturnValue({
-        analysis: null,
-        mealTypeId: 3,
-        foodName: "Empanada de carne",
-        reuseCustomFoodId: 1,
-      });
-
-      mockFetch.mockImplementation((url: string) => {
-        if (url === "/api/log-food") {
-          return Promise.resolve({
-            ok: true,
-            json: () =>
-              Promise.resolve({
-                success: false,
-                error: { code: "FITBIT_API_ERROR", message: "Failed to resubmit food log" },
-              }),
-          });
-        }
-        // common-foods
-        return Promise.resolve(mockPaginatedResponse(mockFoods));
-      });
-
-      renderQuickSelect();
-
-      await waitFor(() => {
-        expect(screen.getByRole("alert")).toBeInTheDocument();
-        expect(screen.getByText("Failed to resubmit food log")).toBeInTheDocument();
-      });
-    });
   });
 
   describe("meal type label association", () => {
@@ -1147,81 +1074,6 @@ describe("QuickSelect", () => {
         expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
         expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
       });
-    });
-  });
-
-  // FOO-432: Pending resubmit ignores error codes
-  describe("pending resubmit error handling", () => {
-    it("redirects to re-auth when resubmit fails with FITBIT_TOKEN_INVALID", async () => {
-      // Override window.location for this test
-      const originalLocation = window.location;
-      Object.defineProperty(window, "location", {
-        writable: true,
-        value: { ...originalLocation, href: "" },
-      });
-
-      mockGetPending.mockReturnValueOnce({
-        analysis: mockAnalysis,
-        mealTypeId: 3,
-        foodName: "Empanada",
-        date: "2026-02-06",
-        time: "12:00:00",
-      });
-
-      mockFetch
-        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
-        .mockResolvedValueOnce({
-          ok: false,
-          json: () => Promise.resolve({
-            success: false,
-            error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
-          }),
-        });
-
-      renderQuickSelect();
-
-      await waitFor(() => {
-        expect(mockSavePending).toHaveBeenCalled();
-        expect(window.location.href).toBe("/api/auth/fitbit");
-      });
-
-      // Restore
-      Object.defineProperty(window, "location", {
-        writable: true,
-        value: originalLocation,
-      });
-    });
-
-    it("shows Settings error when resubmit fails with FITBIT_CREDENTIALS_MISSING", async () => {
-      mockGetPending.mockReturnValueOnce({
-        analysis: mockAnalysis,
-        mealTypeId: 3,
-        foodName: "Empanada",
-        date: "2026-02-06",
-        time: "12:00:00",
-      });
-
-      const errorResponse = {
-        success: false,
-        error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
-      };
-
-      mockFetch
-        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
-        .mockResolvedValueOnce({
-          ok: false,
-          json: () => Promise.resolve(errorResponse),
-        });
-
-      renderQuickSelect();
-
-      // Wait for error to be displayed (success screen should NOT appear)
-      await waitFor(() => {
-        expect(screen.getByText(/fitbit is not set up/i)).toBeInTheDocument();
-      }, { timeout: 3000 });
-
-      // Verify success screen is not shown
-      expect(screen.queryByText(/successfully logged/i)).not.toBeInTheDocument();
     });
   });
 

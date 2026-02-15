@@ -1,8 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { apiFetcher, ApiError } from "@/lib/swr";
+import { apiFetcher, ApiError, invalidateFoodCaches } from "@/lib/swr";
+
+// Mock SWR at the top level using vi.hoisted()
+const { mockMutate } = vi.hoisted(() => ({
+  mockMutate: vi.fn(),
+}));
+
+vi.mock("swr", () => ({
+  mutate: mockMutate,
+}));
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  mockMutate.mockClear();
 });
 
 describe("apiFetcher", () => {
@@ -121,5 +131,66 @@ describe("apiFetcher", () => {
       expect((error as ApiError).code).toBe("UNKNOWN_ERROR");
       expect((error as ApiError).message).toBe("Something went wrong");
     }
+  });
+});
+
+// FOO-498: SWR Cache Invalidation
+describe("invalidateFoodCaches", () => {
+  it("calls SWR mutate with a matcher function", async () => {
+    await invalidateFoodCaches();
+
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+    expect(mockMutate).toHaveBeenCalledWith(expect.any(Function));
+  });
+
+  it("matcher function matches food-related API keys", async () => {
+    mockMutate.mockImplementation((fn) => {
+      // Extract the matcher function and test it
+      const matcherFn = fn as (key: unknown) => boolean;
+
+      // Should match food-related keys
+      expect(matcherFn("/api/nutrition-summary")).toBe(true);
+      expect(matcherFn("/api/nutrition-summary?date=2024-01-01")).toBe(true);
+      expect(matcherFn("/api/food-history")).toBe(true);
+      expect(matcherFn("/api/food-history?limit=20")).toBe(true);
+      expect(matcherFn("/api/common-foods")).toBe(true);
+      expect(matcherFn("/api/fasting")).toBe(true);
+      expect(matcherFn("/api/earliest-entry")).toBe(true);
+    });
+
+    await invalidateFoodCaches();
+
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("matcher function does NOT match unrelated API keys", async () => {
+    mockMutate.mockImplementation((fn) => {
+      const matcherFn = fn as (key: unknown) => boolean;
+
+      // Should NOT match unrelated keys
+      expect(matcherFn("/api/settings")).toBe(false);
+      expect(matcherFn("/api/auth/user")).toBe(false);
+      expect(matcherFn("/api/other")).toBe(false);
+    });
+
+    await invalidateFoodCaches();
+
+    expect(mockMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("matcher function handles non-string keys", async () => {
+    mockMutate.mockImplementation((fn) => {
+      const matcherFn = fn as (key: unknown) => boolean;
+
+      // Should return false for non-string keys
+      expect(matcherFn(null)).toBe(false);
+      expect(matcherFn(undefined)).toBe(false);
+      expect(matcherFn(123)).toBe(false);
+      expect(matcherFn({})).toBe(false);
+    });
+
+    await invalidateFoodCaches();
+
+    expect(mockMutate).toHaveBeenCalledTimes(1);
   });
 });

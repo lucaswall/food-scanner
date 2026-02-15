@@ -1,412 +1,363 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Branch:** feat/FOO-479-frontend-polish-and-a11y
-**Issues:** FOO-479, FOO-480, FOO-481, FOO-482, FOO-484, FOO-485, FOO-486, FOO-489, FOO-491, FOO-492, FOO-495
+**Branch:** feat/FOO-497-swr-data-freshness
+**Issues:** FOO-497, FOO-503, FOO-498, FOO-499, FOO-502, FOO-501
 **Created:** 2026-02-15
 **Last Updated:** 2026-02-15
 
 ## Summary
 
-Frontend polish and accessibility improvements across the app. Covers ARIA attribute gaps in tab patterns, semantic HTML fixes, touch target compliance, PWA dark mode support, visual consistency for spinners and error states, and UX improvements for empty states and the refine chat layout.
+Fix a family of SWR data-freshness and error-handling bugs in the QuickSelect, Dashboard, and app-wide components. The issues cover: infinite scroll list resets from an unstable SWR key (FOO-503), no global handler for expired sessions (FOO-497), stale data after food mutations (FOO-498), the Recent tab never revalidating (FOO-499), a wasted prefetch HTTP request (FOO-502), and pending food submissions being silently lost after Fitbit re-auth (FOO-501).
 
 ## Issues
 
-### FOO-479: Add aria-controls to tab pattern implementations
+### FOO-497: No global 401 handler for expired sessions
 
 **Priority:** High
 **Labels:** Bug
-**Description:** Tab implementations in QuickSelect, DashboardShell, and WeeklyNutritionChart are missing `aria-controls` attributes linking tab buttons to their associated panels.
+**Description:** When a user's session expires (30-day cookie still present but DB session deleted), the middleware passes the request (cookie check only), but all API calls return 401 with `AUTH_MISSING_SESSION`. No global handler catches this — the user sees broken/empty states everywhere with no redirect to login.
 
 **Acceptance Criteria:**
-- [ ] Tab buttons have `aria-controls` pointing to their panel's `id`
-- [ ] Tab panels have corresponding `id` attributes
-- [ ] Screen readers can navigate between tabs and their associated panels
+- [ ] Global error handler detects `AUTH_MISSING_SESSION` error code from SWR API responses
+- [ ] When detected, redirect to `/` (landing page)
+- [ ] Does not interfere with OAuth redirect flows (those happen outside `/app` layout)
 
-### FOO-480: Replace LumenBanner clickable Alert with proper button
+### FOO-503: QuickSelect infinite scroll jumps — list resets during pagination
 
 **Priority:** High
 **Labels:** Bug
-**Description:** LumenBanner uses an `<Alert>` div with `onClick` handler instead of a proper `<button>` element, violating WCAG 2.1.1 (Keyboard). Not focusable or keyboard-accessible.
+**Description:** `getLocalDateTime()` returns `HH:mm:ss` with seconds. This is called in the QuickSelect component body on every render and embedded in the `useSWRInfinite` key via `useCallback` deps. Every re-render that crosses a second boundary creates a new SWR key, discarding all loaded pages. The sentinel div also causes layout shifts.
 
 **Acceptance Criteria:**
-- [ ] LumenBanner uses a `<button>` element (or wraps clickable area in one)
-- [ ] Keyboard-accessible (focusable, activatable with Enter/Space)
-- [ ] Visual styling preserved (info banner appearance)
-- [ ] Hidden file input in `daily-dashboard.tsx` also has aria-label
+- [ ] SWR key is stable during the component's lifetime (compute `clientTime`/`clientDate` once on mount)
+- [ ] `keepPreviousData: true` on `useSWRInfinite` so key changes show old data while loading
+- [ ] Sentinel div has fixed minimum height so spinner doesn't cause layout shifts
+- [ ] Smooth scrolling through 30+ items with no visible jumps
 
-### FOO-481: Support dark mode in PWA theme_color
-
-**Priority:** High
-**Labels:** Improvement
-**Description:** PWA manifest hardcodes `theme_color: "#ffffff"` and layout.tsx has `themeColor: "#000000"`. Neither responds to the user's color scheme preference. Dark mode users see a mismatched status bar.
-
-**Acceptance Criteria:**
-- [ ] Dual `<meta name="theme-color">` tags with `media="(prefers-color-scheme: ...)"` queries
-- [ ] Light mode gets white/light theme color, dark mode gets dark theme color
-- [ ] Manifest `theme_color` stays as-is (manifest doesn't support media queries)
-
-### FOO-482: Increase Input component height to 44px touch target
-
-**Priority:** High
-**Labels:** Bug
-**Description:** Base Input component uses `h-9` (36px), below the project's 44px minimum touch target policy. Some consumers override with `min-h-[44px]` but the base should be correct.
-
-**Acceptance Criteria:**
-- [ ] Input base height changed from `h-9` to `h-11` (44px)
-- [ ] Remove redundant `min-h-[44px]` overrides from consumers where appropriate
-- [ ] Visual regression check — inputs don't look broken in any context
-
-### FOO-484: Add landscape safe area insets to bottom navigation
+### FOO-498: No SWR cache invalidation after food mutations
 
 **Priority:** Medium
 **Labels:** Improvement
-**Description:** Bottom navigation handles bottom safe area inset but not left/right insets for landscape orientation on devices with notches.
+**Description:** After logging or deleting food, no code invalidates SWR caches for related endpoints. The user sees stale calorie totals, stale food history, and stale common-foods lists until SWR's background revalidation catches up (visible "jump").
 
 **Acceptance Criteria:**
-- [ ] Nav container includes `pl-[env(safe-area-inset-left)]` and `pr-[env(safe-area-inset-right)]`
-- [ ] Navigation items not obscured in landscape on notched devices
+- [ ] After successful food log (both analyze and quick-select flows), invalidate nutrition-summary, food-history, common-foods, fasting, and earliest-entry SWR caches
+- [ ] After successful food delete in history, also invalidate nutrition-summary and fasting caches
+- [ ] Use SWR's `mutate` with a key matcher function for clean invalidation
 
-### FOO-485: Standardize loading spinner sizes across components
-
-**Priority:** Medium
-**Labels:** Convention
-**Description:** Loading spinners use inconsistent sizes and border widths. Current state: full-page spinners use w-8 h-8 border-4 (mostly consistent), but inline/card spinners mix w-6 h-6 border-4 and w-6 h-6 border-2.
-
-**Acceptance Criteria:**
-- [ ] All spinners follow a consistent size hierarchy:
-  - Full-page/section loading: w-8 h-8 border-4
-  - Inline/card loading: w-6 h-6 border-2
-  - Button loading: uses Lucide `<Loader2>` (already consistent)
-- [ ] All custom spinner instances updated
-
-### FOO-486: Make error recovery buttons visually prominent
-
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** Error state retry buttons use `variant="outline"` making them visually subordinate when they should be the primary action.
-
-**Acceptance Criteria:**
-- [ ] `analysis-result.tsx` retry button uses `variant="default"`
-- [ ] `daily-dashboard.tsx` retry button uses `variant="default"`
-- [ ] Recovery buttons are visually prominent as primary actions
-
-### FOO-489: Fix weekly chart current-day column rendering
+### FOO-499: QuickSelect "Recent" tab never auto-revalidates on revisit
 
 **Priority:** Medium
 **Labels:** Bug
-**Description:** The weekly chart doesn't visually distinguish the current day from other days. When today has data but no goal, it uses `bg-primary` while goal-tracked days use `bg-success`/`bg-warning`, creating a visually jarring inconsistency. Also, today's bar may be shorter (incomplete day) without any visual cue that it's in-progress.
+**Description:** `useSWRInfinite` with `revalidateFirstPage: false` + `revalidateOnFocus: false` + a stable Recent tab key means the first page NEVER auto-revalidates. Newly logged foods don't appear when navigating back to quick-select.
 
 **Acceptance Criteria:**
-- [ ] Current day column has a subtle visual indicator (e.g., dot below day label, slightly different opacity, or border)
-- [ ] The "today" indicator is clear but not overwhelming
-- [ ] Chart remains clean and readable
+- [ ] Recent tab shows newly logged foods when user navigates back to quick-select
+- [ ] Infinite scroll still works correctly
+- [ ] No loading flash during revalidation (leverages `keepPreviousData` from FOO-503)
 
-### FOO-491: Improve dashboard empty state guidance
-
-**Priority:** Low
-**Labels:** Improvement
-**Description:** Empty state says "Log your first meal to see your daily nutrition" but doesn't tell the user how or where to log food.
-
-**Acceptance Criteria:**
-- [ ] Empty state includes actionable guidance (e.g., links/buttons to Analyze or Quick Select)
-- [ ] CTA is visually clear and tappable (44px touch target)
-- [ ] Empty state text is more descriptive
-
-### FOO-492: Remove unnecessary 'use client' from SkipLink
+### FOO-502: DashboardPrefetch preloads wrong common-foods key
 
 **Priority:** Low
 **Labels:** Performance
-**Description:** SkipLink component has `'use client'` but only renders a static `<a>` tag with no hooks, event handlers, or browser APIs.
+**Description:** `DashboardPrefetch` calls `preload("/api/common-foods", apiFetcher)` but no component uses that exact SWR key. QuickSelect uses parameterized keys. The preloaded data is cached but never consumed — one wasted HTTP request per `/app` page load.
 
 **Acceptance Criteria:**
-- [ ] `'use client'` directive removed from SkipLink
-- [ ] SkipLink renders as a Server Component
-- [ ] Skip link functionality still works correctly
+- [ ] Prefetch key matches an actual SWR key used by QuickSelect
+- [ ] Or remove the common-foods prefetch if no stable key exists
 
-### FOO-495: Improve refine chat top bar layout
+### FOO-501: Pending food submission only checked in QuickSelect
 
-**Priority:** Low
+**Priority:** Medium
 **Labels:** Improvement
-**Description:** The refine chat top bar has three competing elements: Back button, MealType dropdown, and "Log to Fitbit" button, creating visual tension in a compact header.
+**Description:** When Fitbit token expires during food logging, the app saves a pending submission to `sessionStorage` and redirects to OAuth. After OAuth, the callback redirects to `/app` (dashboard). The pending submission is only checked in QuickSelect's `useEffect` — if the user doesn't navigate to quick-select, the food log is silently lost.
 
 **Acceptance Criteria:**
-- [ ] MealType dropdown moved below the navigation row (Back + Log to Fitbit)
-- [ ] Top bar feels less crowded
-- [ ] All touch targets maintain 44px minimum
+- [ ] Check for pending submissions at the app layout level (not just QuickSelect)
+- [ ] Show a visible indicator (toast or banner) when a pending submission exists
+- [ ] Auto-resubmit and show success/failure feedback
+- [ ] Remove duplicate pending submission logic from QuickSelect
 
 ## Prerequisites
 
 - [ ] On `main` branch with clean working tree
-- [ ] Dependencies up to date (`npm install`)
+- [ ] No active PLANS.md (previous plan is COMPLETE)
 
 ## Implementation Tasks
 
-### Task 1: Remove 'use client' from SkipLink
+### Task 1: Global SWR Error Provider (FOO-497)
 
-**Issue:** FOO-492
+**Issue:** FOO-497
 **Files:**
-- `src/components/skip-link.tsx` (modify)
+- `src/components/swr-provider.tsx` (create)
+- `src/components/__tests__/swr-provider.test.tsx` (create)
+- `src/app/app/layout.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Write a test that imports SkipLink and verifies it renders correctly without client-side features. Create `src/components/__tests__/skip-link.test.tsx`. Test that the component renders an `<a>` tag with the correct href and text. Run: `npm test -- skip-link`
+1. **RED** — Write tests for the new `SWRProvider` component:
+   - Test that it renders children normally
+   - Test that when an SWR hook throws an `ApiError` with code `AUTH_MISSING_SESSION`, `window.location.href` is set to `"/"`
+   - Test that errors with other codes (e.g., `FITBIT_TOKEN_INVALID`) do NOT trigger a redirect
+   - Test that non-`ApiError` errors do NOT trigger a redirect
+   - Run: `npm test -- swr-provider`
+   - Verify: Tests fail (module not found)
 
-2. **GREEN** — Remove `'use client'` from `src/components/skip-link.tsx`. Run: `npm test -- skip-link`. Verify test passes.
+2. **GREEN** — Create `src/components/swr-provider.tsx`:
+   - A `"use client"` component that wraps children in `<SWRConfig>` with an `onError` callback
+   - The callback checks if the error is an `ApiError` with code `AUTH_MISSING_SESSION`
+   - If so, redirect via `window.location.href = "/"`
+   - Pattern reference: `src/components/app-refresh-guard.tsx` (client wrapper in app layout)
+   - Pattern reference: `src/lib/swr.ts` for `ApiError` class
+   - Run: `npm test -- swr-provider`
+   - Verify: Tests pass
 
-3. **REFACTOR** — No refactoring needed.
+3. **REFACTOR** — Integrate into app layout:
+   - Wrap the app layout children in `SWRProvider` in `src/app/app/layout.tsx`
+   - The provider should wrap inside `AppRefreshGuard` (or alongside it)
+   - No test needed for integration — E2E covers this
 
 **Notes:**
-- Simplest task, no dependencies. Good starting point.
+- The `SWRConfig` `onError` fires for any SWR hook error within its subtree
+- OAuth flows happen at `/api/auth/*` which is outside the `/app` layout, so no interference
+- Use `window.location.href` (not `router.push`) to force a full page reload that clears client state
+- The `ApiError` class is already exported from `src/lib/swr.ts`
 
-### Task 2: Increase Input component height to 44px
+---
 
-**Issue:** FOO-482
+### Task 2: Stabilize QuickSelect SWR Key (FOO-503)
+
+**Issue:** FOO-503
 **Files:**
-- `src/components/ui/input.tsx` (modify)
-- `src/components/food-chat.tsx` (modify — remove redundant `min-h-[44px]`)
-- `src/components/quick-select.tsx` (modify — remove redundant `min-h-[44px]` from search input)
+- `src/lib/meal-type.ts` (modify)
+- `src/lib/__tests__/meal-type.test.ts` (modify)
+- `src/components/quick-select.tsx` (modify)
+- `src/components/__tests__/quick-select.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Write a test in `src/components/__tests__/input.test.tsx` that renders the Input component and asserts it has the `h-11` class. Run: `npm test -- input.test`
+1. **RED** — Update `getLocalDateTime` tests to expect `HH:mm` format (no seconds):
+   - Change the test assertion from `"14:30:45"` to `"14:30"`, etc.
+   - Add a test that verifies seconds are NOT included in the time string
+   - Run: `npm test -- meal-type`
+   - Verify: Tests fail (still returns `HH:mm:ss`)
 
-2. **GREEN** — In `src/components/ui/input.tsx`, change `h-9` to `h-11` in the className string. Run: `npm test -- input.test`. Verify test passes.
+2. **GREEN** — Modify `getLocalDateTime()` in `src/lib/meal-type.ts`:
+   - Remove the seconds component from the returned time string
+   - Return format: `HH:mm` instead of `HH:mm:ss`
+   - Run: `npm test -- meal-type`
+   - Verify: Tests pass
 
-3. **REFACTOR** — Search for `min-h-[44px]` on Input consumers. Remove redundant `min-h-[44px]` from:
-   - `food-chat.tsx` line 600: Input already has className override `min-h-[44px] rounded-full` — the `min-h-[44px]` is now redundant since base is `h-11` (44px), but keep it since the consumer also sets `rounded-full`; just remove the `min-h-[44px]` part
-   - `quick-select.tsx` line 408: Same — remove `min-h-[44px]` from the search input className
+3. **RED** — Add QuickSelect tests for key stability:
+   - Test that the SWR key remains the same across re-renders within the same component lifetime (verify `clientTime` is captured once, not recalculated)
+   - Test that the sentinel div always has a minimum height (e.g., `min-h-[48px]`) regardless of loading state
+   - Update the mock for `getLocalDateTime` in the test file — it already returns `"14:30:00"`, change to `"14:30"`
+   - Run: `npm test -- quick-select`
+   - Verify: New tests fail
+
+4. **GREEN** — Modify `src/components/quick-select.tsx`:
+   - Replace the `getLocalDateTime()` call in the component body with a `useState` initializer: `const [{ time: clientTime, date: clientDate }] = useState(getLocalDateTime)` — this captures the value once on mount and never recalculates
+   - Add `keepPreviousData: true` to the `useSWRInfinite` options object
+   - Change the sentinel div to always have a fixed minimum height class (e.g., `min-h-[48px]`) instead of conditionally rendering the spinner inside it
+   - Run: `npm test -- quick-select`
+   - Verify: Tests pass
 
 **Notes:**
-- `h-11` = 44px in Tailwind default spacing. Matches the project's touch target policy.
-- Other inputs that explicitly set `min-h-[44px]` are now redundant but harmless.
+- `useState(getLocalDateTime)` (passing a function, not calling it) is the React lazy initializer pattern — it runs once on mount
+- The `handleLogToFitbit` function at line 223 also calls `getLocalDateTime()` — that call is CORRECT (it should get the current time at the moment of logging, not mount time). Do not change it.
+- The pending resubmission `useEffect` at line 139-141 also calls `getLocalDateTime()` as a fallback — that's also correct (current time at resubmit). Do not change it.
+- The `keepPreviousData` option was added in SWR 2.x — verify the project's SWR version supports it
+- Existing test mock returns `"14:30:00"` — update to `"14:30"` to match the new format
+- The `time` field sent to the API in the request body will now be `HH:mm` instead of `HH:mm:ss`. Verify `parseTimeToMinutes()` in `src/lib/food-log.ts:108-111` handles both formats (it splits on `:` and uses `parts[0]` and `parts[1]`, so `HH:mm` works fine — seconds were always ignored).
 
-### Task 3: Make error recovery buttons visually prominent
+---
 
-**Issue:** FOO-486
+### Task 3: SWR Cache Invalidation After Food Mutations (FOO-498)
+
+**Issue:** FOO-498
 **Files:**
-- `src/components/analysis-result.tsx` (modify)
-- `src/components/daily-dashboard.tsx` (modify)
+- `src/lib/swr.ts` (modify)
+- `src/lib/__tests__/swr.test.ts` (modify)
+- `src/components/food-log-confirmation.tsx` (modify)
+- `src/components/__tests__/food-log-confirmation.test.tsx` (modify)
+- `src/components/food-history.tsx` (modify)
+- `src/components/__tests__/food-history.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — In `src/components/__tests__/analysis-result.test.tsx`, write a test that renders the error state and asserts the retry button does NOT have the `outline` variant class pattern. Run: `npm test -- analysis-result`
+1. **RED** — Add tests for a new `invalidateFoodCaches()` function in `src/lib/__tests__/swr.test.ts`:
+   - Test that calling `invalidateFoodCaches()` calls SWR's `mutate` with a matcher function
+   - Test that the matcher function matches keys containing `/api/nutrition-summary`, `/api/food-history`, `/api/common-foods`, `/api/fasting`, `/api/earliest-entry`
+   - Test that it does NOT match unrelated keys like `/api/settings`
+   - Run: `npm test -- swr`
+   - Verify: Tests fail (function doesn't exist)
 
-2. **GREEN** — In `analysis-result.tsx` line 49, change `variant="outline"` to remove the variant prop entirely (default is already "default"). In `daily-dashboard.tsx` line 169, change `variant="outline"` to remove or set `variant="default"`. Run: `npm test -- analysis-result`
+2. **GREEN** — Add `invalidateFoodCaches()` to `src/lib/swr.ts`:
+   - Import `mutate` from `swr` (the global `mutate` function)
+   - Define a list of food-related key prefixes: `/api/nutrition-summary`, `/api/food-history`, `/api/common-foods`, `/api/fasting`, `/api/earliest-entry`
+   - Call `mutate(key => typeof key === 'string' && prefixes.some(p => key.startsWith(p)))` to revalidate all matching caches
+   - Export the function
+   - Run: `npm test -- swr`
+   - Verify: Tests pass
 
-3. **REFACTOR** — Verify both buttons look correct by checking their className patterns include the default button styles.
+3. **RED** — Add tests for FoodLogConfirmation calling `invalidateFoodCaches`:
+   - Test that `invalidateFoodCaches()` is called when the component mounts with a valid response
+   - Run: `npm test -- food-log-confirmation`
+   - Verify: Test fails
+
+4. **GREEN** — Modify `src/components/food-log-confirmation.tsx`:
+   - Import `invalidateFoodCaches` from `@/lib/swr`
+   - Call it in the existing `useEffect` (alongside `vibrateSuccess()`) when `response` is truthy
+   - Run: `npm test -- food-log-confirmation`
+   - Verify: Tests pass
+
+5. **RED** — Add tests for FoodHistory calling `invalidateFoodCaches` after delete:
+   - Test that after a successful delete, `invalidateFoodCaches()` is called (in addition to the existing `mutate()`)
+   - Run: `npm test -- food-history`
+   - Verify: Test fails
+
+6. **GREEN** — Modify `src/components/food-history.tsx`:
+   - Import `invalidateFoodCaches` from `@/lib/swr`
+   - Call it in `handleDeleteConfirm` after the existing `mutate()` call on line 193
+   - Run: `npm test -- food-history`
+   - Verify: Tests pass
 
 **Notes:**
-- The `<Button>` default variant is "default" — removing the prop achieves the desired result.
-- The daily-dashboard retry button also has `size="sm"` — keep that, only change variant.
+- SWR's global `mutate` with a key matcher function revalidates all matching caches without clearing them (shows stale data while refetching)
+- The `mutate` import from `swr` is the global version, different from the per-hook `mutate` returned by `useSWR`
+- FoodLogConfirmation is used by BOTH the analyze flow and the quick-select flow, so invalidation in its `useEffect` covers both code paths
+- The existing `mutate()` call in food-history.tsx:193 only invalidates the food-history SWR key — `invalidateFoodCaches()` covers the rest
 
-### Task 4: Add landscape safe area insets to bottom navigation
+---
 
-**Issue:** FOO-484
-**Files:**
-- `src/components/bottom-nav.tsx` (modify)
+### Task 4: Recent Tab Revalidation on Revisit (FOO-499)
 
-**TDD Steps:**
-
-1. **RED** — In `src/components/__tests__/bottom-nav.test.tsx`, write a test that renders BottomNav and checks the `<nav>` element's className includes safe area inset classes for left and right. Run: `npm test -- bottom-nav`
-
-2. **GREEN** — In `bottom-nav.tsx` line 45, add `pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]` to the `<nav>` className. Run: `npm test -- bottom-nav`
-
-3. **REFACTOR** — No refactoring needed.
-
-**Notes:**
-- Follow existing pattern for bottom inset: `pb-[env(safe-area-inset-bottom)]`.
-
-### Task 5: Standardize loading spinner sizes
-
-**Issue:** FOO-485
+**Issue:** FOO-499
 **Files:**
 - `src/components/quick-select.tsx` (modify)
-- `src/components/photo-capture.tsx` (modify)
+- `src/components/__tests__/quick-select.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Write tests in `src/components/__tests__/quick-select.test.tsx` that render the resubmitting spinner state and the infinite scroll spinner, checking for consistent sizing classes. Run: `npm test -- quick-select`
+1. **RED** — Add a test that verifies the Recent tab revalidates on revisit:
+   - Render QuickSelect, load data for the Suggested tab
+   - Switch to Recent tab, load data
+   - Switch back to Suggested, then back to Recent again
+   - Verify that a new fetch is triggered for the Recent tab on the second visit (revalidation)
+   - Run: `npm test -- quick-select`
+   - Verify: Test fails (no revalidation happens)
 
-2. **GREEN** — Update spinner sizes:
-   - `quick-select.tsx` line 266: Keep `w-8 h-8 border-4` (full-page resubmitting spinner — correct)
-   - `quick-select.tsx` line 471: Change from `w-6 h-6 border-4` to `w-6 h-6 border-2` (inline loading-more spinner)
-   - `photo-capture.tsx` line 315: Already `w-6 h-6 border-2` (inline processing spinner — correct)
-   - `analysis-result.tsx` line 32: Already `w-8 h-8 border-4` (full-page loading — correct)
-   - `food-analyzer.tsx` line 439: Already `w-8 h-8 border-4` (full-page resubmitting — correct)
-   Run: `npm test -- quick-select`
+2. **GREEN** — Modify the `useSWRInfinite` config in QuickSelect:
+   - Change `revalidateFirstPage: false` to `revalidateFirstPage: true`
+   - This is now safe because Task 2 added `keepPreviousData: true`, which prevents loading flashes during revalidation — old data shows while the new data loads
+   - The `revalidateOnFocus: false` remains unchanged (we don't want revalidation on every window focus event)
+   - Run: `npm test -- quick-select`
+   - Verify: Tests pass
 
-3. **REFACTOR** — Verify all spinners match the hierarchy: full-page = w-8/border-4, inline = w-6/border-2.
+3. **REFACTOR** — Verify existing tests still pass:
+   - The "does not revalidate when window regains focus" test should still pass (we only changed `revalidateFirstPage`, not `revalidateOnFocus`)
+   - Run full: `npm test -- quick-select`
+   - Verify: All tests pass
 
 **Notes:**
-- Only one spinner actually needs changing: `quick-select.tsx` line 471's border width from 4 to 2.
-- Pattern: `<Loader2>` from lucide-react is used for button-level spinners and is already consistent.
+- With `revalidateFirstPage: true`, SWR will revalidate the first page when the key changes (tab switch) or when the component remounts. Combined with `keepPreviousData: true` from Task 2, the old data remains visible during revalidation — no loading flash.
+- This also benefits the Suggested tab — if the user revisits after a while, the suggested foods will be refreshed in the background.
+- The infinite scroll "load more" behavior is unaffected — `revalidateFirstPage` only affects the first page's revalidation behavior, not subsequent pages.
 
-### Task 6: Add aria-controls to tab pattern implementations
+---
 
-**Issue:** FOO-479
+### Task 5: Fix Dashboard Prefetch Key (FOO-502)
+
+**Issue:** FOO-502
 **Files:**
+- `src/components/dashboard-prefetch.tsx` (modify)
+- `src/components/__tests__/dashboard-prefetch.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update the prefetch test to expect the correct key:
+   - Change the test assertion from `"/api/common-foods"` to `"/api/common-foods?tab=recent&limit=10"`
+   - Run: `npm test -- dashboard-prefetch`
+   - Verify: Test fails (still preloads the old key)
+
+2. **GREEN** — Modify `src/components/dashboard-prefetch.tsx`:
+   - Change the preload call from `preload("/api/common-foods", apiFetcher)` to `preload("/api/common-foods?tab=recent&limit=10", apiFetcher)`
+   - This matches QuickSelect's Recent tab SWR key exactly, so the prefetched data will be consumed when the user navigates to quick-select
+   - Run: `npm test -- dashboard-prefetch`
+   - Verify: Tests pass
+
+**Notes:**
+- The Recent tab key is stable (`/api/common-foods?tab=recent&limit=10`) — it doesn't include time parameters, making it a good prefetch target
+- The Suggested tab key includes `clientTime` and `clientDate` which are different per mount, so it can't be prefetched from the dashboard
+- The food-history prefetch (`/api/food-history?limit=20`) is already correct and unchanged
+
+---
+
+### Task 6: Pending Submission Handler at App Level (FOO-501)
+
+**Issue:** FOO-501
+**Files:**
+- `src/components/pending-submission-handler.tsx` (create)
+- `src/components/__tests__/pending-submission-handler.test.tsx` (create)
+- `src/app/app/layout.tsx` (modify)
 - `src/components/quick-select.tsx` (modify)
-- `src/components/dashboard-shell.tsx` (modify)
-- `src/components/weekly-nutrition-chart.tsx` (modify)
+- `src/components/__tests__/quick-select.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — In `src/components/__tests__/dashboard-shell.test.tsx`, write a test that renders DashboardShell, clicks each tab, and verifies:
-   - Each tab button has `aria-controls` pointing to a panel id
-   - The tab panel has a matching `id`
-   Run: `npm test -- dashboard-shell`
+1. **RED** — Write tests for the new `PendingSubmissionHandler` component:
+   - Test that it renders nothing when no pending submission exists
+   - Test that when a pending submission exists, it auto-resubmits to `/api/log-food`
+   - Test that on successful resubmission, it clears the pending submission and shows a success toast/banner
+   - Test that on `FITBIT_TOKEN_INVALID` error, it re-saves the pending and redirects to `/api/auth/fitbit`
+   - Test that on `FITBIT_CREDENTIALS_MISSING` error, it clears pending and shows a credentials error message
+   - Test that on generic error, it clears pending and shows an error message
+   - Pattern reference: the existing QuickSelect pending resubmission tests (lines 569-674 in `quick-select.test.tsx`)
+   - Run: `npm test -- pending-submission-handler`
+   - Verify: Tests fail (module not found)
 
-2. **GREEN** — Update each component:
-   - **DashboardShell:** Add `aria-controls="panel-daily"` / `aria-controls="panel-weekly"` to tab buttons. Add `id="panel-daily"` / `id="panel-weekly"` to the conditional render wrapper (wrap in a div if needed).
-   - **QuickSelect:** Tab buttons already have `id="tab-suggested"` / `id="tab-recent"`. Add `aria-controls="panel-suggested"` / `aria-controls="panel-recent"`. Add `id="panel-suggested"` / `id="panel-recent"` to the tabpanel div (line 399 already has `role="tabpanel"`).
-   - **WeeklyNutritionChart:** Metric tabs. Add `aria-controls="panel-metric"` to each tab button. Add `id="panel-metric"` to the chart container div. Since there's only one panel that changes content, a single panel id suffices.
-   Run: `npm test -- dashboard-shell`
+2. **GREEN** — Create `src/components/pending-submission-handler.tsx`:
+   - A `"use client"` component that checks `getPendingSubmission()` in a `useEffect` on mount
+   - If a pending submission exists: show a visible banner with "Reconnected! Resubmitting [foodName]..." text
+   - Resubmit to `/api/log-food` with the same body-building logic as QuickSelect lines 139-159
+   - Handle success: clear pending, show "Successfully resubmitted [foodName]" for ~3 seconds, then hide
+   - Handle `FITBIT_TOKEN_INVALID`: re-save pending, redirect to `/api/auth/fitbit`
+   - Handle `FITBIT_CREDENTIALS_MISSING`/`FITBIT_NOT_CONNECTED`: clear pending, show credentials error
+   - Handle generic error: clear pending, show error message
+   - Call `invalidateFoodCaches()` after successful resubmission (from Task 3)
+   - Pattern reference: `src/components/fitbit-status-banner.tsx` for banner UI patterns
+   - Run: `npm test -- pending-submission-handler`
+   - Verify: Tests pass
 
-3. **REFACTOR** — Write tests for QuickSelect and WeeklyNutritionChart tab patterns as well. Run: `npm test -- quick-select weekly-nutrition`
+3. **REFACTOR** — Integrate into app layout:
+   - Add `<PendingSubmissionHandler />` to `src/app/app/layout.tsx` alongside the existing components
+   - Place it before `{children}` so the banner appears at the top of the app
 
-**Notes:**
-- Reference ARIA Authoring Practices for tab pattern: tabs need `aria-controls`, panels need `id` and `role="tabpanel"`.
-- QuickSelect already has `role="tabpanel"` and `aria-labelledby` on the panel — just needs `id`.
-- DashboardShell doesn't wrap content in a panel div — the conditional render needs a wrapper with `role="tabpanel"`.
+4. **RED** — Update QuickSelect tests to verify the pending logic is removed:
+   - Remove all pending resubmission tests from `quick-select.test.tsx` (the "pending resubmit" describe blocks)
+   - Add a test that verifies QuickSelect does NOT check `getPendingSubmission()` on mount
+   - Run: `npm test -- quick-select`
+   - Verify: Tests fail (QuickSelect still calls `getPendingSubmission`)
 
-### Task 7: Replace LumenBanner clickable Alert with proper button
-
-**Issue:** FOO-480
-**Files:**
-- `src/components/lumen-banner.tsx` (modify)
-- `src/components/__tests__/lumen-banner.test.tsx` (modify if exists, create if not)
-
-**TDD Steps:**
-
-1. **RED** — Write a test that renders LumenBanner in the upload-prompt state (no goals) and asserts:
-   - A `<button>` element exists (not a div with onClick)
-   - The button is focusable and has an accessible name
-   - Clicking the button triggers the file input
-   Run: `npm test -- lumen-banner`
-
-2. **GREEN** — Restructure LumenBanner:
-   - Replace the `<Alert onClick={handleBannerClick}>` with a `<button>` element styled to look like the current Alert banner. Keep the info banner visual appearance using the same Tailwind classes.
-   - The button should contain the Upload/Loader2 icon and the description text.
-   - Add `aria-label="Upload Lumen screenshot to set today's macro goals"` to the button.
-   - Keep the hidden file input as-is.
-   Run: `npm test -- lumen-banner`
-
-3. **REFACTOR** — Ensure the button's visual styling matches the original Alert appearance. Verify keyboard navigation works.
-
-**Notes:**
-- The current code uses `<Alert>` with `cursor-pointer` and `onClick`. Replace with `<button>` that has the same visual classes.
-- The hidden file input in `daily-dashboard.tsx` (line 283-289) is triggered by a proper `<Button>` component — no fix needed there.
-
-### Task 8: Support dark mode in PWA theme_color
-
-**Issue:** FOO-481
-**Files:**
-- `src/app/layout.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — In `src/app/__tests__/layout.test.tsx` (or appropriate test location), write a test that renders the layout metadata and checks for theme-color meta tags with media queries. This may require testing the exported `viewport` config object. Run: `npm test -- layout`
-
-2. **GREEN** — In `layout.tsx`, change the `viewport` export to use an array of theme colors:
-   ```
-   export const viewport: Viewport = {
-     themeColor: [
-       { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-       { media: "(prefers-color-scheme: dark)", color: "#09090b" },
-     ],
-   };
-   ```
-   The dark color `#09090b` matches shadcn's dark background `hsl(0, 0%, 3.9%)`.
-   Run: `npm test -- layout`
-
-3. **REFACTOR** — Verify the manifest.json `theme_color` stays as `#ffffff` (manifest doesn't support media queries — it uses the light value as default). No change needed there.
+5. **GREEN** — Remove pending submission logic from QuickSelect:
+   - Remove the `useEffect` at lines 130-197 that handles pending resubmission
+   - Remove the `resubmitting`/`resubmitFoodName` state variables and their UI
+   - Remove the imports of `getPendingSubmission`/`clearPendingSubmission` (keep `savePendingSubmission` — it's still used for new token expiry saves)
+   - Run: `npm test -- quick-select`
+   - Verify: All tests pass
 
 **Notes:**
-- Next.js `Viewport.themeColor` supports array format with `media` property.
-- The dark background color should match the app's actual dark mode background from the CSS theme variables.
-- Reference: `src/app/globals.css` for the exact dark theme background color.
+- The `PendingSubmissionHandler` lives in the app layout, so it runs on every `/app/*` page load — no matter where the user lands after OAuth re-auth
+- The banner should auto-dismiss after a few seconds on success (use `setTimeout` to clear the state)
+- The `savePendingSubmission` call in QuickSelect's `handleLogToFitbit` (line 232-238) and in the analyze flow must remain — those SAVE the pending submission on token expiry. We're only moving the RECOVERY logic.
+- The `FoodLogConfirmation` component is not affected — it handles the success UI after a normal (non-pending) log
 
-### Task 9: Fix weekly chart current-day column rendering
+---
 
-**Issue:** FOO-489
-**Files:**
-- `src/components/weekly-nutrition-chart.tsx` (modify)
-- `src/lib/date-utils.ts` (read — for `getTodayDate` import)
+### Task 7: Integration & Verification
 
-**TDD Steps:**
-
-1. **RED** — In `src/components/__tests__/weekly-nutrition-chart.test.tsx`, write a test that renders the chart with today's date included in the week data and verifies the current-day bar has a distinct visual indicator (e.g., a "today" dot or border). Run: `npm test -- weekly-nutrition-chart`
-
-2. **GREEN** — Modify the chart rendering:
-   - Import `getTodayDate` from `@/lib/date-utils`
-   - Compare each day's date with today
-   - For the current day's column, add a small visual indicator: a filled dot below the day label (e.g., a 6px rounded-full div in `bg-primary`) to mark "today"
-   - This is a subtle indicator that doesn't change the bar styling
-   Run: `npm test -- weekly-nutrition-chart`
-
-3. **REFACTOR** — Ensure the indicator works in both light and dark mode.
-
-**Notes:**
-- Keep the existing bar color logic unchanged (success/warning/primary based on goal).
-- A small dot under the day label is a common pattern (Apple Calendar uses this). It's non-intrusive.
-- `getTodayDate()` returns the local date string in `YYYY-MM-DD` format.
-
-### Task 10: Improve dashboard empty state guidance
-
-**Issue:** FOO-491
-**Files:**
-- `src/components/daily-dashboard.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — In `src/components/__tests__/daily-dashboard.test.tsx`, write a test that renders the dashboard with no meals and verifies:
-   - A link/button to the Analyze page exists
-   - A link/button to Quick Select exists
-   - The text is more descriptive than the current message
-   Run: `npm test -- daily-dashboard`
-
-2. **GREEN** — Replace the empty state at line 254-257 with:
-   - Updated text: "No meals logged yet"
-   - Two CTA buttons (as `<Link>` components from next/link):
-     - "Scan Food" linking to `/app/analyze` with a camera icon
-     - "Quick Select" linking to `/app/quick-select` with a list icon
-   - Both buttons should use `min-h-[44px]` touch targets
-   Run: `npm test -- daily-dashboard`
-
-3. **REFACTOR** — Ensure the empty state layout looks balanced and follows existing design patterns (centered text + button group).
-
-**Notes:**
-- Use `next/link` `<Link>` for client-side navigation.
-- Follow existing button patterns in the app (variant="outline" or "secondary" for CTAs).
-- Import `ScanEye` and `ListChecks` icons from lucide-react (already used in bottom-nav.tsx).
-
-### Task 11: Improve refine chat top bar layout
-
-**Issue:** FOO-495
-**Files:**
-- `src/components/food-chat.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — In `src/components/__tests__/food-chat.test.tsx`, write a test that renders FoodChat and verifies the MealTypeSelector is in a separate row below the Back + Log to Fitbit row. Run: `npm test -- food-chat`
-
-2. **GREEN** — Restructure the top header (lines 369-402):
-   - First row: Back button (left) + "Log to Fitbit" button (right) with flex justify-between
-   - Second row: MealTypeSelector spanning full width, with a subtle separator or reduced padding
-   - Keep the border-b and safe-area-inset-top handling
-   Run: `npm test -- food-chat`
-
-3. **REFACTOR** — Verify the layout works on narrow screens. The MealTypeSelector should have room to display the full meal type name without truncation.
-
-**Notes:**
-- The current layout puts three elements in one flex row. Moving MealTypeSelector to a second row gives the primary actions (Back, Log) more breathing room.
-- Reference: `food-chat.tsx` lines 369-402 for current structure.
-- `showTimeHint={false}` is already set on this MealTypeSelector usage — keep it.
-
-### Task 12: Integration & Verification
-
-**Issue:** FOO-479, FOO-480, FOO-481, FOO-482, FOO-484, FOO-485, FOO-486, FOO-489, FOO-491, FOO-492, FOO-495
+**Issue:** FOO-497, FOO-503, FOO-498, FOO-499, FOO-502, FOO-501
 **Files:**
 - Various files from previous tasks
 
@@ -416,17 +367,13 @@ Frontend polish and accessibility improvements across the app. Covers ARIA attri
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
-5. Visual verification checklist:
-   - [ ] Input height looks correct across all forms
-   - [ ] Tab navigation works with keyboard in QuickSelect, DashboardShell, WeeklyNutritionChart
-   - [ ] LumenBanner is keyboard-accessible
-   - [ ] Bottom nav has safe area padding in landscape
-   - [ ] Spinners are consistently sized
-   - [ ] Error retry buttons are visually prominent
-   - [ ] Weekly chart has today indicator
-   - [ ] Dashboard empty state has CTAs
-   - [ ] Chat header layout is less crowded
-   - [ ] Skip link works as Server Component
+5. Manual verification:
+   - [ ] Navigate to `/app` — no wasted prefetch requests in Network tab
+   - [ ] Open QuickSelect Suggested tab — scroll through 30+ items without list resets
+   - [ ] Switch between Suggested and Recent tabs — no loading flashes
+   - [ ] Log a food, navigate to dashboard — calorie total updates immediately (no stale data jump)
+   - [ ] Delete a food in history — dashboard calorie total updates immediately
+   - [ ] (If testable) Expire session — see redirect to landing page
 
 ## MCP Usage During Implementation
 
@@ -438,185 +385,172 @@ Frontend polish and accessibility improvements across the app. Covers ARIA attri
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| SkipLink without 'use client' breaks | Server Component renders `<a>` correctly | Unit test |
-| Input height change breaks layouts | All inputs remain functional at 44px | Unit test + visual |
-| Tab aria-controls mismatch | Tab-panel association works for screen readers | Unit test |
-| LumenBanner button styling breaks | Button matches original Alert appearance | Unit test |
+| Session expired (401) | Global redirect to `/` | Unit test (Task 1) |
+| Pending resubmit fails with token invalid | Re-save pending, redirect to OAuth | Unit test (Task 6) |
+| Pending resubmit fails with credentials missing | Clear pending, show error | Unit test (Task 6) |
+| SWR key changes mid-scroll | Old data stays visible (keepPreviousData) | Unit test (Task 2) |
+| Cache invalidation after mutation | All food-related caches revalidate | Unit test (Task 3) |
 
 ## Risks & Open Questions
 
-- [ ] Risk: Changing Input height globally could affect tight layouts — mitigated by checking all Input consumers
-- [ ] Risk: Chat header with two rows might feel too tall on small screens — keep padding minimal
-- [ ] Question: Exact dark mode background color for theme-color meta tag — check `globals.css` for HSL value
+- [ ] SWR version compatibility: Verify `keepPreviousData` is supported by the installed SWR version (requires SWR 2.x+)
+- [ ] `getLocalDateTime()` format change from `HH:mm:ss` to `HH:mm`: The time value is sent in API request bodies to `/api/log-food`. Verify `parseTimeToMinutes()` handles `HH:mm` (it does — only uses `parts[0]` and `parts[1]`). Also verify any other consumers of `getLocalDateTime().time` are unaffected.
+- [ ] The `invalidateFoodCaches()` function uses SWR's global `mutate` with a key matcher. Verify this works correctly with `useSWRInfinite` keys (which are arrays internally but string-based in the key function).
 
 ## Scope Boundaries
 
 **In Scope:**
-- All 11 valid issues listed above
-- Test coverage for all changes
-- Visual consistency verification
+- Global 401 handler for expired sessions
+- SWR key stabilization for QuickSelect
+- Cache invalidation after food mutations
+- Recent tab revalidation on revisit
+- Dashboard prefetch key fix
+- Pending submission handler at app layout level
 
 **Out of Scope:**
-- FOO-483 (hidden inputs don't need aria-labels — not in accessibility tree)
-- FOO-487 (dark mode border contrast is ~13:1, well above WCAG 3:1)
-- FOO-488 (`unoptimized` required for blob URLs — no server URL case exists)
-- FOO-490 (MealTypeSelector consumers already have visible labels)
-- FOO-493 (key pages don't have above-fold images — LCP is text/SVG)
-- FOO-494 (analyze page layout flows naturally when instructions hide)
-- Creating new shared spinner component (not needed — just standardize classes)
-- Adding E2E tests for these changes (will be covered in plan-review-implementation)
+- FOO-500 (Canceled — duplicate of FOO-503, same root cause)
+- Service worker for offline support
+- Optimistic updates for food mutations (invalidation-based approach is simpler and sufficient)
+- Custom retry logic for failed API calls
+- Session expiry prevention or auto-refresh
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-02-15
-**Method:** Agent team (4 workers)
+**Method:** Agent team (3 workers)
 
 ### Tasks Completed This Iteration
-- Task 1: Remove 'use client' from SkipLink (FOO-492) - Removed unnecessary client directive (worker-3)
-- Task 2: Increase Input component height to 44px (FOO-482) - Changed h-9 to h-11, removed redundant min-h overrides (worker-1)
-- Task 3: Make error recovery buttons visually prominent (FOO-486) - Changed retry buttons from outline to default variant (worker-2)
-- Task 4: Add landscape safe area insets to bottom navigation (FOO-484) - Added left/right safe area insets for landscape (worker-3)
-- Task 5: Standardize loading spinner sizes (FOO-485) - Changed inline spinner border-4 to border-2 (worker-1)
-- Task 6: Add aria-controls to tab pattern implementations (FOO-479) - Added aria-controls to DashboardShell, QuickSelect, WeeklyNutritionChart (worker-1)
-- Task 7: Replace LumenBanner clickable Alert with proper button (FOO-480) - Converted Alert to semantic button with aria-label (worker-4)
-- Task 8: Support dark mode in PWA theme_color (FOO-481) - Updated viewport.themeColor to media query array (worker-4)
-- Task 9: Fix weekly chart current-day column rendering (FOO-489) - Added today indicator dot below current day label (worker-1)
-- Task 10: Improve dashboard empty state guidance (FOO-491) - Added Scan Food and Quick Select CTA buttons (worker-2)
-- Task 11: Improve refine chat top bar layout (FOO-495) - Restructured header to two-row layout (worker-1)
+- Task 1: Global SWR Error Provider (FOO-497) - Created SWRProvider with onError handler that redirects to / on AUTH_MISSING_SESSION (worker-1)
+- Task 2: Stabilize QuickSelect SWR Key (FOO-503) - Changed getLocalDateTime to HH:mm, used useState initializer for stable key, added keepPreviousData:true, fixed sentinel div height (worker-1)
+- Task 3: SWR Cache Invalidation After Food Mutations (FOO-498) - Created invalidateFoodCaches() function, integrated into FoodLogConfirmation and FoodHistory (worker-2)
+- Task 4: Recent Tab Revalidation on Revisit (FOO-499) - Enabled revalidateFirstPage:true for automatic revalidation (worker-1)
+- Task 5: Fix Dashboard Prefetch Key (FOO-502) - Changed prefetch from /api/common-foods to /api/common-foods?tab=recent&limit=10 (worker-3)
+- Task 6: Pending Submission Handler at App Level (FOO-501) - Created PendingSubmissionHandler component in app layout, removed pending logic from QuickSelect (worker-1)
 
 ### Files Modified
-- `src/components/skip-link.tsx` - Removed 'use client' directive
-- `src/components/ui/input.tsx` - Changed height from h-9 to h-11
-- `src/components/food-chat.tsx` - Two-row header layout, removed redundant min-h from Input
-- `src/components/quick-select.tsx` - Spinner border fix, removed redundant min-h, added aria-controls
-- `src/components/dashboard-shell.tsx` - Added aria-controls to tabs, wrapped panel in div with id
-- `src/components/weekly-nutrition-chart.tsx` - Added aria-controls, chart panel id, today indicator
-- `src/components/analysis-result.tsx` - Removed variant="outline" from error retry button
-- `src/components/daily-dashboard.tsx` - Removed variant="outline" from retry button, added empty state CTAs
-- `src/components/bottom-nav.tsx` - Added landscape safe area inset padding
-- `src/components/lumen-banner.tsx` - Replaced Alert with semantic button element
-- `src/app/layout.tsx` - Updated viewport.themeColor to array with media queries
-- `src/components/__tests__/input.test.tsx` - Created test for Input height
-- `src/components/__tests__/food-chat.test.tsx` - Added test for two-row layout
-- `src/components/__tests__/quick-select.test.tsx` - Added tests for spinner sizing and aria-controls
-- `src/components/__tests__/dashboard-shell.test.tsx` - Added test for aria-controls
-- `src/components/__tests__/weekly-nutrition-chart.test.tsx` - Added tests for aria-controls and today indicator
-- `src/components/__tests__/analysis-result.test.tsx` - Added test for default variant on retry button
-- `src/components/__tests__/daily-dashboard.test.tsx` - Added tests for empty state CTAs
-- `src/components/__tests__/bottom-nav.test.tsx` - Added test for landscape safe area insets
-- `src/components/__tests__/lumen-banner.test.tsx` - Added accessibility test for button element
-- `src/app/__tests__/layout.test.tsx` - Updated test for dark mode theme color
+- `src/components/swr-provider.tsx` - Created: SWRConfig wrapper with global 401 error handler
+- `src/components/__tests__/swr-provider.test.tsx` - Created: 4 tests for SWR provider
+- `src/app/app/layout.tsx` - Added SWRProvider and PendingSubmissionHandler wrappers
+- `src/lib/meal-type.ts` - Changed getLocalDateTime() to return HH:mm format (no seconds)
+- `src/lib/__tests__/meal-type.test.ts` - Updated tests for HH:mm format
+- `src/components/quick-select.tsx` - useState initializer for clientTime/clientDate, keepPreviousData:true, revalidateFirstPage:true, min-h sentinel, removed pending submission logic
+- `src/components/__tests__/quick-select.test.tsx` - Added key stability and revalidation tests, removed pending resubmission tests, removed unused mockAnalysis
+- `src/lib/swr.ts` - Added invalidateFoodCaches() function with global SWR mutate
+- `src/lib/__tests__/swr.test.ts` - Added 4 tests for cache invalidation
+- `src/components/food-log-confirmation.tsx` - Call invalidateFoodCaches() in success useEffect
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Added cache invalidation tests, fixed mock to return Promise
+- `src/components/food-history.tsx` - Call invalidateFoodCaches() after successful delete
+- `src/components/__tests__/food-history.test.tsx` - Added delete cache invalidation tests, fixed mock to return Promise
+- `src/components/dashboard-prefetch.tsx` - Fixed preload key to match QuickSelect Recent tab
+- `src/components/__tests__/dashboard-prefetch.test.tsx` - Updated test for correct prefetch key
+- `src/components/pending-submission-handler.tsx` - Created: global pending submission handler with banner UI
+- `src/components/__tests__/pending-submission-handler.test.tsx` - Created: 8 tests for pending handler
 
 ### Linear Updates
-- FOO-479: Todo → In Progress → Review
-- FOO-480: Todo → In Progress → Review
-- FOO-481: Todo → In Progress → Review
-- FOO-482: Todo → In Progress → Review
-- FOO-484: Todo → In Progress → Review
-- FOO-485: Todo → In Progress → Review
-- FOO-486: Todo → In Progress → Review
-- FOO-489: Todo → In Progress → Review
-- FOO-491: Todo → In Progress → Review
-- FOO-492: Todo → In Progress → Review
-- FOO-495: Todo → In Progress → Review
+- FOO-497: Todo → In Progress → Review
+- FOO-503: Todo → In Progress → Review
+- FOO-498: Todo → In Progress → Review
+- FOO-499: Todo → In Progress → Review
+- FOO-502: Todo → In Progress → Review
+- FOO-501: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Passed — no bugs found
-- verifier: All 1700 tests pass, zero warnings
+- bug-hunter: Found 3 HIGH (unhandled async invalidateFoodCaches), 3 MEDIUM (setTimeout cleanup, docs), 1 LOW — all fixed before commit
+- verifier: All tests pass, zero lint errors, zero warnings
 
 ### Work Partition
-- Worker 1: Tasks 2, 5, 6, 9, 11 (input, quick-select, dashboard-shell, weekly-nutrition-chart, food-chat files)
-- Worker 2: Tasks 3, 10 (analysis-result, daily-dashboard files)
-- Worker 3: Tasks 1, 4 (skip-link, bottom-nav files)
-- Worker 4: Tasks 7, 8 (lumen-banner, layout files)
-
-### Continuation Status
-All tasks completed.
+- Worker 1: Tasks 1, 2, 4, 6 (SWR provider, QuickSelect stabilization, Recent tab revalidation, pending submission handler)
+- Worker 2: Task 3 (SWR cache invalidation)
+- Worker 3: Task 5 (Dashboard prefetch key fix)
 
 ### Review Findings
 
-Summary: 1 issue found (Team: security, reliability, quality reviewers)
+Files reviewed: 17
+Reviewers: security, reliability, quality (agent team)
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+
+Summary: 1 issue found (Team: security, reliability, quality reviewers + E2E tests)
 - FIX: 1 issue — Linear issue created
-- DISCARDED: 2 findings — false positives / not applicable
+- DISCARDED: 3 findings — false positives / not applicable
 
 **Issues requiring fix:**
-- [MEDIUM] BUG: File input reset in `try` instead of `finally` (`src/components/lumen-banner.tsx:75-78`) - Prevents re-selection of same file on upload error. Inconsistent with correct pattern in `daily-dashboard.tsx:147-150`.
+- [HIGH] BUG: `isValidTimeFormat()` in `src/app/api/log-food/route.ts:92` rejects `HH:mm` format — `getLocalDateTime()` was changed from `HH:mm:ss` to `HH:mm` (Task 2/FOO-503) but the API validation regex `^\d{2}:\d{2}:\d{2}$` still requires seconds. ALL food logging is broken.
 
 **Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: Unvalidated href prop in SkipLink (`src/components/skip-link.tsx:2`) — Impossible in context. Component only used in layout.tsx with default `#main-content`. No user input ever flows to this prop.
-- [DISCARDED] CONVENTION: dangerouslySetInnerHTML in layout.tsx (`src/app/layout.tsx:70`) — Already an accepted pattern, documented with SECURITY comment. Used to prevent theme flash before hydration.
+- [DISCARDED] ERROR: Missing console.error in food-history.tsx:144 fetchEntries catch — Pre-existing code not changed in this iteration; catch block properly handles error via user-facing state
+- [DISCARDED] ERROR: Missing console.error in food-history.tsx:195 handleDeleteConfirm catch — Pre-existing catch block; only invalidateFoodCaches() was added in the try block above it
+- [DISCARDED] ERROR: Missing console.error in pending-submission-handler.tsx:93 catch — New code but properly handles error via clearPendingSubmission() + user-facing error state; CLAUDE.md says console.error is "correct for" client components, not "required in every catch"
 
 ### Linear Updates
-- FOO-479: Review → Merge
-- FOO-480: Review → Merge
-- FOO-481: Review → Merge
-- FOO-482: Review → Merge
-- FOO-484: Review → Merge
-- FOO-485: Review → Merge
-- FOO-486: Review → Merge
-- FOO-489: Review → Merge
-- FOO-491: Review → Merge
-- FOO-492: Review → Merge
-- FOO-495: Review → Merge
-- FOO-496: Created in Todo (Fix: file input reset on upload error)
+- FOO-497: Review → Merge
+- FOO-503: Review → Merge
+- FOO-498: Review → Merge
+- FOO-499: Review → Merge
+- FOO-502: Review → Merge
+- FOO-501: Review → Merge
+- FOO-504: Created in Todo (Fix: isValidTimeFormat rejects HH:mm format)
 
 <!-- REVIEW COMPLETE -->
+
+### Continuation Status
+All tasks completed.
 
 ---
 
 ## Fix Plan
 
-**Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-496](https://linear.app/lw-claude/issue/FOO-496/fix-lumen-banner-file-input-reset-on-upload-error)
+**Source:** Review findings from Iteration 1 (E2E test failure)
+**Linear Issues:** [FOO-504](https://linear.app/lw-claude/issue/FOO-504/fix-isvalidtimeformat-rejects-hhmm-format-after-getlocaldatetime)
 
-### Fix 1: File input reset on upload error
-**Linear Issue:** [FOO-496](https://linear.app/lw-claude/issue/FOO-496/fix-lumen-banner-file-input-reset-on-upload-error)
+### Fix 1: Update isValidTimeFormat to accept HH:mm format
+**Linear Issue:** [FOO-504](https://linear.app/lw-claude/issue/FOO-504/fix-isvalidtimeformat-rejects-hhmm-format-after-getlocaldatetime)
 
-1. Write test in `src/components/__tests__/lumen-banner.test.tsx` that simulates a failed upload and verifies `fileInputRef.current.value` is reset to `""` even on error
-2. Move file input reset from `try` block (line 75-78) to `finally` block in `src/components/lumen-banner.tsx`, matching the pattern in `daily-dashboard.tsx:147-150`
+1. Write test in `src/app/api/log-food/__tests__/route.test.ts` (or existing test file) that verifies `isValidTimeFormat` accepts both `HH:mm` and `HH:mm:ss` formats
+2. Update regex in `src/app/api/log-food/route.ts:92` from `^\d{2}:\d{2}:\d{2}$` to `^\d{2}:\d{2}(:\d{2})?$` to accept both formats
+3. Update validation logic to handle both 2-part and 3-part time strings
+4. Update error message from "Use HH:mm:ss" to "Use HH:mm or HH:mm:ss"
 
 ---
 
 ## Iteration 2
 
 **Implemented:** 2026-02-15
-**Method:** Single-agent (1 fix task)
+**Method:** Agent team (1 worker)
 
 ### Tasks Completed This Iteration
-- Fix 1: File input reset on upload error (FOO-496) - Moved file input reset from `try` to `finally` block, added test for error-path reset
+- Fix 1: Update isValidTimeFormat to accept HH:mm format (FOO-504) - Updated regex, validation logic, error message, and tests (worker-1)
 
 ### Files Modified
-- `src/components/lumen-banner.tsx` - Moved file input reset to `finally` block
-- `src/components/__tests__/lumen-banner.test.tsx` - Added test "resets file input value even when upload fails"
+- `src/app/api/log-food/route.ts` - Updated `isValidTimeFormat()`: regex from `^\d{2}:\d{2}:\d{2}$` to `^\d{2}:\d{2}(:\d{2})?$`, optional seconds handling via `parts[2] ?? 0`, error message to "Use HH:mm or HH:mm:ss"
+- `src/app/api/log-food/__tests__/route.test.ts` - Removed "12:00" from invalid times, added "1:00"/"12:0" as invalid single-digit formats, added HH:mm semantic validation tests ("24:00", "12:60", "99:99"), added acceptance test for "12:30" format
 
 ### Linear Updates
-- FOO-496: Todo → In Progress → Review
+- FOO-504: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Passed — no bugs found
-- verifier: All 1701 tests pass, zero warnings
+- bug-hunter: Passed (no issues found)
+- verifier: All 1720 tests pass, zero lint errors, zero warnings
 
-### Continuation Status
-All tasks completed.
+### Work Partition
+- Worker 1: Fix 1 (log-food route + tests)
 
 ### Review Findings
 
 Files reviewed: 2
 Reviewers: security, reliability, quality (agent team)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
 
 No issues found - all implementations are correct and follow project conventions.
 
-**Discarded findings (not bugs):**
-- [DISCARDED] TIMEOUT: Fetch without timeout in upload handler (`src/components/lumen-banner.tsx:62`) — Pre-existing pattern from original code, not introduced by iteration 2. Client-side fetch to same-origin Next.js API has browser-level connection timeouts. Standard pattern across the app.
-- [DISCARDED] RACE CONDITION: Upload button not disabled during upload (`src/components/lumen-banner.tsx:89`) — Pre-existing from iteration 1. Requires deliberate repeated user action (open file dialog twice during upload). Minimal practical impact in single-user app.
-
 ### Linear Updates
-- FOO-496: Review → Merge
+- FOO-504: Review → Merge
 
 <!-- REVIEW COMPLETE -->
+
+### Continuation Status
+All tasks completed.
 
 ---
 

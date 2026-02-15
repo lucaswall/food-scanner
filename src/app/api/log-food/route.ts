@@ -89,8 +89,11 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
 
 
 function isValidTimeFormat(time: string): boolean {
-  if (!/^\d{2}:\d{2}:\d{2}$/.test(time)) return false;
-  const [hours, minutes, seconds] = time.split(":").map(Number);
+  if (!/^\d{2}:\d{2}(:\d{2})?$/.test(time)) return false;
+  const parts = time.split(":").map(Number);
+  const hours = parts[0];
+  const minutes = parts[1];
+  const seconds = parts[2] ?? 0;
   return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 && seconds >= 0 && seconds <= 59;
 }
 
@@ -147,7 +150,7 @@ export async function POST(request: Request) {
     );
     return errorResponse(
       "VALIDATION_ERROR",
-      "Invalid time format. Use HH:mm:ss",
+      "Invalid time format. Use HH:mm or HH:mm:ss",
       400
     );
   }

@@ -16,6 +16,18 @@ beforeAll(() => {
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+const { mockInvalidateFoodCaches } = vi.hoisted(() => ({
+  mockInvalidateFoodCaches: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/lib/swr", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/swr")>("@/lib/swr");
+  return {
+    ...actual,
+    invalidateFoodCaches: mockInvalidateFoodCaches,
+  };
+});
+
 const today = "2026-02-06";
 const yesterday = "2026-02-05";
 
@@ -80,6 +92,7 @@ function renderFoodHistory() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockInvalidateFoodCaches.mockClear();
 });
 
 describe("FoodHistory", () => {
@@ -1191,6 +1204,85 @@ describe("FoodHistory", () => {
     await waitFor(() => {
       expect(screen.getByText(/credentials.*settings/i)).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
+    });
+  });
+
+  // FOO-498: SWR Cache Invalidation
+  describe("cache invalidation after delete", () => {
+    it("calls invalidateFoodCaches after successful delete", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true }),
+        });
+
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      mockInvalidateFoodCaches.mockClear();
+
+      // Click delete button and confirm
+      const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+      fireEvent.click(deleteButtons[0]);
+
+      await waitFor(() => {
+        expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByRole("button", { name: /confirm/i });
+      fireEvent.click(confirmButton);
+
+      // Wait for delete to complete
+      await waitFor(() => {
+        expect(screen.queryByText("Empanada de carne")).not.toBeInTheDocument();
+      });
+
+      expect(mockInvalidateFoodCaches).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not call invalidateFoodCaches when delete fails", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () => Promise.resolve({ success: false, error: { message: "Delete failed" } }),
+        });
+
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      mockInvalidateFoodCaches.mockClear();
+
+      // Click delete button and confirm
+      const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+      fireEvent.click(deleteButtons[0]);
+
+      await waitFor(() => {
+        expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByRole("button", { name: /confirm/i });
+      fireEvent.click(confirmButton);
+
+      // Wait for error to appear
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+      });
+
+      expect(mockInvalidateFoodCaches).not.toHaveBeenCalled();
     });
   });
 });

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { apiFetcher } from "@/lib/swr";
+import { apiFetcher, invalidateFoodCaches } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -191,6 +191,7 @@ export function FoodHistory() {
 
       setEntries((prev) => prev.filter((e) => e.id !== id));
       mutate();
+      invalidateFoodCaches().catch(() => {});
     } catch {
       setDeleteError("Failed to delete entry");
       vibrateError();
