@@ -207,12 +207,34 @@ TEST QUALITY (if tests exist):
 - Mocks that hide real bugs
 - No real customer data in tests
 
+AI INTEGRATION (Claude API):
+- Tool definitions have detailed descriptions (3-4+ sentences, the #1 performance lever)
+- Tool parameters have descriptions with examples; constrained values use enums
+- System prompts have clear role definition and tool usage guidance
+- System prompts stay in sync with tool definitions (no stale references)
+- stop_reason handled for all values (tool_use, end_turn, max_tokens)
+- tool_result.tool_use_id matches tool_use.id; parallel results in ONE user message
+- Agentic loops capped with max iterations (prevent infinite cycles)
+- tool_use.input validated at runtime (don't trust AI output)
+- max_tokens set appropriately (not too high, not truncation-prone)
+- Token usage recorded (fire-and-forget, non-blocking)
+- Claude API key from env var (not hardcoded, not logged)
+- No user input injected raw into system prompts (prompt injection risk)
+- AI-generated content sanitized before HTML rendering (XSS prevention)
+- Tool results don't include raw secrets/tokens
+- is_error: true set on tool_result for execution errors
+- Rate limiting on Claude API endpoints
+
 Search patterns (use Grep):
 - `as any` — unsafe type cast
 - `as unknown as` — double cast
 - `@ts-ignore|@ts-expect-error` — suppressed type errors
 - `console\.log|console\.warn|console\.error` — should use proper logger
 - `catch\s*\([^)]*\)\s*\{[^}]*\}` — empty catch blocks
+- `stop_reason` — verify all values handled
+- `tool_use_id|tool_result` — verify ID matching
+- `ANTHROPIC_API_KEY` — verify env-loaded, not logged
+- `max_tokens` — verify reasonable limits
 ```
 
 ## Coordination (while reviewers work)

@@ -157,3 +157,92 @@ Trace data from source to display and back.
 - SWR deduplicates concurrent requests for same key
 - Images use next/image (auto optimization, lazy loading)
 - No waterfall requests that could be parallel
+
+## 8. AI Integration (Claude API)
+
+This project uses Claude's tool_use API for food analysis and conversational chat. When the reviewed feature involves Claude API integration, trace the full AI data flow.
+
+### Tool Definition Quality
+
+- Tool descriptions are detailed (3-4+ sentences minimum) — the single most important factor for tool selection accuracy
+- Each parameter has a description with examples of valid values
+- Constrained values use `enum` arrays (not free-form descriptions)
+- Required vs optional parameters correctly specified
+- `input_schema` top-level type is `"object"`
+- Tool names follow `^[a-zA-Z0-9_-]{1,64}$` pattern
+
+### System Prompt & Behavioral Design
+
+- Clear role/persona definition in the system prompt
+- Tool usage guidance: when to use each tool, when NOT to use, what information each tool does NOT return
+- System prompt in sync with tool definitions (no references to renamed/removed tools)
+- No sensitive data in system prompts (API keys, tokens, PII)
+- Behavioral rules unambiguous (Claude follows last instruction when conflicting)
+- Conversation context maintained: initial analysis baseline included when relevant
+
+### Tool Use Lifecycle (Agentic Loop)
+
+- `stop_reason` checked for all return values:
+  - `"tool_use"` → extract tool calls, execute, send results back
+  - `"end_turn"` → extract final text + optional tool output
+  - `"max_tokens"` → handle truncation (incomplete tool_use blocks are invalid)
+- `tool_result.tool_use_id` matches corresponding `tool_use.id`
+- ALL parallel `tool_result` blocks in a SINGLE user message (splitting across messages degrades future parallel tool behavior)
+- `tool_result` content blocks come BEFORE any `text` blocks in user messages (API requirement — violating causes 400 error)
+- `is_error: true` set on tool_result for execution failures (Claude handles gracefully)
+- Agentic loops capped with max iteration count (prevent infinite tool-call cycles)
+- After max iterations reached: return best available response, don't hang
+
+### Response Validation
+
+- `tool_use.input` validated at runtime even when `strict: true` is set — Claude can still produce unexpected shapes on `max_tokens` truncation or `refusal`
+- Numeric fields validated as non-negative where appropriate (calories, protein, etc.)
+- String fields checked for non-empty where required (food_name, notes)
+- Keywords normalized (lowercase, deduplicated, capped at max count)
+- Handle empty text blocks (Claude may respond with only tool_use, no text)
+
+### AI Data Flow Tracing
+
+Follow data through the full AI pipeline:
+
+1. **Input preparation** — Images converted to base64, description sanitized, message history formatted
+   - Are images validated (size, type) before sending?
+   - Is user text sanitized before inclusion in Claude messages?
+   - Are message history items properly typed and ordered?
+
+2. **Claude API call** — System prompt, tools, tool_choice, max_tokens
+   - Is tool_choice appropriate for the context? ("tool" for forced, "auto" for optional)
+   - Is max_tokens sufficient for the expected response?
+   - Are tools appropriate for this call? (no write tools in read-only contexts)
+
+3. **Response processing** — Tool calls extracted, validated, executed
+   - Are all tool_use blocks processed (not just the first)?
+   - Is the tool loop iterated correctly (not returning after first tool call)?
+   - Are tool results formatted as clean text for Claude to interpret?
+
+4. **Final extraction** — Text + optional analysis returned to client
+   - Is the final text response extracted from all text blocks (joined)?
+   - Is the optional analysis (from report_nutrition tool) validated before return?
+   - Is usage recorded (fire-and-forget, non-blocking)?
+
+5. **Client rendering** — Response displayed in chat UI
+   - Are assistant messages with analysis rendered with nutrition cards?
+   - Is the conversation state updated correctly (both text and analysis)?
+   - Does the latest analysis computation work with the new message?
+
+### Cost & Token Management
+
+- max_tokens not unnecessarily large
+- Tool definitions concise but complete (sent with every request)
+- Conversation message limits enforced (prevent unbounded token growth)
+- Rate limiting applied to Claude API routes
+- Token usage tracking present and non-blocking
+
+### AI-Specific Security
+
+- No user-controlled text injected raw into system prompts (prompt injection)
+- Claude API key loaded from environment variable (never hardcoded, never logged)
+- Tool results don't expose raw credentials, tokens, or session secrets
+- AI-generated content (food names, descriptions, notes) sanitized before HTML rendering (XSS)
+- Rate limiting prevents abuse of expensive Claude API calls
+- Token usage tracked for cost monitoring

@@ -308,3 +308,92 @@ Use Grep tool (not bash grep) to find potential issues:
 
 **Logging:**
 - `console\.log|console\.warn|console\.error` - should use proper logger
+
+## Claude API & AI Integration
+
+This project uses Claude's tool_use API for food analysis and conversational chat. Review all Claude API integration code for these issues.
+
+### Tool Definitions
+
+- Tool descriptions are detailed (3-4+ sentences minimum) — the #1 factor in tool selection accuracy
+- Each parameter has a `description` with examples of valid values (e.g., "Date in YYYY-MM-DD format")
+- Constrained values use `enum` arrays (not free-form text described in the description)
+- Required vs optional parameters correctly distinguished in `required` array
+- Tool names follow `^[a-zA-Z0-9_-]{1,64}$` pattern
+- `input_schema` uses `type: "object"` at the top level
+- Tier 1 nutrients and other nullable fields explicitly allow null in the schema
+
+### System Prompts
+
+- Clear role/persona definition in the system prompt
+- Tool usage guidance included: when to use each tool, when NOT to use
+- No sensitive data embedded in system prompts (no API keys, user tokens, PII)
+- System prompt kept in sync with tool definitions (no references to removed/renamed tools)
+- Behavioral rules clear and unambiguous (Claude follows last instruction on conflict)
+
+### Tool Use Lifecycle (Agentic Loop)
+
+- `stop_reason` checked for all values: `"tool_use"`, `"end_turn"`, `"max_tokens"`
+- `tool_result.tool_use_id` matches corresponding `tool_use.id` from assistant message
+- All parallel `tool_result` blocks sent in a SINGLE user message (splitting degrades future parallel behavior)
+- `tool_result` content blocks come BEFORE any `text` blocks in user messages
+- `is_error: true` set on `tool_result` for tool execution errors (Claude handles gracefully)
+- Agentic loops capped with max iteration count (prevent infinite tool-call cycles)
+- After max iterations, return best available response (don't hang or throw)
+- `max_tokens` sufficient for expected response + tool call overhead
+
+### Response Validation
+
+- `tool_use.input` validated at runtime — Claude can produce unexpected shapes even with good schemas
+- Handle `stop_reason: "max_tokens"` where last content block is incomplete `tool_use` (retry with higher `max_tokens`)
+- Handle empty text responses (Claude may respond with only `tool_use` blocks)
+- Numeric fields validated as non-negative where appropriate
+- String fields validated for non-empty where required
+
+### Cost & Token Management
+
+- `max_tokens` not unnecessarily large (wastes allocation budget)
+- Tool definitions add tokens to every request — keep descriptions useful but not bloated
+- Token usage recorded for monitoring (fire-and-forget, non-blocking — don't fail the request if recording fails)
+- `tool_choice` set appropriately: `"auto"` for optional, `{"type": "tool"}` for forced, `"any"` for must-use-one
+- Conversation message limits enforced (prevent unbounded token growth)
+- Rate limiting applied to routes that call Claude API
+
+### AI-Specific Security
+
+- No user-controlled text injected directly into system prompts without sanitization (prompt injection risk)
+- Claude API key loaded from environment variable (not hardcoded, not logged)
+- Tool results returned to Claude don't include raw tokens, passwords, or session secrets
+- AI-generated content (food names, descriptions) sanitized before rendering in HTML (XSS prevention)
+- User descriptions validated/sanitized before inclusion in Claude API calls
+- Rate limiting prevents abuse of expensive Claude API endpoints
+
+### Error Handling
+
+- Claude API errors (5xx, network) caught and mapped to appropriate HTTP error codes
+- Claude API 429 (rate limit) handled with retry/backoff or propagated as user-facing error
+- Timeouts configured on Claude API client (don't hang on slow responses)
+- Token usage recording failures don't break the main request flow
+- Partial failures handled: if analysis succeeds but usage recording fails, return the analysis
+
+### Search Patterns for AI Integration Issues
+
+Use Grep tool to find potential AI integration issues:
+
+**Tool definitions:**
+- `tool_choice` — verify appropriate setting for each use case
+- `tools:.*\[` — find tool definition arrays, check descriptions are detailed
+- `report_nutrition|search_food_log|get_nutrition_summary|get_fasting_info` — tool name references
+
+**Response handling:**
+- `stop_reason` — verify all values handled (tool_use, end_turn, max_tokens)
+- `tool_use_id|tool_result` — verify ID matching and result formatting
+- `validateFoodAnalysis|validateTool` — verify runtime validation exists
+
+**Security:**
+- `ANTHROPIC_API_KEY` — verify loaded from env, not hardcoded or logged
+- `system:.*\$|system:.*user` — potential prompt injection (user input in system prompt)
+
+**Cost:**
+- `max_tokens` — verify reasonable limits set
+- `recordUsage` — verify usage tracking calls exist
