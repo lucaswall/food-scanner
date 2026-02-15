@@ -145,4 +145,95 @@ test.describe('Settings Page', () => {
     await expect(lightButton).toBeVisible();
     await expect(darkButton).toBeVisible();
   });
+
+  test('replace secret flow works', async ({ page }) => {
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+
+    // Find and click the "Replace Secret" button
+    const replaceSecretButton = page.getByRole('button', { name: 'Replace Secret' });
+    await expect(replaceSecretButton).toBeVisible();
+    await replaceSecretButton.click();
+
+    // Verify a Client Secret input appears
+    const clientSecretInput = page.getByLabel('Client Secret');
+    await expect(clientSecretInput).toBeVisible();
+
+    // Fill with a new secret value
+    await clientSecretInput.fill('NEW_TEST_SECRET');
+
+    // Click Save button
+    const saveButton = page.getByRole('button', { name: 'Save' }).first();
+    await saveButton.click();
+
+    // Wait for save to complete
+    await page.waitForTimeout(1000);
+
+    // Verify success feedback: secret saved, input hidden, masked secret shown
+    // The input should be hidden after save
+    await expect(clientSecretInput).not.toBeVisible();
+
+    // The "Replace Secret" button should be visible again
+    await expect(replaceSecretButton).toBeVisible();
+  });
+
+  test('reconnect Fitbit button triggers auth flow', async ({ page }) => {
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+
+    // Find the "Reconnect Fitbit" button
+    const reconnectButton = page.getByRole('button', { name: /Reconnect Fitbit/i });
+    await expect(reconnectButton).toBeVisible();
+
+    // The button is inside a form that POSTs to /api/auth/fitbit
+    // Mock the auth route to prevent actual OAuth redirect
+    let authRequestMade = false;
+    await page.route('**/api/auth/fitbit', async (route) => {
+      authRequestMade = true;
+      await route.fulfill({
+        status: 302,
+        headers: { Location: '/settings' },
+      });
+    });
+
+    // Click the button
+    await reconnectButton.click();
+
+    // Wait for the request to be made
+    await page.waitForTimeout(1000);
+
+    // Verify the auth request was triggered
+    expect(authRequestMade).toBe(true);
+  });
+
+  test('displays Claude API usage metrics', async ({ page }) => {
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+
+    // Scroll down to the Claude API Usage section
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(300);
+
+    // Verify Claude API Usage heading is visible
+    await expect(page.getByRole('heading', { name: /Claude API Usage/i })).toBeVisible();
+
+    // Verify usage data is visible
+    // The ClaudeUsageSection component groups usage by month and shows:
+    // - Month name (e.g., "February 2026")
+    // - Request count
+    // - Cost (e.g., "$0.049")
+    // - Token breakdown
+
+    // With seeded data (3 requests in current month), verify at least one of these is shown
+    const usageSection = page.locator('text=/Claude API Usage/i').locator('..');
+
+    // Check for month name (current month)
+    const currentMonth = new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const hasMonth = await usageSection.locator(`text=/${currentMonth}/i`).count();
+    expect(hasMonth).toBeGreaterThan(0);
+
+    // Check for cost display (should show total cost from seeded data: $0.049)
+    const hasCost = await usageSection.locator('text=/\\$0\\.0/').count();
+    expect(hasCost).toBeGreaterThan(0);
+  });
 });

@@ -67,6 +67,7 @@ export function QuickSelect() {
 
   const getKey = useCallback(
     (pageIndex: number, previousPageData: PaginatedFoodsPage | null) => {
+      if (isSearchActive) return null;
       if (previousPageData && !previousPageData.nextCursor) return null;
       const base = activeTab === "recent"
         ? "/api/common-foods?tab=recent&limit=10"
@@ -75,7 +76,7 @@ export function QuickSelect() {
       const cursorParam = buildCursorParam(previousPageData!.nextCursor);
       return `${base}${cursorParam}`;
     },
-    [activeTab, clientTime, clientDate]
+    [activeTab, clientTime, clientDate, isSearchActive]
   );
 
   const {
@@ -85,6 +86,7 @@ export function QuickSelect() {
     isValidating,
   } = useSWRInfinite<PaginatedFoodsPage>(getKey, apiFetcher, {
     revalidateFirstPage: false,
+    revalidateOnFocus: false,
   });
 
   const { data: searchData, isLoading: searchLoading } = useSWR<{ foods: CommonFood[] }>(
@@ -100,11 +102,14 @@ export function QuickSelect() {
 
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const isValidatingRef = useRef(false);
+  isValidatingRef.current = isValidating;
+
   useEffect(() => {
     if (!sentinelRef.current || !hasMore || isSearchActive) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isValidating) {
+        if (entries[0]?.isIntersecting && hasMore && !isValidatingRef.current) {
           setSize((s) => s + 1);
         }
       },
@@ -112,7 +117,7 @@ export function QuickSelect() {
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasMore, isValidating, setSize, isSearchActive]);
+  }, [hasMore, setSize, isSearchActive]);
 
   const [selectedFood, setSelectedFood] = useState<CommonFood | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
@@ -420,7 +425,7 @@ export function QuickSelect() {
         )}
 
         {/* Empty state */}
-        {!searchLoading && foods.length === 0 && (
+        {!searchLoading && !loadingFoods && foods.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
             <p className="text-muted-foreground">
               {isSearchActive ? "No results found" : "No foods found"}
