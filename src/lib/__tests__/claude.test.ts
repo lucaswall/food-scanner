@@ -2174,7 +2174,7 @@ describe("runToolLoop", () => {
       1,
       "user-123",
       "claude-sonnet-4-5-20250929",
-      "free-chat",
+      "food-chat",
       {
         inputTokens: 1500,
         outputTokens: 100,
@@ -2186,7 +2186,7 @@ describe("runToolLoop", () => {
       2,
       "user-123",
       "claude-sonnet-4-5-20250929",
-      "free-chat",
+      "food-chat",
       {
         inputTokens: 1700,
         outputTokens: 150,
@@ -2415,147 +2415,3 @@ describe("All Claude tool definitions have strict mode", () => {
   });
 });
 
-describe("freeChat", () => {
-  beforeEach(() => {
-    setupMocks();
-    mockRecordUsage.mockResolvedValue(undefined);
-    mockExecuteTool.mockReset();
-  });
-
-  afterEach(() => {
-    vi.resetModules();
-  });
-
-  it("converts ConversationMessage[] to Anthropic format and calls runToolLoop", async () => {
-    mockCreate.mockResolvedValueOnce({
-      id: "msg_1",
-      model: "claude-sonnet-4-5-20250929",
-      stop_reason: "end_turn",
-      content: [
-        {
-          type: "text",
-          text: "You ate 1800 calories today.",
-        },
-      ],
-      usage: {
-        input_tokens: 1500,
-        output_tokens: 100,
-      },
-    });
-
-    const { freeChat } = await import("@/lib/claude");
-    const result = await freeChat(
-      [{ role: "user", content: "How many calories did I eat today?" }],
-      "user-123",
-      "2026-02-15"
-    );
-
-    expect(result).toEqual({
-      message: "You ate 1800 calories today.",
-    });
-    expect(mockCreate).toHaveBeenCalledTimes(1);
-  });
-
-  it("uses FREE_CHAT_SYSTEM_PROMPT", async () => {
-    mockCreate.mockResolvedValueOnce({
-      id: "msg_1",
-      model: "claude-sonnet-4-5-20250929",
-      stop_reason: "end_turn",
-      content: [
-        {
-          type: "text",
-          text: "Done",
-        },
-      ],
-      usage: {
-        input_tokens: 1500,
-        output_tokens: 50,
-      },
-    });
-
-    const { freeChat } = await import("@/lib/claude");
-    await freeChat(
-      [{ role: "user", content: "Test" }],
-      "user-123",
-      "2026-02-15"
-    );
-
-    const call = mockCreate.mock.calls[0][0];
-    const systemText = call.system[0].text;
-    expect(systemText).toContain("nutrition advisor");
-    expect(systemText).toContain("food log");
-  });
-
-  it("uses only DATA_TOOLS (no report_nutrition)", async () => {
-    mockCreate.mockResolvedValueOnce({
-      id: "msg_1",
-      model: "claude-sonnet-4-5-20250929",
-      stop_reason: "end_turn",
-      content: [
-        {
-          type: "text",
-          text: "Done",
-        },
-      ],
-      usage: {
-        input_tokens: 1500,
-        output_tokens: 50,
-      },
-    });
-
-    const { freeChat } = await import("@/lib/claude");
-    await freeChat(
-      [{ role: "user", content: "Test" }],
-      "user-123",
-      "2026-02-15"
-    );
-
-    const call = mockCreate.mock.calls[0][0];
-    expect(call.tools).toHaveLength(3);
-    expect(call.tools.map((t: { name: string }) => t.name)).toEqual([
-      "search_food_log",
-      "get_nutrition_summary",
-      "get_fasting_info",
-    ]);
-    expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("report_nutrition");
-  });
-
-  it("records usage as free-chat operation", async () => {
-    mockCreate.mockResolvedValueOnce({
-      id: "msg_1",
-      model: "claude-sonnet-4-5-20250929",
-      stop_reason: "end_turn",
-      content: [
-        {
-          type: "text",
-          text: "Done",
-        },
-      ],
-      usage: {
-        input_tokens: 1500,
-        output_tokens: 100,
-        cache_creation_input_tokens: 50,
-        cache_read_input_tokens: 200,
-      },
-    });
-
-    const { freeChat } = await import("@/lib/claude");
-    await freeChat(
-      [{ role: "user", content: "Test" }],
-      "user-123",
-      "2026-02-15"
-    );
-
-    expect(mockRecordUsage).toHaveBeenCalledWith(
-      "user-123",
-      "claude-sonnet-4-5-20250929",
-      "free-chat",
-      {
-        inputTokens: 1500,
-        outputTokens: 100,
-        cacheCreationTokens: 50,
-        cacheReadTokens: 200,
-      }
-    );
-  });
-});

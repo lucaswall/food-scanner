@@ -22,6 +22,7 @@ export default function ChatLoading() {
       {/* Input area skeleton */}
       <div className="border-t bg-background">
         <div className="flex items-center gap-1.5 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <Skeleton className="size-10 rounded-full" />
           <Skeleton className="flex-1 h-10 rounded-full" />
           <Skeleton className="size-10 rounded-full" />
         </div>

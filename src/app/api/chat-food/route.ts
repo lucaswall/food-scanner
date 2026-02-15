@@ -1,20 +1,20 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
-import { conversationalRefine } from "@/lib/claude";
+import { conversationalRefine, validateFoodAnalysis } from "@/lib/claude";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { MAX_IMAGES, MAX_IMAGE_SIZE } from "@/lib/image-validation";
 import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
 import type { ConversationMessage, FoodAnalysis } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
-const MAX_MESSAGES = 20;
+const MAX_MESSAGES = 30;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function POST(request: Request) {
   const session = await getSession();
 
-  const validationError = validateSession(session, { requireFitbit: true });
+  const validationError = validateSession(session, { requireFitbit: false });
   if (validationError) return validationError;
 
   const { allowed } = checkRateLimit(`chat-food:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
@@ -66,13 +66,15 @@ export async function POST(request: Request) {
 
   const messages = data.messages as ConversationMessage[];
 
-  // Parse optional initialAnalysis
+  // Parse and validate optional initialAnalysis
   let initialAnalysis: FoodAnalysis | undefined;
   if (data.initialAnalysis !== undefined) {
-    if (!data.initialAnalysis || typeof data.initialAnalysis !== "object" || Array.isArray(data.initialAnalysis)) {
-      return errorResponse("VALIDATION_ERROR", "initialAnalysis must be an object", 400);
+    try {
+      initialAnalysis = validateFoodAnalysis(data.initialAnalysis);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "must be a valid food analysis object";
+      return errorResponse("VALIDATION_ERROR", `initialAnalysis is invalid: ${detail}`, 400);
     }
-    initialAnalysis = data.initialAnalysis as FoodAnalysis;
   }
 
   // Parse optional images array

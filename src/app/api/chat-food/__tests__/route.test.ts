@@ -49,11 +49,15 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
-// Mock conversationalRefine
+// Mock conversationalRefine but keep real validateFoodAnalysis
 const mockConversationalRefine = vi.fn();
-vi.mock("@/lib/claude", () => ({
-  conversationalRefine: mockConversationalRefine,
-}));
+vi.mock("@/lib/claude", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/claude")>();
+  return {
+    ...actual,
+    conversationalRefine: mockConversationalRefine,
+  };
+});
 
 const { POST } = await import("@/app/api/chat-food/route");
 
@@ -111,10 +115,13 @@ describe("POST /api/chat-food", () => {
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
-  it("returns 400 when session is invalid (no Fitbit)", async () => {
+  it("does not require Fitbit connection (changed from requireFitbit: true to false)", async () => {
     mockGetSession.mockResolvedValue({
       ...validSession,
       fitbitConnected: false,
+    });
+    mockConversationalRefine.mockResolvedValue({
+      message: "Got it!",
     });
 
     const request = createMockRequest({
@@ -122,9 +129,9 @@ describe("POST /api/chat-food", () => {
     });
 
     const response = await POST(request);
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.error.code).toBe("FITBIT_NOT_CONNECTED");
+    expect(body.success).toBe(true);
   });
 
   it("returns 429 when rate limit exceeded", async () => {
@@ -370,11 +377,11 @@ describe("POST /api/chat-food", () => {
     );
   });
 
-  it("returns 400 when messages array exceeds max size (20 messages)", async () => {
+  it("returns 400 when messages array exceeds max size (30 messages)", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
-    // Create 21 messages (exceeds limit)
-    const messages = Array.from({ length: 21 }, (_, i) => ({
+    // Create 31 messages (exceeds limit)
+    const messages = Array.from({ length: 31 }, (_, i) => ({
       role: i % 2 === 0 ? "user" : "assistant",
       content: `Message ${i}`,
     }));
@@ -385,7 +392,7 @@ describe("POST /api/chat-food", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
-    expect(body.error.message).toContain("20");
+    expect(body.error.message).toContain("30");
   });
 
   it("returns 400 when images array exceeds MAX_IMAGES (9)", async () => {
@@ -438,5 +445,122 @@ describe("POST /api/chat-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(body.error.message).toContain("10MB");
+  });
+
+  it("returns 400 when initialAnalysis has missing required fields", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Refine this" }],
+      initialAnalysis: { food_name: "Pizza" }, // missing all numeric fields
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("amount must be a number");
+  });
+
+  it("returns 400 when initialAnalysis has wrong field types", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Refine this" }],
+      initialAnalysis: {
+        ...validAnalysis,
+        calories: "not a number", // should be number
+      },
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("calories must be a number");
+  });
+
+  it("returns 400 when initialAnalysis has negative numbers", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Refine this" }],
+      initialAnalysis: {
+        ...validAnalysis,
+        calories: -100,
+      },
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("calories must not be negative");
+  });
+
+  it("returns 400 when initialAnalysis has zero amount", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Refine this" }],
+      initialAnalysis: {
+        ...validAnalysis,
+        amount: 0,
+      },
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("amount must be positive");
+  });
+
+  it("returns 400 when initialAnalysis has invalid confidence value", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Refine this" }],
+      initialAnalysis: {
+        ...validAnalysis,
+        confidence: "very high",
+      },
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("confidence must be high, medium, or low");
+  });
+
+  it("works in free-form mode (no initialAnalysis, no images)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockResolvedValue({
+      message: "You ate about 2000 calories today.",
+    });
+
+    const request = createMockRequest({
+      messages: [
+        { role: "user", content: "How many calories did I eat today?" },
+      ],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.message).toBe("You ate about 2000 calories today.");
+    expect(body.data.analysis).toBeUndefined();
+
+    // Verify conversationalRefine was called with no images and no initialAnalysis
+    expect(mockConversationalRefine).toHaveBeenCalledWith(
+      [{ role: "user", content: "How many calories did I eat today?" }],
+      [],
+      "user-uuid-123",
+      expect.any(String), // currentDate
+      undefined // no initialAnalysis
+    );
   });
 });

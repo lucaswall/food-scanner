@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { FreeChat } from "@/components/free-chat";
+import { ChatPageClient } from "@/components/chat-page-client";
 
 export default async function ChatPage() {
   const session = await getSession();
@@ -9,5 +9,5 @@ export default async function ChatPage() {
     redirect("/");
   }
 
-  return <FreeChat />;
+  return <ChatPageClient />;
 }
