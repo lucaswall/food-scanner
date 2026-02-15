@@ -1344,7 +1344,7 @@ describe("conversationalRefine", () => {
     );
   });
 
-  it("uses CHAT_SYSTEM_PROMPT without initial analysis", async () => {
+  it("uses CHAT_SYSTEM_PROMPT as base without initial analysis", async () => {
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-5-20250929",
       content: [
@@ -1368,7 +1368,7 @@ describe("conversationalRefine", () => {
     );
 
     const call = mockCreate.mock.calls[0][0];
-    expect(call.system[0].text).toBe(CHAT_SYSTEM_PROMPT);
+    expect(call.system[0].text).toContain(CHAT_SYSTEM_PROMPT);
   });
 
   it("includes initial analysis context in system prompt when provided", async () => {
@@ -1400,6 +1400,91 @@ describe("conversationalRefine", () => {
     expect(systemText).toContain(validAnalysis.food_name);
     expect(systemText).toContain(String(validAnalysis.calories));
     expect(systemText).toContain("baseline");
+  });
+
+  it("includes current date in system prompt when provided", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "text",
+          text: "OK",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "What did I eat today?" }],
+      [],
+      "user-123",
+      "2026-02-15"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    const systemText = call.system[0].text;
+    expect(systemText).toContain("Today's date is: 2026-02-15");
+  });
+
+  it("includes current date alongside initial analysis in system prompt", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "text",
+          text: "OK",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Make it 2" }],
+      [],
+      "user-123",
+      "2026-02-15",
+      validAnalysis
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    const systemText = call.system[0].text;
+    expect(systemText).toContain("Today's date is: 2026-02-15");
+    expect(systemText).toContain(validAnalysis.food_name);
+  });
+
+  it("omits date line from system prompt when currentDate is not provided", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "text",
+          text: "OK",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Hi" }],
+      [],
+      "user-123"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    const systemText = call.system[0].text;
+    expect(systemText).not.toContain("Today's date is:");
   });
 
   it("uses max_tokens 2048", async () => {
@@ -2340,6 +2425,87 @@ describe("runToolLoop", () => {
     expect(result.message).toBe("Partial response before context limit.");
   });
 
+  it("separates report_nutrition from data tools in tool_use response", async () => {
+    // First response: report_nutrition + get_nutrition_summary in same turn
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "text",
+          text: "Let me check your data and provide analysis.",
+        },
+        {
+          type: "tool_use",
+          id: "tool_report",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+        {
+          type: "tool_use",
+          id: "tool_data",
+          name: "get_nutrition_summary",
+          input: { date: "2026-02-15" },
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 200,
+      },
+    });
+
+    // Second response: end_turn
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_2",
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Here's your summary with the analysis.",
+        },
+      ],
+      usage: {
+        input_tokens: 1800,
+        output_tokens: 100,
+      },
+    });
+
+    mockExecuteTool.mockResolvedValueOnce("Nutrition: 1800 cal...");
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const result = await runToolLoop(
+      [{ role: "user", content: "Analyze my food and check today's calories" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    // executeTool should only be called for get_nutrition_summary, NOT report_nutrition
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+    expect(mockExecuteTool).toHaveBeenCalledWith(
+      "get_nutrition_summary",
+      { date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    // The analysis from report_nutrition should be captured
+    expect(result.analysis).toEqual(validAnalysis);
+    expect(result.message).toBe("Here's your summary with the analysis.");
+
+    // The tool_results sent back should include both tools
+    const secondCall = mockCreate.mock.calls[1][0];
+    const toolResults = secondCall.messages[2].content;
+    expect(toolResults).toHaveLength(2);
+    expect(toolResults).toContainEqual(
+      expect.objectContaining({ tool_use_id: "tool_report" })
+    );
+    expect(toolResults).toContainEqual(
+      expect.objectContaining({ tool_use_id: "tool_data" })
+    );
+  });
+
   it("handles unknown stop_reason gracefully (returns partial response)", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
@@ -2367,6 +2533,58 @@ describe("runToolLoop", () => {
 
     expect(result.message).toBe("Incomplete");
     expect(result.analysis).toBeUndefined();
+  });
+});
+
+describe("truncateConversation", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("returns messages unchanged when under token limit", async () => {
+    const { truncateConversation } = await import("@/lib/claude");
+    const messages = [
+      { role: "user" as const, content: "Hi" },
+      { role: "assistant" as const, content: "Hello" },
+    ];
+
+    const result = truncateConversation(messages, 150000);
+    expect(result).toEqual(messages);
+  });
+
+  it("keeps first + last 4 when over token limit (deduplicates consecutive roles)", async () => {
+    const { truncateConversation } = await import("@/lib/claude");
+    // Create 10 messages alternating: user(0), asst(1), ..., asst(9)
+    // After truncation: first(user-0) + last 4(user-6, asst-7, user-8, asst-9)
+    // = [user-0, user-6, asst-7, user-8, asst-9] → consecutive users at 0-1 → dedup
+    // = [user-6, asst-7, user-8, asst-9]
+    const messages = Array.from({ length: 10 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: "x".repeat(100000), // ~25K tokens each, total ~250K
+    }));
+
+    const result = truncateConversation(messages, 150000);
+    expect(result).toHaveLength(4); // first was deduped with last-4's first
+    expect(result[0]).toBe(messages[6]); // user-6 replaced user-0
+    expect(result[3]).toBe(messages[9]);
+  });
+
+  it("ensures no consecutive same-role messages after truncation", async () => {
+    const { truncateConversation } = await import("@/lib/claude");
+    // 8 messages: user(0), assistant(1), user(2), assistant(3), user(4), assistant(5), user(6), assistant(7)
+    // After truncation: first(user-0) + last 4(user-4, assistant-5, user-6, assistant-7)
+    // = [user-0, user-4, assistant-5, user-6, assistant-7] — consecutive users at index 0-1!
+    const messages = Array.from({ length: 8 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: "x".repeat(100000),
+    }));
+
+    const result = truncateConversation(messages, 150000);
+
+    // Verify no consecutive same-role messages
+    for (let i = 1; i < result.length; i++) {
+      expect(result[i].role).not.toBe(result[i - 1].role);
+    }
   });
 });
 

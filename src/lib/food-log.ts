@@ -347,12 +347,15 @@ export async function getRecentFoods(
 
 export async function getFoodLogHistory(
   userId: string,
-  options: { endDate?: string; cursor?: { lastDate: string; lastTime: string | null; lastId: number }; limit?: number },
+  options: { startDate?: string; endDate?: string; cursor?: { lastDate: string; lastTime: string | null; lastId: number }; limit?: number },
 ): Promise<FoodLogHistoryEntry[]> {
   const db = getDb();
   const limit = options.limit ?? 20;
 
   const conditions = [eq(foodLogEntries.userId, userId)];
+  if (options.startDate) {
+    conditions.push(gte(foodLogEntries.date, options.startDate));
+  }
   if (options.endDate) {
     conditions.push(lte(foodLogEntries.date, options.endDate));
   }

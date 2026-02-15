@@ -10,6 +10,7 @@ export function ChatPageClient() {
   const router = useRouter();
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
   const [loggedAnalysis, setLoggedAnalysis] = useState<FoodAnalysis | null>(null);
+  const [loggedMealTypeId, setLoggedMealTypeId] = useState<number | null>(null);
 
   if (logResponse && loggedAnalysis) {
     return (
@@ -18,6 +19,7 @@ export function ChatPageClient() {
           response={logResponse}
           foodName={loggedAnalysis.food_name}
           analysis={loggedAnalysis}
+          mealTypeId={loggedMealTypeId ?? undefined}
         />
       </div>
     );
@@ -27,9 +29,10 @@ export function ChatPageClient() {
     <FoodChat
       title="Chat"
       onClose={() => router.push("/app")}
-      onLogged={(response, analysis) => {
+      onLogged={(response, analysis, mealTypeId) => {
         setLogResponse(response);
         setLoggedAnalysis(analysis);
+        setLoggedMealTypeId(mealTypeId);
       }}
     />
   );

@@ -130,7 +130,8 @@ export async function POST(request: Request) {
       images,
       session!.userId,
       currentDate,
-      initialAnalysis
+      initialAnalysis,
+      request.signal
     );
 
     logger.info(
