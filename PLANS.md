@@ -511,3 +511,30 @@ All tasks completed.
 2. Update regex in `src/app/api/log-food/route.ts:92` from `^\d{2}:\d{2}:\d{2}$` to `^\d{2}:\d{2}(:\d{2})?$` to accept both formats
 3. Update validation logic to handle both 2-part and 3-part time strings
 4. Update error message from "Use HH:mm:ss" to "Use HH:mm or HH:mm:ss"
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-15
+**Method:** Agent team (1 worker)
+
+### Tasks Completed This Iteration
+- Fix 1: Update isValidTimeFormat to accept HH:mm format (FOO-504) - Updated regex, validation logic, error message, and tests (worker-1)
+
+### Files Modified
+- `src/app/api/log-food/route.ts` - Updated `isValidTimeFormat()`: regex from `^\d{2}:\d{2}:\d{2}$` to `^\d{2}:\d{2}(:\d{2})?$`, optional seconds handling via `parts[2] ?? 0`, error message to "Use HH:mm or HH:mm:ss"
+- `src/app/api/log-food/__tests__/route.test.ts` - Removed "12:00" from invalid times, added "1:00"/"12:0" as invalid single-digit formats, added HH:mm semantic validation tests ("24:00", "12:60", "99:99"), added acceptance test for "12:30" format
+
+### Linear Updates
+- FOO-504: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed (no issues found)
+- verifier: All 1720 tests pass, zero lint errors, zero warnings
+
+### Work Partition
+- Worker 1: Fix 1 (log-food route + tests)
+
+### Continuation Status
+All tasks completed.
