@@ -91,7 +91,7 @@ The API endpoint drops `requireFitbit: true` — Fitbit is only needed at log ti
 3. `conversationalRefine()` becomes the single backend function. When `initialAnalysis` is undefined and no images provided, it uses a merged system prompt that can both advise on nutrition AND identify/analyze food from text descriptions
 4. `freeChat()` is deleted from `src/lib/claude.ts`
 5. `FREE_CHAT_SYSTEM_PROMPT` merges into `CHAT_SYSTEM_PROMPT` — the prompt should instruct Claude to: (a) answer nutrition questions using data tools, (b) when the user describes or shows food, analyze it and call `report_nutrition`, (c) when refining existing analysis, confirm changes with updated values
-6. Message limit unifies to 20 (same for both modes — the backend enforces this, component mirrors it)
+6. Message limit unifies to 30 (same for both modes — the backend enforces this, component mirrors it). The conversation truncation from FOO-514 handles token growth gracefully.
 7. Delete `ChatRequest`, `ChatResponse` types from `src/types/index.ts` — only `ChatFoodRequest` and `ChatFoodResponse` remain
 8. Delete `/api/chat/route.ts` and its test file entirely
 
@@ -133,7 +133,7 @@ The API endpoint drops `requireFitbit: true` — Fitbit is only needed at log ti
    - Transition: When first `analysis` appears in messages mid-conversation, header grows to include MealTypeSelector and "Log to Fitbit" — no page reload, smooth state change
 4. `latestAnalysis` derives from messages as before. When it's `undefined` (no analysis yet), the "Log to Fitbit" button and MealTypeSelector are hidden
 5. All API calls go to `/api/chat-food` (FreeChat's `/api/chat` is deleted in Task 1)
-6. Message limit: 20 for both modes (constant `MAX_MESSAGES = 20`)
+6. Message limit: 30 for both modes (constant `MAX_MESSAGES = 30`)
 7. Image handling available in both modes — user can always attach photos via the `+` button
 8. `ConversationMessage` type already has optional `analysis` — no type changes needed
 
@@ -236,7 +236,7 @@ The API endpoint drops `requireFitbit: true` — Fitbit is only needed at log ti
 
 **Key Decisions:**
 - Drop `requireFitbit` on the chat endpoint — Fitbit is validated at log time only
-- Message limit unifies to 20 for both modes
+- Message limit unifies to 30 for both modes (truncation from FOO-514 mitigates token growth)
 - System prompt merges: Claude can both advise on nutrition AND analyze/identify food
 - Header is dynamic: grows to show logging controls when analysis appears mid-conversation
 
