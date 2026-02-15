@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-02-15
+
+### Changed
+
+- Updated to Node.js 24 LTS with refreshed dependencies
+
+### Fixed
+
+- Data freshness and error handling improvements across the app
+- Quick Select scroll flickering when browsing foods
+- Minor frontend polish and accessibility improvements
+
 ## [1.9.0] - 2026-02-14
 
 ### Added
@@ -161,7 +173,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/lucaswall/food-scanner/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/lucaswall/food-scanner/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/lucaswall/food-scanner/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/lucaswall/food-scanner/compare/v1.6.0...v1.7.0
