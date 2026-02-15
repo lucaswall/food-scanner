@@ -81,6 +81,54 @@ describe("Chat Tool Definitions", () => {
     expect(GET_FASTING_INFO_TOOL.input_schema.properties).toHaveProperty("from_date");
     expect(GET_FASTING_INFO_TOOL.input_schema.properties).toHaveProperty("to_date");
   });
+
+  it("SEARCH_FOOD_LOG_TOOL has additionalProperties: false and required array", () => {
+    const schema = SEARCH_FOOD_LOG_TOOL.input_schema;
+
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(["query", "date", "from_date", "to_date", "meal_type", "limit"]);
+
+    // All string params should be nullable
+    expect(schema.properties.query.type).toEqual(["string", "null"]);
+    expect(schema.properties.date.type).toEqual(["string", "null"]);
+    expect(schema.properties.from_date.type).toEqual(["string", "null"]);
+    expect(schema.properties.to_date.type).toEqual(["string", "null"]);
+
+    // meal_type should use anyOf with enum and null
+    expect(schema.properties.meal_type.anyOf).toBeDefined();
+    expect(schema.properties.meal_type.anyOf).toContainEqual({
+      type: "string",
+      enum: ["breakfast", "morning_snack", "lunch", "afternoon_snack", "dinner", "anytime"],
+    });
+    expect(schema.properties.meal_type.anyOf).toContainEqual({ type: "null" });
+
+    // limit should be nullable number
+    expect(schema.properties.limit.type).toEqual(["number", "null"]);
+  });
+
+  it("GET_NUTRITION_SUMMARY_TOOL has additionalProperties: false and required array", () => {
+    const schema = GET_NUTRITION_SUMMARY_TOOL.input_schema;
+
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(["date", "from_date", "to_date"]);
+
+    // All string params should be nullable
+    expect(schema.properties.date.type).toEqual(["string", "null"]);
+    expect(schema.properties.from_date.type).toEqual(["string", "null"]);
+    expect(schema.properties.to_date.type).toEqual(["string", "null"]);
+  });
+
+  it("GET_FASTING_INFO_TOOL has additionalProperties: false and required array", () => {
+    const schema = GET_FASTING_INFO_TOOL.input_schema;
+
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(["date", "from_date", "to_date"]);
+
+    // All string params should be nullable
+    expect(schema.properties.date.type).toEqual(["string", "null"]);
+    expect(schema.properties.from_date.type).toEqual(["string", "null"]);
+    expect(schema.properties.to_date.type).toEqual(["string", "null"]);
+  });
 });
 
 describe("executeTool - search_food_log", () => {
@@ -533,5 +581,73 @@ describe("executeTool - error handling", () => {
     await expect(
       executeTool("get_nutrition_summary", {}, "user-123", "2026-02-15")
     ).rejects.toThrow("At least one of date or from_date+to_date must be provided");
+  });
+
+  it("search_food_log accepts null parameters (falsy check works)", async () => {
+    mockSearchFoods.mockResolvedValue([]);
+
+    // All params null except query - should work
+    const result = await executeTool(
+      "search_food_log",
+      { query: "pizza", date: null, from_date: null, to_date: null, meal_type: null, limit: null },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toContain("No foods found");
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", "pizza", { limit: 10 });
+  });
+
+  it("get_nutrition_summary accepts null parameters", async () => {
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-02-15",
+      meals: [],
+      totals: {
+        calories: 0,
+        proteinG: 0,
+        carbsG: 0,
+        fatG: 0,
+        fiberG: 0,
+        sodiumMg: 0,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+    });
+
+    mockGetLumenGoalsByDate.mockResolvedValue(null);
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+
+    // date provided, from_date and to_date null - should work
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { date: "2026-02-15", from_date: null, to_date: null },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toContain("Nutrition summary");
+    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15");
+  });
+
+  it("get_fasting_info accepts null parameters", async () => {
+    mockGetFastingWindow.mockResolvedValue({
+      date: "2026-02-15",
+      lastMealTime: "20:00:00",
+      firstMealTime: "08:00:00",
+      durationMinutes: 720,
+    });
+
+    // date provided, from_date and to_date null - should work
+    const result = await executeTool(
+      "get_fasting_info",
+      { date: "2026-02-15", from_date: null, to_date: null },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toContain("12 hours");
+    expect(mockGetFastingWindow).toHaveBeenCalledWith("user-123", "2026-02-15");
   });
 });
