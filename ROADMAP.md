@@ -8,7 +8,6 @@
 | [Contextual Memory from Food History](#contextual-memory) | Claude queries past food logs during chat |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
-| [CI/CD Pipeline](#cicd-pipeline) | Automated test, build, and E2E runs in GitHub Actions |
 
 ---
 
@@ -268,56 +267,6 @@ User picks in Settings:
 5. Background sync on reconnection
 6. Auto-log vs hold-for-review setting
 7. Notification for auto-logged items
-
----
-
-## CI/CD Pipeline
-
-### Problem
-
-No automated test or build pipeline exists. Unit tests (`npm test`), type checking (`npm run typecheck`), linting (`npm run lint`), and E2E tests (once Playwright is set up) only run locally. Regressions can be merged without any automated gate.
-
-### Prerequisites
-
-E2E Testing with Playwright (FOO-439 through FOO-443) — the E2E tests must exist before CI can run them.
-
-### Goal
-
-Automated GitHub Actions workflow that runs unit tests, type checking, linting, build verification, and E2E tests on every push and PR.
-
-### Design
-
-#### Workflow Triggers
-
-- On push to `main` and `release` branches
-- On pull request targeting `main`
-
-#### Jobs
-
-1. **Lint + Typecheck** — `npm run lint` and `npm run typecheck` (fast, no DB needed)
-2. **Unit Tests** — `npm test` (jsdom, no DB needed)
-3. **Build** — `npm run build` (catches build errors)
-4. **E2E Tests** — Postgres service container, `ENABLE_TEST_AUTH=true`, `FITBIT_DRY_RUN=true`, production build, `npx playwright test`
-
-### Architecture
-
-- **GitHub Actions** workflow file at `.github/workflows/ci.yml`
-- **Postgres service container** for E2E job (matches Docker Compose config: Postgres 17 Alpine)
-- **Playwright browsers** cached between runs
-- **Parallel jobs** where possible (lint/typecheck + unit tests can run concurrently)
-
-### Edge Cases
-
-- Flaky E2E tests → retry configuration in Playwright config (`retries: 1` in CI)
-- Long build times → consider caching `node_modules` and `.next` build cache
-- Secrets needed → `ANTHROPIC_API_KEY` not needed (Claude is mocked in E2E), only `SESSION_SECRET` and DB connection string
-
-### Implementation Order
-
-1. GitHub Actions workflow with lint + typecheck + unit tests + build
-2. Add E2E job with Postgres service container
-3. Playwright browser caching
-4. Branch protection rules requiring CI pass
 
 ---
 
