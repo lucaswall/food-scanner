@@ -270,7 +270,8 @@ describe("POST /api/chat-food", () => {
       ],
       "user-uuid-123",
       expect.any(String), // currentDate
-      undefined
+      undefined,
+      undefined // request.signal (mock request has no signal)
     );
   });
 
@@ -294,7 +295,8 @@ describe("POST /api/chat-food", () => {
       [],
       "user-uuid-123",
       expect.any(String), // currentDate
-      validAnalysis
+      validAnalysis,
+      undefined // request.signal (mock request has no signal)
     );
   });
 
@@ -318,7 +320,8 @@ describe("POST /api/chat-food", () => {
       [],
       "user-uuid-123",
       "2026-01-15",
-      undefined
+      undefined,
+      undefined // request.signal (mock request has no signal)
     );
   });
 
@@ -560,7 +563,8 @@ describe("POST /api/chat-food", () => {
       [],
       "user-uuid-123",
       expect.any(String), // currentDate
-      undefined // no initialAnalysis
+      undefined, // no initialAnalysis
+      undefined // request.signal (mock request has no signal)
     );
   });
 });

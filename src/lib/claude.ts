@@ -367,7 +367,8 @@ export async function conversationalRefine(
   images: ImageInput[],
   userId?: string,
   currentDate?: string,
-  initialAnalysis?: FoodAnalysis
+  initialAnalysis?: FoodAnalysis,
+  signal?: AbortSignal
 ): Promise<{ message: string; analysis?: FoodAnalysis }> {
   try {
     logger.info(
@@ -438,8 +439,11 @@ export async function conversationalRefine(
     // Truncate conversation if needed (150K tokens threshold)
     anthropicMessages = truncateConversation(anthropicMessages, 150000);
 
-    // Build system prompt with initial analysis context if available
+    // Build system prompt with date and initial analysis context
     let systemPrompt = CHAT_SYSTEM_PROMPT;
+    if (currentDate) {
+      systemPrompt += `\n\nToday's date is: ${currentDate}`;
+    }
     if (initialAnalysis) {
       const amountLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
       systemPrompt += `\n\nThe initial analysis of this meal is:
@@ -494,6 +498,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         tools: allTools,
         operation: "food-chat",
         initialResponse: response,
+        signal,
       });
     }
 
@@ -578,7 +583,7 @@ function estimateTokenCount(messages: Anthropic.MessageParam[]): number {
   return tokens;
 }
 
-function truncateConversation(
+export function truncateConversation(
   messages: Anthropic.MessageParam[],
   maxTokens: number
 ): Anthropic.MessageParam[] {
@@ -596,7 +601,20 @@ function truncateConversation(
   const firstMessage = messages[0];
   const lastFourMessages = messages.slice(-4);
 
-  return [firstMessage, ...lastFourMessages];
+  const result = [firstMessage, ...lastFourMessages];
+
+  // Remove consecutive same-role messages (keep the later one)
+  const filtered: Anthropic.MessageParam[] = [result[0]];
+  for (let i = 1; i < result.length; i++) {
+    if (result[i].role === filtered[filtered.length - 1].role) {
+      // Drop the earlier one (replace it with the current one)
+      filtered[filtered.length - 1] = result[i];
+    } else {
+      filtered.push(result[i]);
+    }
+  }
+
+  return filtered;
 }
 
 
@@ -609,9 +627,13 @@ export async function runToolLoop(
     tools?: Anthropic.Tool[];
     operation?: string;
     initialResponse?: Anthropic.Message;
+    signal?: AbortSignal;
   }
 ): Promise<{ message: string; analysis?: FoodAnalysis }> {
-  const systemPrompt = options?.systemPrompt ?? CHAT_SYSTEM_PROMPT;
+  let systemPrompt = options?.systemPrompt ?? CHAT_SYSTEM_PROMPT;
+  if (!options?.systemPrompt && currentDate) {
+    systemPrompt += `\n\nToday's date is: ${currentDate}`;
+  }
   const tools = options?.tools ?? DATA_TOOLS;
   const operation = options?.operation ?? "food-chat";
 
@@ -627,9 +649,13 @@ export async function runToolLoop(
   let iteration = 0;
   let pendingResponse = options?.initialResponse;
   let lastResponse: Anthropic.Message | undefined;
+  let pendingAnalysis: FoodAnalysis | undefined;
 
   try {
     while (iteration < MAX_ITERATIONS) {
+      if (options?.signal?.aborted) {
+        throw new ClaudeApiError("Request aborted by client");
+      }
       iteration++;
 
       let response: Anthropic.Message;
@@ -691,18 +717,47 @@ export async function runToolLoop(
           analysis = validateFoodAnalysis(toolUseBlock.input);
         }
 
+        // Use pending analysis from earlier iteration if no analysis in final response
+        if (!analysis && pendingAnalysis) {
+          analysis = pendingAnalysis;
+        }
+
         logger.info({ iteration, hasAnalysis: !!analysis }, "tool loop completed");
         return { message, analysis };
       }
 
       if (response.stop_reason === "tool_use") {
         // Extract all tool_use blocks
-        const toolUseBlocks = response.content.filter(
+        const allToolUseBlocks = response.content.filter(
           (block) => block.type === "tool_use"
         ) as Anthropic.ToolUseBlock[];
 
+        // Separate report_nutrition from data tools
+        const reportNutritionBlock = allToolUseBlocks.find(
+          (block) => block.name === "report_nutrition"
+        );
+        const dataToolBlocks = allToolUseBlocks.filter(
+          (block) => block.name !== "report_nutrition"
+        );
+
+        // If report_nutrition is present, validate and store as pending analysis
+        if (reportNutritionBlock) {
+          try {
+            pendingAnalysis = validateFoodAnalysis(reportNutritionBlock.input);
+            logger.info(
+              { foodName: pendingAnalysis.food_name },
+              "captured report_nutrition from tool loop"
+            );
+          } catch (error) {
+            logger.warn(
+              { error: error instanceof Error ? error.message : String(error) },
+              "invalid report_nutrition in tool loop, ignoring"
+            );
+          }
+        }
+
         logger.info(
-          { iteration, toolCount: toolUseBlocks.length },
+          { iteration, toolCount: allToolUseBlocks.length, dataToolCount: dataToolBlocks.length },
           "executing tools"
         );
 
@@ -712,9 +767,26 @@ export async function runToolLoop(
           content: response.content,
         });
 
-        // Execute all tools in parallel (catch errors per-tool to return is_error results)
-        const toolResults = await Promise.all(
-          toolUseBlocks.map(async (toolUse) => {
+        // Build tool results: execute data tools + synthetic result for report_nutrition
+        const toolResults: Array<{
+          type: "tool_result";
+          tool_use_id: string;
+          content: string;
+          is_error?: true;
+        }> = [];
+
+        // Add synthetic result for report_nutrition so Claude doesn't think it failed
+        if (reportNutritionBlock) {
+          toolResults.push({
+            type: "tool_result" as const,
+            tool_use_id: reportNutritionBlock.id,
+            content: "Nutrition analysis recorded.",
+          });
+        }
+
+        // Execute data tools in parallel
+        const dataToolResults = await Promise.all(
+          dataToolBlocks.map(async (toolUse) => {
             try {
               const result = await executeTool(
                 toolUse.name,
@@ -742,6 +814,8 @@ export async function runToolLoop(
             }
           })
         );
+
+        toolResults.push(...dataToolResults);
 
         // Add user message with all tool_result blocks
         conversationMessages.push({
@@ -773,6 +847,9 @@ export async function runToolLoop(
       if (toolUseBlock && toolUseBlock.type === "tool_use") {
         analysis = validateFoodAnalysis(toolUseBlock.input);
       }
+      if (!analysis && pendingAnalysis) {
+        analysis = pendingAnalysis;
+      }
 
       return { message, analysis };
     }
@@ -794,11 +871,14 @@ export async function runToolLoop(
       if (toolUseBlock && toolUseBlock.type === "tool_use") {
         analysis = validateFoodAnalysis(toolUseBlock.input);
       }
+      if (!analysis && pendingAnalysis) {
+        analysis = pendingAnalysis;
+      }
 
       return { message, analysis };
     }
 
-    return { message: "", analysis: undefined };
+    return { message: "", analysis: pendingAnalysis };
   } catch (error) {
     if (error instanceof ClaudeApiError) {
       throw error;

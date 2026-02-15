@@ -1322,6 +1322,22 @@ describe("getFoodLogHistory", () => {
     expect(mockWhere).toHaveBeenCalled();
   });
 
+  it("filters by startDate when provided", async () => {
+    const rows = [
+      makeHistoryRow({ id: 1, foodName: "Lunch", date: "2026-02-12" }),
+      makeHistoryRow({ id: 2, foodName: "Dinner", date: "2026-02-13" }),
+    ];
+    mockLimit.mockResolvedValue(rows);
+
+    const result = await getFoodLogHistory("user-uuid-123", {
+      startDate: "2026-02-10",
+      endDate: "2026-02-15",
+    });
+
+    expect(result).toHaveLength(2);
+    expect(mockWhere).toHaveBeenCalled();
+  });
+
   it("does not use afterId parameter (removed in favor of cursor)", async () => {
     mockLimit.mockResolvedValue([]);
 

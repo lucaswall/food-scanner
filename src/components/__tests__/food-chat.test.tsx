@@ -344,11 +344,12 @@ describe("FoodChat", () => {
     expect(logBody.calories).toBe(640);
     expect(logBody.amount).toBe(300);
 
-    // onLogged should receive the refined analysis (updated one with 640 calories)
+    // onLogged should receive the refined analysis (updated one with 640 calories) and mealTypeId
     await waitFor(() => {
       expect(defaultProps.onLogged).toHaveBeenCalledWith(
         mockLogResponse,
-        expect.objectContaining({ calories: 640, amount: 300 })
+        expect.objectContaining({ calories: 640, amount: 300 }),
+        expect.any(Number)
       );
     });
   });
@@ -377,11 +378,12 @@ describe("FoodChat", () => {
       );
     });
 
-    // onLogged should receive both the response and the initial analysis (no refinement)
+    // onLogged should receive the response, initial analysis, and mealTypeId
     await waitFor(() => {
       expect(defaultProps.onLogged).toHaveBeenCalledWith(
         mockLogResponse,
-        mockAnalysis
+        mockAnalysis,
+        expect.any(Number)
       );
     });
   });

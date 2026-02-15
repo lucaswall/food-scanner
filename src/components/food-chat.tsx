@@ -36,7 +36,7 @@ interface FoodChatProps {
   initialMealTypeId?: number;
   title?: string;
   onClose: () => void;
-  onLogged: (response: FoodLogResponse, analysis: FoodAnalysis) => void;
+  onLogged: (response: FoodLogResponse, analysis: FoodAnalysis, mealTypeId: number) => void;
 }
 
 export function FoodChat({
@@ -255,7 +255,7 @@ export function FoodChat({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(120000), // Tool loops can require up to 5 sequential API calls
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -354,7 +354,7 @@ export function FoodChat({
         return;
       }
 
-      onLogged(result.data, analysis);
+      onLogged(result.data, analysis, mealTypeId);
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setError("Request timed out. Please try again.");

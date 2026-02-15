@@ -367,11 +367,45 @@ describe("executeTool - search_food_log", () => {
     );
 
     expect(mockGetFoodLogHistory).toHaveBeenCalledWith("user-123", {
+      startDate: "2026-02-10",
       endDate: "2026-02-15",
-      limit: 10,
+      limit: 100,
     });
     expect(result).toContain("Pizza");
     expect(result).toContain("2026-02-15");
+  });
+
+  it("respects user-specified limit for date range output", async () => {
+    const entries = Array.from({ length: 5 }, (_, i) => ({
+      id: i + 1,
+      foodName: `Food ${i + 1}`,
+      calories: 200,
+      proteinG: 10,
+      carbsG: 20,
+      fatG: 8,
+      fiberG: 2,
+      sodiumMg: 300,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      caloriesFromFat: null,
+      amount: 100,
+      unitId: 147,
+      mealTypeId: 3,
+      date: `2026-02-1${i}`,
+      time: "12:00:00",
+      fitbitLogId: null,
+    }));
+    mockGetFoodLogHistory.mockResolvedValue(entries);
+
+    const result = await executeTool(
+      "search_food_log",
+      { from_date: "2026-02-10", to_date: "2026-02-15", limit: 3 },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toContain("Found 3 entries");
   });
 });
 

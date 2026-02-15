@@ -181,25 +181,25 @@ async function executeSearchFoodLog(
   // Case 3: date range
   if (from_date && to_date && typeof from_date === "string" && typeof to_date === "string") {
     const entries = await getFoodLogHistory(userId, {
+      startDate: from_date,
       endDate: to_date,
-      limit: effectiveLimit,
+      limit: 100,
     });
 
-    // Filter by from_date (getFoodLogHistory only supports endDate)
-    const filtered = entries.filter((e) => e.date >= from_date && e.date <= to_date);
+    const truncated = effectiveLimit < entries.length ? entries.slice(0, effectiveLimit) : entries;
 
-    if (filtered.length === 0) {
+    if (truncated.length === 0) {
       return `No entries found between ${from_date} and ${to_date}.`;
     }
 
-    const lines = filtered.map((entry) => {
+    const lines = truncated.map((entry) => {
       const amountLabel = getUnitLabel(entry.unitId, entry.amount);
       const mealLabel = FITBIT_MEAL_TYPE_LABELS[entry.mealTypeId] || "Unknown";
       const timeStr = entry.time ? ` at ${formatTime(entry.time)}` : "";
       return `• ${entry.date} — ${entry.foodName} (${mealLabel}${timeStr}) — ${amountLabel}, ${entry.calories} cal, P:${entry.proteinG}g C:${entry.carbsG}g F:${entry.fatG}g`;
     });
 
-    return `Found ${filtered.length} entries between ${from_date} and ${to_date}:\n${lines.join("\n")}`;
+    return `Found ${truncated.length} entries between ${from_date} and ${to_date}:\n${lines.join("\n")}`;
   }
 
   throw new Error("Invalid search_food_log parameters");
