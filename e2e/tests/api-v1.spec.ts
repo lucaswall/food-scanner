@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('v1 External API', () => {
-  const today = new Date().toISOString().split('T')[0];
+  // Use local date (not UTC) to match how the app and seed fixture work
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   let apiKey: string;
   let apiKeyId: number;
 

@@ -24,7 +24,9 @@ test.describe('Empty and Error States', () => {
   });
 
   test('earliest entry API returns today for seeded data', async ({ request }) => {
-    const today = new Date().toISOString().split('T')[0];
+    // Use local date (not UTC) to match how the app and seed fixture work
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     const response = await request.get('/api/earliest-entry');
     expect(response.status()).toBe(200);
     const body = await response.json();

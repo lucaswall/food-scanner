@@ -87,7 +87,9 @@ test.describe('History Page', () => {
     const dateInput = page.getByLabel('Jump to date');
 
     // Set to today's date
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    // Use local date (not UTC) to match how the app renders dates
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     await dateInput.fill(today);
 
     // Click Go button

@@ -3,7 +3,9 @@ import { test, expect } from '@playwright/test';
 // Uses default authenticated storage state from global setup
 
 test.describe('API Data Verification', () => {
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  // Use local date (not UTC) to match how the app and seed fixture work
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   test('GET /api/food-history returns seeded entries', async ({ request }) => {
     const response = await request.get('/api/food-history');
