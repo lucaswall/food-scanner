@@ -71,14 +71,13 @@ export function LumenBanner() {
 
       // Mutate SWR cache on success
       await mutate();
-
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Upload failed");
     } finally {
+      // Reset file input so same file can be re-selected
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
       setIsUploading(false);
     }
   };

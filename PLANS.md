@@ -576,3 +576,27 @@ Summary: 1 issue found (Team: security, reliability, quality reviewers)
 
 1. Write test in `src/components/__tests__/lumen-banner.test.tsx` that simulates a failed upload and verifies `fileInputRef.current.value` is reset to `""` even on error
 2. Move file input reset from `try` block (line 75-78) to `finally` block in `src/components/lumen-banner.tsx`, matching the pattern in `daily-dashboard.tsx:147-150`
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-15
+**Method:** Single-agent (1 fix task)
+
+### Tasks Completed This Iteration
+- Fix 1: File input reset on upload error (FOO-496) - Moved file input reset from `try` to `finally` block, added test for error-path reset
+
+### Files Modified
+- `src/components/lumen-banner.tsx` - Moved file input reset to `finally` block
+- `src/components/__tests__/lumen-banner.test.tsx` - Added test "resets file input value even when upload fails"
+
+### Linear Updates
+- FOO-496: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 1701 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.

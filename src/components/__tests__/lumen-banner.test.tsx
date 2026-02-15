@@ -255,6 +255,36 @@ describe("LumenBanner", () => {
     expect(dateValue).toBe(expectedDate);
   });
 
+  it("resets file input value even when upload fails", async () => {
+    const user = userEvent.setup();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: { message: "Server error" } }),
+    });
+
+    mockUseSWR.mockReturnValue({
+      data: { goals: null },
+      error: undefined,
+      isLoading: false,
+      mutate: vi.fn(),
+    });
+
+    render(<LumenBanner />);
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["image"], "lumen.png", { type: "image/png" });
+
+    await user.upload(fileInput, file);
+
+    await waitFor(() => {
+      expect(screen.getByText(/server error/i)).toBeInTheDocument();
+    });
+
+    // File input should be reset even on error, so user can re-select the same file
+    expect(fileInput.value).toBe("");
+  });
+
   it("renders upload prompt as a proper button element with accessible attributes", async () => {
     const user = userEvent.setup();
     mockUseSWR.mockReturnValue({
