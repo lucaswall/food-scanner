@@ -371,7 +371,7 @@ describe("POST /api/log-food", () => {
   });
 
   it("returns 400 VALIDATION_ERROR for invalid time format", async () => {
-    const invalidTimes = ["invalid-time", "12:00", "12:00:00:00", "1:00:00", "12:0:00"];
+    const invalidTimes = ["invalid-time", "12:00:00:00", "1:00:00", "12:0:00", "1:00", "12:0"];
 
     for (const time of invalidTimes) {
       vi.clearAllMocks();
@@ -410,7 +410,7 @@ describe("POST /api/log-food", () => {
   });
 
   it("returns 400 for semantically invalid times", async () => {
-    const invalidTimes = ["99:99:99", "24:00:00", "12:60:00", "12:00:60"];
+    const invalidTimes = ["99:99:99", "24:00:00", "12:60:00", "12:00:60", "24:00", "12:60", "99:99"];
 
     for (const time of invalidTimes) {
       vi.clearAllMocks();
@@ -452,6 +452,33 @@ describe("POST /api/log-food", () => {
       147,
       "2024-01-15",
       "12:30:00"
+    );
+  });
+
+  it("accepts HH:mm time format without seconds", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+    mockLogFood.mockResolvedValue({
+      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+    });
+
+    const request = createMockRequest({
+      ...validFoodLogRequest,
+      date: "2024-01-15",
+      time: "12:30",
+    });
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(mockLogFood).toHaveBeenCalledWith(
+      "fresh-token",
+      123,
+      1,
+      100,
+      147,
+      "2024-01-15",
+      "12:30"
     );
   });
 
