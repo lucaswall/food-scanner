@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
  * Pricing per 1M tokens for each Claude model.
  *
  * Anthropic pricing (as of 2026-01):
- * - Sonnet 4: $3/M input, $15/M output
+ * - Sonnet 4/4.5: $3/M input, $15/M output
  * - Haiku 4.5: $0.80/M input, $4/M output
  * - Cache creation: 25% MORE than input price
  * - Cache read: 90% LESS than input price (10% of input)
@@ -18,6 +18,10 @@ export const MODEL_PRICING: Record<
   { inputPricePerMToken: number; outputPricePerMToken: number }
 > = {
   "claude-sonnet-4-20250514": {
+    inputPricePerMToken: 3,
+    outputPricePerMToken: 15,
+  },
+  "claude-sonnet-4-5-20250929": {
     inputPricePerMToken: 3,
     outputPricePerMToken: 15,
   },

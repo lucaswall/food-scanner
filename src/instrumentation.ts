@@ -3,12 +3,13 @@ export async function register() {
   validateRequiredEnvVars();
 
   const { logger } = await import("@/lib/logger");
+  const proc = globalThis.process;
   logger.info(
     {
       action: "server_start",
-      nodeVersion: process.version,
-      nodeEnv: process.env.NODE_ENV,
-      logLevel: process.env.LOG_LEVEL || (process.env.NODE_ENV === "production" ? "info" : "debug"),
+      nodeVersion: proc.version,
+      nodeEnv: proc.env.NODE_ENV,
+      logLevel: proc.env.LOG_LEVEL || (proc.env.NODE_ENV === "production" ? "info" : "debug"),
     },
     "server started",
   );

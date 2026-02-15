@@ -260,7 +260,12 @@ Run the `bug-hunter` agent to review all changes:
 Use Task tool with subagent_type "bug-hunter"
 ```
 
-If bugs found → message the relevant worker to fix, or fix directly if the worker has shut down.
+**Bug handling policy — fix ALL real bugs:**
+- Every bug reported by bug-hunter must be fixed, whether introduced by this iteration or pre-existing
+- "It was already broken before this plan" is NOT a valid reason to skip a bug — fix it anyway
+- The ONLY findings you may skip are **verifiable false positives** (the reported behavior is actually correct, the code is not actually buggy)
+- If uncertain whether something is a real bug or a false positive, treat it as a real bug and fix it
+- Message the relevant worker to fix bugs in their files, or fix directly if workers have shut down
 
 ### 4. Run Full Test Suite
 
@@ -365,7 +370,7 @@ If `TeamCreate` fails (agent teams unavailable), implement the plan sequentially
    | **> 230** | **STOP** — run pre-stop checklist immediately |
 
 4. **Pre-stop checklist** (run when stopping, regardless of reason):
-   - Run `bug-hunter` agent — fix any bugs found
+   - Run `bug-hunter` agent — fix ALL real bugs found (pre-existing or new; only skip verifiable false positives)
    - Run `verifier` agent — fix any failures or warnings
 5. **Document results** — Same Iteration block format (omit Work Partition section)
 
@@ -420,6 +425,7 @@ If `TeamCreate` fails (agent teams unavailable), implement the plan sequentially
 
 - **Partition by file ownership** — The #1 rule. No file in more than one work unit.
 - **Follow TDD strictly** — Test before implementation, always
+- **Fix ALL real bugs** — Every bug found by bug-hunter must be fixed, whether pre-existing or introduced by this iteration. Only skip findings that are verifiable false positives (not actual bugs). "It existed before" is never a valid excuse to leave a bug unfixed.
 - **Fix failures immediately** — Do not proceed with failing tests or warnings
 - **Never modify previous sections** — Only append new Iteration section
 - **Always commit and push at termination** — Never end without committing progress

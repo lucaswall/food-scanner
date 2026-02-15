@@ -6,6 +6,8 @@ import { getRequiredEnv } from "@/lib/env";
 import { recordUsage } from "@/lib/claude-usage";
 import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } from "@/lib/chat-tools";
 
+const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
+
 let _client: Anthropic | null = null;
 
 function getClient(): Anthropic {
@@ -39,12 +41,14 @@ Follow these rules:
 - Use the report_nutrition tool only when you have complete nutritional information to report or update
 - Use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) when the user asks about what they've eaten before, their nutrition goals, or fasting patterns`;
 
-const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
+export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
   description:
     "Report the nutritional analysis of the food shown in the images",
+  strict: true,
   input_schema: {
     type: "object" as const,
+    additionalProperties: false as const,
     properties: {
       food_name: {
         type: "string",
@@ -65,19 +69,19 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       fiber_g: { type: "number" },
       sodium_mg: { type: "number" },
       saturated_fat_g: {
-        type: "number",
+        type: ["number", "null"],
         description: "Estimated saturated fat in grams. Provide your best estimate; use null only if truly unknown.",
       },
       trans_fat_g: {
-        type: "number",
+        type: ["number", "null"],
         description: "Estimated trans fat in grams. Provide your best estimate; use null only if truly unknown.",
       },
       sugars_g: {
-        type: "number",
+        type: ["number", "null"],
         description: "Estimated sugars in grams. Provide your best estimate; use null only if truly unknown.",
       },
       calories_from_fat: {
-        type: "number",
+        type: ["number", "null"],
         description: "Estimated calories from fat. Provide your best estimate; use null only if truly unknown.",
       },
       confidence: { type: "string", enum: ["high", "medium", "low"] },
@@ -105,6 +109,10 @@ const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       "fat_g",
       "fiber_g",
       "sodium_mg",
+      "saturated_fat_g",
+      "trans_fat_g",
+      "sugars_g",
+      "calories_from_fat",
       "confidence",
       "notes",
       "keywords",
@@ -250,11 +258,23 @@ export async function analyzeFood(
       "calling Claude API for food analysis"
     );
 
+    // Add cache_control to last tool (don't mutate original)
+    const toolsWithCache = [{
+      ...REPORT_NUTRITION_TOOL,
+      cache_control: { type: "ephemeral" as const },
+    }];
+
     const response = await getClient().messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: CLAUDE_MODEL,
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      tools: [REPORT_NUTRITION_TOOL],
+      system: [
+        {
+          type: "text" as const,
+          text: SYSTEM_PROMPT,
+          cache_control: { type: "ephemeral" as const },
+        },
+      ],
+      tools: toolsWithCache,
       tool_choice: { type: "tool", name: "report_nutrition" },
       messages: [
         {
@@ -353,7 +373,7 @@ export async function conversationalRefine(
     }
 
     // Convert ConversationMessage[] to Anthropic SDK message format
-    const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg, index) => {
+    let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg, index) => {
       const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
 
       // Attach images to the last user message
@@ -403,6 +423,9 @@ export async function conversationalRefine(
       };
     });
 
+    // Truncate conversation if needed (150K tokens threshold)
+    anthropicMessages = truncateConversation(anthropicMessages, 150000);
+
     // Build system prompt with initial analysis context if available
     let systemPrompt = CHAT_SYSTEM_PROMPT;
     if (initialAnalysis) {
@@ -420,11 +443,24 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
 
     const allTools = [REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
 
+    // Add cache_control to last tool (don't mutate originals)
+    const toolsWithCache = allTools.map((tool, index) =>
+      index === allTools.length - 1
+        ? { ...tool, cache_control: { type: "ephemeral" as const } }
+        : tool
+    );
+
     const response = await getClient().messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: CLAUDE_MODEL,
       max_tokens: 2048,
-      system: systemPrompt,
-      tools: allTools,
+      system: [
+        {
+          type: "text" as const,
+          text: systemPrompt,
+          cache_control: { type: "ephemeral" as const },
+        },
+      ],
+      tools: toolsWithCache,
       tool_choice: { type: "auto" },
       messages: anthropicMessages,
     });
@@ -521,13 +557,56 @@ const DATA_TOOLS = [
   GET_FASTING_INFO_TOOL,
 ];
 
+function estimateTokenCount(messages: Anthropic.MessageParam[]): number {
+  let tokens = 0;
+
+  for (const message of messages) {
+    if (Array.isArray(message.content)) {
+      for (const block of message.content) {
+        if (block.type === "text") {
+          // ~4 characters per token
+          tokens += Math.ceil(block.text.length / 4);
+        } else if (block.type === "image") {
+          // ~1000 tokens per image
+          tokens += 1000;
+        }
+      }
+    } else if (typeof message.content === "string") {
+      tokens += Math.ceil(message.content.length / 4);
+    }
+  }
+
+  return tokens;
+}
+
+function truncateConversation(
+  messages: Anthropic.MessageParam[],
+  maxTokens: number
+): Anthropic.MessageParam[] {
+  const estimatedTokens = estimateTokenCount(messages);
+
+  if (estimatedTokens <= maxTokens) {
+    return messages;
+  }
+
+  // Keep first user message + last 4 messages
+  if (messages.length <= 5) {
+    return messages;
+  }
+
+  const firstMessage = messages[0];
+  const lastFourMessages = messages.slice(-4);
+
+  return [firstMessage, ...lastFourMessages];
+}
+
 export async function freeChat(
   messages: ConversationMessage[],
   userId: string,
   currentDate: string
 ): Promise<{ message: string }> {
   // Convert ConversationMessage[] to Anthropic.MessageParam[]
-  const anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => ({
+  let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => ({
     role: msg.role,
     content: [
       {
@@ -536,6 +615,9 @@ export async function freeChat(
       },
     ],
   }));
+
+  // Truncate conversation if needed (150K tokens threshold)
+  anthropicMessages = truncateConversation(anthropicMessages, 150000);
 
   const result = await runToolLoop(anthropicMessages, userId, currentDate, {
     systemPrompt: FREE_CHAT_SYSTEM_PROMPT,
@@ -561,10 +643,18 @@ export async function runToolLoop(
   const tools = options?.tools ?? DATA_TOOLS;
   const operation = options?.operation ?? "free-chat";
 
+  // Add cache_control to last tool (don't mutate originals)
+  const toolsWithCache = tools.map((tool, index) =>
+    index === tools.length - 1
+      ? { ...tool, cache_control: { type: "ephemeral" as const } }
+      : tool
+  );
+
   const conversationMessages: Anthropic.MessageParam[] = [...messages];
   const MAX_ITERATIONS = 5;
   let iteration = 0;
   let pendingResponse = options?.initialResponse;
+  let lastResponse: Anthropic.Message | undefined;
 
   try {
     while (iteration < MAX_ITERATIONS) {
@@ -581,14 +671,22 @@ export async function runToolLoop(
         );
 
         response = await getClient().messages.create({
-          model: "claude-sonnet-4-20250514",
+          model: CLAUDE_MODEL,
           max_tokens: 2048,
-          system: systemPrompt,
-          tools,
+          system: [
+            {
+              type: "text" as const,
+              text: systemPrompt,
+              cache_control: { type: "ephemeral" as const },
+            },
+          ],
+          tools: toolsWithCache,
           tool_choice: { type: "auto" },
           messages: conversationMessages,
         });
       }
+
+      lastResponse = response;
 
       // Record usage (fire-and-forget)
       if (userId) {
@@ -683,12 +781,52 @@ export async function runToolLoop(
         continue;
       }
 
-      // Unknown stop_reason
-      throw new ClaudeApiError(`Unexpected stop_reason: ${response.stop_reason}`);
+      // Handle other stop reasons gracefully (refusal, model_context_window_exceeded, max_tokens, etc.)
+      // Extract text blocks and return partial response
+      logger.warn(
+        { stop_reason: response.stop_reason, iteration },
+        "unexpected stop_reason, returning partial response"
+      );
+
+      const textBlocks = response.content.filter(
+        (block) => block.type === "text"
+      ) as Anthropic.TextBlock[];
+      const message = textBlocks.map((block) => block.text).join("\n");
+
+      const toolUseBlock = response.content.find(
+        (block) => block.type === "tool_use" && block.name === "report_nutrition"
+      );
+
+      let analysis: FoodAnalysis | undefined;
+      if (toolUseBlock && toolUseBlock.type === "tool_use") {
+        analysis = validateFoodAnalysis(toolUseBlock.input);
+      }
+
+      return { message, analysis };
     }
 
-    // Exceeded max iterations
-    throw new ClaudeApiError("Tool loop exceeded maximum iterations");
+    // Exceeded max iterations - return last response
+    logger.warn({ iteration }, "tool loop exceeded maximum iterations");
+
+    if (lastResponse) {
+      const textBlocks = lastResponse.content.filter(
+        (block) => block.type === "text"
+      ) as Anthropic.TextBlock[];
+      const message = textBlocks.map((block) => block.text).join("\n");
+
+      const toolUseBlock = lastResponse.content.find(
+        (block) => block.type === "tool_use" && block.name === "report_nutrition"
+      );
+
+      let analysis: FoodAnalysis | undefined;
+      if (toolUseBlock && toolUseBlock.type === "tool_use") {
+        analysis = validateFoodAnalysis(toolUseBlock.input);
+      }
+
+      return { message, analysis };
+    }
+
+    return { message: "", analysis: undefined };
   } catch (error) {
     if (error instanceof ClaudeApiError) {
       throw error;

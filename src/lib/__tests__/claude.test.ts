@@ -68,7 +68,7 @@ describe("analyzeFood", () => {
 
   it("returns FoodAnalysis for valid tool_use response", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -95,7 +95,7 @@ describe("analyzeFood", () => {
 
   it("calls recordUsage with correct arguments after successful analysis", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -121,7 +121,7 @@ describe("analyzeFood", () => {
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
       "user-123",
-      "claude-sonnet-4-20250514",
+      "claude-sonnet-4-5-20250929",
       "food-analysis",
       {
         inputTokens: 1500,
@@ -144,7 +144,7 @@ describe("analyzeFood", () => {
     });
 
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -175,7 +175,7 @@ describe("analyzeFood", () => {
     mockRecordUsage.mockRejectedValueOnce(new Error("Database error"));
 
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -253,9 +253,14 @@ describe("analyzeFood", () => {
 
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-5-20250929",
         max_tokens: 1024,
-        system: expect.stringContaining("nutrition analyst"),
+        system: expect.arrayContaining([
+          expect.objectContaining({
+            type: "text",
+            text: expect.stringContaining("nutrition analyst"),
+          }),
+        ]),
         tools: expect.arrayContaining([
           expect.objectContaining({
             name: "report_nutrition",
@@ -1202,6 +1207,29 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
     expect(result.sugars_g).toBe(0);
     expect(result.calories_from_fat).toBe(0);
   });
+
+  it("handles refusal stop_reason in analyzeFood", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "refusal",
+      content: [
+        {
+          type: "text",
+          text: "I cannot analyze this image.",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR", message: expect.stringContaining("No tool_use block") });
+  });
 });
 
 describe("conversationalRefine", () => {
@@ -1216,7 +1244,7 @@ describe("conversationalRefine", () => {
 
   it("returns message and analysis when Claude responds with text + tool_use", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1255,7 +1283,7 @@ describe("conversationalRefine", () => {
 
   it("returns only message when Claude responds with text only (no tool_use)", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1288,7 +1316,7 @@ describe("conversationalRefine", () => {
 
   it("uses tool_choice auto (not forced)", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1318,7 +1346,7 @@ describe("conversationalRefine", () => {
 
   it("uses CHAT_SYSTEM_PROMPT without initial analysis", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1339,16 +1367,13 @@ describe("conversationalRefine", () => {
       "2026-02-15"
     );
 
-    expect(mockCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        system: CHAT_SYSTEM_PROMPT,
-      })
-    );
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.system[0].text).toBe(CHAT_SYSTEM_PROMPT);
   });
 
   it("includes initial analysis context in system prompt when provided", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1371,14 +1396,15 @@ describe("conversationalRefine", () => {
     );
 
     const call = mockCreate.mock.calls[0][0];
-    expect(call.system).toContain(validAnalysis.food_name);
-    expect(call.system).toContain(String(validAnalysis.calories));
-    expect(call.system).toContain("baseline");
+    const systemText = call.system[0].text;
+    expect(systemText).toContain(validAnalysis.food_name);
+    expect(systemText).toContain(String(validAnalysis.calories));
+    expect(systemText).toContain("baseline");
   });
 
   it("uses max_tokens 2048", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1408,7 +1434,7 @@ describe("conversationalRefine", () => {
 
   it("attaches images to the last user message", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1458,7 +1484,7 @@ describe("conversationalRefine", () => {
 
   it("does not include images when not provided", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1493,7 +1519,7 @@ describe("conversationalRefine", () => {
 
   it("records usage as food-chat operation", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1518,7 +1544,7 @@ describe("conversationalRefine", () => {
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
       "user-123",
-      "claude-sonnet-4-20250514",
+      "claude-sonnet-4-5-20250929",
       "food-chat",
       {
         inputTokens: 1700,
@@ -1551,7 +1577,7 @@ describe("conversationalRefine", () => {
     mockRecordUsage.mockRejectedValueOnce(new Error("Database error"));
 
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1578,7 +1604,7 @@ describe("conversationalRefine", () => {
 
   it("system prompt shows 'cup' for unit_id 91", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [{ type: "text", text: "OK" }],
       usage: { input_tokens: 1500, output_tokens: 50 },
     });
@@ -1593,13 +1619,14 @@ describe("conversationalRefine", () => {
     );
 
     const call = mockCreate.mock.calls[0][0];
-    expect(call.system).toContain("2 cups");
-    expect(call.system).not.toContain("2 units");
+    const systemText = call.system[0].text;
+    expect(systemText).toContain("2 cups");
+    expect(systemText).not.toContain("2 units");
   });
 
   it("system prompt shows 'oz' for unit_id 226", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [{ type: "text", text: "OK" }],
       usage: { input_tokens: 1500, output_tokens: 50 },
     });
@@ -1614,13 +1641,14 @@ describe("conversationalRefine", () => {
     );
 
     const call = mockCreate.mock.calls[0][0];
-    expect(call.system).toContain("8oz");
-    expect(call.system).not.toContain("8 units");
+    const systemText = call.system[0].text;
+    expect(systemText).toContain("8oz");
+    expect(systemText).not.toContain("8 units");
   });
 
   it("system prompt falls back to 'units' for unknown unit_id", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [{ type: "text", text: "OK" }],
       usage: { input_tokens: 1500, output_tokens: 50 },
     });
@@ -1635,12 +1663,13 @@ describe("conversationalRefine", () => {
     );
 
     const call = mockCreate.mock.calls[0][0];
-    expect(call.system).toContain("3 units");
+    const systemText = call.system[0].text;
+    expect(systemText).toContain("3 units");
   });
 
   it("converts ConversationMessage array to Anthropic message format", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
@@ -1683,7 +1712,7 @@ describe("conversationalRefine", () => {
 
   it("includes structured analysis summary in assistant messages that have analysis", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [{ type: "text", text: "OK" }],
       usage: { input_tokens: 1500, output_tokens: 50 },
     });
@@ -1716,7 +1745,7 @@ describe("conversationalRefine", () => {
 
   it("does not include analysis summary in assistant messages without analysis", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [{ type: "text", text: "OK" }],
       usage: { input_tokens: 1500, output_tokens: 50 },
     });
@@ -1742,7 +1771,7 @@ describe("conversationalRefine", () => {
 
   it("analysis summary includes key nutritional fields", async () => {
     mockCreate.mockResolvedValueOnce({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       content: [{ type: "text", text: "OK" }],
       usage: { input_tokens: 1500, output_tokens: 50 },
     });
@@ -1786,9 +1815,9 @@ describe("conversationalRefine", () => {
 const mockExecuteTool = vi.fn();
 vi.mock("@/lib/chat-tools", () => ({
   executeTool: (...args: unknown[]) => mockExecuteTool(...args),
-  SEARCH_FOOD_LOG_TOOL: { name: "search_food_log", description: "Search food log", input_schema: { type: "object", properties: {} } },
-  GET_NUTRITION_SUMMARY_TOOL: { name: "get_nutrition_summary", description: "Get nutrition summary", input_schema: { type: "object", properties: {} } },
-  GET_FASTING_INFO_TOOL: { name: "get_fasting_info", description: "Get fasting info", input_schema: { type: "object", properties: {} } },
+  SEARCH_FOOD_LOG_TOOL: { name: "search_food_log", description: "Search food log", strict: true, input_schema: { type: "object", properties: {} } },
+  GET_NUTRITION_SUMMARY_TOOL: { name: "get_nutrition_summary", description: "Get nutrition summary", strict: true, input_schema: { type: "object", properties: {} } },
+  GET_FASTING_INFO_TOOL: { name: "get_fasting_info", description: "Get fasting info", strict: true, input_schema: { type: "object", properties: {} } },
 }));
 
 describe("runToolLoop", () => {
@@ -1805,7 +1834,7 @@ describe("runToolLoop", () => {
   it("returns immediately on end_turn response", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -1837,7 +1866,7 @@ describe("runToolLoop", () => {
     // First response: tool_use
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "tool_use",
       content: [
         {
@@ -1856,7 +1885,7 @@ describe("runToolLoop", () => {
     // Second response: end_turn with text
     mockCreate.mockResolvedValueOnce({
       id: "msg_2",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -1905,7 +1934,7 @@ describe("runToolLoop", () => {
     // First response: multiple tool_use blocks
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "tool_use",
       content: [
         {
@@ -1930,7 +1959,7 @@ describe("runToolLoop", () => {
     // Second response: end_turn
     mockCreate.mockResolvedValueOnce({
       id: "msg_2",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -1988,14 +2017,18 @@ describe("runToolLoop", () => {
     });
   });
 
-  it("caps at 5 iterations", async () => {
+  it("caps at 5 iterations and returns last response", async () => {
     // Respond with tool_use 5 times
     for (let i = 0; i < 5; i++) {
       mockCreate.mockResolvedValueOnce({
         id: `msg_${i + 1}`,
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-5-20250929",
         stop_reason: "tool_use",
         content: [
+          {
+            type: "text",
+            text: `Iteration ${i + 1} response`,
+          },
           {
             type: "tool_use",
             id: `tool_${i + 1}`,
@@ -2013,21 +2046,85 @@ describe("runToolLoop", () => {
 
     const { runToolLoop } = await import("@/lib/claude");
 
-    await expect(
-      runToolLoop(
-        [{ role: "user", content: "Test" }],
-        "user-123",
-        "2026-02-15"
-      )
-    ).rejects.toThrow("Tool loop exceeded maximum iterations");
+    const result = await runToolLoop(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
 
     expect(mockCreate).toHaveBeenCalledTimes(5);
+    expect(result.message).toBe("Iteration 5 response");
+    expect(result.analysis).toBeUndefined();
+  });
+
+  it("returns analysis when present in last response after max iterations", async () => {
+    // Respond with tool_use 5 times, last one includes report_nutrition
+    for (let i = 0; i < 4; i++) {
+      mockCreate.mockResolvedValueOnce({
+        id: `msg_${i + 1}`,
+        model: "claude-sonnet-4-5-20250929",
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "text",
+            text: `Iteration ${i + 1}`,
+          },
+          {
+            type: "tool_use",
+            id: `tool_${i + 1}`,
+            name: "get_nutrition_summary",
+            input: { date: "2026-02-15" },
+          },
+        ],
+        usage: {
+          input_tokens: 1500,
+          output_tokens: 100,
+        },
+      });
+      mockExecuteTool.mockResolvedValueOnce("Result...");
+    }
+
+    // Last iteration includes analysis
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_5",
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "text",
+          text: "Final iteration with analysis",
+        },
+        {
+          type: "tool_use",
+          id: "tool_nutrition",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 100,
+      },
+    });
+    mockExecuteTool.mockResolvedValueOnce("Result...");
+
+    const { runToolLoop } = await import("@/lib/claude");
+
+    const result = await runToolLoop(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(mockCreate).toHaveBeenCalledTimes(5);
+    expect(result.message).toBe("Final iteration with analysis");
+    expect(result.analysis).toEqual(validAnalysis);
   });
 
   it("records usage for each API call", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "tool_use",
       content: [
         {
@@ -2047,7 +2144,7 @@ describe("runToolLoop", () => {
 
     mockCreate.mockResolvedValueOnce({
       id: "msg_2",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -2076,7 +2173,7 @@ describe("runToolLoop", () => {
     expect(mockRecordUsage).toHaveBeenNthCalledWith(
       1,
       "user-123",
-      "claude-sonnet-4-20250514",
+      "claude-sonnet-4-5-20250929",
       "free-chat",
       {
         inputTokens: 1500,
@@ -2088,7 +2185,7 @@ describe("runToolLoop", () => {
     expect(mockRecordUsage).toHaveBeenNthCalledWith(
       2,
       "user-123",
-      "claude-sonnet-4-20250514",
+      "claude-sonnet-4-5-20250929",
       "free-chat",
       {
         inputTokens: 1700,
@@ -2102,7 +2199,7 @@ describe("runToolLoop", () => {
   it("includes text alongside tool_use in response", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "tool_use",
       content: [
         {
@@ -2124,7 +2221,7 @@ describe("runToolLoop", () => {
 
     mockCreate.mockResolvedValueOnce({
       id: "msg_2",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -2153,7 +2250,7 @@ describe("runToolLoop", () => {
   it("returns analysis if present in final response", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -2186,10 +2283,67 @@ describe("runToolLoop", () => {
     });
   });
 
-  it("throws on unknown stop_reason", async () => {
+  it("handles refusal stop_reason gracefully", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "refusal",
+      content: [
+        {
+          type: "text",
+          text: "I cannot help with that request.",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 50,
+      },
+    });
+
+    const { runToolLoop } = await import("@/lib/claude");
+
+    const result = await runToolLoop(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result.message).toBe("I cannot help with that request.");
+    expect(result.analysis).toBeUndefined();
+  });
+
+  it("handles model_context_window_exceeded stop_reason gracefully", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "model_context_window_exceeded",
+      content: [
+        {
+          type: "text",
+          text: "Partial response before context limit.",
+        },
+      ],
+      usage: {
+        input_tokens: 200000,
+        output_tokens: 100,
+      },
+    });
+
+    const { runToolLoop } = await import("@/lib/claude");
+
+    const result = await runToolLoop(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result.message).toBe("Partial response before context limit.");
+  });
+
+  it("handles unknown stop_reason gracefully (returns partial response)", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "max_tokens",
       content: [
         {
@@ -2205,13 +2359,59 @@ describe("runToolLoop", () => {
 
     const { runToolLoop } = await import("@/lib/claude");
 
-    await expect(
-      runToolLoop(
-        [{ role: "user", content: "Test" }],
-        "user-123",
-        "2026-02-15"
-      )
-    ).rejects.toThrow("Unexpected stop_reason: max_tokens");
+    const result = await runToolLoop(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result.message).toBe("Incomplete");
+    expect(result.analysis).toBeUndefined();
+  });
+});
+
+describe("REPORT_NUTRITION_TOOL schema", () => {
+  it("Tier 1 fields use nullable array type", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+
+    const schema = REPORT_NUTRITION_TOOL.input_schema;
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+
+    // Tier 1 fields should have type: ["number", "null"]
+    expect(props.saturated_fat_g.type).toEqual(["number", "null"]);
+    expect(props.trans_fat_g.type).toEqual(["number", "null"]);
+    expect(props.sugars_g.type).toEqual(["number", "null"]);
+    expect(props.calories_from_fat.type).toEqual(["number", "null"]);
+  });
+
+  it("has additionalProperties: false and includes Tier 1 in required", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+
+    const schema = REPORT_NUTRITION_TOOL.input_schema;
+
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toContain("saturated_fat_g");
+    expect(schema.required).toContain("trans_fat_g");
+    expect(schema.required).toContain("sugars_g");
+    expect(schema.required).toContain("calories_from_fat");
+  });
+
+  it("has strict: true", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+
+    expect(REPORT_NUTRITION_TOOL.strict).toBe(true);
+  });
+});
+
+describe("All Claude tool definitions have strict mode", () => {
+  it("all tool definitions have strict: true", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const { SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } = await import("@/lib/chat-tools");
+
+    expect(REPORT_NUTRITION_TOOL.strict).toBe(true);
+    expect(SEARCH_FOOD_LOG_TOOL.strict).toBe(true);
+    expect(GET_NUTRITION_SUMMARY_TOOL.strict).toBe(true);
+    expect(GET_FASTING_INFO_TOOL.strict).toBe(true);
   });
 });
 
@@ -2229,7 +2429,7 @@ describe("freeChat", () => {
   it("converts ConversationMessage[] to Anthropic format and calls runToolLoop", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -2259,7 +2459,7 @@ describe("freeChat", () => {
   it("uses FREE_CHAT_SYSTEM_PROMPT", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -2281,14 +2481,15 @@ describe("freeChat", () => {
     );
 
     const call = mockCreate.mock.calls[0][0];
-    expect(call.system).toContain("nutrition advisor");
-    expect(call.system).toContain("food log");
+    const systemText = call.system[0].text;
+    expect(systemText).toContain("nutrition advisor");
+    expect(systemText).toContain("food log");
   });
 
   it("uses only DATA_TOOLS (no report_nutrition)", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -2322,7 +2523,7 @@ describe("freeChat", () => {
   it("records usage as free-chat operation", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-5-20250929",
       stop_reason: "end_turn",
       content: [
         {
@@ -2347,7 +2548,7 @@ describe("freeChat", () => {
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
       "user-123",
-      "claude-sonnet-4-20250514",
+      "claude-sonnet-4-5-20250929",
       "free-chat",
       {
         inputTokens: 1500,
