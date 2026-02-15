@@ -14,7 +14,7 @@ function getClient(): Anthropic {
   if (!_client) {
     _client = new Anthropic({
       apiKey: getRequiredEnv("ANTHROPIC_API_KEY"),
-      timeout: 30000, // 30 second timeout as per ROADMAP.md
+      timeout: 60000, // 60 second timeout — accommodates web search latency
       maxRetries: 2,
     });
   }

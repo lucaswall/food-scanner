@@ -4,9 +4,13 @@ import type { FoodAnalysis } from "@/types";
 
 // Mock the Anthropic SDK
 const mockCreate = vi.fn();
+const mockConstructorArgs = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => {
   return {
     default: class MockAnthropic {
+      constructor(options: Record<string, unknown>) {
+        mockConstructorArgs(options);
+      }
       messages = {
         create: mockCreate,
       };
@@ -56,6 +60,37 @@ function setupMocks() {
   vi.clearAllMocks();
   mockCreate.mockReset();
 }
+
+describe("Anthropic SDK configuration", () => {
+  beforeEach(() => {
+    setupMocks();
+  });
+
+  it("configures SDK timeout to 60s to accommodate web search latency", async () => {
+    // Trigger client creation by calling any exported function
+    const { analyzeFood } = await import("@/lib/claude");
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "call_1",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      stop_reason: "tool_use",
+    });
+
+    await analyzeFood([], undefined, "test-user").catch(() => {});
+
+    expect(mockConstructorArgs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeout: 60000,
+      })
+    );
+  });
+});
 
 describe("analyzeFood", () => {
   beforeEach(() => {
