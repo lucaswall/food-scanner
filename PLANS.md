@@ -51,9 +51,10 @@ The `web_search_20250305` tool is a **server-side tool** — the Anthropic API e
 3. **REFACTOR** — Export `WEB_SEARCH_TOOL` for test assertions. Verify the `toolsWithCache` spread still works correctly — since web_search is first and cache_control is applied to last, no type issues arise.
 
 **Notes:**
-- Do NOT add web_search to `analyzeFood()` — that's direct image analysis with forced tool_choice, not a chat
-- The `toolsWithCache` map uses spread `{ ...tool, cache_control }` on the last element. Since web_search is first, it won't be spread. The last element (a DATA_TOOL) is a regular `Anthropic.Tool` which supports cache_control.
+- Also add web_search to `analyzeFood()` — users can type specific brands/restaurants in the description textarea (e.g., "This is a Big Mac from McDonald's"). Since `web_search_20250305` is a server-side tool, it executes transparently within the API call. The existing `tool_choice: { type: "tool", name: "report_nutrition" }` still works — Claude searches the web first (server-side), then calls report_nutrition with accurate data. Add `WEB_SEARCH_TOOL` to the `toolsWithCache` array in `analyzeFood()` (line 274), placing it before `REPORT_NUTRITION_TOOL`.
+- The `toolsWithCache` map uses spread `{ ...tool, cache_control }` on the last element. Since web_search is first, it won't be spread. The last element is a regular `Anthropic.Tool` which supports cache_control.
 - No domain restrictions — user explicitly requested open search on any domain
+- Add a test in the `analyzeFood` describe block: verify `mockCreate` is called with a tools array containing the web_search tool
 
 ### Task 2: Verify tool loop handles web search response blocks
 **Linear Issue:** [FOO-529](https://linear.app/lw-claude/issue/FOO-529/integrate-claude-web-search-tool-into-food-chat)
@@ -119,7 +120,7 @@ The `web_search_20250305` tool is a **server-side tool** — the Anthropic API e
 - Use Claude's native `web_search_20250305` (not Jina or custom search APIs) — simplest integration, $10/1K searches, negligible for single-user
 - No domain restrictions — open to all domains as requested
 - Place web_search first in tools array to avoid cache_control spread issues
-- Do NOT add web_search to `analyzeFood()` — only the chat path
+- Also add web_search to `analyzeFood()` — users type brand/restaurant names in the description textarea, and web_search is server-side so it works with forced tool_choice
 
 **Risks/Considerations:**
 - SDK v0.74.0 types are confirmed to support WebSearchTool20250305. If the TypeScript union type causes issues with the toolsWithCache spread, the fix is to handle server tools separately in the cache_control logic.
