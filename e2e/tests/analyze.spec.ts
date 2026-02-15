@@ -60,7 +60,7 @@ test.describe('Analyze Page', () => {
     await page.getByRole('button', { name: 'Analyze Food' }).click();
 
     // Wait for the mocked result to render
-    await expect(page.getByText(MOCK_ANALYSIS.food_name)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: MOCK_ANALYSIS.food_name })).toBeVisible({ timeout: 5000 });
 
     // Scroll down to show full result with log button
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
