@@ -5,17 +5,17 @@ AI-powered food logging for Fitbit. Take a photo of your meal, let Claude analyz
 ## What It Does
 
 1. **Photo capture** — Take a photo of your food with your phone camera
-2. **AI analysis** — Claude Sonnet analyzes the image and estimates nutritional information
+2. **AI analysis** — Claude Sonnet 4 analyzes the image and estimates nutritional information
 3. **Review & edit** — Confirm or adjust the nutrition data
 4. **Log to Fitbit** — Post directly to your Fitbit food log
 
-Multi-user application with email allowlist.
+Single-user application with email allowlist.
 
 ---
 
 ## Tech Stack
 
-- **Next.js 15+** (App Router, TypeScript)
+- **Next.js 16+** (App Router, TypeScript)
 - **Tailwind CSS + shadcn/ui** for styling
 - **iron-session** for encrypted cookie-based sessions
 - **Google OAuth 2.0** for authentication
@@ -31,7 +31,7 @@ Multi-user application with email allowlist.
 | Environment | Branch | URL | Fitbit API |
 |-------------|--------|-----|------------|
 | Production | `release` | `food.lucaswall.me` | Live |
-| Staging | `main` | Railway-generated staging URL | Dry-run (`FITBIT_DRY_RUN=true`) |
+| Staging | `main` | `food-test.lucaswall.me` | Dry-run (`FITBIT_DRY_RUN=true`) |
 
 **Branch strategy:**
 - `main` — development branch, auto-deploys to staging
@@ -174,7 +174,7 @@ Or use the Railway MCP from Claude Code to query logs and deployment status.
 
 ### Anthropic API
 
-Claude Sonnet powers the AI food analysis feature.
+Claude Sonnet 4 powers the AI food analysis feature.
 
 1. Go to [console.anthropic.com](https://console.anthropic.com)
 2. Create an account or sign in
@@ -223,17 +223,60 @@ Credentials are stored securely in the database on a per-user basis.
 
 ## API Endpoints
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/api/health` | No | Health check |
-| POST | `/api/auth/google` | No | Initiate Google OAuth |
-| GET | `/api/auth/google/callback` | No | Google OAuth callback |
-| POST | `/api/auth/fitbit` | Yes | Initiate Fitbit OAuth |
-| GET | `/api/auth/fitbit/callback` | Yes | Fitbit OAuth callback |
-| GET | `/api/auth/session` | Yes | Validate session |
-| POST | `/api/auth/logout` | Yes | Destroy session |
-| POST | `/api/analyze-food` | Yes | AI nutrition analysis |
-| POST | `/api/log-food` | Yes | Log food to Fitbit |
+### Public
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Health check |
+
+### Auth (`/api/auth/*`)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/auth/google` | Initiate Google OAuth |
+| GET | `/api/auth/google/callback` | Google OAuth callback |
+| POST | `/api/auth/fitbit` | Initiate Fitbit OAuth |
+| GET | `/api/auth/fitbit/callback` | Fitbit OAuth callback |
+| GET | `/api/auth/session` | Validate session |
+| POST | `/api/auth/logout` | Destroy session |
+| POST | `/api/auth/test-login` | Test auth bypass (E2E only, gated by `ENABLE_TEST_AUTH`) |
+
+### Browser-facing (`/api/*`, session auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/analyze-food` | AI nutrition analysis (one-shot) |
+| POST | `/api/chat-food` | Conversational food analysis (multi-turn) |
+| POST | `/api/log-food` | Log food to Fitbit |
+| POST | `/api/find-matches` | Find matching foods in library |
+| GET | `/api/search-foods` | Search custom food library |
+| GET | `/api/common-foods` | List common foods |
+| GET | `/api/food-history` | Food log history |
+| GET | `/api/food-history/[id]` | Food log entry detail |
+| DELETE | `/api/food-history/[id]` | Delete food log entry |
+| GET | `/api/nutrition-summary` | Daily nutrition summary |
+| GET | `/api/nutrition-goals` | Get nutrition goals |
+| GET | `/api/lumen-goals` | Get Lumen macro goals |
+| POST | `/api/lumen-goals` | Set Lumen macro goals |
+| GET | `/api/fasting` | Get fasting data |
+| GET | `/api/earliest-entry` | Get earliest food log entry date |
+| GET | `/api/claude-usage` | AI usage and cost tracking |
+| GET | `/api/fitbit-credentials` | Get Fitbit credential status |
+| POST | `/api/fitbit-credentials` | Save Fitbit credentials |
+| PATCH | `/api/fitbit-credentials` | Update Fitbit credentials |
+| GET | `/api/api-keys` | List API keys |
+| POST | `/api/api-keys` | Create API key |
+| DELETE | `/api/api-keys/[id]` | Revoke API key |
+
+### External API (`/api/v1/*`, Bearer API key auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/food-log` | Food log entries |
+| GET | `/api/v1/nutrition-summary` | Nutrition summary |
+| GET | `/api/v1/nutrition-goals` | Nutrition goals |
+| GET | `/api/v1/lumen-goals` | Lumen macro goals |
+| GET | `/api/v1/activity-summary` | Fitbit activity summary |
 
 ---
 
@@ -273,5 +316,8 @@ No service worker or offline support — the app requires an internet connection
 | [ROADMAP.md](ROADMAP.md) | Feature ideas and specifications |
 | [CLAUDE.md](CLAUDE.md) | Technical reference for Claude Code |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local development setup |
+| [MIGRATIONS.md](MIGRATIONS.md) | Pending production data migrations |
+| [PLANS.md](PLANS.md) | Current implementation plan (managed by skills) |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [README.md](README.md) | This file — deployment and operations |
 

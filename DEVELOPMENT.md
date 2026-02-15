@@ -131,7 +131,7 @@ This will:
    - Authenticate via test-login endpoint (creates test user + session)
    - Seed test data (custom foods, food log entries)
    - Save session cookies to storage state
-5. Run all E2E tests (13 tests covering landing, auth, dashboard, settings)
+5. Run all E2E tests (18 spec files covering landing, auth, dashboard, settings, history, navigation, and more)
 6. Capture screenshots to `e2e/screenshots/` (landing.png, dashboard.png, settings.png)
 7. Run global teardown (truncate DB, close connections)
 
@@ -151,12 +151,25 @@ e2e/
 ├── fixtures/
 │   ├── auth.ts        # Authentication helpers (storage state path, unauthenticated constant)
 │   └── db.ts          # Database utilities (seed, truncate)
-├── tests/
+├── tests/             # 18 spec files covering all app areas
 │   ├── health.spec.ts        # API health check
 │   ├── landing.spec.ts       # Landing page (unauthenticated)
-│   ├── auth.spec.ts          # Auth redirects (unauthenticated + authenticated)
+│   ├── auth.spec.ts          # Auth redirects
+│   ├── auth-fixture.spec.ts  # Auth fixture tests
 │   ├── dashboard.spec.ts     # Dashboard smoke tests
-│   └── settings.spec.ts      # Settings page smoke tests
+│   ├── settings.spec.ts      # Settings page
+│   ├── history.spec.ts       # Food history
+│   ├── food-detail.spec.ts   # Food detail view
+│   ├── analyze.spec.ts       # Food analysis
+│   ├── quick-select.spec.ts  # Quick select
+│   ├── setup-fitbit.spec.ts  # Fitbit setup
+│   ├── navigation.spec.ts    # App navigation
+│   ├── empty-states.spec.ts  # Empty state UI
+│   ├── logout.spec.ts        # Logout flow
+│   ├── api-auth.spec.ts      # API auth checks
+│   ├── api-data.spec.ts      # API data endpoints
+│   ├── api-keys.spec.ts      # API key management
+│   └── api-v1.spec.ts        # External API v1
 ├── global-setup.ts    # Runs before all tests (truncate, auth, seed)
 └── global-teardown.ts # Runs after all tests (cleanup)
 ```
@@ -264,7 +277,7 @@ This project is in **production**. When changes affect existing data (DB schema,
 
 Issues are tracked in Linear under the "Food Scanner" team with FOO-xxx prefix.
 
-**State flow:** Backlog → Todo → In Progress → Review → Merge → Done
+**State flow:** Backlog → Todo → In Progress → Review → Merge → Done → Released
 
 To authenticate Linear MCP, use the `/mcp` command in Claude Code.
 
@@ -282,18 +295,25 @@ This project uses Claude Code with custom agents and skills for development:
 ### Skills (invoke with `/skill-name`)
 - `/plan-backlog FOO-123` — Plan implementation of a backlog issue
 - `/plan-inline <description>` — Plan from a direct description
-- `/plan-implement` — Execute the current plan
-- `/plan-review-implementation` — Review completed implementation
+- `/plan-implement` — Execute the current plan (agent team)
+- `/plan-review-implementation` — Review completed implementation (agent team)
 - `/plan-fix <bug>` — Investigate and plan a bug fix
 - `/investigate <issue>` — Read-only investigation
-- `/code-audit` — Full codebase audit
+- `/code-audit` — Full codebase audit (agent team)
+- `/frontend-review` — Frontend-focused review (agent team)
+- `/deep-review <screen>` — Deep analysis of a single screen/feature
 - `/add-to-backlog <items>` — Add issues to Linear backlog
+- `/backlog-refine FOO-123` — Refine vague backlog issues interactively
+- `/push-to-production` — Promote main to release with migrations
+- `/tools-improve` — Best practices for skills/agents/CLAUDE.md
 
 ### Typical Workflow
-1. `/plan-backlog FOO-123` or `/plan-inline <feature>` — Create plan
-2. `/plan-implement` — Execute the plan with TDD
-3. `/plan-review-implementation` — Review the implementation
-4. Ask for commit and PR when ready
+1. `/code-audit` or `/add-to-backlog` — Identify work
+2. `/backlog-refine FOO-123` — Refine vague issues (optional)
+3. `/plan-backlog FOO-123` or `/plan-inline <feature>` — Create plan
+4. `/plan-implement` — Execute the plan with TDD
+5. `/plan-review-implementation` — Review, commit, and create PR
+6. `/push-to-production` — Release to production
 
 ---
 
@@ -337,7 +357,7 @@ Copy the Google Client ID and Client Secret values into your `.env.local` file. 
 
 ## Anthropic API Setup
 
-The Anthropic API is used for AI-powered food analysis via Claude Sonnet.
+The Anthropic API is used for AI-powered food analysis via Claude Sonnet 4.
 
 1. Go to [console.anthropic.com](https://console.anthropic.com)
 2. Create an account or sign in
@@ -351,4 +371,4 @@ The Anthropic API is used for AI-powered food analysis via Claude Sonnet.
 
 **Permissions:** The API key needs standard API access. No special scopes or permissions are required.
 
-**Costs:** Claude Sonnet is used for food analysis. Typical usage (1-3 analyses per day) costs approximately $0.02/day or ~$0.60/month. See [Anthropic pricing](https://www.anthropic.com/pricing) for current rates.
+**Costs:** Claude Sonnet 4 is used for food analysis. Typical usage (1-3 analyses per day) costs approximately $0.02/day or ~$0.60/month. See [Anthropic pricing](https://www.anthropic.com/pricing) for current rates.

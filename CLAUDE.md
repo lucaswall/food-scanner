@@ -103,7 +103,7 @@ Do NOT flag these in code reviews:
 - **Authorized users only** — `ALLOWED_EMAILS` allowlist enforced at Google OAuth callback
 - **Never log:** Cookie values, access tokens, images, user descriptions
 - **Client-side logging:** `console.error`/`console.warn` are correct for `'use client'` components — pino is server-only
-- **Image validation:** Max 10MB/image, max 9 images, JPEG/PNG/GIF/WebP/HEIC. HEIC converted client-side via heic2any.
+- **Image validation:** Max 10MB/image, max 9 images, JPEG/PNG/GIF/WebP/HEIC. HEIC converted client-side via heic-to.
 - **Test-only auth bypass:** `ENABLE_TEST_AUTH=true` enables `POST /api/auth/test-login` for E2E tests. Must never be set in production.
 - **API route auth convention:**
   - `src/app/api/*` browser-facing routes: `getSession()` + `validateSession()` from `@/lib/session` (iron-session cookies)
@@ -115,7 +115,7 @@ Do NOT flag these in code reviews:
 
 ## DATABASE
 
-- **Tables:** `users`, `sessions`, `fitbit_tokens`, `fitbit_credentials`, `custom_foods`, `food_log_entries`, `lumen_goals`, `api_keys`
+- **Tables:** `users`, `sessions`, `fitbit_tokens`, `fitbit_credentials`, `custom_foods`, `food_log_entries`, `lumen_goals`, `api_keys`, `claude_usage`, `daily_calorie_goals`
 - All DB access through `src/lib/` modules — route handlers never import from `src/db/` directly
 - Schema changes: edit `src/db/schema.ts`, then `npx drizzle-kit generate` (does NOT need a live DB)
 - **IMPORTANT: Never hand-write migration files or snapshots**
