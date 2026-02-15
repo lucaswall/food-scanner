@@ -104,6 +104,36 @@ test.describe('History Page', () => {
     await expect(page.getByText('Grilled Chicken Breast').first()).toBeVisible();
   });
 
+  test('jump to past date shows empty state', async ({ page }) => {
+    await page.goto('/app/history');
+    await page.waitForLoadState('networkidle');
+
+    // Find the Jump to date input
+    const dateInput = page.getByLabel('Jump to date');
+
+    // Fill with a past date that has no entries
+    await dateInput.fill('2020-01-01');
+
+    // Click Go button
+    const goButton = page.getByRole('button', { name: 'Go' });
+    await goButton.click();
+
+    // Wait for page update
+    await page.waitForTimeout(500);
+
+    // Assert that "Today" heading is NOT visible
+    await expect(page.getByRole('heading', { name: 'Today' })).not.toBeVisible();
+
+    // Assert empty state is shown (no seeded food entries visible)
+    const chickenVisible = await page.getByText('Grilled Chicken Breast').isVisible();
+    const riceVisible = await page.getByText('Brown Rice').isVisible();
+    expect(chickenVisible).toBe(false);
+    expect(riceVisible).toBe(false);
+
+    // Capture screenshot of past date empty state
+    await captureScreenshots(page, 'history-past-date');
+  });
+
   test('click entry navigates to food detail page', async ({ page, request }) => {
     await page.goto('/app/history');
     await page.waitForLoadState('networkidle');

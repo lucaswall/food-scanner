@@ -69,6 +69,71 @@ test.describe('Analyze Page', () => {
     await captureScreenshots(page, 'analyze-result');
   });
 
+  test('completes full analyze → log → confirmation flow', async ({ page }) => {
+    // Mock the analyze-food API to return a successful result
+    await page.route('**/api/analyze-food', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: MOCK_ANALYSIS }),
+      });
+    });
+
+    // Mock find-matches to return empty (no similar foods)
+    await page.route('**/api/find-matches', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: { matches: [] } }),
+      });
+    });
+
+    // Mock log-food to return success
+    await page.route('**/api/log-food', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: { success: true, reusedFood: false, foodLogId: 12345 },
+        }),
+      });
+    });
+
+    await page.goto('/app/analyze');
+    await page.waitForLoadState('networkidle');
+
+    // Fill description and trigger analysis
+    const textarea = page.getByPlaceholder('e.g., 250g pollo asado con chimichurri');
+    await textarea.fill('Grilled salmon with vegetables');
+
+    // Click analyze
+    await page.getByRole('button', { name: 'Analyze Food' }).click();
+
+    // Wait for the mocked result to render (use heading to avoid matching textarea)
+    await expect(page.getByRole('heading', { name: MOCK_ANALYSIS.food_name })).toBeVisible({ timeout: 5000 });
+
+    // Scroll down to show the log button
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(300);
+
+    // Click "Log to Fitbit" button
+    await page.getByRole('button', { name: 'Log to Fitbit' }).click();
+
+    // Wait for confirmation screen to render
+    // Look for success message pattern
+    await expect(page.getByText(/logged successfully/i)).toBeVisible({ timeout: 5000 });
+
+    // Verify "Log Another" button is visible
+    await expect(page.getByRole('button', { name: 'Log Another' })).toBeVisible();
+
+    // Verify "Done" button is visible
+    await expect(page.getByRole('button', { name: 'Done' })).toBeVisible();
+
+    // Capture screenshot of confirmation screen
+    await captureScreenshots(page, 'analyze-confirmation');
+  });
+
   test('shows analyze UI when Fitbit is connected', async ({ page }) => {
     await page.goto('/app/analyze');
 
@@ -114,5 +179,36 @@ test.describe('Analyze Page', () => {
 
     // Assert no console errors
     expect(consoleErrors).toEqual([]);
+  });
+
+  test('shows error and retry button on analysis failure', async ({ page }) => {
+    // Mock the analyze-food API to return an error
+    await page.route('**/api/analyze-food', async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: false,
+          error: { code: 'ANALYSIS_FAILED', message: 'Failed to analyze food' },
+        }),
+      });
+    });
+
+    await page.goto('/app/analyze');
+    await page.waitForLoadState('networkidle');
+
+    // Fill description and trigger analysis
+    const textarea = page.getByPlaceholder('e.g., 250g pollo asado con chimichurri');
+    await textarea.fill('Test food');
+
+    // Click analyze
+    await page.getByRole('button', { name: 'Analyze Food' }).click();
+
+    // Wait for error message to appear (role="alert" or error text)
+    await expect(page.getByRole('alert')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Failed to analyze food/i)).toBeVisible();
+
+    // Verify analyze button is still visible for retry
+    await expect(page.getByRole('button', { name: 'Analyze Food' })).toBeVisible();
   });
 });

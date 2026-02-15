@@ -330,6 +330,36 @@ describe("QuickSelect", () => {
     });
   });
 
+  it("does not show empty state during initial load", async () => {
+    // FOO-478: Empty state should not flash during loading
+    mockFetch.mockImplementation(() => new Promise(() => {})); // Never resolves
+    renderQuickSelect();
+
+    // Should show loading state, not empty state
+    expect(screen.getByText(/loading foods/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no foods found/i)).not.toBeInTheDocument();
+  });
+
+  it("does not show empty state during tab switch while loading", async () => {
+    // FOO-478: When switching tabs, empty state should not flash while new data loads
+    mockFetch
+      .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+      .mockImplementationOnce(() => new Promise(() => {})); // Tab switch never resolves
+
+    renderQuickSelect();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Switch to Recent tab
+    fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
+
+    // Brief moment - should not show empty state while loading new tab data
+    await new Promise(r => setTimeout(r, 50));
+    expect(screen.queryByText(/no foods found/i)).not.toBeInTheDocument();
+  });
+
   it("tapping a food card shows confirmation with Log to Fitbit button", async () => {
     mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
 
@@ -676,6 +706,73 @@ describe("QuickSelect", () => {
     expect(screen.queryByText(/loading/i)).not.toBeInTheDocument();
   });
 
+  describe("useSWRInfinite configuration", () => {
+    it("does not revalidate when window regains focus", async () => {
+      // FOO-478: Prevent revalidation storms when switching tabs
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Clear fetch calls
+      mockFetch.mockClear();
+
+      // Simulate window focus event (SWR normally revalidates on focus)
+      window.dispatchEvent(new FocusEvent("focus"));
+
+      // Wait a bit for any potential revalidation
+      await new Promise(r => setTimeout(r, 100));
+
+      // Should NOT have made any new fetch calls
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getKey optimization", () => {
+    it("returns null during active search to prevent background pagination", async () => {
+      // FOO-478: When search is active, getKey should return null to prevent
+      // useSWRInfinite from making background pagination requests
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            success: true,
+            data: { foods: [mockFoods[0]] },
+          }),
+        });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Clear fetch calls from initial load
+      mockFetch.mockClear();
+
+      // Start search
+      const searchInput = screen.getByPlaceholderText("Search foods...");
+      fireEvent.change(searchInput, { target: { value: "emp" } });
+
+      // Wait for debounce + search to complete
+      await waitFor(() => {
+        const searchCalls = mockFetch.mock.calls.filter(
+          (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("/api/search-foods")
+        );
+        expect(searchCalls.length).toBeGreaterThan(0);
+      });
+
+      // During search, there should be NO calls to /api/common-foods (background pagination)
+      const paginationCalls = mockFetch.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === "string" && (call[0] as string).includes("/api/common-foods")
+      );
+      expect(paginationCalls).toHaveLength(0);
+    });
+  });
+
   describe("infinite scroll", () => {
     it("does not include size in useEffect dependency array (functional updater)", async () => {
       // The IntersectionObserver callback should use setSize(s => s + 1)
@@ -693,6 +790,55 @@ describe("QuickSelect", () => {
 
       // Observer should have been set up exactly once (not re-created for size changes)
       expect(mockObserve).toHaveBeenCalledTimes(1);
+    });
+
+    it("observer is not recreated when isValidating changes", async () => {
+      // FOO-478: Observer should not be recreated when isValidating toggles
+      // This prevents rapid-fire pagination loops
+      let resolvePage2: ((value: unknown) => void) | null = null;
+      const page2Promise = new Promise((resolve) => {
+        resolvePage2 = resolve;
+      });
+
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods, { score: 0.5, id: 2 }))
+        .mockReturnValueOnce(page2Promise);
+
+      renderQuickSelect();
+
+      // Wait for initial load
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Observer set up once
+      const initialObserveCount = mockObserve.mock.calls.length;
+      const initialDisconnectCount = mockDisconnect.mock.calls.length;
+
+      // Simulate intersection (triggers setSize, which starts validation)
+      const [[callback]] = MockIntersectionObserver.mock.calls;
+      callback([{ isIntersecting: true }], {} as IntersectionObserver);
+
+      // Wait a bit for any potential re-renders
+      await new Promise(r => setTimeout(r, 50));
+
+      // Resolve page 2 (ends validation) - keep hasMore=true with another cursor
+      resolvePage2!({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          data: { foods: [mockFoods[1]], nextCursor: { score: 0.3, id: 3 } }
+        }),
+      });
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+      });
+
+      // Observer should NOT have been recreated (no new disconnect/observe calls)
+      // since hasMore is still true and only isValidating changed
+      expect(mockDisconnect).toHaveBeenCalledTimes(initialDisconnectCount);
+      expect(mockObserve).toHaveBeenCalledTimes(initialObserveCount);
     });
   });
 

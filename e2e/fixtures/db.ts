@@ -180,4 +180,59 @@ export async function seedTestData() {
     refreshToken: encryptToken('TEST_REFRESH_TOKEN'),
     expiresAt: oneYearFromNow,
   });
+
+  // Seed Claude usage data for settings page display
+  // Use deterministic timestamps to avoid month-boundary flakiness
+  const twoDaysAgo = new Date();
+  twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+  twoDaysAgo.setHours(10, 0, 0, 0);
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setHours(14, 0, 0, 0);
+
+  const todayNoon = new Date();
+  todayNoon.setHours(12, 0, 0, 0);
+
+  await db.insert(claudeUsage).values([
+    {
+      userId: testUser.id,
+      model: 'claude-sonnet-4-5-20250929',
+      operation: 'analyze-food',
+      inputTokens: 1500,
+      outputTokens: 800,
+      cacheCreationTokens: null,
+      cacheReadTokens: null,
+      inputPricePerMToken: '3.0',
+      outputPricePerMToken: '15.0',
+      costUsd: '0.012',
+      createdAt: twoDaysAgo,
+    },
+    {
+      userId: testUser.id,
+      model: 'claude-sonnet-4-5-20250929',
+      operation: 'analyze-food',
+      inputTokens: 2000,
+      outputTokens: 1200,
+      cacheCreationTokens: null,
+      cacheReadTokens: 5000,
+      inputPricePerMToken: '3.0',
+      outputPricePerMToken: '15.0',
+      costUsd: '0.021',
+      createdAt: yesterday,
+    },
+    {
+      userId: testUser.id,
+      model: 'claude-sonnet-4-5-20250929',
+      operation: 'analyze-food',
+      inputTokens: 1800,
+      outputTokens: 950,
+      cacheCreationTokens: null,
+      cacheReadTokens: 3000,
+      inputPricePerMToken: '3.0',
+      outputPricePerMToken: '15.0',
+      costUsd: '0.016',
+      createdAt: todayNoon,
+    },
+  ]);
 }

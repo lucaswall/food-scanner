@@ -500,3 +500,62 @@ Fix the Quick Select infinite scroll flickering bug (FOO-478) and add E2E test c
 - Adding new UI features or components
 - Modifying the Fitbit OAuth flow
 - Adding unit tests for E2E-tested-only functionality
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-14
+**Method:** Agent team (4 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Fix IntersectionObserver recreation bug (worker-1) — FOO-478
+- Task 2: Add revalidateOnFocus and optimize getKey for search (worker-1) — FOO-478
+- Task 3: Fix empty state flash during tab switches (worker-1) — FOO-478
+- Task 4: E2E: Analyze → Log → Confirmation flow + screenshot (worker-2) — FOO-467, FOO-475
+- Task 5: E2E: Quick Select food detail card screenshot (worker-3) — FOO-476
+- Task 6: E2E: Refine chat → Log flow (worker-2) — FOO-468
+- Task 7: E2E: Analyze and chat error states (worker-2) — FOO-469
+- Task 8: E2E: History date navigation + screenshot (worker-3) — FOO-471, FOO-477
+- Task 9: E2E: Dashboard date and week navigation (worker-3) — FOO-472
+- Task 10: E2E: Settings Fitbit secret replacement and re-auth (worker-4) — FOO-473
+- Task 11: E2E: Seed claude_usage data and test display (worker-4) — FOO-474
+- Task 12: Integration & Verification (lead)
+
+### Files Modified
+- `src/components/quick-select.tsx` — Fixed IntersectionObserver recreation with useRef, added revalidateOnFocus: false, getKey returns null during search, fixed empty state flash, added optional chaining on entries[0]
+- `src/components/__tests__/quick-select.test.tsx` — 5 new unit tests covering observer stability, revalidateOnFocus, getKey null during search, empty state during loading
+- `e2e/tests/analyze.spec.ts` — 2 new tests: full analyze→log→confirmation flow, error state with retry button
+- `e2e/tests/refine-chat.spec.ts` — 2 new tests: chat→log flow with refined analysis verification, dismissible error on API failure
+- `e2e/tests/quick-select.spec.ts` — Added screenshot capture for food detail card
+- `e2e/tests/history.spec.ts` — 1 new test: jump to past date shows empty state with screenshot
+- `e2e/tests/dashboard.spec.ts` — 2 new tests: daily view date navigation, weekly view week navigation
+- `e2e/tests/settings.spec.ts` — 3 new tests: replace secret flow, reconnect Fitbit auth flow, Claude API usage metrics display
+- `e2e/fixtures/db.ts` — Added claude_usage seeding with deterministic timestamps
+
+### Linear Updates
+- FOO-478: Todo → In Progress → Review
+- FOO-467: Todo → In Progress → Review
+- FOO-468: Todo → In Progress → Review
+- FOO-469: Todo → In Progress → Review
+- FOO-471: Todo → In Progress → Review
+- FOO-472: Todo → In Progress → Review
+- FOO-473: Todo → In Progress → Review
+- FOO-474: Todo → In Progress → Review
+- FOO-475: Todo → In Progress → Review
+- FOO-476: Todo → In Progress → Review
+- FOO-477: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 8 issues (1 HIGH, 3 MEDIUM, 4 LOW). Fixed 5: deterministic timestamps in claude_usage seed, optional chaining on IntersectionObserver entries, visibility assertion before dismiss button click, removed unnecessary .catch() in history spec, fixed setupChatOverlay strict mode violation.
+- verifier: All 1688 unit tests pass, zero warnings, build clean
+- E2E: All 110 tests pass
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3 (quick-select.tsx + unit tests — TDD workflow)
+- Worker 2: Tasks 4, 6, 7 (analyze.spec.ts + refine-chat.spec.ts — E2E write-only)
+- Worker 3: Tasks 5, 8, 9 (quick-select.spec.ts + history.spec.ts + dashboard.spec.ts — E2E write-only)
+- Worker 4: Tasks 10, 11 (settings.spec.ts + db.ts — E2E write-only)
+
+### Continuation Status
+All tasks completed.

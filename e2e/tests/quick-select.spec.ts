@@ -120,6 +120,9 @@ test.describe('Quick Select Page', () => {
 
     // Verify meal type selector is present (check label, not dropdown value which varies by time of day)
     await expect(page.getByText('Meal Type')).toBeVisible();
+
+    // Capture screenshot of food detail card
+    await captureScreenshots(page, 'quick-select-detail');
   });
 
   test('log food with meal type succeeds', async ({ page }) => {
