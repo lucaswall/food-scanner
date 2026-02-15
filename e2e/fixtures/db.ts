@@ -135,8 +135,6 @@ export async function seedTestData() {
   // Use local date (not UTC) to match how the app renders dates
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
-
   await db.insert(foodLogEntries).values([
     {
       userId: testUser.id,
@@ -163,7 +161,7 @@ export async function seedTestData() {
       amount: '100',
       unitId: 226,
       date: today,
-      time: currentTime,
+      time: '19:00:00',
     },
   ]);
 

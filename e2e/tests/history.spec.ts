@@ -138,10 +138,12 @@ test.describe('History Page', () => {
     await page.goto('/app/history');
     await page.waitForLoadState('networkidle');
 
-    // Get entry ID from API first
+    // Get the Chicken Breast entry ID from API
     const response = await request.get('/api/food-history');
     const body = await response.json();
-    const firstEntry = body.data.entries[0];
+    const chickenEntry = body.data.entries.find(
+      (e: { foodName: string }) => e.foodName === 'Grilled Chicken Breast'
+    );
 
     // Click on the entry (opens dialog)
     const entryButton = page.getByRole('button', { name: /Grilled Chicken Breast, \d+ calories/ });
@@ -155,7 +157,7 @@ test.describe('History Page', () => {
     await viewDetailsLink.click();
 
     // Verify navigation to food detail page
-    await expect(page).toHaveURL(`/app/food-detail/${firstEntry.id}`);
+    await expect(page).toHaveURL(`/app/food-detail/${chickenEntry.id}`);
   });
 
   test('back button from food detail returns to history', async ({ page, request }) => {
