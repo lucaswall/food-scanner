@@ -134,9 +134,10 @@ Do NOT modify any files outside this list.
 
 RULES:
 - Follow TDD strictly: write test → run test (expect fail) → implement → run test (expect pass)
+- **E2E TEST EXCEPTION:** If your task is writing Playwright E2E tests (files in `e2e/tests/*.spec.ts`), do NOT attempt TDD verification. Write the spec file, but SKIP the "run test" steps entirely. You cannot run E2E tests — they require exclusive access to the build, port, and database. The lead will run all E2E tests after all workers complete. Just write the spec and report completion.
 - Never modify files outside your ownership list
 - Read CLAUDE.md for project conventions before starting
-- Run tests using the verifier agent in TDD mode ONLY: Task tool with subagent_type "verifier" and prompt set to your test file pattern (e.g., "session" or "src/lib/__tests__/session.test.ts"). NEVER run verifier without a test pattern. NEVER run verifier with "e2e". Only the lead runs full verification and E2E tests.
+- Run tests using the verifier agent in TDD mode ONLY: Task tool with subagent_type "verifier" and prompt set to your test file pattern (e.g., "session" or "src/lib/__tests__/session.test.ts"). NEVER run verifier without a test pattern. NEVER run verifier with "e2e". NEVER run `npx playwright` or `npm run e2e` directly. Only the lead runs full verification and E2E tests.
 - Report progress to the lead after completing each task
 - Report the FINAL summary to the lead when ALL your tasks are done
 - Do NOT attempt to update Linear issues — the lead handles all Linear state transitions
@@ -144,6 +145,8 @@ RULES:
 - NEVER use Bash(mkdir) to create directories. Use the Write tool to create files — it auto-creates parent directories. If you need an empty directory, report it as a blocker and the lead will create it.
 
 WORKFLOW FOR EACH TASK:
+
+For unit/integration test tasks (files in src/):
 1. Send progress message to lead: "Starting Task N: [title] [FOO-XXX]" (include issue ID)
 2. Read relevant existing source files to understand patterns
 3. Write failing test(s) in the appropriate __tests__/ directory
@@ -152,6 +155,13 @@ WORKFLOW FOR EACH TASK:
 6. Run tests with verifier in TDD mode (same pattern) — confirm test passes
 7. Send progress message to lead: "Completed Task N: [title] [FOO-XXX]" (include issue ID)
 8. Move to next task
+
+For E2E test tasks (files in e2e/tests/*.spec.ts):
+1. Send progress message to lead: "Starting Task N: [title] [FOO-XXX]" (include issue ID)
+2. Read existing E2E specs in e2e/tests/ and fixtures in e2e/fixtures/ to understand patterns
+3. Write the Playwright spec file — DO NOT attempt to run it
+4. Send progress message to lead: "Completed Task N: [title] [FOO-XXX] — E2E spec written, needs lead verification" (include issue ID)
+5. Move to next task
 
 WHEN ALL TASKS ARE DONE:
 Send a final summary message to the lead with:
@@ -232,7 +242,18 @@ If any tasks were reserved for the lead during partitioning (e.g., Drizzle migra
 2. Verify the output files are correct (review generated SQL, snapshots, etc.)
 3. If the generator produces no changes or errors, investigate — workers may have missed a schema change
 
-### 2. Run Full Verification
+### 2. Run E2E Tests (if workers wrote E2E specs)
+
+If any work unit included writing Playwright E2E test specs (`e2e/tests/*.spec.ts`), run the E2E suite now. Workers write E2E specs without running them — the lead is the only one who can run E2E tests safely.
+
+Run the `verifier` agent in E2E mode:
+```
+Use Task tool with subagent_type "verifier" and prompt "e2e"
+```
+
+If E2E tests fail → fix the spec files directly, then re-run until all pass.
+
+### 3. Run Full Verification
 
 Run the `bug-hunter` agent to review all changes:
 ```
@@ -241,7 +262,7 @@ Use Task tool with subagent_type "bug-hunter"
 
 If bugs found → message the relevant worker to fix, or fix directly if the worker has shut down.
 
-### 3. Run Full Test Suite
+### 4. Run Full Test Suite
 
 Run the `verifier` agent to confirm everything passes together:
 ```
@@ -250,7 +271,7 @@ Use Task tool with subagent_type "verifier"
 
 If failures → identify which worker's code is failing, message them to fix, or fix directly.
 
-### 4. Fix Any Integration Issues
+### 5. Fix Any Integration Issues
 
 Workers implement in isolation. When their code comes together, there may be integration issues:
 - Import mismatches
@@ -408,6 +429,7 @@ If `TeamCreate` fails (agent teams unavailable), implement the plan sequentially
 - **Lead does NOT implement** — Delegate all implementation to workers. Lead only coordinates, verifies, and documents. (Does not apply in single-agent fallback mode.)
 - **Lead runs all CLI generators** — Tasks involving `drizzle-kit generate`, `prisma generate`, or similar CLI tools that produce generated files (migrations, snapshots) are reserved for the lead in the post-implementation phase. Workers must never hand-write these files.
 - **Workers use TDD-mode verifier only** — Workers must always pass a test pattern to the verifier (e.g., `verifier "session"`). Full verification (unit + lint + build) and E2E tests are exclusive to the lead. Concurrent full/E2E verifier runs corrupt shared resources (`.next/`, port 3001, database).
+- **E2E test tasks are write-only for workers** — When a task is writing Playwright E2E specs (`e2e/tests/*.spec.ts`), workers write the spec but do NOT run it. No TDD cycle for E2E specs. The lead runs all E2E tests once during post-implementation verification (step 2). Workers must not run `npx playwright`, `npm run e2e`, or `verifier "e2e"` under any circumstances.
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
 - **Log migrations in MIGRATIONS.md** — If any task changes DB schema, renames columns, changes session/token formats, or renames env vars, append a note to `MIGRATIONS.md` describing what changed and what production data is affected. Workers should report migration-relevant changes to the lead; the lead appends to `MIGRATIONS.md` during post-implementation. Do NOT write migration code — only describe the change.
