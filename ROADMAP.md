@@ -5,7 +5,6 @@
 | Feature | Summary |
 |---------|---------|
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
-| [Contextual Memory from Food History](#contextual-memory) | Claude queries past food logs during chat |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
 
@@ -16,10 +15,6 @@
 ### Problem
 
 Complex meals are logged as a single monolithic food entry ("grilled chicken with rice, salad, and flan" → one custom food with combined nutrition). This makes the food library less reusable — tomorrow the user has the same chicken with rice but no flan, and they can't quick-select just the chicken.
-
-### Prerequisites
-
-Conversational Analysis — splitting happens during the chat refinement flow.
 
 ### Goal
 
@@ -49,7 +44,7 @@ During the chat, Claude suggests splitting a meal into separate food log entries
 
 ### Architecture
 
-- New Claude tool: `search_custom_foods` — queries the user's custom_foods table for name/keyword matches.
+- Reuse existing `search_food_log` tool — already queries the `custom_foods` table for name/keyword matches.
 - Multi-item log: the `/api/log-food` endpoint (or a new batch variant) must support logging multiple entries atomically.
 - Each split item becomes its own `food_log_entry` + `custom_food` pair.
 
@@ -61,62 +56,10 @@ During the chat, Claude suggests splitting a meal into separate food log entries
 
 ### Implementation Order
 
-1. `search_custom_foods` Claude tool (query existing library)
-2. Multi-item splitting logic in Claude prompt/tool schema
-3. Batch logging support (multiple entries from one analysis)
-4. Library match display in chat responses
-5. User confirmation flow for splits
-
----
-
-## Contextual Memory from Food History
-
-### Problem
-
-Every food analysis is treated in isolation. Claude has no knowledge of what the user has eaten before. Users can't say "same as yesterday's lunch" or ask "how much protein have I had today?" without leaving the app.
-
-### Prerequisites
-
-Conversational Analysis — memory queries happen during the chat flow.
-
-### Goal
-
-Claude can query the user's food log database during the chat to give contextual, personalized responses grounded in real data.
-
-### Design
-
-#### User Interactions
-
-- *"I had the same breakfast as Monday."* → Claude looks up Monday's breakfast and pre-fills the analysis.
-- *"This is like the chicken I had yesterday but without salt."* → Claude fetches yesterday's entry, adjusts sodium, confirms.
-- *"How much protein have I had today?"* → Claude sums today's logged entries and answers.
-- *"You've had this 3 times this week — want to save it to quick-select?"* → Claude detects patterns.
-
-#### When Tools Are Used
-
-- Tools are **only triggered by user messages** during the chat — never during the initial one-shot analysis.
-- Claude doesn't preload history. It queries on demand when the user's message warrants a lookup.
-
-### Architecture
-
-- New Claude tools:
-  - `search_food_history` — search `food_log_entries` + `custom_foods` by date, food name, or keyword.
-  - `get_daily_totals` — sum nutrition for a given date (reuses the nutrition summary API logic).
-- Results injected as tool responses in the conversation, same pattern as `report_nutrition`.
-- Read-only — these tools never create or modify data.
-
-### Edge Cases
-
-- User references a date with no logs → Claude responds "I don't see any entries for Monday."
-- Ambiguous reference ("the chicken") with multiple matches → Claude asks for clarification or shows options.
-- User asks about nutrition totals for today while mid-analysis → Claude sums logged entries only, doesn't include the current unlogged analysis.
-
-### Implementation Order
-
-1. `search_food_history` Claude tool (query logs by date/name/keyword)
-2. `get_daily_totals` Claude tool (nutrition sums for a date)
-3. Prompt engineering for contextual responses
-4. Pattern detection ("you've had this X times this week")
+1. Multi-item splitting logic in Claude prompt/tool schema (reuse existing `search_food_log` for library lookups)
+2. Batch logging support (multiple entries from one analysis)
+3. Library match display in chat responses
+4. User confirmation flow for splits
 
 ---
 
@@ -125,10 +68,6 @@ Claude can query the user's food log database during the chat to give contextual
 ### Problem
 
 Once a food entry is logged, the only way to fix it is to delete and re-scan from scratch. Users frequently need small adjustments after the fact: "I actually only ate half", "we split this between three people", "I forgot I added an extra potato". These corrections are natural to express in conversation but impossible in the current UI.
-
-### Prerequisites
-
-Conversational Analysis — editing reuses the same multi-turn chat infrastructure.
 
 ### Goal
 
