@@ -159,7 +159,7 @@ function normalizeKeywords(raw: string[]): string[] {
   return normalized;
 }
 
-function validateFoodAnalysis(input: unknown): FoodAnalysis {
+export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
     throw new ClaudeApiError("Invalid food analysis: input must be an object");
   }
