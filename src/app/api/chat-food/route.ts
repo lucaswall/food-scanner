@@ -8,13 +8,13 @@ import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
 import type { ConversationMessage, FoodAnalysis } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
-const MAX_MESSAGES = 20;
+const MAX_MESSAGES = 30;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function POST(request: Request) {
   const session = await getSession();
 
-  const validationError = validateSession(session, { requireFitbit: true });
+  const validationError = validateSession(session, { requireFitbit: false });
   if (validationError) return validationError;
 
   const { allowed } = checkRateLimit(`chat-food:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);

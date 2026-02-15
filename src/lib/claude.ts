@@ -29,17 +29,29 @@ Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calori
 
 export const CHAT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 
-You are having a conversational interaction with the user about their meal. You have access to their food log, nutrition summaries, and fasting data through the available tools.
+You are a friendly nutrition advisor having a conversational interaction with the user. You have access to their food log, nutrition summaries, goals, and fasting data through the available tools.
+
+You can help with:
+- Analyzing food from descriptions or images and reporting nutrition information
+- Refining existing food analyses when the user provides corrections
+- Answering questions about what they've eaten (today, this week, any date)
+- Checking progress against calorie and macro goals
+- Suggesting meals based on their eating patterns and remaining goals
+- Analyzing fasting patterns
+- Providing general nutrition advice with their personal context
 
 Follow these rules:
-- When the user provides corrections or additional information, always confirm the changes with an updated summary of the meal
+- When the user describes or shows food (with or without images), analyze it and call report_nutrition with complete nutritional information
+- When refining an existing analysis, confirm changes with an updated summary of the meal
 - Don't repeat information that hasn't changed — only mention what was updated
 - When new photos are provided, they add to the existing meal unless the user explicitly says otherwise
 - Corrections from the user override previous values
+- When the user asks questions about their eating habits, nutrition, or goals, use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) to look up their actual data before responding
+- Base your answers on real data from the tools, not assumptions
 - If the user's intent is ambiguous, ask clarifying questions before updating the analysis
 - Be concise and conversational in your responses
-- Use the report_nutrition tool only when you have complete nutritional information to report or update
-- Use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) when the user asks about what they've eaten before, their nutrition goals, or fasting patterns`;
+- Use specific numbers from their data when available
+- When suggesting meals, consider their typical eating patterns and current goal progress`;
 
 export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
@@ -538,19 +550,6 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
   }
 }
 
-const FREE_CHAT_SYSTEM_PROMPT = `You are a friendly nutrition advisor. You have access to the user's food log, nutrition summaries, goals, and fasting data.
-
-When the user asks questions about their eating habits, nutrition, or goals, use the available tools to look up their actual data before responding. Base your answers on real data, not assumptions.
-
-You can help with:
-- Reviewing what they've eaten (today, this week, any date)
-- Checking progress against calorie and macro goals
-- Suggesting meals based on their eating patterns and remaining goals
-- Analyzing fasting patterns
-- Answering nutrition questions with their personal context
-
-Be concise and conversational. Use specific numbers from their data. When suggesting meals, consider their typical eating patterns and current goal progress.`;
-
 const DATA_TOOLS = [
   SEARCH_FOOD_LOG_TOOL,
   GET_NUTRITION_SUMMARY_TOOL,
@@ -600,33 +599,6 @@ function truncateConversation(
   return [firstMessage, ...lastFourMessages];
 }
 
-export async function freeChat(
-  messages: ConversationMessage[],
-  userId: string,
-  currentDate: string
-): Promise<{ message: string }> {
-  // Convert ConversationMessage[] to Anthropic.MessageParam[]
-  let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => ({
-    role: msg.role,
-    content: [
-      {
-        type: "text" as const,
-        text: msg.content,
-      },
-    ],
-  }));
-
-  // Truncate conversation if needed (150K tokens threshold)
-  anthropicMessages = truncateConversation(anthropicMessages, 150000);
-
-  const result = await runToolLoop(anthropicMessages, userId, currentDate, {
-    systemPrompt: FREE_CHAT_SYSTEM_PROMPT,
-    tools: DATA_TOOLS,
-    operation: "free-chat",
-  });
-
-  return { message: result.message };
-}
 
 export async function runToolLoop(
   messages: Anthropic.MessageParam[],
@@ -639,9 +611,9 @@ export async function runToolLoop(
     initialResponse?: Anthropic.Message;
   }
 ): Promise<{ message: string; analysis?: FoodAnalysis }> {
-  const systemPrompt = options?.systemPrompt ?? FREE_CHAT_SYSTEM_PROMPT;
+  const systemPrompt = options?.systemPrompt ?? CHAT_SYSTEM_PROMPT;
   const tools = options?.tools ?? DATA_TOOLS;
-  const operation = options?.operation ?? "free-chat";
+  const operation = options?.operation ?? "food-chat";
 
   // Add cache_control to last tool (don't mutate originals)
   const toolsWithCache = tools.map((tool, index) =>

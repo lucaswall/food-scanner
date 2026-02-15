@@ -648,9 +648,9 @@ describe("FoodChat", () => {
   });
 
   it("plus button is disabled at message limit", async () => {
-    // MAX_MESSAGES = 20. apiMessageCount = messages.length - 1 (excludes initial)
-    // Each user+assistant pair adds 2 to messages. To hit limit: 1 + 2*10 = 21 messages, apiMessageCount = 20
-    const messagesToSend = 10;
+    // MAX_MESSAGES = 30. apiMessageCount = messages.length - 1 (excludes initial)
+    // Each user+assistant pair adds 2 to messages. To hit limit: 1 + 2*15 = 31 messages, apiMessageCount = 30
+    const messagesToSend = 15;
 
     for (let i = 0; i < messagesToSend; i++) {
       mockFetch.mockResolvedValueOnce({
@@ -719,8 +719,8 @@ describe("FoodChat", () => {
   });
 
   it("shows improved near-limit warning text", async () => {
-    // Send 8 messages to get to near-limit (apiMessageCount = 16, 4 remaining out of 20)
-    for (let i = 0; i < 8; i++) {
+    // Send 13 messages to get to near-limit (apiMessageCount = 26, 4 remaining out of 30)
+    for (let i = 0; i < 13; i++) {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         text: () =>
@@ -737,7 +737,7 @@ describe("FoodChat", () => {
     const sendButton = screen.getByRole("button", { name: /send/i });
 
     // Send messages
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 13; i++) {
       fireEvent.change(input, { target: { value: `Message ${i}` } });
       fireEvent.click(sendButton);
 
@@ -752,8 +752,8 @@ describe("FoodChat", () => {
   });
 
   it("shows at-limit message when limit is reached", async () => {
-    // Send 10 messages to hit the limit
-    for (let i = 0; i < 10; i++) {
+    // Send 15 messages to hit the limit
+    for (let i = 0; i < 15; i++) {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         text: () =>
@@ -770,7 +770,7 @@ describe("FoodChat", () => {
     const sendButton = screen.getByRole("button", { name: /send/i });
 
     // Send messages to hit limit
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 15; i++) {
       fireEvent.change(input, { target: { value: `Message ${i}` } });
       fireEvent.click(sendButton);
 
@@ -973,5 +973,279 @@ describe("FoodChat", () => {
     // MealTypeSelector should be in its own full-width row
     const selectorRow = mealTypeSelector.parentElement;
     expect(selectorRow?.className).toMatch(/w-full/);
+  });
+
+  // FOO-519: Free-form chat mode tests (no initial analysis)
+  describe("free-form mode (no initial analysis)", () => {
+    it("renders greeting message when no initialAnalysis provided", () => {
+      render(
+        <FoodChat
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      expect(
+        screen.getByText(/Hi! Ask me anything about your nutrition/i)
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/I analyzed your food/i)).not.toBeInTheDocument();
+    });
+
+    it("header shows title when no analysis present, hides Log button and MealTypeSelector", () => {
+      render(
+        <FoodChat
+          title="Chat"
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      // Should show title
+      expect(screen.getByText("Chat")).toBeInTheDocument();
+
+      // Should NOT show Log to Fitbit button or MealTypeSelector
+      expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("meal-type-selector")).not.toBeInTheDocument();
+    });
+
+    it("header updates to show Log button and MealTypeSelector when analysis arrives from API", async () => {
+      const analysisFromAPI: FoodAnalysis = {
+        food_name: "Salad",
+        amount: 200,
+        unit_id: 147,
+        calories: 150,
+        protein_g: 5,
+        carbs_g: 20,
+        fat_g: 5,
+        fiber_g: 3,
+        sodium_mg: 100,
+        confidence: "high",
+        notes: "Fresh salad",
+        description: "Green salad",
+        keywords: ["salad"],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              success: true,
+              data: {
+                message: "I see a salad!",
+                analysis: analysisFromAPI,
+              },
+            })
+          ),
+      });
+
+      render(
+        <FoodChat
+          title="Chat"
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      // Initially no Log button or MealTypeSelector
+      expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+      expect(screen.queryByTestId("meal-type-selector")).not.toBeInTheDocument();
+
+      // Send a message
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "What's this?" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      // After response with analysis, header should update
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId("meal-type-selector")).toBeInTheDocument();
+    });
+
+    it("shows MiniNutritionCard when first analysis arrives mid-conversation", async () => {
+      const analysisFromAPI: FoodAnalysis = {
+        food_name: "Pizza slice",
+        amount: 150,
+        unit_id: 311,
+        calories: 285,
+        protein_g: 12,
+        carbs_g: 36,
+        fat_g: 10,
+        fiber_g: 2,
+        sodium_mg: 640,
+        confidence: "high",
+        notes: "Pepperoni pizza",
+        description: "Pizza slice",
+        keywords: ["pizza"],
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              success: true,
+              data: {
+                message: "I analyzed this as a pizza slice!",
+                analysis: analysisFromAPI,
+              },
+            })
+          ),
+      });
+
+      render(
+        <FoodChat
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "I had pizza" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      // MiniNutritionCard should appear
+      await waitFor(() => {
+        expect(screen.getByText("Pizza slice")).toBeInTheDocument();
+        expect(screen.getByText("285")).toBeInTheDocument();
+        expect(screen.getByText("cal")).toBeInTheDocument();
+      });
+    });
+
+    it("image attachment works in free-form mode", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              success: true,
+              data: { message: "I see the food!" },
+            })
+          ),
+      });
+
+      render(
+        <FoodChat
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      // Open photo menu and select gallery
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      const galleryInput = screen.getByTestId("chat-gallery-input");
+
+      const files = [new File(["photo"], "photo.jpg", { type: "image/jpeg" })];
+      Object.defineProperty(galleryInput, "files", { value: files });
+      fireEvent.change(galleryInput);
+
+      // Photo indicator should appear
+      await waitFor(() => {
+        expect(screen.getByTestId("photo-indicator")).toBeInTheDocument();
+      });
+
+      // Send message with photo
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "What is this?" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      });
+
+      // Verify images were sent
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.images).toBeDefined();
+    });
+
+    it("API calls go to /api/chat-food in free-form mode", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({
+              success: true,
+              data: { message: "Response" },
+            })
+          ),
+      });
+
+      render(
+        <FoodChat
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Test" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/chat-food",
+          expect.objectContaining({
+            method: "POST",
+          })
+        );
+      });
+    });
+
+    it("uses default meal type when no initialMealTypeId provided", async () => {
+      const analysisFromAPI: FoodAnalysis = {
+        ...mockAnalysis,
+        food_name: "Test food",
+      };
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                success: true,
+                data: {
+                  message: "Analyzed",
+                  analysis: analysisFromAPI,
+                },
+              })
+            ),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                success: true,
+                data: mockLogResponse,
+              })
+            ),
+        });
+
+      render(
+        <FoodChat
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      // Get analysis first
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Food" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("meal-type-selector")).toBeInTheDocument();
+      });
+
+      // MealTypeSelector should have a default value from getDefaultMealType()
+      const selector = screen.getByTestId("meal-type-selector");
+      const select = selector.querySelector("select") as HTMLSelectElement;
+      // Default meal type is determined by time of day, so just verify it's set
+      expect(select.value).toMatch(/^[1-7]$/);
+    });
   });
 });

@@ -1,3 +1,4 @@
+import path from 'path';
 import { test, expect } from '@playwright/test';
 import { captureScreenshots } from '../fixtures/screenshots';
 import { MOCK_ANALYSIS, MOCK_REFINED_ANALYSIS } from '../fixtures/mock-data';
@@ -195,5 +196,255 @@ test.describe('Refine Chat Screenshots', () => {
 
     // Verify error is no longer visible
     await expect(page.getByText(/Failed to process message/i)).not.toBeVisible();
+  });
+});
+
+test.describe('Free-form Chat', () => {
+  test('shows greeting message and title header', async ({ page }) => {
+    await page.goto('/app/chat');
+    await page.waitForLoadState('networkidle');
+
+    // Should show greeting message
+    await expect(
+      page.getByText(/Hi! Ask me anything about your nutrition/i)
+    ).toBeVisible({ timeout: 5000 });
+
+    // Should show "Chat" title in header
+    await expect(page.getByRole('heading', { name: 'Chat' })).toBeVisible();
+
+    // Should NOT show "Log to Fitbit" button initially
+    expect(await page.getByRole('button', { name: /log to fitbit/i }).count()).toBe(0);
+  });
+
+  test('sends message and displays response', async ({ page }) => {
+    // Mock chat-food API for free-form chat
+    await page.route('**/api/chat-food', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            message: 'You consumed approximately 1,850 calories today across 3 meals.',
+          },
+        }),
+      });
+    });
+
+    await page.goto('/app/chat');
+    await page.waitForLoadState('networkidle');
+
+    // Wait for greeting message to ensure page is loaded
+    await expect(page.getByText(/Hi! Ask me anything/i)).toBeVisible({ timeout: 5000 });
+
+    // Type and send a message
+    const input = page.getByPlaceholder('Type a message...');
+    await input.fill('How many calories did I eat today?');
+    await page.getByRole('button', { name: 'Send' }).click();
+
+    // Wait for the response
+    await expect(page.getByText(/1,850 calories today/i)).toBeVisible({ timeout: 5000 });
+
+    // Verify "Log to Fitbit" button still not shown (no analysis in response)
+    expect(await page.getByRole('button', { name: /log to fitbit/i }).count()).toBe(0);
+  });
+
+  test('header updates when analysis arrives from API', async ({ page }) => {
+    // Mock chat-food API to return a response WITH analysis
+    await page.route('**/api/chat-food', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            message: "I analyzed that as a chicken breast with rice and vegetables.",
+            analysis: {
+              food_name: 'Chicken Breast with Rice',
+              amount: 300,
+              unit_id: 147,
+              calories: 450,
+              protein_g: 45,
+              carbs_g: 40,
+              fat_g: 8,
+              fiber_g: 3,
+              sodium_mg: 420,
+              confidence: 'high',
+              notes: 'Grilled chicken breast with brown rice and steamed vegetables',
+              description: 'Chicken breast meal',
+              keywords: ['chicken', 'rice', 'vegetables'],
+            },
+          },
+        }),
+      });
+    });
+
+    await page.goto('/app/chat');
+    await page.waitForLoadState('networkidle');
+
+    // Wait for greeting
+    await expect(page.getByText(/Hi! Ask me anything/i)).toBeVisible({ timeout: 5000 });
+
+    // Initially no "Log to Fitbit" button
+    expect(await page.getByRole('button', { name: /log to fitbit/i }).count()).toBe(0);
+
+    // Send a message describing food
+    const input = page.getByPlaceholder('Type a message...');
+    await input.fill('I had chicken breast with rice and vegetables');
+    await page.getByRole('button', { name: 'Send' }).click();
+
+    // Wait for response with analysis
+    await expect(page.getByText(/I analyzed that as/i)).toBeVisible({ timeout: 5000 });
+
+    // Now "Log to Fitbit" button should appear
+    await expect(page.getByRole('button', { name: /log to fitbit/i })).toBeVisible({ timeout: 3000 });
+
+    // MiniNutritionCard should also appear with calorie info
+    await expect(page.getByText('450')).toBeVisible();
+  });
+
+  test('can log food from free-form chat after analysis arrives', async ({ page }) => {
+    let logRequestBody: unknown = null;
+
+    // Mock chat-food API to return analysis
+    await page.route('**/api/chat-food', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            message: "I analyzed that as a protein shake.",
+            analysis: {
+              food_name: 'Protein Shake',
+              amount: 250,
+              unit_id: 209, // ml
+              calories: 180,
+              protein_g: 25,
+              carbs_g: 8,
+              fat_g: 4,
+              fiber_g: 1,
+              sodium_mg: 150,
+              confidence: 'high',
+              notes: 'Whey protein shake with water',
+              description: 'Protein shake',
+              keywords: ['protein', 'shake', 'whey'],
+            },
+          },
+        }),
+      });
+    });
+
+    // Mock log-food API
+    await page.route('**/api/log-food', async (route) => {
+      const request = route.request();
+      logRequestBody = request.postDataJSON();
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: { success: true, reusedFood: false, fitbitLogId: 99999 },
+        }),
+      });
+    });
+
+    await page.goto('/app/chat');
+    await page.waitForLoadState('networkidle');
+
+    // Send message describing food
+    const input = page.getByPlaceholder('Type a message...');
+    await input.fill('I had a protein shake');
+    await page.getByRole('button', { name: 'Send' }).click();
+
+    // Wait for analysis response
+    await expect(page.getByText(/I analyzed that as/i)).toBeVisible({ timeout: 5000 });
+
+    // Wait for "Log to Fitbit" button to appear
+    await expect(page.getByRole('button', { name: /log to fitbit/i })).toBeVisible({ timeout: 3000 });
+
+    // Click "Log to Fitbit"
+    await page.getByRole('button', { name: /log to fitbit/i }).click();
+
+    // Wait for confirmation
+    await expect(page.getByText(/logged successfully/i)).toBeVisible({ timeout: 10000 });
+
+    // Verify logged food name
+    await expect(page.getByRole('heading', { name: /Protein Shake/i })).toBeVisible();
+
+    // Verify request body
+    expect(logRequestBody).toBeTruthy();
+    expect(logRequestBody).toMatchObject({
+      food_name: 'Protein Shake',
+      calories: 180,
+      protein_g: 25,
+    });
+  });
+
+  test('image attachment works in free-form chat', async ({ page }) => {
+    let chatRequestBody: unknown = null;
+
+    // Mock chat-food API to capture request with images
+    await page.route('**/api/chat-food', async (route) => {
+      const request = route.request();
+      chatRequestBody = request.postDataJSON();
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            message: "I see a salad in the photo!",
+            analysis: {
+              food_name: 'Garden Salad',
+              amount: 200,
+              unit_id: 147,
+              calories: 120,
+              protein_g: 4,
+              carbs_g: 15,
+              fat_g: 5,
+              fiber_g: 4,
+              sodium_mg: 180,
+              confidence: 'high',
+              notes: 'Fresh garden salad with dressing',
+              description: 'Salad',
+              keywords: ['salad', 'vegetables'],
+            },
+          },
+        }),
+      });
+    });
+
+    await page.goto('/app/chat');
+    await page.waitForLoadState('networkidle');
+
+    // Click the + button to open photo menu
+    await page.getByRole('button', { name: /add photo/i }).click();
+
+    // Click "Choose from gallery" option
+    await page.getByRole('button', { name: /choose from gallery/i }).click();
+
+    // Use a real JPEG fixture (compressImage needs a valid image for Canvas API)
+    const fileInput = page.locator('input[type="file"][data-testid="chat-gallery-input"]');
+    await fileInput.setInputFiles(path.join(__dirname, '..', 'fixtures', 'test-image.jpg'));
+
+    // Wait for photo indicator to appear
+    await expect(page.getByTestId('photo-indicator')).toBeVisible({ timeout: 3000 });
+
+    // Type message and send
+    const input = page.getByPlaceholder('Type a message...');
+    await input.fill('What is this?');
+    await page.getByRole('button', { name: 'Send' }).click();
+
+    // Wait for response
+    await expect(page.getByText(/I see a salad/i)).toBeVisible({ timeout: 5000 });
+
+    // Verify images were sent in the request
+    expect(chatRequestBody).toBeTruthy();
+    const body = chatRequestBody as { images?: string[] };
+    expect(body.images).toBeDefined();
+    expect(body.images!.length).toBeGreaterThan(0);
   });
 });

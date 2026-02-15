@@ -219,6 +219,63 @@ The API endpoint drops `requireFitbit: true` — Fitbit is only needed at log ti
 
 ---
 
+## Iteration 1
+
+**Implemented:** 2026-02-15
+**Method:** Agent team (2 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Merge API routes — consolidate /api/chat into /api/chat-food (FOO-518) (worker-1)
+- Task 2: Unify FoodChat component — optional initial analysis, dynamic header (FOO-519) (worker-2)
+- Task 3: Wire up /app/chat page to unified FoodChat and delete FreeChat (FOO-520) (worker-2)
+- Task 4: Update E2E test and cleanup (FOO-521) (worker-2)
+
+### Files Modified
+- `src/app/api/chat-food/route.ts` — Dropped requireFitbit, increased MAX_MESSAGES to 30
+- `src/app/api/chat-food/__tests__/route.test.ts` — Updated tests for no Fitbit requirement, 30 msg limit, free-form mode
+- `src/lib/claude.ts` — Merged FREE_CHAT_SYSTEM_PROMPT into CHAT_SYSTEM_PROMPT, deleted freeChat(), updated runToolLoop
+- `src/lib/__tests__/claude.test.ts` — Removed freeChat() tests, updated runToolLoop expectations
+- `src/types/index.ts` — Deleted ChatRequest and ChatResponse interfaces
+- `src/components/food-chat.tsx` — Optional props, conditional header, greeting message, MAX_MESSAGES=30, TS narrowing fix
+- `src/components/__tests__/food-chat.test.tsx` — 7 new free-form mode tests, 3 updated limit tests
+- `src/app/app/chat/page.tsx` — Server Component with session auth → renders ChatPageClient
+- `src/components/chat-page-client.tsx` — New client wrapper with log state management and FoodLogConfirmation
+- `src/app/app/chat/loading.tsx` — Updated skeleton with + photo button placeholder
+- `e2e/tests/refine-chat.spec.ts` — 5 new E2E tests for free-form chat flow, real JPEG fixture for image test
+- `e2e/fixtures/test-image.jpg` — Minimal 1x1 JPEG test fixture for image upload E2E tests
+
+### Files Deleted
+- `src/app/api/chat/route.ts` — Old free-chat API route (merged into /api/chat-food)
+- `src/app/api/chat/__tests__/route.test.ts` — Tests for deleted route
+- `src/components/free-chat.tsx` — FreeChat component (replaced by unified FoodChat)
+- `src/components/__tests__/free-chat.test.tsx` — Tests for deleted component
+
+### Linear Updates
+- FOO-518: Todo → In Progress → Review
+- FOO-519: Todo → In Progress → Review
+- FOO-520: Todo → In Progress → Review
+- FOO-521: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 real bugs (auth bypass in page, missing log feedback), fixed before proceeding; 1 false positive skipped (test flakiness)
+- verifier: All 1769 unit tests pass, zero warnings, build clean
+- E2E: All 115 E2E tests pass (including 5 new free-form chat tests)
+
+### Work Partition
+- Worker 1: Task 1 (backend: API route, Claude functions, types)
+- Worker 2: Tasks 2, 3, 4 (frontend: component refactor, page wiring, E2E spec)
+
+### Integration Fixes (lead)
+- Fixed TypeScript narrowing in `handleLog`: captured `latestAnalysis` in local const before `await` to preserve narrowing
+- Fixed auth bypass: restored Server Component with session check, extracted client logic to `ChatPageClient`
+- Added user feedback when logging without analysis: `setError("No food analysis available to log.")`
+- Fixed E2E image test: replaced fake buffer with real JPEG fixture file
+
+### Continuation Status
+All tasks completed.
+
+---
+
 ## Plan Summary
 
 **Objective:** Unify FoodChat and FreeChat into a single FoodChat component with one shared API endpoint

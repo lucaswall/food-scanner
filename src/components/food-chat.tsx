@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
 import { compressImage } from "@/lib/image";
-import { getLocalDateTime } from "@/lib/meal-type";
+import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { getTodayDate } from "@/lib/date-utils";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { MiniNutritionCard } from "./mini-nutrition-card";
@@ -28,28 +28,35 @@ import type {
   ChatFoodResponse,
 } from "@/types";
 
-const MAX_MESSAGES = 20;
+const MAX_MESSAGES = 30;
 
 interface FoodChatProps {
-  initialAnalysis: FoodAnalysis;
-  compressedImages: Blob[];
-  initialMealTypeId: number;
+  initialAnalysis?: FoodAnalysis;
+  compressedImages?: Blob[];
+  initialMealTypeId?: number;
+  title?: string;
   onClose: () => void;
   onLogged: (response: FoodLogResponse, analysis: FoodAnalysis) => void;
 }
 
 export function FoodChat({
   initialAnalysis,
-  compressedImages,
+  compressedImages = [],
   initialMealTypeId,
+  title = "Chat",
   onClose,
   onLogged,
 }: FoodChatProps) {
-  const initialMessage: ConversationMessage = {
-    role: "assistant",
-    content: `I analyzed your food as ${initialAnalysis.food_name} (${initialAnalysis.calories} cal). Anything you'd like to correct?`,
-    analysis: initialAnalysis,
-  };
+  const initialMessage: ConversationMessage = initialAnalysis
+    ? {
+        role: "assistant",
+        content: `I analyzed your food as ${initialAnalysis.food_name} (${initialAnalysis.calories} cal). Anything you'd like to correct?`,
+        analysis: initialAnalysis,
+      }
+    : {
+        role: "assistant",
+        content: "Hi! Ask me anything about your nutrition, or describe a meal to log it.",
+      };
 
   const [messages, setMessages] = useState<ConversationMessage[]>([
     initialMessage,
@@ -58,7 +65,7 @@ export function FoodChat({
   const [loading, setLoading] = useState(false);
   const [logging, setLogging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mealTypeId, setMealTypeId] = useState(initialMealTypeId);
+  const [mealTypeId, setMealTypeId] = useState(initialMealTypeId ?? getDefaultMealType());
   // Initial images sent silently with first message; user-added images shown in indicator
   const [initialImagesSent, setInitialImagesSent] = useState(false);
   const [pendingImages, setPendingImages] = useState<Blob[]>([]);
@@ -78,7 +85,7 @@ export function FoodChat({
   const latestAnalysis =
     [...messages]
       .reverse()
-      .find((msg) => msg.analysis)?.analysis || initialAnalysis;
+      .find((msg) => msg.analysis)?.analysis;
 
   // Count messages excluding the initial client-generated assistant message
   const apiMessageCount = messages.length - 1;
@@ -221,13 +228,16 @@ export function FoodChat({
       const requestBody: {
         messages: ConversationMessage[];
         images?: string[];
-        initialAnalysis: FoodAnalysis;
+        initialAnalysis?: FoodAnalysis;
         clientDate: string;
       } = {
         messages: apiMessages,
-        initialAnalysis: latestAnalysis,
         clientDate: getTodayDate(),
       };
+
+      if (latestAnalysis) {
+        requestBody.initialAnalysis = latestAnalysis;
+      }
 
       // Collect all images to send: initial images (first time only) + user-added
       const allImagesToSend: Blob[] = [];
@@ -292,6 +302,11 @@ export function FoodChat({
 
   const handleLog = async () => {
     if (logging) return;
+    if (!latestAnalysis) {
+      setError("No food analysis available to log.");
+      return;
+    }
+    const analysis = latestAnalysis;
 
     setLogging(true);
     setError(null);
@@ -301,7 +316,7 @@ export function FoodChat({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...latestAnalysis,
+          ...analysis,
           mealTypeId,
           ...getLocalDateTime(),
         }),
@@ -320,9 +335,9 @@ export function FoodChat({
         // Handle token expiration - save pending and redirect to re-auth
         if (errorCode === "FITBIT_TOKEN_INVALID") {
           savePendingSubmission({
-            analysis: latestAnalysis,
+            analysis: analysis,
             mealTypeId,
-            foodName: latestAnalysis.food_name,
+            foodName: analysis.food_name,
             ...getLocalDateTime(),
           });
           window.location.href = "/api/auth/fitbit";
@@ -339,7 +354,7 @@ export function FoodChat({
         return;
       }
 
-      onLogged(result.data, latestAnalysis);
+      onLogged(result.data, analysis);
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setError("Request timed out. Please try again.");
@@ -381,41 +396,57 @@ export function FoodChat({
         }}
       />
 
-      {/* Top header: Two-row layout */}
+      {/* Top header: Conditional layout based on analysis presence */}
       <div className="border-b bg-background px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] space-y-2">
-        {/* Row 1: Back button + Log to Fitbit button */}
-        <div className="flex items-center justify-between gap-2">
-          <button
-            onClick={onClose}
-            aria-label="Back"
-            className="shrink-0 flex items-center justify-center size-11 rounded-full"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <Button
-            onClick={handleLog}
-            disabled={logging}
-            className="shrink-0 min-h-[44px]"
-          >
-            {logging ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Logging...
-              </>
-            ) : (
-              "Log to Fitbit"
-            )}
-          </Button>
-        </div>
-        {/* Row 2: MealTypeSelector full width */}
-        <div className="w-full">
-          <MealTypeSelector
-            value={mealTypeId}
-            onChange={setMealTypeId}
-            showTimeHint={false}
-            ariaLabel="Meal type"
-          />
-        </div>
+        {latestAnalysis ? (
+          <>
+            {/* Row 1: Back button + Log to Fitbit button */}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                onClick={onClose}
+                aria-label="Back"
+                className="shrink-0 flex items-center justify-center size-11 rounded-full"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <Button
+                onClick={handleLog}
+                disabled={logging}
+                className="shrink-0 min-h-[44px]"
+              >
+                {logging ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Logging...
+                  </>
+                ) : (
+                  "Log to Fitbit"
+                )}
+              </Button>
+            </div>
+            {/* Row 2: MealTypeSelector full width */}
+            <div className="w-full">
+              <MealTypeSelector
+                value={mealTypeId}
+                onChange={setMealTypeId}
+                showTimeHint={false}
+                ariaLabel="Meal type"
+              />
+            </div>
+          </>
+        ) : (
+          /* Simple header: Back button + Title */
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              aria-label="Back"
+              className="shrink-0 flex items-center justify-center size-11 rounded-full"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <h1 className="text-lg font-semibold">{title}</h1>
+          </div>
+        )}
       </div>
 
       {/* Messages — scrollable area */}
