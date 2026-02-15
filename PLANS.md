@@ -413,3 +413,57 @@ Fix a family of SWR data-freshness and error-handling bugs in the QuickSelect, D
 - Optimistic updates for food mutations (invalidation-based approach is simpler and sufficient)
 - Custom retry logic for failed API calls
 - Session expiry prevention or auto-refresh
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-15
+**Method:** Agent team (3 workers)
+
+### Tasks Completed This Iteration
+- Task 1: Global SWR Error Provider (FOO-497) - Created SWRProvider with onError handler that redirects to / on AUTH_MISSING_SESSION (worker-1)
+- Task 2: Stabilize QuickSelect SWR Key (FOO-503) - Changed getLocalDateTime to HH:mm, used useState initializer for stable key, added keepPreviousData:true, fixed sentinel div height (worker-1)
+- Task 3: SWR Cache Invalidation After Food Mutations (FOO-498) - Created invalidateFoodCaches() function, integrated into FoodLogConfirmation and FoodHistory (worker-2)
+- Task 4: Recent Tab Revalidation on Revisit (FOO-499) - Enabled revalidateFirstPage:true for automatic revalidation (worker-1)
+- Task 5: Fix Dashboard Prefetch Key (FOO-502) - Changed prefetch from /api/common-foods to /api/common-foods?tab=recent&limit=10 (worker-3)
+- Task 6: Pending Submission Handler at App Level (FOO-501) - Created PendingSubmissionHandler component in app layout, removed pending logic from QuickSelect (worker-1)
+
+### Files Modified
+- `src/components/swr-provider.tsx` - Created: SWRConfig wrapper with global 401 error handler
+- `src/components/__tests__/swr-provider.test.tsx` - Created: 4 tests for SWR provider
+- `src/app/app/layout.tsx` - Added SWRProvider and PendingSubmissionHandler wrappers
+- `src/lib/meal-type.ts` - Changed getLocalDateTime() to return HH:mm format (no seconds)
+- `src/lib/__tests__/meal-type.test.ts` - Updated tests for HH:mm format
+- `src/components/quick-select.tsx` - useState initializer for clientTime/clientDate, keepPreviousData:true, revalidateFirstPage:true, min-h sentinel, removed pending submission logic
+- `src/components/__tests__/quick-select.test.tsx` - Added key stability and revalidation tests, removed pending resubmission tests, removed unused mockAnalysis
+- `src/lib/swr.ts` - Added invalidateFoodCaches() function with global SWR mutate
+- `src/lib/__tests__/swr.test.ts` - Added 4 tests for cache invalidation
+- `src/components/food-log-confirmation.tsx` - Call invalidateFoodCaches() in success useEffect
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Added cache invalidation tests, fixed mock to return Promise
+- `src/components/food-history.tsx` - Call invalidateFoodCaches() after successful delete
+- `src/components/__tests__/food-history.test.tsx` - Added delete cache invalidation tests, fixed mock to return Promise
+- `src/components/dashboard-prefetch.tsx` - Fixed preload key to match QuickSelect Recent tab
+- `src/components/__tests__/dashboard-prefetch.test.tsx` - Updated test for correct prefetch key
+- `src/components/pending-submission-handler.tsx` - Created: global pending submission handler with banner UI
+- `src/components/__tests__/pending-submission-handler.test.tsx` - Created: 8 tests for pending handler
+
+### Linear Updates
+- FOO-497: Todo → In Progress → Review
+- FOO-503: Todo → In Progress → Review
+- FOO-498: Todo → In Progress → Review
+- FOO-499: Todo → In Progress → Review
+- FOO-502: Todo → In Progress → Review
+- FOO-501: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 HIGH (unhandled async invalidateFoodCaches), 3 MEDIUM (setTimeout cleanup, docs), 1 LOW — all fixed before commit
+- verifier: All tests pass, zero lint errors, zero warnings
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 4, 6 (SWR provider, QuickSelect stabilization, Recent tab revalidation, pending submission handler)
+- Worker 2: Task 3 (SWR cache invalidation)
+- Worker 3: Task 5 (Dashboard prefetch key fix)
+
+### Continuation Status
+All tasks completed.

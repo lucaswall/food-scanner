@@ -1,3 +1,5 @@
+import { mutate } from "swr";
+
 export class ApiError extends Error {
   code: string;
 
@@ -23,4 +25,20 @@ export async function apiFetcher(url: string) {
     throw new ApiError(message, code);
   }
   return result.data;
+}
+
+const FOOD_CACHE_PREFIXES = [
+  "/api/nutrition-summary",
+  "/api/food-history",
+  "/api/common-foods",
+  "/api/fasting",
+  "/api/earliest-entry",
+];
+
+export function invalidateFoodCaches(): Promise<unknown[]> {
+  return mutate(
+    (key) =>
+      typeof key === "string" &&
+      FOOD_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)),
+  );
 }

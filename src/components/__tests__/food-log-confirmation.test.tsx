@@ -3,10 +3,22 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { FoodLogConfirmation } from "../food-log-confirmation";
 import type { FoodAnalysis, FoodLogResponse } from "@/types";
 
-const mockPush = vi.fn();
+const { mockPush, mockInvalidateFoodCaches } = vi.hoisted(() => ({
+  mockPush: vi.fn(),
+  mockInvalidateFoodCaches: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }));
+
+vi.mock("@/lib/swr", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/swr")>("@/lib/swr");
+  return {
+    ...actual,
+    invalidateFoodCaches: mockInvalidateFoodCaches,
+  };
+});
 
 const mockResponse: FoodLogResponse = {
   success: true,
@@ -304,6 +316,35 @@ describe("FoodLogConfirmation", () => {
       expect(screen.getByText(/logged successfully/i)).toBeInTheDocument();
       // Done button still present
       expect(screen.getByRole("button", { name: /done/i })).toBeInTheDocument();
+    });
+  });
+
+  // FOO-498: SWR Cache Invalidation
+  describe("cache invalidation", () => {
+    it("calls invalidateFoodCaches when response is truthy", () => {
+      mockInvalidateFoodCaches.mockClear();
+
+      render(
+        <FoodLogConfirmation
+          response={mockResponse}
+          foodName="Test Food"
+        />
+      );
+
+      expect(mockInvalidateFoodCaches).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not call invalidateFoodCaches when response is null", () => {
+      mockInvalidateFoodCaches.mockClear();
+
+      render(
+        <FoodLogConfirmation
+          response={null}
+          foodName="Test Food"
+        />
+      );
+
+      expect(mockInvalidateFoodCaches).not.toHaveBeenCalled();
     });
   });
 });

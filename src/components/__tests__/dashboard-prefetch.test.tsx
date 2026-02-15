@@ -20,9 +20,9 @@ beforeEach(() => {
 });
 
 describe("DashboardPrefetch", () => {
-  it("calls preload for /api/common-foods on mount", () => {
+  it("calls preload for /api/common-foods?tab=recent&limit=10 on mount", () => {
     render(<DashboardPrefetch />);
-    expect(mockPreload).toHaveBeenCalledWith("/api/common-foods", expect.any(Function));
+    expect(mockPreload).toHaveBeenCalledWith("/api/common-foods?tab=recent&limit=10", expect.any(Function));
   });
 
   it("calls preload for /api/food-history?limit=20 on mount", () => {

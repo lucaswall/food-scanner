@@ -12,11 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Search } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
-import {
-  savePendingSubmission,
-  getPendingSubmission,
-  clearPendingSubmission,
-} from "@/lib/pending-submission";
+import { savePendingSubmission } from "@/lib/pending-submission";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import { getUnitLabel } from "@/types";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -62,8 +58,8 @@ export function QuickSelect() {
   const debouncedQuery = useDebounce(searchQuery, 300);
   const isSearchActive = debouncedQuery.length >= 2;
 
-  // Get client's local time and date for time-of-day ranking
-  const { time: clientTime, date: clientDate } = getLocalDateTime();
+  // Get client's local time and date for time-of-day ranking (captured once on mount)
+  const [{ time: clientTime, date: clientDate }] = useState(getLocalDateTime);
 
   const getKey = useCallback(
     (pageIndex: number, previousPageData: PaginatedFoodsPage | null) => {
@@ -85,8 +81,9 @@ export function QuickSelect() {
     isLoading: loadingFoods,
     isValidating,
   } = useSWRInfinite<PaginatedFoodsPage>(getKey, apiFetcher, {
-    revalidateFirstPage: false,
+    revalidateFirstPage: true,
     revalidateOnFocus: false,
+    keepPreviousData: true,
   });
 
   const { data: searchData, isLoading: searchLoading } = useSWR<{ foods: CommonFood[] }>(
@@ -124,77 +121,6 @@ export function QuickSelect() {
   const [logging, setLogging] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
-  const [resubmitting, setResubmitting] = useState(false);
-  const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Check for pending submission
-    const pending = getPendingSubmission();
-    if (!pending) return;
-
-    setResubmitting(true);
-    setResubmitFoodName(pending.foodName);
-    setMealTypeId(pending.mealTypeId);
-
-    const dateTime = pending.date && pending.time
-      ? { date: pending.date, time: pending.time }
-      : getLocalDateTime();
-    const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId, ...dateTime };
-    if (pending.reuseCustomFoodId) {
-      body.reuseCustomFoodId = pending.reuseCustomFoodId;
-      // If reusing and we have analysis metadata, include it with "new" prefix
-      if (pending.analysis) {
-        body.newDescription = pending.analysis.description;
-        body.newNotes = pending.analysis.notes;
-        body.newKeywords = pending.analysis.keywords;
-        body.newConfidence = pending.analysis.confidence;
-      }
-    } else if (pending.analysis) {
-      Object.assign(body, pending.analysis);
-    }
-
-    fetch("/api/log-food", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then((r) => r.json())
-      .then((result) => {
-        if (result.success) {
-          clearPendingSubmission();
-          setLogResponse(result.data);
-        } else {
-          const errorCode = result.error?.code;
-
-          // Clear any stale success response before showing error
-          setLogResponse(null);
-
-          // Handle token expiration - re-save pending and redirect to re-auth
-          if (errorCode === "FITBIT_TOKEN_INVALID") {
-            savePendingSubmission(pending);
-            window.location.href = "/api/auth/fitbit";
-            return;
-          }
-
-          // Handle missing credentials - show specific error
-          if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-            clearPendingSubmission();
-            setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
-            return;
-          }
-
-          clearPendingSubmission();
-          setLogError(result.error?.message || "Failed to resubmit food log");
-        }
-      })
-      .catch(() => {
-        clearPendingSubmission();
-        setLogError("Failed to resubmit food log");
-      })
-      .finally(() => {
-        setResubmitting(false);
-      });
-  }, []);
 
   const handleSelectFood = (food: CommonFood) => {
     setSelectedFood(food);
@@ -259,25 +185,13 @@ export function QuickSelect() {
     }
   };
 
-  // Resubmitting state
-  if (resubmitting) {
-    return (
-      <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-muted-foreground">
-          Reconnected! Resubmitting {resubmitFoodName ?? "food"}...
-        </p>
-      </div>
-    );
-  }
-
   // Success screen
   if (logResponse) {
     const analysis = selectedFood ? foodToAnalysis(selectedFood) : undefined;
     return (
       <FoodLogConfirmation
         response={logResponse}
-        foodName={selectedFood?.foodName ?? resubmitFoodName ?? "Food"}
+        foodName={selectedFood?.foodName ?? "Food"}
         analysis={analysis}
         mealTypeId={mealTypeId}
       />
@@ -473,7 +387,7 @@ export function QuickSelect() {
 
         {/* Infinite scroll sentinel */}
         {hasMore && (
-          <div ref={sentinelRef} className="flex justify-center py-4">
+          <div ref={sentinelRef} className="flex justify-center py-4 min-h-[48px]">
             {isLoadingMore && (
               <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             )}

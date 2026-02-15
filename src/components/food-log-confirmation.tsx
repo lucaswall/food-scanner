@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { CheckCircle } from "lucide-react";
 import { vibrateSuccess } from "@/lib/haptics";
+import { invalidateFoodCaches } from "@/lib/swr";
 
 interface FoodLogConfirmationProps {
   response: FoodLogResponse | null;
@@ -22,10 +23,11 @@ export function FoodLogConfirmation({
   mealTypeId,
 }: FoodLogConfirmationProps) {
   const router = useRouter();
-  // Trigger haptic feedback on mount
+  // Trigger haptic feedback and invalidate caches on mount
   useEffect(() => {
     if (response) {
       vibrateSuccess();
+      invalidateFoodCaches().catch(() => {});
     }
   }, [response]);
 
