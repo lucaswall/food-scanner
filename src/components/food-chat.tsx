@@ -366,9 +366,10 @@ export function FoodChat({
         }}
       />
 
-      {/* Top header: Back + Meal type + Log to Fitbit */}
-      <div className="border-b bg-background px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
-        <div className="flex items-center gap-2">
+      {/* Top header: Two-row layout */}
+      <div className="border-b bg-background px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] space-y-2">
+        {/* Row 1: Back button + Log to Fitbit button */}
+        <div className="flex items-center justify-between gap-2">
           <button
             onClick={onClose}
             aria-label="Back"
@@ -376,14 +377,6 @@ export function FoodChat({
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <div className="flex-1">
-            <MealTypeSelector
-              value={mealTypeId}
-              onChange={setMealTypeId}
-              showTimeHint={false}
-              ariaLabel="Meal type"
-            />
-          </div>
           <Button
             onClick={handleLog}
             disabled={logging}
@@ -398,6 +391,15 @@ export function FoodChat({
               "Log to Fitbit"
             )}
           </Button>
+        </div>
+        {/* Row 2: MealTypeSelector full width */}
+        <div className="w-full">
+          <MealTypeSelector
+            value={mealTypeId}
+            onChange={setMealTypeId}
+            showTimeHint={false}
+            ariaLabel="Meal type"
+          />
         </div>
       </div>
 
@@ -597,7 +599,7 @@ export function FoodChat({
             }}
             disabled={loading || atLimit}
             maxLength={500}
-            className="flex-1 min-h-[44px] rounded-full"
+            className="flex-1 rounded-full"
           />
 
           <Button

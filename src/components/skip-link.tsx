@@ -1,5 +1,3 @@
-"use client";
-
 interface SkipLinkProps {
   href?: string;
   children?: React.ReactNode;

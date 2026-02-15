@@ -438,7 +438,7 @@ describe("DailyDashboard", () => {
       expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
 
       // Actionable message SHOULD be present when meals array is empty
-      expect(screen.getByText(/log.*first meal.*daily nutrition/i)).toBeInTheDocument();
+      expect(screen.getByText(/no meals logged yet/i)).toBeInTheDocument();
     });
   });
 
@@ -481,7 +481,7 @@ describe("DailyDashboard", () => {
       expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
       expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
       // Empty state message should also be present
-      expect(screen.getByText(/log.*first meal.*daily nutrition/i)).toBeInTheDocument();
+      expect(screen.getByText(/no meals logged yet/i)).toBeInTheDocument();
     });
   });
 
@@ -509,6 +509,35 @@ describe("DailyDashboard", () => {
     await waitFor(() => {
       expect(screen.getByText(/failed to load/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    });
+  });
+
+  it("error retry button has default variant (not outline)", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: () =>
+          Promise.resolve({
+            success: false,
+            error: { code: "UNKNOWN_ERROR", message: "Failed to load" },
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockGoals }),
+      });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      const retryButton = screen.getByRole("button", { name: /retry/i });
+      // Default variant has bg-primary class, outline variant has bg-background
+      expect(retryButton).toHaveClass("bg-primary");
+      expect(retryButton).not.toHaveClass("bg-background");
     });
   });
 
@@ -1076,7 +1105,64 @@ describe("DailyDashboard", () => {
     renderDailyDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/log.*first meal.*daily nutrition/i)).toBeInTheDocument();
+      expect(screen.getByText(/no meals logged yet/i)).toBeInTheDocument();
+    });
+  });
+
+  it("empty state shows CTA buttons for Scan Food and Quick Select", async () => {
+    const emptySummaryForDate = {
+      date: "2026-02-09",
+      totals: {
+        calories: 0,
+        proteinG: 0,
+        carbsG: 0,
+        fatG: 0,
+        fiberG: 0,
+        sodiumMg: 0,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+      meals: [],
+    };
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: emptySummaryForDate }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/earliest-entry")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      // Check for Scan Food link to /app/analyze
+      const scanFoodLink = screen.getByRole("link", { name: /scan food/i });
+      expect(scanFoodLink).toBeInTheDocument();
+      expect(scanFoodLink).toHaveAttribute("href", "/app/analyze");
+      expect(scanFoodLink).toHaveClass("min-h-[44px]");
+
+      // Check for Quick Select link to /app/quick-select
+      const quickSelectLink = screen.getByRole("link", { name: /quick select/i });
+      expect(quickSelectLink).toBeInTheDocument();
+      expect(quickSelectLink).toHaveAttribute("href", "/app/quick-select");
+      expect(quickSelectLink).toHaveClass("min-h-[44px]");
     });
   });
 

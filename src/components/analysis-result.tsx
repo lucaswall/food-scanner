@@ -46,7 +46,7 @@ export function AnalysisResult({
         aria-live="polite"
       >
         <p className="text-sm text-destructive">{error}</p>
-        <Button onClick={onRetry} variant="outline">
+        <Button onClick={onRetry}>
           Retry
         </Button>
       </div>

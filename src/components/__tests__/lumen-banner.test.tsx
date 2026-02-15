@@ -254,4 +254,64 @@ describe("LumenBanner", () => {
 
     expect(dateValue).toBe(expectedDate);
   });
+
+  it("resets file input value even when upload fails", async () => {
+    const user = userEvent.setup();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ error: { message: "Server error" } }),
+    });
+
+    mockUseSWR.mockReturnValue({
+      data: { goals: null },
+      error: undefined,
+      isLoading: false,
+      mutate: vi.fn(),
+    });
+
+    render(<LumenBanner />);
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["image"], "lumen.png", { type: "image/png" });
+
+    await user.upload(fileInput, file);
+
+    await waitFor(() => {
+      expect(screen.getByText(/server error/i)).toBeInTheDocument();
+    });
+
+    // File input should be reset even on error, so user can re-select the same file
+    expect(fileInput.value).toBe("");
+  });
+
+  it("renders upload prompt as a proper button element with accessible attributes", async () => {
+    const user = userEvent.setup();
+    mockUseSWR.mockReturnValue({
+      data: { goals: null },
+      error: undefined,
+      isLoading: false,
+      mutate: vi.fn(),
+    });
+
+    render(<LumenBanner />);
+
+    // Should be a button element
+    const button = screen.getByRole("button", {
+      name: /upload lumen screenshot to set today's macro goals/i,
+    });
+    expect(button).toBeInTheDocument();
+    expect(button.tagName).toBe("BUTTON");
+
+    // Button should be focusable
+    button.focus();
+    expect(document.activeElement).toBe(button);
+
+    // Clicking the button should trigger the file input
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const clickSpy = vi.spyOn(fileInput, "click");
+
+    await user.click(button);
+    expect(clickSpy).toHaveBeenCalled();
+  });
 });

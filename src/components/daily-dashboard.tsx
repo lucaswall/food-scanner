@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { getTodayDate } from "@/lib/date-utils";
@@ -11,7 +12,7 @@ import { MealBreakdown } from "@/components/meal-breakdown";
 import { FastingCard } from "@/components/fasting-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Loader2 } from "lucide-react";
+import { RefreshCw, Loader2, ScanEye, ListChecks } from "lucide-react";
 import type { NutritionSummary, NutritionGoals, LumenGoalsResponse } from "@/types";
 
 function DashboardSkeleton() {
@@ -166,7 +167,6 @@ export function DailyDashboard() {
         </p>
         <Button
           onClick={() => mutateSummary()}
-          variant="outline"
           size="sm"
           className="min-h-[44px]"
         >
@@ -252,8 +252,24 @@ export function DailyDashboard() {
 
       {/* Empty state or Meal Breakdown */}
       {showEmptyState ? (
-        <div className="flex flex-col items-center justify-center py-8 text-center">
-          <p className="text-muted-foreground">Log your first meal to see your daily nutrition</p>
+        <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
+          <p className="text-muted-foreground">No meals logged yet</p>
+          <div className="flex gap-3">
+            <Link
+              href="/app/analyze"
+              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-11 px-4 py-2 min-h-[44px]"
+            >
+              <ScanEye className="h-4 w-4" />
+              Scan Food
+            </Link>
+            <Link
+              href="/app/quick-select"
+              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-11 px-4 py-2 min-h-[44px]"
+            >
+              <ListChecks className="h-4 w-4" />
+              Quick Select
+            </Link>
+          </div>
         </div>
       ) : (
         <MealBreakdown meals={meals} />

@@ -654,4 +654,65 @@ describe("WeeklyNutritionChart", () => {
     expect(bottomPercent).toBeGreaterThanOrEqual(0);
     expect(bottomPercent).toBeLessThanOrEqual(100);
   });
+
+  it("metric tab buttons have aria-controls pointing to the chart panel", () => {
+    render(<WeeklyNutritionChart days={mockDays} weekStart="2026-02-08" />);
+
+    const caloriesTab = screen.getByRole("tab", { name: "Calories" });
+    const proteinTab = screen.getByRole("tab", { name: "Protein" });
+    const carbsTab = screen.getByRole("tab", { name: "Carbs" });
+    const fatTab = screen.getByRole("tab", { name: "Fat" });
+
+    // Check aria-controls attributes
+    expect(caloriesTab).toHaveAttribute("aria-controls", "panel-metric");
+    expect(proteinTab).toHaveAttribute("aria-controls", "panel-metric");
+    expect(carbsTab).toHaveAttribute("aria-controls", "panel-metric");
+    expect(fatTab).toHaveAttribute("aria-controls", "panel-metric");
+
+    // Verify chart container has the matching ID
+    const chartPanel = document.getElementById("panel-metric");
+    expect(chartPanel).toBeInTheDocument();
+
+    // Switch to protein tab and verify panel still has the same ID
+    fireEvent.click(proteinTab);
+    expect(document.getElementById("panel-metric")).toBeInTheDocument();
+  });
+
+  it("shows a visual indicator on the current day column", () => {
+    // Use the actual today's date
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    // Create mock data that includes today
+    const daysWithToday: DailyNutritionTotals[] = [
+      {
+        date: todayStr,
+        calories: 1800,
+        proteinG: 120,
+        carbsG: 150,
+        fatG: 60,
+        fiberG: 25,
+        sodiumMg: 2000,
+        calorieGoal: 2000,
+        proteinGoalG: 150,
+        carbsGoalG: 200,
+        fatGoalG: 70,
+      },
+    ];
+
+    // Calculate week start (Sunday before today)
+    const dayOfWeek = today.getDay(); // 0 = Sunday
+    const weekStartDate = new Date(today);
+    weekStartDate.setDate(today.getDate() - dayOfWeek);
+    const weekStart = `${weekStartDate.getFullYear()}-${String(weekStartDate.getMonth() + 1).padStart(2, "0")}-${String(weekStartDate.getDate()).padStart(2, "0")}`;
+
+    render(<WeeklyNutritionChart days={daysWithToday} weekStart={weekStart} />);
+
+    // Find the current day indicator - it should have a data-testid
+    const todayIndicator = screen.getByTestId("today-indicator");
+    expect(todayIndicator).toBeInTheDocument();
+
+    // Should be a small circular indicator
+    expect(todayIndicator.className).toMatch(/rounded-full|bg-primary/);
+  });
 });

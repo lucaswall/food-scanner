@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { DailyNutritionTotals } from "@/types";
-import { addDays } from "@/lib/date-utils";
+import { addDays, getTodayDate } from "@/lib/date-utils";
 
 interface WeeklyNutritionChartProps {
   days: DailyNutritionTotals[];
@@ -38,6 +38,7 @@ function getMetricData(day: DailyNutritionTotals | null, metric: MetricType) {
 
 export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricType>("calories");
+  const today = getTodayDate();
 
   // Build 7-slot array for the week (Sunday - Saturday)
   const weekDays = Array.from({ length: 7 }, (_, i) => {
@@ -106,6 +107,7 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
               key={metric.key}
               role="tab"
               aria-selected={isSelected}
+              aria-controls="panel-metric"
               data-testid={`metric-${metric.key}`}
               onClick={() => setSelectedMetric(metric.key)}
               className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
@@ -128,7 +130,7 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
       )}
 
       {/* Chart container */}
-      <div className="flex items-end gap-2 h-48">
+      <div id="panel-metric" className="flex items-end gap-2 h-48">
         {weekDays.map((day, index) => {
           const { value, goal } = getMetricData(day.data, selectedMetric);
           const isEmpty = day.data === null || value === 0;
@@ -169,9 +171,19 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
               </div>
 
               {/* Day label */}
-              <span className="text-xs text-muted-foreground font-medium">
-                {DAY_LABELS[index]}
-              </span>
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xs text-muted-foreground font-medium">
+                  {DAY_LABELS[index]}
+                </span>
+                {/* Today indicator */}
+                {day.date === today && (
+                  <div
+                    data-testid="today-indicator"
+                    className="w-1.5 h-1.5 rounded-full bg-primary"
+                    aria-label="Today"
+                  />
+                )}
+              </div>
             </div>
           );
         })}

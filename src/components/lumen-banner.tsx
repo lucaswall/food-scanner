@@ -4,7 +4,6 @@ import { useRef, useState } from "react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { getTodayDate } from "@/lib/date-utils";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Upload, Loader2 } from "lucide-react";
 import type { LumenGoalsResponse } from "@/types";
@@ -72,39 +71,39 @@ export function LumenBanner() {
 
       // Mutate SWR cache on success
       await mutate();
-
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "Upload failed");
     } finally {
+      // Reset file input so same file can be re-selected
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
       setIsUploading(false);
     }
   };
 
   return (
     <>
-      <Alert
-        variant="default"
-        className="border-info bg-info/10 cursor-pointer min-h-[44px]"
+      <button
+        type="button"
         onClick={handleBannerClick}
+        aria-label="Upload Lumen screenshot to set today's macro goals"
+        className="w-full flex items-start gap-3 rounded-lg border border-info bg-info/10 p-4 text-left min-h-[44px] hover:bg-info/15 transition-colors"
       >
         {isUploading ? (
-          <Loader2 data-testid="upload-spinner" className="h-4 w-4 text-info animate-spin" />
+          <Loader2 data-testid="upload-spinner" className="h-4 w-4 text-info animate-spin shrink-0 mt-0.5" />
         ) : (
-          <Upload className="h-4 w-4 text-info" />
+          <Upload className="h-4 w-4 text-info shrink-0 mt-0.5" />
         )}
-        <AlertDescription className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1">
           <span className="text-sm font-medium text-info-foreground">
             Set today&apos;s macro goals
           </span>
           <span className="text-xs text-info-foreground">
             Upload Lumen screenshot
           </span>
-        </AlertDescription>
-      </Alert>
+        </div>
+      </button>
 
       {uploadError && (
         <p className="text-sm text-destructive mt-2">{uploadError}</p>

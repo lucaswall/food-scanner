@@ -951,4 +951,27 @@ describe("FoodChat", () => {
       expect(screen.getByText(/credentials in Settings/i)).toBeInTheDocument();
     });
   });
+
+  it("header has two-row layout: Back+Log row, then MealTypeSelector row", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    // Find header elements
+    const backButton = screen.getByRole("button", { name: /back/i });
+    const logButton = screen.getByRole("button", { name: /log to fitbit/i });
+    const mealTypeSelector = screen.getByTestId("meal-type-selector");
+
+    // Verify Back and Log buttons are in the same row (common parent)
+    const buttonsRow = backButton.parentElement;
+    expect(buttonsRow).toContainElement(logButton);
+
+    // The buttons row should have justify-between styling
+    expect(buttonsRow?.className).toMatch(/justify-between/);
+
+    // MealTypeSelector should be in a separate row (not in the buttons row)
+    expect(buttonsRow).not.toContainElement(mealTypeSelector);
+
+    // MealTypeSelector should be in its own full-width row
+    const selectorRow = mealTypeSelector.parentElement;
+    expect(selectorRow?.className).toMatch(/w-full/);
+  });
 });
