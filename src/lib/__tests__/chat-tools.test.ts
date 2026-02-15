@@ -84,50 +84,53 @@ describe("Chat Tool Definitions", () => {
 
   it("SEARCH_FOOD_LOG_TOOL has additionalProperties: false and required array", () => {
     const schema = SEARCH_FOOD_LOG_TOOL.input_schema;
+    const props = schema.properties as Record<string, Record<string, unknown>>;
 
     expect(schema.additionalProperties).toBe(false);
     expect(schema.required).toEqual(["query", "date", "from_date", "to_date", "meal_type", "limit"]);
 
     // All string params should be nullable
-    expect(schema.properties.query.type).toEqual(["string", "null"]);
-    expect(schema.properties.date.type).toEqual(["string", "null"]);
-    expect(schema.properties.from_date.type).toEqual(["string", "null"]);
-    expect(schema.properties.to_date.type).toEqual(["string", "null"]);
+    expect(props.query.type).toEqual(["string", "null"]);
+    expect(props.date.type).toEqual(["string", "null"]);
+    expect(props.from_date.type).toEqual(["string", "null"]);
+    expect(props.to_date.type).toEqual(["string", "null"]);
 
     // meal_type should use anyOf with enum and null
-    expect(schema.properties.meal_type.anyOf).toBeDefined();
-    expect(schema.properties.meal_type.anyOf).toContainEqual({
+    expect(props.meal_type.anyOf).toBeDefined();
+    expect(props.meal_type.anyOf).toContainEqual({
       type: "string",
       enum: ["breakfast", "morning_snack", "lunch", "afternoon_snack", "dinner", "anytime"],
     });
-    expect(schema.properties.meal_type.anyOf).toContainEqual({ type: "null" });
+    expect(props.meal_type.anyOf).toContainEqual({ type: "null" });
 
     // limit should be nullable number
-    expect(schema.properties.limit.type).toEqual(["number", "null"]);
+    expect(props.limit.type).toEqual(["number", "null"]);
   });
 
   it("GET_NUTRITION_SUMMARY_TOOL has additionalProperties: false and required array", () => {
     const schema = GET_NUTRITION_SUMMARY_TOOL.input_schema;
+    const props = schema.properties as Record<string, Record<string, unknown>>;
 
     expect(schema.additionalProperties).toBe(false);
     expect(schema.required).toEqual(["date", "from_date", "to_date"]);
 
     // All string params should be nullable
-    expect(schema.properties.date.type).toEqual(["string", "null"]);
-    expect(schema.properties.from_date.type).toEqual(["string", "null"]);
-    expect(schema.properties.to_date.type).toEqual(["string", "null"]);
+    expect(props.date.type).toEqual(["string", "null"]);
+    expect(props.from_date.type).toEqual(["string", "null"]);
+    expect(props.to_date.type).toEqual(["string", "null"]);
   });
 
   it("GET_FASTING_INFO_TOOL has additionalProperties: false and required array", () => {
     const schema = GET_FASTING_INFO_TOOL.input_schema;
+    const props = schema.properties as Record<string, Record<string, unknown>>;
 
     expect(schema.additionalProperties).toBe(false);
     expect(schema.required).toEqual(["date", "from_date", "to_date"]);
 
     // All string params should be nullable
-    expect(schema.properties.date.type).toEqual(["string", "null"]);
-    expect(schema.properties.from_date.type).toEqual(["string", "null"]);
-    expect(schema.properties.to_date.type).toEqual(["string", "null"]);
+    expect(props.date.type).toEqual(["string", "null"]);
+    expect(props.from_date.type).toEqual(["string", "null"]);
+    expect(props.to_date.type).toEqual(["string", "null"]);
   });
 });
 

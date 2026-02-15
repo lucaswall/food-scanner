@@ -2375,12 +2375,13 @@ describe("REPORT_NUTRITION_TOOL schema", () => {
     const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
 
     const schema = REPORT_NUTRITION_TOOL.input_schema;
+    const props = schema.properties as Record<string, Record<string, unknown>>;
 
     // Tier 1 fields should have type: ["number", "null"]
-    expect(schema.properties.saturated_fat_g.type).toEqual(["number", "null"]);
-    expect(schema.properties.trans_fat_g.type).toEqual(["number", "null"]);
-    expect(schema.properties.sugars_g.type).toEqual(["number", "null"]);
-    expect(schema.properties.calories_from_fat.type).toEqual(["number", "null"]);
+    expect(props.saturated_fat_g.type).toEqual(["number", "null"]);
+    expect(props.trans_fat_g.type).toEqual(["number", "null"]);
+    expect(props.sugars_g.type).toEqual(["number", "null"]);
+    expect(props.calories_from_fat.type).toEqual(["number", "null"]);
   });
 
   it("has additionalProperties: false and includes Tier 1 in required", async () => {
