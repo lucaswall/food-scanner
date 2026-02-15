@@ -534,3 +534,45 @@ Frontend polish and accessibility improvements across the app. Covers ARIA attri
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 1 issue found (Team: security, reliability, quality reviewers)
+- FIX: 1 issue — Linear issue created
+- DISCARDED: 2 findings — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: File input reset in `try` instead of `finally` (`src/components/lumen-banner.tsx:75-78`) - Prevents re-selection of same file on upload error. Inconsistent with correct pattern in `daily-dashboard.tsx:147-150`.
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: Unvalidated href prop in SkipLink (`src/components/skip-link.tsx:2`) — Impossible in context. Component only used in layout.tsx with default `#main-content`. No user input ever flows to this prop.
+- [DISCARDED] CONVENTION: dangerouslySetInnerHTML in layout.tsx (`src/app/layout.tsx:70`) — Already an accepted pattern, documented with SECURITY comment. Used to prevent theme flash before hydration.
+
+### Linear Updates
+- FOO-479: Review → Merge
+- FOO-480: Review → Merge
+- FOO-481: Review → Merge
+- FOO-482: Review → Merge
+- FOO-484: Review → Merge
+- FOO-485: Review → Merge
+- FOO-486: Review → Merge
+- FOO-489: Review → Merge
+- FOO-491: Review → Merge
+- FOO-492: Review → Merge
+- FOO-495: Review → Merge
+- FOO-496: Created in Todo (Fix: file input reset on upload error)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-496](https://linear.app/lw-claude/issue/FOO-496/fix-lumen-banner-file-input-reset-on-upload-error)
+
+### Fix 1: File input reset on upload error
+**Linear Issue:** [FOO-496](https://linear.app/lw-claude/issue/FOO-496/fix-lumen-banner-file-input-reset-on-upload-error)
+
+1. Write test in `src/components/__tests__/lumen-banner.test.tsx` that simulates a failed upload and verifies `fileInputRef.current.value` is reset to `""` even on error
+2. Move file input reset from `try` block (line 75-78) to `finally` block in `src/components/lumen-banner.tsx`, matching the pattern in `daily-dashboard.tsx:147-150`
