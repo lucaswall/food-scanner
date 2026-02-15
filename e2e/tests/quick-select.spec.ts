@@ -118,9 +118,8 @@ test.describe('Quick Select Page', () => {
     // Verify nutrition information is displayed
     await expect(page.getByText(/calories|protein|carbs|fat/i).first()).toBeVisible();
 
-    // Verify meal type selector is present
-    const mealTypeSelector = await page.locator('text=/lunch|dinner|breakfast|snack/i').count();
-    expect(mealTypeSelector).toBeGreaterThan(0);
+    // Verify meal type selector is present (check label, not dropdown value which varies by time of day)
+    await expect(page.getByText('Meal Type')).toBeVisible();
   });
 
   test('log food with meal type succeeds', async ({ page }) => {

@@ -132,7 +132,9 @@ export async function seedTestData() {
     .returning();
 
   // Create sample food log entries for today
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  // Use local date (not UTC) to match how the app renders dates
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const currentTime = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
 
   await db.insert(foodLogEntries).values([
