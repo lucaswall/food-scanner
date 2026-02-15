@@ -225,4 +225,33 @@ describe("FreeChat", () => {
       expect(screen.getByText("Something went wrong")).toBeInTheDocument();
     });
   });
+
+  it("removes user message and restores input on API error for retry", async () => {
+    const user = userEvent.setup();
+
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      text: async () =>
+        JSON.stringify({
+          success: false,
+          error: { code: "INTERNAL_ERROR", message: "Server error" },
+        }),
+    });
+
+    render(<FreeChat />);
+
+    const input = screen.getByPlaceholderText("Type a message...");
+    await user.type(input, "My test message");
+    await user.click(screen.getByLabelText("Send"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Server error")).toBeInTheDocument();
+    });
+
+    // User message should be removed (only initial greeting remains)
+    expect(screen.queryByText("My test message")).not.toBeInTheDocument();
+
+    // Input should be restored for easy retry
+    expect(input).toHaveValue("My test message");
+  });
 });

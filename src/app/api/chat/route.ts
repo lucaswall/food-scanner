@@ -3,7 +3,7 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { logger } from "@/lib/logger";
 import { freeChat } from "@/lib/claude";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { getTodayDate } from "@/lib/date-utils";
+import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
 import type { ConversationMessage } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
@@ -65,6 +65,12 @@ export async function POST(request: Request) {
 
   const messages = data.messages as ConversationMessage[];
 
+  // Use client-provided date (browser timezone) or fall back to server date
+  let currentDate = getTodayDate();
+  if (typeof data.clientDate === "string" && isValidDateFormat(data.clientDate)) {
+    currentDate = data.clientDate;
+  }
+
   logger.info(
     {
       action: "chat_request",
@@ -74,7 +80,6 @@ export async function POST(request: Request) {
   );
 
   try {
-    const currentDate = getTodayDate();
     const result = await freeChat(
       messages,
       session!.userId,

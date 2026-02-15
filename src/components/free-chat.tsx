@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, ArrowLeft, Loader2, ChevronDown, X } from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
+import { getTodayDate } from "@/lib/date-utils";
 
 const MAX_MESSAGES = 30;
 
@@ -75,7 +76,7 @@ export function FreeChat() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({ messages: apiMessages, clientDate: getTodayDate() }),
         signal: AbortSignal.timeout(30000),
       });
 
@@ -86,6 +87,8 @@ export function FreeChat() {
       };
 
       if (!response.ok || !result.success || !result.data) {
+        setMessages((prev) => prev.slice(0, -1));
+        setInput(userMessage.content);
         setError(result.error?.message || "Failed to process message");
         return;
       }
@@ -96,6 +99,8 @@ export function FreeChat() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
+      setMessages((prev) => prev.slice(0, -1));
+      setInput(userMessage.content);
       if (
         err instanceof DOMException &&
         (err.name === "TimeoutError" || err.name === "AbortError")

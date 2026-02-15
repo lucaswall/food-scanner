@@ -258,6 +258,49 @@ describe("POST /api/chat", () => {
     expect(body.error.code).toBe("CLAUDE_API_ERROR");
   });
 
+  it("uses clientDate from request body when provided", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockFreeChat.mockResolvedValue({
+      message: "Here's your data.",
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "What did I eat?" }],
+      clientDate: "2026-01-15",
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    expect(mockFreeChat).toHaveBeenCalledWith(
+      [{ role: "user", content: "What did I eat?" }],
+      "user-uuid-123",
+      "2026-01-15"
+    );
+  });
+
+  it("ignores invalid clientDate and falls back to server date", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockFreeChat.mockResolvedValue({
+      message: "Here's your data.",
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "What did I eat?" }],
+      clientDate: "not-a-date",
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    // Should NOT pass "not-a-date" — should fall back to a valid date
+    expect(mockFreeChat).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
+    );
+  });
+
   it("supports multi-turn conversations", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockFreeChat.mockResolvedValue({

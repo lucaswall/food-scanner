@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger";
 import { conversationalRefine } from "@/lib/claude";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { MAX_IMAGES, MAX_IMAGE_SIZE } from "@/lib/image-validation";
-import { getTodayDate } from "@/lib/date-utils";
+import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
 import type { ConversationMessage, FoodAnalysis } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
@@ -107,6 +107,12 @@ export async function POST(request: Request) {
     }));
   }
 
+  // Use client-provided date (browser timezone) or fall back to server date
+  let currentDate = getTodayDate();
+  if (typeof data.clientDate === "string" && isValidDateFormat(data.clientDate)) {
+    currentDate = data.clientDate;
+  }
+
   logger.info(
     {
       action: "chat_food_request",
@@ -117,7 +123,6 @@ export async function POST(request: Request) {
   );
 
   try {
-    const currentDate = getTodayDate();
     const result = await conversationalRefine(
       messages,
       images,

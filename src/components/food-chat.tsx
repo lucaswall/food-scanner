@@ -18,6 +18,7 @@ import {
 import { safeResponseJson } from "@/lib/safe-json";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime } from "@/lib/meal-type";
+import { getTodayDate } from "@/lib/date-utils";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { MiniNutritionCard } from "./mini-nutrition-card";
 import type {
@@ -221,9 +222,11 @@ export function FoodChat({
         messages: ConversationMessage[];
         images?: string[];
         initialAnalysis: FoodAnalysis;
+        clientDate: string;
       } = {
         messages: apiMessages,
         initialAnalysis: latestAnalysis,
+        clientDate: getTodayDate(),
       };
 
       // Collect all images to send: initial images (first time only) + user-added
@@ -252,6 +255,12 @@ export function FoodChat({
       };
 
       if (!response.ok || !result.success || !result.data) {
+        setMessages((prev) => prev.slice(0, -1));
+        setInput(userMessage.content);
+        setPendingImages(userAddedImages);
+        if (!initialImagesSent && compressedImages.length > 0) {
+          setInitialImagesSent(false);
+        }
         setError(result.error?.message || "Failed to process message");
         return;
       }
@@ -263,6 +272,12 @@ export function FoodChat({
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
+      setMessages((prev) => prev.slice(0, -1));
+      setInput(userMessage.content);
+      setPendingImages(userAddedImages);
+      if (!initialImagesSent && compressedImages.length > 0) {
+        setInitialImagesSent(false);
+      }
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setError("Request timed out. Please try again.");
       } else {
