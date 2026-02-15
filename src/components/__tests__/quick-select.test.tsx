@@ -816,8 +816,8 @@ describe("QuickSelect", () => {
       const initialDisconnectCount = mockDisconnect.mock.calls.length;
 
       // Simulate intersection (triggers setSize, which starts validation)
-      const [[callback]] = MockIntersectionObserver.mock.calls;
-      callback([{ isIntersecting: true }], {} as IntersectionObserver);
+      const calls = MockIntersectionObserver.mock.calls as unknown as [[IntersectionObserverCallback]];
+      calls[0][0]([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
 
       // Wait a bit for any potential re-renders
       await new Promise(r => setTimeout(r, 50));
