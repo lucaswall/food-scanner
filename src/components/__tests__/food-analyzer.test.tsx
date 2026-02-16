@@ -2179,6 +2179,73 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByTestId("photo-capture")).toBeInTheDocument();
       });
     });
+
+    it("clears stale seedMessages when a subsequent analysis returns type=analysis", async () => {
+      // Step 1: First analysis returns needs_chat → sets seedMessages
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: needsChatResult }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "same as yesterday" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze food/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze food/i }));
+
+      // FoodChat opens with seed messages
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+        expect(screen.getByTestId("chat-seed-messages")).toBeInTheDocument();
+      });
+
+      // Step 2: Close chat to return to analyze screen
+      fireEvent.click(screen.getByRole("button", { name: /close chat/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
+      });
+
+      // Step 3: Second analysis returns type=analysis (fast path)
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+      });
+      // Match search response
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { matches: [] } }),
+      });
+
+      fireEvent.change(descInput, { target: { value: "grilled chicken" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze food/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze food/i }));
+
+      // Should show analysis result
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      // Step 4: Open "Refine with chat" — should NOT have stale seed messages
+      fireEvent.click(screen.getByRole("button", { name: /refine with chat/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+
+      // FoodChat should have initialAnalysis but NOT stale seedMessages
+      expect(screen.getByTestId("chat-food-name")).toBeInTheDocument();
+      expect(screen.queryByTestId("chat-seed-messages")).not.toBeInTheDocument();
+    });
   });
 
   describe("clientDate in FormData", () => {

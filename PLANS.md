@@ -343,3 +343,27 @@ All tasks completed.
 
 1. Write test in `src/components/__tests__/food-analyzer.test.tsx`: simulate a needs_chat response (seedMessages set), then reset and trigger a new analysis that returns `type: "analysis"` — verify seedMessages are cleared and FoodChat does NOT show stale seed messages when opened via "Refine with chat"
 2. Add `setSeedMessages(null)` in the analysis success branch at `src/components/food-analyzer.tsx:184-186`, alongside the existing `setAnalysis(result.data.analysis)` call
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-16
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Fix 1: Stale seedMessages not cleared on analysis success path (FOO-533) - Added `setSeedMessages(null)` in the analysis success branch and regression test
+
+### Files Modified
+- `src/components/food-analyzer.tsx` - Added `setSeedMessages(null)` in the `type === "analysis"` branch
+- `src/components/__tests__/food-analyzer.test.tsx` - Added regression test simulating needs_chat → close → analysis → refine with chat flow
+
+### Linear Updates
+- FOO-533: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed (no bugs found)
+- verifier: All 1813 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.

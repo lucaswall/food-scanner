@@ -183,6 +183,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       if (result.data?.type === "analysis") {
         setAnalysis(result.data.analysis);
+        setSeedMessages(null);
 
         // Fire async match search (non-blocking)
         fetch("/api/find-matches", {
