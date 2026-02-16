@@ -433,6 +433,83 @@ describe("AnalysisResult", () => {
     });
   });
 
+  describe("tap-to-expand nutrition details", () => {
+    it("does not show dialog initially", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("opens dialog with NutritionFactsCard when nutrition grid is clicked", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      const gridButton = screen.getByRole("button", { name: /view full nutrition details/i });
+      fireEvent.click(gridButton);
+
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
+    });
+
+    it("shows tier-1 nutrients in dialog when available", () => {
+      const onRetry = vi.fn();
+      const analysisWithTier1: FoodAnalysis = {
+        ...mockAnalysis,
+        saturated_fat_g: 7,
+        trans_fat_g: 0.5,
+        sugars_g: 3,
+        calories_from_fat: 162,
+      };
+
+      render(
+        <AnalysisResult
+          analysis={analysisWithTier1}
+          loading={false}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /view full nutrition details/i }));
+
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toHaveTextContent("Saturated Fat");
+      expect(dialog).toHaveTextContent("7g");
+      expect(dialog).toHaveTextContent("Sugars");
+      expect(dialog).toHaveTextContent("3g");
+      expect(dialog).toHaveTextContent("Calories from Fat 162");
+    });
+
+    it("shows tap hint below the grid", () => {
+      const onRetry = vi.fn();
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={onRetry}
+        />
+      );
+
+      expect(screen.getByText(/tap for full details/i)).toBeInTheDocument();
+    });
+  });
+
   it("retry button has default variant (not outline)", () => {
     const onRetry = vi.fn();
     render(
