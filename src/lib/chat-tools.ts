@@ -4,6 +4,8 @@ import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
 import { getLumenGoalsByDate } from "@/lib/lumen";
 import { getCalorieGoalsByDateRange } from "@/lib/nutrition-goals";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { logger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 
 export const SEARCH_FOOD_LOG_TOOL: Anthropic.Tool = {
   name: "search_food_log",
@@ -126,8 +128,8 @@ function formatDuration(minutes: number): string {
 async function executeSearchFoodLog(
   params: Record<string, unknown>,
   userId: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  currentDate: string
+  currentDate: string,
+  log?: Logger,
 ): Promise<string> {
   const { query, date, from_date, to_date, meal_type, limit } = params;
   const effectiveLimit = (limit != null ? Number(limit) : 10);
@@ -139,7 +141,7 @@ async function executeSearchFoodLog(
 
   // Case 1: query only (search by name/keyword)
   if (query && typeof query === "string" && !date && !from_date) {
-    const foods = await searchFoods(userId, query, { limit: effectiveLimit });
+    const foods = await searchFoods(userId, query, { limit: effectiveLimit }, log);
     if (foods.length === 0) {
       return `No foods found matching "${query}".`;
     }
@@ -153,7 +155,7 @@ async function executeSearchFoodLog(
 
   // Case 2: date only (or date + meal_type)
   if (date && typeof date === "string" && !from_date) {
-    const summary = await getDailyNutritionSummary(userId, date);
+    const summary = await getDailyNutritionSummary(userId, date, log);
 
     let filteredMeals = summary.meals;
     if (meal_type && typeof meal_type === "string") {
@@ -184,7 +186,7 @@ async function executeSearchFoodLog(
       startDate: from_date,
       endDate: to_date,
       limit: 100,
-    });
+    }, log);
 
     const truncated = effectiveLimit < entries.length ? entries.slice(0, effectiveLimit) : entries;
 
@@ -208,8 +210,8 @@ async function executeSearchFoodLog(
 async function executeGetNutritionSummary(
   params: Record<string, unknown>,
   userId: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  currentDate: string
+  currentDate: string,
+  log?: Logger,
 ): Promise<string> {
   const { date, from_date, to_date } = params;
 
@@ -220,7 +222,7 @@ async function executeGetNutritionSummary(
 
   // Case 1: single date
   if (date && typeof date === "string" && !from_date) {
-    const summary = await getDailyNutritionSummary(userId, date);
+    const summary = await getDailyNutritionSummary(userId, date, log);
     const goals = await getLumenGoalsByDate(userId, date);
     const calorieGoals = await getCalorieGoalsByDateRange(userId, date, date);
     const calorieGoal = calorieGoals.length > 0 ? calorieGoals[0].calorieGoal : null;
@@ -255,7 +257,7 @@ async function executeGetNutritionSummary(
 
   // Case 2: date range
   if (from_date && to_date && typeof from_date === "string" && typeof to_date === "string") {
-    const days = await getDateRangeNutritionSummary(userId, from_date, to_date);
+    const days = await getDateRangeNutritionSummary(userId, from_date, to_date, log);
 
     if (days.length === 0) {
       return `No nutrition data found between ${from_date} and ${to_date}.`;
@@ -291,14 +293,15 @@ async function executeGetNutritionSummary(
 async function executeGetFastingInfo(
   params: Record<string, unknown>,
   userId: string,
-  currentDate: string
+  currentDate: string,
+  log?: Logger,
 ): Promise<string> {
   const { date, from_date, to_date } = params;
 
   // Case 1: single date (or default to current date)
   if (!from_date && !to_date) {
     const targetDate = (date && typeof date === "string") ? date : currentDate;
-    const window = await getFastingWindow(userId, targetDate);
+    const window = await getFastingWindow(userId, targetDate, log);
 
     if (!window) {
       return `No fasting data available for ${targetDate} (no meals logged on the previous day).`;
@@ -314,7 +317,7 @@ async function executeGetFastingInfo(
 
   // Case 2: date range
   if (from_date && to_date && typeof from_date === "string" && typeof to_date === "string") {
-    const windows = await getFastingWindows(userId, from_date, to_date);
+    const windows = await getFastingWindows(userId, from_date, to_date, log);
 
     if (windows.length === 0) {
       return `No fasting data available between ${from_date} and ${to_date}.`;
@@ -342,16 +345,23 @@ export async function executeTool(
   toolName: string,
   params: Record<string, unknown>,
   userId: string,
-  currentDate: string
+  currentDate: string,
+  log?: Logger
 ): Promise<string> {
-  switch (toolName) {
-    case "search_food_log":
-      return executeSearchFoodLog(params, userId, currentDate);
-    case "get_nutrition_summary":
-      return executeGetNutritionSummary(params, userId, currentDate);
-    case "get_fasting_info":
-      return executeGetFastingInfo(params, userId, currentDate);
-    default:
-      throw new Error(`Unknown tool: ${toolName}`);
-  }
+  const l = log ?? logger;
+  l.debug({ action: "execute_tool", tool: toolName, params }, "executing data tool");
+  const result = await ((): Promise<string> => {
+    switch (toolName) {
+      case "search_food_log":
+        return executeSearchFoodLog(params, userId, currentDate, l);
+      case "get_nutrition_summary":
+        return executeGetNutritionSummary(params, userId, currentDate, l);
+      case "get_fasting_info":
+        return executeGetFastingInfo(params, userId, currentDate, l);
+      default:
+        throw new Error(`Unknown tool: ${toolName}`);
+    }
+  })();
+  l.debug({ action: "execute_tool_result", tool: toolName, resultLength: result.length }, "data tool execution complete");
+  return result;
 }

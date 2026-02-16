@@ -1,11 +1,12 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
 import { isToday, addDays, isValidDateFormat } from "@/lib/date-utils";
 import type { FastingResponse } from "@/types";
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/fasting");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     }
 
     if (!isValidDateFormat(date)) {
-      logger.warn({ action: "fasting_validation" }, "invalid date format");
+      log.warn({ action: "fasting_validation" }, "invalid date format");
       return errorResponse(
         "VALIDATION_ERROR",
         "Invalid date format. Use YYYY-MM-DD",
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
     }
 
     try {
-      const window = await getFastingWindow(session!.userId, date);
+      const window = await getFastingWindow(session!.userId, date, log);
 
       // Determine if live mode (date is today AND window has null firstMealTime)
       // Use clientDate if provided, otherwise fall back to server's isToday check
@@ -51,7 +52,7 @@ export async function GET(request: Request) {
         live,
       };
 
-      logger.info(
+      log.debug(
         {
           action: "fasting_window_success",
           date,
@@ -65,7 +66,7 @@ export async function GET(request: Request) {
       res.headers.set("Cache-Control", "private, no-cache");
       return res;
     } catch (error) {
-      logger.error(
+      log.error(
         { error: error instanceof Error ? error.message : String(error) },
         "fasting window failed"
       );
@@ -83,7 +84,7 @@ export async function GET(request: Request) {
   }
 
   if (!isValidDateFormat(from)) {
-    logger.warn({ action: "fasting_validation" }, "invalid from date format");
+    log.warn({ action: "fasting_validation" }, "invalid from date format");
     return errorResponse(
       "VALIDATION_ERROR",
       "Invalid from date format. Use YYYY-MM-DD",
@@ -92,7 +93,7 @@ export async function GET(request: Request) {
   }
 
   if (!isValidDateFormat(to)) {
-    logger.warn({ action: "fasting_validation" }, "invalid to date format");
+    log.warn({ action: "fasting_validation" }, "invalid to date format");
     return errorResponse(
       "VALIDATION_ERROR",
       "Invalid to date format. Use YYYY-MM-DD",
@@ -109,9 +110,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    const windows = await getFastingWindows(session!.userId, from, to);
+    const windows = await getFastingWindows(session!.userId, from, to, log);
 
-    logger.info(
+    log.debug(
       {
         action: "fasting_windows_success",
         from,
@@ -125,7 +126,7 @@ export async function GET(request: Request) {
     res.headers.set("Cache-Control", "private, no-cache");
     return res;
   } catch (error) {
-    logger.error(
+    log.error(
       { error: error instanceof Error ? error.message : String(error) },
       "fasting windows failed"
     );

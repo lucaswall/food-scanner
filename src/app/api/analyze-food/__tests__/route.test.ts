@@ -40,14 +40,18 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 // Mock logger
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 // Mock Claude API
 const mockAnalyzeFood = vi.fn();
@@ -131,6 +135,7 @@ function createMockRequest(
 
   return {
     formData: () => Promise.resolve(formData),
+    signal: new AbortController().signal,
   } as unknown as Request;
 }
 
@@ -353,7 +358,9 @@ describe("POST /api/analyze-food", () => {
       ]),
       undefined,
       "user-uuid-123",
-      expect.any(String)
+      expect.any(String),
+      expect.any(Object),
+      expect.anything(),
     );
   });
 
@@ -372,7 +379,9 @@ describe("POST /api/analyze-food", () => {
       expect.any(Array),
       "250g pollo asado",
       "user-uuid-123",
-      expect.any(String)
+      expect.any(String),
+      expect.any(Object),
+      expect.anything(),
     );
   });
 
@@ -437,7 +446,7 @@ describe("POST /api/analyze-food", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(mockAnalyzeFood).toHaveBeenCalledWith([], "2 medialunas", "user-uuid-123", expect.any(String));
+    expect(mockAnalyzeFood).toHaveBeenCalledWith([], "2 medialunas", "user-uuid-123", expect.any(String), expect.any(Object), expect.anything());
   });
 
   it("returns 400 when neither images nor description provided", async () => {
@@ -494,6 +503,7 @@ describe("POST /api/analyze-food", () => {
 
     const request = {
       formData: () => Promise.resolve(formData),
+      signal: new AbortController().signal,
     } as unknown as Request;
 
     const response = await POST(request);
@@ -509,7 +519,9 @@ describe("POST /api/analyze-food", () => {
       ]),
       undefined,
       "user-uuid-123",
-      expect.any(String)
+      expect.any(String),
+      expect.any(Object),
+      expect.anything(),
     );
     expect(mockAnalyzeFood.mock.calls[0][0]).toHaveLength(2);
 
@@ -536,7 +548,9 @@ describe("POST /api/analyze-food", () => {
       expect.any(Array),
       "Test food",
       "user-uuid-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
+      expect.anything(),
     );
   });
 

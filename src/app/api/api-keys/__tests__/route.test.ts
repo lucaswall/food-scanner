@@ -19,14 +19,18 @@ vi.mock("@/lib/session", () => ({
   },
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockCreateApiKey = vi.fn();
 const mockListApiKeys = vi.fn();
@@ -82,7 +86,7 @@ describe("POST /api/api-keys", () => {
       keyPrefix: "abc12345",
       createdAt: "2026-01-15T10:00:00.000Z",
     });
-    expect(mockCreateApiKey).toHaveBeenCalledWith("user-uuid-123", "My Script");
+    expect(mockCreateApiKey).toHaveBeenCalledWith("user-uuid-123", "My Script", expect.anything());
   });
 
   it("returns 400 VALIDATION_ERROR when name is missing", async () => {
@@ -191,7 +195,7 @@ describe("GET /api/api-keys", () => {
       keyPrefix: "abc12345",
     });
     expect(body.data.keys[0]).not.toHaveProperty("keyHash");
-    expect(mockListApiKeys).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockListApiKeys).toHaveBeenCalledWith("user-uuid-123", expect.anything());
   });
 
   it("returns empty array when no keys exist", async () => {

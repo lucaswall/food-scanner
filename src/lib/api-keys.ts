@@ -2,6 +2,8 @@ import { createHash, randomBytes } from "crypto";
 import { eq, and, isNull } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { apiKeys } from "@/db/schema";
+import { logger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 
 /**
  * Generate a new API key with fsk_ prefix.
@@ -35,7 +37,9 @@ export interface ApiKeyMetadata {
 export async function createApiKey(
   userId: string,
   name: string,
+  log?: Logger,
 ): Promise<ApiKeyMetadata> {
+  const l = log ?? logger;
   const rawKey = generateApiKey();
   const keyHash = hashApiKey(rawKey);
   // Extract first 8 chars after the fsk_ prefix for display
@@ -60,6 +64,7 @@ export async function createApiKey(
   const row = rows[0];
   if (!row) throw new Error("Failed to insert API key: no row returned");
 
+  l.debug({ action: "create_api_key", keyPrefix, name }, "API key created");
   return {
     id: row.id,
     name: row.name,
@@ -81,7 +86,8 @@ export interface ApiKeyInfo {
  * List all non-revoked API keys for a user.
  * Does not return key hashes or raw keys.
  */
-export async function listApiKeys(userId: string): Promise<ApiKeyInfo[]> {
+export async function listApiKeys(userId: string, log?: Logger): Promise<ApiKeyInfo[]> {
+  const l = log ?? logger;
   const db = getDb();
   const rows = await db
     .select({
@@ -94,6 +100,7 @@ export async function listApiKeys(userId: string): Promise<ApiKeyInfo[]> {
     .from(apiKeys)
     .where(and(eq(apiKeys.userId, userId), isNull(apiKeys.revokedAt)));
 
+  l.debug({ action: "list_api_keys", count: rows.length }, "API keys listed");
   return rows;
 }
 
@@ -104,7 +111,9 @@ export async function listApiKeys(userId: string): Promise<ApiKeyInfo[]> {
 export async function revokeApiKey(
   userId: string,
   keyId: number,
+  log?: Logger,
 ): Promise<boolean> {
+  const l = log ?? logger;
   const db = getDb();
 
   const rows = await db
@@ -113,7 +122,9 @@ export async function revokeApiKey(
     .where(and(eq(apiKeys.id, keyId), eq(apiKeys.userId, userId)))
     .returning({ id: apiKeys.id });
 
-  return rows.length > 0;
+  const revoked = rows.length > 0;
+  l.debug({ action: "revoke_api_key", keyId, revoked }, "API key revocation attempted");
+  return revoked;
 }
 
 /**
@@ -123,7 +134,9 @@ export async function revokeApiKey(
  */
 export async function validateApiKey(
   rawKey: string,
+  log?: Logger,
 ): Promise<{ userId: string; keyId: number } | null> {
+  const l = log ?? logger;
   const keyHash = hashApiKey(rawKey);
   const db = getDb();
 
@@ -138,6 +151,7 @@ export async function validateApiKey(
 
   const row = rows[0];
   if (!row || row.revokedAt !== null) {
+    l.debug({ action: "validate_api_key", valid: false }, "API key not found or revoked");
     return null;
   }
 
@@ -147,6 +161,7 @@ export async function validateApiKey(
     .set({ lastUsedAt: new Date() })
     .where(eq(apiKeys.id, row.id));
 
+  l.debug({ action: "validate_api_key", valid: true, keyId: row.id }, "API key validated");
   return {
     userId: row.userId,
     keyId: row.id,

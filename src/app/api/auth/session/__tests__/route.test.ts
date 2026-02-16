@@ -37,15 +37,19 @@ vi.mock("@/lib/users", () => ({
   getUserById: (...args: unknown[]) => mockGetUserById(...args),
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
     child: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const { GET } = await import("@/app/api/auth/session/route");
 const { logger } = await import("@/lib/logger");

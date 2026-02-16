@@ -1,5 +1,6 @@
 import type { FoodAnalysis } from "@/types";
-import { logger } from "@/lib/logger";
+import { logger, startTimer } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 import { getFitbitTokens, upsertFitbitTokens } from "@/lib/fitbit-tokens";
 import { getFitbitCredentials } from "@/lib/fitbit-credentials";
 
@@ -66,6 +67,7 @@ async function fetchWithRetry(
   options: RequestInit,
   retryCount = 0,
   startTime = Date.now(),
+  l: Logger = logger,
 ): Promise<Response> {
   const elapsed = Date.now() - startTime;
   if (elapsed > DEADLINE_MS) {
@@ -94,12 +96,12 @@ async function fetchWithRetry(
         throw new Error("FITBIT_RATE_LIMIT");
       }
       const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
-      logger.warn(
+      l.warn(
         { action: "fitbit_rate_limit", retryCount, delay },
         "rate limited, retrying",
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
-      return fetchWithRetry(url, options, retryCount + 1, startTime);
+      return fetchWithRetry(url, options, retryCount + 1, startTime, l);
     }
 
     if (response.status >= 500) {
@@ -107,12 +109,12 @@ async function fetchWithRetry(
         return response;
       }
       const delay = Math.pow(2, retryCount) * 1000;
-      logger.warn(
+      l.warn(
         { action: "fitbit_server_error", status: response.status, retryCount, delay },
         "server error, retrying",
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
-      return fetchWithRetry(url, options, retryCount + 1, startTime);
+      return fetchWithRetry(url, options, retryCount + 1, startTime, l);
     }
 
     return response;
@@ -124,8 +126,11 @@ async function fetchWithRetry(
 export async function createFood(
   accessToken: string,
   food: FoodAnalysis,
+  log?: Logger,
 ): Promise<CreateFoodResponse> {
-  logger.debug(
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug(
     { action: "fitbit_create_food", foodName: food.food_name },
     "creating food",
   );
@@ -168,12 +173,13 @@ export async function createFood(
       },
       body: params.toString(),
     },
+    0, Date.now(), l,
   );
 
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
-    logger.error(
+    l.error(
       { action: "fitbit_create_food_failed", status: response.status, errorBody },
       "food creation failed",
     );
@@ -185,6 +191,7 @@ export async function createFood(
   if (typeof foodEntry?.foodId !== "number") {
     throw new Error("Invalid Fitbit create food response: missing food.foodId");
   }
+  l.info({ action: "fitbit_create_food_success", foodName: food.food_name, durationMs: elapsed() }, "food created on Fitbit");
   return data as unknown as CreateFoodResponse;
 }
 
@@ -196,8 +203,11 @@ export async function logFood(
   unitId: number,
   date: string,
   time?: string,
+  log?: Logger,
 ): Promise<LogFoodResponse> {
-  logger.debug(
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug(
     { action: "fitbit_log_food", foodId, mealTypeId, amount, unitId, date },
     "logging food",
   );
@@ -224,12 +234,13 @@ export async function logFood(
       },
       body: params.toString(),
     },
+    0, Date.now(), l,
   );
 
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
-    logger.error(
+    l.error(
       { action: "fitbit_log_food_failed", status: response.status, errorBody },
       "food logging failed",
     );
@@ -241,14 +252,18 @@ export async function logFood(
   if (typeof foodLog?.logId !== "number") {
     throw new Error("Invalid Fitbit log food response: missing foodLog.logId");
   }
+  l.info({ action: "fitbit_log_food_success", foodId, date, durationMs: elapsed() }, "food logged on Fitbit");
   return data as unknown as LogFoodResponse;
 }
 
 export async function deleteFoodLog(
   accessToken: string,
   fitbitLogId: number,
+  log?: Logger,
 ): Promise<void> {
-  logger.debug(
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug(
     { action: "fitbit_delete_food_log", fitbitLogId },
     "deleting food log",
   );
@@ -261,10 +276,11 @@ export async function deleteFoodLog(
         Authorization: `Bearer ${accessToken}`,
       },
     },
+    0, Date.now(), l,
   );
 
   if (response.status === 404) {
-    logger.warn(
+    l.warn(
       { action: "fitbit_delete_food_log_not_found", fitbitLogId },
       "food log not found on Fitbit, treating as already deleted",
     );
@@ -274,25 +290,28 @@ export async function deleteFoodLog(
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
-    logger.error(
+    l.error(
       { action: "fitbit_delete_food_log_failed", status: response.status, errorBody },
       "food log deletion failed",
     );
     throw new Error("FITBIT_API_ERROR");
   }
+  l.info({ action: "fitbit_delete_food_log_success", fitbitLogId, durationMs: elapsed() }, "food log deleted from Fitbit");
 }
 
 export async function findOrCreateFood(
   accessToken: string,
   food: FoodAnalysis,
+  log?: Logger,
 ): Promise<FindOrCreateResult> {
-  logger.debug(
+  const l = log ?? logger;
+  l.debug(
     { action: "fitbit_create_food_entry", foodName: food.food_name },
     "creating food entry",
   );
 
-  const createResult = await createFood(accessToken, food);
-  logger.info(
+  const createResult = await createFood(accessToken, food, l);
+  l.info(
     { action: "fitbit_food_created", foodId: createResult.food.foodId },
     "created new food",
   );
@@ -320,12 +339,14 @@ export async function exchangeFitbitCode(
   code: string,
   redirectUri: string,
   credentials: FitbitClientCredentials,
+  log?: Logger,
 ): Promise<{
   access_token: string;
   refresh_token: string;
   user_id: string;
   expires_in: number;
 }> {
+  const l = log ?? logger;
   const authHeader = Buffer.from(
     `${credentials.clientId}:${credentials.clientSecret}`,
   ).toString("base64");
@@ -349,7 +370,7 @@ export async function exchangeFitbitCode(
     });
 
     if (!response.ok) {
-      logger.error(
+      l.error(
         { action: "fitbit_token_exchange_failed", status: response.status, statusText: response.statusText },
         "fitbit token exchange http failure",
       );
@@ -378,13 +399,16 @@ export async function exchangeFitbitCode(
 export async function refreshFitbitToken(
   refreshToken: string,
   credentials: FitbitClientCredentials,
+  log?: Logger,
 ): Promise<{
   access_token: string;
   refresh_token: string;
   user_id: string;
   expires_in: number;
 }> {
-  logger.debug({ action: "fitbit_token_refresh_start" }, "refreshing fitbit token");
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug({ action: "fitbit_token_refresh_start" }, "refreshing fitbit token");
 
   const authHeader = Buffer.from(
     `${credentials.clientId}:${credentials.clientSecret}`,
@@ -408,7 +432,7 @@ export async function refreshFitbitToken(
     });
 
     if (!response.ok) {
-      logger.error(
+      l.error(
         { action: "fitbit_token_refresh_failed", status: response.status, statusText: response.statusText },
         "fitbit token refresh http failure",
       );
@@ -432,6 +456,7 @@ export async function refreshFitbitToken(
     if (typeof data.expires_in !== "number") {
       throw new Error("Invalid Fitbit token response: missing expires_in");
     }
+    l.info({ action: "fitbit_token_refresh_success", durationMs: elapsed() }, "fitbit token refreshed");
     return { access_token: data.access_token, refresh_token: data.refresh_token, user_id: data.user_id, expires_in: data.expires_in };
   } finally {
     clearTimeout(timeoutId);
@@ -440,13 +465,14 @@ export async function refreshFitbitToken(
 
 const refreshInFlight = new Map<string, Promise<string>>();
 
-export async function ensureFreshToken(userId: string): Promise<string> {
-  const credentials = await getFitbitCredentials(userId);
+export async function ensureFreshToken(userId: string, log?: Logger): Promise<string> {
+  const l = log ?? logger;
+  const credentials = await getFitbitCredentials(userId, l);
   if (!credentials) {
     throw new Error("FITBIT_CREDENTIALS_MISSING");
   }
 
-  const tokenRow = await getFitbitTokens(userId);
+  const tokenRow = await getFitbitTokens(userId, l);
   if (!tokenRow) {
     throw new Error("FITBIT_TOKEN_INVALID");
   }
@@ -460,7 +486,7 @@ export async function ensureFreshToken(userId: string): Promise<string> {
 
     const promise = (async () => {
       try {
-        const tokens = await refreshFitbitToken(tokenRow.refreshToken, credentials);
+        const tokens = await refreshFitbitToken(tokenRow.refreshToken, credentials, l);
         const tokenData = {
           fitbitUserId: tokens.user_id,
           accessToken: tokens.access_token,
@@ -470,17 +496,17 @@ export async function ensureFreshToken(userId: string): Promise<string> {
 
         // Try to save tokens with retry logic (FOO-430)
         try {
-          await upsertFitbitTokens(userId, tokenData);
+          await upsertFitbitTokens(userId, tokenData, l);
         } catch (upsertError) {
-          logger.warn(
+          l.warn(
             { error: upsertError instanceof Error ? upsertError.message : String(upsertError) },
             "fitbit token upsert failed, retrying once",
           );
           // Retry once
           try {
-            await upsertFitbitTokens(userId, tokenData);
+            await upsertFitbitTokens(userId, tokenData, l);
           } catch (retryError) {
-            logger.error(
+            l.error(
               { error: retryError instanceof Error ? retryError.message : String(retryError) },
               "fitbit token upsert retry failed",
             );
@@ -503,8 +529,11 @@ export async function ensureFreshToken(userId: string): Promise<string> {
 
 export async function getFoodGoals(
   accessToken: string,
+  log?: Logger,
 ): Promise<import("@/types").NutritionGoals> {
-  logger.debug(
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug(
     { action: "fitbit_get_food_goals" },
     "fetching food goals",
   );
@@ -517,12 +546,13 @@ export async function getFoodGoals(
         Authorization: `Bearer ${accessToken}`,
       },
     },
+    0, Date.now(), l,
   );
 
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
-    logger.error(
+    l.error(
       { action: "fitbit_get_food_goals_failed", status: response.status, errorBody },
       "food goals fetch failed",
     );
@@ -532,17 +562,22 @@ export async function getFoodGoals(
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
   const goals = data.goals as Record<string, unknown> | undefined;
   if (typeof goals?.calories !== "number") {
+    l.debug({ action: "fitbit_get_food_goals_no_calories", durationMs: elapsed() }, "food goals fetched (no calorie goal)");
     return { calories: null };
   }
 
+  l.debug({ action: "fitbit_get_food_goals_success", durationMs: elapsed() }, "food goals fetched");
   return { calories: goals.calories };
 }
 
 export async function getActivitySummary(
   accessToken: string,
   date: string,
+  log?: Logger,
 ): Promise<import("@/types").ActivitySummary> {
-  logger.debug(
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug(
     { action: "fitbit_get_activity_summary", date },
     "fetching activity summary",
   );
@@ -555,12 +590,13 @@ export async function getActivitySummary(
         Authorization: `Bearer ${accessToken}`,
       },
     },
+    0, Date.now(), l,
   );
 
   if (!response.ok) {
     const rawBody = await parseErrorBody(response);
     const errorBody = sanitizeErrorBody(rawBody);
-    logger.error(
+    l.error(
       { action: "fitbit_get_activity_summary_failed", status: response.status, errorBody },
       "activity summary fetch failed",
     );
@@ -573,6 +609,7 @@ export async function getActivitySummary(
     throw new Error("FITBIT_API_ERROR");
   }
 
+  l.debug({ action: "fitbit_get_activity_summary_success", durationMs: elapsed() }, "activity summary fetched");
   return {
     caloriesOut: summary.caloriesOut,
   };

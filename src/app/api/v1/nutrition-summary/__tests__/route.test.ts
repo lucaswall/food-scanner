@@ -8,9 +8,13 @@ vi.mock("@/lib/api-auth", () => ({
   validateApiRequest: (...args: unknown[]) => mockValidateApiRequest(...args),
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+vi.mock("@/lib/logger", () => {
+  const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockGetDailyNutritionSummary = vi.fn();
 vi.mock("@/lib/food-log", () => ({
@@ -100,7 +104,7 @@ describe("GET /api/v1/nutrition-summary", () => {
     expect(data.success).toBe(true);
     expect(data.data).toEqual(mockSummary);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
-    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-11");
+    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-11", expect.anything());
   });
 
   it("returns 401 for missing API key", async () => {

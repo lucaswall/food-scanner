@@ -1,6 +1,6 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { revokeApiKey } from "@/lib/api-keys";
 
 interface RouteContext {
@@ -8,6 +8,7 @@ interface RouteContext {
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
+  const log = createRequestLogger("DELETE", "/api/api-keys/[id]");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -20,13 +21,13 @@ export async function DELETE(_request: Request, context: RouteContext) {
     return errorResponse("VALIDATION_ERROR", "Invalid API key ID", 400);
   }
 
-  logger.info(
+  log.info(
     { action: "revoke_api_key", userId: session!.userId, keyId: id },
     "Revoking API key",
   );
 
   try {
-    const revoked = await revokeApiKey(session!.userId, id);
+    const revoked = await revokeApiKey(session!.userId, id, log);
 
     if (!revoked) {
       return errorResponse("NOT_FOUND", "API key not found or access denied", 404);
@@ -34,7 +35,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
 
     return successResponse({ revoked: true });
   } catch (error) {
-    logger.error(
+    log.error(
       { action: "revoke_api_key_error", error: error instanceof Error ? error.message : String(error) },
       "Failed to revoke API key",
     );

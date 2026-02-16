@@ -26,6 +26,7 @@ vi.mock("@/lib/logger", () => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+  startTimer: () => () => 42,
 }));
 
 // Mock recordUsage
@@ -96,6 +97,7 @@ describe("analyzeFood", () => {
   beforeEach(() => {
     setupMocks();
     mockRecordUsage.mockResolvedValue(undefined);
+    mockExecuteTool.mockReset();
   });
 
   afterEach(() => {
@@ -159,9 +161,11 @@ describe("analyzeFood", () => {
     });
   });
 
-  it("returns needs_chat when Claude calls a data tool without report_nutrition", async () => {
+  it("executes tool loop when Claude calls a data tool without report_nutrition", async () => {
+    // First response: Claude calls search_food_log
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
       content: [
         {
           type: "text",
@@ -180,6 +184,25 @@ describe("analyzeFood", () => {
       },
     });
 
+    // Mock tool execution
+    mockExecuteTool.mockResolvedValueOnce("Found 1 matching food:\n• Empanada de carne — 150g, 320 cal");
+
+    // Second response: Claude responds with text after seeing tool results
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Based on your log, you had an empanada yesterday.",
+        },
+      ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 100,
+      },
+    });
+
     const { analyzeFood } = await import("@/lib/claude");
     const result = await analyzeFood(
       [],
@@ -190,8 +213,15 @@ describe("analyzeFood", () => {
 
     expect(result).toEqual({
       type: "needs_chat",
-      message: "Let me look that up for you.",
+      message: "Based on your log, you had an empanada yesterday.",
     });
+    expect(mockExecuteTool).toHaveBeenCalledWith(
+      "search_food_log",
+      { query: "yesterday" },
+      "user-123",
+      "2026-02-15",
+      expect.any(Object),
+    );
   });
 
   it("returns analysis when Claude calls both report_nutrition and a data tool", async () => {
@@ -232,9 +262,11 @@ describe("analyzeFood", () => {
     expect(result).toEqual({ type: "analysis", analysis: validAnalysis });
   });
 
-  it("returns needs_chat with fallback message when Claude returns only tool_use blocks", async () => {
+  it("executes tool loop and returns analysis when data tools resolve to report_nutrition", async () => {
+    // First response: Claude calls search_food_log (no text)
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
       content: [
         {
           type: "tool_use",
@@ -249,6 +281,31 @@ describe("analyzeFood", () => {
       },
     });
 
+    // Mock tool execution
+    mockExecuteTool.mockResolvedValueOnce("Found 1 matching food:\n• Empanada de carne — 150g, 320 cal");
+
+    // Second response: Claude calls report_nutrition after seeing tool results
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Here's half of what you had yesterday.",
+        },
+        {
+          type: "tool_use",
+          id: "tool_789",
+          name: "report_nutrition",
+          input: { ...validAnalysis, calories: 160, amount: 75 },
+        },
+      ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 200,
+      },
+    });
+
     const { analyzeFood } = await import("@/lib/claude");
     const result = await analyzeFood(
       [],
@@ -257,10 +314,10 @@ describe("analyzeFood", () => {
       "2026-02-15"
     );
 
-    expect(result.type).toBe("needs_chat");
-    if (result.type === "needs_chat") {
-      expect(result.message).not.toBe("");
-      expect(result.message).toContain("look into that");
+    expect(result.type).toBe("analysis");
+    if (result.type === "analysis") {
+      expect(result.analysis.calories).toBe(160);
+      expect(result.analysis.amount).toBe(75);
     }
   });
 
@@ -543,7 +600,8 @@ describe("analyzeFood", () => {
             ]),
           }),
         ]),
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -605,7 +663,8 @@ describe("analyzeFood", () => {
             ]),
           }),
         ]),
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -1210,7 +1269,8 @@ describe("analyzeFood", () => {
             }),
           }),
         ]),
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -1245,7 +1305,8 @@ describe("analyzeFood", () => {
             }),
           }),
         ]),
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -1651,6 +1712,39 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
       message: "I cannot analyze this image.",
     });
   });
+
+  it("passes AbortSignal to runToolLoop when data tools are present", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    // Claude returns data tool use
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "search_food_log",
+          input: { query: "yesterday" },
+        },
+      ],
+      usage: { input_tokens: 1500, output_tokens: 300 },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood(
+        [],
+        "same as yesterday",
+        "user-123",
+        "2026-02-15",
+        undefined, // log
+        controller.signal,
+      )
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR", message: "Request aborted by client" });
+  });
 });
 
 describe("conversationalRefine", () => {
@@ -1791,7 +1885,8 @@ describe("conversationalRefine", () => {
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         tool_choice: { type: "auto" },
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -1964,7 +2059,8 @@ describe("conversationalRefine", () => {
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         max_tokens: 2048,
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -2484,7 +2580,8 @@ describe("runToolLoop", () => {
       "get_nutrition_summary",
       { date: "2026-02-15" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
 
     // Check that tool result was sent back
@@ -2560,13 +2657,15 @@ describe("runToolLoop", () => {
       "get_nutrition_summary",
       { date: "2026-02-15" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
     expect(mockExecuteTool).toHaveBeenCalledWith(
       "get_fasting_info",
       { date: "2026-02-15" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
 
     // Check that all tool results were sent back in one message
@@ -2969,7 +3068,8 @@ describe("runToolLoop", () => {
       "get_nutrition_summary",
       { date: "2026-02-15" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
 
     // The analysis from report_nutrition should be captured
@@ -3049,7 +3149,8 @@ describe("runToolLoop", () => {
       "search_food_log",
       { query: "big mac" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
 
     expect(result.message).toBe("Based on McDonald's nutrition page, a Big Mac has 590 calories.");
@@ -3174,6 +3275,26 @@ describe("truncateConversation", () => {
     for (let i = 1; i < result.length; i++) {
       expect(result[i].role).not.toBe(result[i - 1].role);
     }
+  });
+
+  it("uses passed logger instead of global logger when truncation occurs", async () => {
+    const { truncateConversation } = await import("@/lib/claude");
+    const { logger } = await import("@/lib/logger");
+    vi.mocked(logger.debug).mockClear();
+    const customLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+
+    const messages = Array.from({ length: 10 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: "x".repeat(100000),
+    }));
+
+    truncateConversation(messages, 150000, customLogger as unknown as import("pino").Logger);
+
+    expect(customLogger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "truncate_conversation" }),
+      "conversation truncated",
+    );
+    expect(logger.debug).not.toHaveBeenCalled();
   });
 });
 

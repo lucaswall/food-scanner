@@ -1,6 +1,6 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import {
   getFitbitCredentials,
   saveFitbitCredentials,
@@ -9,17 +9,18 @@ import {
 } from "@/lib/fitbit-credentials";
 
 export async function GET() {
+  const log = createRequestLogger("GET", "/api/fitbit-credentials");
   const session = await getSession();
 
   const validationError = validateSession(session);
   if (validationError) return validationError;
 
-  logger.debug(
+  log.debug(
     { action: "get_fitbit_credentials", userId: session!.userId },
     "Fetching Fitbit credentials",
   );
 
-  const credentials = await getFitbitCredentials(session!.userId);
+  const credentials = await getFitbitCredentials(session!.userId, log);
 
   const response = !credentials
     ? successResponse({
@@ -51,6 +52,7 @@ function isValidPostRequest(body: unknown): body is { clientId: string; clientSe
 }
 
 export async function POST(request: Request) {
+  const log = createRequestLogger("POST", "/api/fitbit-credentials");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -64,7 +66,7 @@ export async function POST(request: Request) {
   }
 
   if (!isValidPostRequest(body)) {
-    logger.warn(
+    log.warn(
       { action: "save_fitbit_credentials_validation", userId: session!.userId },
       "Invalid request body",
     );
@@ -75,12 +77,12 @@ export async function POST(request: Request) {
     );
   }
 
-  logger.info(
+  log.info(
     { action: "save_fitbit_credentials", userId: session!.userId },
     "Saving Fitbit credentials",
   );
 
-  await saveFitbitCredentials(session!.userId, body.clientId, body.clientSecret);
+  await saveFitbitCredentials(session!.userId, body.clientId, body.clientSecret, log);
 
   return successResponse({
     message: "Fitbit credentials saved successfully",
@@ -116,6 +118,7 @@ function isValidPatchRequest(body: unknown): body is { clientId?: string; client
 }
 
 export async function PATCH(request: Request) {
+  const log = createRequestLogger("PATCH", "/api/fitbit-credentials");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -129,7 +132,7 @@ export async function PATCH(request: Request) {
   }
 
   if (!isValidPatchRequest(body)) {
-    logger.warn(
+    log.warn(
       { action: "update_fitbit_credentials_validation", userId: session!.userId },
       "Invalid request body",
     );
@@ -141,28 +144,28 @@ export async function PATCH(request: Request) {
   }
 
   // Check if credentials exist before updating
-  const existingCredentials = await getFitbitCredentials(session!.userId);
+  const existingCredentials = await getFitbitCredentials(session!.userId, log);
   if (!existingCredentials) {
-    logger.warn(
+    log.warn(
       { action: "update_fitbit_credentials", userId: session!.userId },
       "No existing credentials found",
     );
     return errorResponse("NOT_FOUND", "No existing credentials found to update", 404);
   }
 
-  logger.info(
+  log.info(
     { action: "update_fitbit_credentials", userId: session!.userId },
     "Updating Fitbit credentials",
   );
 
   // Update clientId if provided
   if (body.clientId !== undefined) {
-    await updateFitbitClientId(session!.userId, body.clientId);
+    await updateFitbitClientId(session!.userId, body.clientId, log);
   }
 
   // Replace clientSecret if provided
   if (body.clientSecret !== undefined) {
-    await replaceFitbitClientSecret(session!.userId, body.clientSecret);
+    await replaceFitbitClientSecret(session!.userId, body.clientSecret, log);
   }
 
   return successResponse({

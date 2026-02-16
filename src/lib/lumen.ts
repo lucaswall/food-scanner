@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ImageInput } from "@/lib/claude";
 import type { LumenGoals } from "@/types";
 import { logger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { getDb } from "@/db/index";
 import { lumenGoals } from "@/db/schema";
@@ -99,10 +100,12 @@ function validateLumenGoals(input: unknown): LumenGoalsParsed {
 
 export async function parseLumenScreenshot(
   image: ImageInput,
-  userId?: string
+  userId?: string,
+  log?: Logger,
 ): Promise<LumenGoalsParsed> {
+  const l = log ?? logger;
   try {
-    logger.info("calling Claude API for Lumen screenshot parsing");
+    l.info({ imageCount: 1 }, "calling Claude API for Lumen screenshot parsing");
 
     const response = await getClient().messages.create({
       model: "claude-haiku-4-5-20251001",
@@ -140,7 +143,7 @@ export async function parseLumenScreenshot(
     );
 
     if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
-      logger.error(
+      l.error(
         { contentTypes: response.content.map((b) => b.type) },
         "no tool_use block in Lumen parsing response"
       );
@@ -148,7 +151,7 @@ export async function parseLumenScreenshot(
     }
 
     const goals = validateLumenGoals(toolUseBlock.input);
-    logger.info(
+    l.info(
       { dayType: goals.dayType, proteinGoal: goals.proteinGoal },
       "Lumen goals parsed successfully"
     );
@@ -161,7 +164,7 @@ export async function parseLumenScreenshot(
         cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       }).catch((error) => {
-        logger.warn(
+        l.warn(
           { error: error instanceof Error ? error.message : String(error), userId },
           "failed to record API usage"
         );
@@ -174,7 +177,7 @@ export async function parseLumenScreenshot(
       throw error;
     }
 
-    logger.error(
+    l.error(
       { error: error instanceof Error ? error.message : String(error) },
       "Lumen parsing API error"
     );
@@ -187,8 +190,10 @@ export async function parseLumenScreenshot(
 export async function upsertLumenGoals(
   userId: string,
   date: string,
-  data: LumenGoalsParsed
+  data: LumenGoalsParsed,
+  log?: Logger,
 ): Promise<void> {
+  const l = log ?? logger;
   await getDb()
     .insert(lumenGoals)
     .values({
@@ -210,7 +215,7 @@ export async function upsertLumenGoals(
       },
     });
 
-  logger.info({ userId, date, dayType: data.dayType }, "Lumen goals upserted");
+  l.info({ userId, date, dayType: data.dayType }, "Lumen goals upserted");
 }
 
 export async function getLumenGoalsByDate(

@@ -32,14 +32,18 @@ vi.mock("@/lib/session", () => ({
   },
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockGetFoodLogEntry = vi.fn();
 const mockDeleteFoodLogEntry = vi.fn();
@@ -157,9 +161,9 @@ describe("DELETE /api/food-history/[id]", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.data.deleted).toBe(true);
-    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123");
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789);
-    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42);
+    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123", expect.any(Object));
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object));
+    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
   });
 
   it("deletes local only when fitbitLogId is null", async () => {
@@ -175,7 +179,7 @@ describe("DELETE /api/food-history/[id]", () => {
     expect(body.data.deleted).toBe(true);
     expect(mockEnsureFreshToken).not.toHaveBeenCalled();
     expect(mockDeleteFoodLog).not.toHaveBeenCalled();
-    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42);
+    expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
   });
 
   it("returns error if Fitbit delete fails (local entry NOT deleted)", async () => {
@@ -236,7 +240,7 @@ describe("DELETE /api/food-history/[id]", () => {
       expect(body.data.deleted).toBe(true);
       expect(mockEnsureFreshToken).not.toHaveBeenCalled();
       expect(mockDeleteFoodLog).not.toHaveBeenCalled();
-      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42);
+      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
     });
 
     it("proceeds with DB delete when entry has null fitbitLogId", async () => {
@@ -254,7 +258,7 @@ describe("DELETE /api/food-history/[id]", () => {
       expect(body.data.deleted).toBe(true);
       expect(mockEnsureFreshToken).not.toHaveBeenCalled();
       expect(mockDeleteFoodLog).not.toHaveBeenCalled();
-      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42);
+      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
     });
   });
 
@@ -314,9 +318,9 @@ describe("DELETE /api/food-history/[id]", () => {
       const body = await response.json();
       expect(body.success).toBe(true);
       expect(body.data.deleted).toBe(true);
-      expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123");
-      expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789);
-      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42);
+      expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123", expect.any(Object));
+      expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object));
+      expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
     });
   });
 });

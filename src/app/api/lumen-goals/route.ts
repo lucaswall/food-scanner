@@ -1,6 +1,6 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { parseLumenScreenshot, upsertLumenGoals, getLumenGoalsByDate, LumenParseError } from "@/lib/lumen";
 import { isFileLike, MAX_IMAGE_SIZE, ALLOWED_TYPES } from "@/lib/image-validation";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -10,6 +10,7 @@ const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/lumen-goals");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
   }
 
   if (!isValidDateFormat(date)) {
-    logger.warn({ action: "lumen_goals_validation" }, "invalid date format");
+    log.warn({ action: "lumen_goals_validation" }, "invalid date format");
     return errorResponse(
       "VALIDATION_ERROR",
       "Invalid date format. Use YYYY-MM-DD",
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
   try {
     const goals = await getLumenGoalsByDate(session!.userId, date);
 
-    logger.info(
+    log.info(
       {
         action: "lumen_goals_get_success",
         date,
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       { error: error instanceof Error ? error.message : String(error) },
       "lumen goals retrieval failed"
     );
@@ -56,6 +57,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const log = createRequestLogger("POST", "/api/lumen-goals");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
 
   const imageRaw = formData.get("image");
   if (!imageRaw || !isFileLike(imageRaw)) {
-    logger.warn({ action: "lumen_goals_validation" }, "missing or invalid image");
+    log.warn({ action: "lumen_goals_validation" }, "missing or invalid image");
     return errorResponse("VALIDATION_ERROR", "Image is required", 400);
   }
 
@@ -83,7 +85,7 @@ export async function POST(request: Request) {
 
   // Validate image type
   if (!ALLOWED_TYPES.includes(image.type)) {
-    logger.warn(
+    log.warn(
       { action: "lumen_goals_validation", imageType: image.type },
       "invalid image type"
     );
@@ -96,7 +98,7 @@ export async function POST(request: Request) {
 
   // Validate image size
   if (image.size > MAX_IMAGE_SIZE) {
-    logger.warn(
+    log.warn(
       { action: "lumen_goals_validation", imageSize: image.size },
       "image too large"
     );
@@ -115,7 +117,7 @@ export async function POST(request: Request) {
     date = getTodayDate();
   } else if (typeof dateRaw === "string") {
     if (!isValidDateFormat(dateRaw)) {
-      logger.warn({ action: "lumen_goals_validation" }, "invalid date format");
+      log.warn({ action: "lumen_goals_validation" }, "invalid date format");
       return errorResponse(
         "VALIDATION_ERROR",
         "Invalid date format. Use YYYY-MM-DD",
@@ -127,7 +129,7 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Date must be a string", 400);
   }
 
-  logger.info(
+  log.info(
     {
       action: "lumen_goals_parse_request",
       imageType: image.type,
@@ -147,12 +149,13 @@ export async function POST(request: Request) {
         base64,
         mimeType: image.type,
       },
-      session!.userId
+      session!.userId,
+      log,
     );
 
-    await upsertLumenGoals(session!.userId, date, parsed);
+    await upsertLumenGoals(session!.userId, date, parsed, log);
 
-    logger.info(
+    log.info(
       { action: "lumen_goals_parse_success", dayType: parsed.dayType, date },
       "Lumen goals parsed and saved"
     );
@@ -163,7 +166,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof LumenParseError) {
-      logger.error(
+      log.error(
         { action: "lumen_goals_parse_error", error: error.message },
         "Lumen parsing error"
       );
@@ -174,7 +177,7 @@ export async function POST(request: Request) {
       );
     }
 
-    logger.error(
+    log.error(
       { action: "lumen_goals_parse_error", error: String(error) },
       "unexpected error"
     );

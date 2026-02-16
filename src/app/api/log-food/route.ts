@@ -1,6 +1,6 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood, deleteFoodLog } from "@/lib/fitbit";
 import { insertCustomFood, insertFoodLogEntry, getCustomFoodById, updateCustomFoodMetadata } from "@/lib/food-log";
 import { isValidDateFormat } from "@/lib/date-utils";
@@ -98,6 +98,7 @@ function isValidTimeFormat(time: string): boolean {
 }
 
 export async function POST(request: Request) {
+  const log = createRequestLogger("POST", "/api/log-food");
   const session = await getSession();
 
   const validationError = validateSession(session, { requireFitbit: true });
@@ -111,7 +112,7 @@ export async function POST(request: Request) {
   }
 
   if (!isValidFoodLogRequest(body)) {
-    logger.warn({ action: "log_food_validation" }, "invalid request body");
+    log.warn({ action: "log_food_validation" }, "invalid request body");
     return errorResponse(
       "VALIDATION_ERROR",
       "Missing or invalid required fields",
@@ -120,7 +121,7 @@ export async function POST(request: Request) {
   }
 
   if (!VALID_MEAL_TYPE_IDS.includes(body.mealTypeId)) {
-    logger.warn(
+    log.warn(
       { action: "log_food_validation", mealTypeId: body.mealTypeId },
       "invalid mealTypeId"
     );
@@ -132,7 +133,7 @@ export async function POST(request: Request) {
   }
 
   if (!isValidDateFormat(body.date)) {
-    logger.warn(
+    log.warn(
       { action: "log_food_validation" },
       "invalid date format"
     );
@@ -144,7 +145,7 @@ export async function POST(request: Request) {
   }
 
   if (!isValidTimeFormat(body.time)) {
-    logger.warn(
+    log.warn(
       { action: "log_food_validation" },
       "invalid time format"
     );
@@ -155,7 +156,7 @@ export async function POST(request: Request) {
     );
   }
 
-  logger.info(
+  log.info(
     {
       action: "log_food_request",
       foodName: body.food_name,
@@ -192,7 +193,7 @@ export async function POST(request: Request) {
       let fitbitLogId: number | undefined;
 
       if (!isDryRun) {
-        const accessToken = await ensureFreshToken(session!.userId);
+        const accessToken = await ensureFreshToken(session!.userId, log);
         const logResult = await logFood(
           accessToken,
           existingFood.fitbitFoodId!,
@@ -200,7 +201,8 @@ export async function POST(request: Request) {
           Number(existingFood.amount),
           existingFood.unitId,
           date,
-          time
+          time,
+          log,
         );
         fitbitLogId = logResult.foodLog.logId;
       }
@@ -238,24 +240,24 @@ export async function POST(request: Request) {
           if (body.newConfidence !== undefined) metadataUpdate.confidence = body.newConfidence as "high" | "medium" | "low";
 
           updateCustomFoodMetadata(session!.userId, existingFood.id, metadataUpdate).catch((err) => {
-            logger.error(
+            log.error(
               { action: "update_custom_food_metadata_failed", error: err instanceof Error ? err.message : String(err) },
               "Failed to update custom food metadata (non-blocking)"
             );
           });
         }
       } catch (dbErr) {
-        logger.error(
+        log.error(
           { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
           "DB write failed after Fitbit success, attempting compensation"
         );
         if (fitbitLogId && !isDryRun) {
           try {
-            const accessToken = await ensureFreshToken(session!.userId);
-            await deleteFoodLog(accessToken, fitbitLogId);
-            logger.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
+            const accessToken = await ensureFreshToken(session!.userId, log);
+            await deleteFoodLog(accessToken, fitbitLogId, log);
+            log.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
           } catch (compensationErr) {
-            logger.error(
+            log.error(
               { action: "food_log_compensation_failed", fitbitLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
               "CRITICAL: Fitbit log exists but DB write failed and compensation failed"
             );
@@ -274,7 +276,7 @@ export async function POST(request: Request) {
         ...(isDryRun && { dryRun: true }),
       };
 
-      logger.info(
+      log.info(
         {
           action: "log_food_success",
           foodId: existingFood.fitbitFoodId,
@@ -295,8 +297,8 @@ export async function POST(request: Request) {
     let reused = false;
 
     if (!isDryRun) {
-      const accessToken = await ensureFreshToken(session!.userId);
-      const createResult = await findOrCreateFood(accessToken, body);
+      const accessToken = await ensureFreshToken(session!.userId, log);
+      const createResult = await findOrCreateFood(accessToken, body, log);
       fitbitFoodId = createResult.foodId;
       reused = createResult.reused;
 
@@ -307,7 +309,8 @@ export async function POST(request: Request) {
         body.amount,
         body.unit_id,
         date,
-        time
+        time,
+        log,
       );
       fitbitLogId = logResult.foodLog.logId;
     }
@@ -342,17 +345,17 @@ export async function POST(request: Request) {
       });
       foodLogId = logEntryResult.id;
     } catch (dbErr) {
-      logger.error(
+      log.error(
         { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
         "DB write failed after Fitbit success, attempting compensation"
       );
       if (fitbitLogId && !isDryRun) {
         try {
-          const accessToken = await ensureFreshToken(session!.userId);
-          await deleteFoodLog(accessToken, fitbitLogId);
-          logger.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
+          const accessToken = await ensureFreshToken(session!.userId, log);
+          await deleteFoodLog(accessToken, fitbitLogId, log);
+          log.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
         } catch (compensationErr) {
-          logger.error(
+          log.error(
             { action: "food_log_compensation_failed", fitbitLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
             "CRITICAL: Fitbit log exists but DB write failed and compensation failed"
           );
@@ -371,7 +374,7 @@ export async function POST(request: Request) {
       ...(isDryRun && { dryRun: true }),
     };
 
-    logger.info(
+    log.info(
       {
         action: "log_food_success",
         foodId: fitbitFoodId,
@@ -388,7 +391,7 @@ export async function POST(request: Request) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     if (errorMessage === "FITBIT_CREDENTIALS_MISSING") {
-      logger.warn(
+      log.warn(
         { action: "log_food_credentials_missing" },
         "Fitbit credentials not configured"
       );
@@ -400,7 +403,7 @@ export async function POST(request: Request) {
     }
 
     if (errorMessage === "FITBIT_TOKEN_INVALID") {
-      logger.warn(
+      log.warn(
         { action: "log_food_token_invalid" },
         "Fitbit token invalid, reconnect required"
       );
@@ -412,7 +415,7 @@ export async function POST(request: Request) {
     }
 
     if (errorMessage === "FITBIT_TIMEOUT") {
-      logger.warn({ action: "log_food_timeout" }, "Fitbit request timed out");
+      log.warn({ action: "log_food_timeout" }, "Fitbit request timed out");
       return errorResponse(
         "FITBIT_TIMEOUT",
         "Request to Fitbit timed out. Please try again.",
@@ -421,7 +424,7 @@ export async function POST(request: Request) {
     }
 
     if (errorMessage === "FITBIT_RATE_LIMIT") {
-      logger.warn({ action: "log_food_rate_limited" }, "Fitbit rate limited");
+      log.warn({ action: "log_food_rate_limited" }, "Fitbit rate limited");
       return errorResponse(
         "FITBIT_API_ERROR",
         "Fitbit API rate limited. Please try again later.",
@@ -429,7 +432,7 @@ export async function POST(request: Request) {
       );
     }
 
-    logger.error(
+    log.error(
       { action: "log_food_error", error: errorMessage },
       "Fitbit API error"
     );

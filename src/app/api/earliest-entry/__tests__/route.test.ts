@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET } from "../route";
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockGetSession = vi.fn();
 vi.mock("@/lib/session", () => ({
@@ -49,7 +53,7 @@ describe("GET /api/earliest-entry", () => {
       data: { date: "2026-01-15" },
     }));
     expect(data.timestamp).toBeTypeOf("number");
-    expect(mockGetEarliestEntryDate).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockGetEarliestEntryDate).toHaveBeenCalledWith("user-uuid-123", expect.anything());
   });
 
   it("returns null date when no entries exist", async () => {

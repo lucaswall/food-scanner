@@ -113,6 +113,8 @@ const {
   getDateRangeNutritionSummary,
 } = await import("@/lib/food-log");
 
+const { logger } = await import("@/lib/logger");
+
 describe("insertCustomFood", () => {
   it("inserts a row with all fields and returns id and createdAt", async () => {
     const createdAt = new Date("2026-02-05T12:00:00Z");
@@ -2045,5 +2047,41 @@ describe("getDateRangeNutritionSummary", () => {
     ]);
 
     expect(mockGetLumenGoalsByDateRange).toHaveBeenCalledWith("user-123", "2026-02-08", "2026-02-09");
+  });
+});
+
+describe("debug logging", () => {
+  beforeEach(() => {
+    vi.mocked(logger.debug).mockClear();
+  });
+
+  it("searchFoods logs debug with query and result count", async () => {
+    mockWhere.mockReset();
+    mockWhere.mockResolvedValue([]);
+
+    await searchFoods("user-123", "chicken");
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "search_foods", query: "chicken", resultCount: 0 }),
+      expect.any(String),
+    );
+  });
+
+  it("insertFoodLogEntry logs debug with entry details", async () => {
+    mockReturning.mockResolvedValue([{ id: 1, loggedAt: new Date() }]);
+
+    await insertFoodLogEntry("user-123", {
+      customFoodId: 42,
+      mealTypeId: 1,
+      amount: 1,
+      unitId: 147,
+      date: "2026-02-16",
+      time: "12:00:00",
+    });
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "insert_food_log_entry", date: "2026-02-16" }),
+      expect.any(String),
+    );
   });
 });

@@ -19,14 +19,18 @@ vi.mock("@/lib/session", () => ({
   },
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockRevokeApiKey = vi.fn();
 vi.mock("@/lib/api-keys", () => ({
@@ -66,7 +70,7 @@ describe("DELETE /api/api-keys/[id]", () => {
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.data.revoked).toBe(true);
-    expect(mockRevokeApiKey).toHaveBeenCalledWith("user-uuid-123", 1);
+    expect(mockRevokeApiKey).toHaveBeenCalledWith("user-uuid-123", 1, expect.anything());
   });
 
   it("returns 404 when key not found or userId mismatch", async () => {

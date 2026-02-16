@@ -11,6 +11,8 @@ vi.mock("@/lib/logger", () => ({
   },
 }));
 
+const { logger } = await import("@/lib/logger");
+
 const mockSelect = vi.fn();
 const mockFrom = vi.fn();
 const mockWhere = vi.fn();
@@ -223,5 +225,25 @@ describe("getFastingWindows", () => {
         durationMinutes: 720,
       },
     ]);
+  });
+});
+
+describe("debug logging", () => {
+  beforeEach(() => {
+    vi.mocked(logger.debug).mockClear();
+  });
+
+  it("getFastingWindow logs debug with date and result", async () => {
+    mockWhere.mockResolvedValue([
+      { date: "2026-02-10", time: "20:00:00" },
+      { date: "2026-02-11", time: "08:00:00" },
+    ]);
+
+    await getFastingWindow("user-123", "2026-02-11");
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "get_fasting_window", date: "2026-02-11" }),
+      expect.any(String),
+    );
   });
 });

@@ -1,5 +1,4 @@
 import type { ErrorCode } from "@/types";
-import { logger } from "@/lib/logger";
 
 export function successResponse<T>(data: T, status = 200): Response {
   return Response.json(
@@ -18,14 +17,6 @@ export function errorResponse(
   status: number,
   details?: unknown,
 ): Response {
-  const logData = { status, errorCode: code, errorMessage: message };
-
-  if (status >= 500) {
-    logger.error(logData, "api response error");
-  } else {
-    logger.warn(logData, "api response error");
-  }
-
   return Response.json(
     {
       success: false,

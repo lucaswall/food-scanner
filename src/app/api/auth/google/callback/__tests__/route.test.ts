@@ -58,15 +58,19 @@ vi.mock("@/lib/users", () => ({
   getOrCreateUser: (...args: unknown[]) => mockGetOrCreateUser(...args),
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
     child: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const { exchangeGoogleCode, getGoogleProfile } = await import("@/lib/auth");
 const { GET } = await import("@/app/api/auth/google/callback/route");
@@ -110,8 +114,8 @@ describe("GET /api/auth/google/callback", () => {
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.status).toBe(302);
-    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User");
-    expect(mockCreateSession).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User", expect.anything());
+    expect(mockCreateSession).toHaveBeenCalledWith("user-uuid-123", expect.anything());
     expect(mockRawSession.sessionId).toBe("new-session-uuid");
     expect(mockRawSession.save).toHaveBeenCalled();
   });
@@ -126,7 +130,7 @@ describe("GET /api/auth/google/callback", () => {
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
     expect(response.status).toBe(302);
-    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User");
+    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User", expect.anything());
   });
 
   it("reads OAuth state from iron-session, not plain cookie", async () => {

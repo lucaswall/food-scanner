@@ -30,15 +30,19 @@ vi.mock("@/lib/users", () => ({
   getOrCreateUser: mockGetOrCreateUser,
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
     child: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const { POST } = await import("@/app/api/auth/test-login/route");
 const { logger } = await import("@/lib/logger");
@@ -82,8 +86,8 @@ describe("POST /api/auth/test-login", () => {
 
     const response = await POST();
     expect(response.status).toBe(200);
-    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User");
-    expect(mockCreateSession).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User", expect.anything());
+    expect(mockCreateSession).toHaveBeenCalledWith("user-uuid-123", expect.anything());
     expect(mockRawSession.sessionId).toBe("new-session-uuid");
     expect(mockRawSession.save).toHaveBeenCalled();
   });

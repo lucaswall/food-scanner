@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
@@ -147,5 +147,41 @@ describe("cleanExpiredSessions", () => {
     const count = await cleanExpiredSessions();
 
     expect(count).toBe(0);
+  });
+});
+
+describe("debug logging", () => {
+  let mockDebug: ReturnType<typeof vi.fn>;
+
+  beforeAll(async () => {
+    const mod = await import("@/lib/logger");
+    mockDebug = mod.logger.debug as unknown as ReturnType<typeof vi.fn>;
+  });
+
+  beforeEach(() => {
+    mockDebug.mockClear();
+  });
+
+  it("createSession logs debug with session info", async () => {
+    const { createSession } = await import("@/lib/session-db");
+    mockReturning.mockResolvedValue([{ id: "abc-123-def" }]);
+
+    await createSession("user-123");
+
+    expect(mockDebug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "create_session" }),
+      expect.any(String),
+    );
+  });
+
+  it("deleteSession logs debug", async () => {
+    const { deleteSession } = await import("@/lib/session-db");
+
+    await deleteSession("session-id");
+
+    expect(mockDebug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "delete_session" }),
+      expect.any(String),
+    );
   });
 });

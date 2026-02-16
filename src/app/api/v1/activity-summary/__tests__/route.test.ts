@@ -8,9 +8,13 @@ vi.mock("@/lib/api-auth", () => ({
   validateApiRequest: (...args: unknown[]) => mockValidateApiRequest(...args),
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+vi.mock("@/lib/logger", () => {
+  const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockEnsureFreshToken = vi.fn();
 const mockGetActivitySummary = vi.fn();
@@ -57,8 +61,8 @@ describe("GET /api/v1/activity-summary", () => {
     expect(data.success).toBe(true);
     expect(data.data).toEqual(mockActivity);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
-    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-123");
-    expect(mockGetActivitySummary).toHaveBeenCalledWith("fitbit-access-token", "2026-02-11");
+    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-123", expect.any(Object));
+    expect(mockGetActivitySummary).toHaveBeenCalledWith("fitbit-access-token", "2026-02-11", expect.any(Object));
   });
 
   it("returns 401 for invalid API key", async () => {

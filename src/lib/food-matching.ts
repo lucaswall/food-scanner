@@ -1,6 +1,8 @@
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
 import { eq, and, isNotNull, max } from "drizzle-orm";
+import { logger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 import type { FoodAnalysis, FoodMatch } from "@/types";
 
 export type { FoodMatch };
@@ -66,7 +68,9 @@ export function checkNutrientTolerance(
 export async function findMatchingFoods(
   userId: string,
   newAnalysis: FoodAnalysis,
+  log?: Logger,
 ): Promise<FoodMatch[]> {
+  const l = log ?? logger;
   const db = getDb();
 
   const rows = await db
@@ -149,7 +153,9 @@ export async function findMatchingFoods(
     return b.sortDate - a.sortDate;
   });
 
-  return matches.slice(0, 3).map((m): FoodMatch => ({
+  const finalMatches = matches.slice(0, 3);
+  l.debug({ action: "find_matching_foods", candidateCount: rows.length, matchCount: finalMatches.length, keywords: newAnalysis.keywords }, "food matching complete");
+  return finalMatches.map((m): FoodMatch => ({
     customFoodId: m.customFoodId,
     foodName: m.foodName,
     calories: m.calories,

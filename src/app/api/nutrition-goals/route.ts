@@ -1,11 +1,12 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, getFoodGoals } from "@/lib/fitbit";
 import { upsertCalorieGoal } from "@/lib/nutrition-goals";
 import { getTodayDate } from "@/lib/date-utils";
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/nutrition-goals");
   const session = await getSession();
 
   const validationError = validateSession(session, { requireFitbit: true });
@@ -16,22 +17,22 @@ export async function GET(request: Request) {
   const clientDate = searchParams.get("clientDate");
 
   try {
-    const accessToken = await ensureFreshToken(session!.userId);
-    const goals = await getFoodGoals(accessToken);
+    const accessToken = await ensureFreshToken(session!.userId, log);
+    const goals = await getFoodGoals(accessToken, log);
 
     // Capture calorie goal in database (fire-and-forget)
     // Use client's local date if provided, otherwise fall back to server UTC
     if (goals.calories !== null && goals.calories !== undefined) {
       const todayDate = clientDate || getTodayDate();
-      upsertCalorieGoal(session!.userId, todayDate, goals.calories).catch((error) => {
-        logger.warn(
+      upsertCalorieGoal(session!.userId, todayDate, goals.calories, log).catch((error) => {
+        log.warn(
           { error: error instanceof Error ? error.message : String(error), userId: session!.userId },
           "failed to capture calorie goal"
         );
       });
     }
 
-    logger.info(
+    log.info(
       {
         action: "nutrition_goals_success",
         calorieGoal: goals.calories ?? "not_set",
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       { error: error instanceof Error ? error.message : String(error) },
       "nutrition goals fetch failed"
     );

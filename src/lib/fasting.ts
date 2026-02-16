@@ -2,6 +2,8 @@ import { eq, and, gte, lte } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { foodLogEntries } from "@/db/schema";
 import { addDays } from "@/lib/date-utils";
+import { logger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 import type { FastingWindow } from "@/types";
 
 /**
@@ -23,8 +25,10 @@ function parseTimeToMinutes(time: string): number {
  */
 export async function getFastingWindow(
   userId: string,
-  date: string
+  date: string,
+  log?: Logger,
 ): Promise<FastingWindow | null> {
+  const l = log ?? logger;
   const db = getDb();
   const previousDate = addDays(date, -1);
 
@@ -49,6 +53,7 @@ export async function getFastingWindow(
 
   // Need at least one meal from previous day
   if (previousDayEntries.length === 0) {
+    l.debug({ action: "get_fasting_window", date, result: "no_previous_meals" }, "no previous day meals found");
     return null;
   }
 
@@ -59,6 +64,7 @@ export async function getFastingWindow(
 
   // If no meals on current day, return ongoing fast
   if (currentDayEntries.length === 0) {
+    l.debug({ action: "get_fasting_window", date, durationMinutes: null }, "ongoing fast (no meals today)");
     return {
       date,
       lastMealTime,
@@ -77,12 +83,14 @@ export async function getFastingWindow(
   const lastMealMinutes = parseTimeToMinutes(lastMealTime);
   const durationMinutes = firstMealMinutes + 1440 - lastMealMinutes;
 
-  return {
+  const result: FastingWindow = {
     date,
     lastMealTime,
     firstMealTime,
     durationMinutes,
   };
+  l.debug({ action: "get_fasting_window", date, durationMinutes }, "fasting window computed");
+  return result;
 }
 
 /**
@@ -97,8 +105,10 @@ export async function getFastingWindow(
 export async function getFastingWindows(
   userId: string,
   fromDate: string,
-  toDate: string
+  toDate: string,
+  log?: Logger,
 ): Promise<FastingWindow[]> {
+  const l = log ?? logger;
   const db = getDb();
   const previousDate = addDays(fromDate, -1);
 
@@ -118,6 +128,7 @@ export async function getFastingWindows(
     );
 
   if (entries.length === 0) {
+    l.debug({ action: "get_fasting_windows", fromDate, toDate, windowCount: 0 }, "no entries in range");
     return [];
   }
 
@@ -182,5 +193,6 @@ export async function getFastingWindows(
     currentDate = addDays(currentDate, 1);
   }
 
+  l.debug({ action: "get_fasting_windows", fromDate, toDate, windowCount: windows.length }, "fasting windows computed");
   return windows;
 }

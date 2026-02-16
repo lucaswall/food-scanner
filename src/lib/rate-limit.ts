@@ -1,3 +1,5 @@
+import { logger } from "@/lib/logger";
+
 interface RateLimitEntry {
   count: number;
   resetAt: number;
@@ -35,5 +37,11 @@ export function checkRateLimit(
     return { allowed: false, remaining: 0 };
   }
 
-  return { allowed: true, remaining: maxRequests - entry.count };
+  const remaining = maxRequests - entry.count;
+  const usagePct = (entry.count / maxRequests) * 100;
+  if (usagePct >= 80) {
+    logger.debug({ action: "rate_limit_warning", key, usagePct: Math.round(usagePct), remaining }, "rate limit nearing threshold");
+  }
+
+  return { allowed: true, remaining };
 }

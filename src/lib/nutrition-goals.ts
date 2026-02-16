@@ -2,12 +2,15 @@ import { getDb } from "@/db/index";
 import { dailyCalorieGoals } from "@/db/schema";
 import { eq, and, between, asc } from "drizzle-orm";
 import { logger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 
 export async function upsertCalorieGoal(
   userId: string,
   date: string,
-  calorieGoal: number
+  calorieGoal: number,
+  log?: Logger,
 ): Promise<void> {
+  const l = log ?? logger;
   await getDb()
     .insert(dailyCalorieGoals)
     .values({
@@ -23,7 +26,7 @@ export async function upsertCalorieGoal(
       },
     });
 
-  logger.info({ userId, date, calorieGoal }, "calorie goal upserted");
+  l.debug({ action: "upsert_calorie_goal", date, calorieGoal }, "calorie goal upserted");
 }
 
 export async function getCalorieGoalsByDateRange(
