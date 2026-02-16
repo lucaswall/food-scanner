@@ -1,5 +1,5 @@
 import type { FoodAnalysis } from "@/types";
-import { logger } from "@/lib/logger";
+import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getFitbitTokens, upsertFitbitTokens } from "@/lib/fitbit-tokens";
 import { getFitbitCredentials } from "@/lib/fitbit-credentials";
@@ -129,6 +129,7 @@ export async function createFood(
   log?: Logger,
 ): Promise<CreateFoodResponse> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   l.debug(
     { action: "fitbit_create_food", foodName: food.food_name },
     "creating food",
@@ -190,6 +191,7 @@ export async function createFood(
   if (typeof foodEntry?.foodId !== "number") {
     throw new Error("Invalid Fitbit create food response: missing food.foodId");
   }
+  l.info({ action: "fitbit_create_food_success", foodName: food.food_name, durationMs: elapsed() }, "food created on Fitbit");
   return data as unknown as CreateFoodResponse;
 }
 
@@ -204,6 +206,7 @@ export async function logFood(
   log?: Logger,
 ): Promise<LogFoodResponse> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   l.debug(
     { action: "fitbit_log_food", foodId, mealTypeId, amount, unitId, date },
     "logging food",
@@ -249,6 +252,7 @@ export async function logFood(
   if (typeof foodLog?.logId !== "number") {
     throw new Error("Invalid Fitbit log food response: missing foodLog.logId");
   }
+  l.info({ action: "fitbit_log_food_success", foodId, date, durationMs: elapsed() }, "food logged on Fitbit");
   return data as unknown as LogFoodResponse;
 }
 
@@ -258,6 +262,7 @@ export async function deleteFoodLog(
   log?: Logger,
 ): Promise<void> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   l.debug(
     { action: "fitbit_delete_food_log", fitbitLogId },
     "deleting food log",
@@ -291,6 +296,7 @@ export async function deleteFoodLog(
     );
     throw new Error("FITBIT_API_ERROR");
   }
+  l.info({ action: "fitbit_delete_food_log_success", fitbitLogId, durationMs: elapsed() }, "food log deleted from Fitbit");
 }
 
 export async function findOrCreateFood(
@@ -401,6 +407,7 @@ export async function refreshFitbitToken(
   expires_in: number;
 }> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   l.debug({ action: "fitbit_token_refresh_start" }, "refreshing fitbit token");
 
   const authHeader = Buffer.from(
@@ -449,6 +456,7 @@ export async function refreshFitbitToken(
     if (typeof data.expires_in !== "number") {
       throw new Error("Invalid Fitbit token response: missing expires_in");
     }
+    l.info({ action: "fitbit_token_refresh_success", durationMs: elapsed() }, "fitbit token refreshed");
     return { access_token: data.access_token, refresh_token: data.refresh_token, user_id: data.user_id, expires_in: data.expires_in };
   } finally {
     clearTimeout(timeoutId);
@@ -459,12 +467,12 @@ const refreshInFlight = new Map<string, Promise<string>>();
 
 export async function ensureFreshToken(userId: string, log?: Logger): Promise<string> {
   const l = log ?? logger;
-  const credentials = await getFitbitCredentials(userId);
+  const credentials = await getFitbitCredentials(userId, l);
   if (!credentials) {
     throw new Error("FITBIT_CREDENTIALS_MISSING");
   }
 
-  const tokenRow = await getFitbitTokens(userId);
+  const tokenRow = await getFitbitTokens(userId, l);
   if (!tokenRow) {
     throw new Error("FITBIT_TOKEN_INVALID");
   }
@@ -478,7 +486,7 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
 
     const promise = (async () => {
       try {
-        const tokens = await refreshFitbitToken(tokenRow.refreshToken, credentials);
+        const tokens = await refreshFitbitToken(tokenRow.refreshToken, credentials, l);
         const tokenData = {
           fitbitUserId: tokens.user_id,
           accessToken: tokens.access_token,
@@ -488,7 +496,7 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
 
         // Try to save tokens with retry logic (FOO-430)
         try {
-          await upsertFitbitTokens(userId, tokenData);
+          await upsertFitbitTokens(userId, tokenData, l);
         } catch (upsertError) {
           l.warn(
             { error: upsertError instanceof Error ? upsertError.message : String(upsertError) },
@@ -496,7 +504,7 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
           );
           // Retry once
           try {
-            await upsertFitbitTokens(userId, tokenData);
+            await upsertFitbitTokens(userId, tokenData, l);
           } catch (retryError) {
             l.error(
               { error: retryError instanceof Error ? retryError.message : String(retryError) },
@@ -524,6 +532,7 @@ export async function getFoodGoals(
   log?: Logger,
 ): Promise<import("@/types").NutritionGoals> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   l.debug(
     { action: "fitbit_get_food_goals" },
     "fetching food goals",
@@ -553,9 +562,11 @@ export async function getFoodGoals(
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
   const goals = data.goals as Record<string, unknown> | undefined;
   if (typeof goals?.calories !== "number") {
+    l.debug({ action: "fitbit_get_food_goals_no_calories", durationMs: elapsed() }, "food goals fetched (no calorie goal)");
     return { calories: null };
   }
 
+  l.debug({ action: "fitbit_get_food_goals_success", durationMs: elapsed() }, "food goals fetched");
   return { calories: goals.calories };
 }
 
@@ -565,6 +576,7 @@ export async function getActivitySummary(
   log?: Logger,
 ): Promise<import("@/types").ActivitySummary> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   l.debug(
     { action: "fitbit_get_activity_summary", date },
     "fetching activity summary",
@@ -597,6 +609,7 @@ export async function getActivitySummary(
     throw new Error("FITBIT_API_ERROR");
   }
 
+  l.debug({ action: "fitbit_get_activity_summary_success", durationMs: elapsed() }, "activity summary fetched");
   return {
     caloriesOut: summary.caloriesOut,
   };

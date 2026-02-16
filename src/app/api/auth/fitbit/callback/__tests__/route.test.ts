@@ -115,6 +115,7 @@ describe("GET /api/auth/fitbit/callback", () => {
         accessToken: "fitbit-access-token",
         refreshToken: "fitbit-refresh-token",
       }),
+      expect.anything(),
     );
   });
 

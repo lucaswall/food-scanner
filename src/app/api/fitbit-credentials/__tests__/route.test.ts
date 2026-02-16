@@ -161,6 +161,7 @@ describe("POST /api/fitbit-credentials", () => {
       "user-uuid-123",
       "new-client-id",
       "new-client-secret",
+      expect.anything(),
     );
   });
 
@@ -326,7 +327,7 @@ describe("PATCH /api/fitbit-credentials", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(mockUpdateFitbitClientId).toHaveBeenCalledWith("user-uuid-123", "updated-client-id");
+    expect(mockUpdateFitbitClientId).toHaveBeenCalledWith("user-uuid-123", "updated-client-id", expect.anything());
     expect(mockReplaceFitbitClientSecret).not.toHaveBeenCalled();
   });
 
@@ -357,7 +358,7 @@ describe("PATCH /api/fitbit-credentials", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(mockReplaceFitbitClientSecret).toHaveBeenCalledWith("user-uuid-123", "new-secret");
+    expect(mockReplaceFitbitClientSecret).toHaveBeenCalledWith("user-uuid-123", "new-secret", expect.anything());
     expect(mockUpdateFitbitClientId).not.toHaveBeenCalled();
   });
 
@@ -390,8 +391,8 @@ describe("PATCH /api/fitbit-credentials", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(mockUpdateFitbitClientId).toHaveBeenCalledWith("user-uuid-123", "updated-client-id");
-    expect(mockReplaceFitbitClientSecret).toHaveBeenCalledWith("user-uuid-123", "new-secret");
+    expect(mockUpdateFitbitClientId).toHaveBeenCalledWith("user-uuid-123", "updated-client-id", expect.anything());
+    expect(mockReplaceFitbitClientSecret).toHaveBeenCalledWith("user-uuid-123", "new-secret", expect.anything());
   });
 
   it("returns 400 when neither provided", async () => {

@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     const accessToken = await ensureFreshToken(authResult.userId, log);
     const activitySummary = await getActivitySummary(accessToken, date, log);
 
-    log.info(
+    log.debug(
       {
         action: "v1_activity_summary_success",
         date,

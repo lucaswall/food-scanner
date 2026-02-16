@@ -11,7 +11,7 @@ async function initiateFitbitAuth(method: string) {
   if (error) return error;
 
   // Load per-user Fitbit credentials
-  const credentials = await getFitbitCredentials(session!.userId);
+  const credentials = await getFitbitCredentials(session!.userId, log);
   if (!credentials) {
     // No credentials stored — redirect to setup page
     return new Response(null, {

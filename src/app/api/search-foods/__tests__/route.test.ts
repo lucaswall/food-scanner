@@ -77,7 +77,7 @@ describe("GET /api/search-foods", () => {
     expect(data.success).toBe(true);
     expect(data.data.foods).toHaveLength(1);
     expect(data.data.foods[0].foodName).toBe("Chicken");
-    expect(mockSearchFoods).toHaveBeenCalledWith("user-uuid-123", "chicken", { limit: 10 });
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-uuid-123", "chicken", { limit: 10 }, expect.anything());
   });
 
   it("passes limit param to searchFoods", async () => {
@@ -91,7 +91,7 @@ describe("GET /api/search-foods", () => {
 
     await GET(makeRequest({ q: "rice", limit: "5" }));
 
-    expect(mockSearchFoods).toHaveBeenCalledWith("user-uuid-123", "rice", { limit: 5 });
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-uuid-123", "rice", { limit: 5 }, expect.anything());
   });
 
   it("returns 400 when query is missing", async () => {

@@ -13,9 +13,9 @@ export async function GET(): Promise<Response> {
       return authError;
     }
 
-    const date = await getEarliestEntryDate(session!.userId);
+    const date = await getEarliestEntryDate(session!.userId, log);
 
-    log.info(
+    log.debug(
       {
         action: "earliest_entry_get_success",
         hasDate: date !== null,

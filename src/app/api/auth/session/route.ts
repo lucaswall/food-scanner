@@ -12,7 +12,7 @@ export async function GET() {
 
   log.debug({ action: "session_check" }, "session valid");
 
-  const user = await getUserById(session!.userId);
+  const user = await getUserById(session!.userId, log);
 
   const response = successResponse({
     email: user?.email ?? null,

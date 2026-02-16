@@ -86,8 +86,8 @@ describe("POST /api/auth/test-login", () => {
 
     const response = await POST();
     expect(response.status).toBe(200);
-    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User");
-    expect(mockCreateSession).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockGetOrCreateUser).toHaveBeenCalledWith("test@example.com", "Test User", expect.anything());
+    expect(mockCreateSession).toHaveBeenCalledWith("user-uuid-123", expect.anything());
     expect(mockRawSession.sessionId).toBe("new-session-uuid");
     expect(mockRawSession.save).toHaveBeenCalled();
   });

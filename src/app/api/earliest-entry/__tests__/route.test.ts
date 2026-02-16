@@ -53,7 +53,7 @@ describe("GET /api/earliest-entry", () => {
       data: { date: "2026-01-15" },
     }));
     expect(data.timestamp).toBeTypeOf("number");
-    expect(mockGetEarliestEntryDate).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockGetEarliestEntryDate).toHaveBeenCalledWith("user-uuid-123", expect.anything());
   });
 
   it("returns null date when no entries exist", async () => {

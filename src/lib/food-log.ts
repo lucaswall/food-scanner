@@ -4,6 +4,8 @@ import { customFoods, foodLogEntries } from "@/db/schema";
 import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry, FoodLogEntryDetail, DailyNutritionTotals } from "@/types";
 import { getCalorieGoalsByDateRange } from "@/lib/nutrition-goals";
 import { getLumenGoalsByDateRange } from "@/lib/lumen";
+import { logger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 
 export interface CustomFoodInput {
   foodName: string;
@@ -39,7 +41,9 @@ export interface FoodLogEntryInput {
 export async function insertCustomFood(
   userId: string,
   data: CustomFoodInput,
+  log?: Logger,
 ): Promise<{ id: number; createdAt: Date }> {
+  const l = log ?? logger;
   const db = getDb();
   const rows = await db
     .insert(customFoods)
@@ -68,13 +72,16 @@ export async function insertCustomFood(
 
   const row = rows[0];
   if (!row) throw new Error("Failed to insert custom food: no row returned");
+  l.debug({ action: "insert_custom_food", foodName: data.foodName, calories: data.calories, customFoodId: row.id }, "custom food inserted");
   return row;
 }
 
 export async function insertFoodLogEntry(
   userId: string,
   data: FoodLogEntryInput,
+  log?: Logger,
 ): Promise<{ id: number; loggedAt: Date }> {
+  const l = log ?? logger;
   const db = getDb();
   const rows = await db
     .insert(foodLogEntries)
@@ -92,6 +99,7 @@ export async function insertFoodLogEntry(
 
   const row = rows[0];
   if (!row) throw new Error("Failed to insert food log entry: no row returned");
+  l.debug({ action: "insert_food_log_entry", date: data.date, mealTypeId: data.mealTypeId, entryId: row.id }, "food log entry inserted");
   return row;
 }
 
@@ -199,7 +207,9 @@ export async function getCommonFoods(
   currentTime: string,
   currentDate: string,
   options: { limit?: number; cursor?: CommonFoodsCursor } = {},
+  log?: Logger,
 ): Promise<CommonFoodsResponse> {
+  const l = log ?? logger;
   const db = getDb();
   const limit = options.limit ?? 10;
 
@@ -275,13 +285,16 @@ export async function getCommonFoods(
     ? { score: lastItem.totalScore, id: lastItem.bestRow.custom_foods.id }
     : null;
 
+  l.debug({ action: "get_common_foods", resultCount: foods.length, hasMore }, "common foods retrieved");
   return { foods, nextCursor };
 }
 
 export async function getRecentFoods(
   userId: string,
   options: { limit?: number; cursor?: RecentFoodsCursor } = {},
+  log?: Logger,
 ): Promise<RecentFoodsResponse> {
+  const l = log ?? logger;
   const db = getDb();
   const limit = options.limit ?? 10;
 
@@ -342,13 +355,16 @@ export async function getRecentFoods(
       }
     : null;
 
+  l.debug({ action: "get_recent_foods", resultCount: foods.length, hasMore }, "recent foods retrieved");
   return { foods, nextCursor };
 }
 
 export async function getFoodLogHistory(
   userId: string,
   options: { startDate?: string; endDate?: string; cursor?: { lastDate: string; lastTime: string | null; lastId: number }; limit?: number },
+  log?: Logger,
 ): Promise<FoodLogHistoryEntry[]> {
+  const l = log ?? logger;
   const db = getDb();
   const limit = options.limit ?? 20;
 
@@ -387,7 +403,7 @@ export async function getFoodLogHistory(
     .orderBy(desc(foodLogEntries.date), asc(foodLogEntries.time), asc(foodLogEntries.id))
     .limit(limit);
 
-  return rows.map((row) => ({
+  const result = rows.map((row) => ({
     id: row.food_log_entries.id,
     foodName: row.custom_foods.foodName,
     calories: row.custom_foods.calories,
@@ -407,6 +423,8 @@ export async function getFoodLogHistory(
     time: row.food_log_entries.time,
     fitbitLogId: row.food_log_entries.fitbitLogId,
   }));
+  l.debug({ action: "get_food_log_history", startDate: options.startDate, endDate: options.endDate, entryCount: result.length }, "food log history retrieved");
+  return result;
 }
 
 export async function getFoodLogEntry(userId: string, id: number) {
@@ -461,7 +479,9 @@ export async function getFoodLogEntryDetail(
 export async function deleteFoodLogEntry(
   userId: string,
   entryId: number,
+  log?: Logger,
 ): Promise<{ fitbitLogId: number | null } | null> {
+  const l = log ?? logger;
   const db = getDb();
 
   return db.transaction(async (tx) => {
@@ -492,6 +512,7 @@ export async function deleteFoodLogEntry(
         .where(eq(customFoods.id, row.customFoodId));
     }
 
+    l.debug({ action: "delete_food_log_entry", entryId, orphanedFoodCleaned: remainingEntries.length === 0 }, "food log entry deleted");
     return { fitbitLogId: row.fitbitLogId };
   });
 }
@@ -500,7 +521,9 @@ export async function searchFoods(
   userId: string,
   query: string,
   options: { limit?: number } = {},
+  log?: Logger,
 ): Promise<CommonFood[]> {
+  const l = log ?? logger;
   const db = getDb();
   const limit = options.limit ?? 10;
   const lowerQuery = query.toLowerCase();
@@ -565,7 +588,7 @@ export async function searchFoods(
     })
     .slice(0, limit);
 
-  return sorted.map(({ row, bestEntry }) => {
+  const results = sorted.map(({ row, bestEntry }) => {
     const entryRow = bestEntry ?? row;
     return {
       customFoodId: row.custom_foods.id,
@@ -586,6 +609,8 @@ export async function searchFoods(
       mealTypeId: entryRow.food_log_entries?.mealTypeId ?? 7,
     };
   });
+  l.debug({ action: "search_foods", query, resultCount: results.length }, "food search complete");
+  return results;
 }
 
 export interface CustomFoodMetadataUpdate {
@@ -636,7 +661,9 @@ export async function updateCustomFoodMetadata(
 
 export async function getEarliestEntryDate(
   userId: string,
+  log?: Logger,
 ): Promise<string | null> {
+  const l = log ?? logger;
   const db = getDb();
 
   const rows = await db
@@ -646,13 +673,17 @@ export async function getEarliestEntryDate(
     .orderBy(asc(foodLogEntries.date))
     .limit(1);
 
-  return rows[0]?.date ?? null;
+  const date = rows[0]?.date ?? null;
+  l.debug({ action: "get_earliest_entry_date", hasDate: date !== null }, "earliest entry date retrieved");
+  return date;
 }
 
 export async function getDailyNutritionSummary(
   userId: string,
   date: string,
+  log?: Logger,
 ): Promise<import("@/types").NutritionSummary> {
+  const l = log ?? logger;
   const db = getDb();
 
   const rows = await db
@@ -769,6 +800,7 @@ export async function getDailyNutritionSummary(
     totalCaloriesFromFat += mealCaloriesFromFat;
   }
 
+  l.debug({ action: "get_daily_nutrition_summary", date, mealCount: meals.length, totalCalories }, "daily nutrition summary computed");
   return {
     date,
     meals,
@@ -791,7 +823,9 @@ export async function getDateRangeNutritionSummary(
   userId: string,
   fromDate: string,
   toDate: string,
+  log?: Logger,
 ): Promise<DailyNutritionTotals[]> {
+  const l = log ?? logger;
   const db = getDb();
 
   // Query all food log entries in the date range
@@ -867,5 +901,6 @@ export async function getDateRangeNutritionSummary(
   // Sort by date ascending (already in order from query, but ensure consistency)
   result.sort((a, b) => a.date.localeCompare(b.date));
 
+  l.debug({ action: "get_date_range_nutrition_summary", fromDate, toDate, dayCount: result.length }, "date range nutrition summary computed");
   return result;
 }

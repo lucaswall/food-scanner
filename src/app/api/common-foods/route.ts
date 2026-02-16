@@ -36,7 +36,7 @@ export async function GET(request: Request) {
         }
       }
 
-      const result = await getRecentFoods(session!.userId, { limit, cursor });
+      const result = await getRecentFoods(session!.userId, { limit, cursor }, log);
 
       log.debug(
         { action: "get_recent_foods", count: result.foods.length },
@@ -71,7 +71,7 @@ export async function GET(request: Request) {
       }
     }
 
-    const result = await getCommonFoods(session!.userId, currentTime, currentDate, { limit, cursor });
+    const result = await getCommonFoods(session!.userId, currentTime, currentDate, { limit, cursor }, log);
 
     log.debug(
       { action: "get_common_foods", count: result.foods.length },

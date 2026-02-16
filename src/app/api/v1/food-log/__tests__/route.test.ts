@@ -154,7 +154,7 @@ describe("GET /api/v1/food-log", () => {
     expect(data.data.meals[0].entries).toHaveLength(2);
     expect(data.data.meals[1].entries).toHaveLength(1);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
-    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-11");
+    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-11", expect.anything());
   });
 
   it("returns empty meals array for date with no entries", async () => {

@@ -168,7 +168,7 @@ describe("executeTool - search_food_log", () => {
       "2026-02-15"
     );
 
-    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", "pizza", { limit: 10 });
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", "pizza", { limit: 10 }, expect.anything());
     expect(result).toContain("Pizza napolitana");
     expect(result).toContain("300g");
     expect(result).toContain("600 cal");
@@ -233,7 +233,7 @@ describe("executeTool - search_food_log", () => {
       "2026-02-15"
     );
 
-    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15");
+    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
     expect(result).toContain("Breakfast");
     expect(result).toContain("Café con leche");
     expect(result).toContain("100 cal");
@@ -370,7 +370,7 @@ describe("executeTool - search_food_log", () => {
       startDate: "2026-02-10",
       endDate: "2026-02-15",
       limit: 100,
-    });
+    }, expect.anything());
     expect(result).toContain("Pizza");
     expect(result).toContain("2026-02-15");
   });
@@ -451,7 +451,7 @@ describe("executeTool - get_nutrition_summary", () => {
       "2026-02-15"
     );
 
-    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15");
+    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
     expect(mockGetLumenGoalsByDate).toHaveBeenCalledWith("user-123", "2026-02-15");
     expect(mockGetCalorieGoalsByDateRange).toHaveBeenCalledWith("user-123", "2026-02-15", "2026-02-15");
     expect(result).toContain("1800 cal");
@@ -496,7 +496,7 @@ describe("executeTool - get_nutrition_summary", () => {
       "2026-02-15"
     );
 
-    expect(mockGetDateRangeNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-10", "2026-02-11");
+    expect(mockGetDateRangeNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-10", "2026-02-11", expect.anything());
     expect(result).toContain("2026-02-10");
     expect(result).toContain("1800 cal");
     expect(result).toContain("2026-02-11");
@@ -524,7 +524,7 @@ describe("executeTool - get_fasting_info", () => {
       "2026-02-15"
     );
 
-    expect(mockGetFastingWindow).toHaveBeenCalledWith("user-123", "2026-02-15");
+    expect(mockGetFastingWindow).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
     expect(result).toContain("12 hours");
     expect(result).toContain("20:00");
     expect(result).toContain("08:00");
@@ -572,7 +572,7 @@ describe("executeTool - get_fasting_info", () => {
       "2026-02-15"
     );
 
-    expect(mockGetFastingWindows).toHaveBeenCalledWith("user-123", "2026-02-10", "2026-02-11");
+    expect(mockGetFastingWindows).toHaveBeenCalledWith("user-123", "2026-02-10", "2026-02-11", expect.anything());
     expect(result).toContain("2026-02-10");
     expect(result).toContain("12 hours");
     expect(result).toContain("2026-02-11");
@@ -593,7 +593,7 @@ describe("executeTool - get_fasting_info", () => {
       "2026-02-15"
     );
 
-    expect(mockGetFastingWindow).toHaveBeenCalledWith("user-123", "2026-02-15");
+    expect(mockGetFastingWindow).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
   });
 });
 
@@ -632,7 +632,7 @@ describe("executeTool - error handling", () => {
     );
 
     expect(result).toContain("No foods found");
-    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", "pizza", { limit: 10 });
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", "pizza", { limit: 10 }, expect.anything());
   });
 
   it("get_nutrition_summary accepts null parameters", async () => {
@@ -665,7 +665,7 @@ describe("executeTool - error handling", () => {
     );
 
     expect(result).toContain("Nutrition summary");
-    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15");
+    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
   });
 
   it("get_fasting_info accepts null parameters", async () => {
@@ -685,6 +685,6 @@ describe("executeTool - error handling", () => {
     );
 
     expect(result).toContain("12 hours");
-    expect(mockGetFastingWindow).toHaveBeenCalledWith("user-123", "2026-02-15");
+    expect(mockGetFastingWindow).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
   });
 });

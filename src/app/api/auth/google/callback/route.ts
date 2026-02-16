@@ -75,8 +75,8 @@ export async function GET(request: Request) {
   }
 
   // Create or find user record, then create DB session
-  const user = await getOrCreateUser(profile.email, profile.name);
-  const sessionId = await createSession(user.id);
+  const user = await getOrCreateUser(profile.email, profile.name, log);
+  const sessionId = await createSession(user.id, log);
   rawSession.sessionId = sessionId;
   await rawSession.save();
 
@@ -86,11 +86,11 @@ export async function GET(request: Request) {
   // 1. If Fitbit tokens exist → /app
   // 2. If Fitbit credentials exist (but no tokens) → /api/auth/fitbit
   // 3. If neither exist → /app/setup-fitbit
-  const fitbitTokens = await getFitbitTokens(user.id);
+  const fitbitTokens = await getFitbitTokens(user.id, log);
   if (fitbitTokens) {
     return Response.redirect(buildUrl("/app"), 302);
   }
-  const hasCredentials = await hasFitbitCredentials(user.id);
+  const hasCredentials = await hasFitbitCredentials(user.id, log);
   const redirectTo = hasCredentials ? "/api/auth/fitbit" : "/app/setup-fitbit";
   return Response.redirect(buildUrl(redirectTo), 302);
 }

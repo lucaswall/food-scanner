@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   try {
     const usage = await getMonthlyUsage(session!.userId, months);
 
-    log.info(
+    log.debug(
       {
         action: "claude_usage_retrieved",
         months,

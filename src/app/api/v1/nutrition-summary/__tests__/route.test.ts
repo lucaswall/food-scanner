@@ -104,7 +104,7 @@ describe("GET /api/v1/nutrition-summary", () => {
     expect(data.success).toBe(true);
     expect(data.data).toEqual(mockSummary);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
-    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-11");
+    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-11", expect.anything());
   });
 
   it("returns 401 for missing API key", async () => {

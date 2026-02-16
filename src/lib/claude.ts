@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { FoodAnalysis, ConversationMessage, AnalyzeFoodResult } from "@/types";
 import { getUnitLabel } from "@/types";
-import { logger } from "@/lib/logger";
+import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { recordUsage } from "@/lib/claude-usage";
@@ -157,6 +157,23 @@ class ClaudeApiError extends Error {
   }
 }
 
+/** Build a debug payload summarizing a Claude API response */
+function summarizeResponse(response: Anthropic.Message): Record<string, unknown> {
+  const blockTypes = response.content.map((b) => b.type);
+  const toolNames = response.content
+    .filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")
+    .map((b) => b.name);
+  return {
+    stopReason: response.stop_reason,
+    blockTypes,
+    ...(toolNames.length > 0 && { toolNames }),
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+    cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+  };
+}
+
 function normalizeKeywords(raw: string[]): string[] {
   const normalized = raw
     .flatMap(k => {
@@ -295,6 +312,7 @@ export async function analyzeFood(
   log?: Logger
 ): Promise<AnalyzeFoodResult> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   try {
     l.info(
       { imageCount: images.length, hasDescription: !!description },
@@ -349,6 +367,8 @@ export async function analyzeFood(
       ],
     });
 
+    l.debug({ action: "analyze_food_response", ...summarizeResponse(response) }, "Claude API response received");
+
     // Check if report_nutrition was called
     const reportNutritionBlock = response.content.find(
       (block) => block.type === "tool_use" && block.name === "report_nutrition"
@@ -371,7 +391,7 @@ export async function analyzeFood(
       // Fast path: Claude called report_nutrition directly
       const analysis = validateFoodAnalysis(reportNutritionBlock.input);
       l.info(
-        { foodName: analysis.food_name, confidence: analysis.confidence },
+        { foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
         "food analysis completed (fast path)"
       );
       return { type: "analysis", analysis };
@@ -423,13 +443,13 @@ export async function analyzeFood(
 
       if (result.analysis) {
         l.info(
-          { foodName: result.analysis.food_name, confidence: result.analysis.confidence },
+          { foodName: result.analysis.food_name, confidence: result.analysis.confidence, durationMs: elapsed() },
           "food analysis completed (via tool loop)"
         );
         return { type: "analysis", analysis: result.analysis };
       }
 
-      l.info({ action: "analyze_food_needs_chat" }, "food analysis needs chat transition (after tool loop)");
+      l.info({ action: "analyze_food_needs_chat", durationMs: elapsed() }, "food analysis needs chat transition (after tool loop)");
       return { type: "needs_chat", message: result.message };
     }
 
@@ -439,7 +459,7 @@ export async function analyzeFood(
     ) as Anthropic.TextBlock[];
     const message = textBlocks.map((block) => block.text).join("\n");
 
-    l.info({ action: "analyze_food_needs_chat" }, "food analysis needs chat transition");
+    l.info({ action: "analyze_food_needs_chat", durationMs: elapsed() }, "food analysis needs chat transition");
     return { type: "needs_chat", message };
   } catch (error) {
     if (error instanceof ClaudeApiError) {
@@ -466,6 +486,7 @@ export async function conversationalRefine(
   log?: Logger
 ): Promise<{ message: string; analysis?: FoodAnalysis }> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   try {
     l.info(
       { messageCount: messages.length, imageCount: images.length },
@@ -533,7 +554,12 @@ export async function conversationalRefine(
     });
 
     // Truncate conversation if needed (150K tokens threshold)
+    const preCount = anthropicMessages.length;
     anthropicMessages = truncateConversation(anthropicMessages, 150000);
+    l.debug(
+      { action: "conversational_refine_messages", messageCount: anthropicMessages.length, truncated: anthropicMessages.length < preCount, hasImages: images.length > 0, hasInitialAnalysis: !!initialAnalysis },
+      "conversation prepared for Claude API"
+    );
 
     // Build system prompt with date and initial analysis context
     let systemPrompt = CHAT_SYSTEM_PROMPT;
@@ -577,6 +603,8 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       messages: anthropicMessages,
     });
 
+    l.debug({ action: "conversational_refine_response", ...summarizeResponse(response) }, "Claude API response received");
+
     // Check if Claude used any data tools (not report_nutrition)
     const dataToolUseBlocks = response.content.filter(
       (block) => block.type === "tool_use" && block.name !== "report_nutrition"
@@ -614,11 +642,11 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     if (toolUseBlock && toolUseBlock.type === "tool_use") {
       analysis = validateFoodAnalysis(toolUseBlock.input);
       l.info(
-        { action: "conversational_refine_with_analysis", foodName: analysis.food_name, confidence: analysis.confidence },
+        { action: "conversational_refine_with_analysis", foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
         "conversational refinement with analysis completed"
       );
     } else {
-      l.info({ action: "conversational_refine_text_only" }, "conversational refinement completed (text only)");
+      l.info({ action: "conversational_refine_text_only", durationMs: elapsed() }, "conversational refinement completed (text only)");
     }
 
     // Record usage (fire-and-forget)
@@ -711,6 +739,11 @@ export function truncateConversation(
     }
   }
 
+  logger.debug(
+    { action: "truncate_conversation", estimatedTokens, maxTokens, messagesBefore: messages.length, messagesAfter: filtered.length },
+    "conversation truncated"
+  );
+
   return filtered;
 }
 
@@ -729,6 +762,7 @@ export async function runToolLoop(
   }
 ): Promise<{ message: string; analysis?: FoodAnalysis }> {
   const l = options?.log ?? logger;
+  const loopElapsed = startTimer();
   let systemPrompt = options?.systemPrompt ?? CHAT_SYSTEM_PROMPT;
   if (!options?.systemPrompt && currentDate) {
     systemPrompt += `\n\nToday's date is: ${currentDate}`;
@@ -767,6 +801,7 @@ export async function runToolLoop(
           "calling Claude API in tool loop"
         );
 
+        const iterElapsed = startTimer();
         response = await getClient().messages.create({
           model: CLAUDE_MODEL,
           max_tokens: 2048,
@@ -781,9 +816,11 @@ export async function runToolLoop(
           tool_choice: { type: "auto" },
           messages: conversationMessages,
         });
+        l.debug({ action: "tool_loop_api_call", iteration, durationMs: iterElapsed() }, "tool loop API call completed");
       }
 
       lastResponse = response;
+      l.debug({ action: "tool_loop_iteration", iteration, ...summarizeResponse(response) }, "tool loop iteration response");
 
       // Record usage (fire-and-forget)
       if (userId) {
@@ -821,7 +858,7 @@ export async function runToolLoop(
           analysis = pendingAnalysis;
         }
 
-        l.info({ iteration, hasAnalysis: !!analysis }, "tool loop completed");
+        l.info({ iteration, hasAnalysis: !!analysis, exitReason: "end_turn", durationMs: loopElapsed() }, "tool loop completed");
         return { message, analysis };
       }
 
@@ -855,8 +892,14 @@ export async function runToolLoop(
           }
         }
 
-        l.info(
-          { iteration, toolCount: allToolUseBlocks.length, dataToolCount: dataToolBlocks.length },
+        l.debug(
+          {
+            action: "tool_loop_tool_calls",
+            iteration,
+            toolCount: allToolUseBlocks.length,
+            dataToolCount: dataToolBlocks.length,
+            tools: allToolUseBlocks.map((b) => ({ name: b.name, params: b.name !== "report_nutrition" ? b.input : undefined })),
+          },
           "executing tools"
         );
 
@@ -955,7 +998,7 @@ export async function runToolLoop(
     }
 
     // Exceeded max iterations - return last response
-    l.warn({ iteration }, "tool loop exceeded maximum iterations");
+    l.warn({ iteration, durationMs: loopElapsed() }, "tool loop exceeded maximum iterations");
 
     if (lastResponse) {
       const textBlocks = lastResponse.content.filter(

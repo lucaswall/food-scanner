@@ -16,7 +16,7 @@ export async function GET() {
   );
 
   try {
-    const keys = await listApiKeys(session!.userId);
+    const keys = await listApiKeys(session!.userId, log);
 
     const response = successResponse({ keys });
 
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
   );
 
   try {
-    const result = await createApiKey(session!.userId, body.name);
+    const result = await createApiKey(session!.userId, body.name, log);
 
     return successResponse(result, 201);
   } catch (error) {

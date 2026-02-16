@@ -27,7 +27,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
   );
 
   try {
-    const revoked = await revokeApiKey(session!.userId, id);
+    const revoked = await revokeApiKey(session!.userId, id, log);
 
     if (!revoked) {
       return errorResponse("NOT_FOUND", "API key not found or access denied", 404);

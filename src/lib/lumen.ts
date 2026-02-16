@@ -105,7 +105,7 @@ export async function parseLumenScreenshot(
 ): Promise<LumenGoalsParsed> {
   const l = log ?? logger;
   try {
-    l.info("calling Claude API for Lumen screenshot parsing");
+    l.info({ imageCount: 1 }, "calling Claude API for Lumen screenshot parsing");
 
     const response = await getClient().messages.create({
       model: "claude-haiku-4-5-20251001",

@@ -44,7 +44,7 @@ export async function GET(request: Request) {
   try {
     const goals = await getLumenGoalsByDate(authResult.userId, date);
 
-    log.info(
+    log.debug(
       {
         action: "v1_lumen_goals_success",
         date,

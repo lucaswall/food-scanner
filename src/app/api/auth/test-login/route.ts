@@ -13,10 +13,10 @@ export async function POST() {
 
   try {
     // Create or find test user
-    const user = await getOrCreateUser("test@example.com", "Test User");
+    const user = await getOrCreateUser("test@example.com", "Test User", log);
 
     // Create DB session
-    const sessionId = await createSession(user.id);
+    const sessionId = await createSession(user.id, log);
 
     // Set iron-session cookie
     const rawSession = await getRawSession();

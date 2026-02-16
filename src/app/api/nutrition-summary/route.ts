@@ -28,9 +28,9 @@ export async function GET(request: Request) {
     }
 
     try {
-      const summary = await getDailyNutritionSummary(session!.userId, date);
+      const summary = await getDailyNutritionSummary(session!.userId, date, log);
 
-      log.info(
+      log.debug(
         {
           action: "nutrition_summary_success",
           date,
@@ -92,9 +92,9 @@ export async function GET(request: Request) {
     }
 
     try {
-      const days = await getDateRangeNutritionSummary(session!.userId, from, to);
+      const days = await getDateRangeNutritionSummary(session!.userId, from, to, log);
 
-      log.info(
+      log.debug(
         {
           action: "nutrition_summary_range_success",
           from,

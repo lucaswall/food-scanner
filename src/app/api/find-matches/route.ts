@@ -56,9 +56,10 @@ export async function POST(request: Request) {
     const matches = await findMatchingFoods(
       session!.userId,
       body as Parameters<typeof findMatchingFoods>[1],
+      log,
     );
 
-    log.info(
+    log.debug(
       { action: "find_matches", matchCount: matches.length },
       "food matching complete",
     );

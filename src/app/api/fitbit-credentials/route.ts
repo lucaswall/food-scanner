@@ -20,7 +20,7 @@ export async function GET() {
     "Fetching Fitbit credentials",
   );
 
-  const credentials = await getFitbitCredentials(session!.userId);
+  const credentials = await getFitbitCredentials(session!.userId, log);
 
   const response = !credentials
     ? successResponse({
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
     "Saving Fitbit credentials",
   );
 
-  await saveFitbitCredentials(session!.userId, body.clientId, body.clientSecret);
+  await saveFitbitCredentials(session!.userId, body.clientId, body.clientSecret, log);
 
   return successResponse({
     message: "Fitbit credentials saved successfully",
@@ -144,7 +144,7 @@ export async function PATCH(request: Request) {
   }
 
   // Check if credentials exist before updating
-  const existingCredentials = await getFitbitCredentials(session!.userId);
+  const existingCredentials = await getFitbitCredentials(session!.userId, log);
   if (!existingCredentials) {
     log.warn(
       { action: "update_fitbit_credentials", userId: session!.userId },
@@ -160,12 +160,12 @@ export async function PATCH(request: Request) {
 
   // Update clientId if provided
   if (body.clientId !== undefined) {
-    await updateFitbitClientId(session!.userId, body.clientId);
+    await updateFitbitClientId(session!.userId, body.clientId, log);
   }
 
   // Replace clientSecret if provided
   if (body.clientSecret !== undefined) {
-    await replaceFitbitClientSecret(session!.userId, body.clientSecret);
+    await replaceFitbitClientSecret(session!.userId, body.clientSecret, log);
   }
 
   return successResponse({

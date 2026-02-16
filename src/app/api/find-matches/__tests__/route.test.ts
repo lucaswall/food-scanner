@@ -181,7 +181,7 @@ describe("POST /api/find-matches", () => {
     expect(body.data.matches).toHaveLength(3);
     expect(body.data.matches[0].customFoodId).toBe(1);
     expect(body.data.matches[0].matchRatio).toBe(1.0);
-    expect(mockFindMatchingFoods).toHaveBeenCalledWith("user-uuid-123", validBody);
+    expect(mockFindMatchingFoods).toHaveBeenCalledWith("user-uuid-123", validBody, expect.anything());
   });
 
   it("returns 400 when keywords present but nutrient fields missing", async () => {

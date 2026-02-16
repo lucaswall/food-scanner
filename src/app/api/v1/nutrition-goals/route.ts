@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     const accessToken = await ensureFreshToken(authResult.userId, log);
     const goals = await getFoodGoals(accessToken, log);
 
-    log.info(
+    log.debug(
       {
         action: "v1_nutrition_goals_success",
         calorieGoal: goals.calories,

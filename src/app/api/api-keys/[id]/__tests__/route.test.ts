@@ -70,7 +70,7 @@ describe("DELETE /api/api-keys/[id]", () => {
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body.data.revoked).toBe(true);
-    expect(mockRevokeApiKey).toHaveBeenCalledWith("user-uuid-123", 1);
+    expect(mockRevokeApiKey).toHaveBeenCalledWith("user-uuid-123", 1, expect.anything());
   });
 
   it("returns 404 when key not found or userId mismatch", async () => {

@@ -129,7 +129,7 @@ describe("GET /api/nutrition-summary", () => {
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
     expect(data.data).toEqual(mockSummary);
-    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-uuid-123", "2024-01-15");
+    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-uuid-123", "2024-01-15", expect.anything());
   });
 
   it("returns entries grouped by meal type with per-meal subtotals", async () => {
@@ -448,7 +448,7 @@ describe("GET /api/nutrition-summary", () => {
     expect(data.data.days).toHaveLength(2);
     expect(data.data.days[0].date).toBe("2024-01-10");
     expect(data.data.days[1].date).toBe("2024-01-11");
-    expect(mockGetDateRangeNutritionSummary).toHaveBeenCalledWith("user-uuid-123", "2024-01-10", "2024-01-11");
+    expect(mockGetDateRangeNutritionSummary).toHaveBeenCalledWith("user-uuid-123", "2024-01-10", "2024-01-11", expect.anything());
   });
 
   it("date parameter takes precedence over from/to params", async () => {
@@ -479,7 +479,7 @@ describe("GET /api/nutrition-summary", () => {
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
-    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-uuid-123", "2024-01-15");
+    expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-uuid-123", "2024-01-15", expect.anything());
     expect(mockGetDateRangeNutritionSummary).not.toHaveBeenCalled();
   });
 

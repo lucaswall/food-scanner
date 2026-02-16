@@ -31,14 +31,14 @@ export async function GET(request: Request) {
     return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
   }
 
-  const dbSession = await getSessionById(rawSession.sessionId);
+  const dbSession = await getSessionById(rawSession.sessionId, log);
   if (!dbSession) {
     log.warn({ action: "fitbit_callback_no_session" }, "fitbit callback with expired/invalid session");
     return errorResponse("AUTH_MISSING_SESSION", "No authenticated session", 401);
   }
 
   // Load per-user Fitbit credentials
-  const credentials = await getFitbitCredentials(dbSession.userId);
+  const credentials = await getFitbitCredentials(dbSession.userId, log);
   if (!credentials) {
     log.warn({ action: "fitbit_callback_no_credentials" }, "fitbit callback with no stored credentials");
     return errorResponse("FITBIT_CREDENTIALS_MISSING", "No Fitbit credentials configured", 400);
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-  });
+  }, log);
 
   log.info({ action: "fitbit_connect_success" }, "fitbit connected successfully");
 

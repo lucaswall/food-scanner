@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     }
 
     try {
-      const window = await getFastingWindow(session!.userId, date);
+      const window = await getFastingWindow(session!.userId, date, log);
 
       // Determine if live mode (date is today AND window has null firstMealTime)
       // Use clientDate if provided, otherwise fall back to server's isToday check
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
         live,
       };
 
-      log.info(
+      log.debug(
         {
           action: "fasting_window_success",
           date,
@@ -110,9 +110,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    const windows = await getFastingWindows(session!.userId, from, to);
+    const windows = await getFastingWindows(session!.userId, from, to, log);
 
-    log.info(
+    log.debug(
       {
         action: "fasting_windows_success",
         from,

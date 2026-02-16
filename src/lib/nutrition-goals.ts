@@ -26,7 +26,7 @@ export async function upsertCalorieGoal(
       },
     });
 
-  l.info({ userId, date, calorieGoal }, "calorie goal upserted");
+  l.debug({ action: "upsert_calorie_goal", date, calorieGoal }, "calorie goal upserted");
 }
 
 export async function getCalorieGoalsByDateRange(

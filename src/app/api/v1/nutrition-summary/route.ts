@@ -47,9 +47,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    const summary = await getDailyNutritionSummary(authResult.userId, date);
+    const summary = await getDailyNutritionSummary(authResult.userId, date, log);
 
-    log.info(
+    log.debug(
       {
         action: "v1_nutrition_summary_success",
         date,

@@ -135,7 +135,7 @@ describe("GET /api/fasting", () => {
       window: mockWindow,
       live: null,
     });
-    expect(mockGetFastingWindow).toHaveBeenCalledWith("user-uuid-123", "2026-02-11");
+    expect(mockGetFastingWindow).toHaveBeenCalledWith("user-uuid-123", "2026-02-11", expect.anything());
     expect(res.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 
@@ -277,7 +277,7 @@ describe("GET /api/fasting", () => {
     expect(data.data).toEqual({
       windows: mockWindows,
     });
-    expect(mockGetFastingWindows).toHaveBeenCalledWith("user-uuid-123", "2026-02-11", "2026-02-13");
+    expect(mockGetFastingWindows).toHaveBeenCalledWith("user-uuid-123", "2026-02-11", "2026-02-13", expect.anything());
     expect(res.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 

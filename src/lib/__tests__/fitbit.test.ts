@@ -11,6 +11,7 @@ vi.mock("@/lib/logger", () => ({
     debug: vi.fn(),
     child: vi.fn(),
   },
+  startTimer: () => () => 42,
 }));
 
 const mockGetFitbitTokens = vi.fn();
@@ -195,6 +196,7 @@ describe("ensureFreshToken", () => {
         refreshToken: "new-refresh",
         fitbitUserId: "user-123",
       }),
+      expect.anything(),
     );
 
     vi.restoreAllMocks();

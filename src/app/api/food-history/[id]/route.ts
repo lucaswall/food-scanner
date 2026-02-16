@@ -69,7 +69,7 @@ export async function DELETE(
     }
 
     try {
-      await deleteFoodLogEntry(session!.userId, id);
+      await deleteFoodLogEntry(session!.userId, id, log);
     } catch (dbErr) {
       log.error(
         { action: "delete_food_log_db_error", entryId: id, error: dbErr instanceof Error ? dbErr.message : String(dbErr) },

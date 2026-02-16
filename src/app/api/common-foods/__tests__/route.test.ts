@@ -88,6 +88,7 @@ describe("GET /api/common-foods", () => {
       expect.stringMatching(/^\d{2}:\d{2}:\d{2}$/),
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       { limit: 10, cursor: undefined },
+      expect.anything(),
     );
   });
 
@@ -108,6 +109,7 @@ describe("GET /api/common-foods", () => {
       expect.any(String),
       expect.any(String),
       { limit: 5, cursor: { score: 0.5, id: 10 } },
+      expect.anything(),
     );
   });
 
@@ -207,7 +209,7 @@ describe("GET /api/common-foods", () => {
 
       expect(response.status).toBe(200);
       expect(data.data.foods[0].foodName).toBe("Recent Salad");
-      expect(mockGetRecentFoods).toHaveBeenCalledWith("user-uuid-123", { limit: 10, cursor: undefined });
+      expect(mockGetRecentFoods).toHaveBeenCalledWith("user-uuid-123", { limit: 10, cursor: undefined }, expect.anything());
       expect(mockGetCommonFoods).not.toHaveBeenCalled();
     });
 
@@ -226,7 +228,7 @@ describe("GET /api/common-foods", () => {
       expect(mockGetRecentFoods).toHaveBeenCalledWith("user-uuid-123", {
         limit: 10,
         cursor: { lastDate: "2026-02-05", lastTime: "12:00:00", lastId: 5 },
-      });
+      }, expect.anything());
     });
 
     it("returns 400 for invalid cursor JSON in recent tab", async () => {
@@ -308,6 +310,7 @@ describe("GET /api/common-foods", () => {
         "14:30:00", // Client's local time, not server time
         "2026-02-14", // Client's local date, not server date
         { limit: 10, cursor: undefined },
+        expect.anything(),
       );
     });
 
@@ -328,6 +331,7 @@ describe("GET /api/common-foods", () => {
         expect.stringMatching(/^\d{2}:\d{2}:\d{2}$/), // Server-generated time
         expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), // Server-generated date
         { limit: 10, cursor: undefined },
+        expect.anything(),
       );
     });
   });

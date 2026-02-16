@@ -687,3 +687,69 @@ Comprehensive logging and observability overhaul addressing 7 related issues fro
 
 ### Continuation Status
 Point budget reached. Tasks 8-12 remain for next iteration.
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-02-16
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Task 8: Demote routine success logs to debug level (FOO-546) - Changed routine GET success logs from info to debug in 10 route handlers and nutrition-goals.ts
+- Task 9: Add debug logging to Claude API and chat-tools (FOO-542) - Added comprehensive debug logging to analyzeFood, conversationalRefine, runToolLoop, executeTool with response details, token usage, tool call params
+- Task 10: Add debug logging to data layer modules (FOO-544) - Added debug entry/exit logging to all exported functions in food-log, fasting, food-matching, fitbit-tokens, fitbit-credentials, session-db, users, api-keys, rate-limit
+- Task 11: Add timing to Claude and Fitbit API calls (FOO-547) - Added startTimer()-based durationMs to Claude API calls (analyzeFood, conversationalRefine, runToolLoop iterations) and Fitbit API calls (fitbitRequest wrapper)
+- Task 12: Integration & Verification (all issues) - Fixed 3 bugs from bug-hunter: (1) ensureFreshToken logger propagation to credential/token functions, (2) chat-tools executeTool propagation to all helper functions, (3) all 16 route handlers propagating request-scoped logger to data layer calls; updated ~20 test files with expect.anything() for logger parameter assertions
+
+### Files Modified
+- `src/lib/chat-tools.ts` - Added log? param to executeGetNutritionSummary/executeGetFastingInfo, propagated log to all data layer calls
+- `src/lib/claude.ts` - Debug logging for API responses, token usage, timing instrumentation
+- `src/lib/fitbit.ts` - Timing in fitbitRequest, logger propagation fix in ensureFreshToken
+- `src/lib/food-log.ts` - Debug entry/exit logging for all exported functions
+- `src/lib/fasting.ts` - Debug logging for getFastingWindow/getFastingWindows
+- `src/lib/food-matching.ts` - Debug logging for findMatchingFoods
+- `src/lib/fitbit-tokens.ts` - Debug logging for token operations
+- `src/lib/fitbit-credentials.ts` - Debug logging for credential operations
+- `src/lib/session-db.ts` - Debug logging for session CRUD operations
+- `src/lib/users.ts` - Debug logging for user find/create
+- `src/lib/api-keys.ts` - Debug logging for key operations
+- `src/lib/rate-limit.ts` - Debug logging for rate limit checks
+- `src/lib/nutrition-goals.ts` - Demoted calorie goal upsert log to debug
+- `src/lib/lumen.ts` - Logger parameter support
+- `src/app/api/v1/food-log/route.ts` - Demoted success log to debug, logger propagation
+- `src/app/api/v1/nutrition-summary/route.ts` - Demoted success log to debug, logger propagation
+- `src/app/api/v1/lumen-goals/route.ts` - Demoted success log to debug
+- `src/app/api/v1/activity-summary/route.ts` - Demoted success log to debug
+- `src/app/api/v1/nutrition-goals/route.ts` - Demoted success log to debug
+- `src/app/api/fasting/route.ts` - Demoted success log to debug, logger propagation
+- `src/app/api/find-matches/route.ts` - Demoted success log to debug, logger propagation
+- `src/app/api/nutrition-summary/route.ts` - Demoted success log to debug, logger propagation
+- `src/app/api/claude-usage/route.ts` - Demoted success log to debug
+- `src/app/api/earliest-entry/route.ts` - Demoted success log to debug, logger propagation
+- `src/app/api/search-foods/route.ts` - Logger propagation to searchFoods
+- `src/app/api/food-history/route.ts` - Logger propagation to getFoodLogHistory
+- `src/app/api/food-history/[id]/route.ts` - Logger propagation to deleteFoodLogEntry
+- `src/app/api/common-foods/route.ts` - Logger propagation to getRecentFoods/getCommonFoods
+- `src/app/api/api-keys/route.ts` - Logger propagation to listApiKeys/createApiKey
+- `src/app/api/api-keys/[id]/route.ts` - Logger propagation to revokeApiKey
+- `src/app/api/fitbit-credentials/route.ts` - Logger propagation to credential functions
+- `src/app/api/auth/session/route.ts` - Logger propagation to getUserById
+- `src/app/api/auth/test-login/route.ts` - Logger propagation to getOrCreateUser/createSession
+- `src/app/api/auth/google/callback/route.ts` - Logger propagation to auth functions
+- `src/app/api/auth/fitbit/route.ts` - Logger propagation to getFitbitCredentials
+- `src/app/api/auth/fitbit/callback/route.ts` - Logger propagation to session/token functions
+- ~20 test files - Added expect.anything() for logger parameter assertions
+
+### Linear Updates
+- FOO-546: Todo → In Progress → Review (iteration 2) — completed this iteration
+- FOO-542: Todo → In Progress → Review (iteration 2) — completed this iteration
+- FOO-544: Todo → In Progress → Review (iteration 2) — completed this iteration
+- FOO-547: Todo → In Progress → Review (iteration 2) — completed this iteration
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs, all fixed before proceeding
+- verifier: All 1826 tests pass, lint clean, build clean (zero warnings)
+
+### Continuation Status
+All tasks completed.

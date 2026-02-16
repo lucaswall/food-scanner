@@ -118,7 +118,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("sets Cache-Control header for private caching", async () => {
@@ -141,7 +141,7 @@ describe("GET /api/food-history", () => {
       endDate: "2026-02-05",
       cursor: undefined,
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("ignores endDate with invalid format", async () => {
@@ -156,7 +156,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("ignores endDate with partial date format", async () => {
@@ -171,7 +171,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("supports composite cursor params (lastDate, lastTime, lastId)", async () => {
@@ -188,7 +188,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: "12:30:00", lastId: 1 },
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("supports cursor with null lastTime (missing param)", async () => {
@@ -205,7 +205,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 5 },
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("supports cursor with empty lastTime", async () => {
@@ -222,7 +222,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 5 },
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("ignores incomplete cursor (lastDate without lastId)", async () => {
@@ -239,7 +239,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("supports limit query param", async () => {
@@ -254,7 +254,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 10,
-    });
+    }, expect.anything());
   });
 
   it("caps limit at 50", async () => {
@@ -269,7 +269,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 50,
-    });
+    }, expect.anything());
   });
 
   it("uses default limit of 20 when not specified", async () => {
@@ -283,7 +283,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("returns empty array when no entries", async () => {
@@ -310,7 +310,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("treats lastTime with invalid format as null", async () => {
@@ -327,7 +327,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 1 },
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("treats lastTime with partial format as null", async () => {
@@ -344,7 +344,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: { lastDate: "2026-02-06", lastTime: null, lastId: 1 },
       limit: 20,
-    });
+    }, expect.anything());
   });
 
   it("clamps limit=0 to default", async () => {
@@ -359,7 +359,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 1,
-    });
+    }, expect.anything());
   });
 
   it("clamps negative limit to minimum of 1", async () => {
@@ -374,7 +374,7 @@ describe("GET /api/food-history", () => {
       endDate: undefined,
       cursor: undefined,
       limit: 1,
-    });
+    }, expect.anything());
   });
 
   it("supports all params together (endDate, cursor, limit)", async () => {
@@ -391,6 +391,6 @@ describe("GET /api/food-history", () => {
       endDate: "2026-02-06",
       cursor: { lastDate: "2026-02-05", lastTime: "12:00:00", lastId: 2 },
       limit: 10,
-    });
+    }, expect.anything());
   });
 });
