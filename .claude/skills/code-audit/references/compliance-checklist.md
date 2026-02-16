@@ -235,6 +235,32 @@ Check for patterns that could saturate the logging backend:
 - **JSON format**: Logs should be structured (JSON) not plain text for machine parsing
 - **Consistent fields**: Request ID, user ID, operation name included consistently
 - **Proper logger used**: No `console.log`/`console.error` in production code - use proper logging framework
+- **Action field on every log**: Every log statement should use `{ action: "operation_name" }` structured format, not string-only messages — enables log search/filtering
+- **No mixed formats**: Don't mix `logger.info("string only")` with `logger.info({ action }, "msg")` in the same module
+
+### Request-Scoped Logging
+
+- **Child loggers per request**: Route handlers should create child loggers with request context (method, path, request ID) rather than using the global logger directly
+- **Correlation IDs**: Requests should carry an ID that propagates through all downstream log calls so logs from one request can be traced together
+- **Context propagation**: When a route handler calls lib modules, request context (user ID, request ID) should flow into the logs without each module needing to manually attach it
+
+### Double-Logging Prevention
+
+- **No duplicate log events**: The same error/event should not be logged at multiple layers (e.g., lib module logs error AND route handler logs the same error again)
+- **Error response auto-logging**: If a centralized error response helper auto-logs (like `errorResponse()`), callers should not also log the same error — or the helper should not auto-log
+- **Catch-and-rethrow**: If a catch block logs an error and then rethrows, the upstream catcher should not log it again
+
+### Operation Timing
+
+- **External API call duration**: All calls to external APIs (Claude, Fitbit, Google, etc.) should log `durationMs` so slow calls are visible in logs
+- **Database query timing**: Long-running or critical DB operations should include timing at DEBUG level
+- **End-to-end request duration**: Route handlers should log total request duration for performance monitoring
+
+### Info vs Debug Level Strategy
+
+- **Routine reads are DEBUG, not INFO**: Successful GET requests returning cached or standard data should be DEBUG — INFO is for state changes and significant events
+- **State changes are INFO**: Creating, updating, or deleting records; OAuth flows; food logging; analysis completions
+- **Only log at INFO what operators need to see**: If the log would be noise in production at steady state, it should be DEBUG
 
 ### Log Security
 
@@ -256,6 +282,17 @@ Use Grep tool to find potential logging issues:
 **Missing logs:**
 - `catch\s*\([^)]*\)\s*\{[^}]*\}` - empty or log-less catch blocks
 - API route handlers without any logger calls
+- Lib modules with zero `logger` imports (data layer blind spots)
+
+**Structural issues:**
+- `logger\.(info|warn|error)\("[^"]+"\)` without object first arg - missing structured `{ action }` format
+- Same error string appearing in both a lib module and its calling route handler - double logging
+- `errorResponse\(` preceded by `logger.error` or `logger.warn` in same function - double logging with auto-log helper
+- Route handlers or lib modules using global `logger` directly instead of child/request-scoped logger
+
+**Timing gaps:**
+- External API calls (`fetch\(`, `anthropic\.`, `fitbit`) without `durationMs` in their completion log
+- `Date\.now\(\)` or `performance\.now\(\)` captured but never logged
 
 **Log overflow risks:**
 - `for.*\{[^}]*logger\.|while.*\{[^}]*logger\.` - logging inside loops

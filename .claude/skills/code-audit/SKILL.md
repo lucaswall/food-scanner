@@ -193,7 +193,13 @@ CLAUDE.md COMPLIANCE (read CLAUDE.md first!):
 LOGGING:
 - console.log/warn/error instead of proper logger
 - Wrong log levels (errors at INFO, critical at DEBUG)
+- Routine GET successes at INFO that should be DEBUG (INFO = state changes only)
 - Missing logs in error paths (empty catch blocks)
+- Lib modules with ZERO logging (data layer blind spots — no visibility into DB ops, business logic)
+- Double-logging: same error logged at lib layer AND route handler, or logged before errorResponse() which auto-logs
+- No structured { action: "..." } field — string-only log messages that can't be filtered
+- Missing durationMs on external API calls (Claude, Fitbit, Google) — slow calls invisible
+- No request-scoped loggers or correlation IDs for tracing a request across modules
 - Log overflow risks (logging in tight loops, large objects)
 - Sensitive data in logs
 - Missing structured logging fields
