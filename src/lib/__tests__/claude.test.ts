@@ -600,7 +600,8 @@ describe("analyzeFood", () => {
             ]),
           }),
         ]),
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -662,7 +663,8 @@ describe("analyzeFood", () => {
             ]),
           }),
         ]),
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -1267,7 +1269,8 @@ describe("analyzeFood", () => {
             }),
           }),
         ]),
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -1302,7 +1305,8 @@ describe("analyzeFood", () => {
             }),
           }),
         ]),
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -1708,6 +1712,39 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
       message: "I cannot analyze this image.",
     });
   });
+
+  it("passes AbortSignal to runToolLoop when data tools are present", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    // Claude returns data tool use
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "search_food_log",
+          input: { query: "yesterday" },
+        },
+      ],
+      usage: { input_tokens: 1500, output_tokens: 300 },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+
+    await expect(
+      analyzeFood(
+        [],
+        "same as yesterday",
+        "user-123",
+        "2026-02-15",
+        undefined, // log
+        controller.signal,
+      )
+    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR", message: "Request aborted by client" });
+  });
 });
 
 describe("conversationalRefine", () => {
@@ -1848,7 +1885,8 @@ describe("conversationalRefine", () => {
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         tool_choice: { type: "auto" },
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -2021,7 +2059,8 @@ describe("conversationalRefine", () => {
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         max_tokens: 2048,
-      })
+      }),
+      expect.anything(),
     );
   });
 
@@ -3236,6 +3275,26 @@ describe("truncateConversation", () => {
     for (let i = 1; i < result.length; i++) {
       expect(result[i].role).not.toBe(result[i - 1].role);
     }
+  });
+
+  it("uses passed logger instead of global logger when truncation occurs", async () => {
+    const { truncateConversation } = await import("@/lib/claude");
+    const { logger } = await import("@/lib/logger");
+    vi.mocked(logger.debug).mockClear();
+    const customLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+
+    const messages = Array.from({ length: 10 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: "x".repeat(100000),
+    }));
+
+    truncateConversation(messages, 150000, customLogger as unknown as import("pino").Logger);
+
+    expect(customLogger.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "truncate_conversation" }),
+      "conversation truncated",
+    );
+    expect(logger.debug).not.toHaveBeenCalled();
   });
 });
 

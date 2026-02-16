@@ -151,6 +151,7 @@ export async function POST(request: Request) {
       session!.userId,
       currentDate,
       log,
+      request.signal,
     );
 
     if (result.type === "analysis") {

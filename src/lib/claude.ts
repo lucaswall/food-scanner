@@ -309,7 +309,8 @@ export async function analyzeFood(
   description: string | undefined,
   userId: string,
   currentDate: string,
-  log?: Logger
+  log?: Logger,
+  signal?: AbortSignal,
 ): Promise<AnalyzeFoodResult> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -365,7 +366,7 @@ export async function analyzeFood(
           ],
         },
       ],
-    });
+    }, { signal });
 
     l.debug({ action: "analyze_food_response", ...summarizeResponse(response) }, "Claude API response received");
 
@@ -438,6 +439,7 @@ export async function analyzeFood(
         tools: allTools,
         operation: "food-analysis",
         initialResponse: response,
+        signal,
         log: l,
       });
 
@@ -555,7 +557,7 @@ export async function conversationalRefine(
 
     // Truncate conversation if needed (150K tokens threshold)
     const preCount = anthropicMessages.length;
-    anthropicMessages = truncateConversation(anthropicMessages, 150000);
+    anthropicMessages = truncateConversation(anthropicMessages, 150000, l);
     l.debug(
       { action: "conversational_refine_messages", messageCount: anthropicMessages.length, truncated: anthropicMessages.length < preCount, hasImages: images.length > 0, hasInitialAnalysis: !!initialAnalysis },
       "conversation prepared for Claude API"
@@ -601,7 +603,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       tools: toolsWithCache,
       tool_choice: { type: "auto" },
       messages: anthropicMessages,
-    });
+    }, { signal });
 
     l.debug({ action: "conversational_refine_response", ...summarizeResponse(response) }, "Claude API response received");
 
@@ -710,8 +712,10 @@ function estimateTokenCount(messages: Anthropic.MessageParam[]): number {
 
 export function truncateConversation(
   messages: Anthropic.MessageParam[],
-  maxTokens: number
+  maxTokens: number,
+  log?: Logger,
 ): Anthropic.MessageParam[] {
+  const l = log ?? logger;
   const estimatedTokens = estimateTokenCount(messages);
 
   if (estimatedTokens <= maxTokens) {
@@ -739,7 +743,7 @@ export function truncateConversation(
     }
   }
 
-  logger.debug(
+  l.debug(
     { action: "truncate_conversation", estimatedTokens, maxTokens, messagesBefore: messages.length, messagesAfter: filtered.length },
     "conversation truncated"
   );
@@ -815,7 +819,7 @@ export async function runToolLoop(
           tools: toolsWithCache,
           tool_choice: { type: "auto" },
           messages: conversationMessages,
-        });
+        }, { signal: options?.signal });
         l.debug({ action: "tool_loop_api_call", iteration, durationMs: iterElapsed() }, "tool loop API call completed");
       }
 
