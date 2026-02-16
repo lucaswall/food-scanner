@@ -378,7 +378,12 @@ export async function analyzeFood(
     const textBlocks = response.content.filter(
       (block) => block.type === "text"
     ) as Anthropic.TextBlock[];
-    const message = textBlocks.map((block) => block.text).join("\n");
+    let message = textBlocks.map((block) => block.text).join("\n");
+
+    // Provide fallback message if empty (e.g., when Claude only calls data tools)
+    if (!message.trim()) {
+      message = "Let me look into that for you...";
+    }
 
     logger.info("food analysis needs chat transition");
     return { type: "needs_chat", message };

@@ -451,6 +451,18 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       });
   }, []);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (compressionWarningTimeoutRef.current) {
+        clearTimeout(compressionWarningTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Show resubmitting state
   if (resubmitting) {
     return (
@@ -488,9 +500,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         compressedImages={compressedImages || []}
         initialMealTypeId={mealTypeId}
         onClose={() => setChatOpen(false)}
-        onLogged={(response, refinedAnalysis) => {
+        onLogged={(response, refinedAnalysis, mealTypeId) => {
           setAnalysis(refinedAnalysis);
           setLogResponse(response);
+          setMealTypeId(mealTypeId);
         }}
       />
     );
@@ -511,7 +524,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} />
 
-      <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging} />
+      <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging || compressing} />
 
       {/* First-time user guidance */}
       {photos.length === 0 && !description.trim() && !analysis && (

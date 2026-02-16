@@ -96,8 +96,9 @@ export function FoodChat({
       .find((msg) => msg.analysis)?.analysis;
 
   // Count user-initiated chat messages for limit tracking
-  // Seeded messages don't count (they represent the initial analysis turn)
-  const seedCount = isSeeded ? (seedMessages?.length ?? 0) : 1;
+  // In seeded mode, ALL messages are sent to server (no offset needed)
+  // In non-seeded mode, the initial greeting is sliced off (offset by 1)
+  const seedCount = isSeeded ? 0 : 1;
   const apiMessageCount = messages.length - seedCount;
   const nearLimit = apiMessageCount >= MAX_MESSAGES - 4;
   const atLimit = apiMessageCount >= MAX_MESSAGES;

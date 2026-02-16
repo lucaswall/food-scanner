@@ -66,14 +66,17 @@ vi.mock("../description-input", () => ({
   DescriptionInput: ({
     value,
     onChange,
+    disabled,
   }: {
     value: string;
     onChange: (value: string) => void;
+    disabled?: boolean;
   }) => (
     <input
       data-testid="description-input"
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
     />
   ),
 }));
@@ -161,12 +164,14 @@ vi.mock("../food-log-confirmation", () => ({
   FoodLogConfirmation: ({
     response,
     foodName,
+    mealTypeId,
   }: {
     response: FoodLogResponse | null;
     foodName: string;
+    mealTypeId: number;
   }) =>
     response ? (
-      <div data-testid="food-log-confirmation" tabIndex={-1}>
+      <div data-testid="food-log-confirmation" data-meal-type-id={mealTypeId} tabIndex={-1}>
         <span>Successfully logged {foodName}</span>
       </div>
     ) : null,
@@ -183,7 +188,7 @@ vi.mock("../food-chat", () => ({
     seedMessages?: ConversationMessage[];
     compressedImages: Blob[];
     onClose: () => void;
-    onLogged: (response: FoodLogResponse, analysis: FoodAnalysis) => void;
+    onLogged: (response: FoodLogResponse, analysis: FoodAnalysis, mealTypeId: number) => void;
   }) => (
     <div data-testid="food-chat">
       {initialAnalysis && (
@@ -205,7 +210,8 @@ vi.mock("../food-chat", () => ({
               ...(initialAnalysis || mockAnalysisForChat),
               food_name: "Mixed drink: beer and gin",
               calories: 250,
-            }
+            },
+            5 // Dinner - different from default meal type
           )
         }
       >
@@ -718,6 +724,40 @@ describe("FoodAnalyzer", () => {
       await waitFor(() => {
         expect(screen.getByRole("button", { name: /analyzing/i })).toBeInTheDocument();
       });
+    });
+
+    it("disables description input during compression", async () => {
+      // Make compression hang to observe the state
+      let resolveCompression: (value: Blob) => void;
+      mockCompressImage.mockImplementationOnce(
+        () =>
+          new Promise<Blob>((resolve) => {
+            resolveCompression = resolve;
+          })
+      );
+
+      render(<FoodAnalyzer />);
+
+      // Add photo
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      // Verify description input is enabled before compression
+      const descInput = screen.getByTestId("description-input");
+      expect(descInput).not.toBeDisabled();
+
+      // Click analyze to start compression
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      // Verify description input is disabled during compression
+      await waitFor(() => {
+        expect(descInput).toBeDisabled();
+      });
+
+      // Resolve compression to clean up
+      resolveCompression!(new Blob(["compressed"]));
     });
   });
 
@@ -1701,6 +1741,41 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByText(/Mixed drink: beer and gin/)).toBeInTheDocument();
       });
     });
+
+    it("captures mealTypeId from FoodChat onLogged callback", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /refine/i })).toBeInTheDocument();
+      });
+
+      // Open chat
+      fireEvent.click(screen.getByRole("button", { name: /refine/i }));
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+
+      // Log from chat (mock passes mealTypeId: 5 for Dinner)
+      fireEvent.click(screen.getByRole("button", { name: /log from chat/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+        // Should show meal type 5 (Dinner) from chat, not the original
+        const confirmation = screen.getByTestId("food-log-confirmation");
+        expect(confirmation).toHaveAttribute("data-meal-type-id", "5");
+      });
+    });
   });
 
   describe("focus management", () => {
@@ -1933,6 +2008,38 @@ describe("FoodAnalyzer", () => {
   // Fix verified by code review: compressionWarningTimeoutRef is cleared
   // before setting real errors in both handleAnalyze error paths.
   // Behavior is implicitly tested by existing error handling tests.
+
+  describe("FOO-538: cleanup effects on unmount", () => {
+    it("aborts in-flight request on unmount", async () => {
+      // Spy on AbortController.prototype.abort
+      const abortSpy = vi.spyOn(AbortController.prototype, "abort");
+
+      // Make analysis fetch hang
+      mockFetch.mockImplementationOnce(() => new Promise(() => {}));
+
+      const { unmount } = render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      // Wait for loading state
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+
+      // Unmount component while request is in flight
+      unmount();
+
+      // Verify abort() was called
+      expect(abortSpy).toHaveBeenCalled();
+
+      abortSpy.mockRestore();
+    });
+  });
 
   describe("autoCapture guard", () => {
     it("passes autoCapture to PhotoCapture on initial render", () => {
