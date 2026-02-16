@@ -44,15 +44,19 @@ vi.mock("@/lib/fitbit-credentials", () => ({
   replaceFitbitClientSecret: (...args: unknown[]) => mockReplaceFitbitClientSecret(...args),
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
     child: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const { GET, POST, PATCH } = await import("@/app/api/fitbit-credentials/route");
 

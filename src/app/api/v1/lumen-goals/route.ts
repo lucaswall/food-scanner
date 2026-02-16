@@ -1,6 +1,6 @@
 import { validateApiRequest } from "@/lib/api-auth";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { getLumenGoalsByDate } from "@/lib/lumen";
 import { isValidDateFormat } from "@/lib/date-utils";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -9,6 +9,7 @@ const RATE_LIMIT_MAX = 60; // DB-only route
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/v1/lumen-goals");
   const authResult = await validateApiRequest(request);
   if (authResult instanceof Response) return authResult;
 
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
   try {
     const goals = await getLumenGoalsByDate(authResult.userId, date);
 
-    logger.info(
+    log.info(
       {
         action: "v1_lumen_goals_success",
         date,
@@ -56,7 +57,7 @@ export async function GET(request: Request) {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       { error: error instanceof Error ? error.message : String(error), date },
       "v1 lumen goals fetch failed"
     );

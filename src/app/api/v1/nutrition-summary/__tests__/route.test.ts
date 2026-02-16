@@ -8,9 +8,13 @@ vi.mock("@/lib/api-auth", () => ({
   validateApiRequest: (...args: unknown[]) => mockValidateApiRequest(...args),
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+vi.mock("@/lib/logger", () => {
+  const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockGetDailyNutritionSummary = vi.fn();
 vi.mock("@/lib/food-log", () => ({

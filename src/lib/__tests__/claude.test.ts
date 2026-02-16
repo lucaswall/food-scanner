@@ -96,6 +96,7 @@ describe("analyzeFood", () => {
   beforeEach(() => {
     setupMocks();
     mockRecordUsage.mockResolvedValue(undefined);
+    mockExecuteTool.mockReset();
   });
 
   afterEach(() => {
@@ -159,9 +160,11 @@ describe("analyzeFood", () => {
     });
   });
 
-  it("returns needs_chat when Claude calls a data tool without report_nutrition", async () => {
+  it("executes tool loop when Claude calls a data tool without report_nutrition", async () => {
+    // First response: Claude calls search_food_log
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
       content: [
         {
           type: "text",
@@ -180,6 +183,25 @@ describe("analyzeFood", () => {
       },
     });
 
+    // Mock tool execution
+    mockExecuteTool.mockResolvedValueOnce("Found 1 matching food:\n• Empanada de carne — 150g, 320 cal");
+
+    // Second response: Claude responds with text after seeing tool results
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Based on your log, you had an empanada yesterday.",
+        },
+      ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 100,
+      },
+    });
+
     const { analyzeFood } = await import("@/lib/claude");
     const result = await analyzeFood(
       [],
@@ -190,8 +212,15 @@ describe("analyzeFood", () => {
 
     expect(result).toEqual({
       type: "needs_chat",
-      message: "Let me look that up for you.",
+      message: "Based on your log, you had an empanada yesterday.",
     });
+    expect(mockExecuteTool).toHaveBeenCalledWith(
+      "search_food_log",
+      { query: "yesterday" },
+      "user-123",
+      "2026-02-15",
+      expect.any(Object),
+    );
   });
 
   it("returns analysis when Claude calls both report_nutrition and a data tool", async () => {
@@ -232,9 +261,11 @@ describe("analyzeFood", () => {
     expect(result).toEqual({ type: "analysis", analysis: validAnalysis });
   });
 
-  it("returns needs_chat with fallback message when Claude returns only tool_use blocks", async () => {
+  it("executes tool loop and returns analysis when data tools resolve to report_nutrition", async () => {
+    // First response: Claude calls search_food_log (no text)
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
       content: [
         {
           type: "tool_use",
@@ -249,6 +280,31 @@ describe("analyzeFood", () => {
       },
     });
 
+    // Mock tool execution
+    mockExecuteTool.mockResolvedValueOnce("Found 1 matching food:\n• Empanada de carne — 150g, 320 cal");
+
+    // Second response: Claude calls report_nutrition after seeing tool results
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Here's half of what you had yesterday.",
+        },
+        {
+          type: "tool_use",
+          id: "tool_789",
+          name: "report_nutrition",
+          input: { ...validAnalysis, calories: 160, amount: 75 },
+        },
+      ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 200,
+      },
+    });
+
     const { analyzeFood } = await import("@/lib/claude");
     const result = await analyzeFood(
       [],
@@ -257,10 +313,10 @@ describe("analyzeFood", () => {
       "2026-02-15"
     );
 
-    expect(result.type).toBe("needs_chat");
-    if (result.type === "needs_chat") {
-      expect(result.message).not.toBe("");
-      expect(result.message).toContain("look into that");
+    expect(result.type).toBe("analysis");
+    if (result.type === "analysis") {
+      expect(result.analysis.calories).toBe(160);
+      expect(result.analysis.amount).toBe(75);
     }
   });
 
@@ -2484,7 +2540,8 @@ describe("runToolLoop", () => {
       "get_nutrition_summary",
       { date: "2026-02-15" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
 
     // Check that tool result was sent back
@@ -2560,13 +2617,15 @@ describe("runToolLoop", () => {
       "get_nutrition_summary",
       { date: "2026-02-15" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
     expect(mockExecuteTool).toHaveBeenCalledWith(
       "get_fasting_info",
       { date: "2026-02-15" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
 
     // Check that all tool results were sent back in one message
@@ -2969,7 +3028,8 @@ describe("runToolLoop", () => {
       "get_nutrition_summary",
       { date: "2026-02-15" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
 
     // The analysis from report_nutrition should be captured
@@ -3049,7 +3109,8 @@ describe("runToolLoop", () => {
       "search_food_log",
       { query: "big mac" },
       "user-123",
-      "2026-02-15"
+      "2026-02-15",
+      expect.any(Object),
     );
 
     expect(result.message).toBe("Based on McDonald's nutrition page, a Big Mac has 590 calories.");

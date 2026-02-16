@@ -1,5 +1,8 @@
 import pino from "pino";
 import type { DestinationStream, Logger } from "pino";
+const randomUUID = () => crypto.randomUUID();
+
+export type { Logger } from "pino";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
 
@@ -44,7 +47,7 @@ export function createRequestLogger(
   method: string,
   path: string,
 ): Logger {
-  return logger.child({ method, path });
+  return logger.child({ requestId: randomUUID(), method, path });
 }
 
 /** Test helper: create a logger writing to a custom destination */
@@ -60,5 +63,11 @@ export function createRequestLoggerWithDestination(
   method: string,
   path: string,
 ): Logger {
-  return pino(createPinoOptions(), destination).child({ method, path });
+  return pino(createPinoOptions(), destination).child({ requestId: randomUUID(), method, path });
+}
+
+/** Timing utility: returns a function that returns elapsed ms since creation */
+export function startTimer(): () => number {
+  const start = Date.now();
+  return () => Date.now() - start;
 }

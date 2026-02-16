@@ -39,9 +39,13 @@ vi.mock("@/lib/fitbit", () => ({
   getFoodGoals: (...args: unknown[]) => mockGetFoodGoals(...args),
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+vi.mock("@/lib/logger", () => {
+  const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockUpsertCalorieGoal = vi.fn();
 vi.mock("@/lib/nutrition-goals", () => ({
@@ -89,8 +93,8 @@ describe("GET /api/nutrition-goals", () => {
       data: { calories: 2000 },
       timestamp: expect.any(Number),
     });
-    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-123");
-    expect(mockGetFoodGoals).toHaveBeenCalledWith("mock-access-token");
+    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-123", expect.any(Object));
+    expect(mockGetFoodGoals).toHaveBeenCalledWith("mock-access-token", expect.any(Object));
   });
 
   it("returns 401 when session is missing", async () => {
@@ -296,7 +300,7 @@ describe("GET /api/nutrition-goals", () => {
     expect(data.success).toBe(true);
     // Give the fire-and-forget a moment to execute
     await new Promise(resolve => setTimeout(resolve, 10));
-    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-10", 2000);
+    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-10", 2000, expect.any(Object));
   });
 
   it("does not call upsertCalorieGoal when goals.calories is null", async () => {
@@ -342,7 +346,7 @@ describe("GET /api/nutrition-goals", () => {
     expect(data.success).toBe(true);
     await new Promise(resolve => setTimeout(resolve, 10));
     // Client's local date should be used, not server's
-    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-11", 2000);
+    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-11", 2000, expect.any(Object));
   });
 
   it("falls back to server UTC date when clientDate is not provided (FOO-403)", async () => {
@@ -359,6 +363,6 @@ describe("GET /api/nutrition-goals", () => {
     expect(data.success).toBe(true);
     await new Promise(resolve => setTimeout(resolve, 10));
     // Should fall back to server date
-    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-10", 2000);
+    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-10", 2000, expect.any(Object));
   });
 });

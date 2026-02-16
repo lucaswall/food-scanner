@@ -2,9 +2,10 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { getRawSession } from "@/lib/session";
 import { createSession } from "@/lib/session-db";
 import { getOrCreateUser } from "@/lib/users";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 
 export async function POST() {
+  const log = createRequestLogger("POST", "/api/auth/test-login");
   // Only allow test login when explicitly enabled
   if (process.env.ENABLE_TEST_AUTH !== "true") {
     return errorResponse("NOT_FOUND", "Not found", 404);
@@ -27,7 +28,7 @@ export async function POST() {
       email: user.email,
     });
   } catch (error) {
-    logger.error(
+    log.error(
       {
         action: "test_login_error",
         error: error instanceof Error ? error.message : String(error),

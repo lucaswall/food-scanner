@@ -1,15 +1,16 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { createApiKey, listApiKeys } from "@/lib/api-keys";
 
 export async function GET() {
+  const log = createRequestLogger("GET", "/api/api-keys");
   const session = await getSession();
 
   const validationError = validateSession(session);
   if (validationError) return validationError;
 
-  logger.debug(
+  log.debug(
     { action: "list_api_keys", userId: session!.userId },
     "Fetching API keys",
   );
@@ -23,7 +24,7 @@ export async function GET() {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       { action: "list_api_keys_error", error: error instanceof Error ? error.message : String(error) },
       "Failed to list API keys",
     );
@@ -45,6 +46,7 @@ function isValidPostRequest(body: unknown): body is { name: string } {
 }
 
 export async function POST(request: Request) {
+  const log = createRequestLogger("POST", "/api/api-keys");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -58,7 +60,7 @@ export async function POST(request: Request) {
   }
 
   if (!isValidPostRequest(body)) {
-    logger.warn(
+    log.warn(
       { action: "create_api_key_validation", userId: session!.userId },
       "Invalid request body",
     );
@@ -69,7 +71,7 @@ export async function POST(request: Request) {
     );
   }
 
-  logger.info(
+  log.info(
     { action: "create_api_key", userId: session!.userId, keyName: body.name },
     "Creating API key",
   );
@@ -79,7 +81,7 @@ export async function POST(request: Request) {
 
     return successResponse(result, 201);
   } catch (error) {
-    logger.error(
+    log.error(
       { action: "create_api_key_error", error: error instanceof Error ? error.message : String(error) },
       "Failed to create API key",
     );

@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
     child: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const { GET } = await import("@/app/api/health/route");
 const { logger } = await import("@/lib/logger");

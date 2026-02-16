@@ -1,7 +1,8 @@
 import { successResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 
 export async function GET() {
-  logger.debug({ action: "health_check" }, "health check");
+  const log = createRequestLogger("GET", "/api/health");
+  log.debug({ action: "health_check" }, "health check");
   return successResponse({ status: "ok" });
 }

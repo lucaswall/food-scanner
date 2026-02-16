@@ -105,4 +105,34 @@ describe("logger", () => {
     expect(parsed.method).toBe("POST");
     expect(parsed.path).toBe("/api/auth/google");
   });
+
+  it("createRequestLoggerWithDestination includes a valid UUID requestId", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    const { dest, chunks } = createCaptureDest();
+    const { createRequestLoggerWithDestination } = await import(
+      "@/lib/logger"
+    );
+    const reqLogger = createRequestLoggerWithDestination(
+      dest,
+      "GET",
+      "/api/health",
+    );
+    reqLogger.info("test");
+    await flush(dest);
+
+    const parsed = JSON.parse(chunks[0]);
+    expect(parsed.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    );
+  });
+
+  it("startTimer returns elapsed milliseconds", async () => {
+    const { startTimer } = await import("@/lib/logger");
+    const elapsed = startTimer();
+    // Just verify it returns a non-negative number
+    const ms = elapsed();
+    expect(typeof ms).toBe("number");
+    expect(ms).toBeGreaterThanOrEqual(0);
+  });
 });

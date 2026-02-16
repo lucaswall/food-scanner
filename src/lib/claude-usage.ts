@@ -1,6 +1,7 @@
 import { getDb } from "@/db/index";
 import { claudeUsage } from "@/db/schema";
 import { logger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 import { sql } from "drizzle-orm";
 import { eq } from "drizzle-orm";
 
@@ -86,8 +87,10 @@ export async function recordUsage(
   userId: string,
   model: string,
   operation: string,
-  usage: UsageTokens
+  usage: UsageTokens,
+  log?: Logger,
 ): Promise<void> {
+  const l = log ?? logger;
   try {
     const pricing = MODEL_PRICING[model] ?? {
       inputPricePerMToken: 0,
@@ -95,7 +98,7 @@ export async function recordUsage(
     };
 
     if (!MODEL_PRICING[model]) {
-      logger.warn(
+      l.warn(
         { model, operation, userId },
         "Unknown Claude model, using zero pricing"
       );
@@ -120,7 +123,7 @@ export async function recordUsage(
       })
       .returning({ id: claudeUsage.id });
   } catch (error) {
-    logger.error(
+    l.error(
       { error, userId, model, operation },
       "Failed to record Claude usage"
     );

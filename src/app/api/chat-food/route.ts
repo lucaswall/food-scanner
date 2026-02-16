@@ -1,6 +1,6 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { conversationalRefine, validateFoodAnalysis } from "@/lib/claude";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { MAX_IMAGES, MAX_IMAGE_SIZE } from "@/lib/image-validation";
@@ -12,6 +12,7 @@ const MAX_MESSAGES = 30;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function POST(request: Request) {
+  const log = createRequestLogger("POST", "/api/chat-food");
   const session = await getSession();
 
   const validationError = validateSession(session, { requireFitbit: false });
@@ -115,7 +116,7 @@ export async function POST(request: Request) {
     currentDate = data.clientDate;
   }
 
-  logger.info(
+  log.info(
     {
       action: "chat_food_request",
       messageCount: messages.length,
@@ -131,10 +132,11 @@ export async function POST(request: Request) {
       session!.userId,
       currentDate,
       initialAnalysis,
-      request.signal
+      request.signal,
+      log,
     );
 
-    logger.info(
+    log.info(
       { action: "chat_food_success", hasAnalysis: !!result.analysis },
       "conversational food chat completed"
     );
@@ -142,7 +144,7 @@ export async function POST(request: Request) {
     return successResponse(result);
   } catch (error) {
     if (error instanceof Error && error.name === "CLAUDE_API_ERROR") {
-      logger.error(
+      log.error(
         { action: "chat_food_error", error: error.message },
         "Claude API error"
       );
@@ -153,7 +155,7 @@ export async function POST(request: Request) {
       );
     }
 
-    logger.error(
+    log.error(
       { action: "chat_food_error", error: String(error) },
       "unexpected error"
     );

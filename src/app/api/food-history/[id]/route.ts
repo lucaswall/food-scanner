@@ -1,6 +1,6 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogEntry, deleteFoodLogEntry, getFoodLogEntryDetail } from "@/lib/food-log";
 import { ensureFreshToken, deleteFoodLog } from "@/lib/fitbit";
 
@@ -8,6 +8,7 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const log = createRequestLogger("GET", "/api/food-history/[id]");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -29,7 +30,7 @@ export async function GET(
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       { action: "get_food_entry_detail_error", entryId: id, error: error instanceof Error ? error.message : String(error) },
       "failed to get food entry detail",
     );
@@ -41,6 +42,7 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const log = createRequestLogger("DELETE", "/api/food-history/[id]");
   const session = await getSession();
 
   const validationError = validateSession(session, { requireFitbit: true });
@@ -62,14 +64,14 @@ export async function DELETE(
 
     // Delete from Fitbit first (if applicable), then local DB
     if (entry.fitbitLogId && !isDryRun) {
-      const accessToken = await ensureFreshToken(session!.userId);
-      await deleteFoodLog(accessToken, entry.fitbitLogId);
+      const accessToken = await ensureFreshToken(session!.userId, log);
+      await deleteFoodLog(accessToken, entry.fitbitLogId, log);
     }
 
     try {
       await deleteFoodLogEntry(session!.userId, id);
     } catch (dbErr) {
-      logger.error(
+      log.error(
         { action: "delete_food_log_db_error", entryId: id, error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
         "Fitbit delete succeeded but local DB delete failed",
       );
@@ -77,12 +79,12 @@ export async function DELETE(
     }
 
     if (isDryRun) {
-      logger.info(
+      log.info(
         { action: "delete_food_log", entryId: id, fitbitLogId: entry.fitbitLogId },
         "food log entry deleted in dry-run mode (Fitbit API skipped)",
       );
     } else {
-      logger.info(
+      log.info(
         { action: "delete_food_log", entryId: id, fitbitLogId: entry.fitbitLogId },
         "food log entry deleted",
       );
@@ -93,7 +95,7 @@ export async function DELETE(
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     if (errorMessage === "FITBIT_TOKEN_INVALID") {
-      logger.warn(
+      log.warn(
         { action: "delete_food_log_token_invalid" },
         "Fitbit token invalid, reconnect required",
       );
@@ -104,7 +106,7 @@ export async function DELETE(
       );
     }
 
-    logger.error(
+    log.error(
       { action: "delete_food_log_error", error: errorMessage },
       "failed to delete food log entry",
     );

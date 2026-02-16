@@ -33,14 +33,18 @@ vi.mock("@/lib/session", () => ({
 }));
 
 // Mock logger
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 // Mock Fitbit API functions
 const mockFindOrCreateFood = vi.fn();
@@ -209,7 +213,7 @@ describe("POST /api/log-food", () => {
     const request = createMockRequest(validFoodLogRequest);
     await POST(request);
 
-    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123", expect.any(Object));
   });
 
   it("returns 500 FITBIT_API_ERROR on Fitbit failure", async () => {
@@ -324,7 +328,8 @@ describe("POST /api/log-food", () => {
       100,
       147,
       "2024-01-15",
-      "20:30:00"
+      "20:30:00",
+      expect.any(Object),
     );
   });
 
@@ -455,7 +460,8 @@ describe("POST /api/log-food", () => {
       100,
       147,
       "2024-01-15",
-      "12:30:00"
+      "12:30:00",
+      expect.any(Object),
     );
   });
 
@@ -482,7 +488,8 @@ describe("POST /api/log-food", () => {
       100,
       147,
       "2024-01-15",
-      "12:30"
+      "12:30",
+      expect.any(Object),
     );
   });
 
@@ -568,7 +575,7 @@ describe("POST /api/log-food", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456);
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456, expect.any(Object));
   });
 
   it("returns error and compensates Fitbit when insertFoodLogEntry fails in new food flow", async () => {
@@ -588,7 +595,7 @@ describe("POST /api/log-food", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456);
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456, expect.any(Object));
   });
 
   it("returns PARTIAL_ERROR when DB fails and compensation also fails in new food flow", async () => {
@@ -641,7 +648,7 @@ describe("POST /api/log-food", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789);
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object));
   });
 
   it("returns error without compensation in dry-run mode when DB fails", async () => {
@@ -724,6 +731,7 @@ describe("POST /api/log-food", () => {
         existingFood.unitId,
         "2026-02-07",
         "12:30:00",
+        expect.any(Object),
       );
     });
 

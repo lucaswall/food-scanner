@@ -19,14 +19,18 @@ vi.mock("@/lib/session", () => ({
   },
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockGetFoodLogHistory = vi.fn();
 vi.mock("@/lib/food-log", () => ({

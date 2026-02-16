@@ -1,9 +1,10 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { searchFoods } from "@/lib/food-log";
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/search-foods");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -22,7 +23,7 @@ export async function GET(request: Request) {
 
     const foods = await searchFoods(session!.userId, q, { limit });
 
-    logger.debug(
+    log.debug(
       { action: "search_foods", query: q, count: foods.length },
       "food search completed",
     );
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       {
         action: "search_foods_error",
         error: error instanceof Error ? error.message : String(error),

@@ -4,6 +4,7 @@ import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
 import { getLumenGoalsByDate } from "@/lib/lumen";
 import { getCalorieGoalsByDateRange } from "@/lib/nutrition-goals";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import type { Logger } from "@/lib/logger";
 
 export const SEARCH_FOOD_LOG_TOOL: Anthropic.Tool = {
   name: "search_food_log",
@@ -342,7 +343,9 @@ export async function executeTool(
   toolName: string,
   params: Record<string, unknown>,
   userId: string,
-  currentDate: string
+  currentDate: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _log?: Logger
 ): Promise<string> {
   switch (toolName) {
     case "search_food_log":

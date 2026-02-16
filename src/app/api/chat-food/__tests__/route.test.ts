@@ -40,14 +40,18 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 // Mock logger
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 // Mock conversationalRefine but keep real validateFoodAnalysis
 const mockConversationalRefine = vi.fn();
@@ -271,7 +275,8 @@ describe("POST /api/chat-food", () => {
       "user-uuid-123",
       expect.any(String), // currentDate
       undefined,
-      undefined // request.signal (mock request has no signal)
+      undefined, // request.signal (mock request has no signal)
+      expect.any(Object), // logger
     );
   });
 
@@ -296,7 +301,8 @@ describe("POST /api/chat-food", () => {
       "user-uuid-123",
       expect.any(String), // currentDate
       validAnalysis,
-      undefined // request.signal (mock request has no signal)
+      undefined, // request.signal (mock request has no signal)
+      expect.any(Object), // logger
     );
   });
 
@@ -321,7 +327,8 @@ describe("POST /api/chat-food", () => {
       "user-uuid-123",
       "2026-01-15",
       undefined,
-      undefined // request.signal (mock request has no signal)
+      undefined, // request.signal (mock request has no signal)
+      expect.any(Object), // logger
     );
   });
 
@@ -564,7 +571,8 @@ describe("POST /api/chat-food", () => {
       "user-uuid-123",
       expect.any(String), // currentDate
       undefined, // no initialAnalysis
-      undefined // request.signal (mock request has no signal)
+      undefined, // request.signal (mock request has no signal)
+      expect.any(Object), // logger
     );
   });
 });

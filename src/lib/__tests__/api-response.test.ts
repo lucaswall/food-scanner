@@ -58,37 +58,15 @@ describe("errorResponse", () => {
     expect(response.status).toBe(400);
   });
 
-  it("logs at warn level for 4xx errors", () => {
+  it("does not auto-log for 4xx errors (route handlers own logging)", () => {
     errorResponse("AUTH_MISSING_SESSION", "Not authenticated", 401);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 401,
-        errorCode: "AUTH_MISSING_SESSION",
-        errorMessage: "Not authenticated",
-      }),
-      expect.any(String),
-    );
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it("logs at error level for 5xx errors", () => {
+  it("does not auto-log for 5xx errors (route handlers own logging)", () => {
     errorResponse("CLAUDE_API_ERROR", "Internal error", 500);
-    expect(logger.error).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 500,
-        errorCode: "CLAUDE_API_ERROR",
-        errorMessage: "Internal error",
-      }),
-      expect.any(String),
-    );
-  });
-
-  it("does not include details in log output", () => {
-    errorResponse("VALIDATION_ERROR", "Bad input", 400, {
-      secret: "token123",
-    });
-    const logCall = vi.mocked(logger.warn).mock.calls[0];
-    const logData = logCall[0] as Record<string, unknown>;
-    expect(logData).not.toHaveProperty("details");
-    expect(logData).not.toHaveProperty("secret");
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
   });
 });

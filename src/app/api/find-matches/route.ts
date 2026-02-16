@@ -1,9 +1,10 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { findMatchingFoods } from "@/lib/food-matching";
 
 export async function POST(request: Request) {
+  const log = createRequestLogger("POST", "/api/find-matches");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -57,14 +58,14 @@ export async function POST(request: Request) {
       body as Parameters<typeof findMatchingFoods>[1],
     );
 
-    logger.info(
+    log.info(
       { action: "find_matches", matchCount: matches.length },
       "food matching complete",
     );
 
     return successResponse({ matches });
   } catch (error) {
-    logger.error(
+    log.error(
       {
         action: "find_matches_error",
         error: error instanceof Error ? error.message : String(error),

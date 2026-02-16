@@ -1,9 +1,10 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { getMonthlyUsage } from "@/lib/claude-usage";
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/claude-usage");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
   try {
     const usage = await getMonthlyUsage(session!.userId, months);
 
-    logger.info(
+    log.info(
       {
         action: "claude_usage_retrieved",
         months,
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       { error: error instanceof Error ? error.message : String(error) },
       "claude usage retrieval failed"
     );

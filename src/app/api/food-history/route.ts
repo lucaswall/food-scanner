@@ -1,12 +1,13 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogHistory } from "@/lib/food-log";
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_REGEX = /^\d{2}:\d{2}:\d{2}$/;
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/food-history");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       {
         action: "get_food_history_error",
         error: error instanceof Error ? error.message : String(error),

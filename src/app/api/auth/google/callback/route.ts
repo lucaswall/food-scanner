@@ -2,7 +2,7 @@ import { exchangeGoogleCode, getGoogleProfile } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
 import { getRawSession } from "@/lib/session";
 import { buildUrl } from "@/lib/url";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { createSession } from "@/lib/session-db";
 import { getFitbitTokens } from "@/lib/fitbit-tokens";
 import { hasFitbitCredentials } from "@/lib/fitbit-credentials";
@@ -20,10 +20,11 @@ const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/auth/google/callback");
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const { allowed } = checkRateLimit(`google-callback:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
   if (!allowed) {
-    logger.warn({ action: "rate_limit_exceeded", ip, endpoint: "google_callback" }, "rate limit exceeded");
+    log.warn({ action: "rate_limit_exceeded", ip, endpoint: "google_callback" }, "rate limit exceeded");
     return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests", 429);
   }
 
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
   const storedState = rawSession.oauthState;
 
   if (!code || !state || state !== storedState) {
-    logger.warn({ action: "google_callback_invalid_state" }, "invalid oauth state");
+    log.warn({ action: "google_callback_invalid_state" }, "invalid oauth state");
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
@@ -50,7 +51,7 @@ export async function GET(request: Request) {
   try {
     tokens = await exchangeGoogleCode(code, redirectUri);
   } catch (error) {
-    logger.error(
+    log.error(
       { action: "google_token_exchange_error", error: error instanceof Error ? error.message : String(error) },
       "failed to exchange google authorization code",
     );
@@ -61,7 +62,7 @@ export async function GET(request: Request) {
   try {
     profile = await getGoogleProfile(tokens.access_token);
   } catch (error) {
-    logger.error(
+    log.error(
       { action: "google_profile_fetch_error", error: error instanceof Error ? error.message : String(error) },
       "failed to fetch google user profile",
     );
@@ -69,7 +70,7 @@ export async function GET(request: Request) {
   }
 
   if (!isEmailAllowed(profile.email)) {
-    logger.warn({ action: "google_unauthorized_email", email: maskEmail(profile.email) }, "unauthorized email attempted login");
+    log.warn({ action: "google_unauthorized_email", email: maskEmail(profile.email) }, "unauthorized email attempted login");
     return errorResponse("AUTH_INVALID_EMAIL", "Unauthorized email address", 403);
   }
 
@@ -79,7 +80,7 @@ export async function GET(request: Request) {
   rawSession.sessionId = sessionId;
   await rawSession.save();
 
-  logger.info({ action: "google_login_success", email: maskEmail(profile.email) }, "google login successful");
+  log.info({ action: "google_login_success", email: maskEmail(profile.email) }, "google login successful");
 
   // Three-way redirect logic:
   // 1. If Fitbit tokens exist → /app

@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { FoodAnalysis, ConversationMessage, AnalyzeFoodResult } from "@/types";
 import { getUnitLabel } from "@/types";
 import { logger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { recordUsage } from "@/lib/claude-usage";
 import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } from "@/lib/chat-tools";
@@ -290,10 +291,12 @@ export async function analyzeFood(
   images: ImageInput[],
   description: string | undefined,
   userId: string,
-  currentDate: string
+  currentDate: string,
+  log?: Logger
 ): Promise<AnalyzeFoodResult> {
+  const l = log ?? logger;
   try {
-    logger.info(
+    l.info(
       { imageCount: images.length, hasDescription: !!description },
       "calling Claude API for food analysis"
     );
@@ -358,7 +361,7 @@ export async function analyzeFood(
       cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
     }).catch((error) => {
-      logger.warn(
+      l.warn(
         { error: error instanceof Error ? error.message : String(error), userId },
         "failed to record API usage"
       );
@@ -367,32 +370,83 @@ export async function analyzeFood(
     if (reportNutritionBlock && reportNutritionBlock.type === "tool_use") {
       // Fast path: Claude called report_nutrition directly
       const analysis = validateFoodAnalysis(reportNutritionBlock.input);
-      logger.info(
+      l.info(
         { foodName: analysis.food_name, confidence: analysis.confidence },
         "food analysis completed (fast path)"
       );
       return { type: "analysis", analysis };
     }
 
-    // Needs-chat path: Claude used data tools or responded with text only
+    // Check if Claude used any data tools (not report_nutrition)
+    const dataToolUseBlocks = response.content.filter(
+      (block) => block.type === "tool_use" && block.name !== "report_nutrition"
+    );
+
+    // If data tools were used, run the tool loop to resolve them
+    if (dataToolUseBlocks.length > 0) {
+      l.info(
+        { dataToolCount: dataToolUseBlocks.length },
+        "running tool loop for data tools in food analysis"
+      );
+
+      const userMessages: Anthropic.MessageParam[] = [
+        {
+          role: "user",
+          content: [
+            ...images.map((img) => ({
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: img.mimeType as
+                  | "image/jpeg"
+                  | "image/png"
+                  | "image/gif"
+                  | "image/webp",
+                data: img.base64,
+              },
+            })),
+            {
+              type: "text" as const,
+              text: description || "Analyze this food.",
+            },
+          ],
+        },
+      ];
+
+      const result = await runToolLoop(userMessages, userId, currentDate, {
+        systemPrompt,
+        tools: allTools,
+        operation: "food-analysis",
+        initialResponse: response,
+        log: l,
+      });
+
+      if (result.analysis) {
+        l.info(
+          { foodName: result.analysis.food_name, confidence: result.analysis.confidence },
+          "food analysis completed (via tool loop)"
+        );
+        return { type: "analysis", analysis: result.analysis };
+      }
+
+      l.info({ action: "analyze_food_needs_chat" }, "food analysis needs chat transition (after tool loop)");
+      return { type: "needs_chat", message: result.message };
+    }
+
+    // Text-only fallback: Claude responded with text, no tool calls
     const textBlocks = response.content.filter(
       (block) => block.type === "text"
     ) as Anthropic.TextBlock[];
-    let message = textBlocks.map((block) => block.text).join("\n");
+    const message = textBlocks.map((block) => block.text).join("\n");
 
-    // Provide fallback message if empty (e.g., when Claude only calls data tools)
-    if (!message.trim()) {
-      message = "Let me look into that for you...";
-    }
-
-    logger.info("food analysis needs chat transition");
+    l.info({ action: "analyze_food_needs_chat" }, "food analysis needs chat transition");
     return { type: "needs_chat", message };
   } catch (error) {
     if (error instanceof ClaudeApiError) {
       throw error;
     }
 
-    logger.error(
+    l.error(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API error"
     );
@@ -408,10 +462,12 @@ export async function conversationalRefine(
   userId?: string,
   currentDate?: string,
   initialAnalysis?: FoodAnalysis,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  log?: Logger
 ): Promise<{ message: string; analysis?: FoodAnalysis }> {
+  const l = log ?? logger;
   try {
-    logger.info(
+    l.info(
       { messageCount: messages.length, imageCount: images.length },
       "calling Claude API for conversational refinement"
     );
@@ -528,7 +584,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
 
     // If data tools were used, run the tool loop with the initial response
     if (dataToolUseBlocks.length > 0 && userId && currentDate) {
-      logger.info(
+      l.info(
         { dataToolCount: dataToolUseBlocks.length },
         "running tool loop for data tools in conversational refinement"
       );
@@ -539,6 +595,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         operation: "food-chat",
         initialResponse: response,
         signal,
+        log: l,
       });
     }
 
@@ -556,12 +613,12 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     let analysis: FoodAnalysis | undefined;
     if (toolUseBlock && toolUseBlock.type === "tool_use") {
       analysis = validateFoodAnalysis(toolUseBlock.input);
-      logger.info(
-        { foodName: analysis.food_name, confidence: analysis.confidence },
+      l.info(
+        { action: "conversational_refine_with_analysis", foodName: analysis.food_name, confidence: analysis.confidence },
         "conversational refinement with analysis completed"
       );
     } else {
-      logger.info("conversational refinement completed (text only)");
+      l.info({ action: "conversational_refine_text_only" }, "conversational refinement completed (text only)");
     }
 
     // Record usage (fire-and-forget)
@@ -572,7 +629,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       }).catch((error) => {
-        logger.warn(
+        l.warn(
           { error: error instanceof Error ? error.message : String(error), userId },
           "failed to record API usage"
         );
@@ -585,7 +642,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       throw error;
     }
 
-    logger.error(
+    l.error(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API conversational refinement error"
     );
@@ -668,8 +725,10 @@ export async function runToolLoop(
     operation?: string;
     initialResponse?: Anthropic.Message;
     signal?: AbortSignal;
+    log?: Logger;
   }
 ): Promise<{ message: string; analysis?: FoodAnalysis }> {
+  const l = options?.log ?? logger;
   let systemPrompt = options?.systemPrompt ?? CHAT_SYSTEM_PROMPT;
   if (!options?.systemPrompt && currentDate) {
     systemPrompt += `\n\nToday's date is: ${currentDate}`;
@@ -703,7 +762,7 @@ export async function runToolLoop(
         response = pendingResponse;
         pendingResponse = undefined;
       } else {
-        logger.info(
+        l.info(
           { iteration, messageCount: conversationMessages.length },
           "calling Claude API in tool loop"
         );
@@ -734,7 +793,7 @@ export async function runToolLoop(
           cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
           cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
         }).catch((error) => {
-          logger.warn(
+          l.warn(
             { error: error instanceof Error ? error.message : String(error), userId },
             "failed to record API usage"
           );
@@ -762,7 +821,7 @@ export async function runToolLoop(
           analysis = pendingAnalysis;
         }
 
-        logger.info({ iteration, hasAnalysis: !!analysis }, "tool loop completed");
+        l.info({ iteration, hasAnalysis: !!analysis }, "tool loop completed");
         return { message, analysis };
       }
 
@@ -784,19 +843,19 @@ export async function runToolLoop(
         if (reportNutritionBlock) {
           try {
             pendingAnalysis = validateFoodAnalysis(reportNutritionBlock.input);
-            logger.info(
+            l.info(
               { foodName: pendingAnalysis.food_name },
               "captured report_nutrition from tool loop"
             );
           } catch (error) {
-            logger.warn(
+            l.warn(
               { error: error instanceof Error ? error.message : String(error) },
               "invalid report_nutrition in tool loop, ignoring"
             );
           }
         }
 
-        logger.info(
+        l.info(
           { iteration, toolCount: allToolUseBlocks.length, dataToolCount: dataToolBlocks.length },
           "executing tools"
         );
@@ -832,7 +891,8 @@ export async function runToolLoop(
                 toolUse.name,
                 toolUse.input as Record<string, unknown>,
                 userId,
-                currentDate
+                currentDate,
+                l,
               );
 
               return {
@@ -841,7 +901,7 @@ export async function runToolLoop(
                 content: result,
               };
             } catch (error) {
-              logger.warn(
+              l.warn(
                 { tool: toolUse.name, error: error instanceof Error ? error.message : String(error) },
                 "tool execution error"
               );
@@ -869,7 +929,7 @@ export async function runToolLoop(
 
       // Handle other stop reasons gracefully (refusal, model_context_window_exceeded, max_tokens, etc.)
       // Extract text blocks and return partial response
-      logger.warn(
+      l.warn(
         { stop_reason: response.stop_reason, iteration },
         "unexpected stop_reason, returning partial response"
       );
@@ -895,7 +955,7 @@ export async function runToolLoop(
     }
 
     // Exceeded max iterations - return last response
-    logger.warn({ iteration }, "tool loop exceeded maximum iterations");
+    l.warn({ iteration }, "tool loop exceeded maximum iterations");
 
     if (lastResponse) {
       const textBlocks = lastResponse.content.filter(
@@ -924,7 +984,7 @@ export async function runToolLoop(
       throw error;
     }
 
-    logger.error(
+    l.error(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API tool loop error"
     );

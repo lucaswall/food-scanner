@@ -1,6 +1,6 @@
 import { validateApiRequest } from "@/lib/api-auth";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, getFoodGoals } from "@/lib/fitbit";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -8,6 +8,7 @@ const RATE_LIMIT_MAX = 30; // Fitbit API route
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/v1/nutrition-goals");
   const authResult = await validateApiRequest(request);
   if (authResult instanceof Response) return authResult;
 
@@ -29,10 +30,10 @@ export async function GET(request: Request) {
   }
 
   try {
-    const accessToken = await ensureFreshToken(authResult.userId);
-    const goals = await getFoodGoals(accessToken);
+    const accessToken = await ensureFreshToken(authResult.userId, log);
+    const goals = await getFoodGoals(accessToken, log);
 
-    logger.info(
+    log.info(
       {
         action: "v1_nutrition_goals_success",
         calorieGoal: goals.calories,
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       { error: error instanceof Error ? error.message : String(error) },
       "v1 nutrition goals fetch failed"
     );

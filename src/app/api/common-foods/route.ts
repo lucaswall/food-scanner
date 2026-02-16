@@ -1,9 +1,10 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { getCommonFoods, getRecentFoods } from "@/lib/food-log";
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/common-foods");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -37,7 +38,7 @@ export async function GET(request: Request) {
 
       const result = await getRecentFoods(session!.userId, { limit, cursor });
 
-      logger.debug(
+      log.debug(
         { action: "get_recent_foods", count: result.foods.length },
         "recent foods retrieved",
       );
@@ -72,7 +73,7 @@ export async function GET(request: Request) {
 
     const result = await getCommonFoods(session!.userId, currentTime, currentDate, { limit, cursor });
 
-    logger.debug(
+    log.debug(
       { action: "get_common_foods", count: result.foods.length },
       "common foods retrieved",
     );
@@ -81,7 +82,7 @@ export async function GET(request: Request) {
     response.headers.set("Cache-Control", "private, no-cache");
     return response;
   } catch (error) {
-    logger.error(
+    log.error(
       {
         action: "get_common_foods_error",
         error: error instanceof Error ? error.message : String(error),

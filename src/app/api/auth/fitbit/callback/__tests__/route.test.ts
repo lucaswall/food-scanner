@@ -44,15 +44,19 @@ vi.mock("@/lib/fitbit-tokens", () => ({
   upsertFitbitTokens: (...args: unknown[]) => mockUpsertFitbitTokens(...args),
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
     child: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const { exchangeFitbitCode } = await import("@/lib/fitbit");
 const { getRawSession } = await import("@/lib/session");
@@ -171,6 +175,7 @@ describe("GET /api/auth/fitbit/callback", () => {
         clientId: "test-fitbit-client-id",
         clientSecret: "test-fitbit-client-secret",
       }),
+      expect.any(Object),
     );
 
     const location = response.headers.get("location")!;

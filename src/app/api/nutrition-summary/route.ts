@@ -1,10 +1,11 @@
 import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
-import { logger } from "@/lib/logger";
+import { createRequestLogger } from "@/lib/logger";
 import { getDailyNutritionSummary, getDateRangeNutritionSummary } from "@/lib/food-log";
 import { isValidDateFormat } from "@/lib/date-utils";
 
 export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/nutrition-summary");
   const session = await getSession();
 
   const validationError = validateSession(session);
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
   // date parameter takes precedence over from/to
   if (date) {
     if (!isValidDateFormat(date)) {
-      logger.warn({ action: "nutrition_summary_validation" }, "invalid date format");
+      log.warn({ action: "nutrition_summary_validation" }, "invalid date format");
       return errorResponse(
         "VALIDATION_ERROR",
         "Invalid date format. Use YYYY-MM-DD",
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
     try {
       const summary = await getDailyNutritionSummary(session!.userId, date);
 
-      logger.info(
+      log.info(
         {
           action: "nutrition_summary_success",
           date,
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
       response.headers.set("Cache-Control", "private, no-cache");
       return response;
     } catch (error) {
-      logger.error(
+      log.error(
         { error: error instanceof Error ? error.message : String(error) },
         "nutrition summary failed"
       );
@@ -64,7 +65,7 @@ export async function GET(request: Request) {
 
     // Validate date formats
     if (!isValidDateFormat(from)) {
-      logger.warn({ action: "nutrition_summary_validation" }, "invalid from date format");
+      log.warn({ action: "nutrition_summary_validation" }, "invalid from date format");
       return errorResponse(
         "VALIDATION_ERROR",
         "Invalid date format for from parameter. Use YYYY-MM-DD",
@@ -73,7 +74,7 @@ export async function GET(request: Request) {
     }
 
     if (!isValidDateFormat(to)) {
-      logger.warn({ action: "nutrition_summary_validation" }, "invalid to date format");
+      log.warn({ action: "nutrition_summary_validation" }, "invalid to date format");
       return errorResponse(
         "VALIDATION_ERROR",
         "Invalid date format for to parameter. Use YYYY-MM-DD",
@@ -93,7 +94,7 @@ export async function GET(request: Request) {
     try {
       const days = await getDateRangeNutritionSummary(session!.userId, from, to);
 
-      logger.info(
+      log.info(
         {
           action: "nutrition_summary_range_success",
           from,
@@ -107,7 +108,7 @@ export async function GET(request: Request) {
       response.headers.set("Cache-Control", "private, no-cache");
       return response;
     } catch (error) {
-      logger.error(
+      log.error(
         { error: error instanceof Error ? error.message : String(error) },
         "nutrition summary range failed"
       );

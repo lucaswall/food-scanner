@@ -17,14 +17,18 @@ vi.mock("@/lib/food-log", () => ({
   searchFoods: (...args: unknown[]) => mockSearchFoods(...args),
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 beforeEach(() => {
   vi.clearAllMocks();

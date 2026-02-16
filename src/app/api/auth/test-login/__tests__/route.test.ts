@@ -30,15 +30,19 @@ vi.mock("@/lib/users", () => ({
   getOrCreateUser: mockGetOrCreateUser,
 }));
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
     child: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const { POST } = await import("@/app/api/auth/test-login/route");
 const { logger } = await import("@/lib/logger");

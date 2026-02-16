@@ -40,14 +40,18 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 // Mock logger
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 // Mock Lumen API
 const mockParseLumenScreenshot = vi.fn();
@@ -344,7 +348,8 @@ describe("POST /api/lumen-goals", () => {
         base64: expect.any(String),
         mimeType: "image/jpeg",
       },
-      "user-uuid-123"
+      "user-uuid-123",
+      expect.any(Object),
     );
     expect(mockUpsertLumenGoals).toHaveBeenCalledWith(
       "user-uuid-123",
@@ -354,7 +359,8 @@ describe("POST /api/lumen-goals", () => {
         proteinGoal: 120,
         carbsGoal: 200,
         fatGoal: 60,
-      }
+      },
+      expect.any(Object),
     );
   });
 

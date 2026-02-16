@@ -1,14 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GET } from "../route";
 
-vi.mock("@/lib/logger", () => ({
-  logger: {
+vi.mock("@/lib/logger", () => {
+  const mockLogger = {
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
-  },
-}));
+  };
+  return {
+    logger: mockLogger,
+    createRequestLogger: vi.fn(() => mockLogger),
+  };
+});
 
 const mockGetSession = vi.fn();
 vi.mock("@/lib/session", () => ({
