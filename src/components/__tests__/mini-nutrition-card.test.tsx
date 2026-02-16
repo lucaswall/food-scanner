@@ -1,7 +1,16 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, beforeAll } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MiniNutritionCard } from "../mini-nutrition-card";
 import type { FoodAnalysis } from "@/types";
+
+// Mock ResizeObserver for Radix UI Dialog
+beforeAll(() => {
+  global.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+});
 
 const mockAnalysis: FoodAnalysis = {
   food_name: "Chicken breast",
@@ -81,5 +90,64 @@ describe("MiniNutritionCard", () => {
     render(<MiniNutritionCard analysis={cupsAnalysis} />);
 
     expect(screen.getByText("2 cups")).toBeInTheDocument();
+  });
+
+  describe("tap-to-expand bottom sheet", () => {
+    it("does not show dialog initially", () => {
+      render(<MiniNutritionCard analysis={mockAnalysis} />);
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("opens dialog with NutritionFactsCard on click", () => {
+      render(<MiniNutritionCard analysis={mockAnalysis} />);
+
+      const button = screen.getByRole("button", { name: /view full nutrition/i });
+      fireEvent.click(button);
+
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
+    });
+
+    it("maps FoodAnalysis props correctly to NutritionFactsCard", () => {
+      render(<MiniNutritionCard analysis={mockAnalysis} />);
+
+      fireEvent.click(screen.getByRole("button", { name: /view full nutrition/i }));
+
+      // Check that NutritionFactsCard content is rendered
+      expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
+      // Food name appears in the NutritionFactsCard
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toHaveTextContent("Chicken breast");
+      expect(dialog).toHaveTextContent("248"); // calories
+    });
+
+    it("shows tier-1 nutrients in dialog when available", () => {
+      const analysisWithTier1: FoodAnalysis = {
+        ...mockAnalysis,
+        saturated_fat_g: 1.5,
+        trans_fat_g: 0,
+        sugars_g: 2,
+        calories_from_fat: 45,
+      };
+
+      render(<MiniNutritionCard analysis={analysisWithTier1} />);
+
+      fireEvent.click(screen.getByRole("button", { name: /view full nutrition/i }));
+
+      const dialog = screen.getByRole("dialog");
+      expect(dialog).toHaveTextContent("Saturated Fat");
+      expect(dialog).toHaveTextContent("1.5g");
+      expect(dialog).toHaveTextContent("Sugars");
+      expect(dialog).toHaveTextContent("2g");
+      expect(dialog).toHaveTextContent("Calories from Fat 45");
+    });
+
+    it("has accessible button with aria-label", () => {
+      render(<MiniNutritionCard analysis={mockAnalysis} />);
+
+      const button = screen.getByRole("button", { name: /view full nutrition details for chicken breast/i });
+      expect(button).toBeInTheDocument();
+    });
   });
 });

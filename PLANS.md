@@ -1,588 +1,162 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Branch:** feat/FOO-541-logging-observability-overhaul
-**Issues:** FOO-541, FOO-542, FOO-543, FOO-544, FOO-545, FOO-546, FOO-547
+**Branch:** feat/FOO-550-nutrition-card-tap-expand
+**Issues:** FOO-550, FOO-551, FOO-552
 **Created:** 2026-02-16
 **Last Updated:** 2026-02-16
 
 ## Summary
 
-Comprehensive logging and observability overhaul addressing 7 related issues from a deep-review audit. Fixes a bug where data tool calls are dropped during food analysis, eliminates systematic double-logging, introduces request-scoped loggers with correlation IDs, demotes noisy routine logs, adds debug-level visibility to the Claude API layer and all data modules, and instruments key external API calls with timing data.
+Add tap-to-expand nutrition details on two inline components (MiniNutritionCard in chat and AnalysisResult grid on the analyze page) using the existing bottom-sheet Dialog + NutritionFactsCard pattern. Also compact the chat header from two rows to one when an analysis is present.
 
 ## Issues
 
-### FOO-541: needs_chat transition drops Claude's data tool calls, leaving user stuck
+### FOO-550: Chat mini nutrition card is not tappable — no way to see full nutrition details
 
-**Priority:** High
-**Labels:** Bug
-**Description:** When `analyzeFood()` returns a `needs_chat` result, any data tool calls Claude made (e.g., `search_food_log`) are silently dropped. The chat opens with a static seed message but no tool execution ever happens. The user must manually send a follow-up message.
-
-**Acceptance Criteria:**
-- [ ] When Claude returns data tool calls in `analyzeFood()`, they are executed via `runToolLoop()`
-- [ ] If the tool loop resolves to an analysis (report_nutrition), return `{ type: "analysis" }`
-- [ ] If the tool loop resolves to text only, return `{ type: "needs_chat" }` with the resolved message
-- [ ] Existing tests updated; new tests cover the data-tool-then-resolve path
-
-### FOO-545: Fix systematic double-logging between route handlers and errorResponse()
-
-**Priority:** Medium
+**Priority:** Low
 **Labels:** Improvement
-**Description:** `errorResponse()` in `api-response.ts` auto-logs every error (warn for 4xx, error for 5xx). Most route handlers ALSO log the error just before calling `errorResponse()`, producing duplicate entries. Choose Option A: route handlers own all error logging, `errorResponse()` stops auto-logging.
+**Description:** The `MiniNutritionCard` shown inline in chat messages displays only food name, serving, calories, and P/C/F macros. Users cannot tap it to see the full nutrition breakdown (saturated fat, trans fat, sugars, calories from fat, fiber, sodium) even though the `FoodAnalysis` object already contains all data. History and quick-select pages already use the tap → bottom sheet → NutritionFactsCard pattern.
 
 **Acceptance Criteria:**
-- [ ] `errorResponse()` no longer calls `logger.warn` or `logger.error`
-- [ ] Every route handler that calls `errorResponse()` has exactly one log entry for the error
-- [ ] No loss of diagnostic information (action, error details, status code)
-- [ ] Existing `api-response.test.ts` updated to reflect removal of auto-logging
+- [ ] Tapping a MiniNutritionCard in chat opens a bottom-sheet Dialog
+- [ ] Bottom sheet displays full nutrition via NutritionFactsCard (including tier-1 nutrients when available)
+- [ ] Diff highlighting on the mini card itself is preserved (the bottom sheet shows the clean view)
+- [ ] Dialog closes on overlay tap or X button
+- [ ] Minimum 44x44px touch target on the card
 
-### FOO-543: Adopt request-scoped loggers with correlation IDs in all route handlers
+### FOO-551: Analysis result grid is not tappable — no way to see tier-1 nutrition details
 
-**Priority:** High
+**Priority:** Low
 **Labels:** Improvement
-**Description:** `createRequestLogger(method, path)` exists in `logger.ts` but is never used. All 30 route handlers import the global `logger` directly. Log entries from concurrent requests are indistinguishable.
+**Description:** The `AnalysisResult` component on the analyze page shows a 2-column grid of 6 nutrients but omits tier-1 details (saturated fat, trans fat, sugars, calories from fat). The grid is static with no tap handler. Users have no way to see the full breakdown until after logging.
 
 **Acceptance Criteria:**
-- [ ] `createRequestLogger` enhanced to include a `requestId` (crypto.randomUUID)
-- [ ] All API route handlers create a request-scoped logger and pass it to lib functions
-- [ ] Key lib modules (claude.ts, chat-tools.ts, fitbit.ts, food-log.ts, fasting.ts) accept an optional logger parameter
-- [ ] Remaining lib modules called from routes also accept optional logger parameter
-- [ ] Default to global logger when no logger is passed (backward compat for tests and non-route callers)
+- [ ] Tapping the nutrition grid in AnalysisResult opens a bottom-sheet Dialog
+- [ ] Bottom sheet displays full nutrition via NutritionFactsCard (same pattern as FOO-550)
+- [ ] Non-nutrition parts of AnalysisResult (food name, confidence badge, description, notes) remain unchanged
+- [ ] Dialog closes on overlay tap or X button
+- [ ] Visual affordance (subtle hint the grid is tappable)
 
-### FOO-546: Demote routine success logs from info to debug level
+### FOO-552: Chat header wastes vertical space — meal type dropdown on separate row
 
-**Priority:** Medium
+**Priority:** Low
 **Labels:** Improvement
-**Description:** Many successful GET operations are logged at `info` level, dominating production logs. Also, several info logs in `claude.ts` use unstructured string-only format.
+**Description:** The chat header uses two rows when an analysis is present: Row 1 has the back arrow and "Log to Fitbit" button with `justify-between`, Row 2 has the MealTypeSelector on its own full-width line. This wastes ~52px of vertical space. Target layout: `[←] [Dinner ▾] [Log to Fitbit]` — a single compact row.
 
 **Acceptance Criteria:**
-- [ ] All routine read/GET success logs demoted to `debug`
-- [ ] All write/state-change success logs remain at `info`
-- [ ] All info/warn/error logs use structured `{ action: "..." }` format
-- [ ] Production logs contain only significant events at default `info` level
-
-### FOO-542: Add comprehensive debug logging to Claude API and chat flows
-
-**Priority:** High
-**Labels:** Improvement
-**Description:** The Claude API layer has almost zero debug-level logging. When issues occur, logs only show high-level start/end events with no visibility into what Claude actually did.
-
-**Acceptance Criteria:**
-- [ ] Every Claude API response logged at debug: stop_reason, content block types, tool names
-- [ ] Conversation content logged at debug: message roles, text lengths
-- [ ] Tool call details: tool names, parameter keys/values
-- [ ] Tool execution results: result length, errors, duration
-- [ ] Token usage per response: input, output, cache creation, cache read
-- [ ] Tool loop per-iteration breakdown at debug
-- [ ] Loop exit reason logged
-
-### FOO-544: Add debug logging to data layer modules
-
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** 9 lib modules that handle core data operations have zero logging. Data layer is a complete blind spot.
-
-**Acceptance Criteria:**
-- [ ] All listed modules have debug-level logging for key operations
-- [ ] No sensitive data logged (tokens, keys, passwords)
-- [ ] Logs include function name, input params summary, result summary
-- [ ] All at debug level — invisible in production unless LOG_LEVEL=debug
-
-### FOO-547: Add operation timing/duration to key log entries
-
-**Priority:** Medium
-**Labels:** Performance
-**Description:** No log entry records how long an operation took. Cannot diagnose performance issues without temporary timing code.
-
-**Acceptance Criteria:**
-- [ ] All Claude API call logs include `durationMs`
-- [ ] All Fitbit API call logs include `durationMs`
-- [ ] Duration logged at the same level as the completion log
-- [ ] Reusable timing utility to avoid boilerplate
+- [ ] When analysis is present, header renders in one row: back button, meal selector (flex-1), log button
+- [ ] MealTypeSelector fills available space between back and log buttons
+- [ ] All three controls remain accessible with 44px minimum touch targets
+- [ ] No layout changes when no analysis is present (simple back+title header unchanged)
 
 ## Prerequisites
 
 - [ ] On `main` branch with clean working tree
-- [ ] All existing tests passing
-- [ ] Linear MCP connected
+- [ ] `npm install` up to date
 
 ## Implementation Tasks
 
-### Task 1: Fix analyzeFood data tool execution
+### Task 1: Add tap-to-expand bottom sheet to MiniNutritionCard
 
-**Issue:** FOO-541
+**Issue:** FOO-550
 **Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/components/mini-nutrition-card.tsx` (modify)
+- `src/components/__tests__/mini-nutrition-card.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Write failing tests in `claude.test.ts`:
-   - Test: when Claude returns `stop_reason: "tool_use"` with only data tools (e.g., `search_food_log`), `analyzeFood()` should execute the tool loop and return the resolved result instead of dropping the tools
-   - Test: when the tool loop resolves with `report_nutrition`, `analyzeFood()` returns `{ type: "analysis" }` (not `needs_chat`)
-   - Test: when the tool loop resolves with text only (no report_nutrition), `analyzeFood()` returns `{ type: "needs_chat" }` with the resolved message (not the intermediate fallback)
-   - Mock `executeTool` from chat-tools to return canned results; mock subsequent `mockCreate` calls for the tool loop iterations
-   - Run: `npm test -- claude.test`
-   - Verify: Tests fail because current code drops data tools
+1. **RED** — Write tests for the tap-to-expand behavior:
+   - Test: clicking the card opens a dialog (query for dialog role)
+   - Test: dialog contains NutritionFactsCard content (check for "Nutrition Facts" heading)
+   - Test: the `FoodAnalysis` → `NutritionFactsCard` prop mapping is correct — assert that tier-1 nutrients appear when present in the analysis (saturated fat, sugars, etc.)
+   - Test: dialog is not present initially (no dialog role in the DOM)
+   - Run: `npm test -- mini-nutrition-card`
+   - Verify: new tests fail (no dialog, no click handler)
 
-2. **GREEN** — Modify `analyzeFood()` in `claude.ts`:
-   - After the initial API call, before the `needs_chat` fallback path (after line 375), check if response contains data tool_use blocks (excluding `report_nutrition`)
-   - If data tools are present, call `runToolLoop()` with the initial user message array, passing `initialResponse: response`, the same system prompt, all tools (including REPORT_NUTRITION_TOOL), and `operation: "food-analysis"`
-   - If `runToolLoop` returns an analysis, return `{ type: "analysis", analysis }`
-   - If it returns text only, return `{ type: "needs_chat", message }`
-   - Keep the existing text-only `needs_chat` path for responses without any tool_use blocks
-   - Run: `npm test -- claude.test`
-   - Verify: All tests pass
+2. **GREEN** — Add Dialog + NutritionFactsCard to MiniNutritionCard:
+   - Add `"use client"` directive (needed for useState)
+   - Add `useState<boolean>` for dialog open state
+   - Wrap the existing card `<div>` with a `<button>` element (type="button", role for accessibility, aria-label like "View full nutrition details for {food_name}", cursor-pointer)
+   - Add a `Dialog` with `variant="bottom-sheet"` containing `DialogHeader` (sr-only DialogTitle), and `NutritionFactsCard` with the snake_case → camelCase prop mapping from `analysis`
+   - Follow the exact pattern from `food-history.tsx:348-380` for the Dialog structure
+   - Prop mapping: `analysis.food_name` → `foodName`, `analysis.calories` → `calories`, `analysis.protein_g` → `proteinG`, `analysis.carbs_g` → `carbsG`, `analysis.fat_g` → `fatG`, `analysis.fiber_g` → `fiberG`, `analysis.sodium_mg` → `sodiumMg`, `analysis.unit_id` → `unitId`, `analysis.amount` → `amount`, `analysis.saturated_fat_g` → `saturatedFatG`, `analysis.trans_fat_g` → `transFatG`, `analysis.sugars_g` → `sugarsG`, `analysis.calories_from_fat` → `caloriesFromFat`
+   - Run: `npm test -- mini-nutrition-card`
+   - Verify: all tests pass
 
-3. **REFACTOR** — Ensure the data-tool detection logic is clean and the two paths (fast-path analysis vs tool-loop resolution) are clearly documented with comments
+3. **REFACTOR** — Ensure the button wrapper doesn't break diff highlighting styles or the existing card layout. Add mock for ResizeObserver in the test file (needed for Radix Dialog), following the pattern from `analysis-result.test.tsx:8-14`.
 
 **Notes:**
-- Follow the pattern from `conversationalRefine()` lines 524-543 which already handles this correctly
-- The `runToolLoop` function already supports `initialResponse` parameter — use it
-- `executeTool` in `chat-tools.ts` already handles all three data tools
-- No type changes needed to `AnalyzeFoodResult` — the existing `needs_chat` and `analysis` variants cover all cases
+- The MiniNutritionCard is currently a server-compatible component (no `"use client"`). Adding state requires the directive. Since it's only rendered inside `FoodChat` (already client), this is safe.
+- Dialog imports: `Dialog, DialogContent, DialogHeader, DialogTitle` from `@/components/ui/dialog`
+- NutritionFactsCard import: `@/components/nutrition-facts-card`
 
----
+### Task 2: Add tap-to-expand bottom sheet to AnalysisResult nutrition grid
 
-### Task 2: Remove errorResponse auto-logging and audit route handlers
-
-**Issue:** FOO-545
+**Issue:** FOO-551
 **Files:**
-- `src/lib/api-response.ts` (modify)
-- `src/lib/__tests__/api-response.test.ts` (modify)
-- All route handler files in `src/app/api/` (audit + modify where needed)
+- `src/components/analysis-result.tsx` (modify)
+- `src/components/__tests__/analysis-result.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update tests in `api-response.test.ts`:
-   - Change the "logs at warn level for 4xx errors" test to assert `logger.warn` is NOT called
-   - Change the "logs at error level for 5xx errors" test to assert `logger.error` is NOT called
-   - Remove the "does not include details in log output" test (no longer relevant since errorResponse won't log)
-   - Run: `npm test -- api-response.test`
-   - Verify: Tests fail because errorResponse still auto-logs
+1. **RED** — Write tests for the grid tap behavior:
+   - Test: clicking the nutrition grid area opens a dialog
+   - Test: dialog contains NutritionFactsCard with full nutrition data including tier-1 nutrients when available
+   - Test: dialog is not present initially
+   - Test: with tier-1 nutrients (provide `saturated_fat_g`, `sugars_g`, etc. in mockAnalysis), those values appear in the dialog
+   - Run: `npm test -- analysis-result`
+   - Verify: new tests fail
 
-2. **GREEN** — Remove auto-logging from `errorResponse()` in `api-response.ts`:
-   - Remove the `logger` import
-   - Remove the `logData` variable and the `if (status >= 500)` / `else` logging block (lines 21-27)
-   - Keep the function signature and response body unchanged
-   - Run: `npm test -- api-response.test`
-   - Verify: Tests pass
+2. **GREEN** — Add Dialog to AnalysisResult:
+   - Add `useState<boolean>` for dialog open state (component already has `"use client"`)
+   - Wrap the nutrition grid `<div className="grid grid-cols-2 gap-4">` in a `<button>` element with: type="button", aria-label "View full nutrition details", cursor-pointer, text-left (preserve grid alignment)
+   - Add `Dialog` with `variant="bottom-sheet"` below the grid, containing `NutritionFactsCard` with the same prop mapping as Task 1
+   - Same Dialog structure as `food-history.tsx:348-380`
+   - Run: `npm test -- analysis-result`
+   - Verify: all tests pass
 
-3. **REFACTOR** — Audit all route handlers that call `errorResponse()` to ensure each error path has exactly one log entry:
-   - Route handlers that already log before `errorResponse()`: no changes needed (they become the single source of truth)
-   - Route handlers that rely solely on `errorResponse()` for logging (no preceding log): add a `logger.warn` or `logger.error` call with `{ action: "...", error: "..." }` structured format before the `errorResponse()` call
-   - Use `grep` to find all `errorResponse(` calls and check each one
-   - Key routes to check: `src/app/api/v1/` routes (some have bare `errorResponse` without preceding log for validation errors like missing date param), `auth/` routes, `api-keys/` routes
-   - Run: `npm test` (full suite to catch any test that asserted on errorResponse logging behavior)
-   - Verify: All tests pass, no double-logging
+3. **REFACTOR** — Add a subtle visual affordance to the grid to hint it's tappable. A small text hint below the grid like "Tap for full details" in `text-xs text-muted-foreground` would work. Keep it minimal — the grid content itself doesn't change.
 
 **Notes:**
-- Option A from the issue: route handlers own all error logging, errorResponse is a pure response builder
-- Several route handler tests (e.g., `food-history/[id]/__tests__/route.test.ts`) may assert on `logger.error` or `logger.warn` calls — review and update as needed
-- Validation error paths (400s) that just call `errorResponse("VALIDATION_ERROR", ...)` without a preceding log may not need a log entry at all — simple validation failures don't need logging unless they indicate misuse
+- AnalysisResult already has `"use client"` and the test already has ResizeObserver mock — no additional setup needed.
+- Only the `grid` section is tappable, not the entire component (food name, confidence badge, description, notes remain static).
+- The `analysis` prop is `FoodAnalysis | null`, so the Dialog should only render when `analysis` is truthy (which is already gated by the `if (!analysis) return null` check).
 
----
+### Task 3: Compact chat header to single row
 
-### Task 3: Enhance createRequestLogger with correlation ID
-
-**Issue:** FOO-543
+**Issue:** FOO-552
 **Files:**
-- `src/lib/logger.ts` (modify)
-- `src/lib/__tests__/logger.test.ts` (modify)
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add tests in `logger.test.ts`:
-   - Test: `createRequestLogger` returns a child logger with `method`, `path`, and `requestId` fields
-   - Test: `requestId` is a valid UUID string (matches UUID v4 pattern)
-   - Test: `createRequestLoggerWithDestination` also includes `requestId`
-   - Use the existing `createCaptureDest` + `flush` pattern to capture JSON output and parse it
-   - Run: `npm test -- logger.test`
-   - Verify: Tests fail because current createRequestLogger doesn't include requestId
+1. **RED** — Write test for single-row header layout:
+   - Test: when analysis is present, the back button, meal type selector, and log button are all within the same flex container (single parent `div` with `flex` class, no `space-y-2`)
+   - Test: MealTypeSelector is rendered between back button and log button in the DOM order
+   - Run: `npm test -- food-chat`
+   - Verify: new test fails (currently two rows with `space-y-2`)
 
-2. **GREEN** — Modify `createRequestLogger` in `logger.ts`:
-   - Import `randomUUID` from `node:crypto`
-   - Add `requestId: randomUUID()` to the child logger context in both `createRequestLogger` and `createRequestLoggerWithDestination`
-   - Run: `npm test -- logger.test`
-   - Verify: Tests pass
+2. **GREEN** — Restructure the header layout at lines 413-449 of `food-chat.tsx`:
+   - Replace the two-row structure (`space-y-2` with two child divs) with a single flex row
+   - Target layout: `<div className="flex items-center gap-2">` containing: back button (shrink-0), MealTypeSelector (flex-1, with `showTimeHint={false}`), Log to Fitbit button (shrink-0)
+   - Remove the separate `<div className="w-full">` wrapper around MealTypeSelector
+   - The MealTypeSelector's `SelectTrigger` already has `w-full min-h-[44px]` which will respect flex-1 constraints
+   - Run: `npm test -- food-chat`
+   - Verify: all tests pass
 
-3. **REFACTOR** — Export `Logger` type re-export from pino for convenience (so lib modules can type their optional logger parameter without importing pino directly)
-
-**Notes:**
-- The existing `createRequestLogger` function signature stays the same: `(method: string, path: string) => Logger`
-- The `requestId` is automatically included in every log entry from the child logger
-- Re-exporting the `Logger` type: add `export type { Logger } from "pino"` to logger.ts (check if it's already exported — it is as an import type, just needs re-export)
-
----
-
-### Task 4: Add optional logger parameter to Claude + chat-tools modules
-
-**Issue:** FOO-543, FOO-546 (partial)
-**Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/chat-tools.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/__tests__/chat-tools.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add tests:
-   - In `claude.test.ts`: test that when a logger is passed to `analyzeFood`, `conversationalRefine`, and `runToolLoop`, that logger is used (not the global one). Mock the passed logger and verify calls on it.
-   - In `chat-tools.test.ts`: test that `executeTool` accepts an optional logger parameter
-   - Run: `npm test -- claude.test chat-tools.test`
-   - Verify: Tests fail because functions don't accept logger parameter yet
-
-2. **GREEN** — Add optional `log?: Logger` parameter to exported functions:
-   - `analyzeFood(images, description, userId, currentDate, log?)` — use `const l = log ?? logger` at the top, replace all `logger.` calls with `l.`
-   - `conversationalRefine(messages, images, userId?, currentDate?, initialAnalysis?, signal?, log?)` — same pattern
-   - `runToolLoop(messages, userId, currentDate, options?)` — add `log?: Logger` to the options object, use `const l = options?.log ?? logger`
-   - `executeTool(toolName, params, userId, currentDate, log?)` — same pattern, and pass it to sub-functions
-   - Import `Logger` type from `@/lib/logger`
-   - Run: `npm test -- claude.test chat-tools.test`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Also fix unstructured log format in claude.ts (FOO-546 partial):
-   - Line 388: change `logger.info("food analysis needs chat transition")` to use structured format `l.info({ action: "analyze_food_needs_chat" }, "food analysis needs chat transition")`
-   - Line 564: change `logger.info("conversational refinement completed (text only)")` to `l.info({ action: "conversational_refine_text_only" }, "conversational refinement completed (text only)")`
-   - Verify no other unstructured log calls remain in these files
-   - Run: `npm test -- claude.test chat-tools.test`
+3. **REFACTOR** — Verify the layout works at different widths. The MealTypeSelector's min-h-[44px] ensures touch target compliance. The shrink-0 on buttons prevents them from being compressed. No changes needed to `meal-type-selector.tsx`.
 
 **Notes:**
-- The optional logger is always the LAST parameter (or inside an options object for `runToolLoop`)
-- Existing callers that don't pass a logger get the global logger — fully backward compatible
-- The `executeTool` function in `chat-tools.ts` currently has zero logging — for now just add the parameter; debug logging is added in Task 9
-- `runToolLoop` is called from both `analyzeFood` (Task 1) and `conversationalRefine` — thread the logger through
+- The MealTypeSelector mock in `food-chat.test.tsx` (lines 26-30) renders a simplified select. Tests should verify DOM structure, not visual layout.
+- The "simple header" branch (no analysis, lines 450-462) remains unchanged.
+- `showTimeHint={false}` is already set on the MealTypeSelector in chat — the time hint text below the select would break the single-row layout if shown, but it's already disabled.
 
----
+### Task 4: Integration verification
 
-### Task 5: Add optional logger parameter to fitbit module
-
-**Issue:** FOO-543
-**Files:**
-- `src/lib/fitbit.ts` (modify)
-- `src/lib/__tests__/fitbit.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add a test in `fitbit.test.ts`:
-   - Test that exported functions (`createFood`, `logFood`, `deleteFoodLog`, `findOrCreateFood`, `refreshFitbitToken`, `getFoodGoals`, `getActivitySummary`) accept an optional `log?: Logger` parameter
-   - Verify that when passed, the custom logger receives log calls instead of the global one
-   - Run: `npm test -- fitbit.test`
-   - Verify: Tests fail
-
-2. **GREEN** — Add optional `log?: Logger` parameter to all exported functions in `fitbit.ts`:
-   - Use `const l = log ?? logger` pattern at the top of each function
-   - Replace all `logger.` calls with `l.` throughout the function body
-   - Internal helper functions called by exported functions (like `fitbitRequest`, `refreshFitbitToken`) should also accept and propagate the logger
-   - Import `Logger` type from `@/lib/logger`
-   - Run: `npm test -- fitbit.test`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Ensure logger propagation through the retry/refresh chain in fitbit.ts (e.g., `fitbitRequest` → `refreshFitbitToken` → retry)
-
-**Notes:**
-- `fitbit.ts` has many internal functions — the logger must be threaded through the call chain
-- Reference the existing function signatures and add `log?` as the last parameter
-- `fitbitRequest` is a private function that wraps all API calls — adding logger there propagates to all callers
-
----
-
-### Task 6: Add optional logger parameter to all remaining data layer modules
-
-**Issue:** FOO-543
-**Files:**
-- `src/lib/food-log.ts` (modify)
-- `src/lib/fasting.ts` (modify)
-- `src/lib/food-matching.ts` (modify)
-- `src/lib/fitbit-tokens.ts` (modify)
-- `src/lib/fitbit-credentials.ts` (modify)
-- `src/lib/session-db.ts` (modify)
-- `src/lib/users.ts` (modify)
-- `src/lib/api-keys.ts` (modify)
-- `src/lib/rate-limit.ts` (modify)
-- `src/lib/nutrition-goals.ts` (modify)
-- `src/lib/lumen.ts` (modify)
-- `src/lib/claude-usage.ts` (modify)
-- Corresponding test files (modify where needed)
-
-**TDD Steps:**
-
-1. **RED** — For each module, add a test verifying the optional `log?: Logger` parameter is accepted. Focus on the most important modules first: `food-log.ts`, `fasting.ts`, `session-db.ts`.
-   - Run: `npm test -- food-log.test fasting.test session-db.test`
-   - Verify: Tests fail
-
-2. **GREEN** — Add optional `log?: Logger` parameter to all exported functions in each module:
-   - Import `Logger` type from `@/lib/logger` (or `import type { Logger } from "pino"` if logger.ts doesn't re-export yet)
-   - For modules that currently don't import logger at all (most of them), add: `import { logger } from "@/lib/logger"` and `import type { Logger } from "@/lib/logger"`
-   - Use `const l = log ?? logger` pattern at the top of each function
-   - For modules with many exported functions (e.g., `food-log.ts` has ~15 functions), add the parameter to all of them
-   - Run: `npm test` (full suite — many modules, easier to run all)
-   - Verify: All tests pass
-
-3. **REFACTOR** — Ensure consistency: every exported function in every data module has `log?: Logger` as its last parameter
-
-**Notes:**
-- These modules currently have ZERO logging (confirmed by grep) — the optional logger parameter is added now, but actual debug log statements are added in Task 10
-- Modules with zero current logging won't have any `logger.` calls to replace — just add the parameter and the `const l = log ?? logger` setup for use by later tasks
-- `food-log.ts` is the largest (872 lines, ~15 exported functions) — be thorough
-- `rate-limit.ts` is synchronous and in-memory — still add the parameter for consistency
-- Some modules may have internal helper functions — only exported functions need the parameter (internal helpers will be called with the resolved `l`)
-
----
-
-### Task 7: Update all route handlers to use request-scoped loggers
-
-**Issue:** FOO-543, FOO-545 (continuation)
-**Files:**
-- All 30 route files in `src/app/api/` (modify)
-- `src/middleware.ts` (modify if it exists and uses logger)
-
-**TDD Steps:**
-
-1. **RED** — Pick 3 representative route handlers with existing tests and update their tests:
-   - `src/app/api/analyze-food/route.ts` — complex route with multiple log calls
-   - `src/app/api/v1/food-log/route.ts` — v1 API route
-   - `src/app/api/food-history/[id]/route.ts` — route with multiple error paths
-   - In each test file, verify that `createRequestLogger` is called with the correct method and path
-   - Verify that the request logger (not global logger) is passed to lib functions
-   - Run: `npm test -- analyze-food chat-food food-log`
-   - Verify: Tests fail because routes still use global logger
-
-2. **GREEN** — Update all route handlers:
-   - At the start of each handler function, create a request logger: `const log = createRequestLogger(request.method, url.pathname)` (or hardcode the method/path string for simpler routes)
-   - Replace all `logger.` calls with `log.` throughout the handler
-   - Pass `log` to lib function calls as the last argument (e.g., `analyzeFood(images, desc, userId, date, log)`)
-   - Import `createRequestLogger` from `@/lib/logger` (replacing or supplementing the `logger` import)
-   - For route handlers that don't call any lib functions (e.g., health, session), just use the request logger for their own logging
-   - Run: `npm test` (full suite)
-   - Verify: All tests pass
-
-3. **REFACTOR** — Remove unused `import { logger }` from route handlers that no longer directly use the global logger
-
-**Notes:**
-- Route test files that mock `@/lib/logger` may need updating — they should mock `createRequestLogger` to return a mock child logger
-- The `request.method` is available on the Request object; for the path, use `new URL(request.url).pathname` or hardcode the known path
-- For `src/app/api/health/route.ts`: this is a public route with minimal logging — still use request logger for consistency
-- Auth routes (`google/`, `fitbit/`, `logout/`, `session/`, `test-login/`) need the same treatment
-
----
-
-### Task 8: Demote routine success logs to debug level
-
-**Issue:** FOO-546
-**Files:**
-- `src/app/api/v1/food-log/route.ts` (modify)
-- `src/app/api/v1/nutrition-summary/route.ts` (modify)
-- `src/app/api/v1/lumen-goals/route.ts` (modify)
-- `src/app/api/v1/activity-summary/route.ts` (modify)
-- `src/app/api/v1/nutrition-goals/route.ts` (modify)
-- `src/app/api/fasting/route.ts` (modify)
-- `src/app/api/find-matches/route.ts` (modify)
-- `src/app/api/nutrition-summary/route.ts` (modify)
-- `src/app/api/claude-usage/route.ts` (modify)
-- `src/app/api/earliest-entry/route.ts` (modify)
-- `src/lib/nutrition-goals.ts` (modify)
-- Route test files that assert on log levels (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update test files that assert `logger.info` for routine GET success:
-   - Change assertions from `expect(log.info)` to `expect(log.debug)` for the success paths
-   - Run: `npm test -- v1 fasting find-matches nutrition-summary claude-usage earliest-entry nutrition-goals`
-   - Verify: Tests fail because code still logs at info
-
-2. **GREEN** — In each listed route file, change the success log from `log.info(...)` to `log.debug(...)` for read/GET operations:
-   - v1 routes: "v1 food log retrieved", "v1 nutrition summary retrieved", "v1 lumen goals retrieved", "v1 activity summary retrieved", "v1 nutrition goals retrieved"
-   - Browser routes: "fasting window retrieved", "fasting windows retrieved", "food matching complete", "nutrition summary retrieved", "claude usage retrieved", "earliest entry retrieved"
-   - `nutrition-goals.ts`: "calorie goal upserted" — demote to debug (frequent during normal use)
-   - Do NOT demote: write operations (log_food_success, delete_food_log), auth events, Claude API results, server lifecycle
-   - Run: `npm test`
-   - Verify: All tests pass
-
-3. **REFACTOR** — Verify production log output would only contain significant events at info level
-
-**Notes:**
-- Some of these route handlers will already have request-scoped loggers from Task 7 — use `log.debug` (the request logger variable), not `logger.debug`
-- The "calorie goal upserted" in `nutrition-goals.ts` happens on every food log page load — demoting to debug reduces noise significantly
-- Logs that should STAY at info: `log_food_success`, `delete_food_log`, `google_login_success`, `fitbit_connect_success`, "food analysis completed", lumen goals parsed/upserted (write), server start/shutdown
-
----
-
-### Task 9: Add debug logging to Claude API and chat-tools
-
-**Issue:** FOO-542
-**Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/chat-tools.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify — optional, for smoke tests)
-- `src/lib/__tests__/chat-tools.test.ts` (modify — optional, for smoke tests)
-
-**TDD Steps:**
-
-1. **RED** — Add targeted tests:
-   - Test that `analyzeFood` logs at debug level with stop_reason and content block types after receiving a response
-   - Test that `executeTool` logs at debug level with tool name and result length
-   - Test that `runToolLoop` logs per-iteration debug info
-   - Run: `npm test -- claude.test chat-tools.test`
-   - Verify: Tests fail
-
-2. **GREEN** — Add debug logging throughout:
-
-   **In `analyzeFood()`:**
-   - After receiving the API response: log stop_reason, content block types (text/tool_use), tool names if any
-   - Log token usage: input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens
-
-   **In `conversationalRefine()`:**
-   - After receiving the API response: log stop_reason, content block types, tool names
-   - Log token usage
-   - When truncation happens: log before/after message counts
-
-   **In `runToolLoop()` — per iteration:**
-   - Log iteration number, stop_reason, content block types, tools called (names)
-   - Log tool results: tool name, result length, whether error
-   - Log token usage per response
-   - On loop exit: log the exit reason (end_turn, max_iterations, abort, error)
-
-   **In `executeTool()` (chat-tools.ts):**
-   - At entry: log tool name and parameter keys/values (e.g., search query, date range)
-   - At exit: log result length and whether it's an error result
-   - Log the specific sub-function called (executeSearchFoodLog, etc.)
-
-   **In `truncateConversation()`:**
-   - Log when truncation is triggered: estimated tokens, max tokens, messages before/after
-
-   All logging at `l.debug()` using the optional logger parameter added in Task 4.
-   - Run: `npm test -- claude.test chat-tools.test`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Consider extracting a `summarizeResponse(response)` helper to build the debug payload consistently for Claude API responses (stop_reason, block types, tool names, token counts)
-
-**Notes:**
-- All new logging MUST use `l.debug()` (the optional logger variable from Task 4)
-- Security: do NOT log raw image base64 data. Log image count and mime types instead.
-- Security: do NOT log cookie values, access tokens, or API keys
-- DO log conversation text content at debug level — this was explicitly approved per FOO-542 description
-- Token usage fields: `response.usage.input_tokens`, `response.usage.output_tokens`, `response.usage.cache_creation_input_tokens`, `response.usage.cache_read_input_tokens`
-
----
-
-### Task 10: Add debug logging to data layer modules
-
-**Issue:** FOO-544
-**Files:**
-- `src/lib/food-log.ts` (modify)
-- `src/lib/fasting.ts` (modify)
-- `src/lib/food-matching.ts` (modify)
-- `src/lib/fitbit-tokens.ts` (modify)
-- `src/lib/fitbit-credentials.ts` (modify)
-- `src/lib/session-db.ts` (modify)
-- `src/lib/users.ts` (modify)
-- `src/lib/api-keys.ts` (modify)
-- `src/lib/rate-limit.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add targeted tests for the 3 most important modules:
-   - `food-log.ts`: test that `searchFoods` logs at debug with query and result count
-   - `fasting.ts`: test that `getFastingWindow` logs at debug with date and result
-   - `session-db.ts`: test that session operations log at debug
-   - Run: `npm test -- food-log.test fasting.test session-db.test`
-   - Verify: Tests fail
-
-2. **GREEN** — Add debug logging to each module, using the optional `l` logger from Task 6:
-
-   **food-log.ts** — For each exported function, add `l.debug()` at entry (params summary) and exit (result summary):
-   - `searchFoods`: query, result count
-   - `getDailyNutritionSummary`: date, meal count, total calories
-   - `getDateRangeNutritionSummary`: date range, day count
-   - `getFoodLogHistory`: date range, entry count
-   - `insertFoodLogEntry`: food name, date, calories
-   - `getCommonFoods`: result count, top 3 food names and scores (at debug)
-   - Other functions: entry/exit with key params and result counts
-
-   **fasting.ts** — `getFastingWindow`: date, duration result; `getFastingWindows`: date range, window count
-
-   **food-matching.ts** — Match criteria, candidate count, final match count
-
-   **fitbit-tokens.ts** / **fitbit-credentials.ts** — Read/write operations. Log "token found for userId" or "token not found" (NOT token values). Log "credentials upserted".
-
-   **session-db.ts** — Session create (sessionId prefix), delete, touch, cleanup count
-
-   **users.ts** — User find/create: email (this is a single-user app so email is not sensitive across users), action taken
-
-   **api-keys.ts** — Validation: "key validated for userId" or "key not found" (NOT key values)
-
-   **rate-limit.ts** — When a key is near limit (>80% consumed), log a debug warning with key identifier and usage percentage
-
-   - Run: `npm test` (full suite)
-   - Verify: All tests pass
-
-3. **REFACTOR** — Ensure consistent log format across all modules: `l.debug({ action: "module_function_name", ...params }, "description")`
-
-**Notes:**
-- All logging MUST be `l.debug()` using the logger parameter from Task 6
-- Security: NEVER log token values, key values, or passwords. Log identifiers (userId, sessionId prefix) and operation metadata only.
-- `food-log.ts` is 872 lines with ~15 functions — be thorough but don't over-log. Entry + exit (with result count) is sufficient for most functions.
-- `rate-limit.ts` is synchronous and in-memory — the 80% warning is the most useful debug log here
-- Modules not listed here (`nutrition-goals.ts`, `lumen.ts`, `claude-usage.ts`) are lower priority — they're called less frequently and their behavior is straightforward. Add basic entry/exit debug logs if time permits.
-
----
-
-### Task 11: Add timing to Claude and Fitbit API calls
-
-**Issue:** FOO-547
-**Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/fitbit.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/__tests__/fitbit.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add tests:
-   - In `claude.test.ts`: test that `analyzeFood` completion log includes `durationMs` as a number
-   - In `claude.test.ts`: test that `runToolLoop` per-iteration and completion logs include `durationMs`
-   - In `fitbit.test.ts`: test that `createFood`, `logFood`, `deleteFoodLog` completion logs include `durationMs`
-   - Run: `npm test -- claude.test fitbit.test`
-   - Verify: Tests fail
-
-2. **GREEN** — Add timing instrumentation:
-
-   **Create a timing utility** — Add to `src/lib/logger.ts` or inline in each module:
-   - Simple pattern: `const start = Date.now()` before the operation, `const durationMs = Date.now() - start` after
-   - Include `durationMs` in the existing completion log entry (add it to the structured data object)
-
-   **claude.ts:**
-   - `analyzeFood()`: time the entire function (API call + optional tool loop). Include `durationMs` in the completion info log.
-   - `conversationalRefine()`: time the entire function. Include `durationMs` in completion log.
-   - `runToolLoop()` each iteration: time each API call. Include `durationMs` in the per-iteration debug log.
-   - `runToolLoop()` total: time from start to loop exit. Include `durationMs` in the completion log.
-
-   **fitbit.ts:**
-   - `createFood()`: time the Fitbit API call. Include `durationMs` in the existing info log.
-   - `logFood()`: same.
-   - `deleteFoodLog()`: same.
-   - `refreshFitbitToken()`: time the token refresh. Include `durationMs` in the existing info log.
-   - `getFoodGoals()`, `getActivitySummary()`: same.
-   - Consider adding timing to the internal `fitbitRequest` wrapper so all calls get timing automatically.
-
-   - Run: `npm test -- claude.test fitbit.test`
-   - Verify: Tests pass
-
-3. **REFACTOR** — If the `Date.now()` pattern is repeated more than 5 times, extract a utility like `startTimer()` that returns a function `() => number` (returning elapsed ms). Add to `logger.ts` and export.
-
-**Notes:**
-- Duration is logged at the same level as the completion log (info for state changes, debug for reads)
-- `fitbitRequest` is the internal wrapper for all Fitbit API calls — adding timing there is the most efficient approach (one change covers all calls)
-- The timing utility should be simple: `const elapsed = startTimer()` at the beginning, `elapsed()` at the end returns ms
-
----
-
-### Task 12: Integration & Verification
-
-**Issue:** FOO-541, FOO-542, FOO-543, FOO-544, FOO-545, FOO-546, FOO-547
-**Files:**
-- Various files from previous tasks
+**Issue:** FOO-550, FOO-551, FOO-552
+**Files:** Various from previous tasks
 
 **Steps:**
 
@@ -590,283 +164,86 @@ Comprehensive logging and observability overhaul addressing 7 related issues fro
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
-5. Manual verification:
-   - [ ] Start dev server with `LOG_LEVEL=debug` and verify debug logs appear
-   - [ ] Start dev server with default level and verify routine GET logs are suppressed
-   - [ ] Analyze a food with "same as yesterday" (no image) to verify FOO-541 fix
-   - [ ] Check that error responses produce exactly one log entry
-   - [ ] Verify `requestId` appears in log entries across a request lifecycle
-   - [ ] Verify `durationMs` appears in Claude and Fitbit API logs
-
-## MCP Usage During Implementation
-
-| MCP Server | Tool | Purpose |
-|------------|------|---------|
-| Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
+5. Manual verification (during plan-review-implementation):
+   - [ ] Open analyze page, submit a photo, tap nutrition grid → bottom sheet with NutritionFactsCard
+   - [ ] In chat, tap MiniNutritionCard → bottom sheet with NutritionFactsCard
+   - [ ] Chat header shows single row with back, meal selector, and log button
+   - [ ] All dialogs close properly on overlay tap and X button
+   - [ ] Test on 375px width (mobile viewport)
 
 ## Error Handling
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| analyzeFood data tools fail | Tool loop catches error, returns partial response | Unit test |
-| Logger parameter not passed | Falls back to global logger silently | Unit test |
-| requestId generation fails | Should not happen (crypto.randomUUID is stable) | N/A |
+| Tier-1 nutrients are null | NutritionFactsCard conditionally renders them (already handles null) | Unit test with null tier-1 values |
+| Dialog open/close state | Standard Radix Dialog behavior — well-tested by library | Unit test for open/close |
+| Screen reader announces dialog | DialogTitle (sr-only) provides accessible name | Covered by Dialog component |
 
 ## Risks & Open Questions
 
-- [ ] **Large scope:** 7 issues across 40+ files. Plan-implement workers may need careful file partitioning.
-- [ ] **Test fragility:** Many existing tests mock `logger` globally. Adding request-scoped loggers (Task 7) may require updating mock patterns in test files.
-- [ ] **FOO-541 edge case:** If Claude calls both data tools AND report_nutrition in the initial analyzeFood response, the current fast-path handles report_nutrition. The tool loop is only needed when there's NO report_nutrition. Verify this logic is correct.
+- [ ] None identified — all three changes are isolated frontend improvements using established patterns (Dialog + NutritionFactsCard). No API, DB, or session changes.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Fix dropped data tool calls in analyzeFood (FOO-541)
-- Remove auto-logging from errorResponse (FOO-545)
-- Request-scoped loggers with requestId in all route handlers (FOO-543)
-- Demote routine GET success logs to debug (FOO-546)
-- Fix unstructured log format in claude.ts (FOO-546)
-- Add debug logging to Claude API layer (FOO-542)
-- Add debug logging to 9 data layer modules (FOO-544)
-- Add durationMs to Claude and Fitbit API logs (FOO-547)
+- Tap-to-expand on MiniNutritionCard (FOO-550)
+- Tap-to-expand on AnalysisResult grid (FOO-551)
+- Single-row chat header (FOO-552)
 
 **Out of Scope:**
-- Middleware request logging (FOO-543 mentions middleware but the issue focuses on route handlers)
-- Request duration at the middleware level (FOO-547 mentions "if request-scoped loggers are adopted" for request-level timing — defer to a follow-up)
-- Structured logging aggregation/alerting setup
-- Log sampling or log rotation configuration
-- Adding logging to client-side components
+- Changing what the inline MiniNutritionCard or AnalysisResult grid display (only adding drill-down)
+- Adding nutrition editing capabilities
+- Changes to NutritionFactsCard itself
+- Changes to MealTypeSelector component
 
 ---
 
-## Iteration 2
+## Iteration 1
 
 **Implemented:** 2026-02-16
-**Method:** Single-agent (fly solo)
+**Method:** Single-agent (solo run)
 
 ### Tasks Completed This Iteration
-- Task 1: Fix analyzeFood data tool execution (FOO-541) - Added tool loop for data tools in analyzeFood, new tests cover data-tool-then-resolve path
-- Task 2: Remove errorResponse auto-logging (FOO-545) - Removed auto-logging from errorResponse(), audited all route handlers for single log entry per error
-- Task 3: Enhance createRequestLogger with correlation ID (FOO-543) - Added requestId via crypto.randomUUID(), added startTimer() utility, re-exported Logger type
-- Task 4: Add optional logger to Claude + chat-tools (FOO-543, FOO-546) - Added log? parameter to analyzeFood, conversationalRefine, runToolLoop, executeTool; fixed unstructured log format
-- Task 5: Add optional logger to fitbit module (FOO-543) - Added log? parameter to all exported functions and internal helpers in fitbit.ts
-- Task 6: Add optional logger to remaining data layer modules (FOO-543) - Added log? parameter to nutrition-goals.ts, lumen.ts, claude-usage.ts
-- Task 7: Update all route handlers to use request-scoped loggers (FOO-543, FOO-545) - Updated all 30 route handlers with createRequestLogger, passed log to lib functions
-
-### Tasks Remaining
-- Task 8: Demote routine success logs to debug level (FOO-546)
-- Task 9: Add debug logging to Claude API and chat-tools (FOO-542)
-- Task 10: Add debug logging to data layer modules (FOO-544)
-- Task 11: Add timing to Claude and Fitbit API calls (FOO-547)
-- Task 12: Integration & Verification (all issues)
+- Task 1: Add tap-to-expand bottom sheet to MiniNutritionCard (FOO-550) — Added `"use client"`, useState, button wrapper, Dialog + NutritionFactsCard with full prop mapping including tier-1 nutrients
+- Task 2: Add tap-to-expand bottom sheet to AnalysisResult nutrition grid (FOO-551) — Wrapped grid in tappable button, added Dialog + NutritionFactsCard, added "Tap for full details" hint
+- Task 3: Compact chat header to single row (FOO-552) — Restructured header from two rows to `[← Back] [Meal Selector] [Log to Fitbit]` single flex row
+- Task 4: Integration verification — All tests pass, lint clean, build clean
 
 ### Files Modified
-- `src/lib/logger.ts` - Added requestId to createRequestLogger, switched to Web Crypto API, added startTimer() utility, re-exported Logger type
-- `src/lib/api-response.ts` - Removed auto-logging from errorResponse()
-- `src/lib/__tests__/api-response.test.ts` - Updated tests for removed auto-logging
-- `src/lib/__tests__/logger.test.ts` - Added tests for requestId and startTimer
-- `src/lib/claude.ts` - Added optional log? parameter to analyzeFood, conversationalRefine, runToolLoop; fixed unstructured logs; added data tool loop in analyzeFood
-- `src/lib/__tests__/claude.test.ts` - Added tests for data tool execution, logger threading, updated assertions
-- `src/lib/chat-tools.ts` - Added optional _log? parameter to executeTool
-- `src/lib/fitbit.ts` - Added optional log? parameter to all exported functions and fitbitRequest
-- `src/lib/__tests__/fitbit.test.ts` - Updated tests for logger parameter
-- `src/lib/nutrition-goals.ts` - Added optional log? parameter to upsertCalorieGoal, getCalorieGoalsByDateRange
-- `src/lib/lumen.ts` - Added optional log? parameter to exported functions
-- `src/lib/claude-usage.ts` - Added optional log? parameter to exported functions
-- All 30 route handlers in `src/app/api/` - Replaced global logger with createRequestLogger, pass log to lib calls
-- All 30 route test files in `src/app/api/` - Updated logger mocks to include createRequestLogger
+- `src/components/mini-nutrition-card.tsx` — Added `"use client"`, useState, button wrapper, Dialog with NutritionFactsCard
+- `src/components/__tests__/mini-nutrition-card.test.tsx` — Added ResizeObserver mock, 5 new tests for tap-to-expand behavior
+- `src/components/analysis-result.tsx` — Added useState, Dialog imports, wrapped grid in tappable button, added NutritionFactsCard dialog and tap hint
+- `src/components/__tests__/analysis-result.test.tsx` — Added 4 new tests for tap-to-expand behavior
+- `src/components/food-chat.tsx` — Restructured header from two-row to single-row layout
+- `src/components/__tests__/food-chat.test.tsx` — Updated header layout test to expect single-row structure
 
 ### Linear Updates
-- FOO-541: Todo → In Progress → Review
-- FOO-545: Todo → In Progress → Review
-- FOO-543: Todo → In Progress → Review
+- FOO-550: Todo → In Progress → Review
+- FOO-551: Todo → In Progress → Review
+- FOO-552: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Passed (no bugs found)
-- verifier: All 1821 tests pass, lint clean, build clean (zero warnings)
-
-### Review Findings
-
-Summary: 1 issue found (Team: security, reliability, quality reviewers)
-- FIX: 1 issue — Linear issue created
-- DISCARDED: 4 findings — false positives / not applicable
-
-**Issues requiring fix:**
-- [HIGH] ASYNC: analyzeFood missing AbortSignal support for tool loop path (`src/lib/claude.ts:436`, `src/app/api/analyze-food/route.ts:148`) — runToolLoop called without signal; inconsistent with conversationalRefine which correctly passes request.signal
-
-**Discarded findings (not bugs):**
-- [DISCARDED] BUG: ensureFreshToken race condition (`src/lib/fitbit.ts:482-523`) — False positive. No `await` between Map.get check (line 482) and Map.set (line 523); the async IIFE returns a Promise synchronously. JavaScript single-threaded event loop makes this sequence atomic.
-- [DISCARDED] EDGE CASE: parseTimeToMinutes doesn't validate time format (`src/lib/fasting.ts:12-14`) — False positive. Reviewer stated "schema defines time as text NOT NULL" but actual schema uses Postgres `time` type (`time("time").notNull()` in schema.ts:82), which enforces valid HH:mm:ss format at the database level.
-- [DISCARDED] RESOURCE: rate-limit store can exceed MAX_STORE_SIZE (`src/lib/rate-limit.ts:8-47`) — Single-user app with 15-minute rate limit windows. The cleanup mechanism is sufficient; unbounded growth cannot occur in practice.
-- [DISCARDED] SECURITY: User query parameters logged in debug (`src/lib/chat-tools.ts:352`, `src/lib/claude.ts:901`) — Explicitly approved by FOO-542: "DO log conversation text content at debug level". Debug logs are invisible in production unless LOG_LEVEL=debug is set.
-
-### Linear Updates
-- FOO-541: Review → Merge (original task completed)
-- FOO-545: Review → Merge
-- FOO-543: Review → Merge
-- FOO-548: Created in Todo (Fix: analyzeFood missing AbortSignal)
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-Point budget reached. Tasks 8-12 remain for next iteration.
-
----
-
-## Iteration 3
-
-**Implemented:** 2026-02-16
-**Method:** Single-agent (fly solo)
-
-### Tasks Completed This Iteration
-- Task 8: Demote routine success logs to debug level (FOO-546) - Changed routine GET success logs from info to debug in 10 route handlers and nutrition-goals.ts
-- Task 9: Add debug logging to Claude API and chat-tools (FOO-542) - Added comprehensive debug logging to analyzeFood, conversationalRefine, runToolLoop, executeTool with response details, token usage, tool call params
-- Task 10: Add debug logging to data layer modules (FOO-544) - Added debug entry/exit logging to all exported functions in food-log, fasting, food-matching, fitbit-tokens, fitbit-credentials, session-db, users, api-keys, rate-limit
-- Task 11: Add timing to Claude and Fitbit API calls (FOO-547) - Added startTimer()-based durationMs to Claude API calls (analyzeFood, conversationalRefine, runToolLoop iterations) and Fitbit API calls (fitbitRequest wrapper)
-- Task 12: Integration & Verification (all issues) - Fixed 3 bugs from bug-hunter: (1) ensureFreshToken logger propagation to credential/token functions, (2) chat-tools executeTool propagation to all helper functions, (3) all 16 route handlers propagating request-scoped logger to data layer calls; updated ~20 test files with expect.anything() for logger parameter assertions
-
-### Files Modified
-- `src/lib/chat-tools.ts` - Added log? param to executeGetNutritionSummary/executeGetFastingInfo, propagated log to all data layer calls
-- `src/lib/claude.ts` - Debug logging for API responses, token usage, timing instrumentation
-- `src/lib/fitbit.ts` - Timing in fitbitRequest, logger propagation fix in ensureFreshToken
-- `src/lib/food-log.ts` - Debug entry/exit logging for all exported functions
-- `src/lib/fasting.ts` - Debug logging for getFastingWindow/getFastingWindows
-- `src/lib/food-matching.ts` - Debug logging for findMatchingFoods
-- `src/lib/fitbit-tokens.ts` - Debug logging for token operations
-- `src/lib/fitbit-credentials.ts` - Debug logging for credential operations
-- `src/lib/session-db.ts` - Debug logging for session CRUD operations
-- `src/lib/users.ts` - Debug logging for user find/create
-- `src/lib/api-keys.ts` - Debug logging for key operations
-- `src/lib/rate-limit.ts` - Debug logging for rate limit checks
-- `src/lib/nutrition-goals.ts` - Demoted calorie goal upsert log to debug
-- `src/lib/lumen.ts` - Logger parameter support
-- `src/app/api/v1/food-log/route.ts` - Demoted success log to debug, logger propagation
-- `src/app/api/v1/nutrition-summary/route.ts` - Demoted success log to debug, logger propagation
-- `src/app/api/v1/lumen-goals/route.ts` - Demoted success log to debug
-- `src/app/api/v1/activity-summary/route.ts` - Demoted success log to debug
-- `src/app/api/v1/nutrition-goals/route.ts` - Demoted success log to debug
-- `src/app/api/fasting/route.ts` - Demoted success log to debug, logger propagation
-- `src/app/api/find-matches/route.ts` - Demoted success log to debug, logger propagation
-- `src/app/api/nutrition-summary/route.ts` - Demoted success log to debug, logger propagation
-- `src/app/api/claude-usage/route.ts` - Demoted success log to debug
-- `src/app/api/earliest-entry/route.ts` - Demoted success log to debug, logger propagation
-- `src/app/api/search-foods/route.ts` - Logger propagation to searchFoods
-- `src/app/api/food-history/route.ts` - Logger propagation to getFoodLogHistory
-- `src/app/api/food-history/[id]/route.ts` - Logger propagation to deleteFoodLogEntry
-- `src/app/api/common-foods/route.ts` - Logger propagation to getRecentFoods/getCommonFoods
-- `src/app/api/api-keys/route.ts` - Logger propagation to listApiKeys/createApiKey
-- `src/app/api/api-keys/[id]/route.ts` - Logger propagation to revokeApiKey
-- `src/app/api/fitbit-credentials/route.ts` - Logger propagation to credential functions
-- `src/app/api/auth/session/route.ts` - Logger propagation to getUserById
-- `src/app/api/auth/test-login/route.ts` - Logger propagation to getOrCreateUser/createSession
-- `src/app/api/auth/google/callback/route.ts` - Logger propagation to auth functions
-- `src/app/api/auth/fitbit/route.ts` - Logger propagation to getFitbitCredentials
-- `src/app/api/auth/fitbit/callback/route.ts` - Logger propagation to session/token functions
-- ~20 test files - Added expect.anything() for logger parameter assertions
-
-### Linear Updates
-- FOO-546: Todo → In Progress → Review (iteration 2) — completed this iteration
-- FOO-542: Todo → In Progress → Review (iteration 2) — completed this iteration
-- FOO-544: Todo → In Progress → Review (iteration 2) — completed this iteration
-- FOO-547: Todo → In Progress → Review (iteration 2) — completed this iteration
-
-### Pre-commit Verification
-- bug-hunter: Found 3 bugs, all fixed before proceeding
-- verifier: All 1826 tests pass, lint clean, build clean (zero warnings)
-
-### Review Findings
-
-Summary: 1 issue found (Team: security, reliability, quality reviewers)
-- FIX: 1 issue — Linear issue created
-- DISCARDED: 4 findings — false positives / not applicable
-
-**Issues requiring fix:**
-- [LOW] CONVENTION: truncateConversation missing optional logger parameter (`src/lib/claude.ts:711-748`) — Uses module-level `logger.debug()` instead of accepting `log?: Logger` parameter like all other functions in claude.ts. Breaks request-scoped logger correlation.
-
-**Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: Email addresses logged in debug (`src/lib/users.ts:23,36`) — Explicitly approved by FOO-544: "email (this is a single-user app so email is not sensitive across users)". Debug level only.
-- [DISCARDED] SECURITY: UserId logged in debug/info (`src/app/api/api-keys/route.ts:14,75`) — UserId is standard non-sensitive metadata; standard practice for request tracing.
-- [DISCARDED] CONVENTION: errorResponse details parameter potential info leak (`src/lib/api-response.ts:18`) — Unused parameter confirmed by grep. No current information leakage. Not a bug.
-- [DISCARDED] SECURITY: Tool call parameters logged in debug (`src/lib/claude.ts:901`) — Explicitly approved by FOO-542. Debug logs invisible in production.
-
-### Linear Updates
-- FOO-546: Review → Merge
-- FOO-542: Review → Merge
-- FOO-544: Review → Merge
-- FOO-547: Review → Merge
-- FOO-549: Created in Todo (Fix: truncateConversation logger parameter)
-
-<!-- REVIEW COMPLETE -->
+- bug-hunter: Found 1 medium accessibility bug (missing food name in aria-label), fixed before proceeding. 1 medium and 1 low skipped as false positives (matching existing patterns).
+- verifier: All 1837 tests pass, zero warnings
 
 ### Continuation Status
 All tasks completed.
 
----
-
-## Fix Plan
-
-**Source:** Review findings from Iterations 2 and 3
-**Linear Issues:** [FOO-548](https://linear.app/lw-claude/issue/FOO-548/analyzefood-missing-abortsignal-support-for-tool-loop-path), [FOO-549](https://linear.app/lw-claude/issue/FOO-549/truncateconversation-missing-optional-logger-parameter)
-
-### Fix 1: Add AbortSignal support to analyzeFood
-**Linear Issue:** [FOO-548](https://linear.app/lw-claude/issue/FOO-548/analyzefood-missing-abortsignal-support-for-tool-loop-path)
-
-1. Write test in `src/lib/__tests__/claude.test.ts` verifying analyzeFood accepts and threads AbortSignal to runToolLoop
-2. Add `signal?: AbortSignal` parameter to `analyzeFood()` in `src/lib/claude.ts`
-3. Pass signal to `runToolLoop()` options at line 436
-4. Update `src/app/api/analyze-food/route.ts` to pass `request.signal` to `analyzeFood()`
-5. Update route test to verify signal propagation
-
-### Fix 2: Add logger parameter to truncateConversation
-**Linear Issue:** [FOO-549](https://linear.app/lw-claude/issue/FOO-549/truncateconversation-missing-optional-logger-parameter)
-
-1. Add `log?: Logger` parameter to `truncateConversation()` in `src/lib/claude.ts`
-2. Use `const l = log ?? logger` pattern, replace `logger.debug` with `l.debug`
-3. Pass logger from `conversationalRefine()` caller
-4. Update test if needed
-
----
-
-## Iteration 4
-
-**Implemented:** 2026-02-16
-**Method:** Single-agent (fly solo)
-
-### Tasks Completed This Iteration
-- Fix 1: Add AbortSignal support to analyzeFood (FOO-548) - Added `signal?: AbortSignal` parameter to `analyzeFood()`, passed to `runToolLoop()` options and to all `messages.create()` API calls; route handler passes `request.signal`
-- Fix 2: Add logger parameter to truncateConversation (FOO-549) - Added `log?: Logger` parameter, uses `const l = log ?? logger` pattern, `conversationalRefine()` passes request-scoped logger
-
-### Files Modified
-- `src/lib/claude.ts` - Added `signal?: AbortSignal` to `analyzeFood()`, passed signal to all 3 `messages.create()` calls (analyzeFood, conversationalRefine, runToolLoop) and to `runToolLoop()` options; added `log?: Logger` to `truncateConversation()`, passed logger from `conversationalRefine()`
-- `src/lib/__tests__/claude.test.ts` - Added AbortSignal threading test, truncateConversation logger test, updated 6 `mockCreate.toHaveBeenCalledWith` assertions for second `{ signal }` arg
-- `src/app/api/analyze-food/route.ts` - Pass `request.signal` to `analyzeFood()`
-- `src/app/api/analyze-food/__tests__/route.test.ts` - Added `signal` to mock Request objects, updated 6 `mockAnalyzeFood.toHaveBeenCalledWith` assertions for signal parameter
-
-### Linear Updates
-- FOO-548: Todo → In Progress → Review
-- FOO-549: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 3 issues (signal not passed to actual API calls), all fixed
-- verifier: All 1828 tests pass, lint clean, build clean (zero warnings)
-
 ### Review Findings
 
-Files reviewed: 4
+Files reviewed: 6
 Reviewer: single-agent (security, reliability, quality)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, MIGRATIONS.md
 
-No issues found - both fix implementations are correct and follow project conventions.
+No issues found - all implementations are correct and follow project conventions.
 
-- AbortSignal properly threaded through analyzeFood → messages.create (3 call sites) and → runToolLoop
-- truncateConversation follows the `const l = log ?? logger` pattern consistently with all other functions
-- All mockCreate assertions updated with `expect.anything()` for the second `{ signal }` argument
-- Route test mock includes `signal: new AbortController().signal` on Request objects
-- No MIGRATIONS.md update needed (no DB/env/session changes)
+**Discarded findings (not bugs):**
+- [DISCARDED] CONVENTION: Leftover `space-y-2` class on header container (`src/components/food-chat.tsx:413`) — With the new single-child-per-branch structure, this class is a no-op. Style-only, zero correctness impact.
 
 ### Linear Updates
-- FOO-548: Review → Merge
-- FOO-549: Review → Merge
+- FOO-550: Review → Merge
+- FOO-551: Review → Merge
+- FOO-552: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 
