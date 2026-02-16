@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import type { FoodAnalysis } from "@/types";
 import { getUnitLabel } from "@/types";
 import { Button } from "@/components/ui/button";
 import { ConfidenceBadge } from "@/components/confidence-badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 
 interface AnalysisResultProps {
   analysis: FoodAnalysis | null;
@@ -20,6 +23,7 @@ export function AnalysisResult({
   onRetry,
   loadingStep,
 }: AnalysisResultProps) {
+  const [detailOpen, setDetailOpen] = useState(false);
   if (loading) {
     return (
       <div
@@ -75,15 +79,46 @@ export function AnalysisResult({
         </div>
       )}
 
-      {/* Main nutrition grid */}
-      <div className="grid grid-cols-2 gap-4">
-        <NutritionItem label="Calories" value={analysis.calories} unit="kcal" />
-        <NutritionItem label="Protein" value={analysis.protein_g} unit="g" />
-        <NutritionItem label="Carbs" value={analysis.carbs_g} unit="g" />
-        <NutritionItem label="Fat" value={analysis.fat_g} unit="g" />
-        <NutritionItem label="Fiber" value={analysis.fiber_g} unit="g" />
-        <NutritionItem label="Sodium" value={analysis.sodium_mg} unit="mg" />
-      </div>
+      {/* Main nutrition grid — tappable */}
+      <button
+        type="button"
+        onClick={() => setDetailOpen(true)}
+        aria-label={`View full nutrition details for ${analysis.food_name}`}
+        className="w-full text-left cursor-pointer"
+      >
+        <div className="grid grid-cols-2 gap-4">
+          <NutritionItem label="Calories" value={analysis.calories} unit="kcal" />
+          <NutritionItem label="Protein" value={analysis.protein_g} unit="g" />
+          <NutritionItem label="Carbs" value={analysis.carbs_g} unit="g" />
+          <NutritionItem label="Fat" value={analysis.fat_g} unit="g" />
+          <NutritionItem label="Fiber" value={analysis.fiber_g} unit="g" />
+          <NutritionItem label="Sodium" value={analysis.sodium_mg} unit="mg" />
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">Tap for full details</p>
+      </button>
+
+      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
+        <DialogContent variant="bottom-sheet" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle className="sr-only">{analysis.food_name}</DialogTitle>
+          </DialogHeader>
+          <NutritionFactsCard
+            foodName={analysis.food_name}
+            calories={analysis.calories}
+            proteinG={analysis.protein_g}
+            carbsG={analysis.carbs_g}
+            fatG={analysis.fat_g}
+            fiberG={analysis.fiber_g}
+            sodiumMg={analysis.sodium_mg}
+            unitId={analysis.unit_id}
+            amount={analysis.amount}
+            saturatedFatG={analysis.saturated_fat_g}
+            transFatG={analysis.trans_fat_g}
+            sugarsG={analysis.sugars_g}
+            caloriesFromFat={analysis.calories_from_fat}
+          />
+        </DialogContent>
+      </Dialog>
 
       {/* Notes section */}
       {analysis.notes && (

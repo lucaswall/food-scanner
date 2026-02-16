@@ -958,27 +958,29 @@ describe("FoodChat", () => {
     });
   });
 
-  it("header has two-row layout: Back+Log row, then MealTypeSelector row", () => {
+  it("header has single-row layout: Back, MealTypeSelector, Log button", () => {
     render(<FoodChat {...defaultProps} />);
 
-    // Find header elements
     const backButton = screen.getByRole("button", { name: /back/i });
     const logButton = screen.getByRole("button", { name: /log to fitbit/i });
     const mealTypeSelector = screen.getByTestId("meal-type-selector");
 
-    // Verify Back and Log buttons are in the same row (common parent)
-    const buttonsRow = backButton.parentElement;
-    expect(buttonsRow).toContainElement(logButton);
+    // All three controls should share the same parent flex row
+    const row = backButton.parentElement;
+    expect(row).toContainElement(logButton);
+    expect(row).toContainElement(mealTypeSelector);
 
-    // The buttons row should have justify-between styling
-    expect(buttonsRow?.className).toMatch(/justify-between/);
+    // The row should be a flex container (not space-y-2 / two rows)
+    expect(row?.className).toMatch(/flex/);
+    expect(row?.className).not.toMatch(/space-y/);
 
-    // MealTypeSelector should be in a separate row (not in the buttons row)
-    expect(buttonsRow).not.toContainElement(mealTypeSelector);
-
-    // MealTypeSelector should be in its own full-width row
-    const selectorRow = mealTypeSelector.parentElement;
-    expect(selectorRow?.className).toMatch(/w-full/);
+    // MealTypeSelector should be between back and log in DOM order
+    const children = Array.from(row!.children);
+    const backIdx = children.indexOf(backButton);
+    const selectorIdx = children.findIndex(el => el.contains(mealTypeSelector) || el === mealTypeSelector);
+    const logIdx = children.indexOf(logButton);
+    expect(backIdx).toBeLessThan(selectorIdx);
+    expect(selectorIdx).toBeLessThan(logIdx);
   });
 
   // FOO-519: Free-form chat mode tests (no initial analysis)

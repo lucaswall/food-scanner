@@ -412,33 +412,15 @@ export function FoodChat({
       {/* Top header: Conditional layout based on analysis presence */}
       <div className="border-b bg-background px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] space-y-2">
         {latestAnalysis ? (
-          <>
-            {/* Row 1: Back button + Log to Fitbit button */}
-            <div className="flex items-center justify-between gap-2">
-              <button
-                onClick={onClose}
-                aria-label="Back"
-                className="shrink-0 flex items-center justify-center size-11 rounded-full"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <Button
-                onClick={handleLog}
-                disabled={logging}
-                className="shrink-0 min-h-[44px]"
-              >
-                {logging ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    Logging...
-                  </>
-                ) : (
-                  "Log to Fitbit"
-                )}
-              </Button>
-            </div>
-            {/* Row 2: MealTypeSelector full width */}
-            <div className="w-full">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              aria-label="Back"
+              className="shrink-0 flex items-center justify-center size-11 rounded-full"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </button>
+            <div className="flex-1 min-w-0">
               <MealTypeSelector
                 value={mealTypeId}
                 onChange={setMealTypeId}
@@ -446,7 +428,21 @@ export function FoodChat({
                 ariaLabel="Meal type"
               />
             </div>
-          </>
+            <Button
+              onClick={handleLog}
+              disabled={logging}
+              className="shrink-0 min-h-[44px]"
+            >
+              {logging ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Logging...
+                </>
+              ) : (
+                "Log to Fitbit"
+              )}
+            </Button>
+          </div>
         ) : (
           /* Simple header: Back button + Title */
           <div className="flex items-center gap-2">
