@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FoodChat } from "../food-chat";
-import type { FoodAnalysis, FoodLogResponse } from "@/types";
+import type { FoodAnalysis, FoodLogResponse, ConversationMessage } from "@/types";
 import { compressImage } from "@/lib/image";
 
 // Mock ResizeObserver for Radix UI and scrollIntoView for auto-scroll
@@ -69,6 +69,10 @@ const mockAnalysis: FoodAnalysis = {
   fat_g: 18,
   fiber_g: 2,
   sodium_mg: 450,
+  saturated_fat_g: null,
+  trans_fat_g: null,
+  sugars_g: null,
+  calories_from_fat: null,
   confidence: "high",
   notes: "Standard Argentine beef empanada",
   description: "A golden-brown baked empanada on a white plate",
@@ -1021,6 +1025,10 @@ describe("FoodChat", () => {
         fat_g: 5,
         fiber_g: 3,
         sodium_mg: 100,
+        saturated_fat_g: null,
+        trans_fat_g: null,
+        sugars_g: null,
+        calories_from_fat: null,
         confidence: "high",
         notes: "Fresh salad",
         description: "Green salad",
@@ -1077,6 +1085,10 @@ describe("FoodChat", () => {
         fat_g: 10,
         fiber_g: 2,
         sodium_mg: 640,
+        saturated_fat_g: null,
+        trans_fat_g: null,
+        sugars_g: null,
+        calories_from_fat: null,
         confidence: "high",
         notes: "Pepperoni pizza",
         description: "Pizza slice",
@@ -1248,6 +1260,118 @@ describe("FoodChat", () => {
       const select = selector.querySelector("select") as HTMLSelectElement;
       // Default meal type is determined by time of day, so just verify it's set
       expect(select.value).toMatch(/^[1-7]$/);
+    });
+  });
+
+  // FOO-532: Seeded conversation support
+  describe("seeded conversations", () => {
+    const seedMessages: ConversationMessage[] = [
+      { role: "user", content: "same as yesterday but half" },
+      { role: "assistant", content: "Let me check what you had yesterday..." },
+    ];
+
+    it("renders seed messages when seedMessages prop is provided", () => {
+      render(
+        <FoodChat
+          seedMessages={seedMessages}
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText("same as yesterday but half")).toBeInTheDocument();
+      expect(screen.getByText("Let me check what you had yesterday...")).toBeInTheDocument();
+    });
+
+    it("does not show default greeting when seedMessages is provided", () => {
+      render(
+        <FoodChat
+          seedMessages={seedMessages}
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByText(/Hi! Ask me anything/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/I analyzed your food/i)).not.toBeInTheDocument();
+    });
+
+    it("sends ALL seed messages in API request (no slice(1) skipping)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({
+            success: true,
+            data: { message: "Here's what I found..." },
+          })),
+      });
+
+      render(
+        <FoodChat
+          seedMessages={seedMessages}
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Go ahead" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      });
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      // Should include all messages: 2 seed + 1 user = 3
+      expect(body.messages).toHaveLength(3);
+      expect(body.messages[0]).toEqual({ role: "user", content: "same as yesterday but half" });
+      expect(body.messages[1]).toEqual({ role: "assistant", content: "Let me check what you had yesterday..." });
+      expect(body.messages[2]).toEqual({ role: "user", content: "Go ahead" });
+    });
+
+    it("seed messages do not count toward message limit", () => {
+      render(
+        <FoodChat
+          seedMessages={seedMessages}
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      // Should not show any limit warnings — seed messages shouldn't count
+      expect(screen.queryByTestId("limit-warning")).not.toBeInTheDocument();
+      // Input should still be enabled
+      const input = screen.getByPlaceholderText(/type a message/i) as HTMLInputElement;
+      expect(input).not.toBeDisabled();
+    });
+
+    it("existing behavior unchanged when seedMessages is not provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({
+            success: true,
+            data: { message: "Response" },
+          })),
+      });
+
+      render(<FoodChat {...defaultProps} />);
+
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Test" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      });
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      // Without seedMessages: slice(1) skips initial assistant message, only user message sent
+      expect(body.messages).toHaveLength(1);
+      expect(body.messages[0].role).toBe("user");
     });
   });
 });

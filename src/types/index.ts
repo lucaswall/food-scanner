@@ -62,15 +62,27 @@ export interface FoodAnalysis {
   fat_g: number;
   fiber_g: number;
   sodium_mg: number;
-  saturated_fat_g?: number | null;
-  trans_fat_g?: number | null;
-  sugars_g?: number | null;
-  calories_from_fat?: number | null;
+  saturated_fat_g: number | null;
+  trans_fat_g: number | null;
+  sugars_g: number | null;
+  calories_from_fat: number | null;
   confidence: "high" | "medium" | "low";
   notes: string;
   description: string;
   keywords: string[];
 }
+
+export interface AnalyzeFoodDirectResult {
+  type: "analysis";
+  analysis: FoodAnalysis;
+}
+
+export interface AnalyzeFoodNeedsChatResult {
+  type: "needs_chat";
+  message: string;
+}
+
+export type AnalyzeFoodResult = AnalyzeFoodDirectResult | AnalyzeFoodNeedsChatResult;
 
 export interface FoodLogRequest extends FoodAnalysis {
   mealTypeId: number; // 1,2,3,4,5,7

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { FoodAnalysis } from "@/types";
+import type { FoodAnalysis, AnalyzeFoodResult } from "@/types";
 
 // Mock the Anthropic SDK
 const mockCreate = vi.fn();
@@ -82,7 +82,7 @@ describe("Anthropic SDK configuration", () => {
       stop_reason: "tool_use",
     });
 
-    await analyzeFood([], undefined, "test-user").catch(() => {});
+    await analyzeFood([], undefined, "test-user", "2026-02-15").catch(() => {});
 
     expect(mockConstructorArgs).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -102,7 +102,7 @@ describe("analyzeFood", () => {
     vi.resetModules();
   });
 
-  it("returns FoodAnalysis for valid tool_use response", async () => {
+  it("returns analysis result for valid report_nutrition tool_use response", async () => {
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-5-20250929",
       content: [
@@ -120,13 +120,214 @@ describe("analyzeFood", () => {
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood(
+    const result: AnalyzeFoodResult = await analyzeFood(
       [{ base64: "abc123", mimeType: "image/jpeg" }],
       undefined,
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
-    expect(result).toEqual(validAnalysis);
+    expect(result).toEqual({ type: "analysis", analysis: validAnalysis });
+  });
+
+  it("returns needs_chat when Claude responds with text only (no tool_use)", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "text",
+          text: "Let me check what you had yesterday...",
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      "same as yesterday",
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toEqual({
+      type: "needs_chat",
+      message: "Let me check what you had yesterday...",
+    });
+  });
+
+  it("returns needs_chat when Claude calls a data tool without report_nutrition", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "text",
+          text: "Let me look that up for you.",
+        },
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "search_food_log",
+          input: { query: "yesterday" },
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood(
+      [],
+      "same as yesterday but half",
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toEqual({
+      type: "needs_chat",
+      message: "Let me look that up for you.",
+    });
+  });
+
+  it("returns analysis when Claude calls both report_nutrition and a data tool", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "text",
+          text: "Here's the analysis.",
+        },
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "search_food_log",
+          input: { query: "yesterday" },
+        },
+        {
+          type: "tool_use",
+          id: "tool_789",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood(
+      [],
+      "grilled chicken",
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toEqual({ type: "analysis", analysis: validAnalysis });
+  });
+
+  it("returns needs_chat with empty message when Claude returns only data tool calls", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "search_food_log",
+          input: { query: "yesterday" },
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood(
+      [],
+      "same as yesterday",
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toEqual({
+      type: "needs_chat",
+      message: "",
+    });
+  });
+
+  it("passes all 5 tools to Claude API with tool_choice auto", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    // Should have 5 tools: web_search, report_nutrition, search_food_log, get_nutrition_summary, get_fasting_info
+    expect(call.tools).toHaveLength(5);
+    expect(call.tools.map((t: { name: string }) => t.name)).toEqual([
+      "web_search",
+      "report_nutrition",
+      "search_food_log",
+      "get_nutrition_summary",
+      "get_fasting_info",
+    ]);
+    expect(call.tool_choice).toEqual({ type: "auto" });
+  });
+
+  it("includes current date in system prompt", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    expect(call.system[0].text).toContain("2026-02-15");
   });
 
   it("calls recordUsage with correct arguments after successful analysis", async () => {
@@ -152,7 +353,8 @@ describe("analyzeFood", () => {
     await analyzeFood(
       [{ base64: "abc123", mimeType: "image/jpeg" }],
       undefined,
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
@@ -199,11 +401,12 @@ describe("analyzeFood", () => {
     const result = await analyzeFood(
       [{ base64: "abc123", mimeType: "image/jpeg" }],
       undefined,
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
     // Should return immediately without waiting for recordUsage
-    expect(result).toEqual(validAnalysis);
+    expect(result).toEqual({ type: "analysis", analysis: validAnalysis });
     expect(recordUsageResolved).toBe(false);
   });
 
@@ -230,10 +433,11 @@ describe("analyzeFood", () => {
     const result = await analyzeFood(
       [{ base64: "abc123", mimeType: "image/jpeg" }],
       undefined,
-      "user-123"
+      "user-123",
+      "2026-02-15"
     );
 
-    expect(result).toEqual(validAnalysis);
+    expect(result).toEqual({ type: "analysis", analysis: validAnalysis });
     expect(mockRecordUsage).toHaveBeenCalled();
   });
 
@@ -243,7 +447,7 @@ describe("analyzeFood", () => {
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123")
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
 
     // Should be called exactly once (no retry)
@@ -252,25 +456,38 @@ describe("analyzeFood", () => {
     expect(mockRecordUsage).not.toHaveBeenCalled();
   });
 
-  it("throws CLAUDE_API_ERROR when no tool_use block in response", async () => {
+  it("returns needs_chat when no report_nutrition tool_use in response", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "text",
           text: "I cannot analyze this image",
         },
       ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
-    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
+    expect(result).toEqual({
+      type: "needs_chat",
+      message: "I cannot analyze this image",
+    });
   });
 
   it("passes correct system prompt and tool definition to Claude", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -279,12 +496,15 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
     await analyzeFood(
       [{ base64: "abc123", mimeType: "image/jpeg" }],
-      "Test description"
+      "Test description",
+      "user-123",
+      "2026-02-15"
     );
 
     expect(mockCreate).toHaveBeenCalledWith(
@@ -300,19 +520,9 @@ describe("analyzeFood", () => {
         tools: expect.arrayContaining([
           expect.objectContaining({
             name: "report_nutrition",
-            input_schema: expect.objectContaining({
-              type: "object",
-              required: expect.arrayContaining([
-                "food_name",
-                "amount",
-                "unit_id",
-                "calories",
-                "protein_g",
-              ]),
-            }),
           }),
         ]),
-        tool_choice: { type: "tool", name: "report_nutrition" },
+        tool_choice: { type: "auto" },
         messages: expect.arrayContaining([
           expect.objectContaining({
             role: "user",
@@ -338,6 +548,7 @@ describe("analyzeFood", () => {
 
   it("returns amount and unit_id from Claude response", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -346,19 +557,27 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.amount).toBe(150);
-    expect(result.unit_id).toBe(147);
+    expect(result.type).toBe("analysis");
+    if (result.type === "analysis") {
+      expect(result.analysis.amount).toBe(150);
+      expect(result.analysis.unit_id).toBe(147);
+    }
   });
 
   it("uses default text when no description provided", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -367,10 +586,11 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15");
 
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -390,6 +610,7 @@ describe("analyzeFood", () => {
 
   it("supports multiple images", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -398,13 +619,19 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    await analyzeFood([
-      { base64: "img1", mimeType: "image/jpeg" },
-      { base64: "img2", mimeType: "image/png" },
-    ]);
+    await analyzeFood(
+      [
+        { base64: "img1", mimeType: "image/jpeg" },
+        { base64: "img2", mimeType: "image/png" },
+      ],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
     const call = mockCreate.mock.calls[0][0];
     const imageBlocks = call.messages[0].content.filter(
@@ -417,6 +644,7 @@ describe("analyzeFood", () => {
 
   it("includes web_search tool in analyzeFood tools array", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -429,7 +657,7 @@ describe("analyzeFood", () => {
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15");
 
     const call = mockCreate.mock.calls[0][0];
     // web_search tool should be first in the array
@@ -449,6 +677,7 @@ describe("analyzeFood", () => {
 
   it("configures SDK with explicit maxRetries", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -457,17 +686,19 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15");
 
     // Verify client is initialized (indirect test - we can't directly inspect Anthropic constructor)
     expect(mockCreate).toHaveBeenCalled();
   });
 
-  it("throws when tool_use output has missing fields", async () => {
+  it("throws when report_nutrition tool_use output has missing fields", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -476,17 +707,19 @@ describe("analyzeFood", () => {
           input: { food_name: "Test" }, // missing most fields
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
   it("throws when numeric fields are strings", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -498,17 +731,19 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
   it("throws when numeric fields are negative", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -520,18 +755,20 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
 
   it("throws when confidence is not a valid enum value", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -543,17 +780,19 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
   it("throws when validateFoodAnalysis input is null", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -562,17 +801,19 @@ describe("analyzeFood", () => {
           input: null,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
   it("throws when validateFoodAnalysis input is a string", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -581,17 +822,19 @@ describe("analyzeFood", () => {
           input: "not an object",
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
   it("returns properly typed FoodAnalysis with all fields", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -600,30 +843,38 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    // Verify each field is explicitly present (not just a cast)
-    expect(result.food_name).toBe("Empanada de carne");
-    expect(result.amount).toBe(150);
-    expect(result.unit_id).toBe(147);
-    expect(result.calories).toBe(320);
-    expect(result.protein_g).toBe(12);
-    expect(result.carbs_g).toBe(28);
-    expect(result.fat_g).toBe(18);
-    expect(result.fiber_g).toBe(2);
-    expect(result.sodium_mg).toBe(450);
-    expect(result.confidence).toBe("high");
-    expect(result.notes).toBe("Standard Argentine beef empanada, baked style");
+    expect(result.type).toBe("analysis");
+    if (result.type === "analysis") {
+      // Verify each field is explicitly present (not just a cast)
+      expect(result.analysis.food_name).toBe("Empanada de carne");
+      expect(result.analysis.amount).toBe(150);
+      expect(result.analysis.unit_id).toBe(147);
+      expect(result.analysis.calories).toBe(320);
+      expect(result.analysis.protein_g).toBe(12);
+      expect(result.analysis.carbs_g).toBe(28);
+      expect(result.analysis.fat_g).toBe(18);
+      expect(result.analysis.fiber_g).toBe(2);
+      expect(result.analysis.sodium_mg).toBe(450);
+      expect(result.analysis.confidence).toBe("high");
+      expect(result.analysis.notes).toBe("Standard Argentine beef empanada, baked style");
+    }
   });
 
 
   it("validates keywords array of strings in Claude response", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -632,14 +883,21 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.keywords).toEqual(["empanada", "carne", "horno"]);
+    expect(result.type).toBe("analysis");
+    if (result.type === "analysis") {
+      expect(result.analysis.keywords).toEqual(["empanada", "carne", "horno"]);
+    }
   });
 
   it("throws when keywords is not an array", async () => {
@@ -655,12 +913,13 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -677,12 +936,13 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -699,12 +959,13 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -721,14 +982,20 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.keywords).toEqual(["cerveza", "sin-alcohol", "clausthaler"]);
+    expect(result.type).toBe("analysis");
+    const analysis = (result as { type: "analysis"; analysis: FoodAnalysis }).analysis;
+    expect(analysis.keywords).toEqual(["cerveza", "sin-alcohol", "clausthaler"]);
   });
 
   it("trims and lowercases keywords", async () => {
@@ -744,14 +1011,20 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
+    expect(result.type).toBe("analysis");
+    const analysis = (result as { type: "analysis"; analysis: FoodAnalysis }).analysis;
+    expect(analysis.keywords).toEqual(["cerveza", "sin-alcohol"]);
   });
 
   it("deduplicates keywords after normalization", async () => {
@@ -767,14 +1040,20 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
+    expect(result.type).toBe("analysis");
+    const analysis = (result as { type: "analysis"; analysis: FoodAnalysis }).analysis;
+    expect(analysis.keywords).toEqual(["cerveza", "sin-alcohol"]);
   });
 
   it("caps keywords at 5 items keeping first 5", async () => {
@@ -790,14 +1069,20 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.keywords).toHaveLength(5);
+    expect(result.type).toBe("analysis");
+    const analysis = (result as { type: "analysis"; analysis: FoodAnalysis }).analysis;
+    expect(analysis.keywords).toHaveLength(5);
   });
 
   it("removes empty keywords after trimming", async () => {
@@ -813,18 +1098,25 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
+    expect(result.type).toBe("analysis");
+    const analysis = (result as { type: "analysis"; analysis: FoodAnalysis }).analysis;
+    expect(analysis.keywords).toEqual(["cerveza", "sin-alcohol"]);
   });
 
   it("works with text-only (no images)", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -833,12 +1125,13 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([], "2 medialunas y un cortado");
+    const result = await analyzeFood([], "2 medialunas y un cortado", "user-123", "2026-02-15");
 
-    expect(result).toEqual(validAnalysis);
+    expect(result).toEqual({ type: "analysis", analysis: validAnalysis });
 
     // Verify no image blocks in the API call
     const call = mockCreate.mock.calls[0][0];
@@ -857,6 +1150,7 @@ describe("analyzeFood", () => {
 
   it("text-only uses description as the sole content block", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -865,10 +1159,11 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    await analyzeFood([], "A bowl of lentil soup");
+    await analyzeFood([], "A bowl of lentil soup", "user-123", "2026-02-15");
 
     const call = mockCreate.mock.calls[0][0];
     const content = call.messages[0].content;
@@ -892,10 +1187,11 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15");
 
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -927,10 +1223,11 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15");
 
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -961,10 +1258,11 @@ describe("analyzeFood", () => {
           input: validAnalysis,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15");
 
     const call = mockCreate.mock.calls[0][0];
     // tools[0] is web_search, tools[1] is report_nutrition
@@ -983,6 +1281,7 @@ describe("analyzeFood", () => {
 
   it("validates description as required string", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -994,12 +1293,13 @@ describe("analyzeFood", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -1008,6 +1308,7 @@ describe("analyzeFood", () => {
     delete (analysisWithoutDescription as Partial<FoodAnalysis>).description;
 
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -1016,12 +1317,21 @@ describe("analyzeFood", () => {
           input: analysisWithoutDescription,
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.description).toBe("");
+    expect(result.type).toBe("analysis");
+    if (result.type === "analysis") {
+      expect(result.analysis.description).toBe("");
+    }
   });
 });
 
@@ -1036,6 +1346,7 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
 
   it("accepts valid input with all 4 Tier 1 fields as numbers", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -1050,21 +1361,28 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.saturated_fat_g).toBe(5.5);
-    expect(result.trans_fat_g).toBe(0.2);
-    expect(result.sugars_g).toBe(3.0);
-    expect(result.calories_from_fat).toBe(162);
+    expect(result.type).toBe("analysis");
+    const a = (result as { type: "analysis"; analysis: FoodAnalysis }).analysis;
+    expect(a.saturated_fat_g).toBe(5.5);
+    expect(a.trans_fat_g).toBe(0.2);
+    expect(a.sugars_g).toBe(3.0);
+    expect(a.calories_from_fat).toBe(162);
   });
 
   it("accepts valid input with all 4 Tier 1 fields as null", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -1079,21 +1397,28 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.saturated_fat_g).toBeNull();
-    expect(result.trans_fat_g).toBeNull();
-    expect(result.sugars_g).toBeNull();
-    expect(result.calories_from_fat).toBeNull();
+    expect(result.type).toBe("analysis");
+    const a = (result as { type: "analysis"; analysis: FoodAnalysis }).analysis;
+    expect(a.saturated_fat_g).toBeNull();
+    expect(a.trans_fat_g).toBeNull();
+    expect(a.sugars_g).toBeNull();
+    expect(a.calories_from_fat).toBeNull();
   });
 
   it("accepts valid input with Tier 1 fields omitted (backward compat)", async () => {
     mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
       content: [
         {
           type: "tool_use",
@@ -1102,18 +1427,24 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           input: validAnalysis, // no Tier 1 fields
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
+    expect(result.type).toBe("analysis");
+    const a = (result as { type: "analysis"; analysis: FoodAnalysis }).analysis;
     // Should default to null when omitted
-    expect(result.saturated_fat_g).toBeNull();
-    expect(result.trans_fat_g).toBeNull();
-    expect(result.sugars_g).toBeNull();
-    expect(result.calories_from_fat).toBeNull();
+    expect(a.saturated_fat_g).toBeNull();
+    expect(a.trans_fat_g).toBeNull();
+    expect(a.sugars_g).toBeNull();
+    expect(a.calories_from_fat).toBeNull();
   });
 
   it("rejects negative values for saturated_fat_g", async () => {
@@ -1129,12 +1460,13 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -1151,12 +1483,13 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -1173,12 +1506,13 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -1195,12 +1529,13 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -1217,12 +1552,13 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -1239,12 +1575,13 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
 
     await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
+      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15")
     ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
@@ -1264,20 +1601,27 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
           },
         },
       ],
+      usage: { input_tokens: 100, output_tokens: 50 },
     });
 
     const { analyzeFood } = await import("@/lib/claude");
-    const result = await analyzeFood([
-      { base64: "abc123", mimeType: "image/jpeg" },
-    ]);
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    expect(result.saturated_fat_g).toBe(0);
-    expect(result.trans_fat_g).toBe(0);
-    expect(result.sugars_g).toBe(0);
-    expect(result.calories_from_fat).toBe(0);
+    expect(result.type).toBe("analysis");
+    if (result.type === "analysis") {
+      expect(result.analysis.saturated_fat_g).toBe(0);
+      expect(result.analysis.trans_fat_g).toBe(0);
+      expect(result.analysis.sugars_g).toBe(0);
+      expect(result.analysis.calories_from_fat).toBe(0);
+    }
   });
 
-  it("handles refusal stop_reason in analyzeFood", async () => {
+  it("handles refusal stop_reason in analyzeFood as needs_chat", async () => {
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-5-20250929",
       stop_reason: "refusal",
@@ -1294,10 +1638,17 @@ describe("validateFoodAnalysis with Tier 1 nutrients", () => {
     });
 
     const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood(
+      [{ base64: "abc123", mimeType: "image/jpeg" }],
+      undefined,
+      "user-123",
+      "2026-02-15"
+    );
 
-    await expect(
-      analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }])
-    ).rejects.toMatchObject({ name: "CLAUDE_API_ERROR", message: expect.stringContaining("No tool_use block") });
+    expect(result).toEqual({
+      type: "needs_chat",
+      message: "I cannot analyze this image.",
+    });
   });
 });
 

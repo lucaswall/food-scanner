@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { FoodAnalysis, ConversationMessage } from "@/types";
+import type { FoodAnalysis, ConversationMessage, AnalyzeFoodResult } from "@/types";
 import { getUnitLabel } from "@/types";
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
@@ -270,26 +270,44 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   };
 }
 
+const ANALYSIS_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+You have access to the user's food log, nutrition summaries, and fasting data through the available tools.
+
+Follow these rules:
+- For clearly described or photographed foods (e.g., "grilled chicken with rice", a photo of a salad), call report_nutrition immediately with complete nutritional information
+- When the user references past meals, history, or goals (e.g., "same as yesterday", "half of what I had Monday"), use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) to look up their actual data
+- If the request is ambiguous and needs clarification, respond with text to ask the user
+- Base your answers on real data from the tools, not assumptions
+
+Web search guidelines:
+- You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
+- Do NOT search for generic or common foods like "an apple", "grilled chicken with rice", or "scrambled eggs" — estimate those from your training data.
+- When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
+- If web search returns nothing useful, fall back to estimation from your training data and say so.`;
+
 export async function analyzeFood(
   images: ImageInput[],
-  description?: string,
-  userId?: string
-): Promise<FoodAnalysis> {
+  description: string | undefined,
+  userId: string,
+  currentDate: string
+): Promise<AnalyzeFoodResult> {
   try {
     logger.info(
       { imageCount: images.length, hasDescription: !!description },
       "calling Claude API for food analysis"
     );
 
-    // Add cache_control to last tool (don't mutate original)
-    // web_search first so cache_control spread targets the custom tool
-    const toolsWithCache = [
-      WEB_SEARCH_TOOL,
-      {
-        ...REPORT_NUTRITION_TOOL,
-        cache_control: { type: "ephemeral" as const },
-      },
-    ];
+    const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
+
+    // Add cache_control to last tool (don't mutate originals)
+    const toolsWithCache = allTools.map((tool, index) =>
+      index === allTools.length - 1
+        ? { ...tool, cache_control: { type: "ephemeral" as const } }
+        : tool
+    );
+
+    const systemPrompt = `${ANALYSIS_SYSTEM_PROMPT}\n\nToday's date is: ${currentDate}`;
 
     const response = await getClient().messages.create({
       model: CLAUDE_MODEL,
@@ -297,12 +315,12 @@ export async function analyzeFood(
       system: [
         {
           type: "text" as const,
-          text: SYSTEM_PROMPT,
+          text: systemPrompt,
           cache_control: { type: "ephemeral" as const },
         },
       ],
       tools: toolsWithCache,
-      tool_choice: { type: "tool", name: "report_nutrition" },
+      tool_choice: { type: "auto" },
       messages: [
         {
           role: "user",
@@ -328,40 +346,42 @@ export async function analyzeFood(
       ],
     });
 
-    const toolUseBlock = response.content.find(
-      (block) => block.type === "tool_use"
-    );
-
-    if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
-      logger.error(
-        { contentTypes: response.content.map((b) => b.type) },
-        "no tool_use block in Claude response"
-      );
-      throw new ClaudeApiError("No tool_use block in response");
-    }
-
-    const analysis = validateFoodAnalysis(toolUseBlock.input);
-    logger.info(
-      { foodName: analysis.food_name, confidence: analysis.confidence },
-      "food analysis completed"
+    // Check if report_nutrition was called
+    const reportNutritionBlock = response.content.find(
+      (block) => block.type === "tool_use" && block.name === "report_nutrition"
     );
 
     // Record usage (fire-and-forget)
-    if (userId) {
-      recordUsage(userId, response.model, "food-analysis", {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
-        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
-      }).catch((error) => {
-        logger.warn(
-          { error: error instanceof Error ? error.message : String(error), userId },
-          "failed to record API usage"
-        );
-      });
+    recordUsage(userId, response.model, "food-analysis", {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+    }).catch((error) => {
+      logger.warn(
+        { error: error instanceof Error ? error.message : String(error), userId },
+        "failed to record API usage"
+      );
+    });
+
+    if (reportNutritionBlock && reportNutritionBlock.type === "tool_use") {
+      // Fast path: Claude called report_nutrition directly
+      const analysis = validateFoodAnalysis(reportNutritionBlock.input);
+      logger.info(
+        { foodName: analysis.food_name, confidence: analysis.confidence },
+        "food analysis completed (fast path)"
+      );
+      return { type: "analysis", analysis };
     }
 
-    return analysis;
+    // Needs-chat path: Claude used data tools or responded with text only
+    const textBlocks = response.content.filter(
+      (block) => block.type === "text"
+    ) as Anthropic.TextBlock[];
+    const message = textBlocks.map((block) => block.text).join("\n");
+
+    logger.info("food analysis needs chat transition");
+    return { type: "needs_chat", message };
   } catch (error) {
     if (error instanceof ClaudeApiError) {
       throw error;

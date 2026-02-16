@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FoodAnalyzer } from "../food-analyzer";
-import type { FoodAnalysis, FoodLogResponse } from "@/types";
+import type { FoodAnalysis, FoodLogResponse, AnalyzeFoodResult } from "@/types";
 
 // Mock ResizeObserver for Radix UI
 beforeAll(() => {
@@ -173,10 +173,19 @@ const mockAnalysis: FoodAnalysis = {
   fat_g: 18,
   fiber_g: 2,
   sodium_mg: 450,
+  saturated_fat_g: null,
+  trans_fat_g: null,
+  sugars_g: null,
+  calories_from_fat: null,
   confidence: "high",
   notes: "Standard Argentine beef empanada",
   description: "A golden-brown baked empanada on a white plate",
   keywords: ["empanada", "carne", "beef"],
+};
+
+const mockAnalysisResult: AnalyzeFoodResult = {
+  type: "analysis",
+  analysis: mockAnalysis,
 };
 
 const mockLogResponse: FoodLogResponse = {
@@ -207,7 +216,7 @@ describe("FoodAnalyzer reconnect flow", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
@@ -247,7 +256,7 @@ describe("FoodAnalyzer reconnect flow", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
@@ -282,7 +291,7 @@ describe("FoodAnalyzer reconnect flow", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
@@ -475,7 +484,7 @@ describe("FoodAnalyzer reconnect flow", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({

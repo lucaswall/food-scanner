@@ -21,7 +21,8 @@ import {
 } from "@/lib/pending-submission";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import { safeResponseJson } from "@/lib/safe-json";
-import type { FoodAnalysis, FoodLogResponse, FoodMatch } from "@/types";
+import { getTodayDate } from "@/lib/date-utils";
+import type { FoodAnalysis, FoodLogResponse, FoodMatch, AnalyzeFoodResult, ConversationMessage } from "@/types";
 
 interface FoodAnalyzerProps {
   autoCapture?: boolean;
@@ -49,6 +50,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
   const [compressedImages, setCompressedImages] = useState<Blob[] | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
+  const [seedMessages, setSeedMessages] = useState<ConversationMessage[] | null>(null);
   const autoCaptureUsedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -81,6 +83,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setMatches([]);
     setCompressedImages(null);
     setChatOpen(false);
+    setSeedMessages(null);
   };
 
   const handleAnalyze = async () => {
@@ -152,6 +155,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       if (description) {
         formData.append("description", description);
       }
+      formData.append("clientDate", getTodayDate());
 
       // Send to API
       const response = await fetch("/api/analyze-food", {
@@ -162,7 +166,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       const result = (await safeResponseJson(response)) as {
         success: boolean;
-        data?: FoodAnalysis;
+        data?: AnalyzeFoodResult;
         error?: { code: string; message: string };
       };
 
@@ -177,25 +181,40 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         return;
       }
 
-      setAnalysis(result.data ?? null);
+      if (result.data?.type === "analysis") {
+        setAnalysis(result.data.analysis);
+        setSeedMessages(null);
 
-      // Fire async match search (non-blocking)
-      fetch("/api/find-matches", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(result.data),
-        signal: controller.signal,
-      })
-        .then((r) => r.json())
-        .then((matchResult) => {
-          if (matchResult.success && matchResult.data?.matches) {
-            setMatches(matchResult.data.matches);
-          }
+        // Fire async match search (non-blocking)
+        fetch("/api/find-matches", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(result.data.analysis),
+          signal: controller.signal,
         })
-        .catch((err) => {
-          // Silently ignore match errors and abort errors
-          if (err.name === "AbortError") return;
-        });
+          .then((r) => r.json())
+          .then((matchResult) => {
+            if (matchResult.success && matchResult.data?.matches) {
+              setMatches(matchResult.data.matches);
+            }
+          })
+          .catch((err) => {
+            // Silently ignore match errors and abort errors
+            if (err.name === "AbortError") return;
+          });
+      } else if (result.data?.type === "needs_chat") {
+        // Auto-transition to chat with seeded conversation
+        const userMessage = description.trim() || "Analyze this food.";
+        const seeds: ConversationMessage[] = [
+          { role: "user", content: userMessage },
+          { role: "assistant", content: result.data.message },
+        ];
+        setSeedMessages(seeds);
+        setChatOpen(true);
+      } else {
+        setError("Received unexpected response from server");
+        vibrateError();
+      }
     } catch (err) {
       // Ignore abort errors
       if (err instanceof Error && err.name === "AbortError") {
@@ -461,10 +480,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   }
 
   // Show full-screen chat if open (FoodChat uses fixed positioning)
-  if (chatOpen && analysis) {
+  if (chatOpen && (analysis || seedMessages)) {
     return (
       <FoodChat
-        initialAnalysis={analysis}
+        initialAnalysis={analysis ?? undefined}
+        seedMessages={seedMessages ?? undefined}
         compressedImages={compressedImages || []}
         initialMealTypeId={mealTypeId}
         onClose={() => setChatOpen(false)}
