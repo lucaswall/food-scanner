@@ -101,7 +101,8 @@ Do NOT flag these in code reviews:
 ## SECURITY
 
 - **Authorized users only** — `ALLOWED_EMAILS` allowlist enforced at Google OAuth callback
-- **Never log:** Cookie values, access tokens, images, user descriptions
+- **Never log:** Cookie values, access tokens, API keys
+- **Avoid logging raw image data** (base64) — use metadata instead (count, size, mime type)
 - **Client-side logging:** `console.error`/`console.warn` are correct for `'use client'` components — pino is server-only
 - **Image validation:** Max 10MB/image, max 9 images, JPEG/PNG/GIF/WebP/HEIC. HEIC converted client-side via heic-to.
 - **Test-only auth bypass:** `ENABLE_TEST_AUTH=true` enables `POST /api/auth/test-login` for E2E tests. Must never be set in production.
