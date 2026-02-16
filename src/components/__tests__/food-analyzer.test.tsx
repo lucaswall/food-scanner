@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { FoodAnalyzer } from "../food-analyzer";
-import type { FoodAnalysis, FoodLogResponse, FoodMatch } from "@/types";
+import type { FoodAnalysis, FoodLogResponse, FoodMatch, AnalyzeFoodResult, ConversationMessage } from "@/types";
 
 // Mock ResizeObserver for Radix UI
 beforeAll(() => {
@@ -175,16 +175,23 @@ vi.mock("../food-log-confirmation", () => ({
 vi.mock("../food-chat", () => ({
   FoodChat: ({
     initialAnalysis,
+    seedMessages,
     onClose,
     onLogged,
   }: {
-    initialAnalysis: FoodAnalysis;
+    initialAnalysis?: FoodAnalysis;
+    seedMessages?: ConversationMessage[];
     compressedImages: Blob[];
     onClose: () => void;
     onLogged: (response: FoodLogResponse, analysis: FoodAnalysis) => void;
   }) => (
     <div data-testid="food-chat">
-      <span data-testid="chat-food-name">{initialAnalysis.food_name}</span>
+      {initialAnalysis && (
+        <span data-testid="chat-food-name">{initialAnalysis.food_name}</span>
+      )}
+      {seedMessages && (
+        <span data-testid="chat-seed-messages">{JSON.stringify(seedMessages)}</span>
+      )}
       <button onClick={onClose}>Close Chat</button>
       <button
         onClick={() =>
@@ -195,7 +202,7 @@ vi.mock("../food-chat", () => ({
               foodLogId: 999,
             },
             {
-              ...initialAnalysis,
+              ...(initialAnalysis || mockAnalysisForChat),
               food_name: "Mixed drink: beer and gin",
               calories: 250,
             }
@@ -207,6 +214,23 @@ vi.mock("../food-chat", () => ({
     </div>
   ),
 }));
+
+// Analysis used by FoodChat mock when no initialAnalysis is provided
+const mockAnalysisForChat: FoodAnalysis = {
+  food_name: "Default",
+  amount: 100,
+  unit_id: 147,
+  calories: 100,
+  protein_g: 5,
+  carbs_g: 10,
+  fat_g: 5,
+  fiber_g: 1,
+  sodium_mg: 100,
+  confidence: "medium",
+  notes: "",
+  description: "",
+  keywords: [],
+};
 
 // Mock image compression - must be defined after vi.mock calls
 vi.mock("@/lib/image", () => ({
@@ -234,6 +258,11 @@ const mockAnalysis: FoodAnalysis = {
   notes: "Standard Argentine beef empanada",
   description: "A golden-brown baked empanada on a white plate",
   keywords: ["empanada", "carne", "beef"],
+};
+
+const mockAnalysisResult: AnalyzeFoodResult = {
+  type: "analysis",
+  analysis: mockAnalysis,
 };
 
 const mockLogResponse: FoodLogResponse = {
@@ -299,7 +328,7 @@ describe("FoodAnalyzer", () => {
   it("Analyze button calls /api/analyze-food on click", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
     });
 
     render(<FoodAnalyzer />);
@@ -331,7 +360,7 @@ describe("FoodAnalyzer", () => {
   it("shows AnalysisResult after successful analysis", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
     });
 
     render(<FoodAnalyzer />);
@@ -383,7 +412,7 @@ describe("FoodAnalyzer", () => {
   it("Clear resets to initial state", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
     });
 
     render(<FoodAnalyzer />);
@@ -443,7 +472,7 @@ describe("FoodAnalyzer", () => {
   it("shows MealTypeSelector after analysis", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
     });
 
     render(<FoodAnalyzer />);
@@ -462,7 +491,7 @@ describe("FoodAnalyzer", () => {
   it("shows Log to Fitbit button after analysis", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
     });
 
     render(<FoodAnalyzer />);
@@ -482,7 +511,7 @@ describe("FoodAnalyzer", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
@@ -519,7 +548,7 @@ describe("FoodAnalyzer", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
@@ -550,7 +579,7 @@ describe("FoodAnalyzer", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
       .mockImplementationOnce(() => new Promise(() => {}));
@@ -588,7 +617,7 @@ describe("FoodAnalyzer", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
@@ -701,7 +730,7 @@ describe("FoodAnalyzer", () => {
     it("Ctrl+Enter triggers analyze when photos present", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -728,7 +757,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
@@ -811,7 +840,7 @@ describe("FoodAnalyzer", () => {
     it("'Log to Fitbit' uses default (primary) variant", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -837,7 +866,7 @@ describe("FoodAnalyzer", () => {
     it("applies animation class to analysis result container", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -906,7 +935,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
@@ -944,7 +973,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -974,7 +1003,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -999,7 +1028,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -1026,7 +1055,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -1066,7 +1095,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -1113,7 +1142,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -1173,7 +1202,7 @@ describe("FoodAnalyzer", () => {
     it("sends description-only to API when no photos", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1210,7 +1239,7 @@ describe("FoodAnalyzer", () => {
     it("skips compression step when no photos", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1240,7 +1269,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         // Log-food fetch hangs — never resolves
@@ -1270,7 +1299,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -1303,7 +1332,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
@@ -1343,7 +1372,7 @@ describe("FoodAnalyzer", () => {
     it("meal type label is associated with selector via htmlFor", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1364,7 +1393,7 @@ describe("FoodAnalyzer", () => {
     it("meal type selector has matching id", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1386,7 +1415,7 @@ describe("FoodAnalyzer", () => {
     it("shows CTA button (not div) after analysis with proper semantics", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1411,7 +1440,7 @@ describe("FoodAnalyzer", () => {
     it("renders ONLY FoodChat when chatOpen is true (full-screen mode)", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1445,7 +1474,7 @@ describe("FoodAnalyzer", () => {
     it("shows normal analyzer UI when chatOpen is false after analysis", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1472,7 +1501,7 @@ describe("FoodAnalyzer", () => {
     it("tapping CTA button opens FoodChat component", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1499,7 +1528,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
@@ -1534,7 +1563,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce({
           ok: true,
@@ -1566,7 +1595,7 @@ describe("FoodAnalyzer", () => {
     it("returns to post-analysis view when FoodChat onClose is called", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1600,7 +1629,7 @@ describe("FoodAnalyzer", () => {
     it("shows FoodLogConfirmation when FoodChat onLogged is called", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1634,7 +1663,7 @@ describe("FoodAnalyzer", () => {
     it("shows refined food name on confirmation card after logging from chat", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1670,7 +1699,7 @@ describe("FoodAnalyzer", () => {
     it("moves focus to analysis result after analysis completes", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer />);
@@ -1696,7 +1725,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
@@ -1755,7 +1784,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          text: () => Promise.resolve(JSON.stringify({ success: true, data: mockAnalysis })),
+          text: () => Promise.resolve(JSON.stringify({ success: true, data: mockAnalysisResult })),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
@@ -1790,7 +1819,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockResolvedValueOnce(emptyMatchesResponse())
         // Log API hangs
@@ -1857,7 +1886,7 @@ describe("FoodAnalyzer", () => {
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
         })
         .mockImplementationOnce(() => {
           matchFetchCalled = true;
@@ -1908,7 +1937,7 @@ describe("FoodAnalyzer", () => {
     it("does not pass autoCapture after photos are taken and analysis exists", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer autoCapture />);
@@ -1936,7 +1965,7 @@ describe("FoodAnalyzer", () => {
     it("does not pass autoCapture after returning from chat", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysis }),
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
       });
 
       render(<FoodAnalyzer autoCapture />);
@@ -1966,6 +1995,216 @@ describe("FoodAnalyzer", () => {
 
       // After returning from chat, autoCapture should be false
       expect(screen.getByTestId("photo-capture")).toHaveAttribute("data-auto-capture", "false");
+    });
+  });
+
+  describe("needs_chat auto-transition", () => {
+    const needsChatResult: AnalyzeFoodResult = {
+      type: "needs_chat",
+      message: "Let me check what you had yesterday...",
+    };
+
+    it("auto-opens FoodChat when API returns needs_chat", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: needsChatResult }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      // Type a description
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "same as yesterday" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze food/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze food/i }));
+
+      // FoodChat should open automatically
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+
+      // No analysis result should be shown
+      expect(screen.queryByTestId("food-name")).not.toBeInTheDocument();
+    });
+
+    it("passes seedMessages to FoodChat with user description and assistant message", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: needsChatResult }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "same as yesterday" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze food/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze food/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("chat-seed-messages")).toBeInTheDocument();
+      });
+
+      const seedMessagesEl = screen.getByTestId("chat-seed-messages");
+      const seedMessages = JSON.parse(seedMessagesEl.textContent!) as ConversationMessage[];
+
+      // Should have 2 messages: user description + assistant response
+      expect(seedMessages).toHaveLength(2);
+      expect(seedMessages[0].role).toBe("user");
+      expect(seedMessages[0].content).toBe("same as yesterday");
+      expect(seedMessages[1].role).toBe("assistant");
+      expect(seedMessages[1].content).toBe("Let me check what you had yesterday...");
+    });
+
+    it("uses default user message when no description provided (photo only)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: needsChatResult }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      // Add photo only, no description
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("chat-seed-messages")).toBeInTheDocument();
+      });
+
+      const seedMessages = JSON.parse(
+        screen.getByTestId("chat-seed-messages").textContent!
+      ) as ConversationMessage[];
+
+      expect(seedMessages[0].role).toBe("user");
+      expect(seedMessages[0].content).toBe("Analyze this food.");
+    });
+
+    it("does not trigger match search for needs_chat response", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: needsChatResult }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "same as yesterday" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze food/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze food/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+
+      // Only 1 fetch call (analyze-food), no find-matches
+      const findMatchesCalls = mockFetch.mock.calls.filter(
+        (call: unknown[]) => call[0] === "/api/find-matches"
+      );
+      expect(findMatchesCalls).toHaveLength(0);
+    });
+
+    it("when API returns analysis type, existing behavior is unchanged", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      // Should show analysis result, not FoodChat
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne");
+      });
+      expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
+    });
+
+    it("onClose from seeded chat returns to analyze screen and clears seed state", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: needsChatResult }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "same as yesterday" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze food/i })).not.toBeDisabled();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /analyze food/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+
+      // Close chat
+      fireEvent.click(screen.getByRole("button", { name: /close chat/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("food-chat")).not.toBeInTheDocument();
+        // Should show the regular analyze UI
+        expect(screen.getByTestId("photo-capture")).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("clientDate in FormData", () => {
+    it("includes clientDate in FormData sent to /api/analyze-food", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/analyze-food",
+          expect.objectContaining({
+            method: "POST",
+            body: expect.any(FormData),
+          })
+        );
+      });
+
+      const callArgs = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/analyze-food"
+      );
+      const formData = (callArgs![1] as RequestInit).body as FormData;
+      const clientDate = formData.get("clientDate");
+      // Should be a date string in YYYY-MM-DD format
+      expect(clientDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
   });
 });

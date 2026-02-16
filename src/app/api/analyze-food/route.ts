@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { analyzeFood } from "@/lib/claude";
 import { isFileLike, MAX_IMAGES, MAX_IMAGE_SIZE, ALLOWED_TYPES } from "@/lib/image-validation";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
 
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
@@ -39,6 +40,11 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Description must be text", 400);
   }
   const description = descriptionRaw;
+
+  const clientDateRaw = formData.get("clientDate");
+  const currentDate = typeof clientDateRaw === "string" && isValidDateFormat(clientDateRaw)
+    ? clientDateRaw
+    : getTodayDate();
 
   // Validate: at least one image or a description is required
   if (images.length === 0 && (!description || description.trim().length === 0)) {
@@ -138,18 +144,26 @@ export async function POST(request: Request) {
       );
     }
 
-    const analysis = await analyzeFood(
+    const result = await analyzeFood(
       imageInputs,
       description || undefined,
-      session!.userId
+      session!.userId,
+      currentDate
     );
 
-    logger.info(
-      { action: "analyze_food_success", foodName: analysis.food_name },
-      "food analysis completed"
-    );
+    if (result.type === "analysis") {
+      logger.info(
+        { action: "analyze_food_success", foodName: result.analysis.food_name },
+        "food analysis completed"
+      );
+    } else {
+      logger.info(
+        { action: "analyze_food_needs_chat" },
+        "food analysis needs chat transition"
+      );
+    }
 
-    return successResponse(analysis);
+    return successResponse(result);
   } catch (error) {
     if (error instanceof Error && error.name === "CLAUDE_API_ERROR") {
       logger.error(

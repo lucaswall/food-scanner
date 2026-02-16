@@ -35,6 +35,7 @@ interface FoodChatProps {
   compressedImages?: Blob[];
   initialMealTypeId?: number;
   title?: string;
+  seedMessages?: ConversationMessage[];
   onClose: () => void;
   onLogged: (response: FoodLogResponse, analysis: FoodAnalysis, mealTypeId: number) => void;
 }
@@ -44,23 +45,30 @@ export function FoodChat({
   compressedImages = [],
   initialMealTypeId,
   title = "Chat",
+  seedMessages,
   onClose,
   onLogged,
 }: FoodChatProps) {
-  const initialMessage: ConversationMessage = initialAnalysis
-    ? {
-        role: "assistant",
-        content: `I analyzed your food as ${initialAnalysis.food_name} (${initialAnalysis.calories} cal). Anything you'd like to correct?`,
-        analysis: initialAnalysis,
-      }
-    : {
-        role: "assistant",
-        content: "Hi! Ask me anything about your nutrition, or describe a meal to log it.",
-      };
+  const isSeeded = !!seedMessages && seedMessages.length > 0;
 
-  const [messages, setMessages] = useState<ConversationMessage[]>([
-    initialMessage,
-  ]);
+  const initialMessages: ConversationMessage[] = seedMessages
+    ? seedMessages
+    : [
+        initialAnalysis
+          ? {
+              role: "assistant",
+              content: `I analyzed your food as ${initialAnalysis.food_name} (${initialAnalysis.calories} cal). Anything you'd like to correct?`,
+              analysis: initialAnalysis,
+            }
+          : {
+              role: "assistant",
+              content: "Hi! Ask me anything about your nutrition, or describe a meal to log it.",
+            },
+      ];
+
+  const [messages, setMessages] = useState<ConversationMessage[]>(
+    initialMessages,
+  );
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [logging, setLogging] = useState(false);
@@ -87,8 +95,10 @@ export function FoodChat({
       .reverse()
       .find((msg) => msg.analysis)?.analysis;
 
-  // Count messages excluding the initial client-generated assistant message
-  const apiMessageCount = messages.length - 1;
+  // Count user-initiated chat messages for limit tracking
+  // Seeded messages don't count (they represent the initial analysis turn)
+  const seedCount = isSeeded ? (seedMessages?.length ?? 0) : 1;
+  const apiMessageCount = messages.length - seedCount;
   const nearLimit = apiMessageCount >= MAX_MESSAGES - 4;
   const atLimit = apiMessageCount >= MAX_MESSAGES;
 
@@ -223,7 +233,9 @@ export function FoodChat({
 
     try {
       const allMessages = [...messages, userMessage];
-      const apiMessages = allMessages.slice(1);
+      // When seeded, send all messages (they're all "real" conversation turns)
+      // When not seeded, skip the initial auto-generated assistant greeting
+      const apiMessages = isSeeded ? allMessages : allMessages.slice(1);
 
       const requestBody: {
         messages: ConversationMessage[];

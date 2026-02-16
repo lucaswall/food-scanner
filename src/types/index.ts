@@ -72,6 +72,18 @@ export interface FoodAnalysis {
   keywords: string[];
 }
 
+export interface AnalyzeFoodDirectResult {
+  type: "analysis";
+  analysis: FoodAnalysis;
+}
+
+export interface AnalyzeFoodNeedsChatResult {
+  type: "needs_chat";
+  message: string;
+}
+
+export type AnalyzeFoodResult = AnalyzeFoodDirectResult | AnalyzeFoodNeedsChatResult;
+
 export interface FoodLogRequest extends FoodAnalysis {
   mealTypeId: number; // 1,2,3,4,5,7
   date: string; // YYYY-MM-DD (client wall-clock)

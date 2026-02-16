@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { FoodAnalysis, FullSession } from "@/types";
+import type { FoodAnalysis, FullSession, AnalyzeFoodResult } from "@/types";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
@@ -113,11 +113,16 @@ function createMockFile(
 
 function createMockRequest(
   files: MockFile[],
-  description?: string
+  description?: string,
+  clientDate?: string
 ): Request {
   const formData = {
     getAll: (key: string) => (key === "images" ? files : []),
-    get: (key: string) => (key === "description" ? (description ?? null) : null),
+    get: (key: string) => {
+      if (key === "description") return description ?? null;
+      if (key === "clientDate") return clientDate ?? null;
+      return null;
+    },
   };
 
   return {
@@ -210,7 +215,7 @@ describe("POST /api/analyze-food", () => {
 
   it("accepts GIF images (image/gif)", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     const request = createMockRequest([
       createMockFile("test.gif", "image/gif", 1000),
@@ -224,7 +229,7 @@ describe("POST /api/analyze-food", () => {
 
   it("accepts WebP images (image/webp)", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     const request = createMockRequest([
       createMockFile("test.webp", "image/webp", 1000),
@@ -266,7 +271,7 @@ describe("POST /api/analyze-food", () => {
 
   it("returns 200 with FoodAnalysis for valid request", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     const request = createMockRequest(
       [createMockFile("test.jpg", "image/jpeg", 1000)],
@@ -277,7 +282,7 @@ describe("POST /api/analyze-food", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data).toEqual(validAnalysis);
+    expect(body.data).toEqual({ type: "analysis", analysis: validAnalysis });
   });
 
   it("returns 500 CLAUDE_API_ERROR on Claude failure", async () => {
@@ -298,7 +303,7 @@ describe("POST /api/analyze-food", () => {
 
   it("logs appropriate actions", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     const request = createMockRequest(
       [createMockFile("test.jpg", "image/jpeg", 1000)],
@@ -315,7 +320,7 @@ describe("POST /api/analyze-food", () => {
 
   it("supports PNG images", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     const request = createMockRequest([
       createMockFile("test.png", "image/png", 1000),
@@ -327,7 +332,7 @@ describe("POST /api/analyze-food", () => {
 
   it("supports multiple images", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     const request = createMockRequest([
       createMockFile("test1.jpg", "image/jpeg", 1000),
@@ -343,13 +348,14 @@ describe("POST /api/analyze-food", () => {
         expect.objectContaining({ mimeType: "image/png" }),
       ]),
       undefined,
-      "user-uuid-123"
+      "user-uuid-123",
+      expect.any(String)
     );
   });
 
   it("passes description to analyzeFood", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     const request = createMockRequest(
       [createMockFile("test.jpg", "image/jpeg", 1000)],
@@ -361,7 +367,8 @@ describe("POST /api/analyze-food", () => {
     expect(mockAnalyzeFood).toHaveBeenCalledWith(
       expect.any(Array),
       "250g pollo asado",
-      "user-uuid-123"
+      "user-uuid-123",
+      expect.any(String)
     );
   });
 
@@ -401,7 +408,7 @@ describe("POST /api/analyze-food", () => {
 
   it("calls checkRateLimit with session userId as key", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     const request = createMockRequest([
       createMockFile("test.jpg", "image/jpeg", 1000),
@@ -418,7 +425,7 @@ describe("POST /api/analyze-food", () => {
 
   it("returns 200 for description-only request (no images)", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     const request = createMockRequest([], "2 medialunas");
 
@@ -426,7 +433,7 @@ describe("POST /api/analyze-food", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(mockAnalyzeFood).toHaveBeenCalledWith([], "2 medialunas", "user-uuid-123");
+    expect(mockAnalyzeFood).toHaveBeenCalledWith([], "2 medialunas", "user-uuid-123", expect.any(String));
   });
 
   it("returns 400 when neither images nor description provided", async () => {
@@ -463,7 +470,7 @@ describe("POST /api/analyze-food", () => {
 
   it("processes remaining images when one image arrayBuffer fails", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue(validAnalysis);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
 
     // Create a failing file mock
     class FailingMockFile extends MockFile {
@@ -497,7 +504,8 @@ describe("POST /api/analyze-food", () => {
         expect.objectContaining({ mimeType: "image/jpeg" }),
       ]),
       undefined,
-      "user-uuid-123"
+      "user-uuid-123",
+      expect.any(String)
     );
     expect(mockAnalyzeFood.mock.calls[0][0]).toHaveLength(2);
 
@@ -506,5 +514,42 @@ describe("POST /api/analyze-food", () => {
       expect.objectContaining({ action: "analyze_food_image_processing" }),
       expect.stringContaining("Failed to process image")
     );
+  });
+
+  it("passes clientDate from FormData to analyzeFood", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food",
+      "2026-02-15"
+    );
+
+    await POST(request);
+
+    expect(mockAnalyzeFood).toHaveBeenCalledWith(
+      expect.any(Array),
+      "Test food",
+      "user-uuid-123",
+      "2026-02-15"
+    );
+  });
+
+  it("returns needs_chat result from analyzeFood as-is", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const needsChatResult: AnalyzeFoodResult = {
+      type: "needs_chat",
+      message: "Let me check what you had yesterday...",
+    };
+    mockAnalyzeFood.mockResolvedValue(needsChatResult);
+
+    const request = createMockRequest([], "same as yesterday");
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toEqual(needsChatResult);
   });
 });
