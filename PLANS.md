@@ -348,3 +348,28 @@ Summary: 1 issue found (Team: security, reliability, quality reviewers)
 3. Add `signal: AbortSignal.timeout(15000)` to fetch in `handleUseExisting` (line 336)
 4. Add `signal: AbortSignal.timeout(15000)` to fetch in auto-resubmit useEffect (line 426)
 5. Add timeout error handling in handleLogToFitbit and handleUseExisting catch blocks (check for `DOMException` with `TimeoutError`/`AbortError` name, show "Request timed out" message) — matching the pattern already used in food-chat.tsx:372-374
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-16
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Fix 1: Add timeout to all log-food fetch calls in FoodAnalyzer (FOO-540) - Added `AbortSignal.timeout(15000)` to all 3 fetch calls, added timeout error handling in catch blocks
+
+### Files Modified
+- `src/components/food-analyzer.tsx` - Added `signal: AbortSignal.timeout(15000)` to handleLogToFitbit, handleUseExisting, and auto-resubmit useEffect fetches; added DOMException timeout/abort detection in all 3 catch blocks
+- `src/components/__tests__/food-analyzer.test.tsx` - Added 3 tests: timeout error message for handleLogToFitbit, timeout error message for handleUseExisting, signal presence verification
+- `src/lib/__tests__/claude.test.ts` - Fixed pre-existing type error: added type narrowing guard for `result.type === "needs_chat"` before accessing `.message`
+
+### Linear Updates
+- FOO-540: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 real issue (missing timeout handling in resubmit catch block), fixed before proceeding. 3 findings discarded (pre-existing design choices, style suggestions).
+- verifier: All 1820 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

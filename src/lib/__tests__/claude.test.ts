@@ -258,8 +258,10 @@ describe("analyzeFood", () => {
     );
 
     expect(result.type).toBe("needs_chat");
-    expect(result.message).not.toBe("");
-    expect(result.message).toContain("look into that");
+    if (result.type === "needs_chat") {
+      expect(result.message).not.toBe("");
+      expect(result.message).toContain("look into that");
+    }
   });
 
   it("passes all 5 tools to Claude API with tool_choice auto", async () => {

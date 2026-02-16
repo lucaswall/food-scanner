@@ -262,6 +262,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           mealTypeId,
           ...getLocalDateTime(),
         }),
+        signal: AbortSignal.timeout(15000),
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -299,7 +300,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     } catch (err) {
       // Revert optimistic update
       setLogResponse(null);
-      setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setLogError("Request timed out. Please try again.");
+      } else {
+        setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      }
       vibrateError();
     } finally {
       setLogging(false);
@@ -337,6 +342,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(15000),
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -375,7 +381,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     } catch (err) {
       // Revert optimistic update
       setLogResponse(null);
-      setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setLogError("Request timed out. Please try again.");
+      } else {
+        setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      }
       vibrateError();
     } finally {
       setLogging(false);
@@ -427,6 +437,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     })
       .then((r) => safeResponseJson(r))
       .then((raw) => {
@@ -442,9 +453,13 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           setLogError(result.error?.message || "Failed to resubmit food log");
         }
       })
-      .catch(() => {
+      .catch((err) => {
         clearPendingSubmission();
-        setLogError("Failed to resubmit food log");
+        if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+          setLogError("Request timed out. Please try again.");
+        } else {
+          setLogError("Failed to resubmit food log");
+        }
       })
       .finally(() => {
         setResubmitting(false);

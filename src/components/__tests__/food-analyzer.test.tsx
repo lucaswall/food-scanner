@@ -2355,6 +2355,104 @@ describe("FoodAnalyzer", () => {
     });
   });
 
+  describe("FOO-540: timeout on log-food fetches", () => {
+    it("shows 'Request timed out' when handleLogToFitbit fetch times out", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockRejectedValueOnce(new DOMException("The operation was aborted.", "TimeoutError"));
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("log-error")).toBeInTheDocument();
+        expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+      });
+    });
+
+    it("shows 'Request timed out' when handleUseExisting fetch times out", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        })
+        .mockRejectedValueOnce(new DOMException("The operation was aborted.", "TimeoutError"));
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-match-card")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /use this/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("log-error")).toBeInTheDocument();
+        expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+      });
+    });
+
+    it("passes AbortSignal.timeout to handleLogToFitbit fetch", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        const logFoodCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logFoodCall).toBeDefined();
+        expect((logFoodCall![1] as RequestInit).signal).toBeDefined();
+      });
+    });
+  });
+
   describe("clientDate in FormData", () => {
     it("includes clientDate in FormData sent to /api/analyze-food", async () => {
       mockFetch.mockResolvedValueOnce({
