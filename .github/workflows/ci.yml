@@ -3,8 +3,44 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      # App paths (shared with railway.json watchPatterns)
+      - "src/**"
+      - "drizzle/**"
+      - "public/**"
+      - "middleware.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "next.config.ts"
+      - "tailwind.config.ts"
+      - "postcss.config.mjs"
+      - "eslint.config.mjs"
+      # CI-only paths
+      - "e2e/**"
+      - "vitest.config.ts"
+      - "playwright.config.ts"
+      - ".github/workflows/ci.yml"
   pull_request:
     branches: [main]
+    paths:
+      # App paths (shared with railway.json watchPatterns)
+      - "src/**"
+      - "drizzle/**"
+      - "public/**"
+      - "middleware.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "next.config.ts"
+      - "tailwind.config.ts"
+      - "postcss.config.mjs"
+      - "eslint.config.mjs"
+      # CI-only paths
+      - "e2e/**"
+      - "vitest.config.ts"
+      - "playwright.config.ts"
+      - ".github/workflows/ci.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

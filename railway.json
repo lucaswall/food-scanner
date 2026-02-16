@@ -3,6 +3,8 @@
   "build": {
     "watchPatterns": [
       "src/**",
+      "drizzle/**",
+      "public/**",
       "middleware.ts",
       "package.json",
       "package-lock.json",
@@ -10,8 +12,7 @@
       "next.config.ts",
       "tailwind.config.ts",
       "postcss.config.mjs",
-      "eslint.config.mjs",
-      "public/**"
+      "eslint.config.mjs"
     ]
   }
 }
