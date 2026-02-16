@@ -309,5 +309,37 @@ Currently `analyzeFood()` forces `tool_choice: { type: "tool", name: "report_nut
   - Skipped timezone validation finding (false positive)
 - verifier: All 1812 tests pass, zero warnings
 
+### Review Findings
+
+Summary: 1 issue found (Single-agent: security, reliability, quality review)
+- FIX: 1 issue — Linear issue created
+- DISCARDED: 0 findings
+
+**Issues requiring fix:**
+- [HIGH] BUG: Stale seedMessages not cleared on analysis success path (`src/components/food-analyzer.tsx:184-186`) — If a previous analysis returned `needs_chat` (setting seedMessages), a subsequent `analysis` response does not clear seedMessages. When user later opens "Refine with chat", FoodChat renders with stale seed messages from the prior needs_chat interaction.
+
+### Linear Updates
+- FOO-532: Review → Merge (original task completed)
+- FOO-533: Created in Todo (Fix: Stale seedMessages not cleared)
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
 All tasks completed.
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-533](https://linear.app/lw-claude/issue/FOO-533/stale-seedmessages-not-cleared-on-analysis-success-path-in)
+
+### Fix 1: Stale seedMessages not cleared on analysis success path
+**Linear Issue:** [FOO-533](https://linear.app/lw-claude/issue/FOO-533/stale-seedmessages-not-cleared-on-analysis-success-path-in)
+
+**Files:**
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+
+1. Write test in `src/components/__tests__/food-analyzer.test.tsx`: simulate a needs_chat response (seedMessages set), then reset and trigger a new analysis that returns `type: "analysis"` — verify seedMessages are cleared and FoodChat does NOT show stale seed messages when opened via "Refine with chat"
+2. Add `setSeedMessages(null)` in the analysis success branch at `src/components/food-analyzer.tsx:184-186`, alongside the existing `setAnalysis(result.data.analysis)` call
