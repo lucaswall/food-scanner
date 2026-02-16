@@ -310,5 +310,41 @@ Fix five bugs and improvements in the analysis/chat flow identified by deep revi
 - Worker 1: Task 1 (food-chat files)
 - Worker 2: Tasks 2, 3, 4, 5 (food-analyzer + claude files)
 
-### Continuation Status
-All tasks completed.
+### Review Findings
+
+Summary: 1 issue found (Team: security, reliability, quality reviewers)
+- FIX: 1 issue — Linear issue created
+- DISCARDED: 2 findings — not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] TIMEOUT: Missing timeout on 3x `/api/log-food` fetch calls in FoodAnalyzer (`src/components/food-analyzer.tsx:257,336,426`) — FoodChat correctly uses `AbortSignal.timeout(15000)` for the same endpoint but FoodAnalyzer does not
+
+**Discarded findings (not bugs):**
+- [DISCARDED] RESOURCE: Client/server timeout mismatch (120s client vs 300s max server) (`claude.ts:696` + `food-chat.tsx:271`) — Deliberate design choice, documented in code comment "Tool loops can require up to 5 sequential API calls". Server has per-call 60s timeout + max 5 iterations.
+- [DISCARDED] EDGE CASE: Promise.all in blobsToBase64 rejects on any single blob failure (`food-chat.tsx:264`) — Error is properly caught and handled at line 297-314. Reviewer confirmed "not a bug."
+
+### Linear Updates
+- FOO-535: Review → Merge (original task completed)
+- FOO-536: Review → Merge (original task completed)
+- FOO-537: Review → Merge (original task completed)
+- FOO-538: Review → Merge (original task completed)
+- FOO-539: Review → Merge (original task completed)
+- FOO-540: Created in Todo (Fix: Missing timeout on log-food fetches)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-540](https://linear.app/lw-claude/issue/FOO-540/missing-timeout-on-log-food-fetches-in-foodanalyzer)
+
+### Fix 1: Add timeout to all log-food fetch calls in FoodAnalyzer
+**Linear Issue:** [FOO-540](https://linear.app/lw-claude/issue/FOO-540/missing-timeout-on-log-food-fetches-in-foodanalyzer)
+
+1. Write test in `src/components/__tests__/food-analyzer.test.tsx` for timeout error on log-food (verify "Request timed out" error shown when fetch times out in handleLogToFitbit)
+2. Add `signal: AbortSignal.timeout(15000)` to fetch in `handleLogToFitbit` (line 257)
+3. Add `signal: AbortSignal.timeout(15000)` to fetch in `handleUseExisting` (line 336)
+4. Add `signal: AbortSignal.timeout(15000)` to fetch in auto-resubmit useEffect (line 426)
+5. Add timeout error handling in handleLogToFitbit and handleUseExisting catch blocks (check for `DOMException` with `TimeoutError`/`AbortError` name, show "Request timed out" message) — matching the pattern already used in food-chat.tsx:372-374
