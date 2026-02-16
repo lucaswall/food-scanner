@@ -7,7 +7,7 @@
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
-| [Nutrition Database API Integration](#nutrition-database-api-integration) | Add a structured nutrition database tool complementing web search for branded/restaurant foods |
+
 
 ---
 
@@ -207,43 +207,6 @@ User picks in Settings:
 5. Background sync on reconnection
 6. Auto-log vs hold-for-review setting
 7. Notification for auto-logged items
-
----
-
-## Nutrition Database API Integration
-
-### Problem
-
-Claude's web search is a good fallback for looking up nutrition info, but a structured nutrition database would give more accurate, consistent results for branded and restaurant foods. However, the main nutrition databases (Nutritionix, FatSecret, USDA) are heavily US/Europe-focused and have poor coverage of Argentine foods and local restaurants.
-
-### Goal
-
-Add a `search_nutrition_database` tool that queries a nutrition API for structured, verified nutrition data — complementing the existing web search with faster, more reliable results for foods that are in the database.
-
-### Design
-
-#### Tool Priority
-
-Claude would have access to both web_search (built-in) and a dedicated nutrition database tool. For known brands/restaurants in the database, it uses the structured API. For everything else (especially Argentine/Latin American foods), it falls back to web search or its training data.
-
-### Architecture
-
-- **Candidate APIs:** FatSecret Platform (5K free calls/day, 1.9M+ foods in 56 countries, best free tier), USDA FoodData Central (free unlimited, US government data), Open Food Facts (free community data, 4M+ products).
-- All are weak on Argentine food coverage.
-- Tool definition added to `src/lib/chat-tools.ts` alongside existing data tools.
-- System prompt guidance for tool selection priority (structured API > web search > training data).
-
-### Edge Cases
-
-- API returns no match → fall back to web search or estimation.
-- API data conflicts with web search data → prefer structured API data.
-- Rate limit hit → graceful degradation.
-
-### Implementation Order
-
-1. Evaluate API coverage for user's typical foods
-2. Integrate chosen API as a new chat tool
-3. System prompt guidance for tool selection priority
 
 ---
 

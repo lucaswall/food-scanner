@@ -45,7 +45,7 @@ Use Task with `subagent_type=general-purpose` and `model=opus`. Search the web f
 - **API feasibility** — If the feature involves external APIs, research actual capabilities, pricing, limitations, regional coverage
 - **Technical approaches** — How have others solved this? What are the trade-offs?
 - **Gotchas** — Known issues, limitations, or surprises others have encountered
-- **Argentina/Latin America relevance** — This is a single-user app used in Argentina. Evaluate everything through that lens.
+- **User context relevance** — Use project context from CLAUDE.md (target audience, deployment region, scale, constraints) to evaluate feasibility through the user's actual lens.
 
 **CRITICAL:** Look for real user experiences, developer forums, actual API responses — not just documentation promises or marketing pages. Evidence over claims.
 
@@ -60,7 +60,7 @@ Use Task with `subagent_type=Explore` or direct tool calls. Check project state:
 
 - Launch independent streams in parallel for speed
 - Each stream should return specific, evidence-based findings
-- Include any relevant MCPs (Fitbit API state, Railway deployment context) if they inform feasibility
+- Include any relevant MCP context (deployment state, external API integrations) if they inform feasibility
 - If the feature involves UI, examine existing component patterns and relevant pages
 
 ## Phase 3: Analysis Report
@@ -147,7 +147,7 @@ When removing a feature from ROADMAP.md:
 
 - **Evidence over opinions** — Every finding must be backed by specific evidence (code paths, API docs, forum posts, data points)
 - **Honest about uncertainty** — If you can't determine something, say so
-- **User's context matters** — Single-user app, Argentina, evaluate through that lens
+- **User's context matters** — Use project context from CLAUDE.md (audience, region, scale, constraints) to inform the analysis
 - **Don't oversell or undersell** — Present findings neutrally, let the user decide
 - **Roadmap conventions** — Follow ROADMAP.md's Conventions section for modifications
 - **No implementation** — This skill researches and discusses. It does NOT write code or create implementation plans (except when creating backlog issues as part of the action phase)
