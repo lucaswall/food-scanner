@@ -36,7 +36,7 @@ test.describe('Analyze Page', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: MOCK_ANALYSIS }),
+        body: JSON.stringify({ success: true, data: { type: 'analysis', analysis: MOCK_ANALYSIS } }),
       });
     });
 
@@ -75,7 +75,7 @@ test.describe('Analyze Page', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: MOCK_ANALYSIS }),
+        body: JSON.stringify({ success: true, data: { type: 'analysis', analysis: MOCK_ANALYSIS } }),
       });
     });
 
