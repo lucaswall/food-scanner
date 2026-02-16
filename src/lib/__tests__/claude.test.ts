@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { FoodAnalysis } from "@/types";
 
 // Mock the Anthropic SDK
 const mockCreate = vi.fn();
+const mockConstructorArgs = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => {
   return {
     default: class MockAnthropic {
+      constructor(options: Record<string, unknown>) {
+        mockConstructorArgs(options);
+      }
       messages = {
         create: mockCreate,
       };
@@ -55,6 +60,37 @@ function setupMocks() {
   vi.clearAllMocks();
   mockCreate.mockReset();
 }
+
+describe("Anthropic SDK configuration", () => {
+  beforeEach(() => {
+    setupMocks();
+  });
+
+  it("configures SDK timeout to 60s to accommodate web search latency", async () => {
+    // Trigger client creation by calling any exported function
+    const { analyzeFood } = await import("@/lib/claude");
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "call_1",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      stop_reason: "tool_use",
+    });
+
+    await analyzeFood([], undefined, "test-user").catch(() => {});
+
+    expect(mockConstructorArgs).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeout: 60000,
+      })
+    );
+  });
+});
 
 describe("analyzeFood", () => {
   beforeEach(() => {
@@ -377,6 +413,38 @@ describe("analyzeFood", () => {
     expect(imageBlocks).toHaveLength(2);
     expect(imageBlocks[0].source.data).toBe("img1");
     expect(imageBlocks[1].source.data).toBe("img2");
+  });
+
+  it("includes web_search tool in analyzeFood tools array", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_123",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: { input_tokens: 1500, output_tokens: 300 },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
+
+    const call = mockCreate.mock.calls[0][0];
+    // web_search tool should be first in the array
+    expect(call.tools[0]).toEqual(
+      expect.objectContaining({
+        type: "web_search_20250305",
+        name: "web_search",
+      })
+    );
+    // report_nutrition should come after
+    expect(call.tools[1]).toEqual(
+      expect.objectContaining({
+        name: "report_nutrition",
+      })
+    );
   });
 
   it("configures SDK with explicit maxRetries", async () => {
@@ -899,7 +967,8 @@ describe("analyzeFood", () => {
     await analyzeFood([{ base64: "abc123", mimeType: "image/jpeg" }]);
 
     const call = mockCreate.mock.calls[0][0];
-    const toolSchema = call.tools[0];
+    // tools[0] is web_search, tools[1] is report_nutrition
+    const toolSchema = call.tools.find((t: { name: string }) => t.name === "report_nutrition");
     const descriptionPrompt = toolSchema.input_schema.properties.description.description;
 
     // Should exclude non-food scene elements
@@ -1312,6 +1381,36 @@ describe("conversationalRefine", () => {
       message: "Got it! Anything else you'd like to add?",
     });
     expect(result.analysis).toBeUndefined();
+  });
+
+  it("includes web_search tool in conversationalRefine tools array", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      content: [
+        {
+          type: "text",
+          text: "OK",
+        },
+      ],
+      usage: { input_tokens: 1500, output_tokens: 50 },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await conversationalRefine(
+      [{ role: "user", content: "Test" }],
+      [],
+      "user-123",
+      "2026-02-15"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    // web_search tool should be first in the array
+    expect(call.tools[0]).toEqual(
+      expect.objectContaining({
+        type: "web_search_20250305",
+        name: "web_search",
+      })
+    );
   });
 
   it("uses tool_choice auto (not forced)", async () => {
@@ -1916,6 +2015,37 @@ describe("runToolLoop", () => {
     vi.resetModules();
   });
 
+  it("includes web_search tool in runToolLoop default tools", async () => {
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Done.",
+        },
+      ],
+      usage: { input_tokens: 1500, output_tokens: 100 },
+    });
+
+    const { runToolLoop } = await import("@/lib/claude");
+    await runToolLoop(
+      [{ role: "user", content: "Test" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    const call = mockCreate.mock.calls[0][0];
+    // web_search tool should be first in the array
+    expect(call.tools[0]).toEqual(
+      expect.objectContaining({
+        type: "web_search_20250305",
+        name: "web_search",
+      })
+    );
+  });
+
   it("returns immediately on end_turn response", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
@@ -2506,6 +2636,113 @@ describe("runToolLoop", () => {
     );
   });
 
+  it("handles web search response blocks correctly (only executes custom tools)", async () => {
+    // First response: mix of server_tool_use, web_search_tool_result, text, and custom tool_use
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "server_tool_use",
+          id: "srvtool_1",
+          name: "web_search",
+          input: { query: "Big Mac nutrition" },
+        } as unknown as Anthropic.ContentBlock,
+        {
+          type: "web_search_tool_result",
+          tool_use_id: "srvtool_1",
+          content: [{ type: "web_search_result", url: "https://mcdonalds.com", title: "Big Mac", snippet: "590 cal" }],
+        } as unknown as Anthropic.ContentBlock,
+        {
+          type: "text",
+          text: "Let me check your recent logs too.",
+        },
+        {
+          type: "tool_use",
+          id: "tool_data_1",
+          name: "search_food_log",
+          input: { query: "big mac" },
+        },
+      ],
+      usage: { input_tokens: 2000, output_tokens: 200 },
+    });
+
+    // Second response: end_turn with text
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_2",
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Based on McDonald's nutrition page, a Big Mac has 590 calories.",
+        },
+      ],
+      usage: { input_tokens: 2200, output_tokens: 100 },
+    });
+
+    mockExecuteTool.mockResolvedValueOnce("No matching food log entries.");
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const result = await runToolLoop(
+      [{ role: "user", content: "I had a Big Mac" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    // executeTool should only be called for search_food_log, NOT for web_search
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+    expect(mockExecuteTool).toHaveBeenCalledWith(
+      "search_food_log",
+      { query: "big mac" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result.message).toBe("Based on McDonald's nutrition page, a Big Mac has 590 calories.");
+  });
+
+  it("handles web-search-only response with end_turn (no custom tools)", async () => {
+    // Response where Claude uses ONLY web_search (no custom tools) and returns end_turn
+    mockCreate.mockResolvedValueOnce({
+      id: "msg_1",
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "server_tool_use",
+          id: "srvtool_1",
+          name: "web_search",
+          input: { query: "Chipotle chicken burrito nutrition" },
+        } as unknown as Anthropic.ContentBlock,
+        {
+          type: "web_search_tool_result",
+          tool_use_id: "srvtool_1",
+          content: [{ type: "web_search_result", url: "https://chipotle.com", title: "Nutrition", snippet: "1000 cal" }],
+        } as unknown as Anthropic.ContentBlock,
+        {
+          type: "text",
+          text: "Based on Chipotle's website, a chicken burrito is about 1000 calories.",
+        },
+      ],
+      usage: { input_tokens: 1500, output_tokens: 150 },
+    });
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const result = await runToolLoop(
+      [{ role: "user", content: "I had a Chipotle chicken burrito" }],
+      "user-123",
+      "2026-02-15"
+    );
+
+    // No custom tools should be executed
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    // The text content should be extracted correctly
+    expect(result.message).toBe("Based on Chipotle's website, a chicken burrito is about 1000 calories.");
+    expect(result.analysis).toBeUndefined();
+  });
+
   it("handles unknown stop_reason gracefully (returns partial response)", async () => {
     mockCreate.mockResolvedValueOnce({
       id: "msg_1",
@@ -2618,6 +2855,28 @@ describe("REPORT_NUTRITION_TOOL schema", () => {
     const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
 
     expect(REPORT_NUTRITION_TOOL.strict).toBe(true);
+  });
+});
+
+describe("CHAT_SYSTEM_PROMPT web search guidance", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("includes guidance about when to search the web", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/search the web|web search/i);
+  });
+
+  it("includes guidance about when NOT to search", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Should mention not searching for generic foods
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/generic|common|basic/i);
+  });
+
+  it("includes guidance about citing sources", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/cite|source|mention where/i);
   });
 });
 

@@ -7,7 +7,8 @@
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
-| [Web Search for Nutrition Info](#web-search-for-nutrition-info) | Let Claude search the web and read pages to look up restaurant menus, brand products, etc. |
+| [Full Tool Support in Initial Analysis](#full-tool-support-in-initial-analysis) | Let initial analysis use data tools so users can reference food history from the description textarea |
+| [Nutrition Database API Integration](#nutrition-database-api-integration) | Add a structured nutrition database tool complementing web search for branded/restaurant foods |
 
 ---
 
@@ -210,63 +211,84 @@ User picks in Settings:
 
 ---
 
-## Web Search for Nutrition Info
+## Full Tool Support in Initial Analysis
 
 ### Problem
 
-When users ask about restaurant dishes, brand-name products, or unfamiliar foods, Claude can only estimate from its training data. It has no access to actual menus, product labels, or nutritional databases. Estimates for specific restaurant items (e.g., "the chicken burrito from Chipotle") can be significantly off because portion sizes and recipes vary by chain.
+The initial food analysis (`analyzeFood()`) is a single-shot API call with forced `tool_choice: { type: "tool", name: "report_nutrition" }`. It can only use server-side tools (web_search). Users sometimes type rich queries in the description textarea like "similar to yesterday but half" or "same as Monday's lunch but without the bread" — these require data tools (`search_food_log`, `get_nutrition_summary`) which need a tool loop to execute.
 
 ### Goal
 
-Let Claude search the web and read page content to look up real nutrition information — restaurant menus, brand product pages, nutritional databases — before estimating.
+Let the initial analysis use all available tools (data tools + web_search + report_nutrition) so users can reference their food history directly from the description textarea.
 
 ### Design
 
-#### Two New Tools
+#### Routing Through the Tool Loop
 
-1. **`search_web`** — Takes a query string, returns a list of results (title, URL, snippet). Claude decides what to search for based on the conversation.
-2. **`read_page`** — Takes a URL, returns the page content as clean text/markdown. Claude picks the most relevant result from the search and reads it.
+Route the initial analysis through `runToolLoop()` instead of a single-shot API call. Change `tool_choice` from forced `report_nutrition` to `auto`. Claude searches the food log, gets context, then calls `report_nutrition` with the result.
 
 #### Behavior Rules
 
-- **Claude decides when to search.** If the user asks about a specific restaurant, brand, or product, Claude searches. For generic foods ("an apple", "grilled chicken"), it estimates from training data as today.
-- **Search → Read → Analyze.** Claude searches, picks the best result, reads the page, extracts nutrition info, and reports it via `report_nutrition`.
-- **Cite the source.** When nutrition comes from a web page, Claude mentions where it came from: *"Based on Chipotle's online nutrition calculator, a chicken burrito is..."*
-- **Fallback gracefully.** If search returns nothing useful or the page is unreadable, Claude falls back to estimation and says so.
-
-#### Example Flow
-
-User: *"I had a Big Mac"*
-1. Claude calls `search_web("Big Mac nutrition information")`
-2. Gets results including McDonald's nutrition page
-3. Claude calls `read_page("https://www.mcdonalds.com/us/en-us/product/big-mac.html")`
-4. Extracts: 590 cal, 34g protein, 46g carbs, 33g fat
-5. Reports via `report_nutrition` with a note citing McDonald's website
+- If Claude doesn't call `report_nutrition` after the loop, treat the response as text-only (prompt user to provide more info).
+- If the user provides a photo + description that doesn't reference history, Claude skips data tools and calls `report_nutrition` directly (current behavior preserved).
+- The tool loop applies the same `MAX_ITERATIONS` cap as the chat path.
 
 ### Architecture
 
-- **Search API:** Jina Search or Brave Search. Both have free tiers sufficient for single-user volume. Accessed server-side from `executeTool` in `src/lib/chat-tools.ts`.
-- **Page reading:** Jina Reader (`https://r.jina.ai/{url}`) — returns any page as markdown with a single HTTP call. No parsing libraries needed.
-- **Tool definitions:** Added to `src/lib/chat-tools.ts` alongside the existing data tools. Same `strict: true` schema pattern.
-- **System prompt update:** Add guidance in `CHAT_SYSTEM_PROMPT` for when to search vs. estimate, and to always cite sources.
-- **Rate limiting:** Web search and page reads count toward the existing per-user rate limit. Optionally add a separate sub-limit for web calls (e.g., 5 searches per conversation) to control external API usage.
-- **No new env vars needed** if using Jina (free, no API key). If using Brave or another paid API, add the API key to env vars.
+- Refactor `analyzeFood()` to accept `userId` and `currentDate` as required params (currently optional).
+- Reuse existing `runToolLoop()` infrastructure.
+- The API route (`/api/analyze-food`) already has the session — just pass userId/currentDate through.
+- The `analyzeFood` → `conversationalRefine` boundary may blur — consider whether `analyzeFood()` should just call `conversationalRefine()` with a single user message.
 
 ### Edge Cases
 
-- Page is behind a paywall or login wall → Jina Reader returns partial/empty content → Claude falls back to estimation.
-- Search returns irrelevant results → Claude reads the top result, determines it's not useful, and estimates instead.
-- Very long page (full restaurant menu with 200+ items) → Jina Reader returns full content, but Claude can extract the relevant item from context. May need to truncate page content to stay within token limits.
-- User asks about a local restaurant with no web presence → search returns nothing → Claude estimates and mentions the source is unavailable.
-- Multiple tool loop iterations → search + read adds 2 extra iterations to the tool loop. Current MAX_ITERATIONS=5 should be sufficient but may need bumping.
+- Claude uses data tools but never calls report_nutrition → return text response, no analysis.
+- Tool loop exceeds MAX_ITERATIONS before reporting nutrition → return partial text.
+- User provides photo + description that doesn't reference history → Claude skips data tools and calls report_nutrition directly (current behavior preserved).
 
 ### Implementation Order
 
-1. `search_web` tool definition and Jina Search integration in `executeTool`
-2. `read_page` tool definition and Jina Reader integration in `executeTool`
-3. System prompt guidance for when to search vs. estimate
-4. Source citation in Claude responses
-5. Optional: sub-limit for web API calls per conversation
+1. Refactor `analyzeFood()` to use `runToolLoop()`
+2. Change tool_choice to auto
+3. Handle no-analysis responses
+4. Update tests
+
+---
+
+## Nutrition Database API Integration
+
+### Problem
+
+Claude's web search is a good fallback for looking up nutrition info, but a structured nutrition database would give more accurate, consistent results for branded and restaurant foods. However, the main nutrition databases (Nutritionix, FatSecret, USDA) are heavily US/Europe-focused and have poor coverage of Argentine foods and local restaurants.
+
+### Goal
+
+Add a `search_nutrition_database` tool that queries a nutrition API for structured, verified nutrition data — complementing the existing web search with faster, more reliable results for foods that are in the database.
+
+### Design
+
+#### Tool Priority
+
+Claude would have access to both web_search (built-in) and a dedicated nutrition database tool. For known brands/restaurants in the database, it uses the structured API. For everything else (especially Argentine/Latin American foods), it falls back to web search or its training data.
+
+### Architecture
+
+- **Candidate APIs:** FatSecret Platform (5K free calls/day, 1.9M+ foods in 56 countries, best free tier), USDA FoodData Central (free unlimited, US government data), Open Food Facts (free community data, 4M+ products).
+- All are weak on Argentine food coverage.
+- Tool definition added to `src/lib/chat-tools.ts` alongside existing data tools.
+- System prompt guidance for tool selection priority (structured API > web search > training data).
+
+### Edge Cases
+
+- API returns no match → fall back to web search or estimation.
+- API data conflicts with web search data → prefer structured API data.
+- Rate limit hit → graceful degradation.
+
+### Implementation Order
+
+1. Evaluate API coverage for user's typical foods
+2. Integrate chosen API as a new chat tool
+3. System prompt guidance for tool selection priority
 
 ---
 
