@@ -160,7 +160,23 @@ Trace data from source to display and back.
 - Images use next/image (auto optimization, lazy loading)
 - No waterfall requests that could be parallel
 
-## 8. AI Integration (Claude API)
+## 8. Logging Coverage
+
+### Across the Feature
+- Error paths in API routes log with context (action, inputs, error details)
+- External API calls log duration and outcome (durationMs)
+- Key state changes logged at INFO level (creates, updates, deletes)
+- Debug coverage exists for troubleshooting each layer (no blind spots in lib modules)
+
+### Common Issues
+- Same error logged at both lib module and route handler (double-logging)
+- Errors logged before auto-logging helpers like errorResponse() (double-logging)
+- Missing structured { action: "..." } field — string-only messages can't be filtered
+- Sensitive data in logs (tokens, passwords, raw image data)
+- No logging in catch blocks (silent failures invisible in production)
+- Console.log/warn/error in server code instead of proper logger
+
+## 9. AI Integration (Claude API)
 
 This project uses Claude's tool_use API for food analysis and conversational chat. When the reviewed feature involves Claude API integration, trace the full AI data flow.
 
@@ -280,7 +296,7 @@ Follow data through the full AI pipeline:
 - Request size under 32MB limit for Messages API
 - Token usage recording failures don't break the main request flow
 
-## 9. AI-Generated Code Risks
+## 10. AI-Generated Code Risks
 
 All code in this project is AI-assisted. When tracing data flows and interactions, watch for these AI-specific patterns:
 

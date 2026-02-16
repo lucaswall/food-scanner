@@ -1,6 +1,6 @@
 # Code Audit Compliance Checklist
 
-Universal checks that apply to any project. Project-specific rules should be defined in CLAUDE.md.
+Detailed checks for code audit reviewers. Read CLAUDE.md for project-specific rules and accepted patterns.
 
 ## Security (OWASP-Based)
 

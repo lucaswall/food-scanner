@@ -119,10 +119,14 @@ CLAUDE.md COMPLIANCE (read CLAUDE.md first!):
 - Any other project-specific rules
 
 LOGGING:
-- console.log/warn/error instead of proper logger
-- Wrong log levels
+- console.log/warn/error instead of proper logger (exception: 'use client' components per CLAUDE.md)
+- Wrong log levels (errors at INFO, routine GETs at INFO instead of DEBUG)
 - Missing logs in error paths (empty catch blocks)
-- Sensitive data in logs
+- Double-logging (same error at lib layer AND route handler, or logged before errorResponse())
+- Missing structured { action: "..." } field on log statements
+- Missing durationMs on external API calls
+- Logging inside loops or large objects logged in full
+- Sensitive data in logs (tokens, API keys, raw images)
 
 TEST QUALITY (if test files are in the changed list):
 - Tests with no meaningful assertions
