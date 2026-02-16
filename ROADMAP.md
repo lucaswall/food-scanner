@@ -7,7 +7,6 @@
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
-| [Full Tool Support in Initial Analysis](#full-tool-support-in-initial-analysis) | Let initial analysis use data tools so users can reference food history from the description textarea |
 | [Nutrition Database API Integration](#nutrition-database-api-integration) | Add a structured nutrition database tool complementing web search for branded/restaurant foods |
 
 ---
@@ -208,50 +207,6 @@ User picks in Settings:
 5. Background sync on reconnection
 6. Auto-log vs hold-for-review setting
 7. Notification for auto-logged items
-
----
-
-## Full Tool Support in Initial Analysis
-
-### Problem
-
-The initial food analysis (`analyzeFood()`) is a single-shot API call with forced `tool_choice: { type: "tool", name: "report_nutrition" }`. It can only use server-side tools (web_search). Users sometimes type rich queries in the description textarea like "similar to yesterday but half" or "same as Monday's lunch but without the bread" — these require data tools (`search_food_log`, `get_nutrition_summary`) which need a tool loop to execute.
-
-### Goal
-
-Let the initial analysis use all available tools (data tools + web_search + report_nutrition) so users can reference their food history directly from the description textarea.
-
-### Design
-
-#### Routing Through the Tool Loop
-
-Route the initial analysis through `runToolLoop()` instead of a single-shot API call. Change `tool_choice` from forced `report_nutrition` to `auto`. Claude searches the food log, gets context, then calls `report_nutrition` with the result.
-
-#### Behavior Rules
-
-- If Claude doesn't call `report_nutrition` after the loop, treat the response as text-only (prompt user to provide more info).
-- If the user provides a photo + description that doesn't reference history, Claude skips data tools and calls `report_nutrition` directly (current behavior preserved).
-- The tool loop applies the same `MAX_ITERATIONS` cap as the chat path.
-
-### Architecture
-
-- Refactor `analyzeFood()` to accept `userId` and `currentDate` as required params (currently optional).
-- Reuse existing `runToolLoop()` infrastructure.
-- The API route (`/api/analyze-food`) already has the session — just pass userId/currentDate through.
-- The `analyzeFood` → `conversationalRefine` boundary may blur — consider whether `analyzeFood()` should just call `conversationalRefine()` with a single user message.
-
-### Edge Cases
-
-- Claude uses data tools but never calls report_nutrition → return text response, no analysis.
-- Tool loop exceeds MAX_ITERATIONS before reporting nutrition → return partial text.
-- User provides photo + description that doesn't reference history → Claude skips data tools and calls report_nutrition directly (current behavior preserved).
-
-### Implementation Order
-
-1. Refactor `analyzeFood()` to use `runToolLoop()`
-2. Change tool_choice to auto
-3. Handle no-analysis responses
-4. Update tests
 
 ---
 
