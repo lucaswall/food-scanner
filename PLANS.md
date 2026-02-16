@@ -302,7 +302,11 @@ Currently `analyzeFood()` forces `tool_choice: { type: "tool", name: "report_nut
 - FOO-532: Todo → In Progress
 
 ### Pre-commit Verification
-- bug-hunter: Found 3 medium bugs + 1 low, fixed 2 (malformed response handling, empty seed array edge case), 1 deferred (FoodAnalysis optional-vs-nullable pre-existing type inconsistency across 18+ files), 1 skipped (false positive on timezone validation)
+- bug-hunter: Found 3 medium bugs + 1 low, all real bugs fixed:
+  - Fixed malformed API response handling (defensive else branch in FoodAnalyzer)
+  - Fixed empty seed array edge case in FoodChat isSeeded check
+  - Fixed FoodAnalysis optional-vs-nullable inconsistency (changed `?:` to required-but-nullable across type + 18 test files + quick-select.tsx)
+  - Skipped timezone validation finding (false positive)
 - verifier: All 1812 tests pass, zero warnings
 
 ### Continuation Status

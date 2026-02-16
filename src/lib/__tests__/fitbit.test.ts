@@ -823,13 +823,13 @@ describe("createFood", () => {
     vi.restoreAllMocks();
   });
 
-  it("omits Tier 1 nutrients when undefined", async () => {
+  it("omits Tier 1 nutrients when null", async () => {
     const foodWithoutTier1 = {
       ...mockFoodAnalysis,
-      saturated_fat_g: undefined,
-      trans_fat_g: undefined,
-      sugars_g: undefined,
-      calories_from_fat: undefined,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      sugars_g: null,
+      calories_from_fat: null,
     };
     const mockResponse = { food: { foodId: 789, name: "Test" } };
 
@@ -982,6 +982,10 @@ describe("fetchWithRetry 5xx handling", () => {
     fat_g: 5,
     fiber_g: 3,
     sodium_mg: 100,
+    saturated_fat_g: null,
+    trans_fat_g: null,
+    sugars_g: null,
+    calories_from_fat: null,
     confidence: "high" as const,
     notes: "Test",
     description: "",
@@ -1086,6 +1090,10 @@ describe("fetchWithRetry 403 handling", () => {
     fat_g: 5,
     fiber_g: 3,
     sodium_mg: 100,
+    saturated_fat_g: null,
+    trans_fat_g: null,
+    sugars_g: null,
+    calories_from_fat: null,
     confidence: "high" as const,
     notes: "Test",
     description: "",
@@ -1116,6 +1124,10 @@ describe("fetchWithRetry deadline", () => {
     fat_g: 5,
     fiber_g: 3,
     sodium_mg: 100,
+    saturated_fat_g: null,
+    trans_fat_g: null,
+    sugars_g: null,
+    calories_from_fat: null,
     confidence: "high" as const,
     notes: "Test",
     description: "",
@@ -1518,6 +1530,10 @@ describe("findOrCreateFood", () => {
     fat_g: 3,
     fiber_g: 4,
     sodium_mg: 10,
+    saturated_fat_g: null,
+    trans_fat_g: null,
+    sugars_g: null,
+    calories_from_fat: null,
     confidence: "high" as const,
     notes: "Test food",
     description: "",

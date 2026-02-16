@@ -62,10 +62,10 @@ export interface FoodAnalysis {
   fat_g: number;
   fiber_g: number;
   sodium_mg: number;
-  saturated_fat_g?: number | null;
-  trans_fat_g?: number | null;
-  sugars_g?: number | null;
-  calories_from_fat?: number | null;
+  saturated_fat_g: number | null;
+  trans_fat_g: number | null;
+  sugars_g: number | null;
+  calories_from_fat: number | null;
   confidence: "high" | "medium" | "low";
   notes: string;
   description: string;
