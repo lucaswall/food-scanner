@@ -247,8 +247,7 @@ describe("FoodLogConfirmation", () => {
       expect(screen.getByText("Dinner")).toBeInTheDocument();
     });
 
-  // FOO-418: FoodLogConfirmation has no "Log Another" action
-  it("renders Log Another button alongside Done button", () => {
+  it("Done button has default (primary) variant", () => {
     render(
       <FoodLogConfirmation
         response={mockResponse}
@@ -256,41 +255,21 @@ describe("FoodLogConfirmation", () => {
       />
     );
 
-    // Should have both buttons
-    expect(screen.getByRole("button", { name: /log another/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /done/i })).toBeInTheDocument();
-  });
-
-  it("navigates to /app/analyze when Log Another button is clicked", () => {
-    mockPush.mockClear();
-    render(
-      <FoodLogConfirmation
-        response={mockResponse}
-        foodName="Test Food"
-      />
-    );
-
-    const logAnotherButton = screen.getByRole("button", { name: /log another/i });
-    fireEvent.click(logAnotherButton);
-
-    expect(mockPush).toHaveBeenCalledWith("/app/analyze");
-  });
-
-  it("Log Another button has primary variant and Done has outline variant", () => {
-    render(
-      <FoodLogConfirmation
-        response={mockResponse}
-        foodName="Test Food"
-      />
-    );
-
-    const logAnotherButton = screen.getByRole("button", { name: /log another/i });
     const doneButton = screen.getByRole("button", { name: /done/i });
+    expect(doneButton).toHaveAttribute("data-variant", "default");
+  });
 
-    // Log Another should be primary (default variant)
-    expect(logAnotherButton).toHaveAttribute("data-variant", "default");
-    // Done should be outline
-    expect(doneButton).toHaveAttribute("data-variant", "outline");
+  it("Done button is the only action button", () => {
+    render(
+      <FoodLogConfirmation
+        response={mockResponse}
+        foodName="Test Food"
+      />
+    );
+
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveTextContent(/done/i);
   });
 
     it("does not render nutrition card when analysis is not provided", () => {

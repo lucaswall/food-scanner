@@ -216,3 +216,39 @@ Fix two UX issues: (1) nutrition detail dialogs are invisible when opened from w
 - Refactoring the FoodChat z-index itself (z-[60] is correct for a full-screen overlay)
 - Adding a generic z-index prop to Dialog (not needed — variant-based is sufficient)
 - Changing bottom-nav z-index (z-50, unrelated)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-16
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Task 1: Add test for bottom-sheet dialog z-index override (FOO-554) - Added z-[70] CVA variant assertion
+- Task 2: Fix dialog z-index for bottom-sheet variant (FOO-554) - Added z-[70] to bottom-sheet variant and overlay
+- Task 3: Update FoodLogConfirmation tests for Log Another removal (FOO-553) - Removed 3 Log Another tests, added Done-only assertions
+- Task 4: Remove Log Another button and restyle Done button (FOO-553) - Single centered primary Done button
+- Task 5: Clean up stale test mocks (FOO-553) - Simplified mocks in food-analyzer-reconnect and quick-select tests
+- Task 6: Update E2E test for Log Another removal (FOO-553) - Removed Log Another assertion from analyze.spec.ts
+- Task 7: Integration & Verification (FOO-554, FOO-553) - Full suite pass
+
+### Files Modified
+- `src/components/ui/__tests__/dialog.test.tsx` - Added z-index variant tests
+- `src/components/ui/dialog.tsx` - Added z-[70] to bottom-sheet variant and overlay
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Replaced Log Another tests with Done-only assertions
+- `src/components/food-log-confirmation.tsx` - Removed Log Another button, restyled Done as primary centered
+- `src/components/__tests__/food-analyzer-reconnect.test.tsx` - Simplified FoodLogConfirmation mock (removed onReset)
+- `src/components/__tests__/quick-select.test.tsx` - Simplified FoodLogConfirmation mock (removed onDone/onLogAnother), removed phantom prop test
+- `e2e/tests/analyze.spec.ts` - Removed Log Another button assertion
+
+### Linear Updates
+- FOO-554: Todo → In Progress → Review
+- FOO-553: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 1837 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.

@@ -98,4 +98,21 @@ describe("DialogContent variant prop", () => {
     // Default variant should have duration-200
     expect(classes).toContain("duration-200");
   });
+
+  it("should apply elevated z-index to bottom-sheet variant for stacking above overlays", () => {
+    const classes = dialogContentVariants({ variant: "bottom-sheet" });
+
+    // Bottom-sheet needs z-[70] to render above FoodChat's z-[60]
+    // Note: CVA output contains both z-50 (base) and z-[70] (variant) —
+    // twMerge resolves the conflict when cn() is called in the component
+    expect(classes).toContain("z-[70]");
+  });
+
+  it("should keep default z-index for default variant", () => {
+    const classes = dialogContentVariants({ variant: "default" });
+
+    // Default variant stays at z-50
+    expect(classes).toContain("z-50");
+    expect(classes).not.toContain("z-[70]");
+  });
 });

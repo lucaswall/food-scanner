@@ -124,10 +124,7 @@ test.describe('Analyze Page', () => {
     // Look for success message pattern
     await expect(page.getByText(/logged successfully/i)).toBeVisible({ timeout: 5000 });
 
-    // Verify "Log Another" button is visible
-    await expect(page.getByRole('button', { name: 'Log Another' })).toBeVisible();
-
-    // Verify "Done" button is visible
+    // Verify "Done" button is visible (only action button)
     await expect(page.getByRole('button', { name: 'Done' })).toBeVisible();
 
     // Capture screenshot of confirmation screen
