@@ -262,6 +262,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           mealTypeId,
           ...getLocalDateTime(),
         }),
+        signal: AbortSignal.timeout(15000),
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -299,7 +300,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     } catch (err) {
       // Revert optimistic update
       setLogResponse(null);
-      setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setLogError("Request timed out. Please try again.");
+      } else {
+        setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      }
       vibrateError();
     } finally {
       setLogging(false);
@@ -337,6 +342,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(15000),
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -375,7 +381,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     } catch (err) {
       // Revert optimistic update
       setLogResponse(null);
-      setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setLogError("Request timed out. Please try again.");
+      } else {
+        setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      }
       vibrateError();
     } finally {
       setLogging(false);
@@ -427,6 +437,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
     })
       .then((r) => safeResponseJson(r))
       .then((raw) => {
@@ -442,13 +453,29 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           setLogError(result.error?.message || "Failed to resubmit food log");
         }
       })
-      .catch(() => {
+      .catch((err) => {
         clearPendingSubmission();
-        setLogError("Failed to resubmit food log");
+        if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+          setLogError("Request timed out. Please try again.");
+        } else {
+          setLogError("Failed to resubmit food log");
+        }
       })
       .finally(() => {
         setResubmitting(false);
       });
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (compressionWarningTimeoutRef.current) {
+        clearTimeout(compressionWarningTimeoutRef.current);
+      }
+    };
   }, []);
 
   // Show resubmitting state
@@ -488,9 +515,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         compressedImages={compressedImages || []}
         initialMealTypeId={mealTypeId}
         onClose={() => setChatOpen(false)}
-        onLogged={(response, refinedAnalysis) => {
+        onLogged={(response, refinedAnalysis, mealTypeId) => {
           setAnalysis(refinedAnalysis);
           setLogResponse(response);
+          setMealTypeId(mealTypeId);
         }}
       />
     );
@@ -511,7 +539,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} />
 
-      <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging} />
+      <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging || compressing} />
 
       {/* First-time user guidance */}
       {photos.length === 0 && !description.trim() && !analysis && (

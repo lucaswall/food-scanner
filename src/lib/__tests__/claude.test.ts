@@ -232,7 +232,7 @@ describe("analyzeFood", () => {
     expect(result).toEqual({ type: "analysis", analysis: validAnalysis });
   });
 
-  it("returns needs_chat with empty message when Claude returns only data tool calls", async () => {
+  it("returns needs_chat with fallback message when Claude returns only tool_use blocks", async () => {
     mockCreate.mockResolvedValueOnce({
       model: "claude-sonnet-4-5-20250929",
       content: [
@@ -257,10 +257,11 @@ describe("analyzeFood", () => {
       "2026-02-15"
     );
 
-    expect(result).toEqual({
-      type: "needs_chat",
-      message: "",
-    });
+    expect(result.type).toBe("needs_chat");
+    if (result.type === "needs_chat") {
+      expect(result.message).not.toBe("");
+      expect(result.message).toContain("look into that");
+    }
   });
 
   it("passes all 5 tools to Claude API with tool_choice auto", async () => {

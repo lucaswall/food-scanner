@@ -1331,7 +1331,7 @@ describe("FoodChat", () => {
       expect(body.messages[2]).toEqual({ role: "user", content: "Go ahead" });
     });
 
-    it("seed messages do not count toward message limit", () => {
+    it("initial seed messages don't trigger limit warning", () => {
       render(
         <FoodChat
           seedMessages={seedMessages}
@@ -1340,11 +1340,38 @@ describe("FoodChat", () => {
         />
       );
 
-      // Should not show any limit warnings — seed messages shouldn't count
+      // With only 2 seed messages, we're well below the 30-message limit
       expect(screen.queryByTestId("limit-warning")).not.toBeInTheDocument();
-      // Input should still be enabled
+      // Input should be enabled
       const input = screen.getByPlaceholderText(/type a message/i) as HTMLInputElement;
       expect(input).not.toBeDisabled();
+    });
+
+    it("seeded messages count toward server message limit", () => {
+      // MAX_MESSAGES = 30. With seedCount = 0 (fixed), all messages count toward limit.
+      // Create 27 seed messages so apiMessageCount = 27, triggering nearLimit (>= 26).
+      // Before the fix: seedCount = 27, apiMessageCount = 0 → no warning.
+      // After the fix: seedCount = 0, apiMessageCount = 27 → "3 refinements remaining".
+      const manySeedMessages: ConversationMessage[] = [];
+      for (let i = 0; i < 27; i++) {
+        manySeedMessages.push({
+          role: i % 2 === 0 ? "user" : "assistant",
+          content: `Message ${i + 1}`,
+        });
+      }
+
+      render(
+        <FoodChat
+          seedMessages={manySeedMessages}
+          onClose={vi.fn()}
+          onLogged={vi.fn()}
+        />
+      );
+
+      // With 27 messages and seedCount=0, apiMessageCount=27, nearLimit=true
+      // Should show "3 refinements remaining" (MAX_MESSAGES - 27 = 3)
+      const warning = screen.getByTestId("limit-warning");
+      expect(warning).toHaveTextContent("3 refinements remaining");
     });
 
     it("existing behavior unchanged when seedMessages is not provided", async () => {
