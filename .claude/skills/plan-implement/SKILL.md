@@ -22,6 +22,22 @@ Each worker operates in its own **git worktree** — a fully isolated working di
    - Original Plan with no "Iteration 1" → Execute from Task 1
    - Nothing pending → Inform user "No pending work in PLANS.md"
 
+## Scope Assessment
+
+Before partitioning into work units, assess whether workers are justified:
+
+1. Count the pending tasks/fixes
+2. Estimate total files modified (from the plan descriptions)
+
+| Pending tasks | Est. files modified | Decision |
+|---------------|---------------------|----------|
+| 1–3 tasks OR ≤6 files total | Small batch | **Skip workers → single-agent mode** |
+| 4+ tasks AND >6 files total | Medium+ batch | Proceed with workers |
+
+For small batches, announce: "Small batch (N tasks, ~M files) — implementing in single-agent mode for efficiency." Then jump directly to "Fallback: Single-Agent Mode."
+
+**Rationale:** Worker overhead (worktree setup, team creation, task assignment, merge, cleanup) exceeds implementation time for small batches. Iterations 1–2 succeeded with 7–8 tasks; Iteration 3 failed with 3 tasks because workers took longer to start than the fixes took to implement.
+
 ## Work Partitioning
 
 Group pending tasks into work units by **domain** — related areas of the codebase that form coherent implementation units. Workers MAY touch overlapping files; the lead resolves conflicts during the merge phase.
@@ -170,17 +186,42 @@ All your work happens in this directory. You have a complete, independent copy o
 ASSIGNED TASKS:
 {paste the full task descriptions from PLANS.md for this work unit}
 
+STARTUP (do these 3 steps in order before anything else):
+1. Run via Bash: cd {absolute_project_path}/_workers/worker-{N}
+2. Run via Bash: npx vitest --version
+3. Read the file: CLAUDE.md (in your workspace)
+
+If step 1 or 2 fails, IMMEDIATELY send a blocker message to the lead:
+"BLOCKER: Workspace at {path} is not functional. [error details]"
+Do NOT attempt any other work until the lead responds.
+
+After startup succeeds, send your first message to the lead:
+"Starting Task N: [title] [FOO-XXX]"
+
+TOOL SELECTION (memorize — no exceptions):
+| I want to...           | Use this tool                     | NEVER use               |
+|------------------------|-----------------------------------|-------------------------|
+| Read a file            | Read tool                         | cat, head, tail, less   |
+| Find files by name     | Glob tool                         | find, ls                |
+| Search file contents   | Grep tool                         | grep, rg, ag            |
+| Edit an existing file  | Edit tool                         | sed, awk                |
+| Create a new file      | Write tool                        | echo >, cat <<, tee     |
+| Run tests              | Bash: npx vitest run "pattern"    |                         |
+| Typecheck              | Bash: npm run typecheck           |                         |
+| Commit at the end      | Bash: git add -A && git commit    |                         |
+| Anything else via Bash | **STOP — ask the lead first**     |                         |
+
+Using Bash for file operations (including reads like ls, find, grep) triggers
+permission prompts on the lead's terminal and can break your Bash environment
+entirely. Use the dedicated tools above instead.
+
 RULES:
-- **FIRST:** cd to your workspace directory before any other action
 - Follow TDD strictly: write test → run test (expect fail) → implement → run test (expect pass)
 - **E2E TEST EXCEPTION:** If writing Playwright E2E tests (`e2e/tests/*.spec.ts`), write the spec but SKIP the run steps. The lead runs E2E tests after merging.
-- Read CLAUDE.md in your workspace for project conventions before starting
-- Run tests via Bash: npx vitest run "pattern" (e.g., npx vitest run "session")
 - Do NOT run the build (npm run build), full test suite (npm test), or E2E tests
 - Report progress to the lead after completing each task
 - Do NOT update Linear issues — the lead handles all Linear state transitions
 - NEVER hand-write generated files (migrations, snapshots). Report as blocker — the lead handles it.
-- **NEVER use Bash for ANY file operation.** This includes BOTH mutations (sed, awk, cat >, echo >, tee, cp, mv, rm, mkdir) AND reads/searches (grep, rg, find, ls, cat, head, tail). Use the dedicated tools instead: Read (to read files), Glob (to find files), Grep (to search content), Edit/Write (to modify files). **The ONLY acceptable Bash uses are:** (1) cd to workspace, (2) `npx vitest run "pattern"` for tests, (3) `npm run typecheck` for typechecking, (4) `git add -A && git commit` at the end. Every other Bash call triggers a permission prompt on the lead's terminal — avoid it.
 
 WORKFLOW FOR EACH TASK:
 
@@ -245,6 +286,22 @@ After spawning, for each work unit:
 
 ## Coordination (while workers work)
 
+### Worker Startup Grace Period
+
+After spawning workers, wait at least **5 minutes** before taking any corrective action. Workers need 2–4 turns to: cd to workspace, validate environment, read CLAUDE.md, read source files, and send their first "Starting Task" message.
+
+**During the grace period:**
+- Idle notifications are EXPECTED and normal — do not react to them
+- Do NOT send status check messages until 5 minutes have passed
+- Do NOT delete worktrees, remove branches, or clean up
+- You MAY acknowledge worker messages if they arrive
+
+**After 5 minutes with no messages from a worker:**
+1. Check the worktree for file modifications: `git -C _workers/worker-N status --short`
+2. If files are modified → worker IS making progress silently. Wait 3 more minutes.
+3. If NO files modified → send ONE status check message. Wait 2 more minutes.
+4. If still no response and no file changes → the worker is stuck. Do NOT delete its worktree. Instead, fall back to single-agent mode for that worker's tasks (implement them yourself in the main workspace). Leave the worktree intact until the post-worker cleanup phase.
+
 ### Message Handling
 
 1. Worker messages are **automatically delivered** — do NOT poll
@@ -266,13 +323,30 @@ After spawning, for each work unit:
 
 Once ALL workers have reported completion and committed their changes:
 
-### 1. Shutdown Workers
+### 1. Pre-Shutdown Verification
+
+Before sending any shutdown requests, verify each worker's state:
+```bash
+# For each worker N:
+git -C _workers/worker-N log --oneline -1
+git -C _workers/worker-N status --short
+```
+
+If a worker has uncommitted changes (files listed by `status --short`), salvage them:
+```bash
+git -C _workers/worker-N add -A -- ':!node_modules' ':!.env' ':!.env.local'
+git -C _workers/worker-N commit -m "lead: salvage worker-N uncommitted progress"
+```
+
+### 2. Shutdown Workers
 
 1. Send shutdown requests to all workers using `SendMessage` with `type: "shutdown_request"`
-2. Wait for shutdown confirmations
+2. Wait for shutdown confirmations — timeout after 2 minutes per worker
 3. Mark all work unit tasks as completed via `TaskUpdate`
 
-### 2. Merge Worker Branches
+**CRITICAL: Never delete worktrees while workers are alive.** Worktree deletion is IRREVERSIBLE and destroys all uncommitted worker progress. The sequence MUST be: shutdown all workers → verify all confirmed → THEN delete worktrees in the Cleanup phase.
+
+### 3. Merge Worker Branches
 
 Merge worker branches into the feature branch **one at a time, foundation-first**.
 
@@ -305,21 +379,21 @@ If type errors → fix them before merging the next worker. This catches integra
 4. Verify `node_modules` is still a real directory (not a symlink): `ls -ld node_modules | head -1`
 5. If it became a symlink: `rm -f node_modules && npm install`
 
-### 3. Run Lead-Reserved Tasks (Generated Files)
+### 4. Run Lead-Reserved Tasks (Generated Files)
 
 If any tasks were reserved for the lead during partitioning:
 1. Run the CLI command (e.g., `npx drizzle-kit generate`)
 2. Verify output files are correct
 3. If the generator produces no changes, investigate — workers may have missed a schema change
 
-### 4. Install New Dependencies (if needed)
+### 5. Install New Dependencies (if needed)
 
 If the plan required new npm packages that workers couldn't install:
 ```bash
 npm install <package-name>
 ```
 
-### 5. Run E2E Tests (if workers wrote E2E specs)
+### 6. Run E2E Tests (if workers wrote E2E specs)
 
 Run the `verifier` agent in E2E mode:
 ```
@@ -327,7 +401,7 @@ Task tool with subagent_type "verifier" and prompt "e2e"
 ```
 If E2E tests fail → fix the specs directly, then re-run.
 
-### 6. Run Full Verification
+### 7. Run Full Verification
 
 **Bug hunter:**
 ```
@@ -516,7 +590,10 @@ If `TeamCreate` fails or worktree setup fails, implement the plan sequentially a
 | TeamCreate fails | Clean up worktrees, switch to single-agent fallback |
 | Worker branch already exists | Delete it first: `git branch -D <branch> 2>/dev/null` |
 | All tasks in same domain (1 unit) | Use 1 worker — still benefits from isolated context |
-| Worker stops without reporting | Enter their worktree, review state, commit if work is usable, fix directly |
+| Worker stops without reporting | Check worktree: `git -C _workers/worker-N status --short`. If changes exist, salvage and commit from lead. If empty, implement tasks in single-agent mode. Do NOT delete the worktree until shutdown is confirmed. |
+| Worker reports workspace missing | Worktree was deleted prematurely. Shut down the worker. Implement its tasks in single-agent mode. |
+| Worker's Bash environment breaks | Known bug (#17321) — worker used Bash for file ops. Shut down the worker. Implement its tasks in single-agent mode. |
+| Small batch (≤3 tasks, ≤6 files) | Skip workers entirely — use single-agent mode from the start |
 | Merge conflict | Resolve in feature branch, run typecheck, continue merging |
 | Type errors after merge | Fix before merging next worker |
 | Integration failures after all merges | Fix directly in verification phase |
@@ -549,6 +626,9 @@ If `TeamCreate` fails or worktree setup fails, implement the plan sequentially a
 - **E2E test tasks are write-only for workers** — Workers write specs but do NOT run them
 - **Foundation-first merge order** — Merge lower-level workers first (types → services → routes → UI). Typecheck gate (`npm run typecheck`) after each merge.
 - **Workers commit, don't push** — Workers `git add -A && git commit` in their worktree. Lead merges locally via the shared git object database.
+- **Never delete worktrees while workers are alive** — Worktree deletion is irreversible. Always shutdown workers first, then verify shutdown, then delete worktrees.
+- **Respect the 5-minute grace period** — Workers need multiple turns to start. Do not send status checks or take corrective action before 5 minutes have passed.
+- **Small batches skip workers** — ≤3 tasks or ≤6 files total → single-agent mode. Worker overhead exceeds implementation time for small batches.
 - **Always clean up worktrees** — Remove worktrees, prune metadata, delete worker branches after merge
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
