@@ -44,6 +44,23 @@ beforeAll(() => {
   if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
+
+  // Mock FileReader to fire onload synchronously instead of as a macrotask.
+  // Real FileReader.readAsDataURL fires onload as a macrotask, which can leak
+  // across test boundaries and cause flaky failures when running alongside
+  // other test files.
+  global.FileReader = class MockFileReader {
+    result: string | null = null;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+
+    readAsDataURL() {
+      this.result = "data:image/jpeg;base64,dGVzdA==";
+      // Fire synchronously — resolve() inside the Promise constructor is still
+      // deferred via microtask, which is deterministic and won't leak.
+      this.onload?.();
+    }
+  } as unknown as typeof FileReader;
 });
 
 // Mock fetch
@@ -304,6 +321,74 @@ describe("FoodChat", () => {
     const secondBody = JSON.parse(secondCallArgs[1].body);
     // No images on second message
     expect(secondBody.images).toBeUndefined();
+  });
+
+  it("re-sends initial images on retry after first message fails (FOO-574)", async () => {
+    // Use sseProps (no compressed images) to avoid FileReader macrotask leakage,
+    // then verify the stale closure via initialImagesSent ref behavior.
+    // The bug: revertOnError captures stale `initialImagesSent = false`, so after
+    // setInitialImagesSent(true) + error, the flag is never reverted.
+    // We test with SSE error events and no initial images, but with user-added images.
+
+    // Instead, test the stale closure directly: render with compressedImages,
+    // first send fails (JSON path for reliable timing), retry should include images.
+    const { unmount } = render(<FoodChat {...defaultProps} />);
+
+    // First message: HTTP error
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: false,
+          error: { code: "CLAUDE_API_ERROR", message: "Temporary failure" },
+        })),
+    });
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "What's this?" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    // Wait for first fetch (FileReader macrotask for blobsToBase64 must complete first)
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    // Verify first call sent images
+    const firstBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(firstBody.images).toHaveLength(2);
+
+    // Wait for error to appear and loading to finish
+    await waitFor(() => {
+      expect(screen.getByText(/temporary failure/i)).toBeInTheDocument();
+      expect(input).not.toBeDisabled();
+    });
+
+    // Retry: second message should re-send initial images
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: { message: "I see the food" },
+        })),
+    });
+
+    fireEvent.change(input, { target: { value: "What's this?" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    // Wait for retry response to be fully consumed
+    await waitFor(() => {
+      expect(screen.getByText("I see the food")).toBeInTheDocument();
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const retryBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+    // Images should be present on retry (not lost due to stale closure)
+    expect(retryBody.images).toBeDefined();
+    expect(retryBody.images).toHaveLength(2);
+
+    // Explicit unmount to prevent FileReader macrotask leakage to subsequent tests
+    unmount();
   });
 
   it("assistant response is displayed in message list", async () => {

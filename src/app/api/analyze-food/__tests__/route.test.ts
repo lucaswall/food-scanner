@@ -341,6 +341,36 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.message).toContain("text");
   });
 
+  it("returns 400 when description exceeds 2000 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "x".repeat(2001)
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("2000");
+  });
+
+  it("accepts description of exactly 2000 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "x".repeat(2000)
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+  });
+
   // ---- SSE streaming responses (success path) ----
 
   it("returns Content-Type text/event-stream for valid request", async () => {

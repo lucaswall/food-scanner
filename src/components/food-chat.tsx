@@ -233,11 +233,13 @@ export function FoodChat({
     setLoading(true);
     setError(null);
 
+    let sentInitialImagesInThisCall = false;
+
     const revertOnError = (errorMessage: string) => {
       setMessages((prev) => prev.slice(0, messageCountBeforeSend));
       setInput(userMessage.content);
       setPendingImages(userAddedImages);
-      if (initialImagesSent && compressedImages.length > 0) {
+      if (sentInitialImagesInThisCall) {
         setInitialImagesSent(false);
       }
       setError(errorMessage);
@@ -276,6 +278,7 @@ export function FoodChat({
       if (!initialImagesSent && compressedImages.length > 0) {
         allImagesToSend.push(...compressedImages);
         setInitialImagesSent(true);
+        sentInitialImagesInThisCall = true;
       }
       allImagesToSend.push(...userAddedImages);
 
@@ -383,7 +386,7 @@ export function FoodChat({
       setMessages((prev) => prev.slice(0, messageCountBeforeSend));
       setInput(userMessage.content);
       setPendingImages(userAddedImages);
-      if (initialImagesSent && compressedImages.length > 0) {
+      if (sentInitialImagesInThisCall) {
         setInitialImagesSent(false);
       }
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {

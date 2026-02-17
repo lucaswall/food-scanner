@@ -43,6 +43,11 @@ export async function POST(request: Request) {
   }
   const description = descriptionRaw;
 
+  if (description && description.length > 2000) {
+    log.warn({ action: "analyze_food_validation" }, "description exceeds max length");
+    return errorResponse("VALIDATION_ERROR", "Description must be 2000 characters or less", 400);
+  }
+
   const clientDateRaw = formData.get("clientDate");
   const currentDate = typeof clientDateRaw === "string" && isValidDateFormat(clientDateRaw)
     ? clientDateRaw

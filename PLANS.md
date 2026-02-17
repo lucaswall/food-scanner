@@ -1188,3 +1188,36 @@ Task 16 (Integration & Verification) remains — manual testing and E2E. Fix pla
 **Linear Issue:** [FOO-575](https://linear.app/lw-claude/issue/FOO-575)
 
 1. Rewrite the AbortSignal test in `src/lib/__tests__/claude.test.ts` (line 764-772) to assert meaningful behavior: verify that collecting events from the generator with an already-aborted signal yields an error event with "Request aborted by client" message, or that the generator terminates before yielding a done event
+
+---
+
+## Iteration 5
+
+**Implemented:** 2026-02-17
+**Method:** Single-agent (small batch — 4 fixes, ~8 files)
+
+### Tasks Completed This Iteration
+- Fix 1: Per-message content length limit + description length limit (FOO-572) - Added 2000-char server-side validation in chat-food and analyze-food routes with tests
+- Fix 2: estimateTokenCount ignores tool_use/tool_result blocks (FOO-573) - Added tool_use (name + serialized input) and tool_result (string/array content) counting with test
+- Fix 3: Stale closure loses initialImagesSent on chat error retry (FOO-574) - Replaced stale closure capture with mutable local `sentInitialImagesInThisCall` variable; updated both revertOnError and catch block
+- Fix 4: AbortSignal test vacuously-true assertion (FOO-575) - Rewrote test to assert error event with "Request aborted by client" message
+
+### Files Modified
+- `src/app/api/chat-food/route.ts` - Added per-message content.length > 2000 validation
+- `src/app/api/chat-food/__tests__/route.test.ts` - Added 2 tests for content length validation
+- `src/app/api/analyze-food/route.ts` - Added description.length > 2000 validation
+- `src/app/api/analyze-food/__tests__/route.test.ts` - Added 2 tests for description length validation
+- `src/lib/claude.ts` - Added tool_use and tool_result block handling in estimateTokenCount
+- `src/lib/__tests__/claude.test.ts` - Added tool block estimation test, rewrote AbortSignal test
+- `src/components/food-chat.tsx` - Fixed stale closure with mutable local variable
+- `src/components/__tests__/food-chat.test.tsx` - Added retry-with-images test (FOO-574), added synchronous FileReader mock to fix cross-file test isolation flakiness
+
+### Linear Updates
+- FOO-572: Todo → In Progress → Review
+- FOO-573: Todo → In Progress → Review
+- FOO-574: Todo → In Progress → Review
+- FOO-575: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: 1 medium (maxLength mismatch — intentional: UI 500 is UX limit, API 2000 is safety cap), 2 low (informational)
+- verifier: All 1906 tests pass, zero warnings, build clean

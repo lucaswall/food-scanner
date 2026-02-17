@@ -280,6 +280,34 @@ describe("POST /api/chat-food", () => {
     expect(body.error.message).toContain("10MB");
   });
 
+  it("returns 400 when message content exceeds 2000 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "x".repeat(2001) }],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("2000");
+  });
+
+  it("accepts message content of exactly 2000 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "x".repeat(2000) }],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+  });
+
   it("returns 400 when initialAnalysis has missing required fields", async () => {
     mockGetSession.mockResolvedValue(validSession);
 

@@ -758,17 +758,14 @@ describe("analyzeFood", () => {
     }));
 
     const { analyzeFood } = await import("@/lib/claude");
-    // Aborted signal passed — runToolLoop should yield error or throw
+    // Aborted signal passed — runToolLoop detects abort and yields error event
     const gen = analyzeFood([], "test", "user-123", "2026-02-15", undefined, controller.signal);
     const { events } = await collectEventsExpectThrow(gen);
-    // Either error event or done — key is it doesn't hang
+    // The initial mock stream succeeds (mock doesn't check signal), then runToolLoop
+    // checks signal.aborted at loop start and yields an error event
     const errorEvent = events.find((e) => e.type === "error");
-    // If abort is detected in runToolLoop, error event is yielded
-    // If abort is detected in analyzeFood initial call, error is thrown
-    // Either way, verify it terminates
-    expect(events.length).toBeGreaterThanOrEqual(0);
-    // The response may be empty if aborted before tool loop
-    void errorEvent; // suppress unused variable warning
+    expect(errorEvent).toBeDefined();
+    expect((errorEvent as { type: "error"; message: string }).message).toBe("Request aborted by client");
   });
 });
 
@@ -1380,6 +1377,36 @@ describe("truncateConversation", () => {
     expect(result).toHaveLength(4);
     expect(result[0]).toBe(messages[6]);
     expect(result[3]).toBe(messages[9]);
+  });
+
+  it("includes tool_use and tool_result blocks in token estimate", async () => {
+    const { truncateConversation } = await import("@/lib/claude");
+    // Build messages with tool_use and tool_result blocks that are large
+    const toolInput = { query: "x".repeat(40000) }; // ~10K tokens at ~4 chars/token
+    const toolResultContent = "y".repeat(40000); // ~10K tokens
+    const messages: Anthropic.MessageParam[] = [
+      { role: "user", content: "Short user message" },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "t1", name: "search_food_log", input: toolInput },
+        ] as Anthropic.ContentBlock[],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "t1", content: toolResultContent },
+        ] as Anthropic.ToolResultBlockParam[],
+      },
+      { role: "assistant", content: "Short response" },
+      { role: "user", content: "Follow up" },
+      { role: "assistant", content: "Answer" },
+    ];
+
+    // With tool blocks properly counted (~20K+ tokens), this should trigger truncation at 15K limit
+    const result = truncateConversation(messages, 15000);
+    // If tool blocks are counted, 6 messages totaling ~20K+ tokens exceeds 15K → truncated
+    expect(result.length).toBeLessThan(messages.length);
   });
 
   it("ensures no consecutive same-role messages after truncation", async () => {

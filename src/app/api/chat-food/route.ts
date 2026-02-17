@@ -64,6 +64,9 @@ export async function POST(request: Request) {
     if (typeof message.content !== "string") {
       return errorResponse("VALIDATION_ERROR", `messages[${i}].content must be a string`, 400);
     }
+    if (message.content.length > 2000) {
+      return errorResponse("VALIDATION_ERROR", `messages[${i}].content exceeds maximum length of 2000 characters`, 400);
+    }
   }
 
   const messages = data.messages as ConversationMessage[];

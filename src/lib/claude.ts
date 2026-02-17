@@ -405,6 +405,21 @@ function estimateTokenCount(messages: Anthropic.MessageParam[]): number {
         } else if (block.type === "image") {
           // ~1000 tokens per image
           tokens += 1000;
+        } else if (block.type === "tool_use") {
+          const toolBlock = block as Anthropic.ToolUseBlock;
+          const inputStr = JSON.stringify(toolBlock.input);
+          tokens += Math.ceil((toolBlock.name.length + inputStr.length) / 4);
+        } else if (block.type === "tool_result") {
+          const resultBlock = block as Anthropic.ToolResultBlockParam;
+          if (typeof resultBlock.content === "string") {
+            tokens += Math.ceil(resultBlock.content.length / 4);
+          } else if (Array.isArray(resultBlock.content)) {
+            for (const part of resultBlock.content) {
+              if (part.type === "text") {
+                tokens += Math.ceil(part.text.length / 4);
+              }
+            }
+          }
         }
       }
     } else if (typeof message.content === "string") {
