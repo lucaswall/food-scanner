@@ -1395,7 +1395,7 @@ describe("FoodChat", () => {
         (call: unknown[]) => call[0] === "/api/log-food"
       );
       expect(logCall).toBeDefined();
-      const body = JSON.parse((logCall as unknown[][])[1].body as string);
+      const body = JSON.parse(((logCall as unknown[])[1] as { body: string }).body);
       expect(body.calories).toBe(640);
       expect(body.amount).toBe(300);
     });
@@ -1481,7 +1481,7 @@ describe("FoodChat", () => {
       });
 
       const callArgs = mockFetch.mock.calls[0];
-      const body = JSON.parse((callArgs as unknown[][])[1].body as string);
+      const body = JSON.parse(((callArgs as unknown[])[1] as { body: string }).body);
       expect(body.initialAnalysis).toEqual(mockAnalysis);
       expect(body.images).toHaveLength(2); // initial images sent on first message
     });
@@ -1586,7 +1586,7 @@ describe("FoodChat", () => {
       expect(mockFetch).toHaveBeenCalledTimes(2);
 
       const secondCallArgs = mockFetch.mock.calls[1];
-      const body = JSON.parse((secondCallArgs as unknown[][])[1].body as string);
+      const body = JSON.parse(((secondCallArgs as unknown[])[1] as { body: string }).body);
       // Thinking messages should be filtered from the payload
       const thinkingMessages = body.messages.filter(
         (m: { isThinking?: boolean }) => m.isThinking

@@ -1066,3 +1066,63 @@ No issues found - all implementations are correct and follow project conventions
 
 ### Continuation Status
 More tasks remain. Tasks 9-16 from Iteration 1 (SSE streaming core, tool indicators, integration) still pending.
+
+---
+
+## Iteration 4
+
+**Implemented:** 2026-02-17
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 9: Convert Claude API layer to streaming generators (FOO-557) — runToolLoop, analyzeFood, conversationalRefine now return AsyncGenerator<StreamEvent>; client.messages.stream() for token-level streaming; pending analysis pattern preserved (worker-1)
+- Task 10: Convert API routes to SSE endpoints (FOO-557) — /api/analyze-food and /api/chat-food return SSE via createSSEResponse(generator); validation errors still return JSON (worker-2)
+- Task 11: Update food-analyzer.tsx to consume SSE stream (FOO-557) — handleAnalyze reads SSE stream with parseSSEEvents; text_delta/tool_start/analysis/needs_chat/error/done event handling (worker-2)
+- Task 12: Update food-chat.tsx to consume SSE stream (FOO-557) — handleSend reads SSE stream token-by-token; empty assistant message immediately, text appended via functional updaters (worker-3)
+- Task 13: Update system prompts for thinking text before tool calls (FOO-558) — CHAT_SYSTEM_PROMPT and ANALYSIS_SYSTEM_PROMPT instruct Claude to emit brief thinking text before tool use (worker-1)
+- Task 14: Add thinking message rendering in chat UI (FOO-558) — isThinking flag on ConversationMessage; tool_start splits messages; thinking bubbles render with italic/muted style; filtered from API payloads (worker-3)
+- Task 15: Add tool usage indicators in analysis screen (FOO-558) — TOOL_DESCRIPTIONS map for web_search/search_food_log/get_nutrition_summary/get_fasting_info/report_nutrition; tool_start and text_delta update loadingStep (worker-2)
+
+### Tasks Remaining
+- Task 16: Integration & Verification (FOO-556, FOO-557, FOO-558, FOO-559, FOO-560)
+
+### Files Modified
+- `src/lib/claude.ts` — runToolLoop/analyzeFood/conversationalRefine as async generators; streaming via client.messages.stream(); thinking text prompt instructions; usage event yields on all paths; max-iterations fix for pending analysis
+- `src/lib/__tests__/claude.test.ts` — Full rewrite for streaming signatures; AsyncGenerator consumption; stream mock helpers
+- `src/app/api/analyze-food/route.ts` — SSE response via createSSEResponse()
+- `src/app/api/analyze-food/__tests__/route.test.ts` — SSE mock helpers; consumeSSEStream; lint fix
+- `src/app/api/chat-food/route.ts` — SSE response via createSSEResponse()
+- `src/app/api/chat-food/__tests__/route.test.ts` — SSE mock helpers
+- `src/components/food-analyzer.tsx` — SSE stream reader; TOOL_DESCRIPTIONS map; tool_start/text_delta update loadingStep
+- `src/components/__tests__/food-analyzer.test.tsx` — SSE mock helpers; streaming analysis tests; tool indicator tests
+- `src/components/__tests__/food-analyzer-reconnect.test.tsx` — SSE mock conversion
+- `src/components/food-chat.tsx` — SSE stream reader with try/finally; thinking message splitting; revertOnError initialImagesSent fix
+- `src/components/__tests__/food-chat.test.tsx` — SSE mock helpers; 11 new streaming/thinking tests; type cast fixes
+- `src/types/index.ts` — isThinking on ConversationMessage
+
+### Linear Updates
+- FOO-557: In Progress → Review
+- FOO-558: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 6 bugs (2 high, 4 medium), all fixed before proceeding
+  - [HIGH] ReadableStream lock not released in food-chat SSE path — added try/finally
+  - [HIGH] Max iterations with pendingAnalysis yields analysis then error, causing client revert — yield done instead of error when analysis exists
+  - [MEDIUM] tool_start with empty content creates orphaned empty message — always push new message on tool_start
+  - [MEDIUM] analyzeFood fast path missing usage event — added yield
+  - [MEDIUM] conversationalRefine non-tool path missing usage event — added yield
+  - [MEDIUM] revertOnError inverted initialImagesSent condition — fixed to check truthy
+- verifier: All 1900 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 9, 13 (Claude streaming core — generators, prompts)
+- Worker 2: Tasks 10, 11, 15 (API routes + analyzer UI — SSE endpoints, stream consumption, tool indicators)
+- Worker 3: Tasks 12, 14 (Chat UI — token-by-token rendering, thinking messages)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merge commit (no conflicts)
+- Worker 3: merge commit (no conflicts, 3 type cast fixes post-merge)
+
+### Continuation Status
+Task 16 (Integration & Verification) remains — manual testing and E2E.

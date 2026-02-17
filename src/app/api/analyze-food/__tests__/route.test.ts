@@ -679,7 +679,7 @@ describe("POST /api/analyze-food", () => {
 
     const formData = {
       getAll: (key: string) => (key === "images" ? [createMockFile("test.jpg", "image/jpeg", 1000)] : []),
-      get: (_key: string) => null,
+      get: () => null,
     };
     const request = {
       formData: () => Promise.resolve(formData),

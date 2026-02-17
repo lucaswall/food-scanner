@@ -237,7 +237,7 @@ export function FoodChat({
       setMessages((prev) => prev.slice(0, messageCountBeforeSend));
       setInput(userMessage.content);
       setPendingImages(userAddedImages);
-      if (!initialImagesSent && compressedImages.length > 0) {
+      if (initialImagesSent && compressedImages.length > 0) {
         setInitialImagesSent(false);
       }
       setError(errorMessage);
@@ -310,48 +310,54 @@ export function FoodChat({
         let buffer = "";
         let streamFinished = false;
 
-        while (!streamFinished) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        try {
+          while (!streamFinished) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
-          const { events, remaining } = parseSSEEvents(chunk, buffer);
-          buffer = remaining;
+            const chunk = decoder.decode(value, { stream: true });
+            const { events, remaining } = parseSSEEvents(chunk, buffer);
+            buffer = remaining;
 
-          for (let i = 0; i < events.length && !streamFinished; i++) {
-            const event = events[i];
-            if (event.type === "text_delta") {
-              setMessages((prev) => {
-                const msgs = [...prev];
-                const last = msgs[msgs.length - 1];
-                msgs[msgs.length - 1] = { ...last, content: last.content + event.text };
-                return msgs;
-              });
-            } else if (event.type === "analysis") {
-              setMessages((prev) => {
-                const msgs = [...prev];
-                const last = msgs[msgs.length - 1];
-                msgs[msgs.length - 1] = { ...last, analysis: event.analysis };
-                return msgs;
-              });
-            } else if (event.type === "tool_start") {
-              setMessages((prev) => {
-                const msgs = [...prev];
-                const last = msgs[msgs.length - 1];
-                if (last.role === "assistant" && !last.isThinking && last.content.trim()) {
-                  msgs[msgs.length - 1] = { ...last, isThinking: true };
-                  msgs.push({ role: "assistant", content: "" });
-                }
-                return msgs;
-              });
-            } else if (event.type === "error") {
-              streamFinished = true;
-              revertOnError(event.message || "Failed to process message");
-            } else if (event.type === "done") {
-              streamFinished = true;
-              // Messages are already committed via functional updaters above
+            for (let i = 0; i < events.length && !streamFinished; i++) {
+              const event = events[i];
+              if (event.type === "text_delta") {
+                setMessages((prev) => {
+                  const msgs = [...prev];
+                  const last = msgs[msgs.length - 1];
+                  msgs[msgs.length - 1] = { ...last, content: last.content + event.text };
+                  return msgs;
+                });
+              } else if (event.type === "analysis") {
+                setMessages((prev) => {
+                  const msgs = [...prev];
+                  const last = msgs[msgs.length - 1];
+                  msgs[msgs.length - 1] = { ...last, analysis: event.analysis };
+                  return msgs;
+                });
+              } else if (event.type === "tool_start") {
+                setMessages((prev) => {
+                  const msgs = [...prev];
+                  const last = msgs[msgs.length - 1];
+                  if (last.role === "assistant" && !last.isThinking) {
+                    if (last.content.trim()) {
+                      msgs[msgs.length - 1] = { ...last, isThinking: true };
+                    }
+                    msgs.push({ role: "assistant", content: "" });
+                  }
+                  return msgs;
+                });
+              } else if (event.type === "error") {
+                streamFinished = true;
+                revertOnError(event.message || "Failed to process message");
+              } else if (event.type === "done") {
+                streamFinished = true;
+                // Messages are already committed via functional updaters above
+              }
             }
           }
+        } finally {
+          reader.releaseLock();
         }
       } else {
         // JSON fallback path (e.g. for responses without SSE content-type)
@@ -377,7 +383,7 @@ export function FoodChat({
       setMessages((prev) => prev.slice(0, messageCountBeforeSend));
       setInput(userMessage.content);
       setPendingImages(userAddedImages);
-      if (!initialImagesSent && compressedImages.length > 0) {
+      if (initialImagesSent && compressedImages.length > 0) {
         setInitialImagesSent(false);
       }
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {

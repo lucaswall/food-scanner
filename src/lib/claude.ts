@@ -789,9 +789,12 @@ export async function* runToolLoop(
     l.warn({ iteration, durationMs: loopElapsed() }, "tool loop exceeded maximum iterations");
 
     if (pendingAnalysis) {
+      // We have a usable analysis despite exceeding iterations — yield it and finish
       yield { type: "analysis", analysis: pendingAnalysis };
+      yield { type: "done" };
+    } else {
+      yield { type: "error", message: "Maximum tool iterations exceeded" };
     }
-    yield { type: "error", message: "Maximum tool iterations exceeded" };
 
   } catch (error) {
     if (error instanceof ClaudeApiError) {
@@ -914,6 +917,15 @@ export async function* analyzeFood(
         { foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
         "food analysis completed (fast path)"
       );
+      yield {
+        type: "usage",
+        data: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        },
+      };
       yield { type: "analysis", analysis };
       yield { type: "done" };
       return;
@@ -1003,6 +1015,15 @@ export async function* analyzeFood(
     const message = textBlocks.map((block) => block.text).join("\n");
 
     l.info({ action: "analyze_food_needs_chat", durationMs: elapsed() }, "food analysis needs chat transition");
+    yield {
+      type: "usage",
+      data: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      },
+    };
     yield { type: "needs_chat", message };
     yield { type: "done" };
 
@@ -1271,6 +1292,16 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         );
       });
     }
+
+    yield {
+      type: "usage",
+      data: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      },
+    };
 
     if (analysis) {
       yield { type: "analysis", analysis };
