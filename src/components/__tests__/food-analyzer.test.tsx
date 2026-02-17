@@ -313,7 +313,7 @@ const mockMatches: FoodMatch[] = [
 
 const emptyMatchesResponse = () => ({
   ok: true,
-  text: () => Promise.resolve(JSON.stringify({ success: true, data: { matches: [] } })),
+  json: () => Promise.resolve({ success: true, data: { matches: [] } }),
 });
 
 /** Create a mock fetch response that looks like an SSE stream. */
@@ -918,7 +918,10 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
       });
 
-      // Use keyboard shortcut to log (wrap in act to flush useEffect listener update)
+      // Flush pending microtasks and effects so keyboard handler has canLog=true
+      await act(async () => {});
+
+      // Use keyboard shortcut to log
       await act(async () => {
         dispatchKeyboardEvent("Enter", { ctrlKey: true, shiftKey: true });
       });
