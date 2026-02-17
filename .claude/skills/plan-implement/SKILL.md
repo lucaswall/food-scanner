@@ -90,7 +90,7 @@ Remove any leftover worktrees and branches from a previous failed run:
 ```bash
 git worktree prune
 # For each worker N:
-git branch -D <FEATURE_BRANCH>/worker-N 2>/dev/null || true
+git branch -D <FEATURE_BRANCH>-worker-N 2>/dev/null || true
 rm -rf _workers/
 ```
 
@@ -98,30 +98,32 @@ rm -rf _workers/
 
 For each worker:
 ```bash
-git worktree add _workers/worker-N -b <FEATURE_BRANCH>/worker-N
+git worktree add _workers/worker-N -b <FEATURE_BRANCH>-worker-N
 ```
 
+**IMPORTANT:** Use a hyphen (`-worker-N`), NOT a slash (`/worker-N`). Git cannot create `refs/heads/feat/foo-123/worker-1` when `refs/heads/feat/foo-123` already exists as a branch ref.
+
 Example: if `FEATURE_BRANCH` is `feat/foo-123-notifications`, worker branches are:
-- `feat/foo-123-notifications/worker-1`
-- `feat/foo-123-notifications/worker-2`
+- `feat/foo-123-notifications-worker-1`
+- `feat/foo-123-notifications-worker-2`
 
 ### Bootstrap Worktree Environments
 
 Each worktree needs dependencies and environment variables:
 ```bash
 # For each worker N:
-cp -r node_modules _workers/worker-N/node_modules
+ln -s "$(pwd)/node_modules" _workers/worker-N/node_modules
 cp .env _workers/worker-N/.env 2>/dev/null || true
 cp .env.local _workers/worker-N/.env.local 2>/dev/null || true
 ```
 
-`cp -r node_modules` takes ~5-10s (faster than `npm ci`). Workers don't install new packages — the lead handles that after merge if needed.
+**Why symlink, not copy:** `cp -r node_modules` breaks `.bin/` symlinks on macOS — `cp -r` dereferences symlinks, turning `.bin/vitest -> ../vitest/vitest.mjs` into a regular file containing `import './dist/cli.js'` that can't resolve. Symlinking is instant and avoids the issue entirely. Workers don't install packages, so a shared read-only reference is safe.
 
 ### Worktree Setup Failure
 
 If `git worktree add` fails:
 1. Clean up: `git worktree prune && rm -rf _workers/`
-2. Delete any created branches: `git branch -D <FEATURE_BRANCH>/worker-N 2>/dev/null || true`
+2. Delete any created branches: `git branch -D <FEATURE_BRANCH>-worker-N 2>/dev/null || true`
 3. Fall back to single-agent mode
 4. Inform user: "Worktree setup failed. Falling back to single-agent mode."
 
@@ -172,7 +174,7 @@ RULES:
 - Report progress to the lead after completing each task
 - Do NOT update Linear issues — the lead handles all Linear state transitions
 - NEVER hand-write generated files (migrations, snapshots). Report as blocker — the lead handles it.
-- NEVER use Bash for file operations (no sed, awk, cat >, echo >, tee, cp, mv, rm, mkdir). Use Edit/Write tools for ALL file modifications. Acceptable Bash uses: (1) cd to workspace, (2) npx vitest run, (3) git add/commit at the end.
+- **NEVER use Bash for ANY file operation.** This includes BOTH mutations (sed, awk, cat >, echo >, tee, cp, mv, rm, mkdir) AND reads/searches (grep, rg, find, ls, cat, head, tail). Use the dedicated tools instead: Read (to read files), Glob (to find files), Grep (to search content), Edit/Write (to modify files). **The ONLY acceptable Bash uses are:** (1) cd to workspace, (2) `npx vitest run "pattern"` for tests, (3) `npx tsc --noEmit` for typechecking, (4) `git add -A && git commit` at the end. Every other Bash call triggers a permission prompt on the lead's terminal — avoid it.
 
 WORKFLOW FOR EACH TASK:
 
@@ -275,7 +277,7 @@ Merge worker branches into the feature branch **one at a time, foundation-first*
 
 **For each worker branch (in order):**
 ```bash
-git merge <FEATURE_BRANCH>/worker-N
+git merge <FEATURE_BRANCH>-worker-N
 ```
 
 **After each merge (starting from the second):**
@@ -412,8 +414,8 @@ git worktree prune
 
 ```bash
 # Worker branches are already merged — safe delete
-git branch -d <FEATURE_BRANCH>/worker-1
-git branch -d <FEATURE_BRANCH>/worker-2
+git branch -d <FEATURE_BRANCH>-worker-1
+git branch -d <FEATURE_BRANCH>-worker-2
 # ... repeat for each worker
 ```
 
