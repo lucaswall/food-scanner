@@ -64,6 +64,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const abortControllerRef = useRef<AbortController | null>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const findMatchesGenerationRef = useRef(0);
+  const textDeltaBufferRef = useRef("");
 
   const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
@@ -158,6 +159,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setCompressedImages(compressedBlobs);
     setLoading(true);
     setLoadingStep("Analyzing food...");
+    textDeltaBufferRef.current = "";
 
     // Create AbortController for this analysis
     const controller = new AbortController();
@@ -211,8 +213,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           buffer = remaining;
           for (const event of events) {
             if (event.type === "text_delta") {
-              setLoadingStep(event.text);
+              textDeltaBufferRef.current += event.text;
+              setLoadingStep(textDeltaBufferRef.current);
             } else if (event.type === "tool_start") {
+              textDeltaBufferRef.current = "";
               setLoadingStep(TOOL_DESCRIPTIONS[event.tool] ?? "Processing...");
             } else if (event.type === "analysis") {
               setAnalysis(event.analysis);

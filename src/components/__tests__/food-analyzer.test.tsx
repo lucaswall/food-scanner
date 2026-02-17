@@ -313,7 +313,7 @@ const mockMatches: FoodMatch[] = [
 
 const emptyMatchesResponse = () => ({
   ok: true,
-  text: () => Promise.resolve(JSON.stringify({ success: true, data: { matches: [] } })),
+  json: () => Promise.resolve({ success: true, data: { matches: [] } }),
 });
 
 /** Create a mock fetch response that looks like an SSE stream. */
@@ -918,7 +918,10 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
       });
 
-      // Use keyboard shortcut to log (wrap in act to flush useEffect listener update)
+      // Flush pending microtasks and effects so keyboard handler has canLog=true
+      await act(async () => {});
+
+      // Use keyboard shortcut to log
       await act(async () => {
         dispatchKeyboardEvent("Enter", { ctrlKey: true, shiftKey: true });
       });
@@ -3068,6 +3071,66 @@ describe("FoodAnalyzer", () => {
       });
 
       // Complete the stream
+      act(() => {
+        send({ type: "analysis", analysis: mockAnalysis });
+        close();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+    });
+
+    // FOO-580: text_delta accumulation
+    it("accumulates multiple text_delta events into coherent loading step", async () => {
+      const { response, send, close } = makeControllableSseResponse();
+      mockFetch.mockResolvedValueOnce(response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+
+      // Send multiple text_delta tokens — should accumulate, not replace
+      act(() => {
+        send({ type: "text_delta", text: "Let me " });
+      });
+      act(() => {
+        send({ type: "text_delta", text: "analyze " });
+      });
+      act(() => {
+        send({ type: "text_delta", text: "this food" });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("loading-step")).toHaveTextContent("Let me analyze this food");
+      });
+
+      // tool_start should reset the accumulator
+      act(() => {
+        send({ type: "tool_start", tool: "search_food_log" });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("loading-step")).toHaveTextContent("Checking your food log...");
+      });
+
+      // New text_delta after tool_start should start fresh
+      act(() => {
+        send({ type: "text_delta", text: "Found it" });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("loading-step")).toHaveTextContent("Found it");
+      });
+
       act(() => {
         send({ type: "analysis", analysis: mockAnalysis });
         close();

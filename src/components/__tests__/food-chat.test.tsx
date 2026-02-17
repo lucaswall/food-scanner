@@ -1422,6 +1422,69 @@ describe("FoodChat", () => {
     });
   });
 
+  // FOO-576: AbortController cleanup on unmount
+  describe("AbortController cleanup", () => {
+    it("aborts in-flight SSE request on unmount", async () => {
+      const abortSpy = vi.spyOn(AbortController.prototype, "abort");
+
+      // Make fetch hang (never resolve) to keep the SSE stream active
+      mockFetch.mockImplementationOnce(() => new Promise(() => {}));
+
+      const { unmount } = render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Test message" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      // Wait for loading state to confirm fetch was initiated
+      await waitFor(() => {
+        expect(screen.getByTestId("chat-loading")).toBeInTheDocument();
+      });
+
+      // Unmount while stream is active
+      unmount();
+
+      expect(abortSpy).toHaveBeenCalled();
+      abortSpy.mockRestore();
+    });
+  });
+
+  // FOO-579: Consecutive tool_start events should not create empty bubbles
+  describe("consecutive tool_start dedup", () => {
+    it("consecutive tool_start events produce only one empty assistant message", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Hello" },
+          { type: "tool_start", tool: "search_food_log" },
+          { type: "tool_start", tool: "get_nutrition_summary" },
+          { type: "text_delta", text: "Here's what I found" },
+          { type: "done" },
+        ])
+      );
+
+      const { container } = render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "What did I eat?" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      // "Hello" should become a thinking message
+      const thinkingEls = screen.getAllByTestId("thinking-message");
+      expect(thinkingEls).toHaveLength(1);
+
+      // Final response should be visible
+      expect(screen.getByText("Here's what I found")).toBeInTheDocument();
+
+      // Count assistant-side message bubbles (justify-start) that are NOT the
+      // initial greeting and NOT the thinking bubble. The second tool_start
+      // should NOT have created an extra empty bubble.
+      const assistantBubbles = container.querySelectorAll('[class*="justify-start"]');
+      // Expected: 1 initial greeting + 1 thinking("Hello") + 1 final("Here's what I found") = 3
+      // Bug: would be 4 (extra empty bubble from second tool_start)
+      expect(assistantBubbles).toHaveLength(3);
+    });
+  });
+
   // FOO-557: SSE streaming
   describe("SSE streaming", () => {
     it("text_delta events build assistant message content", async () => {

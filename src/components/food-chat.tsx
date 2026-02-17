@@ -90,6 +90,7 @@ export function FoodChat({
   const photoMenuRef = useRef<HTMLDivElement>(null);
   const plusButtonRef = useRef<HTMLButtonElement>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const latestAnalysis = messages.slice().reverse().find((msg) => msg.analysis)?.analysis;
 
@@ -135,9 +136,10 @@ export function FoodChat({
     };
   }, [showPhotoMenu]);
 
-  // Cleanup compression warning timeout on unmount
+  // Cleanup on unmount: abort in-flight requests, clear timers
   useEffect(() => {
     return () => {
+      abortControllerRef.current?.abort();
       if (compressionWarningTimeoutRef.current) {
         clearTimeout(compressionWarningTimeoutRef.current);
       }
@@ -286,11 +288,14 @@ export function FoodChat({
         requestBody.images = await blobsToBase64(allImagesToSend);
       }
 
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       const response = await fetch("/api/chat-food", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(120000), // Tool loops can require up to 5 sequential API calls
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
       });
 
       if (!response.ok) {
@@ -343,9 +348,10 @@ export function FoodChat({
                   const msgs = [...prev];
                   const last = msgs[msgs.length - 1];
                   if (last.role === "assistant" && !last.isThinking) {
-                    if (last.content.trim()) {
-                      msgs[msgs.length - 1] = { ...last, isThinking: true };
-                    }
+                    // Skip if last message is already empty — avoids extra bubbles
+                    // from consecutive tool_start events
+                    if (!last.content.trim()) return msgs;
+                    msgs[msgs.length - 1] = { ...last, isThinking: true };
                     msgs.push({ role: "assistant", content: "" });
                   }
                   return msgs;
@@ -383,13 +389,17 @@ export function FoodChat({
         setMessages((prev) => [...prev, assistantMessage]);
       }
     } catch (err) {
+      // If aborted by unmount, silently exit — component is gone
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
       setMessages((prev) => prev.slice(0, messageCountBeforeSend));
       setInput(userMessage.content);
       setPendingImages(userAddedImages);
       if (sentInitialImagesInThisCall) {
         setInitialImagesSent(false);
       }
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      if (err instanceof DOMException && err.name === "TimeoutError") {
         setError("Request timed out. Please try again.");
       } else {
         setError(

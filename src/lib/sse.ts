@@ -35,13 +35,17 @@ export function createSSEResponse(
         controller.close();
       } catch (err) {
         logger.error({ err }, "SSE generator threw an unexpected error");
-        const errorEvent: StreamEvent = {
-          type: "error",
-          message: "An internal error occurred",
-          code: "STREAM_ERROR",
-        };
-        controller.enqueue(encoder.encode(formatSSEEvent(errorEvent)));
-        controller.close();
+        try {
+          const errorEvent: StreamEvent = {
+            type: "error",
+            message: "An internal error occurred",
+            code: "STREAM_ERROR",
+          };
+          controller.enqueue(encoder.encode(formatSSEEvent(errorEvent)));
+          controller.close();
+        } catch {
+          // Stream already cancelled by client — ignore
+        }
       }
     },
   });

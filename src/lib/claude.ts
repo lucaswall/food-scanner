@@ -997,14 +997,38 @@ export async function* analyzeFood(
         { role: "user", content: toolResults },
       ];
 
-      // Continue with the tool loop for subsequent iterations
-      yield* runToolLoop(updatedMessages, userId, currentDate, {
+      // Continue with the tool loop — wrap iteration to detect text-only completion
+      let accumulatedText = "";
+      let sawAnalysis = false;
+      const toolLoop = runToolLoop(updatedMessages, userId, currentDate, {
         systemPrompt,
         tools: allTools,
         operation: "food-analysis",
         signal,
         log: l,
       });
+
+      for await (const event of toolLoop) {
+        if (event.type === "text_delta") {
+          accumulatedText += event.text;
+          yield event;
+        } else if (event.type === "tool_start") {
+          // Reset — prior text was intermediate thinking, not the final response
+          accumulatedText = "";
+          yield event;
+        } else if (event.type === "analysis") {
+          sawAnalysis = true;
+          yield event;
+        } else if (event.type === "done") {
+          // If no analysis was produced and we have text, emit needs_chat
+          if (!sawAnalysis && accumulatedText.trim()) {
+            yield { type: "needs_chat", message: accumulatedText };
+          }
+          yield event;
+        } else {
+          yield event;
+        }
+      }
 
       l.info({ action: "analyze_food_slow_path_done", durationMs: elapsed() }, "food analysis completed (via tool loop)");
       return;

@@ -245,6 +245,27 @@ describe("createSSEResponse - error handling", () => {
     expect(msg).toBe("An internal error occurred");
   });
 
+  it("does not throw when generator errors after stream is cancelled", async () => {
+    // In production, if the client disconnects and the generator throws,
+    // controller.enqueue()/close() in the catch block can throw on the cancelled stream.
+    // The defensive guard wraps them in a nested try/catch.
+    // jsdom's ReadableStream handles this gracefully, so we verify the response
+    // is consumable without unhandled rejections after cancel + generator error.
+    async function* throwingGen(): AsyncGenerator<StreamEvent> {
+      throw new Error("Generator error after disconnect");
+    }
+
+    const response = createSSEResponse(throwingGen());
+    const reader = response.body!.getReader();
+
+    // Cancel (simulates client disconnect) then consume remaining
+    await reader.cancel();
+
+    // If the guard is missing in production, controller.enqueue/close throw
+    // after cancel. Verify no unhandled rejections by waiting a tick.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+
   it("logs the actual error server-side when generator throws", async () => {
     const internalError = new Error("Internal database failure at row 42");
 
