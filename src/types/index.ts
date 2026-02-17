@@ -70,6 +70,7 @@ export interface FoodAnalysis {
   notes: string;
   description: string;
   keywords: string[];
+  sourceCustomFoodId?: number;
 }
 
 export interface AnalyzeFoodDirectResult {
@@ -205,6 +206,7 @@ export interface RecentFoodsResponse {
 
 export interface FoodLogHistoryEntry {
   id: number;
+  customFoodId: number;
   foodName: string;
   calories: number;
   proteinG: number;
@@ -268,6 +270,7 @@ export interface FoodLogEntryDetail {
 
 export interface MealEntry {
   id: number;
+  customFoodId: number;
   foodName: string;
   time: string | null;
   calories: number;

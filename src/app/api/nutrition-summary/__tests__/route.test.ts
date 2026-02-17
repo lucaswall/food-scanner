@@ -78,6 +78,7 @@ describe("GET /api/nutrition-summary", () => {
           entries: [
             {
               id: 1,
+              customFoodId: 1,
               foodName: "Oatmeal",
               time: "08:00:00",
               calories: 150,
@@ -143,6 +144,7 @@ describe("GET /api/nutrition-summary", () => {
           entries: [
             {
               id: 1,
+              customFoodId: 1,
               foodName: "Oatmeal",
               time: "08:00:00",
               calories: 150,
@@ -175,6 +177,7 @@ describe("GET /api/nutrition-summary", () => {
           entries: [
             {
               id: 2,
+              customFoodId: 2,
               foodName: "Chicken Salad",
               time: "12:30:00",
               calories: 350,
@@ -316,6 +319,7 @@ describe("GET /api/nutrition-summary", () => {
           entries: [
             {
               id: 1,
+              customFoodId: 1,
               foodName: "Yogurt",
               time: "08:00:00",
               calories: 120,

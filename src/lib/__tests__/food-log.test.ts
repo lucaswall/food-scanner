@@ -1197,6 +1197,7 @@ describe("getFoodLogHistory", () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toEqual({
       id: 1,
+      customFoodId: 1,
       foodName: "Chicken",
       calories: 250,
       proteinG: 30,

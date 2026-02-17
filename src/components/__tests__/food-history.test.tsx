@@ -34,6 +34,7 @@ const yesterday = "2026-02-05";
 const mockEntries: FoodLogHistoryEntry[] = [
   {
     id: 1,
+    customFoodId: 1,
     foodName: "Empanada de carne",
     calories: 320,
     proteinG: 12,
@@ -50,6 +51,7 @@ const mockEntries: FoodLogHistoryEntry[] = [
   },
   {
     id: 2,
+    customFoodId: 2,
     foodName: "Cafe con leche",
     calories: 120,
     proteinG: 6,
@@ -66,6 +68,7 @@ const mockEntries: FoodLogHistoryEntry[] = [
   },
   {
     id: 3,
+    customFoodId: 3,
     foodName: "Milanesa con pure",
     calories: 580,
     proteinG: 35,
@@ -324,6 +327,7 @@ describe("FoodHistory", () => {
     const entriesForToday: FoodLogHistoryEntry[] = [
       {
         id: 1,
+        customFoodId: 1,
         foodName: "Late night snack",
         calories: 200,
         proteinG: 5,
@@ -340,6 +344,7 @@ describe("FoodHistory", () => {
       },
       {
         id: 2,
+        customFoodId: 2,
         foodName: "Yesterday dinner",
         calories: 500,
         proteinG: 25,
@@ -379,6 +384,7 @@ describe("FoodHistory", () => {
     // Need 20 entries to trigger hasMore=true
     const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
       id: i + 1,
+      customFoodId: i + 1,
       foodName: `Food ${i + 1}`,
       calories: 100 + i * 10,
       proteinG: 5,
@@ -583,6 +589,7 @@ describe("FoodHistory", () => {
   it("Load more omits lastTime when entry time is null", async () => {
     const entriesWithNullTime: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
       id: i + 1,
+      customFoodId: i + 1,
       foodName: `Food ${i + 1}`,
       calories: 100,
       proteinG: 5,
@@ -629,6 +636,7 @@ describe("FoodHistory", () => {
     // Initial 20 entries so "Load More" button appears
     const initialEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
       id: i + 1,
+      customFoodId: i + 1,
       foodName: `Initial ${i + 1}`,
       calories: 100,
       proteinG: 5,
@@ -647,6 +655,7 @@ describe("FoodHistory", () => {
     // Extra entries returned by "Load More"
     const paginatedEntries: FoodLogHistoryEntry[] = Array.from({ length: 5 }, (_, i) => ({
       id: 100 + i,
+      customFoodId: 100 + i,
       foodName: `Paginated ${i + 1}`,
       calories: 200,
       proteinG: 10,
@@ -736,6 +745,7 @@ describe("FoodHistory", () => {
     // Need 20 entries to trigger hasMore=true
     const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
       id: i + 1,
+      customFoodId: i + 1,
       foodName: `Food ${i + 1}`,
       calories: 100,
       proteinG: 5,
@@ -803,6 +813,7 @@ describe("FoodHistory", () => {
   it("clears fetch error on subsequent successful fetch", async () => {
     const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
       id: i + 1,
+      customFoodId: i + 1,
       foodName: `Food ${i + 1}`,
       calories: 100,
       proteinG: 5,
@@ -874,6 +885,7 @@ describe("FoodHistory", () => {
     const fractionalEntries: FoodLogHistoryEntry[] = [
       {
         id: 1,
+        customFoodId: 1,
         foodName: "Food A",
         calories: 123.4,
         proteinG: 10.15,
@@ -890,6 +902,7 @@ describe("FoodHistory", () => {
       },
       {
         id: 2,
+        customFoodId: 2,
         foodName: "Food B",
         calories: 200.8,
         proteinG: 15.89,
@@ -965,6 +978,7 @@ describe("FoodHistory", () => {
     const initialEntries: FoodLogHistoryEntry[] = [
       {
         id: 1,
+        customFoodId: 1,
         foodName: "Initial Entry",
         calories: 100,
         proteinG: 5,
@@ -984,6 +998,7 @@ describe("FoodHistory", () => {
     const updatedEntries: FoodLogHistoryEntry[] = [
       {
         id: 2,
+        customFoodId: 2,
         foodName: "Updated Entry",
         calories: 200,
         proteinG: 10,
@@ -1043,6 +1058,7 @@ describe("FoodHistory", () => {
     const cachedEntries: FoodLogHistoryEntry[] = [
       {
         id: 1,
+        customFoodId: 1,
         foodName: "Cached Entry",
         calories: 100,
         proteinG: 5,
@@ -1062,6 +1078,7 @@ describe("FoodHistory", () => {
     const freshEntries: FoodLogHistoryEntry[] = [
       {
         id: 2,
+        customFoodId: 2,
         foodName: "Fresh Entry",
         calories: 200,
         proteinG: 10,

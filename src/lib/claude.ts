@@ -56,6 +56,7 @@ Follow these rules:
 - CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never say food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response. If report_nutrition was not called, the food has NOT been logged — do not claim otherwise.
 - When the user references food from their history (via search_food_log results or past entries) and wants to log it again (e.g., "comí eso", "registra eso", "quiero lo mismo", "comí dos"), call report_nutrition immediately with the nutritional data from the history lookup. Do not ask for unnecessary confirmation — the user's intent to log is clear.
 - Never ask which meal type before calling report_nutrition. The meal type is not a parameter of report_nutrition — meal assignment is handled by the user in the app UI after logging.
+- When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values (half portion, different ingredients, different amount), set source_custom_food_id to null.
 
 Web search guidelines:
 - You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
@@ -125,6 +126,10 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
         type: "string",
         description: "Describe the food only in 1-2 concise sentences to distinguish this food from similar items. Include: visible ingredients, preparation/cooking method, portion size, and distinguishing visual characteristics (colors, textures). Do not describe hands, containers, plates, backgrounds, table settings, or other non-food elements.",
       },
+      source_custom_food_id: {
+        type: ["number", "null"],
+        description: "ID of an existing custom food from search_food_log results. Set to the [id:N] value when reusing a food exactly as-is (same portion, same nutrition). Set to null when creating new food or when modifying nutrition values (e.g. half portion, different ingredients).",
+      },
     },
     required: [
       "food_name",
@@ -144,6 +149,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       "notes",
       "keywords",
       "description",
+      "source_custom_food_id",
     ],
   },
 };
@@ -311,7 +317,16 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     }
   }
 
-  return {
+  // Validate source_custom_food_id: number (>0) or null/undefined/0
+  const rawSourceId = data.source_custom_food_id;
+  if (rawSourceId !== undefined && rawSourceId !== null && typeof rawSourceId !== "number") {
+    throw new ClaudeApiError("Invalid food analysis: source_custom_food_id must be a number or null");
+  }
+  const sourceCustomFoodId = typeof rawSourceId === "number" && rawSourceId > 0
+    ? rawSourceId
+    : undefined;
+
+  const result: FoodAnalysis = {
     food_name: data.food_name as string,
     amount: data.amount as number,
     unit_id: data.unit_id as number,
@@ -330,6 +345,12 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     keywords,
     description,
   };
+
+  if (sourceCustomFoodId !== undefined) {
+    result.sourceCustomFoodId = sourceCustomFoodId;
+  }
+
+  return result;
 }
 
 export const ANALYSIS_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
@@ -342,6 +363,7 @@ Follow these rules:
 - If the request is ambiguous and needs clarification, respond with text to ask the user
 - Base your answers on real data from the tools, not assumptions
 - CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never claim food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response.
+- When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values, set source_custom_food_id to null.
 
 Web search guidelines:
 - You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
