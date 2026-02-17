@@ -936,6 +936,72 @@ describe("POST /api/log-food", () => {
       expect(mockUpdateCustomFoodMetadata).not.toHaveBeenCalled();
     });
 
+    it("returns 400 VALIDATION_ERROR for reuseCustomFoodId: 0 (FOO-562)", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 0,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+      } as Partial<FoodLogRequest>);
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 VALIDATION_ERROR for negative reuseCustomFoodId (FOO-562)", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest({
+        reuseCustomFoodId: -1,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+      } as Partial<FoodLogRequest>);
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 VALIDATION_ERROR for newDescription exceeding 2000 characters (FOO-567)", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        newDescription: "a".repeat(2001),
+      } as Partial<FoodLogRequest>);
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 VALIDATION_ERROR for newNotes exceeding 2000 characters (FOO-567)", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest({
+        reuseCustomFoodId: 42,
+        mealTypeId: 1,
+        date: "2026-02-07",
+        time: "08:00:00",
+        newNotes: "a".repeat(2001),
+      } as Partial<FoodLogRequest>);
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
     it("logs food successfully even if updateCustomFoodMetadata fails", async () => {
       mockGetSession.mockResolvedValue(validSession);
       mockEnsureFreshToken.mockResolvedValue("fresh-token");
@@ -959,6 +1025,98 @@ describe("POST /api/log-food", () => {
       const body = await response.json();
       expect(body.data.success).toBe(true);
       expect(body.data.foodLogId).toBe(20);
+    });
+  });
+
+  describe("max-length validation (FOO-567)", () => {
+    it("returns 400 VALIDATION_ERROR for food_name exceeding 500 characters", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        food_name: "a".repeat(501),
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("accepts food_name at exactly 500 characters", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+      mockLogFood.mockResolvedValue({
+        foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+      });
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        food_name: "a".repeat(500),
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+    });
+
+    it("returns 400 VALIDATION_ERROR for description exceeding 2000 characters", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        description: "a".repeat(2001),
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 VALIDATION_ERROR for notes exceeding 2000 characters", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        notes: "a".repeat(2001),
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 VALIDATION_ERROR for keyword element exceeding 100 characters", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        keywords: ["a".repeat(101)],
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("accepts keyword element at exactly 100 characters", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
+      mockLogFood.mockResolvedValue({
+        foodLog: { logId: 456, loggedFood: { foodId: 123 } },
+      });
+
+      const request = createMockRequest({
+        ...validFoodLogRequest,
+        keywords: ["a".repeat(100)],
+      });
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
     });
   });
 

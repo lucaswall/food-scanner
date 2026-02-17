@@ -27,10 +27,14 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
 
   // Reuse flow: reuseCustomFoodId + mealTypeId + date + time needed, optional metadata
   if (req.reuseCustomFoodId !== undefined) {
-    if (typeof req.reuseCustomFoodId !== "number") return false;
+    if (typeof req.reuseCustomFoodId !== "number" || req.reuseCustomFoodId <= 0) return false;
     // Validate optional metadata update fields
-    if (req.newDescription !== undefined && typeof req.newDescription !== "string") return false;
-    if (req.newNotes !== undefined && typeof req.newNotes !== "string") return false;
+    if (req.newDescription !== undefined) {
+      if (typeof req.newDescription !== "string" || req.newDescription.length > 2000) return false;
+    }
+    if (req.newNotes !== undefined) {
+      if (typeof req.newNotes !== "string" || req.newNotes.length > 2000) return false;
+    }
     if (req.newKeywords !== undefined) {
       if (!Array.isArray(req.newKeywords) || !req.newKeywords.every((k: unknown) => typeof k === "string")) return false;
     }
@@ -42,6 +46,7 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
   if (
     typeof req.food_name !== "string" ||
     req.food_name.length === 0 ||
+    req.food_name.length > 500 ||
     typeof req.amount !== "number" ||
     req.amount <= 0 ||
     typeof req.unit_id !== "number" ||
@@ -58,7 +63,9 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
     typeof req.sodium_mg !== "number" ||
     req.sodium_mg < 0 ||
     typeof req.notes !== "string" ||
+    req.notes.length > 2000 ||
     typeof req.description !== "string" ||
+    req.description.length > 2000 ||
     (req.confidence !== "high" &&
       req.confidence !== "medium" &&
       req.confidence !== "low")
@@ -66,9 +73,12 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
     return false;
   }
 
-  // Validate keywords if present: must be an array of strings
+  // Validate keywords if present: must be an array of strings, each ≤100 chars
   if (req.keywords !== undefined) {
-    if (!Array.isArray(req.keywords) || !req.keywords.every((k: unknown) => typeof k === "string")) {
+    if (
+      !Array.isArray(req.keywords) ||
+      !req.keywords.every((k: unknown) => typeof k === "string" && (k as string).length <= 100)
+    ) {
       return false;
     }
   }
