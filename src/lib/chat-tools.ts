@@ -10,10 +10,8 @@ import type { Logger } from "@/lib/logger";
 export const SEARCH_FOOD_LOG_TOOL: Anthropic.Tool = {
   name: "search_food_log",
   description: "Search the user's food log to find what they have eaten. Use this when the user references past meals, asks about foods they've eaten before, wants to see entries for a specific date or meal, or asks what they usually eat. Returns individual food entries with nutrition details, grouped by date and meal type when searching by date. When a query is provided without dates, returns the most frequently logged matches.",
-  strict: true,
   input_schema: {
     type: "object" as const,
-    additionalProperties: false as const,
     required: ["query", "date", "from_date", "to_date", "meal_type", "limit"],
     properties: {
       query: {
@@ -55,10 +53,8 @@ export const SEARCH_FOOD_LOG_TOOL: Anthropic.Tool = {
 export const GET_NUTRITION_SUMMARY_TOOL: Anthropic.Tool = {
   name: "get_nutrition_summary",
   description: "Get the user's nutrition summary including total calories, protein, carbs, fat, fiber, and sodium. Always includes the user's calorie and macro goals when available, so you can tell them how they're tracking. Use this for questions about daily intake, goal progress, nutrition trends over time, or macro breakdowns. For a single date, returns per-meal breakdown. For a date range, returns daily totals with goals.",
-  strict: true,
   input_schema: {
     type: "object" as const,
-    additionalProperties: false as const,
     required: ["date", "from_date", "to_date"],
     properties: {
       date: {
@@ -80,10 +76,8 @@ export const GET_NUTRITION_SUMMARY_TOOL: Anthropic.Tool = {
 export const GET_FASTING_INFO_TOOL: Anthropic.Tool = {
   name: "get_fasting_info",
   description: "Get the user's fasting window information. Shows when they last ate, when they first ate, and the fasting duration in between. Use this when the user asks about fasting, when they last ate, or wants to see fasting patterns over time. A null firstMealTime means the user is currently fasting (hasn't eaten yet today).",
-  strict: true,
   input_schema: {
     type: "object" as const,
-    additionalProperties: false as const,
     required: ["date", "from_date", "to_date"],
     properties: {
       date: {
