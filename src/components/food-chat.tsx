@@ -325,14 +325,22 @@ export function FoodChat({
     setError(null);
 
     try {
+      const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
+        ? {
+            reuseCustomFoodId: analysis.sourceCustomFoodId,
+            mealTypeId,
+            ...getLocalDateTime(),
+          }
+        : {
+            ...analysis,
+            mealTypeId,
+            ...getLocalDateTime(),
+          };
+
       const response = await fetch("/api/log-food", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...analysis,
-          mealTypeId,
-          ...getLocalDateTime(),
-        }),
+        body: JSON.stringify(logBody),
         signal: AbortSignal.timeout(15000),
       });
 

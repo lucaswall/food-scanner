@@ -51,6 +51,7 @@ const validSession: FullSession = {
 const sampleEntries: FoodLogHistoryEntry[] = [
   {
     id: 1,
+    customFoodId: 1,
     foodName: "Chicken Breast",
     calories: 250,
     proteinG: 30,
@@ -67,6 +68,7 @@ const sampleEntries: FoodLogHistoryEntry[] = [
   },
   {
     id: 2,
+    customFoodId: 2,
     foodName: "Rice",
     calories: 200,
     proteinG: 4,

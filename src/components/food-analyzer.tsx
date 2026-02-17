@@ -185,23 +185,25 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         setAnalysis(result.data.analysis);
         setSeedMessages(null);
 
-        // Fire async match search (non-blocking)
-        fetch("/api/find-matches", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(result.data.analysis),
-          signal: controller.signal,
-        })
-          .then((r) => r.json())
-          .then((matchResult) => {
-            if (matchResult.success && matchResult.data?.matches) {
-              setMatches(matchResult.data.matches);
-            }
+        // Fire async match search (non-blocking) — skip if Claude already identified the reused food
+        if (!result.data.analysis.sourceCustomFoodId) {
+          fetch("/api/find-matches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(result.data.analysis),
+            signal: controller.signal,
           })
-          .catch((err) => {
-            // Silently ignore match errors and abort errors
-            if (err.name === "AbortError") return;
-          });
+            .then((r) => r.json())
+            .then((matchResult) => {
+              if (matchResult.success && matchResult.data?.matches) {
+                setMatches(matchResult.data.matches);
+              }
+            })
+            .catch((err) => {
+              // Silently ignore match errors and abort errors
+              if (err.name === "AbortError") return;
+            });
+        }
       } else if (result.data?.type === "needs_chat") {
         // Auto-transition to chat with seeded conversation
         const userMessage = description.trim() || "Analyze this food.";
@@ -254,14 +256,22 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setLogResponse(optimisticResponse);
 
     try {
+      const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
+        ? {
+            reuseCustomFoodId: analysis.sourceCustomFoodId,
+            mealTypeId,
+            ...getLocalDateTime(),
+          }
+        : {
+            ...analysis,
+            mealTypeId,
+            ...getLocalDateTime(),
+          };
+
       const response = await fetch("/api/log-food", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...analysis,
-          mealTypeId,
-          ...getLocalDateTime(),
-        }),
+        body: JSON.stringify(logBody),
         signal: AbortSignal.timeout(15000),
       });
 

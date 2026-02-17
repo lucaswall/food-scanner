@@ -405,6 +405,7 @@ export async function getFoodLogHistory(
 
   const result = rows.map((row) => ({
     id: row.food_log_entries.id,
+    customFoodId: row.custom_foods.id,
     foodName: row.custom_foods.foodName,
     calories: row.custom_foods.calories,
     proteinG: Number(row.custom_foods.proteinG),
@@ -745,6 +746,7 @@ export async function getDailyNutritionSummary(
 
       entries.push({
         id: row.food_log_entries.id,
+        customFoodId: row.custom_foods.id,
         foodName: row.custom_foods.foodName,
         time: row.food_log_entries.time,
         calories,

@@ -169,6 +169,7 @@ describe("executeTool - search_food_log", () => {
     );
 
     expect(mockSearchFoods).toHaveBeenCalledWith("user-123", "pizza", { limit: 10 }, expect.anything());
+    expect(result).toContain("[id:1]");
     expect(result).toContain("Pizza napolitana");
     expect(result).toContain("300g");
     expect(result).toContain("600 cal");
@@ -184,6 +185,7 @@ describe("executeTool - search_food_log", () => {
           entries: [
             {
               id: 1,
+              customFoodId: 10,
               foodName: "Café con leche",
               time: "08:00:00",
               calories: 100,
@@ -234,6 +236,7 @@ describe("executeTool - search_food_log", () => {
     );
 
     expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
+    expect(result).toContain("[id:10]");
     expect(result).toContain("Breakfast");
     expect(result).toContain("Café con leche");
     expect(result).toContain("100 cal");
@@ -248,6 +251,7 @@ describe("executeTool - search_food_log", () => {
           entries: [
             {
               id: 1,
+              customFoodId: 10,
               foodName: "Café con leche",
               time: "08:00:00",
               calories: 100,
@@ -280,6 +284,7 @@ describe("executeTool - search_food_log", () => {
           entries: [
             {
               id: 2,
+              customFoodId: 20,
               foodName: "Pizza",
               time: "13:00:00",
               calories: 600,
@@ -339,6 +344,7 @@ describe("executeTool - search_food_log", () => {
     mockGetFoodLogHistory.mockResolvedValue([
       {
         id: 1,
+        customFoodId: 5,
         foodName: "Pizza",
         calories: 600,
         proteinG: 25,
@@ -371,6 +377,7 @@ describe("executeTool - search_food_log", () => {
       endDate: "2026-02-15",
       limit: 100,
     }, expect.anything());
+    expect(result).toContain("[id:5]");
     expect(result).toContain("Pizza");
     expect(result).toContain("2026-02-15");
   });
@@ -378,6 +385,7 @@ describe("executeTool - search_food_log", () => {
   it("respects user-specified limit for date range output", async () => {
     const entries = Array.from({ length: 5 }, (_, i) => ({
       id: i + 1,
+      customFoodId: i + 100,
       foodName: `Food ${i + 1}`,
       calories: 200,
       proteinG: 10,

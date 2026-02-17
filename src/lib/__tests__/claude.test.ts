@@ -3404,3 +3404,85 @@ describe("All Claude tool definitions have strict mode", () => {
   });
 });
 
+describe("REPORT_NUTRITION_TOOL source_custom_food_id schema", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("includes source_custom_food_id property with nullable number type", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const schema = REPORT_NUTRITION_TOOL.input_schema;
+    const props = schema.properties as Record<string, Record<string, unknown>>;
+
+    expect(props.source_custom_food_id).toBeDefined();
+    expect(props.source_custom_food_id.type).toEqual(["number", "null"]);
+  });
+
+  it("includes source_custom_food_id in required array", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const schema = REPORT_NUTRITION_TOOL.input_schema;
+
+    expect(schema.required).toContain("source_custom_food_id");
+  });
+});
+
+describe("validateFoodAnalysis with source_custom_food_id", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("returns sourceCustomFoodId when source_custom_food_id is a positive number", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({
+      ...validAnalysis,
+      source_custom_food_id: 42,
+    });
+    expect(result.sourceCustomFoodId).toBe(42);
+  });
+
+  it("returns sourceCustomFoodId undefined when source_custom_food_id is null", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({
+      ...validAnalysis,
+      source_custom_food_id: null,
+    });
+    expect(result.sourceCustomFoodId).toBeUndefined();
+  });
+
+  it("returns sourceCustomFoodId undefined when source_custom_food_id is missing", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis });
+    expect(result.sourceCustomFoodId).toBeUndefined();
+  });
+
+  it("throws when source_custom_food_id is a string", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({
+      ...validAnalysis,
+      source_custom_food_id: "not-a-number",
+    })).toThrow();
+  });
+});
+
+describe("CHAT_SYSTEM_PROMPT source_custom_food_id guidance", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("includes guidance about source_custom_food_id field", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/source_custom_food_id/);
+  });
+});
+
+describe("ANALYSIS_SYSTEM_PROMPT source_custom_food_id guidance", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("includes guidance about source_custom_food_id field", async () => {
+    const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/source_custom_food_id/);
+  });
+});
+

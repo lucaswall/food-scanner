@@ -1226,6 +1226,77 @@ describe("FoodAnalyzer", () => {
     });
   });
 
+  describe("food reuse via sourceCustomFoodId", () => {
+    const analysisWithSourceId: FoodAnalysis = {
+      ...mockAnalysis,
+      sourceCustomFoodId: 42,
+    };
+
+    const analysisResultWithSourceId: AnalyzeFoodResult = {
+      type: "analysis",
+      analysis: analysisWithSourceId,
+    };
+
+    it("skips find-matches call when analysis has sourceCustomFoodId", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: analysisResultWithSourceId }),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      const findMatchesCalls = mockFetch.mock.calls.filter(
+        (call: unknown[]) => call[0] === "/api/find-matches"
+      );
+      expect(findMatchesCalls).toHaveLength(0);
+    });
+
+    it("sends reuseCustomFoodId in log-food body when analysis has sourceCustomFoodId", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: analysisResultWithSourceId }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        const logFoodCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logFoodCall).toBeDefined();
+        const body = JSON.parse((logFoodCall![1] as RequestInit).body as string);
+        expect(body.reuseCustomFoodId).toBe(42);
+      });
+    });
+  });
+
   describe("text-only analysis (no photos)", () => {
     it("enables Analyze button when description has text and no photos", async () => {
       render(<FoodAnalyzer />);

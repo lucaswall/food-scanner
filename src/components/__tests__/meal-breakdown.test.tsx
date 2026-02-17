@@ -23,6 +23,7 @@ const mockMeals = [
     entries: [
       {
         id: 1,
+        customFoodId: 1,
         foodName: "Oatmeal",
         time: "08:00",
         calories: 300,
@@ -30,6 +31,7 @@ const mockMeals = [
       },
       {
         id: 2,
+        customFoodId: 2,
         foodName: "Banana",
         time: "08:15",
         calories: 150,
@@ -43,6 +45,7 @@ const mockMeals = [
     entries: [
       {
         id: 3,
+        customFoodId: 3,
         foodName: "Chicken Salad",
         time: "12:30",
         calories: 650,
@@ -145,7 +148,7 @@ describe("MealBreakdown", () => {
 
   it("renders meals in logical order", () => {
     const entry = (id: number, name: string, time: string, cal: number) => ({
-      id, foodName: name, time, calories: cal,
+      id, customFoodId: id, foodName: name, time, calories: cal,
       proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
       saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
     });

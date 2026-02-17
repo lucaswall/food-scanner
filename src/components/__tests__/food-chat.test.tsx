@@ -392,6 +392,40 @@ describe("FoodChat", () => {
     });
   });
 
+  it("sends reuseCustomFoodId when initialAnalysis has sourceCustomFoodId", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () =>
+        Promise.resolve(JSON.stringify({
+          success: true,
+          data: mockLogResponse,
+        })),
+    });
+
+    const analysisWithSourceId: FoodAnalysis = {
+      ...mockAnalysis,
+      sourceCustomFoodId: 42,
+    };
+
+    render(
+      <FoodChat
+        {...defaultProps}
+        initialAnalysis={analysisWithSourceId}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      const logFoodCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      expect(logFoodCall).toBeDefined();
+      const body = JSON.parse(logFoodCall![1].body);
+      expect(body.reuseCustomFoodId).toBe(42);
+    });
+  });
+
   it("Log to Fitbit button shows loading state while logging", async () => {
     mockFetch.mockImplementationOnce(
       () => new Promise((resolve) => setTimeout(resolve, 1000))
