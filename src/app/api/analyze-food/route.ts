@@ -1,10 +1,11 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { analyzeFood } from "@/lib/claude";
 import { isFileLike, MAX_IMAGES, MAX_IMAGE_SIZE, ALLOWED_TYPES } from "@/lib/image-validation";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
+import { createSSEResponse } from "@/lib/sse";
 
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
@@ -41,6 +42,11 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Description must be text", 400);
   }
   const description = descriptionRaw;
+
+  if (description && description.length > 2000) {
+    log.warn({ action: "analyze_food_validation" }, "description exceeds max length");
+    return errorResponse("VALIDATION_ERROR", "Description must be 2000 characters or less", 400);
+  }
 
   const clientDateRaw = formData.get("clientDate");
   const currentDate = typeof clientDateRaw === "string" && isValidDateFormat(clientDateRaw)
@@ -105,89 +111,54 @@ export async function POST(request: Request) {
     "processing food analysis request"
   );
 
-  try {
-    // Convert images to base64 (resilient to individual image failures)
-    const imageResults = await Promise.allSettled(
-      images.map(async (image) => {
-        const buffer = await image.arrayBuffer();
-        const base64 = Buffer.from(buffer).toString("base64");
-        return {
-          base64,
-          mimeType: image.type,
-        };
-      })
-    );
+  // Convert images to base64 (resilient to individual image failures)
+  const imageResults = await Promise.allSettled(
+    images.map(async (image) => {
+      const buffer = await image.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString("base64");
+      return {
+        base64,
+        mimeType: image.type,
+      };
+    })
+  );
 
-    // Filter out failed images and keep only successful ones
-    const imageInputs = imageResults
-      .map((result, index) => {
-        if (result.status === "rejected") {
-          log.warn(
-            { action: "analyze_food_image_processing", imageIndex: index },
-            `Failed to process image ${index}: ${result.reason}`
-          );
-          return null;
-        }
-        return {
-          base64: result.value.base64,
-          mimeType: result.value.mimeType,
-        };
-      })
-      .filter((input): input is { base64: string; mimeType: string } => input !== null);
+  // Filter out failed images and keep only successful ones
+  const imageInputs = imageResults
+    .map((result, index) => {
+      if (result.status === "rejected") {
+        log.warn(
+          { action: "analyze_food_image_processing", imageIndex: index },
+          `Failed to process image ${index}: ${result.reason}`
+        );
+        return null;
+      }
+      return {
+        base64: result.value.base64,
+        mimeType: result.value.mimeType,
+      };
+    })
+    .filter((input): input is { base64: string; mimeType: string } => input !== null);
 
-    // If all images failed and there's no description, return an error
-    if (imageInputs.length === 0 && (!description || description.trim().length === 0)) {
-      log.warn({ action: "analyze_food_validation" }, "all images failed to process and no description");
-      return errorResponse(
-        "VALIDATION_ERROR",
-        "Failed to process images. Please try again with different photos.",
-        400
-      );
-    }
-
-    const result = await analyzeFood(
-      imageInputs,
-      description || undefined,
-      session!.userId,
-      currentDate,
-      log,
-      request.signal,
-    );
-
-    if (result.type === "analysis") {
-      log.info(
-        { action: "analyze_food_success", foodName: result.analysis.food_name },
-        "food analysis completed"
-      );
-    } else {
-      log.info(
-        { action: "analyze_food_needs_chat" },
-        "food analysis needs chat transition"
-      );
-    }
-
-    return successResponse(result);
-  } catch (error) {
-    if (error instanceof Error && error.name === "CLAUDE_API_ERROR") {
-      log.error(
-        { action: "analyze_food_error", error: error.message },
-        "Claude API error"
-      );
-      return errorResponse(
-        "CLAUDE_API_ERROR",
-        "Failed to analyze food image",
-        500
-      );
-    }
-
-    log.error(
-      { action: "analyze_food_error", error: String(error) },
-      "unexpected error"
-    );
+  // If all images failed and there's no description, return an error
+  if (imageInputs.length === 0 && (!description || description.trim().length === 0)) {
+    log.warn({ action: "analyze_food_validation" }, "all images failed to process and no description");
     return errorResponse(
-      "CLAUDE_API_ERROR",
-      "An unexpected error occurred",
-      500
+      "VALIDATION_ERROR",
+      "Failed to process images. Please try again with different photos.",
+      400
     );
   }
+
+  const generator = analyzeFood(
+    imageInputs,
+    description || undefined,
+    session!.userId,
+    currentDate,
+    log,
+    request.signal,
+  );
+
+  log.info({ action: "analyze_food_streaming" }, "starting SSE stream");
+  return createSSEResponse(generator);
 }

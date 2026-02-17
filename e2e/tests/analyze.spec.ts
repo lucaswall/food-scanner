@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { captureScreenshots } from '../fixtures/screenshots';
-import { MOCK_ANALYSIS } from '../fixtures/mock-data';
+import { MOCK_ANALYSIS, buildAnalyzeSSE } from '../fixtures/mock-data';
 
 test.describe('Analyze Page', () => {
   // Use default authenticated storage state
@@ -31,12 +31,12 @@ test.describe('Analyze Page', () => {
   });
 
   test('captures screenshot with analysis result', async ({ page }) => {
-    // Mock the analyze-food API to return a successful result
+    // Mock the analyze-food API to return a successful SSE stream
     await page.route('**/api/analyze-food', async (route) => {
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: { type: 'analysis', analysis: MOCK_ANALYSIS } }),
+        contentType: 'text/event-stream',
+        body: buildAnalyzeSSE(MOCK_ANALYSIS),
       });
     });
 
@@ -70,12 +70,12 @@ test.describe('Analyze Page', () => {
   });
 
   test('completes full analyze → log → confirmation flow', async ({ page }) => {
-    // Mock the analyze-food API to return a successful result
+    // Mock the analyze-food API to return a successful SSE stream
     await page.route('**/api/analyze-food', async (route) => {
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: { type: 'analysis', analysis: MOCK_ANALYSIS } }),
+        contentType: 'text/event-stream',
+        body: buildAnalyzeSSE(MOCK_ANALYSIS),
       });
     });
 

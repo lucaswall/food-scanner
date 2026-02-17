@@ -71,6 +71,27 @@ describe("Settings page (server component)", () => {
     renderWithSWR(jsx);
     expect(screen.getByText("Settings")).toBeInTheDocument();
   });
+
+  it("renders AboutSection after ClaudeUsageSection", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            email: "test@example.com",
+            fitbitConnected: true,
+            expiresAt: Date.now() + 86400000,
+          },
+        }),
+    });
+
+    const jsx = await SettingsPage();
+    renderWithSWR(jsx);
+    // AboutSection renders in loading state initially (fetches /api/health via useSWR)
+    expect(screen.getByTestId("about-section-loading")).toBeInTheDocument();
+  });
 });
 
 describe("Settings content (client component)", () => {

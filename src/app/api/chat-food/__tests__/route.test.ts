@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { FoodAnalysis, FullSession } from "@/types";
+import { parseSSEEvents } from "@/lib/sse";
+import type { StreamEvent } from "@/lib/sse";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
@@ -53,7 +55,7 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
-// Mock conversationalRefine but keep real validateFoodAnalysis
+// Mock conversationalRefine (returns AsyncGenerator<StreamEvent>) but keep real validateFoodAnalysis
 const mockConversationalRefine = vi.fn();
 vi.mock("@/lib/claude", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/claude")>();
@@ -100,12 +102,35 @@ function createMockRequest(body: unknown): Request {
   } as unknown as Request;
 }
 
+/** Consume a Server-Sent Events Response body and parse all events. */
+async function consumeSSEStream(response: Response): Promise<StreamEvent[]> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  const allEvents: StreamEvent[] = [];
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      const { events, remaining } = parseSSEEvents(chunk, buffer);
+      buffer = remaining;
+      allEvents.push(...events);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return allEvents;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
 });
 
 describe("POST /api/chat-food", () => {
+  // ---- Validation errors (still returned as JSON, before streaming) ----
+
   it("returns 401 for missing session", async () => {
     mockGetSession.mockResolvedValue(null);
 
@@ -117,25 +142,6 @@ describe("POST /api/chat-food", () => {
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
-  });
-
-  it("does not require Fitbit connection (changed from requireFitbit: true to false)", async () => {
-    mockGetSession.mockResolvedValue({
-      ...validSession,
-      fitbitConnected: false,
-    });
-    mockConversationalRefine.mockResolvedValue({
-      message: "Got it!",
-    });
-
-    const request = createMockRequest({
-      messages: [{ role: "user", content: "I had pizza" }],
-    });
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
   });
 
   it("returns 429 when rate limit exceeded", async () => {
@@ -202,189 +208,6 @@ describe("POST /api/chat-food", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
-  });
-
-  it("returns success with assistant message when Claude returns text-only response", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockConversationalRefine.mockResolvedValue({
-      message: "Got it! Anything else?",
-    });
-
-    const request = createMockRequest({
-      messages: [
-        { role: "user", content: "I had an empanada" },
-        { role: "assistant", content: "Logged", analysis: validAnalysis },
-        { role: "user", content: "Thanks!" },
-      ],
-    });
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data.message).toBe("Got it! Anything else?");
-    expect(body.data.analysis).toBeUndefined();
-  });
-
-  it("returns success with assistant message AND analysis when Claude returns text + tool_use", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockConversationalRefine.mockResolvedValue({
-      message: "Updated the portion to 200g",
-      analysis: { ...validAnalysis, amount: 200 },
-    });
-
-    const request = createMockRequest({
-      messages: [
-        { role: "user", content: "I had an empanada" },
-        { role: "assistant", content: "Logged", analysis: validAnalysis },
-        { role: "user", content: "Actually it was 200g" },
-      ],
-    });
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data.message).toBe("Updated the portion to 200g");
-    expect(body.data.analysis).toBeDefined();
-    expect(body.data.analysis.amount).toBe(200);
-  });
-
-  it("passes images to Claude when provided in request", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockConversationalRefine.mockResolvedValue({
-      message: "I see the food",
-      analysis: validAnalysis,
-    });
-
-    const request = createMockRequest({
-      messages: [{ role: "user", content: "What's this?" }],
-      images: ["base64imagedata1", "base64imagedata2"],
-    });
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-
-    // Verify conversationalRefine was called with images converted to ImageInput[]
-    expect(mockConversationalRefine).toHaveBeenCalledWith(
-      [{ role: "user", content: "What's this?" }],
-      [
-        { base64: "base64imagedata1", mimeType: "image/jpeg" },
-        { base64: "base64imagedata2", mimeType: "image/jpeg" },
-      ],
-      "user-uuid-123",
-      expect.any(String), // currentDate
-      undefined,
-      undefined, // request.signal (mock request has no signal)
-      expect.any(Object), // logger
-    );
-  });
-
-  it("passes initialAnalysis to conversationalRefine when provided", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockConversationalRefine.mockResolvedValue({
-      message: "Updated to 200g",
-      analysis: { ...validAnalysis, amount: 200 },
-    });
-
-    const request = createMockRequest({
-      messages: [{ role: "user", content: "Actually it was 200g" }],
-      initialAnalysis: validAnalysis,
-    });
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-
-    expect(mockConversationalRefine).toHaveBeenCalledWith(
-      [{ role: "user", content: "Actually it was 200g" }],
-      [],
-      "user-uuid-123",
-      expect.any(String), // currentDate
-      validAnalysis,
-      undefined, // request.signal (mock request has no signal)
-      expect.any(Object), // logger
-    );
-  });
-
-  it("uses clientDate from request body when provided", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockConversationalRefine.mockResolvedValue({
-      message: "Updated",
-      analysis: validAnalysis,
-    });
-
-    const request = createMockRequest({
-      messages: [{ role: "user", content: "Actually it was 200g" }],
-      clientDate: "2026-01-15",
-    });
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-
-    expect(mockConversationalRefine).toHaveBeenCalledWith(
-      [{ role: "user", content: "Actually it was 200g" }],
-      [],
-      "user-uuid-123",
-      "2026-01-15",
-      undefined,
-      undefined, // request.signal (mock request has no signal)
-      expect.any(Object), // logger
-    );
-  });
-
-  it("ignores invalid clientDate and falls back to server date", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockConversationalRefine.mockResolvedValue({
-      message: "Done",
-    });
-
-    const request = createMockRequest({
-      messages: [{ role: "user", content: "Test" }],
-      clientDate: "bad-date",
-    });
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-
-    // Should fall back to a valid YYYY-MM-DD date, not use "bad-date"
-    const calledDate = mockConversationalRefine.mock.calls[0][3];
-    expect(calledDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(calledDate).not.toBe("bad-date");
-  });
-
-  it("returns 500 on Claude API error", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const error = new Error("API failure");
-    error.name = "CLAUDE_API_ERROR";
-    mockConversationalRefine.mockRejectedValue(error);
-
-    const request = createMockRequest({
-      messages: [{ role: "user", content: "Test" }],
-    });
-
-    const response = await POST(request);
-    expect(response.status).toBe(500);
-    const body = await response.json();
-    expect(body.error.code).toBe("CLAUDE_API_ERROR");
-  });
-
-  it("uses rate limit key chat-food:userId", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockConversationalRefine.mockResolvedValue({
-      message: "Done",
-    });
-
-    const request = createMockRequest({
-      messages: [{ role: "user", content: "Test" }],
-    });
-
-    await POST(request);
-
-    expect(mockCheckRateLimit).toHaveBeenCalledWith(
-      "chat-food:user-uuid-123",
-      expect.any(Number),
-      expect.any(Number)
-    );
   });
 
   it("returns 400 when messages array exceeds max size (30 messages)", async () => {
@@ -455,6 +278,34 @@ describe("POST /api/chat-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(body.error.message).toContain("10MB");
+  });
+
+  it("returns 400 when message content exceeds 2000 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "x".repeat(2001) }],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("2000");
+  });
+
+  it("accepts message content of exactly 2000 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "x".repeat(2000) }],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
   });
 
   it("returns 400 when initialAnalysis has missing required fields", async () => {
@@ -544,10 +395,235 @@ describe("POST /api/chat-food", () => {
     expect(body.error.message).toContain("confidence must be high, medium, or low");
   });
 
+  // ---- SSE streaming responses (success path) ----
+
+  it("does not require Fitbit connection and returns SSE response", async () => {
+    mockGetSession.mockResolvedValue({
+      ...validSession,
+      fitbitConnected: false,
+    });
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "I had pizza" }],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+  });
+
+  it("returns Content-Type text/event-stream for valid request", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "text_delta", text: "Got it! Anything else?" } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "I had pizza" }],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+  });
+
+  it("streams text_delta event for text-only response (no analysis)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "text_delta", text: "Got it! Anything else?" } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [
+        { role: "user", content: "I had an empanada" },
+        { role: "assistant", content: "Logged" },
+        { role: "user", content: "Thanks!" },
+      ],
+    });
+
+    const response = await POST(request);
+    const events = await consumeSSEStream(response);
+
+    const textEvents = events.filter((e) => e.type === "text_delta");
+    expect(textEvents.length).toBeGreaterThan(0);
+    const analysisEvent = events.find((e) => e.type === "analysis");
+    expect(analysisEvent).toBeUndefined();
+  });
+
+  it("streams analysis event when conversationalRefine yields analysis", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const updatedAnalysis = { ...validAnalysis, amount: 200 };
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "text_delta", text: "Updated the portion to 200g" } as StreamEvent;
+      yield { type: "analysis", analysis: updatedAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [
+        { role: "user", content: "I had an empanada" },
+        { role: "assistant", content: "Logged" },
+        { role: "user", content: "Actually it was 200g" },
+      ],
+    });
+
+    const response = await POST(request);
+    const events = await consumeSSEStream(response);
+
+    const analysisEvent = events.find((e) => e.type === "analysis");
+    expect(analysisEvent).toBeDefined();
+    expect((analysisEvent as { type: "analysis"; analysis: FoodAnalysis }).analysis.amount).toBe(200);
+  });
+
+  it("streams error event when conversationalRefine generator throws", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* (): AsyncGenerator<StreamEvent> {
+      throw new Error("API failure");
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test" }],
+    });
+
+    const response = await POST(request);
+    // Response is SSE even on generator error
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const events = await consumeSSEStream(response);
+    const errorEvent = events.find((e) => e.type === "error");
+    expect(errorEvent).toBeDefined();
+  });
+
+  it("passes images to Claude when provided in request", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "What's this?" }],
+      images: ["base64imagedata1", "base64imagedata2"],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    // Verify conversationalRefine was called with images converted to ImageInput[]
+    expect(mockConversationalRefine).toHaveBeenCalledWith(
+      [{ role: "user", content: "What's this?" }],
+      [
+        { base64: "base64imagedata1", mimeType: "image/jpeg" },
+        { base64: "base64imagedata2", mimeType: "image/jpeg" },
+      ],
+      "user-uuid-123",
+      expect.any(String), // currentDate
+      undefined,
+      undefined, // request.signal (mock request has no signal)
+      expect.any(Object), // logger
+    );
+  });
+
+  it("passes initialAnalysis to conversationalRefine when provided", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: { ...validAnalysis, amount: 200 } } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Actually it was 200g" }],
+      initialAnalysis: validAnalysis,
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    expect(mockConversationalRefine).toHaveBeenCalledWith(
+      [{ role: "user", content: "Actually it was 200g" }],
+      [],
+      "user-uuid-123",
+      expect.any(String), // currentDate
+      validAnalysis,
+      undefined, // request.signal (mock request has no signal)
+      expect.any(Object), // logger
+    );
+  });
+
+  it("uses clientDate from request body when provided", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Actually it was 200g" }],
+      clientDate: "2026-01-15",
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    expect(mockConversationalRefine).toHaveBeenCalledWith(
+      [{ role: "user", content: "Actually it was 200g" }],
+      [],
+      "user-uuid-123",
+      "2026-01-15",
+      undefined,
+      undefined, // request.signal (mock request has no signal)
+      expect.any(Object), // logger
+    );
+  });
+
+  it("ignores invalid clientDate and falls back to server date", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test" }],
+      clientDate: "bad-date",
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    // Should fall back to a valid YYYY-MM-DD date, not use "bad-date"
+    const calledDate = mockConversationalRefine.mock.calls[0][3];
+    expect(calledDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(calledDate).not.toBe("bad-date");
+  });
+
+  it("uses rate limit key chat-food:userId", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test" }],
+    });
+
+    await POST(request);
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      "chat-food:user-uuid-123",
+      expect.any(Number),
+      expect.any(Number)
+    );
+  });
+
   it("works in free-form mode (no initialAnalysis, no images)", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockConversationalRefine.mockResolvedValue({
-      message: "You ate about 2000 calories today.",
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "text_delta", text: "You ate about 2000 calories today." } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
     });
 
     const request = createMockRequest({
@@ -558,11 +634,11 @@ describe("POST /api/chat-food", () => {
 
     const response = await POST(request);
     expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
 
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data.message).toBe("You ate about 2000 calories today.");
-    expect(body.data.analysis).toBeUndefined();
+    const events = await consumeSSEStream(response);
+    const textEvent = events.find((e) => e.type === "text_delta");
+    expect(textEvent).toBeDefined();
 
     // Verify conversationalRefine was called with no images and no initialAnalysis
     expect(mockConversationalRefine).toHaveBeenCalledWith(

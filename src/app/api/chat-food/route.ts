@@ -1,10 +1,11 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { conversationalRefine, validateFoodAnalysis } from "@/lib/claude";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { MAX_IMAGES, MAX_IMAGE_SIZE } from "@/lib/image-validation";
 import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
+import { createSSEResponse } from "@/lib/sse";
 import type { ConversationMessage, FoodAnalysis } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
@@ -62,6 +63,9 @@ export async function POST(request: Request) {
     }
     if (typeof message.content !== "string") {
       return errorResponse("VALIDATION_ERROR", `messages[${i}].content must be a string`, 400);
+    }
+    if (message.content.length > 2000) {
+      return errorResponse("VALIDATION_ERROR", `messages[${i}].content exceeds maximum length of 2000 characters`, 400);
     }
   }
 
@@ -125,44 +129,16 @@ export async function POST(request: Request) {
     "processing conversational food chat request"
   );
 
-  try {
-    const result = await conversationalRefine(
-      messages,
-      images,
-      session!.userId,
-      currentDate,
-      initialAnalysis,
-      request.signal,
-      log,
-    );
+  const generator = conversationalRefine(
+    messages,
+    images,
+    session!.userId,
+    currentDate,
+    initialAnalysis,
+    request.signal,
+    log,
+  );
 
-    log.info(
-      { action: "chat_food_success", hasAnalysis: !!result.analysis },
-      "conversational food chat completed"
-    );
-
-    return successResponse(result);
-  } catch (error) {
-    if (error instanceof Error && error.name === "CLAUDE_API_ERROR") {
-      log.error(
-        { action: "chat_food_error", error: error.message },
-        "Claude API error"
-      );
-      return errorResponse(
-        "CLAUDE_API_ERROR",
-        "Failed to process chat message",
-        500
-      );
-    }
-
-    log.error(
-      { action: "chat_food_error", error: String(error) },
-      "unexpected error"
-    );
-    return errorResponse(
-      "CLAUDE_API_ERROR",
-      "An unexpected error occurred",
-      500
-    );
-  }
+  log.info({ action: "chat_food_streaming" }, "starting SSE stream");
+  return createSSEResponse(generator);
 }

@@ -49,6 +49,7 @@ describe("GET /api/v1/food-log", () => {
           entries: [
             {
               id: 1,
+              customFoodId: 1,
               foodName: "Oatmeal",
               time: "08:00:00",
               calories: 150,
@@ -64,6 +65,7 @@ describe("GET /api/v1/food-log", () => {
             },
             {
               id: 2,
+              customFoodId: 2,
               foodName: "Banana",
               time: "08:15:00",
               calories: 105,
@@ -96,6 +98,7 @@ describe("GET /api/v1/food-log", () => {
           entries: [
             {
               id: 3,
+              customFoodId: 3,
               foodName: "Chicken Salad",
               time: "12:30:00",
               calories: 350,

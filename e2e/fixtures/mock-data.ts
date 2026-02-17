@@ -1,4 +1,41 @@
 import type { FoodAnalysis } from '@/types';
+import type { StreamEvent } from '@/lib/sse';
+
+/**
+ * Build a mock SSE response body from an array of StreamEvent objects.
+ * Format: `data: <JSON>\n\n` for each event, matching `formatSSEEvent` in src/lib/sse.ts.
+ */
+export function buildSSEBody(events: StreamEvent[]): string {
+  return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('');
+}
+
+/**
+ * Build an SSE body for a successful analyze-food response.
+ * Emits: usage → analysis → done (minimal happy path).
+ */
+export function buildAnalyzeSSE(analysis: FoodAnalysis): string {
+  return buildSSEBody([
+    { type: 'usage', data: { inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0 } },
+    { type: 'analysis', analysis },
+    { type: 'done' },
+  ]);
+}
+
+/**
+ * Build an SSE body for a successful chat-food response.
+ * Emits: usage → text_delta (message) → optional analysis → done.
+ */
+export function buildChatSSE(message: string, analysis?: FoodAnalysis): string {
+  const events: StreamEvent[] = [
+    { type: 'usage', data: { inputTokens: 100, outputTokens: 50, cacheCreationTokens: 0, cacheReadTokens: 0 } },
+    { type: 'text_delta', text: message },
+  ];
+  if (analysis) {
+    events.push({ type: 'analysis', analysis });
+  }
+  events.push({ type: 'done' });
+  return buildSSEBody(events);
+}
 
 /** Mock analysis result for E2E screenshot tests */
 export const MOCK_ANALYSIS: FoodAnalysis = {

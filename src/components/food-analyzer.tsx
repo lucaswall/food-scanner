@@ -22,7 +22,16 @@ import {
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getTodayDate } from "@/lib/date-utils";
-import type { FoodAnalysis, FoodLogResponse, FoodMatch, AnalyzeFoodResult, ConversationMessage } from "@/types";
+import { parseSSEEvents } from "@/lib/sse";
+import type { FoodAnalysis, FoodLogResponse, FoodMatch, ConversationMessage } from "@/types";
+
+const TOOL_DESCRIPTIONS: Record<string, string> = {
+  web_search: "Searching the web...",
+  search_food_log: "Checking your food log...",
+  get_nutrition_summary: "Looking up your nutrition data...",
+  get_fasting_info: "Checking your fasting patterns...",
+  report_nutrition: "Preparing nutrition report...",
+};
 
 interface FoodAnalyzerProps {
   autoCapture?: boolean;
@@ -54,6 +63,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const autoCaptureUsedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const findMatchesGenerationRef = useRef(0);
 
   const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
@@ -76,6 +86,13 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    // Clear stale compression warning timeout to prevent it from wiping future errors
+    if (compressionWarningTimeoutRef.current) {
+      clearTimeout(compressionWarningTimeoutRef.current);
+      compressionWarningTimeoutRef.current = null;
+    }
+    // Invalidate any in-flight find-matches fetch
+    findMatchesGenerationRef.current += 1;
     setAnalysis(null);
     setError(null);
     setLogError(null);
@@ -164,13 +181,13 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         signal: controller.signal,
       });
 
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data?: AnalyzeFoodResult;
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success) {
+      // Validation errors return JSON; successful analysis returns SSE stream
+      const contentType = response.headers?.get("content-type") ?? "";
+      if (!response.ok || !contentType.includes("text/event-stream")) {
+        const result = (await safeResponseJson(response)) as {
+          success: boolean;
+          error?: { code: string; message: string };
+        };
         // Clear compression warning timeout before setting real error
         if (compressionWarningTimeoutRef.current) {
           clearTimeout(compressionWarningTimeoutRef.current);
@@ -181,43 +198,83 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         return;
       }
 
-      if (result.data?.type === "analysis") {
-        setAnalysis(result.data.analysis);
-        setSeedMessages(null);
-
-        // Fire async match search (non-blocking)
-        fetch("/api/find-matches", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(result.data.analysis),
-          signal: controller.signal,
-        })
-          .then((r) => r.json())
-          .then((matchResult) => {
-            if (matchResult.success && matchResult.data?.matches) {
-              setMatches(matchResult.data.matches);
+      // Consume SSE stream and handle events
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          const { events, remaining } = parseSSEEvents(chunk, buffer);
+          buffer = remaining;
+          for (const event of events) {
+            if (event.type === "text_delta") {
+              setLoadingStep(event.text);
+            } else if (event.type === "tool_start") {
+              setLoadingStep(TOOL_DESCRIPTIONS[event.tool] ?? "Processing...");
+            } else if (event.type === "analysis") {
+              setAnalysis(event.analysis);
+              setSeedMessages(null);
+              // Fire async match search (non-blocking) — skip if Claude already identified the reused food
+              if (!event.analysis.sourceCustomFoodId) {
+                const matchGen = findMatchesGenerationRef.current;
+                fetch("/api/find-matches", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(event.analysis),
+                  signal: controller.signal,
+                })
+                  .then((r) => r.json())
+                  .then((matchResult) => {
+                    // Ignore stale result if state was reset since this fetch started
+                    if (findMatchesGenerationRef.current !== matchGen) return;
+                    if (matchResult.success && matchResult.data?.matches) {
+                      setMatches(matchResult.data.matches);
+                    }
+                  })
+                  .catch((err) => {
+                    // Silently ignore match errors and abort errors
+                    if (err.name === "AbortError") return;
+                  });
+              }
+            } else if (event.type === "needs_chat") {
+              // Clear compression warning timeout before transitioning
+              if (compressionWarningTimeoutRef.current) {
+                clearTimeout(compressionWarningTimeoutRef.current);
+                compressionWarningTimeoutRef.current = null;
+              }
+              // Auto-transition to chat with seeded conversation
+              const userMessage = description.trim() || "Analyze this food.";
+              const seeds: ConversationMessage[] = [
+                { role: "user", content: userMessage },
+                { role: "assistant", content: event.message },
+              ];
+              setSeedMessages(seeds);
+              setChatOpen(true);
+            } else if (event.type === "error") {
+              // Clear compression warning timeout before setting real error
+              if (compressionWarningTimeoutRef.current) {
+                clearTimeout(compressionWarningTimeoutRef.current);
+                compressionWarningTimeoutRef.current = null;
+              }
+              setError(event.message || "Failed to analyze food");
+              vibrateError();
             }
-          })
-          .catch((err) => {
-            // Silently ignore match errors and abort errors
-            if (err.name === "AbortError") return;
-          });
-      } else if (result.data?.type === "needs_chat") {
-        // Auto-transition to chat with seeded conversation
-        const userMessage = description.trim() || "Analyze this food.";
-        const seeds: ConversationMessage[] = [
-          { role: "user", content: userMessage },
-          { role: "assistant", content: result.data.message },
-        ];
-        setSeedMessages(seeds);
-        setChatOpen(true);
-      } else {
-        setError("Received unexpected response from server");
-        vibrateError();
+          }
+        }
+      } finally {
+        reader.releaseLock();
       }
     } catch (err) {
       // Ignore abort errors
       if (err instanceof Error && err.name === "AbortError") {
+        // Clear stale compression warning timeout to prevent it from wiping future errors
+        if (compressionWarningTimeoutRef.current) {
+          clearTimeout(compressionWarningTimeoutRef.current);
+          compressionWarningTimeoutRef.current = null;
+        }
         return;
       }
       // Clear compression warning timeout before setting real error
@@ -254,14 +311,22 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setLogResponse(optimisticResponse);
 
     try {
+      const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
+        ? {
+            reuseCustomFoodId: analysis.sourceCustomFoodId,
+            mealTypeId,
+            ...getLocalDateTime(),
+          }
+        : {
+            ...analysis,
+            mealTypeId,
+            ...getLocalDateTime(),
+          };
+
       const response = await fetch("/api/log-food", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...analysis,
-          mealTypeId,
-          ...getLocalDateTime(),
-        }),
+        body: JSON.stringify(logBody),
         signal: AbortSignal.timeout(15000),
       });
 

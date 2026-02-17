@@ -169,6 +169,7 @@ describe("executeTool - search_food_log", () => {
     );
 
     expect(mockSearchFoods).toHaveBeenCalledWith("user-123", "pizza", { limit: 10 }, expect.anything());
+    expect(result).toContain("[id:1]");
     expect(result).toContain("Pizza napolitana");
     expect(result).toContain("300g");
     expect(result).toContain("600 cal");
@@ -184,6 +185,7 @@ describe("executeTool - search_food_log", () => {
           entries: [
             {
               id: 1,
+              customFoodId: 10,
               foodName: "Café con leche",
               time: "08:00:00",
               calories: 100,
@@ -234,6 +236,7 @@ describe("executeTool - search_food_log", () => {
     );
 
     expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
+    expect(result).toContain("[id:10]");
     expect(result).toContain("Breakfast");
     expect(result).toContain("Café con leche");
     expect(result).toContain("100 cal");
@@ -248,6 +251,7 @@ describe("executeTool - search_food_log", () => {
           entries: [
             {
               id: 1,
+              customFoodId: 10,
               foodName: "Café con leche",
               time: "08:00:00",
               calories: 100,
@@ -280,6 +284,7 @@ describe("executeTool - search_food_log", () => {
           entries: [
             {
               id: 2,
+              customFoodId: 20,
               foodName: "Pizza",
               time: "13:00:00",
               calories: 600,
@@ -339,6 +344,7 @@ describe("executeTool - search_food_log", () => {
     mockGetFoodLogHistory.mockResolvedValue([
       {
         id: 1,
+        customFoodId: 5,
         foodName: "Pizza",
         calories: 600,
         proteinG: 25,
@@ -371,6 +377,7 @@ describe("executeTool - search_food_log", () => {
       endDate: "2026-02-15",
       limit: 100,
     }, expect.anything());
+    expect(result).toContain("[id:5]");
     expect(result).toContain("Pizza");
     expect(result).toContain("2026-02-15");
   });
@@ -378,6 +385,7 @@ describe("executeTool - search_food_log", () => {
   it("respects user-specified limit for date range output", async () => {
     const entries = Array.from({ length: 5 }, (_, i) => ({
       id: i + 1,
+      customFoodId: i + 100,
       foodName: `Food ${i + 1}`,
       calories: 200,
       proteinG: 10,
@@ -686,5 +694,136 @@ describe("executeTool - error handling", () => {
 
     expect(result).toContain("12 hours");
     expect(mockGetFastingWindow).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
+  });
+});
+
+describe("executeTool - division-by-zero protection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("single-date: does not produce Infinity when calorieGoal is 0", async () => {
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-02-15",
+      meals: [],
+      totals: {
+        calories: 1500,
+        proteinG: 80,
+        carbsG: 180,
+        fatG: 55,
+        fiberG: 20,
+        sodiumMg: 1800,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+    });
+
+    mockGetLumenGoalsByDate.mockResolvedValue(null);
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([
+      { date: "2026-02-15", calorieGoal: 0 },
+    ]);
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).not.toContain("Infinity");
+  });
+
+  it("single-date: does not produce Infinity when macro goals are 0", async () => {
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-02-15",
+      meals: [],
+      totals: {
+        calories: 1500,
+        proteinG: 80,
+        carbsG: 180,
+        fatG: 55,
+        fiberG: 20,
+        sodiumMg: 1800,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+    });
+
+    mockGetLumenGoalsByDate.mockResolvedValue({
+      date: "2026-02-15",
+      dayType: "Low Carb",
+      proteinGoal: 0,
+      carbsGoal: 0,
+      fatGoal: 0,
+    });
+
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).not.toContain("Infinity");
+  });
+
+  it("date-range: does not produce Infinity when calorieGoal is 0", async () => {
+    mockGetDateRangeNutritionSummary.mockResolvedValue([
+      {
+        date: "2026-02-15",
+        calories: 1500,
+        proteinG: 80,
+        carbsG: 180,
+        fatG: 55,
+        fiberG: 20,
+        sodiumMg: 1800,
+        calorieGoal: 0,
+        proteinGoalG: null,
+        carbsGoalG: null,
+        fatGoalG: null,
+      },
+    ]);
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { from_date: "2026-02-15", to_date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).not.toContain("Infinity");
+  });
+
+  it("date-range: does not produce Infinity when macro goals are 0", async () => {
+    mockGetDateRangeNutritionSummary.mockResolvedValue([
+      {
+        date: "2026-02-15",
+        calories: 1500,
+        proteinG: 80,
+        carbsG: 180,
+        fatG: 55,
+        fiberG: 20,
+        sodiumMg: 1800,
+        calorieGoal: 2000,
+        proteinGoalG: 0,
+        carbsGoalG: 0,
+        fatGoalG: 0,
+      },
+    ]);
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { from_date: "2026-02-15", to_date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).not.toContain("Infinity");
   });
 });

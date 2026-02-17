@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { FoodAnalysis, FullSession, AnalyzeFoodResult } from "@/types";
+import type { FoodAnalysis, FullSession } from "@/types";
+import { parseSSEEvents } from "@/lib/sse";
+import type { StreamEvent } from "@/lib/sse";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
@@ -53,7 +55,7 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
-// Mock Claude API
+// Mock Claude API — analyzeFood now returns AsyncGenerator<StreamEvent>
 const mockAnalyzeFood = vi.fn();
 vi.mock("@/lib/claude", () => ({
   analyzeFood: mockAnalyzeFood,
@@ -139,11 +141,34 @@ function createMockRequest(
   } as unknown as Request;
 }
 
+/** Consume a Server-Sent Events Response body and parse all events. */
+async function consumeSSEStream(response: Response): Promise<StreamEvent[]> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  const allEvents: StreamEvent[] = [];
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      const { events, remaining } = parseSSEEvents(chunk, buffer);
+      buffer = remaining;
+      allEvents.push(...events);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return allEvents;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe("POST /api/analyze-food", () => {
+  // ---- Validation errors (still returned as JSON, before streaming) ----
+
   it("returns 401 for missing session", async () => {
     mockGetSession.mockResolvedValue(null);
 
@@ -222,34 +247,6 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.message).toContain("9");
   });
 
-  it("accepts GIF images (image/gif)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
-
-    const request = createMockRequest([
-      createMockFile("test.gif", "image/gif", 1000),
-    ]);
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-  });
-
-  it("accepts WebP images (image/webp)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
-
-    const request = createMockRequest([
-      createMockFile("test.webp", "image/webp", 1000),
-    ]);
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-  });
-
   it("returns 400 VALIDATION_ERROR for unsupported image type", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
@@ -276,113 +273,6 @@ describe("POST /api/analyze-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(body.error.message).toContain("10MB");
-  });
-
-  it("returns 200 with FoodAnalysis for valid request", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
-
-    const request = createMockRequest(
-      [createMockFile("test.jpg", "image/jpeg", 1000)],
-      "Test empanada"
-    );
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data).toEqual({ type: "analysis", analysis: validAnalysis });
-  });
-
-  it("returns 500 CLAUDE_API_ERROR on Claude failure", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const error = new Error("Claude API failed");
-    error.name = "CLAUDE_API_ERROR";
-    mockAnalyzeFood.mockRejectedValue(error);
-
-    const request = createMockRequest([
-      createMockFile("test.jpg", "image/jpeg", 1000),
-    ]);
-
-    const response = await POST(request);
-    expect(response.status).toBe(500);
-    const body = await response.json();
-    expect(body.error.code).toBe("CLAUDE_API_ERROR");
-  });
-
-  it("logs appropriate actions", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
-
-    const request = createMockRequest(
-      [createMockFile("test.jpg", "image/jpeg", 1000)],
-      "Test food"
-    );
-
-    await POST(request);
-
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "analyze_food_request" }),
-      expect.any(String)
-    );
-  });
-
-  it("supports PNG images", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
-
-    const request = createMockRequest([
-      createMockFile("test.png", "image/png", 1000),
-    ]);
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-  });
-
-  it("supports multiple images", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
-
-    const request = createMockRequest([
-      createMockFile("test1.jpg", "image/jpeg", 1000),
-      createMockFile("test2.png", "image/png", 1000),
-    ]);
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-
-    expect(mockAnalyzeFood).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ mimeType: "image/jpeg" }),
-        expect.objectContaining({ mimeType: "image/png" }),
-      ]),
-      undefined,
-      "user-uuid-123",
-      expect.any(String),
-      expect.any(Object),
-      expect.anything(),
-    );
-  });
-
-  it("passes description to analyzeFood", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
-
-    const request = createMockRequest(
-      [createMockFile("test.jpg", "image/jpeg", 1000)],
-      "250g pollo asado"
-    );
-
-    await POST(request);
-
-    expect(mockAnalyzeFood).toHaveBeenCalledWith(
-      expect.any(Array),
-      "250g pollo asado",
-      "user-uuid-123",
-      expect.any(String),
-      expect.any(Object),
-      expect.anything(),
-    );
   });
 
   it("returns 400 VALIDATION_ERROR when images contains non-File values", async () => {
@@ -419,36 +309,6 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
   });
 
-  it("calls checkRateLimit with session userId as key", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
-
-    const request = createMockRequest([
-      createMockFile("test.jpg", "image/jpeg", 1000),
-    ]);
-
-    await POST(request);
-
-    expect(mockCheckRateLimit).toHaveBeenCalledWith(
-      "analyze-food:user-uuid-123",
-      30,
-      15 * 60 * 1000,
-    );
-  });
-
-  it("returns 200 for description-only request (no images)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
-
-    const request = createMockRequest([], "2 medialunas");
-
-    const response = await POST(request);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(mockAnalyzeFood).toHaveBeenCalledWith([], "2 medialunas", "user-uuid-123", expect.any(String), expect.any(Object), expect.anything());
-  });
-
   it("returns 400 when neither images nor description provided", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
@@ -481,9 +341,289 @@ describe("POST /api/analyze-food", () => {
     expect(body.error.message).toContain("text");
   });
 
+  it("returns 400 when description exceeds 2000 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "x".repeat(2001)
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("2000");
+  });
+
+  it("accepts description of exactly 2000 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "x".repeat(2000)
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+  });
+
+  // ---- SSE streaming responses (success path) ----
+
+  it("returns Content-Type text/event-stream for valid request", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test empanada"
+    );
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+  });
+
+  it("response body is a ReadableStream for valid request", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest([createMockFile("test.jpg", "image/jpeg", 1000)]);
+    const response = await POST(request);
+
+    expect(response.body).toBeTruthy();
+    expect(response.body).toBeInstanceOf(ReadableStream);
+  });
+
+  it("streams analysis event for valid request", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test empanada"
+    );
+
+    const response = await POST(request);
+    const events = await consumeSSEStream(response);
+
+    const analysisEvent = events.find((e) => e.type === "analysis");
+    expect(analysisEvent).toBeDefined();
+    expect((analysisEvent as { type: "analysis"; analysis: FoodAnalysis }).analysis).toEqual(validAnalysis);
+  });
+
+  it("streams needs_chat event when generator yields needs_chat", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const message = "Let me check what you had yesterday...";
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "needs_chat", message } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest([], "same as yesterday");
+    const response = await POST(request);
+
+    const events = await consumeSSEStream(response);
+    const needsChatEvent = events.find((e) => e.type === "needs_chat");
+    expect(needsChatEvent).toBeDefined();
+    expect((needsChatEvent as { type: "needs_chat"; message: string }).message).toBe(message);
+  });
+
+  it("streams error event when analyzeFood generator throws", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* (): AsyncGenerator<StreamEvent> {
+      throw new Error("Claude API failed");
+    });
+
+    const request = createMockRequest([createMockFile("test.jpg", "image/jpeg", 1000)]);
+    const response = await POST(request);
+
+    // Response is still SSE (error emitted as stream event, not HTTP 500)
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    const events = await consumeSSEStream(response);
+    const errorEvent = events.find((e) => e.type === "error");
+    expect(errorEvent).toBeDefined();
+  });
+
+  it("accepts GIF images (image/gif)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest([
+      createMockFile("test.gif", "image/gif", 1000),
+    ]);
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+  });
+
+  it("accepts WebP images (image/webp)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest([
+      createMockFile("test.webp", "image/webp", 1000),
+    ]);
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+  });
+
+  it("supports PNG images", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest([
+      createMockFile("test.png", "image/png", 1000),
+    ]);
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+  });
+
+  it("supports multiple images", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest([
+      createMockFile("test1.jpg", "image/jpeg", 1000),
+      createMockFile("test2.png", "image/png", 1000),
+    ]);
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+
+    expect(mockAnalyzeFood).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ mimeType: "image/jpeg" }),
+        expect.objectContaining({ mimeType: "image/png" }),
+      ]),
+      undefined,
+      "user-uuid-123",
+      expect.any(String),
+      expect.any(Object),
+      expect.anything(),
+    );
+  });
+
+  it("passes description to analyzeFood", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "250g pollo asado"
+    );
+
+    await POST(request);
+
+    expect(mockAnalyzeFood).toHaveBeenCalledWith(
+      expect.any(Array),
+      "250g pollo asado",
+      "user-uuid-123",
+      expect.any(String),
+      expect.any(Object),
+      expect.anything(),
+    );
+  });
+
+  it("returns 200 SSE response for description-only request (no images)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest([], "2 medialunas");
+
+    const response = await POST(request);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(mockAnalyzeFood).toHaveBeenCalledWith(
+      [],
+      "2 medialunas",
+      "user-uuid-123",
+      expect.any(String),
+      expect.any(Object),
+      expect.anything(),
+    );
+  });
+
+  it("calls checkRateLimit with session userId as key", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest([
+      createMockFile("test.jpg", "image/jpeg", 1000),
+    ]);
+
+    await POST(request);
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      "analyze-food:user-uuid-123",
+      30,
+      15 * 60 * 1000,
+    );
+  });
+
+  it("logs appropriate actions", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food"
+    );
+
+    await POST(request);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "analyze_food_request" }),
+      expect.any(String)
+    );
+  });
+
   it("processes remaining images when one image arrayBuffer fails", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
 
     // Create a failing file mock
     class FailingMockFile extends MockFile {
@@ -508,8 +648,11 @@ describe("POST /api/analyze-food", () => {
 
     const response = await POST(request);
     expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+
+    // Consume stream to trigger generator
+    const events = await consumeSSEStream(response);
+    expect(events.some((e) => e.type === "analysis")).toBe(true);
 
     // Verify only successful images were passed to analyzeFood (2 images, not 3)
     expect(mockAnalyzeFood).toHaveBeenCalledWith(
@@ -534,7 +677,10 @@ describe("POST /api/analyze-food", () => {
 
   it("passes clientDate from FormData to analyzeFood", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockAnalyzeFood.mockResolvedValue({ type: "analysis", analysis: validAnalysis } as AnalyzeFoodResult);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
 
     const request = createMockRequest(
       [createMockFile("test.jpg", "image/jpeg", 1000)],
@@ -554,20 +700,32 @@ describe("POST /api/analyze-food", () => {
     );
   });
 
-  it("returns needs_chat result from analyzeFood as-is", async () => {
+  it("passes request signal to analyzeFood generator", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    const needsChatResult: AnalyzeFoodResult = {
-      type: "needs_chat",
-      message: "Let me check what you had yesterday...",
-    };
-    mockAnalyzeFood.mockResolvedValue(needsChatResult);
+    const abortController = new AbortController();
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
 
-    const request = createMockRequest([], "same as yesterday");
+    const formData = {
+      getAll: (key: string) => (key === "images" ? [createMockFile("test.jpg", "image/jpeg", 1000)] : []),
+      get: () => null,
+    };
+    const request = {
+      formData: () => Promise.resolve(formData),
+      signal: abortController.signal,
+    } as unknown as Request;
 
     const response = await POST(request);
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data).toEqual(needsChatResult);
+    await consumeSSEStream(response);
+
+    expect(mockAnalyzeFood).toHaveBeenCalledWith(
+      expect.any(Array),
+      undefined,
+      "user-uuid-123",
+      expect.any(String),
+      expect.any(Object),
+      abortController.signal,
+    );
   });
 });

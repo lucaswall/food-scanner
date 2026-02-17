@@ -1,13 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { FoodAnalysis, ConversationMessage, AnalyzeFoodResult } from "@/types";
+import type { FoodAnalysis, ConversationMessage } from "@/types";
 import { getUnitLabel } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { recordUsage } from "@/lib/claude-usage";
 import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } from "@/lib/chat-tools";
+import type { StreamEvent } from "@/lib/sse";
 
-const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
+export const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
 
 let _client: Anthropic | null = null;
 
@@ -27,6 +28,8 @@ Analyze food images and descriptions to provide accurate nutritional information
 Consider typical Argentine portions and preparation methods.
 Choose the most natural measurement unit for each food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).
 Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calories_from_fat) when possible. Use null only when truly unknown.`;
+
+const THINKING_INSTRUCTION = `Before calling any tool, emit a brief natural-language sentence describing what you're about to do (e.g., 'Let me check your food history...', 'Looking up nutrition info for this restaurant...', 'Checking your fasting patterns...'). This gives the user real-time feedback. Keep it to one short sentence per tool batch.`;
 
 export const CHAT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 
@@ -56,6 +59,8 @@ Follow these rules:
 - CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never say food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response. If report_nutrition was not called, the food has NOT been logged — do not claim otherwise.
 - When the user references food from their history (via search_food_log results or past entries) and wants to log it again (e.g., "comí eso", "registra eso", "quiero lo mismo", "comí dos"), call report_nutrition immediately with the nutritional data from the history lookup. Do not ask for unnecessary confirmation — the user's intent to log is clear.
 - Never ask which meal type before calling report_nutrition. The meal type is not a parameter of report_nutrition — meal assignment is handled by the user in the app UI after logging.
+- When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values (half portion, different ingredients, different amount), set source_custom_food_id to null.
+- ${THINKING_INSTRUCTION}
 
 Web search guidelines:
 - You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
@@ -125,6 +130,10 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
         type: "string",
         description: "Describe the food only in 1-2 concise sentences to distinguish this food from similar items. Include: visible ingredients, preparation/cooking method, portion size, and distinguishing visual characteristics (colors, textures). Do not describe hands, containers, plates, backgrounds, table settings, or other non-food elements.",
       },
+      source_custom_food_id: {
+        type: ["number", "null"],
+        description: "ID of an existing custom food from search_food_log results. Set to the [id:N] value when reusing a food exactly as-is (same portion, same nutrition). Set to null when creating new food or when modifying nutrition values (e.g. half portion, different ingredients).",
+      },
     },
     required: [
       "food_name",
@@ -144,6 +153,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       "notes",
       "keywords",
       "description",
+      "source_custom_food_id",
     ],
   },
 };
@@ -311,7 +321,16 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     }
   }
 
-  return {
+  // Validate source_custom_food_id: number (>0) or null/undefined/0
+  const rawSourceId = data.source_custom_food_id;
+  if (rawSourceId !== undefined && rawSourceId !== null && typeof rawSourceId !== "number") {
+    throw new ClaudeApiError("Invalid food analysis: source_custom_food_id must be a number or null");
+  }
+  const sourceCustomFoodId = typeof rawSourceId === "number" && rawSourceId > 0
+    ? rawSourceId
+    : undefined;
+
+  const result: FoodAnalysis = {
     food_name: data.food_name as string,
     amount: data.amount as number,
     unit_id: data.unit_id as number,
@@ -330,6 +349,12 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     keywords,
     description,
   };
+
+  if (sourceCustomFoodId !== undefined) {
+    result.sourceCustomFoodId = sourceCustomFoodId;
+  }
+
+  return result;
 }
 
 export const ANALYSIS_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
@@ -342,6 +367,8 @@ Follow these rules:
 - If the request is ambiguous and needs clarification, respond with text to ask the user
 - Base your answers on real data from the tools, not assumptions
 - CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never claim food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response.
+- When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values, set source_custom_food_id to null.
+- ${THINKING_INSTRUCTION}
 
 Web search guidelines:
 - You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
@@ -349,14 +376,472 @@ Web search guidelines:
 - When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
 - If web search returns nothing useful, fall back to estimation from your training data and say so.`;
 
-export async function analyzeFood(
+const DATA_TOOLS = [
+  SEARCH_FOOD_LOG_TOOL,
+  GET_NUTRITION_SUMMARY_TOOL,
+  GET_FASTING_INFO_TOOL,
+];
+
+/** Build toolsWithCache: adds cache_control to the last tool (doesn't mutate originals) */
+function buildToolsWithCache(
+  tools: Array<Anthropic.Tool | Anthropic.Messages.WebSearchTool20250305>,
+): Array<Anthropic.Tool | Anthropic.Messages.WebSearchTool20250305> {
+  return tools.map((tool, index) =>
+    index === tools.length - 1
+      ? { ...tool, cache_control: { type: "ephemeral" as const } }
+      : tool
+  );
+}
+
+function estimateTokenCount(messages: Anthropic.MessageParam[]): number {
+  let tokens = 0;
+
+  for (const message of messages) {
+    if (Array.isArray(message.content)) {
+      for (const block of message.content) {
+        if (block.type === "text") {
+          // ~4 characters per token
+          tokens += Math.ceil(block.text.length / 4);
+        } else if (block.type === "image") {
+          // ~1000 tokens per image
+          tokens += 1000;
+        } else if (block.type === "tool_use") {
+          const toolBlock = block as Anthropic.ToolUseBlock;
+          const inputStr = JSON.stringify(toolBlock.input);
+          tokens += Math.ceil((toolBlock.name.length + inputStr.length) / 4);
+        } else if (block.type === "tool_result") {
+          const resultBlock = block as Anthropic.ToolResultBlockParam;
+          if (typeof resultBlock.content === "string") {
+            tokens += Math.ceil(resultBlock.content.length / 4);
+          } else if (Array.isArray(resultBlock.content)) {
+            for (const part of resultBlock.content) {
+              if (part.type === "text") {
+                tokens += Math.ceil(part.text.length / 4);
+              }
+            }
+          }
+        }
+      }
+    } else if (typeof message.content === "string") {
+      tokens += Math.ceil(message.content.length / 4);
+    }
+  }
+
+  return tokens;
+}
+
+export function truncateConversation(
+  messages: Anthropic.MessageParam[],
+  maxTokens: number,
+  log?: Logger,
+): Anthropic.MessageParam[] {
+  const l = log ?? logger;
+  const estimatedTokens = estimateTokenCount(messages);
+
+  if (estimatedTokens <= maxTokens) {
+    return messages;
+  }
+
+  // Keep first user message + last 4 messages
+  if (messages.length <= 5) {
+    return messages;
+  }
+
+  const firstMessage = messages[0];
+  const lastFourMessages = messages.slice(-4);
+
+  const result = [firstMessage, ...lastFourMessages];
+
+  // Remove consecutive same-role messages (keep the later one)
+  const filtered: Anthropic.MessageParam[] = [result[0]];
+  for (let i = 1; i < result.length; i++) {
+    if (result[i].role === filtered[filtered.length - 1].role) {
+      // Drop the earlier one (replace it with the current one)
+      filtered[filtered.length - 1] = result[i];
+    } else {
+      filtered.push(result[i]);
+    }
+  }
+
+  l.debug(
+    { action: "truncate_conversation", estimatedTokens, maxTokens, messagesBefore: messages.length, messagesAfter: filtered.length },
+    "conversation truncated"
+  );
+
+  return filtered;
+}
+
+/**
+ * Stream text deltas from a MessageStream, yielding StreamEvent for each delta.
+ * Returns the complete final message after the stream is exhausted.
+ */
+async function* streamTextDeltas(
+  stream: { [Symbol.asyncIterator](): AsyncIterator<unknown>; finalMessage(): Promise<Anthropic.Message> },
+): AsyncGenerator<StreamEvent, Anthropic.Message> {
+  for await (const event of stream) {
+    const e = event as Record<string, unknown>;
+    if (
+      e.type === "content_block_delta" &&
+      e.delta !== null &&
+      typeof e.delta === "object" &&
+      (e.delta as Record<string, unknown>).type === "text_delta"
+    ) {
+      yield { type: "text_delta", text: (e.delta as { type: "text_delta"; text: string }).text };
+    }
+  }
+  return await stream.finalMessage();
+}
+
+/**
+ * Execute data tool blocks in parallel, returning tool_result entries.
+ */
+async function executeDataTools(
+  dataToolBlocks: Anthropic.ToolUseBlock[],
+  userId: string,
+  currentDate: string,
+  l: Logger,
+): Promise<Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: true }>> {
+  return Promise.all(
+    dataToolBlocks.map(async (toolUse) => {
+      try {
+        const result = await executeTool(
+          toolUse.name,
+          toolUse.input as Record<string, unknown>,
+          userId,
+          currentDate,
+          l,
+        );
+        return {
+          type: "tool_result" as const,
+          tool_use_id: toolUse.id,
+          content: result,
+        };
+      } catch (error) {
+        l.warn(
+          { tool: toolUse.name, error: error instanceof Error ? error.message : String(error) },
+          "tool execution error"
+        );
+        return {
+          type: "tool_result" as const,
+          tool_use_id: toolUse.id,
+          content: `Error: ${error instanceof Error ? error.message : String(error)}`,
+          is_error: true as const,
+        };
+      }
+    })
+  );
+}
+
+/**
+ * Core streaming tool loop. Yields StreamEvent objects as Claude processes requests.
+ *
+ * Yields:
+ * - text_delta: as Claude emits text
+ * - tool_start: when a tool is about to be executed
+ * - usage: after each API call with token counts
+ * - analysis: when report_nutrition is validated
+ * - done: when the conversation is complete
+ * - error: when max iterations exceeded or aborted
+ */
+export async function* runToolLoop(
+  messages: Anthropic.MessageParam[],
+  userId: string,
+  currentDate: string,
+  options?: {
+    systemPrompt?: string;
+    tools?: Array<Anthropic.Tool | Anthropic.Messages.WebSearchTool20250305>;
+    operation?: string;
+    signal?: AbortSignal;
+    log?: Logger;
+    maxTokens?: number;
+  }
+): AsyncGenerator<StreamEvent> {
+  const l = options?.log ?? logger;
+  const loopElapsed = startTimer();
+  let systemPrompt = options?.systemPrompt ?? CHAT_SYSTEM_PROMPT;
+  if (!options?.systemPrompt && currentDate) {
+    systemPrompt += `\n\nToday's date is: ${currentDate}`;
+  }
+  const tools = options?.tools ?? [WEB_SEARCH_TOOL, ...DATA_TOOLS];
+  const operation = options?.operation ?? "food-chat";
+  const maxTokens = options?.maxTokens ?? 2048;
+  const toolsWithCache = buildToolsWithCache(tools);
+
+  const conversationMessages: Anthropic.MessageParam[] = [...messages];
+  const MAX_ITERATIONS = 5;
+  let iteration = 0;
+  let pendingAnalysis: FoodAnalysis | undefined;
+
+  try {
+    while (iteration < MAX_ITERATIONS) {
+      if (options?.signal?.aborted) {
+        yield { type: "error", message: "Request aborted by client" };
+        return;
+      }
+      iteration++;
+
+      l.info(
+        { iteration, messageCount: conversationMessages.length },
+        "calling Claude API in tool loop"
+      );
+      l.debug(
+        { action: "tool_loop_request_detail", iteration, messages: serializeMessagesForLog(conversationMessages) },
+        "tool loop full conversation state"
+      );
+
+      const iterElapsed = startTimer();
+      const stream = getClient().messages.stream({
+        model: CLAUDE_MODEL,
+        max_tokens: maxTokens,
+        system: [
+          {
+            type: "text" as const,
+            text: systemPrompt,
+            cache_control: { type: "ephemeral" as const },
+          },
+        ],
+        tools: toolsWithCache,
+        tool_choice: { type: "auto" },
+        messages: conversationMessages,
+      }, { signal: options?.signal });
+
+      // Stream text deltas in real time
+      const response = yield* streamTextDeltas(stream);
+
+      l.debug({ action: "tool_loop_api_call", iteration, durationMs: iterElapsed() }, "tool loop API call completed");
+      l.debug({ action: "tool_loop_iteration", iteration, ...summarizeResponse(response) }, "tool loop iteration response");
+      l.debug(
+        { action: "tool_loop_response_content", iteration, content: serializeResponseContentForLog(response) },
+        "tool loop response content"
+      );
+
+      // Yield usage event
+      yield {
+        type: "usage",
+        data: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        },
+      };
+
+      // Record usage (fire-and-forget)
+      if (userId) {
+        recordUsage(userId, response.model, operation, {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        }).catch((error) => {
+          l.warn(
+            { error: error instanceof Error ? error.message : String(error), userId },
+            "failed to record API usage"
+          );
+        });
+      }
+
+      if (response.stop_reason === "end_turn") {
+        // Check for report_nutrition in end_turn (it can appear here too)
+        const reportNutritionBlock = response.content.find(
+          (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_nutrition"
+        ) as Anthropic.ToolUseBlock | undefined;
+
+        let analysis: FoodAnalysis | undefined;
+        if (reportNutritionBlock) {
+          analysis = validateFoodAnalysis(reportNutritionBlock.input);
+        }
+
+        // Use pending analysis from earlier iteration if no analysis in final response
+        if (!analysis && pendingAnalysis) {
+          analysis = pendingAnalysis;
+        }
+
+        if (analysis) {
+          yield { type: "analysis", analysis };
+        }
+
+        l.info({ iteration, hasAnalysis: !!analysis, exitReason: "end_turn", durationMs: loopElapsed() }, "tool loop completed");
+        yield { type: "done" };
+        return;
+      }
+
+      if (response.stop_reason === "tool_use") {
+        // Extract all tool_use blocks (client-side tools only — not server_tool_use)
+        const allToolUseBlocks = response.content.filter(
+          (block) => block.type === "tool_use"
+        ) as Anthropic.ToolUseBlock[];
+
+        // Detect server_tool_use blocks (web search) — yield tool_start for these
+        const serverToolUseBlocks = response.content.filter(
+          (block) => block.type === "server_tool_use"
+        ) as Array<{ type: string; name: string; id: string }>;
+        for (const block of serverToolUseBlocks) {
+          yield { type: "tool_start", tool: block.name };
+        }
+
+        // Separate report_nutrition from data tools
+        const reportNutritionBlock = allToolUseBlocks.find(
+          (block) => block.name === "report_nutrition"
+        );
+        const dataToolBlocks = allToolUseBlocks.filter(
+          (block) => block.name !== "report_nutrition"
+        );
+
+        // Yield tool_start for data tools
+        for (const tool of dataToolBlocks) {
+          yield { type: "tool_start", tool: tool.name };
+        }
+
+        // If report_nutrition is present, validate and store as pending analysis
+        if (reportNutritionBlock) {
+          try {
+            pendingAnalysis = validateFoodAnalysis(reportNutritionBlock.input);
+            l.info(
+              { foodName: pendingAnalysis.food_name },
+              "captured report_nutrition from tool loop"
+            );
+          } catch (error) {
+            l.warn(
+              { error: error instanceof Error ? error.message : String(error) },
+              "invalid report_nutrition in tool loop, ignoring"
+            );
+          }
+        }
+
+        l.debug(
+          {
+            action: "tool_loop_tool_calls",
+            iteration,
+            toolCount: allToolUseBlocks.length,
+            dataToolCount: dataToolBlocks.length,
+            tools: allToolUseBlocks.map((b) => ({ name: b.name })),
+          },
+          "executing tools"
+        );
+
+        // Add assistant message with tool_use blocks
+        conversationMessages.push({
+          role: "assistant",
+          content: response.content,
+        });
+
+        // Build tool results
+        const toolResults: Array<{
+          type: "tool_result";
+          tool_use_id: string;
+          content: string;
+          is_error?: true;
+        }> = [];
+
+        // Add synthetic result for report_nutrition so Claude doesn't think it failed
+        if (reportNutritionBlock) {
+          toolResults.push({
+            type: "tool_result" as const,
+            tool_use_id: reportNutritionBlock.id,
+            content: "Nutrition analysis recorded.",
+          });
+        }
+
+        // Execute data tools in parallel
+        const dataToolResults = await executeDataTools(dataToolBlocks, userId, currentDate, l);
+        toolResults.push(...dataToolResults);
+
+        l.debug(
+          {
+            action: "tool_loop_tool_results",
+            iteration,
+            results: toolResults.map((r) => ({
+              toolUseId: r.tool_use_id,
+              content: r.content,
+              isError: r.is_error,
+            })),
+          },
+          "tool results sent back to Claude"
+        );
+
+        // Add user message with all tool_result blocks
+        conversationMessages.push({
+          role: "user",
+          content: toolResults,
+        });
+
+        // Continue loop
+        continue;
+      }
+
+      // Handle other stop reasons gracefully (refusal, max_tokens, etc.)
+      l.warn(
+        { stop_reason: response.stop_reason, iteration },
+        "unexpected stop_reason, returning partial response"
+      );
+
+      // Check for analysis in partial response
+      const partialReportBlock = response.content.find(
+        (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_nutrition"
+      ) as Anthropic.ToolUseBlock | undefined;
+
+      let partialAnalysis: FoodAnalysis | undefined;
+      if (partialReportBlock) {
+        try {
+          partialAnalysis = validateFoodAnalysis(partialReportBlock.input);
+        } catch {
+          // ignore
+        }
+      }
+      if (!partialAnalysis && pendingAnalysis) {
+        partialAnalysis = pendingAnalysis;
+      }
+
+      if (partialAnalysis) {
+        yield { type: "analysis", analysis: partialAnalysis };
+      }
+      yield { type: "done" };
+      return;
+    }
+
+    // Exceeded max iterations
+    l.warn({ iteration, durationMs: loopElapsed() }, "tool loop exceeded maximum iterations");
+
+    if (pendingAnalysis) {
+      // We have a usable analysis despite exceeding iterations — yield it and finish
+      yield { type: "analysis", analysis: pendingAnalysis };
+      yield { type: "done" };
+    } else {
+      yield { type: "error", message: "Maximum tool iterations exceeded" };
+    }
+
+  } catch (error) {
+    if (error instanceof ClaudeApiError) {
+      throw error;
+    }
+
+    l.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Claude API tool loop error"
+    );
+    throw new ClaudeApiError(
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+/**
+ * Analyze food from images/description. Returns a streaming generator of StreamEvent.
+ *
+ * Yields:
+ * - Fast path (report_nutrition immediate): analysis + done
+ * - Slow path (data tools needed): tool loop events (text_delta, tool_start, usage, analysis, done)
+ * - Text only: needs_chat + done
+ */
+export async function* analyzeFood(
   images: ImageInput[],
   description: string | undefined,
   userId: string,
   currentDate: string,
   log?: Logger,
   signal?: AbortSignal,
-): Promise<AnalyzeFoodResult> {
+): AsyncGenerator<StreamEvent> {
   const l = log ?? logger;
   const elapsed = startTimer();
   try {
@@ -366,15 +851,26 @@ export async function analyzeFood(
     );
 
     const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
-
-    // Add cache_control to last tool (don't mutate originals)
-    const toolsWithCache = allTools.map((tool, index) =>
-      index === allTools.length - 1
-        ? { ...tool, cache_control: { type: "ephemeral" as const } }
-        : tool
-    );
-
+    const toolsWithCache = buildToolsWithCache(allTools);
     const systemPrompt = `${ANALYSIS_SYSTEM_PROMPT}\n\nToday's date is: ${currentDate}`;
+
+    const userMessage: Anthropic.MessageParam = {
+      role: "user",
+      content: [
+        ...images.map((img) => ({
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: img.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+            data: img.base64,
+          },
+        })),
+        {
+          type: "text" as const,
+          text: description || "Analyze this food.",
+        },
+      ],
+    };
 
     l.debug(
       {
@@ -387,7 +883,7 @@ export async function analyzeFood(
       "Claude API request detail"
     );
 
-    const response = await getClient().messages.create({
+    const stream = getClient().messages.stream({
       model: CLAUDE_MODEL,
       max_tokens: 1024,
       system: [
@@ -399,30 +895,11 @@ export async function analyzeFood(
       ],
       tools: toolsWithCache,
       tool_choice: { type: "auto" },
-      messages: [
-        {
-          role: "user",
-          content: [
-            ...images.map((img) => ({
-              type: "image" as const,
-              source: {
-                type: "base64" as const,
-                media_type: img.mimeType as
-                  | "image/jpeg"
-                  | "image/png"
-                  | "image/gif"
-                  | "image/webp",
-                data: img.base64,
-              },
-            })),
-            {
-              type: "text" as const,
-              text: description || "Analyze this food.",
-            },
-          ],
-        },
-      ],
+      messages: [userMessage],
     }, { signal });
+
+    // Stream text deltas from the initial response
+    const response = yield* streamTextDeltas(stream);
 
     l.debug({ action: "analyze_food_response", ...summarizeResponse(response) }, "Claude API response received");
     l.debug(
@@ -430,11 +907,110 @@ export async function analyzeFood(
       "Claude API response content"
     );
 
-    // Check if report_nutrition was called
+    // Check if report_nutrition was called directly (fast path)
     const reportNutritionBlock = response.content.find(
-      (block) => block.type === "tool_use" && block.name === "report_nutrition"
-    );
+      (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_nutrition"
+    ) as Anthropic.ToolUseBlock | undefined;
 
+    if (reportNutritionBlock) {
+      // Fast path: Claude called report_nutrition directly
+      // Record usage (fire-and-forget)
+      recordUsage(userId, response.model, "food-analysis", {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      }).catch((error) => {
+        l.warn(
+          { error: error instanceof Error ? error.message : String(error), userId },
+          "failed to record API usage"
+        );
+      });
+
+      const analysis = validateFoodAnalysis(reportNutritionBlock.input);
+      l.info(
+        { foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
+        "food analysis completed (fast path)"
+      );
+      yield {
+        type: "usage",
+        data: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        },
+      };
+      yield { type: "analysis", analysis };
+      yield { type: "done" };
+      return;
+    }
+
+    // Check if Claude used any data tools (not report_nutrition)
+    const dataToolUseBlocks = response.content.filter(
+      (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name !== "report_nutrition"
+    ) as Anthropic.ToolUseBlock[];
+
+    if (dataToolUseBlocks.length > 0) {
+      // Slow path: data tools were used in the initial response
+      l.info(
+        { dataToolCount: dataToolUseBlocks.length },
+        "running tool loop for data tools in food analysis"
+      );
+
+      // Yield tool_start for each data tool
+      for (const tool of dataToolUseBlocks) {
+        yield { type: "tool_start", tool: tool.name };
+      }
+
+      // Yield usage for initial call
+      yield {
+        type: "usage",
+        data: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        },
+      };
+
+      // Record usage (fire-and-forget)
+      recordUsage(userId, response.model, "food-analysis", {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      }).catch((error) => {
+        l.warn(
+          { error: error instanceof Error ? error.message : String(error), userId },
+          "failed to record API usage"
+        );
+      });
+
+      // Execute the initial data tools
+      const toolResults = await executeDataTools(dataToolUseBlocks, userId, currentDate, l);
+
+      // Build updated conversation: original user message + initial assistant response + tool results
+      const updatedMessages: Anthropic.MessageParam[] = [
+        userMessage,
+        { role: "assistant", content: response.content },
+        { role: "user", content: toolResults },
+      ];
+
+      // Continue with the tool loop for subsequent iterations
+      yield* runToolLoop(updatedMessages, userId, currentDate, {
+        systemPrompt,
+        tools: allTools,
+        operation: "food-analysis",
+        signal,
+        log: l,
+      });
+
+      l.info({ action: "analyze_food_slow_path_done", durationMs: elapsed() }, "food analysis completed (via tool loop)");
+      return;
+    }
+
+    // Text-only fallback: Claude responded with text, no tool calls
     // Record usage (fire-and-forget)
     recordUsage(userId, response.model, "food-analysis", {
       inputTokens: response.usage.input_tokens,
@@ -448,81 +1024,24 @@ export async function analyzeFood(
       );
     });
 
-    if (reportNutritionBlock && reportNutritionBlock.type === "tool_use") {
-      // Fast path: Claude called report_nutrition directly
-      const analysis = validateFoodAnalysis(reportNutritionBlock.input);
-      l.info(
-        { foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
-        "food analysis completed (fast path)"
-      );
-      return { type: "analysis", analysis };
-    }
-
-    // Check if Claude used any data tools (not report_nutrition)
-    const dataToolUseBlocks = response.content.filter(
-      (block) => block.type === "tool_use" && block.name !== "report_nutrition"
-    );
-
-    // If data tools were used, run the tool loop to resolve them
-    if (dataToolUseBlocks.length > 0) {
-      l.info(
-        { dataToolCount: dataToolUseBlocks.length },
-        "running tool loop for data tools in food analysis"
-      );
-
-      const userMessages: Anthropic.MessageParam[] = [
-        {
-          role: "user",
-          content: [
-            ...images.map((img) => ({
-              type: "image" as const,
-              source: {
-                type: "base64" as const,
-                media_type: img.mimeType as
-                  | "image/jpeg"
-                  | "image/png"
-                  | "image/gif"
-                  | "image/webp",
-                data: img.base64,
-              },
-            })),
-            {
-              type: "text" as const,
-              text: description || "Analyze this food.",
-            },
-          ],
-        },
-      ];
-
-      const result = await runToolLoop(userMessages, userId, currentDate, {
-        systemPrompt,
-        tools: allTools,
-        operation: "food-analysis",
-        initialResponse: response,
-        signal,
-        log: l,
-      });
-
-      if (result.analysis) {
-        l.info(
-          { foodName: result.analysis.food_name, confidence: result.analysis.confidence, durationMs: elapsed() },
-          "food analysis completed (via tool loop)"
-        );
-        return { type: "analysis", analysis: result.analysis };
-      }
-
-      l.info({ action: "analyze_food_needs_chat", durationMs: elapsed() }, "food analysis needs chat transition (after tool loop)");
-      return { type: "needs_chat", message: result.message };
-    }
-
-    // Text-only fallback: Claude responded with text, no tool calls
     const textBlocks = response.content.filter(
       (block) => block.type === "text"
     ) as Anthropic.TextBlock[];
     const message = textBlocks.map((block) => block.text).join("\n");
 
     l.info({ action: "analyze_food_needs_chat", durationMs: elapsed() }, "food analysis needs chat transition");
-    return { type: "needs_chat", message };
+    yield {
+      type: "usage",
+      data: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      },
+    };
+    yield { type: "needs_chat", message };
+    yield { type: "done" };
+
   } catch (error) {
     if (error instanceof ClaudeApiError) {
       throw error;
@@ -538,7 +1057,17 @@ export async function analyzeFood(
   }
 }
 
-export async function conversationalRefine(
+/**
+ * Conversational food refinement. Returns a streaming generator of StreamEvent.
+ *
+ * Yields:
+ * - text_delta: as Claude emits text
+ * - analysis: if report_nutrition is called
+ * - tool_start: if data tools are invoked (delegates to runToolLoop)
+ * - usage: after each API call
+ * - done: when the conversation turn is complete
+ */
+export async function* conversationalRefine(
   messages: ConversationMessage[],
   images: ImageInput[],
   userId?: string,
@@ -546,7 +1075,7 @@ export async function conversationalRefine(
   initialAnalysis?: FoodAnalysis,
   signal?: AbortSignal,
   log?: Logger
-): Promise<{ message: string; analysis?: FoodAnalysis }> {
+): AsyncGenerator<StreamEvent> {
   const l = log ?? logger;
   const elapsed = startTimer();
   try {
@@ -646,20 +1175,14 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     }
 
     const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
-
-    // Add cache_control to last tool (don't mutate originals)
-    const toolsWithCache = allTools.map((tool, index) =>
-      index === allTools.length - 1
-        ? { ...tool, cache_control: { type: "ephemeral" as const } }
-        : tool
-    );
+    const toolsWithCache = buildToolsWithCache(allTools);
 
     l.debug(
       { action: "conversational_refine_request_detail", systemPrompt },
       "Claude API chat request system prompt"
     );
 
-    const response = await getClient().messages.create({
+    const stream = getClient().messages.stream({
       model: CLAUDE_MODEL,
       max_tokens: 2048,
       system: [
@@ -674,6 +1197,9 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       messages: anthropicMessages,
     }, { signal });
 
+    // Stream text deltas from the initial response
+    const response = yield* streamTextDeltas(stream);
+
     l.debug({ action: "conversational_refine_response", ...summarizeResponse(response) }, "Claude API response received");
     l.debug(
       { action: "conversational_refine_response_content", content: serializeResponseContentForLog(response) },
@@ -682,40 +1208,83 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
 
     // Check if Claude used any data tools (not report_nutrition)
     const dataToolUseBlocks = response.content.filter(
-      (block) => block.type === "tool_use" && block.name !== "report_nutrition"
-    );
+      (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name !== "report_nutrition"
+    ) as Anthropic.ToolUseBlock[];
 
-    // If data tools were used, run the tool loop with the initial response
+    // If data tools were used, run the tool loop
     if (dataToolUseBlocks.length > 0 && userId && currentDate) {
       l.info(
         { dataToolCount: dataToolUseBlocks.length },
         "running tool loop for data tools in conversational refinement"
       );
 
-      return runToolLoop(anthropicMessages, userId, currentDate, {
+      // Yield tool_start for each data tool
+      for (const tool of dataToolUseBlocks) {
+        yield { type: "tool_start", tool: tool.name };
+      }
+
+      // Yield usage for initial call
+      yield {
+        type: "usage",
+        data: {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        },
+      };
+
+      // Record usage (fire-and-forget)
+      if (userId) {
+        recordUsage(userId, response.model, "food-chat", {
+          inputTokens: response.usage.input_tokens,
+          outputTokens: response.usage.output_tokens,
+          cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        }).catch((error) => {
+          l.warn(
+            { error: error instanceof Error ? error.message : String(error), userId },
+            "failed to record API usage"
+          );
+        });
+      }
+
+      // Execute initial data tools
+      const toolResults = await executeDataTools(dataToolUseBlocks, userId, currentDate, l);
+
+      // Build updated conversation
+      const updatedMessages: Anthropic.MessageParam[] = [
+        ...anthropicMessages,
+        { role: "assistant", content: response.content },
+        { role: "user", content: toolResults },
+      ];
+
+      // Continue with tool loop
+      yield* runToolLoop(updatedMessages, userId, currentDate, {
         systemPrompt,
         tools: allTools,
         operation: "food-chat",
-        initialResponse: response,
         signal,
         log: l,
       });
+
+      l.info({ action: "conversational_refine_done_via_tool_loop", durationMs: elapsed() }, "conversational refinement completed via tool loop");
+      return;
+    } else if (dataToolUseBlocks.length > 0) {
+      l.warn(
+        { toolNames: dataToolUseBlocks.map((b) => b.name) },
+        "data tool calls skipped: userId or currentDate missing from conversationalRefine"
+      );
     }
 
-    // Extract text blocks into message string
-    const textBlocks = response.content.filter(
-      (block) => block.type === "text"
-    ) as Anthropic.TextBlock[];
-    const message = textBlocks.map((block) => block.text).join("\n");
-
-    // Check for tool_use block (report_nutrition)
-    const toolUseBlock = response.content.find(
-      (block) => block.type === "tool_use" && block.name === "report_nutrition"
-    );
+    // No data tools — handle report_nutrition and/or text response
+    const reportNutritionBlock = response.content.find(
+      (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_nutrition"
+    ) as Anthropic.ToolUseBlock | undefined;
 
     let analysis: FoodAnalysis | undefined;
-    if (toolUseBlock && toolUseBlock.type === "tool_use") {
-      analysis = validateFoodAnalysis(toolUseBlock.input);
+    if (reportNutritionBlock) {
+      analysis = validateFoodAnalysis(reportNutritionBlock.input);
       l.info(
         { action: "conversational_refine_with_analysis", foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
         "conversational refinement with analysis completed"
@@ -739,7 +1308,21 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       });
     }
 
-    return { message, analysis };
+    yield {
+      type: "usage",
+      data: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      },
+    };
+
+    if (analysis) {
+      yield { type: "analysis", analysis };
+    }
+    yield { type: "done" };
+
   } catch (error) {
     if (error instanceof ClaudeApiError) {
       throw error;
@@ -748,386 +1331,6 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     l.error(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API conversational refinement error"
-    );
-    throw new ClaudeApiError(
-      `API request failed: ${error instanceof Error ? error.message : String(error)}`
-    );
-  }
-}
-
-const DATA_TOOLS = [
-  SEARCH_FOOD_LOG_TOOL,
-  GET_NUTRITION_SUMMARY_TOOL,
-  GET_FASTING_INFO_TOOL,
-];
-
-function estimateTokenCount(messages: Anthropic.MessageParam[]): number {
-  let tokens = 0;
-
-  for (const message of messages) {
-    if (Array.isArray(message.content)) {
-      for (const block of message.content) {
-        if (block.type === "text") {
-          // ~4 characters per token
-          tokens += Math.ceil(block.text.length / 4);
-        } else if (block.type === "image") {
-          // ~1000 tokens per image
-          tokens += 1000;
-        }
-      }
-    } else if (typeof message.content === "string") {
-      tokens += Math.ceil(message.content.length / 4);
-    }
-  }
-
-  return tokens;
-}
-
-export function truncateConversation(
-  messages: Anthropic.MessageParam[],
-  maxTokens: number,
-  log?: Logger,
-): Anthropic.MessageParam[] {
-  const l = log ?? logger;
-  const estimatedTokens = estimateTokenCount(messages);
-
-  if (estimatedTokens <= maxTokens) {
-    return messages;
-  }
-
-  // Keep first user message + last 4 messages
-  if (messages.length <= 5) {
-    return messages;
-  }
-
-  const firstMessage = messages[0];
-  const lastFourMessages = messages.slice(-4);
-
-  const result = [firstMessage, ...lastFourMessages];
-
-  // Remove consecutive same-role messages (keep the later one)
-  const filtered: Anthropic.MessageParam[] = [result[0]];
-  for (let i = 1; i < result.length; i++) {
-    if (result[i].role === filtered[filtered.length - 1].role) {
-      // Drop the earlier one (replace it with the current one)
-      filtered[filtered.length - 1] = result[i];
-    } else {
-      filtered.push(result[i]);
-    }
-  }
-
-  l.debug(
-    { action: "truncate_conversation", estimatedTokens, maxTokens, messagesBefore: messages.length, messagesAfter: filtered.length },
-    "conversation truncated"
-  );
-
-  return filtered;
-}
-
-
-export async function runToolLoop(
-  messages: Anthropic.MessageParam[],
-  userId: string,
-  currentDate: string,
-  options?: {
-    systemPrompt?: string;
-    tools?: Array<Anthropic.Tool | Anthropic.Messages.WebSearchTool20250305>;
-    operation?: string;
-    initialResponse?: Anthropic.Message;
-    signal?: AbortSignal;
-    log?: Logger;
-  }
-): Promise<{ message: string; analysis?: FoodAnalysis }> {
-  const l = options?.log ?? logger;
-  const loopElapsed = startTimer();
-  let systemPrompt = options?.systemPrompt ?? CHAT_SYSTEM_PROMPT;
-  if (!options?.systemPrompt && currentDate) {
-    systemPrompt += `\n\nToday's date is: ${currentDate}`;
-  }
-  const tools = options?.tools ?? [WEB_SEARCH_TOOL, ...DATA_TOOLS];
-  const operation = options?.operation ?? "food-chat";
-
-  // Add cache_control to last tool (don't mutate originals)
-  const toolsWithCache = tools.map((tool, index) =>
-    index === tools.length - 1
-      ? { ...tool, cache_control: { type: "ephemeral" as const } }
-      : tool
-  );
-
-  const conversationMessages: Anthropic.MessageParam[] = [...messages];
-  const MAX_ITERATIONS = 5;
-  let iteration = 0;
-  let pendingResponse = options?.initialResponse;
-  let lastResponse: Anthropic.Message | undefined;
-  let pendingAnalysis: FoodAnalysis | undefined;
-
-  try {
-    while (iteration < MAX_ITERATIONS) {
-      if (options?.signal?.aborted) {
-        throw new ClaudeApiError("Request aborted by client");
-      }
-      iteration++;
-
-      let response: Anthropic.Message;
-      if (pendingResponse) {
-        response = pendingResponse;
-        pendingResponse = undefined;
-      } else {
-        l.info(
-          { iteration, messageCount: conversationMessages.length },
-          "calling Claude API in tool loop"
-        );
-        l.debug(
-          { action: "tool_loop_request_detail", iteration, messages: serializeMessagesForLog(conversationMessages) },
-          "tool loop full conversation state"
-        );
-
-        const iterElapsed = startTimer();
-        response = await getClient().messages.create({
-          model: CLAUDE_MODEL,
-          max_tokens: 2048,
-          system: [
-            {
-              type: "text" as const,
-              text: systemPrompt,
-              cache_control: { type: "ephemeral" as const },
-            },
-          ],
-          tools: toolsWithCache,
-          tool_choice: { type: "auto" },
-          messages: conversationMessages,
-        }, { signal: options?.signal });
-        l.debug({ action: "tool_loop_api_call", iteration, durationMs: iterElapsed() }, "tool loop API call completed");
-      }
-
-      lastResponse = response;
-      l.debug({ action: "tool_loop_iteration", iteration, ...summarizeResponse(response) }, "tool loop iteration response");
-      l.debug(
-        { action: "tool_loop_response_content", iteration, content: serializeResponseContentForLog(response) },
-        "tool loop response content"
-      );
-
-      // Record usage (fire-and-forget)
-      if (userId) {
-        recordUsage(userId, response.model, operation, {
-          inputTokens: response.usage.input_tokens,
-          outputTokens: response.usage.output_tokens,
-          cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
-          cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
-        }).catch((error) => {
-          l.warn(
-            { error: error instanceof Error ? error.message : String(error), userId },
-            "failed to record API usage"
-          );
-        });
-      }
-
-      if (response.stop_reason === "end_turn") {
-        // Extract text and optional analysis
-        const textBlocks = response.content.filter(
-          (block) => block.type === "text"
-        ) as Anthropic.TextBlock[];
-        const message = textBlocks.map((block) => block.text).join("\n");
-
-        const toolUseBlock = response.content.find(
-          (block) => block.type === "tool_use" && block.name === "report_nutrition"
-        );
-
-        let analysis: FoodAnalysis | undefined;
-        if (toolUseBlock && toolUseBlock.type === "tool_use") {
-          analysis = validateFoodAnalysis(toolUseBlock.input);
-        }
-
-        // Use pending analysis from earlier iteration if no analysis in final response
-        if (!analysis && pendingAnalysis) {
-          analysis = pendingAnalysis;
-        }
-
-        l.info({ iteration, hasAnalysis: !!analysis, exitReason: "end_turn", durationMs: loopElapsed() }, "tool loop completed");
-        return { message, analysis };
-      }
-
-      if (response.stop_reason === "tool_use") {
-        // Extract all tool_use blocks
-        const allToolUseBlocks = response.content.filter(
-          (block) => block.type === "tool_use"
-        ) as Anthropic.ToolUseBlock[];
-
-        // Separate report_nutrition from data tools
-        const reportNutritionBlock = allToolUseBlocks.find(
-          (block) => block.name === "report_nutrition"
-        );
-        const dataToolBlocks = allToolUseBlocks.filter(
-          (block) => block.name !== "report_nutrition"
-        );
-
-        // If report_nutrition is present, validate and store as pending analysis
-        if (reportNutritionBlock) {
-          try {
-            pendingAnalysis = validateFoodAnalysis(reportNutritionBlock.input);
-            l.info(
-              { foodName: pendingAnalysis.food_name },
-              "captured report_nutrition from tool loop"
-            );
-          } catch (error) {
-            l.warn(
-              { error: error instanceof Error ? error.message : String(error) },
-              "invalid report_nutrition in tool loop, ignoring"
-            );
-          }
-        }
-
-        l.debug(
-          {
-            action: "tool_loop_tool_calls",
-            iteration,
-            toolCount: allToolUseBlocks.length,
-            dataToolCount: dataToolBlocks.length,
-            tools: allToolUseBlocks.map((b) => ({ name: b.name, params: b.name !== "report_nutrition" ? b.input : undefined })),
-          },
-          "executing tools"
-        );
-
-        // Add assistant message with tool_use blocks
-        conversationMessages.push({
-          role: "assistant",
-          content: response.content,
-        });
-
-        // Build tool results: execute data tools + synthetic result for report_nutrition
-        const toolResults: Array<{
-          type: "tool_result";
-          tool_use_id: string;
-          content: string;
-          is_error?: true;
-        }> = [];
-
-        // Add synthetic result for report_nutrition so Claude doesn't think it failed
-        if (reportNutritionBlock) {
-          toolResults.push({
-            type: "tool_result" as const,
-            tool_use_id: reportNutritionBlock.id,
-            content: "Nutrition analysis recorded.",
-          });
-        }
-
-        // Execute data tools in parallel
-        const dataToolResults = await Promise.all(
-          dataToolBlocks.map(async (toolUse) => {
-            try {
-              const result = await executeTool(
-                toolUse.name,
-                toolUse.input as Record<string, unknown>,
-                userId,
-                currentDate,
-                l,
-              );
-
-              return {
-                type: "tool_result" as const,
-                tool_use_id: toolUse.id,
-                content: result,
-              };
-            } catch (error) {
-              l.warn(
-                { tool: toolUse.name, error: error instanceof Error ? error.message : String(error) },
-                "tool execution error"
-              );
-              return {
-                type: "tool_result" as const,
-                tool_use_id: toolUse.id,
-                content: `Error: ${error instanceof Error ? error.message : String(error)}`,
-                is_error: true as const,
-              };
-            }
-          })
-        );
-
-        toolResults.push(...dataToolResults);
-
-        l.debug(
-          {
-            action: "tool_loop_tool_results",
-            iteration,
-            results: toolResults.map((r) => ({
-              toolUseId: r.tool_use_id,
-              content: r.content,
-              isError: r.is_error,
-            })),
-          },
-          "tool results sent back to Claude"
-        );
-
-        // Add user message with all tool_result blocks
-        conversationMessages.push({
-          role: "user",
-          content: toolResults,
-        });
-
-        // Continue loop
-        continue;
-      }
-
-      // Handle other stop reasons gracefully (refusal, model_context_window_exceeded, max_tokens, etc.)
-      // Extract text blocks and return partial response
-      l.warn(
-        { stop_reason: response.stop_reason, iteration },
-        "unexpected stop_reason, returning partial response"
-      );
-
-      const textBlocks = response.content.filter(
-        (block) => block.type === "text"
-      ) as Anthropic.TextBlock[];
-      const message = textBlocks.map((block) => block.text).join("\n");
-
-      const toolUseBlock = response.content.find(
-        (block) => block.type === "tool_use" && block.name === "report_nutrition"
-      );
-
-      let analysis: FoodAnalysis | undefined;
-      if (toolUseBlock && toolUseBlock.type === "tool_use") {
-        analysis = validateFoodAnalysis(toolUseBlock.input);
-      }
-      if (!analysis && pendingAnalysis) {
-        analysis = pendingAnalysis;
-      }
-
-      return { message, analysis };
-    }
-
-    // Exceeded max iterations - return last response
-    l.warn({ iteration, durationMs: loopElapsed() }, "tool loop exceeded maximum iterations");
-
-    if (lastResponse) {
-      const textBlocks = lastResponse.content.filter(
-        (block) => block.type === "text"
-      ) as Anthropic.TextBlock[];
-      const message = textBlocks.map((block) => block.text).join("\n");
-
-      const toolUseBlock = lastResponse.content.find(
-        (block) => block.type === "tool_use" && block.name === "report_nutrition"
-      );
-
-      let analysis: FoodAnalysis | undefined;
-      if (toolUseBlock && toolUseBlock.type === "tool_use") {
-        analysis = validateFoodAnalysis(toolUseBlock.input);
-      }
-      if (!analysis && pendingAnalysis) {
-        analysis = pendingAnalysis;
-      }
-
-      return { message, analysis };
-    }
-
-    return { message: "", analysis: pendingAnalysis };
-  } catch (error) {
-    if (error instanceof ClaudeApiError) {
-      throw error;
-    }
-
-    l.error(
-      { error: error instanceof Error ? error.message : String(error) },
-      "Claude API tool loop error"
     );
     throw new ClaudeApiError(
       `API request failed: ${error instanceof Error ? error.message : String(error)}`

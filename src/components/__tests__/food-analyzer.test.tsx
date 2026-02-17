@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { FoodAnalyzer } from "../food-analyzer";
 import type { FoodAnalysis, FoodLogResponse, FoodMatch, AnalyzeFoodResult, ConversationMessage } from "@/types";
+import type { StreamEvent } from "@/lib/sse";
 
 // Mock ResizeObserver for Radix UI
 beforeAll(() => {
@@ -57,6 +58,16 @@ vi.mock("../photo-capture", () => ({
       >
         Add Photo
       </button>
+      <button
+        onClick={() =>
+          onPhotosChange([
+            new File(["test1"], "test1.jpg", { type: "image/jpeg" }),
+            new File(["test2"], "test2.jpg", { type: "image/jpeg" }),
+          ])
+        }
+      >
+        Add Two Photos
+      </button>
       <button onClick={() => onPhotosChange([])}>Clear Photos</button>
     </div>
   ),
@@ -87,17 +98,20 @@ vi.mock("../analysis-result", () => ({
     loading,
     error,
     onRetry,
+    loadingStep,
   }: {
     analysis: FoodAnalysis | null;
     loading: boolean;
     error: string | null;
     onRetry: () => void;
+    loadingStep?: string;
   }) => (
     <div
       data-testid="analysis-result"
       aria-live={loading ? "assertive" : error ? "polite" : undefined}
     >
       {loading && <span>Loading...</span>}
+      {loading && loadingStep && <span data-testid="loading-step">{loadingStep}</span>}
       {error && (
         <>
           <span>{error}</span>
@@ -274,11 +288,6 @@ const mockAnalysis: FoodAnalysis = {
   keywords: ["empanada", "carne", "beef"],
 };
 
-const mockAnalysisResult: AnalyzeFoodResult = {
-  type: "analysis",
-  analysis: mockAnalysis,
-};
-
 const mockLogResponse: FoodLogResponse = {
   success: true,
   fitbitFoodId: 12345,
@@ -307,7 +316,86 @@ const emptyMatchesResponse = () => ({
   text: () => Promise.resolve(JSON.stringify({ success: true, data: { matches: [] } })),
 });
 
+/** Create a mock fetch response that looks like an SSE stream. */
+function makeSseAnalyzeResponse(events: StreamEvent[]) {
+  const encoder = new TextEncoder();
+  const chunks = events.map((e) => encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
+  let index = 0;
+  const mockReader = {
+    read: (): Promise<{ done: boolean; value: Uint8Array | undefined }> => {
+      if (index < chunks.length) {
+        return Promise.resolve({ done: false, value: chunks[index++] });
+      }
+      return Promise.resolve({ done: true, value: undefined });
+    },
+    releaseLock: () => {},
+  };
+  return {
+    ok: true,
+    status: 200,
+    headers: {
+      get: (h: string) =>
+        h.toLowerCase() === "content-type" ? "text/event-stream" : null,
+    },
+    body: { getReader: () => mockReader },
+  };
+}
+
+/**
+ * Create a controllable SSE stream. Call send() to push events, close() to end it.
+ * Useful for testing intermediate loading states.
+ */
+function makeControllableSseResponse() {
+  const encoder = new TextEncoder();
+  const queue: Uint8Array[] = [];
+  const waiters: Array<(r: { done: boolean; value: Uint8Array | undefined }) => void> = [];
+  let closed = false;
+  const mockReader = {
+    read: (): Promise<{ done: boolean; value: Uint8Array | undefined }> => {
+      if (queue.length > 0) {
+        return Promise.resolve({ done: false, value: queue.shift()! });
+      }
+      if (closed) {
+        return Promise.resolve({ done: true, value: undefined });
+      }
+      return new Promise((resolve) => waiters.push(resolve));
+    },
+    releaseLock: () => {},
+  };
+  const response = {
+    ok: true,
+    status: 200,
+    headers: {
+      get: (h: string) =>
+        h.toLowerCase() === "content-type" ? "text/event-stream" : null,
+    },
+    body: { getReader: () => mockReader },
+  };
+  return {
+    response,
+    send: (event: StreamEvent) => {
+      const chunk = encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
+      if (waiters.length > 0) {
+        waiters.shift()!({ done: false, value: chunk });
+      } else {
+        queue.push(chunk);
+      }
+    },
+    close: () => {
+      closed = true;
+      while (waiters.length > 0) {
+        waiters.shift()!({ done: true, value: undefined });
+      }
+    },
+  };
+}
+
 beforeEach(() => {
+  // mockReset clears the once-queue (mockResolvedValueOnce, mockImplementationOnce).
+  // vi.clearAllMocks only calls mockClear which does NOT clear the once-queue,
+  // so unconsumed once-values from tests that exit early (e.g., compression tests
+  // that resolve without awaiting the subsequent fetch) would leak to the next test.
+  mockFetch.mockReset();
   vi.clearAllMocks();
 });
 
@@ -340,10 +428,9 @@ describe("FoodAnalyzer", () => {
   });
 
   it("Analyze button calls /api/analyze-food on click", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-    });
+    mockFetch.mockResolvedValueOnce(
+      makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+    );
 
     render(<FoodAnalyzer />);
 
@@ -372,10 +459,9 @@ describe("FoodAnalyzer", () => {
   });
 
   it("shows AnalysisResult after successful analysis", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-    });
+    mockFetch.mockResolvedValueOnce(
+      makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+    );
 
     render(<FoodAnalyzer />);
 
@@ -424,10 +510,9 @@ describe("FoodAnalyzer", () => {
   });
 
   it("Clear resets to initial state", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-    });
+    mockFetch.mockResolvedValueOnce(
+      makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+    );
 
     render(<FoodAnalyzer />);
 
@@ -484,10 +569,9 @@ describe("FoodAnalyzer", () => {
 
   // New tests for logging flow
   it("shows MealTypeSelector after analysis", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-    });
+    mockFetch.mockResolvedValueOnce(
+      makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+    );
 
     render(<FoodAnalyzer />);
 
@@ -503,10 +587,9 @@ describe("FoodAnalyzer", () => {
   });
 
   it("shows Log to Fitbit button after analysis", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-    });
+    mockFetch.mockResolvedValueOnce(
+      makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+    );
 
     render(<FoodAnalyzer />);
 
@@ -524,8 +607,10 @@ describe("FoodAnalyzer", () => {
   it("Log to Fitbit button calls /api/log-food", async () => {
     mockFetch
       .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
@@ -561,8 +646,10 @@ describe("FoodAnalyzer", () => {
   it("shows FoodLogConfirmation after successful log", async () => {
     mockFetch
       .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
@@ -592,8 +679,10 @@ describe("FoodAnalyzer", () => {
   it("shows confirmation optimistically while log API is in flight", async () => {
     mockFetch
       .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
       .mockImplementationOnce(() => new Promise(() => {}));
@@ -630,8 +719,10 @@ describe("FoodAnalyzer", () => {
 
     mockFetch
       .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
       .mockResolvedValueOnce({
@@ -777,8 +868,10 @@ describe("FoodAnalyzer", () => {
 
     it("Ctrl+Enter triggers analyze when photos present", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -803,10 +896,9 @@ describe("FoodAnalyzer", () => {
 
     it("Ctrl+Shift+Enter triggers log when analysis present", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: true,
@@ -887,8 +979,10 @@ describe("FoodAnalyzer", () => {
   describe("button hierarchy post-analysis", () => {
     it("'Log to Fitbit' uses default (primary) variant", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -913,8 +1007,10 @@ describe("FoodAnalyzer", () => {
   describe("state transition animations", () => {
     it("applies animation class to analysis result container", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -981,10 +1077,9 @@ describe("FoodAnalyzer", () => {
 
     it("has aria-live='polite' on log error messages", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: false,
@@ -1019,10 +1114,9 @@ describe("FoodAnalyzer", () => {
   describe("food matching", () => {
     it("calls /api/find-matches after analysis succeeds", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
@@ -1049,10 +1143,9 @@ describe("FoodAnalyzer", () => {
 
     it("shows match section when matches returned", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
@@ -1074,10 +1167,9 @@ describe("FoodAnalyzer", () => {
 
     it("hides match section when no matches", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: [] } }),
@@ -1101,10 +1193,9 @@ describe("FoodAnalyzer", () => {
 
     it("'Use this' triggers the reuse log flow", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
@@ -1141,10 +1232,9 @@ describe("FoodAnalyzer", () => {
 
     it("'Use this' includes current analysis metadata in request body", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
@@ -1188,10 +1278,9 @@ describe("FoodAnalyzer", () => {
 
     it("'Log as new' still creates a new food entry when matches exist", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
@@ -1226,6 +1315,70 @@ describe("FoodAnalyzer", () => {
     });
   });
 
+  describe("food reuse via sourceCustomFoodId", () => {
+    const analysisWithSourceId: FoodAnalysis = {
+      ...mockAnalysis,
+      sourceCustomFoodId: 42,
+    };
+
+    it("skips find-matches call when analysis has sourceCustomFoodId", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "analysis", analysis: analysisWithSourceId }, { type: "done" }])
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      const findMatchesCalls = mockFetch.mock.calls.filter(
+        (call: unknown[]) => call[0] === "/api/find-matches"
+      );
+      expect(findMatchesCalls).toHaveLength(0);
+    });
+
+    it("sends reuseCustomFoodId in log-food body when analysis has sourceCustomFoodId", async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: analysisWithSourceId }, { type: "done" }])
+        )
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        const logFoodCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logFoodCall).toBeDefined();
+        const body = JSON.parse((logFoodCall![1] as RequestInit).body as string);
+        expect(body.reuseCustomFoodId).toBe(42);
+      });
+    });
+  });
+
   describe("text-only analysis (no photos)", () => {
     it("enables Analyze button when description has text and no photos", async () => {
       render(<FoodAnalyzer />);
@@ -1249,8 +1402,10 @@ describe("FoodAnalyzer", () => {
 
     it("sends description-only to API when no photos", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1286,8 +1441,10 @@ describe("FoodAnalyzer", () => {
 
     it("skips compression step when no photos", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1315,10 +1472,9 @@ describe("FoodAnalyzer", () => {
     it("shows confirmation immediately after tapping Log to Fitbit", async () => {
       // Analyze response resolves immediately
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         // Log-food fetch hangs — never resolves
         .mockImplementationOnce(() => new Promise(() => {}));
@@ -1345,10 +1501,9 @@ describe("FoodAnalyzer", () => {
 
     it("shows confirmation immediately after tapping Use this (existing food)", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
@@ -1378,10 +1533,9 @@ describe("FoodAnalyzer", () => {
 
     it("reverts to analysis view on log API error after optimistic update", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: false,
@@ -1419,8 +1573,10 @@ describe("FoodAnalyzer", () => {
   describe("meal type label association", () => {
     it("meal type label is associated with selector via htmlFor", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1440,8 +1596,10 @@ describe("FoodAnalyzer", () => {
 
     it("meal type selector has matching id", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1462,8 +1620,10 @@ describe("FoodAnalyzer", () => {
   describe("conversational food chat", () => {
     it("shows CTA button (not div) after analysis with proper semantics", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1487,8 +1647,10 @@ describe("FoodAnalyzer", () => {
 
     it("renders ONLY FoodChat when chatOpen is true (full-screen mode)", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1521,8 +1683,10 @@ describe("FoodAnalyzer", () => {
 
     it("shows normal analyzer UI when chatOpen is false after analysis", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1548,8 +1712,10 @@ describe("FoodAnalyzer", () => {
 
     it("tapping CTA button opens FoodChat component", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1574,10 +1740,9 @@ describe("FoodAnalyzer", () => {
 
     it("quick-log path works without opening chat", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: true,
@@ -1609,10 +1774,9 @@ describe("FoodAnalyzer", () => {
 
     it("hides food matches when FoodChat is open", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
@@ -1642,8 +1806,10 @@ describe("FoodAnalyzer", () => {
 
     it("returns to post-analysis view when FoodChat onClose is called", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1676,8 +1842,10 @@ describe("FoodAnalyzer", () => {
 
     it("shows FoodLogConfirmation when FoodChat onLogged is called", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1710,8 +1878,10 @@ describe("FoodAnalyzer", () => {
 
     it("shows refined food name on confirmation card after logging from chat", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1744,8 +1914,10 @@ describe("FoodAnalyzer", () => {
 
     it("captures mealTypeId from FoodChat onLogged callback", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1781,8 +1953,10 @@ describe("FoodAnalyzer", () => {
   describe("focus management", () => {
     it("moves focus to analysis result after analysis completes", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -1806,10 +1980,9 @@ describe("FoodAnalyzer", () => {
 
     it("moves focus to confirmation after log succeeds", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: true,
@@ -1865,10 +2038,9 @@ describe("FoodAnalyzer", () => {
 
     it("shows friendly error message when log-food returns HTML", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          text: () => Promise.resolve(JSON.stringify({ success: true, data: mockAnalysisResult })),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: false,
@@ -1900,10 +2072,9 @@ describe("FoodAnalyzer", () => {
     it("prevents keyboard shortcut double-submit during logging", async () => {
       // Analyze successfully first
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         // Log API hangs
         .mockImplementationOnce(() => new Promise(() => {}));
@@ -1967,10 +2138,9 @@ describe("FoodAnalyzer", () => {
       let matchFetchCalled = false;
 
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockImplementationOnce(() => {
           matchFetchCalled = true;
           return new Promise(() => {}); // Hang forever
@@ -2051,8 +2221,10 @@ describe("FoodAnalyzer", () => {
 
     it("does not pass autoCapture after photos are taken and analysis exists", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer autoCapture />);
@@ -2079,8 +2251,10 @@ describe("FoodAnalyzer", () => {
 
     it("does not pass autoCapture after returning from chat", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer autoCapture />);
@@ -2120,10 +2294,9 @@ describe("FoodAnalyzer", () => {
     };
 
     it("auto-opens FoodChat when API returns needs_chat", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: needsChatResult }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "needs_chat", message: needsChatResult.message }, { type: "done" }])
+      );
 
       render(<FoodAnalyzer />);
 
@@ -2147,10 +2320,9 @@ describe("FoodAnalyzer", () => {
     });
 
     it("passes seedMessages to FoodChat with user description and assistant message", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: needsChatResult }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "needs_chat", message: needsChatResult.message }, { type: "done" }])
+      );
 
       render(<FoodAnalyzer />);
 
@@ -2179,10 +2351,9 @@ describe("FoodAnalyzer", () => {
     });
 
     it("uses default user message when no description provided (photo only)", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: needsChatResult }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "needs_chat", message: needsChatResult.message }, { type: "done" }])
+      );
 
       render(<FoodAnalyzer />);
 
@@ -2208,10 +2379,9 @@ describe("FoodAnalyzer", () => {
     });
 
     it("does not trigger match search for needs_chat response", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: needsChatResult }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "needs_chat", message: needsChatResult.message }, { type: "done" }])
+      );
 
       render(<FoodAnalyzer />);
 
@@ -2237,8 +2407,10 @@ describe("FoodAnalyzer", () => {
 
     it("when API returns analysis type, existing behavior is unchanged", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -2257,10 +2429,9 @@ describe("FoodAnalyzer", () => {
     });
 
     it("onClose from seeded chat returns to analyze screen and clears seed state", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: needsChatResult }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "needs_chat", message: needsChatResult.message }, { type: "done" }])
+      );
 
       render(<FoodAnalyzer />);
 
@@ -2289,10 +2460,9 @@ describe("FoodAnalyzer", () => {
 
     it("clears stale seedMessages when a subsequent analysis returns type=analysis", async () => {
       // Step 1: First analysis returns needs_chat → sets seedMessages
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: needsChatResult }),
-      });
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "needs_chat", message: needsChatResult.message }, { type: "done" }])
+      );
 
       render(<FoodAnalyzer />);
 
@@ -2320,8 +2490,10 @@ describe("FoodAnalyzer", () => {
 
       // Step 3: Second analysis returns type=analysis (fast path)
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
       // Match search response
       mockFetch.mockResolvedValueOnce({
@@ -2358,10 +2530,9 @@ describe("FoodAnalyzer", () => {
   describe("FOO-540: timeout on log-food fetches", () => {
     it("shows 'Request timed out' when handleLogToFitbit fetch times out", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockRejectedValueOnce(new DOMException("The operation was aborted.", "TimeoutError"));
 
@@ -2387,10 +2558,9 @@ describe("FoodAnalyzer", () => {
 
     it("shows 'Request timed out' when handleUseExisting fetch times out", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
@@ -2419,10 +2589,9 @@ describe("FoodAnalyzer", () => {
 
     it("passes AbortSignal.timeout to handleLogToFitbit fetch", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: true,
@@ -2456,8 +2625,10 @@ describe("FoodAnalyzer", () => {
   describe("clientDate in FormData", () => {
     it("includes clientDate in FormData sent to /api/analyze-food", async () => {
       mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
       });
 
       render(<FoodAnalyzer />);
@@ -2485,6 +2656,556 @@ describe("FoodAnalyzer", () => {
       const clientDate = formData.get("clientDate");
       // Should be a date string in YYYY-MM-DD format
       expect(clientDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
+  describe("FOO-563: compression warning timeout cleared in unexpected response branch", () => {
+    it("error persists after 3s when unexpected response clears the compression warning timeout", async () => {
+      // Use fake timers so we can advance time to verify the compression warning timeout
+      // was cleared in the else branch. Without the fix, advancing 3s fires setError(null).
+      vi.useFakeTimers();
+
+      try {
+        // First photo compresses OK, second fails → failedCount > 0 → setTimeout(3000) set
+        mockCompressImage
+          .mockResolvedValueOnce(new Blob(["success"]))
+          .mockRejectedValueOnce(new Error("Compression failed"));
+
+        // API returns an error event via SSE
+        mockFetch.mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "error", message: "Received unexpected response from server" }])
+        );
+
+        render(<FoodAnalyzer />);
+
+        // Add 2 photos — sync state update
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /add two photos/i }));
+        });
+
+        // Start analysis — kicks off async handleAnalyze
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+        });
+
+        // Flush all pending microtasks from the async chain:
+        // allSettled → compression handling → setTimeout set → fetch → safeResponseJson → else branch
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // The unexpected response error must be set at this point
+        expect(
+          screen.getByText(/received unexpected response from server/i)
+        ).toBeInTheDocument();
+
+        // Advance 3s — without the fix, the compression warning timeout fires, calling setError(null)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3001);
+        });
+
+        // Error must STILL be visible: the fix cleared the timeout in the else branch
+        expect(
+          screen.getByText(/received unexpected response from server/i)
+        ).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("FOO-564: stale find-matches result ignored after state reset", () => {
+    it("does not show stale match cards when old find-matches resolves after a re-analysis", async () => {
+      // Scenario: analysis A → find-matches hangs → reset → analysis B (sourceCustomFoodId skips
+      // find-matches) → old find-matches resolves → stale matches must NOT appear.
+      // Without the fix (generation counter), setMatches(staleData) runs and corrupts state.
+      let resolveMatchFetch!: (value: unknown) => void;
+      const matchFetchPromise = new Promise((resolve) => {
+        resolveMatchFetch = resolve;
+      });
+
+      // Analysis B has sourceCustomFoodId set → component skips find-matches
+      mockFetch
+        // Analysis A
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
+        // find-matches for A — hangs until we resolve manually
+        .mockImplementationOnce(() => matchFetchPromise)
+        // Analysis B
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([
+            { type: "analysis", analysis: { ...mockAnalysis, food_name: "Analysis B", sourceCustomFoodId: 99 } },
+            { type: "done" },
+          ])
+        );
+
+      render(<FoodAnalyzer />);
+
+      // --- Step 1: Analyze A ---
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled()
+      );
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne")
+      );
+
+      // Wait for find-matches A to have been initiated
+      await waitFor(() => {
+        expect(
+          mockFetch.mock.calls.filter((c: unknown[]) => c[0] === "/api/find-matches")
+        ).toHaveLength(1);
+      });
+
+      // --- Step 2: User resets (increments generation counter) ---
+      fireEvent.click(screen.getByRole("button", { name: /clear photos/i }));
+
+      // --- Step 3: Analyze B (sourceCustomFoodId → no new find-matches call) ---
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled()
+      );
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Analysis B")
+      );
+
+      // Confirm no second find-matches call was made
+      expect(
+        mockFetch.mock.calls.filter((c: unknown[]) => c[0] === "/api/find-matches")
+      ).toHaveLength(1);
+
+      // --- Step 4: Old find-matches for A resolves with stale data ---
+      await act(async () => {
+        resolveMatchFetch({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        });
+        // Flush: matchFetchPromise → .then(r => r.json()) → .then(matchResult => ...)
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // --- Step 5: Stale matches must NOT appear ---
+      // Without the fix: setMatches(staleData) runs → match cards appear for Analysis B
+      // With the fix: generation counter mismatch → stale result ignored → no match cards
+      expect(screen.queryByTestId("food-match-card")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/similar foods you've logged before/i)
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  describe("FOO-571: compressionWarningTimeoutRef cleared in resetAnalysisState and AbortError catch", () => {
+    it("error persists after 3s when user resets and new analysis produces error", async () => {
+      // Scenario: compression warning timeout pending → user clears photos (resetAnalysisState) →
+      // new analysis fails → stale timeout must NOT clear the new error.
+      vi.useFakeTimers();
+
+      try {
+        // First photo compresses OK, second fails → failedCount > 0 → setTimeout(3000) set
+        mockCompressImage
+          .mockResolvedValueOnce(new Blob(["success"]))
+          .mockRejectedValueOnce(new Error("Compression failed"));
+
+        // First analysis returns valid result (needed to complete the first handleAnalyze)
+        mockFetch.mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        );
+
+        render(<FoodAnalyzer />);
+
+        // Add 2 photos → start analysis → compression warning timeout is set
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /add two photos/i }));
+        });
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+        });
+
+        // Flush async chain (compression + fetch + response handling)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // Clear photos → triggers resetAnalysisState → should clear the compression warning timeout
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /clear photos/i }));
+        });
+
+        // Set up second analysis that will throw a network error
+        mockCompressImage.mockResolvedValueOnce(new Blob(["success"]));
+        mockFetch.mockRejectedValueOnce(new Error("Network failure"));
+
+        // Start new analysis
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+        });
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+        });
+
+        // Flush the async chain for the second analysis
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // The network error should be visible
+        expect(screen.getByText(/network failure/i)).toBeInTheDocument();
+
+        // Advance 3s — without the fix, stale compression timeout fires setError(null)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3001);
+        });
+
+        // Error must STILL be visible
+        expect(screen.getByText(/network failure/i)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("AbortError path clears compression warning timeout preventing stale setError(null)", async () => {
+      // Scenario: compression warning timeout pending → AbortError → stale timeout must not fire
+      vi.useFakeTimers();
+
+      try {
+        // Photo compresses OK, second fails → failedCount > 0 → setTimeout(3000) set
+        mockCompressImage
+          .mockResolvedValueOnce(new Blob(["success"]))
+          .mockRejectedValueOnce(new Error("Compression failed"));
+
+        // API fetch will be aborted
+        const abortError = new Error("The operation was aborted");
+        abortError.name = "AbortError";
+        mockFetch.mockRejectedValueOnce(abortError);
+
+        render(<FoodAnalyzer />);
+
+        // Add 2 photos → start analysis
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /add two photos/i }));
+        });
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+        });
+
+        // Flush: compression → fetch (AbortError thrown) → catch → AbortError early return
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // No error should be visible (AbortError is silently ignored)
+        expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+
+        // Advance 3s — without the fix, stale compression timeout fires setError(null)
+        // This wouldn't show a visible bug in isolation, but if error state is set between
+        // AbortError and timeout firing, the timeout would wipe it. Verify no timeout fires.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3001);
+        });
+
+        // Still no error visible (timeout was cleared, nothing happened)
+        expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  // ---- Task 11: SSE streaming analysis ----
+  describe("SSE streaming analysis", () => {
+    it("shows food name after analysis event arrives via SSE stream", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([
+          { type: "analysis", analysis: mockAnalysis },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne");
+      });
+    });
+
+    it("shows error when SSE stream yields error event", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([
+          { type: "error", message: "Claude could not analyze the image" },
+        ])
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/claude could not analyze/i)).toBeInTheDocument();
+      });
+    });
+
+    it("opens chat when SSE stream yields needs_chat event", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([
+          { type: "needs_chat", message: "Let me check what you had yesterday..." },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodAnalyzer />);
+
+      // Use description-only (no photos) to avoid compression
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "same as yesterday" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-chat")).toBeInTheDocument();
+      });
+    });
+
+    it("calls /api/find-matches after analysis event (no sourceCustomFoodId)", async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ])
+        )
+        .mockResolvedValueOnce(emptyMatchesResponse());
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/find-matches",
+          expect.any(Object)
+        );
+      });
+    });
+
+    it("does not call /api/find-matches when analysis has sourceCustomFoodId", async () => {
+      const analysisWithSourceId = { ...mockAnalysis, sourceCustomFoodId: 99 };
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([
+          { type: "analysis", analysis: analysisWithSourceId },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      // find-matches should NOT have been called
+      expect(mockFetch).not.toHaveBeenCalledWith("/api/find-matches", expect.any(Object));
+    });
+
+    it("text_delta events update loadingStep during streaming", async () => {
+      const { response, send, close } = makeControllableSseResponse();
+      mockFetch.mockResolvedValueOnce(response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      // Wait for loading state
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+
+      // Send a text_delta event
+      act(() => {
+        send({ type: "text_delta", text: "Thinking about this food..." });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("loading-step")).toHaveTextContent("Thinking about this food...");
+      });
+
+      // Complete the stream
+      act(() => {
+        send({ type: "analysis", analysis: mockAnalysis });
+        close();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+    });
+
+    // ---- Task 15: Tool usage indicators ----
+    it("tool_start web_search event shows 'Searching the web...' in loading step", async () => {
+      const { response, send, close } = makeControllableSseResponse();
+      mockFetch.mockResolvedValueOnce(response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+
+      act(() => {
+        send({ type: "tool_start", tool: "web_search" });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("loading-step")).toHaveTextContent("Searching the web...");
+      });
+
+      // Complete stream
+      act(() => {
+        send({ type: "analysis", analysis: mockAnalysis });
+        close();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+    });
+
+    it("tool_start search_food_log event shows 'Checking your food log...'", async () => {
+      const { response, send, close } = makeControllableSseResponse();
+      mockFetch.mockResolvedValueOnce(response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+
+      act(() => {
+        send({ type: "tool_start", tool: "search_food_log" });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("loading-step")).toHaveTextContent("Checking your food log...");
+      });
+
+      act(() => {
+        send({ type: "analysis", analysis: mockAnalysis });
+        close();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+    });
+
+    it("tool_start get_nutrition_summary event shows 'Looking up your nutrition data...'", async () => {
+      const { response, send, close } = makeControllableSseResponse();
+      mockFetch.mockResolvedValueOnce(response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+
+      act(() => {
+        send({ type: "tool_start", tool: "get_nutrition_summary" });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("loading-step")).toHaveTextContent("Looking up your nutrition data...");
+      });
+
+      act(() => {
+        send({ type: "analysis", analysis: mockAnalysis });
+        close();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+    });
+
+    it("tool indicators are transient — analysis result replaces them after stream ends", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([
+          { type: "tool_start", tool: "web_search" },
+          { type: "analysis", analysis: mockAnalysis },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      // After stream completes, analysis should be shown (not tool indicator)
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne");
+      });
+
+      // Loading step should be gone (loading ended)
+      expect(screen.queryByTestId("loading-step")).not.toBeInTheDocument();
     });
   });
 });

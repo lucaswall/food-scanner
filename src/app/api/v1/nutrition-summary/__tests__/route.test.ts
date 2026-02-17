@@ -49,6 +49,7 @@ describe("GET /api/v1/nutrition-summary", () => {
           entries: [
             {
               id: 1,
+              customFoodId: 1,
               foodName: "Oatmeal",
               time: "08:00:00",
               calories: 150,
