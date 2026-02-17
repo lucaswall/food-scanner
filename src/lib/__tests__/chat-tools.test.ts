@@ -696,3 +696,134 @@ describe("executeTool - error handling", () => {
     expect(mockGetFastingWindow).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
   });
 });
+
+describe("executeTool - division-by-zero protection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("single-date: does not produce Infinity when calorieGoal is 0", async () => {
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-02-15",
+      meals: [],
+      totals: {
+        calories: 1500,
+        proteinG: 80,
+        carbsG: 180,
+        fatG: 55,
+        fiberG: 20,
+        sodiumMg: 1800,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+    });
+
+    mockGetLumenGoalsByDate.mockResolvedValue(null);
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([
+      { date: "2026-02-15", calorieGoal: 0 },
+    ]);
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).not.toContain("Infinity");
+  });
+
+  it("single-date: does not produce Infinity when macro goals are 0", async () => {
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-02-15",
+      meals: [],
+      totals: {
+        calories: 1500,
+        proteinG: 80,
+        carbsG: 180,
+        fatG: 55,
+        fiberG: 20,
+        sodiumMg: 1800,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+    });
+
+    mockGetLumenGoalsByDate.mockResolvedValue({
+      date: "2026-02-15",
+      dayType: "Low Carb",
+      proteinGoal: 0,
+      carbsGoal: 0,
+      fatGoal: 0,
+    });
+
+    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).not.toContain("Infinity");
+  });
+
+  it("date-range: does not produce Infinity when calorieGoal is 0", async () => {
+    mockGetDateRangeNutritionSummary.mockResolvedValue([
+      {
+        date: "2026-02-15",
+        calories: 1500,
+        proteinG: 80,
+        carbsG: 180,
+        fatG: 55,
+        fiberG: 20,
+        sodiumMg: 1800,
+        calorieGoal: 0,
+        proteinGoalG: null,
+        carbsGoalG: null,
+        fatGoalG: null,
+      },
+    ]);
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { from_date: "2026-02-15", to_date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).not.toContain("Infinity");
+  });
+
+  it("date-range: does not produce Infinity when macro goals are 0", async () => {
+    mockGetDateRangeNutritionSummary.mockResolvedValue([
+      {
+        date: "2026-02-15",
+        calories: 1500,
+        proteinG: 80,
+        carbsG: 180,
+        fatG: 55,
+        fiberG: 20,
+        sodiumMg: 1800,
+        calorieGoal: 2000,
+        proteinGoalG: 0,
+        carbsGoalG: 0,
+        fatGoalG: 0,
+      },
+    ]);
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { from_date: "2026-02-15", to_date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).not.toContain("Infinity");
+  });
+});

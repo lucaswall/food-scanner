@@ -1,10 +1,22 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   formatSSEEvent,
   createSSEResponse,
   parseSSEEvents,
   type StreamEvent,
 } from "@/lib/sse";
+
+// Mock logger for error-handling tests
+vi.mock("@/lib/logger", () => ({
+  logger: {
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
+import { logger } from "@/lib/logger";
 
 describe("formatSSEEvent", () => {
   it("formats text_delta event as SSE data line with double newline", () => {
@@ -202,5 +214,51 @@ describe("parseSSEEvents", () => {
     const result = parseSSEEvents(chunk, "");
     expect(result.events).toHaveLength(1);
     expect(result.events[0]).toEqual(event);
+  });
+});
+
+describe("createSSEResponse - error handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("sends generic error message to client when generator throws, does not leak internal details", async () => {
+    const internalError = new Error("db connection: password authentication failed for user postgres");
+
+    async function* badGenerator(): AsyncGenerator<StreamEvent> {
+      throw internalError;
+    }
+
+    const response = createSSEResponse(badGenerator());
+    const text = await response.text();
+    const { events } = parseSSEEvents(text, "");
+
+    const errorEvent = events.find((e) => e.type === "error");
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent?.type).toBe("error");
+
+    const msg = (errorEvent as { type: "error"; message: string }).message;
+    // Must NOT expose internal error details to the client
+    expect(msg).not.toContain("password authentication");
+    expect(msg).not.toContain("failed for user postgres");
+    // Must use a generic message
+    expect(msg).toBe("An internal error occurred");
+  });
+
+  it("logs the actual error server-side when generator throws", async () => {
+    const internalError = new Error("Internal database failure at row 42");
+
+    async function* badGenerator(): AsyncGenerator<StreamEvent> {
+      throw internalError;
+    }
+
+    const response = createSSEResponse(badGenerator());
+    await response.text();
+
+    // Must log the actual error server-side with pino
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: internalError }),
+      expect.any(String),
+    );
   });
 });

@@ -231,15 +231,15 @@ async function executeGetNutritionSummary(
     lines.push(`Nutrition summary for ${date}:`);
     lines.push(`Total: ${summary.totals.calories} cal, P:${summary.totals.proteinG}g C:${summary.totals.carbsG}g F:${summary.totals.fatG}g, Fiber:${summary.totals.fiberG}g, Sodium:${summary.totals.sodiumMg}mg`);
 
-    if (calorieGoal !== null) {
+    if (calorieGoal !== null && calorieGoal > 0) {
       const pct = Math.round((summary.totals.calories / calorieGoal) * 100);
       lines.push(`Calorie goal: ${calorieGoal} cal (${pct}% of goal)`);
     }
 
     if (goals) {
-      const proteinPct = Math.round((summary.totals.proteinG / goals.proteinGoal) * 100);
-      const carbsPct = Math.round((summary.totals.carbsG / goals.carbsGoal) * 100);
-      const fatPct = Math.round((summary.totals.fatG / goals.fatGoal) * 100);
+      const proteinPct = goals.proteinGoal > 0 ? Math.round((summary.totals.proteinG / goals.proteinGoal) * 100) : 0;
+      const carbsPct = goals.carbsGoal > 0 ? Math.round((summary.totals.carbsG / goals.carbsGoal) * 100) : 0;
+      const fatPct = goals.fatGoal > 0 ? Math.round((summary.totals.fatG / goals.fatGoal) * 100) : 0;
       lines.push(`Macro goals (${goals.dayType}): P:${goals.proteinGoal}g (${proteinPct}%) C:${goals.carbsGoal}g (${carbsPct}%) F:${goals.fatGoal}g (${fatPct}%)`);
     }
 
@@ -269,15 +269,15 @@ async function executeGetNutritionSummary(
     for (const day of days) {
       let dayLine = `\n${day.date}: ${day.calories} cal, P:${day.proteinG}g C:${day.carbsG}g F:${day.fatG}g`;
 
-      if (day.calorieGoal !== null) {
+      if (day.calorieGoal !== null && day.calorieGoal > 0) {
         const pct = Math.round((day.calories / day.calorieGoal) * 100);
         dayLine += ` (${pct}% of ${day.calorieGoal} cal goal)`;
       }
 
       if (day.proteinGoalG !== null && day.carbsGoalG !== null && day.fatGoalG !== null) {
-        const proteinPct = Math.round((day.proteinG / day.proteinGoalG) * 100);
-        const carbsPct = Math.round((day.carbsG / day.carbsGoalG) * 100);
-        const fatPct = Math.round((day.fatG / day.fatGoalG) * 100);
+        const proteinPct = day.proteinGoalG > 0 ? Math.round((day.proteinG / day.proteinGoalG) * 100) : 0;
+        const carbsPct = day.carbsGoalG > 0 ? Math.round((day.carbsG / day.carbsGoalG) * 100) : 0;
+        const fatPct = day.fatGoalG > 0 ? Math.round((day.fatG / day.fatGoalG) * 100) : 0;
         dayLine += ` | Macro goals: P:${proteinPct}% C:${carbsPct}% F:${fatPct}%`;
       }
 

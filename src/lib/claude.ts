@@ -722,6 +722,11 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         signal,
         log: l,
       });
+    } else if (dataToolUseBlocks.length > 0) {
+      l.warn(
+        { toolNames: dataToolUseBlocks.map((b) => (b as { name: string }).name) },
+        "data tool calls skipped: userId or currentDate missing from conversationalRefine"
+      );
     }
 
     // Extract text blocks into message string

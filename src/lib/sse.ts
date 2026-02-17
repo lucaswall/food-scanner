@@ -1,4 +1,5 @@
 import type { FoodAnalysis } from "@/types";
+import { logger } from "@/lib/logger";
 
 export type StreamEvent =
   | { type: "text_delta"; text: string }
@@ -33,9 +34,10 @@ export function createSSEResponse(
         }
         controller.close();
       } catch (err) {
+        logger.error({ err }, "SSE generator threw an unexpected error");
         const errorEvent: StreamEvent = {
           type: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: "An internal error occurred",
           code: "STREAM_ERROR",
         };
         controller.enqueue(encoder.encode(formatSSEEvent(errorEvent)));

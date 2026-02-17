@@ -2441,6 +2441,73 @@ describe("conversationalRefine", () => {
     expect(summary).toContain("saturated_fat_g");
     expect(summary).toContain("sugars_g");
   });
+
+  it("warns when data tool use blocks are returned but userId is undefined", async () => {
+    // Claude responds with a data tool call (not report_nutrition)
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_789",
+          name: "search_food_log",
+          input: { query: "pizza" },
+        },
+      ],
+      usage: { input_tokens: 100, output_tokens: 50 },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    // Call without userId — tool calls will be silently dropped without the fix
+    await conversationalRefine(
+      [{ role: "user", content: "What did I eat?" }],
+      [],
+      undefined, // no userId
+      "2026-02-15",
+    );
+
+    const { logger } = await import("@/lib/logger");
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolNames: expect.arrayContaining(["search_food_log"]),
+      }),
+      expect.any(String),
+    );
+  });
+
+  it("warns when data tool use blocks are returned but currentDate is undefined", async () => {
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_999",
+          name: "get_nutrition_summary",
+          input: { date: "2026-02-15" },
+        },
+      ],
+      usage: { input_tokens: 100, output_tokens: 50 },
+    });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    // Call without currentDate — tool calls will be silently dropped without the fix
+    await conversationalRefine(
+      [{ role: "user", content: "How are my macros?" }],
+      [],
+      "user-123",
+      undefined, // no currentDate
+    );
+
+    const { logger } = await import("@/lib/logger");
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toolNames: expect.arrayContaining(["get_nutrition_summary"]),
+      }),
+      expect.any(String),
+    );
+  });
 });
 
 // Mock executeTool for runToolLoop tests
