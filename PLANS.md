@@ -814,11 +814,13 @@ This is the largest domain. It replaces synchronous JSON responses with Server-S
 
 ### Review Findings
 
-Summary: 5 issue(s) found (Team: security, reliability, quality reviewers)
-- FIX: 5 issue(s) — Linear issues created
-- DISCARDED: 13 finding(s) — false positives / not applicable
+Summary: 7 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 7 issue(s) — Linear issues created
+- DISCARDED: 11 finding(s) — false positives / not applicable
 
 **Issues requiring fix:**
+- [MEDIUM] SECURITY: Missing max-length validation on string inputs in log-food route (`src/app/api/log-food/route.ts:44,60,73`)
+- [MEDIUM] SECURITY: SSE error handler leaks raw internal error messages to client (`src/lib/sse.ts:36-39`)
 - [MEDIUM] BUG: `reuseCustomFoodId: 0` passes validation but fails falsy check at handler (`src/app/api/log-food/route.ts:176`)
 - [MEDIUM] BUG: Compression-warning timeout not cleared in unexpected response branch (`src/components/food-analyzer.tsx:216-218`)
 - [MEDIUM] RESOURCE: Find-matches race condition — stale matches overwrite cleared state after reset (`src/components/food-analyzer.tsx:189-206`)
@@ -826,9 +828,7 @@ Summary: 5 issue(s) found (Team: security, reliability, quality reviewers)
 - [LOW] EDGE CASE: Division-by-zero in goal percentage calculations when goals are 0 (`src/lib/chat-tools.ts:235,240-242`)
 
 **Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: Missing max-length validation on string inputs in log-food route — single-user authenticated app; only the owner can send requests; PostgreSQL TEXT handles large strings natively
 - [DISCARDED] SECURITY: Health endpoint exposes claudeModel and environment — intentional per FOO-556 spec; non-sensitive information
-- [DISCARDED] SECURITY: SSE error handler forwards raw exception messages — authenticated single user; Claude API errors don't contain secrets
 - [DISCARDED] RESOURCE: blobsToBase64 no abort/cleanup on unmount — FileReader conversion is near-instant (milliseconds); unmount during this window is practically impossible
 - [DISCARDED] CONVENTION: Missing `action` field in 8 log statements in claude.ts — style-only convention not enforced by CLAUDE.md; zero correctness impact
 - [DISCARDED] TYPE: Redundant type casts in log-food route — harmless; zero correctness impact
@@ -843,6 +843,8 @@ Summary: 5 issue(s) found (Team: security, reliability, quality reviewers)
 - FOO-564: Created in Todo (Fix: find-matches race condition)
 - FOO-565: Created in Todo (Fix: conversationalRefine silent tool swallow)
 - FOO-566: Created in Todo (Fix: division-by-zero in goal calculations)
+- FOO-567: Created in Todo (Fix: missing max-length validation on strings)
+- FOO-568: Created in Todo (Fix: SSE error handler leaks internal errors)
 
 <!-- REVIEW COMPLETE -->
 
@@ -854,33 +856,45 @@ More tasks remain. Tasks 9-16 cover SSE streaming core (D), tool indicators (E),
 ## Fix Plan
 
 **Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-562](https://linear.app/lw-claude/issue/FOO-562), [FOO-563](https://linear.app/lw-claude/issue/FOO-563), [FOO-564](https://linear.app/lw-claude/issue/FOO-564), [FOO-565](https://linear.app/lw-claude/issue/FOO-565), [FOO-566](https://linear.app/lw-claude/issue/FOO-566)
+**Linear Issues:** [FOO-562](https://linear.app/lw-claude/issue/FOO-562), [FOO-563](https://linear.app/lw-claude/issue/FOO-563), [FOO-564](https://linear.app/lw-claude/issue/FOO-564), [FOO-565](https://linear.app/lw-claude/issue/FOO-565), [FOO-566](https://linear.app/lw-claude/issue/FOO-566), [FOO-567](https://linear.app/lw-claude/issue/FOO-567), [FOO-568](https://linear.app/lw-claude/issue/FOO-568)
 
-### Fix 1: reuseCustomFoodId falsy check allows 0 to fall through
+### Fix 1: Missing max-length validation on string inputs
+**Linear Issue:** [FOO-567](https://linear.app/lw-claude/issue/FOO-567)
+
+1. Write tests in `src/app/api/log-food/__tests__/route.test.ts` for oversized string inputs — expect validation error for food_name > 500 chars, description > 2000, notes > 2000, keyword element > 100
+2. Add max-length checks in `isValidFoodLogRequest` in `src/app/api/log-food/route.ts` for `food_name`, `description`, `notes`, keyword elements, and reuse-path metadata fields (`newDescription`, `newNotes`)
+
+### Fix 2: SSE error handler leaks raw internal error messages
+**Linear Issue:** [FOO-568](https://linear.app/lw-claude/issue/FOO-568)
+
+1. Write test in `src/lib/__tests__/sse.test.ts` for generator that throws with internal details — verify client receives generic message, not the raw error
+2. In `src/lib/sse.ts` error handler, send generic "An internal error occurred" to client and log the actual error server-side with pino
+
+### Fix 3: reuseCustomFoodId falsy check allows 0 to fall through
 **Linear Issue:** [FOO-562](https://linear.app/lw-claude/issue/FOO-562)
 
 1. Write test in `src/app/api/log-food/__tests__/route.test.ts` for `reuseCustomFoodId: 0` — expect validation error (0 is not a valid custom food ID)
 2. Add `> 0` validation in `isValidFoodLogRequest` in `src/app/api/log-food/route.ts` to reject `reuseCustomFoodId` values <= 0
 
-### Fix 2: Compression-warning timeout not cleared in unexpected response branch
+### Fix 4: Compression-warning timeout not cleared in unexpected response branch
 **Linear Issue:** [FOO-563](https://linear.app/lw-claude/issue/FOO-563)
 
 1. Write test in `src/components/__tests__/food-analyzer.test.tsx` for the scenario: compression warning timeout pending + unexpected response type → verify error is NOT cleared by stale timeout
 2. Add `clearTimeout(compressionWarningTimeoutRef.current)` and `compressionWarningTimeoutRef.current = null` at the start of the `else` branch in `handleAnalyze` (line 216)
 
-### Fix 3: Find-matches race condition causes stale matches after reset
+### Fix 5: Find-matches race condition causes stale matches after reset
 **Linear Issue:** [FOO-564](https://linear.app/lw-claude/issue/FOO-564)
 
 1. Write test in `src/components/__tests__/food-analyzer.test.tsx` for the scenario: analysis completes → find-matches in-flight → user resets → find-matches resolves → verify matches stay empty
 2. Use a separate AbortController for find-matches (not shared with the main analysis controller), or track a generation counter ref to ignore stale results
 
-### Fix 4: conversationalRefine silently swallows tool calls
+### Fix 6: conversationalRefine silently swallows tool calls
 **Linear Issue:** [FOO-565](https://linear.app/lw-claude/issue/FOO-565)
 
 1. Write test in `src/lib/__tests__/claude.test.ts` for: Claude returns tool_use blocks but userId is undefined → expect warning log or error
 2. Add a warning log in `conversationalRefine` when `dataToolUseBlocks.length > 0` but `!userId || !currentDate` — log the tool names being skipped so the issue is visible in production logs
 
-### Fix 5: Division-by-zero in goal percentage calculations
+### Fix 7: Division-by-zero in goal percentage calculations
 **Linear Issue:** [FOO-566](https://linear.app/lw-claude/issue/FOO-566)
 
 1. Write test in `src/lib/__tests__/chat-tools.test.ts` for `calorieGoal: 0` and macro goals at 0 → verify no Infinity in output
