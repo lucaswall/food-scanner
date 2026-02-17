@@ -54,6 +54,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const autoCaptureUsedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const findMatchesGenerationRef = useRef(0);
 
   const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
@@ -76,6 +77,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    // Invalidate any in-flight find-matches fetch
+    findMatchesGenerationRef.current += 1;
     setAnalysis(null);
     setError(null);
     setLogError(null);
@@ -187,6 +190,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
         // Fire async match search (non-blocking) — skip if Claude already identified the reused food
         if (!result.data.analysis.sourceCustomFoodId) {
+          const matchGen = findMatchesGenerationRef.current;
           fetch("/api/find-matches", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -195,6 +199,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           })
             .then((r) => r.json())
             .then((matchResult) => {
+              // Ignore stale result if state was reset since this fetch started
+              if (findMatchesGenerationRef.current !== matchGen) return;
               if (matchResult.success && matchResult.data?.matches) {
                 setMatches(matchResult.data.matches);
               }
@@ -214,6 +220,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         setSeedMessages(seeds);
         setChatOpen(true);
       } else {
+        // Clear compression warning timeout before setting real error
+        if (compressionWarningTimeoutRef.current) {
+          clearTimeout(compressionWarningTimeoutRef.current);
+          compressionWarningTimeoutRef.current = null;
+        }
         setError("Received unexpected response from server");
         vibrateError();
       }

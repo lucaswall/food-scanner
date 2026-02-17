@@ -57,6 +57,16 @@ vi.mock("../photo-capture", () => ({
       >
         Add Photo
       </button>
+      <button
+        onClick={() =>
+          onPhotosChange([
+            new File(["test1"], "test1.jpg", { type: "image/jpeg" }),
+            new File(["test2"], "test2.jpg", { type: "image/jpeg" }),
+          ])
+        }
+      >
+        Add Two Photos
+      </button>
       <button onClick={() => onPhotosChange([])}>Clear Photos</button>
     </div>
   ),
@@ -2556,6 +2566,154 @@ describe("FoodAnalyzer", () => {
       const clientDate = formData.get("clientDate");
       // Should be a date string in YYYY-MM-DD format
       expect(clientDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
+  describe("FOO-563: compression warning timeout cleared in unexpected response branch", () => {
+    it("error persists after 3s when unexpected response clears the compression warning timeout", async () => {
+      // Use fake timers so we can advance time to verify the compression warning timeout
+      // was cleared in the else branch. Without the fix, advancing 3s fires setError(null).
+      vi.useFakeTimers();
+
+      try {
+        // First photo compresses OK, second fails → failedCount > 0 → setTimeout(3000) set
+        mockCompressImage
+          .mockResolvedValueOnce(new Blob(["success"]))
+          .mockRejectedValueOnce(new Error("Compression failed"));
+
+        // API returns an unexpected type (neither "analysis" nor "needs_chat")
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { type: "unexpected_type" } }),
+        });
+
+        render(<FoodAnalyzer />);
+
+        // Add 2 photos — sync state update
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /add two photos/i }));
+        });
+
+        // Start analysis — kicks off async handleAnalyze
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+        });
+
+        // Flush all pending microtasks from the async chain:
+        // allSettled → compression handling → setTimeout set → fetch → safeResponseJson → else branch
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // The unexpected response error must be set at this point
+        expect(
+          screen.getByText(/received unexpected response from server/i)
+        ).toBeInTheDocument();
+
+        // Advance 3s — without the fix, the compression warning timeout fires, calling setError(null)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3001);
+        });
+
+        // Error must STILL be visible: the fix cleared the timeout in the else branch
+        expect(
+          screen.getByText(/received unexpected response from server/i)
+        ).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("FOO-564: stale find-matches result ignored after state reset", () => {
+    it("does not show stale match cards when old find-matches resolves after a re-analysis", async () => {
+      // Scenario: analysis A → find-matches hangs → reset → analysis B (sourceCustomFoodId skips
+      // find-matches) → old find-matches resolves → stale matches must NOT appear.
+      // Without the fix (generation counter), setMatches(staleData) runs and corrupts state.
+      let resolveMatchFetch!: (value: unknown) => void;
+      const matchFetchPromise = new Promise((resolve) => {
+        resolveMatchFetch = resolve;
+      });
+
+      // Analysis B has sourceCustomFoodId set → component skips find-matches
+      const analysisBResult: AnalyzeFoodResult = {
+        type: "analysis",
+        analysis: { ...mockAnalysis, food_name: "Analysis B", sourceCustomFoodId: 99 },
+      };
+
+      mockFetch
+        // Analysis A
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        })
+        // find-matches for A — hangs until we resolve manually
+        .mockImplementationOnce(() => matchFetchPromise)
+        // Analysis B
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: analysisBResult }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      // --- Step 1: Analyze A ---
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled()
+      );
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne")
+      );
+
+      // Wait for find-matches A to have been initiated
+      await waitFor(() => {
+        expect(
+          mockFetch.mock.calls.filter((c: unknown[]) => c[0] === "/api/find-matches")
+        ).toHaveLength(1);
+      });
+
+      // --- Step 2: User resets (increments generation counter) ---
+      fireEvent.click(screen.getByRole("button", { name: /clear photos/i }));
+
+      // --- Step 3: Analyze B (sourceCustomFoodId → no new find-matches call) ---
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled()
+      );
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() =>
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Analysis B")
+      );
+
+      // Confirm no second find-matches call was made
+      expect(
+        mockFetch.mock.calls.filter((c: unknown[]) => c[0] === "/api/find-matches")
+      ).toHaveLength(1);
+
+      // --- Step 4: Old find-matches for A resolves with stale data ---
+      await act(async () => {
+        resolveMatchFetch({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
+        });
+        // Flush: matchFetchPromise → .then(r => r.json()) → .then(matchResult => ...)
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // --- Step 5: Stale matches must NOT appear ---
+      // Without the fix: setMatches(staleData) runs → match cards appear for Analysis B
+      // With the fix: generation counter mismatch → stale result ignored → no match cards
+      expect(screen.queryByTestId("food-match-card")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText(/similar foods you've logged before/i)
+      ).not.toBeInTheDocument();
     });
   });
 });
