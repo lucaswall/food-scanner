@@ -1,7 +1,7 @@
 import path from 'path';
 import { test, expect } from '@playwright/test';
 import { captureScreenshots } from '../fixtures/screenshots';
-import { MOCK_ANALYSIS, MOCK_REFINED_ANALYSIS, buildAnalyzeSSE, buildChatSSE } from '../fixtures/mock-data';
+import { MOCK_ANALYSIS, MOCK_REFINED_ANALYSIS, buildAnalyzeSSE } from '../fixtures/mock-data';
 
 test.describe('Refine Chat Screenshots', () => {
   /**

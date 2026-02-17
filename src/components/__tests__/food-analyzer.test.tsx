@@ -391,6 +391,11 @@ function makeControllableSseResponse() {
 }
 
 beforeEach(() => {
+  // mockReset clears the once-queue (mockResolvedValueOnce, mockImplementationOnce).
+  // vi.clearAllMocks only calls mockClear which does NOT clear the once-queue,
+  // so unconsumed once-values from tests that exit early (e.g., compression tests
+  // that resolve without awaiting the subsequent fetch) would leak to the next test.
+  mockFetch.mockReset();
   vi.clearAllMocks();
 });
 
