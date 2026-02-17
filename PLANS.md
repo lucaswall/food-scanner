@@ -741,3 +741,76 @@ This is the largest domain. It replaces synchronous JSON responses with Server-S
 - Streaming for external API v1 routes
 - Caching of streamed responses
 - Streaming for non-Claude API calls (Fitbit, etc.)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-17
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Extend /api/health to return about info (FOO-556) — health endpoint returns version, environment, fitbitMode, claudeModel (worker-1)
+- Task 2: Create AboutSection component (FOO-556) — client component with useSWR, card layout, loading/error states, GitHub Releases link (worker-1)
+- Task 3: Wire AboutSection into settings page (FOO-556) — placed after ClaudeUsageSection with mt-6 spacing (worker-1)
+- Task 4: Include customFoodId in search_food_log response text (FOO-559) — added customFoodId to MealEntry/FoodLogHistoryEntry, updated queries, all formatters prepend [id:N] (worker-2)
+- Task 5: Add source_custom_food_id to report_nutrition schema + update prompts + validation (FOO-559) — tool schema, validateFoodAnalysis, system prompts updated (worker-2)
+- Task 6: Add sourceCustomFoodId to FoodAnalysis type (FOO-560) — optional field added, cascade test fixes (worker-2)
+- Task 7: Wire food reuse through chat and analyzer components (FOO-560) — handleLog/handleLogToFitbit send reuseCustomFoodId, find-matches skipped when sourceCustomFoodId set (worker-2)
+- Task 8: Define SSE event protocol and streaming utilities (FOO-557) — StreamEvent type, formatSSEEvent, createSSEResponse, parseSSEEvents (worker-3)
+
+### Tasks Remaining
+- Task 9: Convert Claude API layer to streaming generators (FOO-557)
+- Task 10: Convert API routes to SSE endpoints (FOO-557)
+- Task 11: Update food-analyzer.tsx to consume SSE stream (FOO-557)
+- Task 12: Update food-chat.tsx to consume SSE stream with token-by-token rendering (FOO-557)
+- Task 13: Update system prompts for thinking text before tool calls (FOO-558)
+- Task 14: Add thinking message rendering in chat UI (FOO-558)
+- Task 15: Add tool usage indicators in analysis screen (FOO-558)
+- Task 16: Integration & Verification (FOO-556, FOO-557, FOO-558, FOO-559, FOO-560)
+
+### Files Modified
+- `src/app/api/health/route.ts` — Extended to return version/environment/fitbitMode/claudeModel
+- `src/app/api/health/__tests__/route.test.ts` — Created, 8 tests
+- `src/app/api/log-food/route.ts` — Fixed log statement for reuse path (bug-hunter finding)
+- `src/app/settings/page.tsx` — Added AboutSection import and render
+- `src/app/settings/__tests__/page.test.tsx` — Added AboutSection integration test
+- `src/components/about-section.tsx` — Created: About Section client component
+- `src/components/__tests__/about-section.test.tsx` — Created, 11 tests
+- `src/components/food-analyzer.tsx` — Skip find-matches and send reuseCustomFoodId when sourceCustomFoodId set
+- `src/components/__tests__/food-analyzer.test.tsx` — Added reuse path tests
+- `src/components/food-chat.tsx` — handleLog sends reuseCustomFoodId when sourceCustomFoodId set
+- `src/components/__tests__/food-chat.test.tsx` — Added reuse path tests
+- `src/lib/claude.ts` — Exported CLAUDE_MODEL, added source_custom_food_id to report_nutrition schema, updated validateFoodAnalysis, updated system prompts
+- `src/lib/__tests__/claude.test.ts` — Added source_custom_food_id tests
+- `src/lib/chat-tools.ts` — All search formatters prepend [id:N] with customFoodId
+- `src/lib/__tests__/chat-tools.test.ts` — Updated to verify [id:N] prefix
+- `src/lib/food-log.ts` — getDailyNutritionSummary and getFoodLogHistory populate customFoodId
+- `src/lib/__tests__/food-log.test.ts` — Updated mock data
+- `src/lib/sse.ts` — Created: SSE event protocol, streaming utilities, error handling
+- `src/lib/__tests__/sse.test.ts` — Created, 18 tests
+- `src/types/index.ts` — Added customFoodId to MealEntry/FoodLogHistoryEntry, sourceCustomFoodId to FoodAnalysis
+- Various test files — Added customFoodId to MealEntry/FoodLogHistoryEntry mock objects
+
+### Linear Updates
+- FOO-556: Todo → In Progress → Review
+- FOO-557: Todo → In Progress → Review
+- FOO-559: Todo → In Progress → Review
+- FOO-560: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 medium bugs (log statement in reuse path, SSE error handling), fixed before proceeding. 1 low (FoodLogRequest type design) deferred.
+- verifier: All 1890 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1-3 (About Section — health API, component, settings page)
+- Worker 2: Tasks 4-7 (Food Reuse — chat-tools, claude, types, components)
+- Worker 3: Task 8 (SSE Utilities — event protocol, streaming, parsing)
+
+### Merge Summary
+- Worker 3: fast-forward (no conflicts)
+- Worker 2: merge commit, no conflicts
+- Worker 1: merge commit, auto-merged src/lib/claude.ts (no conflicts)
+
+### Continuation Status
+More tasks remain. Tasks 9-16 cover SSE streaming core (D), tool indicators (E), and integration.

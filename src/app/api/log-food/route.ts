@@ -159,7 +159,9 @@ export async function POST(request: Request) {
   log.info(
     {
       action: "log_food_request",
-      foodName: body.food_name,
+      ...(body.reuseCustomFoodId
+        ? { reuseCustomFoodId: body.reuseCustomFoodId }
+        : { foodName: body.food_name }),
       mealTypeId: body.mealTypeId,
     },
     "processing food log request"

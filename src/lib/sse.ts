@@ -27,10 +27,20 @@ export function createSSEResponse(
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      for await (const event of generator) {
-        controller.enqueue(encoder.encode(formatSSEEvent(event)));
+      try {
+        for await (const event of generator) {
+          controller.enqueue(encoder.encode(formatSSEEvent(event)));
+        }
+        controller.close();
+      } catch (err) {
+        const errorEvent: StreamEvent = {
+          type: "error",
+          message: err instanceof Error ? err.message : String(err),
+          code: "STREAM_ERROR",
+        };
+        controller.enqueue(encoder.encode(formatSSEEvent(errorEvent)));
+        controller.close();
       }
-      controller.close();
     },
   });
 
