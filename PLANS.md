@@ -952,5 +952,60 @@ More tasks remain. Tasks 9-16 cover SSE streaming core (D), tool indicators (E),
 - Worker 1: cherry-pick (no conflicts)
 - Worker 2: cherry-pick (no conflicts)
 
+### Review Findings
+
+Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 3 issue(s) — Linear issues created
+- DISCARDED: 3 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: analyzeFood double-records usage when data tools path fires (`src/lib/claude.ts:460-471`) — recordUsage called for initial response, then runToolLoop records the same response again via pendingResponse
+- [LOW] EDGE CASE: Keywords arrays have no element count limit at API boundary (`src/app/api/log-food/route.ts:39,78`) — per-element length validated but array size unbounded
+- [LOW] RESOURCE: compressionWarningTimeoutRef not cleared in resetAnalysisState and AbortError catch (`src/components/food-analyzer.tsx:74-90,236-240`) — stale timeout could wipe subsequent error messages
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: currentDate interpolated into LLM system prompt without format validation — all callers validate dates at API boundary; internal library trusts callers by design
+- [DISCARDED] CONVENTION: Missing `action` fields in 5 error log statements in claude.ts and sse.ts — style-only convention not enforced by CLAUDE.md; zero correctness impact (same finding discarded in Iteration 1 review)
+- [DISCARDED] TYPE: Redundant type casts in log-food route — harmless; zero correctness impact (same finding discarded in Iteration 1 review)
+
+### Linear Updates
+- FOO-562: Review → Merge (reuseCustomFoodId falsy check fix)
+- FOO-563: Review → Merge (compression-warning timeout fix)
+- FOO-564: Review → Merge (find-matches race condition fix)
+- FOO-565: Review → Merge (conversationalRefine tool swallow fix)
+- FOO-566: Review → Merge (division-by-zero fix)
+- FOO-567: Review → Merge (max-length validation fix)
+- FOO-568: Review → Merge (SSE error leak fix)
+- FOO-569: Created in Todo (Fix: analyzeFood double usage recording)
+- FOO-570: Created in Todo (Fix: keywords array count limit)
+- FOO-571: Created in Todo (Fix: compressionWarningTimeoutRef cleanup)
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
-All fix plan tasks completed. Tasks 9-16 from Iteration 1 remain (SSE streaming core, tool indicators, integration).
+More tasks remain. Tasks 9-16 from Iteration 1 (SSE streaming core, tool indicators, integration) plus new fix plan.
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 2
+**Linear Issues:** [FOO-569](https://linear.app/lw-claude/issue/FOO-569), [FOO-570](https://linear.app/lw-claude/issue/FOO-570), [FOO-571](https://linear.app/lw-claude/issue/FOO-571)
+
+### Fix 1: analyzeFood double-records usage when data tools path fires
+**Linear Issue:** [FOO-569](https://linear.app/lw-claude/issue/FOO-569)
+
+1. Write test in `src/lib/__tests__/claude.test.ts` for: analyzeFood with data tool blocks → verify `recordUsage` is called exactly once per API call (not twice for the initial response)
+2. Move the `recordUsage` call in `analyzeFood` (lines 460-471) so it only fires on the fast path (report_nutrition immediately) and text-only fallback (needs_chat). Remove it from before the `runToolLoop` delegation — the loop already records usage for each iteration including the initial response.
+
+### Fix 2: keywords arrays have no element count limit at API boundary
+**Linear Issue:** [FOO-570](https://linear.app/lw-claude/issue/FOO-570)
+
+1. Write test in `src/app/api/log-food/__tests__/route.test.ts` for: keywords array with >20 elements → expect validation error; newKeywords array with >20 elements → expect validation error
+2. Add `req.keywords.length <= 20` to the keywords validation in `isValidFoodLogRequest` (line 78). Add `req.newKeywords.length <= 20` to the newKeywords validation (line 39).
+
+### Fix 3: compressionWarningTimeoutRef not cleared in resetAnalysisState and AbortError catch
+**Linear Issue:** [FOO-571](https://linear.app/lw-claude/issue/FOO-571)
+
+1. Write test in `src/components/__tests__/food-analyzer.test.tsx` for: compression warning timeout pending + user resets + new analysis produces error → verify error is NOT cleared by stale timeout. Write test for: compression warning timeout pending + AbortError → verify no stale setError(null) fires
+2. Add `if (compressionWarningTimeoutRef.current) { clearTimeout(compressionWarningTimeoutRef.current); compressionWarningTimeoutRef.current = null; }` at the start of `resetAnalysisState` (after the abort controller cleanup) and at the start of the AbortError catch branch (before `return`)
