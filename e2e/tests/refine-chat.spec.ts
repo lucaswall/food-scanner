@@ -1,7 +1,7 @@
 import path from 'path';
 import { test, expect } from '@playwright/test';
 import { captureScreenshots } from '../fixtures/screenshots';
-import { MOCK_ANALYSIS, MOCK_REFINED_ANALYSIS } from '../fixtures/mock-data';
+import { MOCK_ANALYSIS, MOCK_REFINED_ANALYSIS, buildAnalyzeSSE, buildChatSSE } from '../fixtures/mock-data';
 
 test.describe('Refine Chat Screenshots', () => {
   /**
@@ -9,12 +9,12 @@ test.describe('Refine Chat Screenshots', () => {
    * then open the refine chat overlay.
    */
   async function setupChatOverlay(page: import('@playwright/test').Page) {
-    // Mock analyze-food API
+    // Mock analyze-food API (SSE stream)
     await page.route('**/api/analyze-food', async (route) => {
       await route.fulfill({
         status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: { type: 'analysis', analysis: MOCK_ANALYSIS } }),
+        contentType: 'text/event-stream',
+        body: buildAnalyzeSSE(MOCK_ANALYSIS),
       });
     });
 
