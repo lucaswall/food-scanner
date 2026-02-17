@@ -16,6 +16,7 @@ import {
   Paperclip,
 } from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
+import { parseSSEEvents } from "@/lib/sse";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { getTodayDate } from "@/lib/date-utils";
@@ -90,10 +91,7 @@ export function FoodChat({
   const plusButtonRef = useRef<HTMLButtonElement>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const latestAnalysis =
-    [...messages]
-      .reverse()
-      .find((msg) => msg.analysis)?.analysis;
+  const latestAnalysis = messages.slice().reverse().find((msg) => msg.analysis)?.analysis;
 
   // Count user-initiated chat messages for limit tracking
   // In seeded mode, ALL messages are sent to server (no offset needed)
@@ -225,6 +223,9 @@ export function FoodChat({
     };
 
     const userAddedImages = [...pendingImages];
+    // Capture message count before adding anything so we can revert on error
+    const messageCountBeforeSend = messages.length;
+
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setPendingImages([]);
@@ -232,11 +233,29 @@ export function FoodChat({
     setLoading(true);
     setError(null);
 
+    const revertOnError = (errorMessage: string) => {
+      setMessages((prev) => prev.slice(0, messageCountBeforeSend));
+      setInput(userMessage.content);
+      setPendingImages(userAddedImages);
+      if (!initialImagesSent && compressedImages.length > 0) {
+        setInitialImagesSent(false);
+      }
+      setError(errorMessage);
+    };
+
     try {
       const allMessages = [...messages, userMessage];
       // When seeded, send all messages (they're all "real" conversation turns)
       // When not seeded, skip the initial auto-generated assistant greeting
-      const apiMessages = isSeeded ? allMessages : allMessages.slice(1);
+      const rawMessages = isSeeded ? allMessages : allMessages.slice(1);
+      // Strip thinking messages and internal fields before sending to API
+      const apiMessages = rawMessages
+        .filter((m) => !m.isThinking)
+        .map(({ role, content, analysis }) => ({
+          role,
+          content,
+          ...(analysis ? { analysis } : {}),
+        })) as ConversationMessage[];
 
       const requestBody: {
         messages: ConversationMessage[];
@@ -271,31 +290,91 @@ export function FoodChat({
         signal: AbortSignal.timeout(120000), // Tool loops can require up to 5 sequential API calls
       });
 
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data?: ChatFoodResponse;
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success || !result.data) {
-        setMessages((prev) => prev.slice(0, -1));
-        setInput(userMessage.content);
-        setPendingImages(userAddedImages);
-        if (!initialImagesSent && compressedImages.length > 0) {
-          setInitialImagesSent(false);
-        }
-        setError(result.error?.message || "Failed to process message");
+      if (!response.ok) {
+        const result = (await safeResponseJson(response)) as {
+          success: boolean;
+          error?: { code: string; message: string };
+        };
+        revertOnError(result.error?.message || "Failed to process message");
         return;
       }
 
-      const assistantMessage: ConversationMessage = {
-        role: "assistant",
-        content: result.data.message,
-        analysis: result.data.analysis,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
+      const contentType = response.headers?.get("Content-Type") ?? "";
+      if (contentType.includes("text/event-stream")) {
+        // SSE streaming path: use functional setMessages updaters so React 18 applies
+        // each event in order (functional updaters are always applied sequentially).
+        setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let streamFinished = false;
+
+        while (!streamFinished) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const { events, remaining } = parseSSEEvents(chunk, buffer);
+          buffer = remaining;
+
+          for (let i = 0; i < events.length && !streamFinished; i++) {
+            const event = events[i];
+            if (event.type === "text_delta") {
+              setMessages((prev) => {
+                const msgs = [...prev];
+                const last = msgs[msgs.length - 1];
+                msgs[msgs.length - 1] = { ...last, content: last.content + event.text };
+                return msgs;
+              });
+            } else if (event.type === "analysis") {
+              setMessages((prev) => {
+                const msgs = [...prev];
+                const last = msgs[msgs.length - 1];
+                msgs[msgs.length - 1] = { ...last, analysis: event.analysis };
+                return msgs;
+              });
+            } else if (event.type === "tool_start") {
+              setMessages((prev) => {
+                const msgs = [...prev];
+                const last = msgs[msgs.length - 1];
+                if (last.role === "assistant" && !last.isThinking && last.content.trim()) {
+                  msgs[msgs.length - 1] = { ...last, isThinking: true };
+                  msgs.push({ role: "assistant", content: "" });
+                }
+                return msgs;
+              });
+            } else if (event.type === "error") {
+              streamFinished = true;
+              revertOnError(event.message || "Failed to process message");
+            } else if (event.type === "done") {
+              streamFinished = true;
+              // Messages are already committed via functional updaters above
+            }
+          }
+        }
+      } else {
+        // JSON fallback path (e.g. for responses without SSE content-type)
+        const result = (await safeResponseJson(response)) as {
+          success: boolean;
+          data?: ChatFoodResponse;
+          error?: { code: string; message: string };
+        };
+
+        if (!result.success || !result.data) {
+          revertOnError(result.error?.message || "Failed to process message");
+          return;
+        }
+
+        const assistantMessage: ConversationMessage = {
+          role: "assistant",
+          content: result.data.message,
+          analysis: result.data.analysis,
+        };
+        setMessages((prev) => [...prev, assistantMessage]);
+      }
     } catch (err) {
-      setMessages((prev) => prev.slice(0, -1));
+      setMessages((prev) => prev.slice(0, messageCountBeforeSend));
       setInput(userMessage.content);
       setPendingImages(userAddedImages);
       if (!initialImagesSent && compressedImages.length > 0) {
@@ -473,12 +552,13 @@ export function FoodChat({
         className="flex-1 overflow-y-auto px-3 py-2 space-y-2"
       >
         {messages.map((msg, idx) => {
+          const allDisplayedMessages = messages;
           // Find previous analysis for diff highlighting on this message
           let prevAnalysisForMsg: FoodAnalysis | undefined;
           if (msg.role === "assistant" && msg.analysis && idx > 0) {
             for (let i = idx - 1; i >= 0; i--) {
-              if (messages[i].analysis) {
-                prevAnalysisForMsg = messages[i].analysis;
+              if (allDisplayedMessages[i].analysis) {
+                prevAnalysisForMsg = allDisplayedMessages[i].analysis;
                 break;
               }
             }
@@ -491,23 +571,34 @@ export function FoodChat({
                 msg.role === "user" ? "justify-end" : "justify-start"
               }`}
             >
-              <div
-                className={`max-w-[80%] px-3 py-2 rounded-2xl ${
-                  msg.role === "user"
-                    ? "bg-primary text-primary-foreground rounded-br-sm"
-                    : "bg-muted rounded-bl-sm"
-                }`}
-              >
-                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-                {msg.role === "assistant" && msg.analysis && idx > 0 && (
-                  <div className="mt-2">
-                    <MiniNutritionCard
-                      analysis={msg.analysis}
-                      previousAnalysis={prevAnalysisForMsg}
-                    />
-                  </div>
-                )}
-              </div>
+              {msg.isThinking ? (
+                <div
+                  data-testid="thinking-message"
+                  className="max-w-[80%] px-3 py-2 rounded-2xl bg-muted rounded-bl-sm"
+                >
+                  <p className="text-sm whitespace-pre-wrap italic text-muted-foreground">
+                    {msg.content}
+                  </p>
+                </div>
+              ) : (
+                <div
+                  className={`max-w-[80%] px-3 py-2 rounded-2xl ${
+                    msg.role === "user"
+                      ? "bg-primary text-primary-foreground rounded-br-sm"
+                      : "bg-muted rounded-bl-sm"
+                  }`}
+                >
+                  <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                  {msg.role === "assistant" && msg.analysis && idx > 0 && (
+                    <div className="mt-2">
+                      <MiniNutritionCard
+                        analysis={msg.analysis}
+                        previousAnalysis={prevAnalysisForMsg}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
