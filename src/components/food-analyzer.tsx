@@ -211,6 +211,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             });
         }
       } else if (result.data?.type === "needs_chat") {
+        // Clear compression warning timeout before transitioning
+        if (compressionWarningTimeoutRef.current) {
+          clearTimeout(compressionWarningTimeoutRef.current);
+          compressionWarningTimeoutRef.current = null;
+        }
         // Auto-transition to chat with seeded conversation
         const userMessage = description.trim() || "Analyze this food.";
         const seeds: ConversationMessage[] = [

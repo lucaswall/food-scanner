@@ -899,3 +899,58 @@ More tasks remain. Tasks 9-16 cover SSE streaming core (D), tool indicators (E),
 
 1. Write test in `src/lib/__tests__/chat-tools.test.ts` for `calorieGoal: 0` and macro goals at 0 → verify no Infinity in output
 2. Add `> 0` guard before division in both the single-date branch (lines 234-243) and the date-range branch (lines 276-280)
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-17
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Fix 1: Missing max-length validation on string inputs (FOO-567) — food_name ≤500, description ≤2000, notes ≤2000, keywords ≤100 per element, reuse-path metadata capped (worker-1)
+- Fix 2: SSE error handler leaks raw internal error messages (FOO-568) — generic message to client, actual error logged server-side with pino (worker-3)
+- Fix 3: reuseCustomFoodId falsy check allows 0 to fall through (FOO-562) — added > 0 validation in isValidFoodLogRequest (worker-1)
+- Fix 4: Compression-warning timeout not cleared in unexpected response branch (FOO-563) — clearTimeout at start of else branch (worker-2)
+- Fix 5: Find-matches race condition causes stale matches after reset (FOO-564) — generation counter ref guards setMatches from stale results (worker-2)
+- Fix 6: conversationalRefine silently swallows tool calls (FOO-565) — warning log with tool names when userId/currentDate missing (worker-3)
+- Fix 7: Division-by-zero in goal percentage calculations (FOO-566) — > 0 guard before all goal divisions (worker-3)
+
+### Files Modified
+- `src/app/api/log-food/route.ts` — Max-length validation, reuseCustomFoodId > 0 check, newKeywords per-element length cap
+- `src/app/api/log-food/__tests__/route.test.ts` — 8 new tests for validation limits
+- `src/components/food-analyzer.tsx` — findMatchesGenerationRef, clearTimeout in else and needs_chat branches
+- `src/components/__tests__/food-analyzer.test.tsx` — 2 new test describes for timeout and race condition
+- `src/lib/sse.ts` — Generic error message, server-side error logging
+- `src/lib/__tests__/sse.test.ts` — 2 new error-handling tests
+- `src/lib/claude.ts` — Warning log for swallowed tool calls
+- `src/lib/__tests__/claude.test.ts` — 2 new conversationalRefine tests
+- `src/lib/chat-tools.ts` — > 0 guards before goal percentage divisions
+- `src/lib/__tests__/chat-tools.test.ts` — 4 division-by-zero protection tests
+- `.gitignore` — Added `node_modules` (without trailing slash) to cover symlinks
+
+### Linear Updates
+- FOO-562: Todo → In Progress → Review
+- FOO-563: Todo → In Progress → Review
+- FOO-564: Todo → In Progress → Review
+- FOO-565: Todo → In Progress → Review
+- FOO-566: Todo → In Progress → Review
+- FOO-567: Todo → In Progress → Review
+- FOO-568: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 medium bug (newKeywords per-element length cap missing in reuse path), 1 low (needs_chat timeout). Both fixed before proceeding.
+- verifier: All 1910 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Fix 1, Fix 3 (log-food route validation — max-length, reuseCustomFoodId)
+- Worker 2: Fix 4, Fix 5 (food-analyzer component — timeout, race condition)
+- Worker 3: Fix 2, Fix 6, Fix 7 (service layer — SSE error, tool swallow, division-by-zero)
+
+### Merge Summary
+- Worker 3: cherry-pick (no conflicts, node_modules symlink excluded)
+- Worker 1: cherry-pick (no conflicts)
+- Worker 2: cherry-pick (no conflicts)
+
+### Continuation Status
+All fix plan tasks completed. Tasks 9-16 from Iteration 1 remain (SSE streaming core, tool indicators, integration).
