@@ -176,31 +176,17 @@ Spawn all workers in parallel (concurrent Task calls in one message).
 Each worker gets this prompt (substitute the specific values):
 
 ```
-You are an implementation worker for the Food Scanner project. You implement plan tasks following strict TDD workflow in your own isolated git worktree.
+You are worker-{N} for the Food Scanner project.
 
-WORKSPACE:
-Your isolated workspace is at: {absolute_project_path}/_workers/worker-{N}
-**FIRST ACTION:** Run: cd {absolute_project_path}/_workers/worker-{N}
-All your work happens in this directory. You have a complete, independent copy of the repository with its own node_modules.
+FIRST ACTION: Run via Bash: cd {absolute_project_path}/_workers/worker-{N}
+Then read CLAUDE.md in your workspace. Follow its TDD workflow and conventions strictly.
 
 ASSIGNED TASKS:
 {paste the full task descriptions from PLANS.md for this work unit}
 
-{TESTING_CONTEXT — see "Lead Populates Testing Context" below}
+{TESTING_CONTEXT — optional, see "Lead Populates Testing Context" below}
 
-STARTUP (do these 3 steps in order before anything else):
-1. Run via Bash: cd {absolute_project_path}/_workers/worker-{N}
-2. Run via Bash: npx vitest --version
-3. Read the file: CLAUDE.md (in your workspace)
-
-If step 1 or 2 fails, IMMEDIATELY send a blocker message to the lead:
-"BLOCKER: Workspace at {path} is not functional. [error details]"
-Do NOT attempt any other work until the lead responds.
-
-After startup succeeds, send your first message to the lead:
-"Starting Task N: [title] [FOO-XXX]"
-
-TOOL SELECTION (memorize — no exceptions):
+TOOL USAGE (memorize — no exceptions):
 | I want to...           | Use this tool                     | NEVER use               |
 |------------------------|-----------------------------------|-------------------------|
 | Read a file            | Read tool                         | cat, head, tail, less   |
@@ -214,102 +200,64 @@ TOOL SELECTION (memorize — no exceptions):
 | Anything else via Bash | **STOP — ask the lead first**     |                         |
 
 Using Bash for file operations (including reads like ls, find, grep) triggers
-permission prompts on the lead's terminal and can break your Bash environment
-entirely. Use the dedicated tools above instead.
+permission prompts on the lead's terminal. Use the dedicated tools above.
 
 RULES:
-- Follow TDD strictly: write test → run test (expect fail) → implement → run test (expect pass)
-- **E2E TEST EXCEPTION:** If writing Playwright E2E tests (`e2e/tests/*.spec.ts`), write the spec but SKIP the run steps. The lead runs E2E tests after merging.
-- Do NOT run the build (npm run build), full test suite (npm test), or E2E tests
-- Report progress to the lead after completing each task
-- Do NOT update Linear issues — the lead handles all Linear state transitions
-- NEVER hand-write generated files (migrations, snapshots). Report as blocker — the lead handles it.
+- TDD: write failing test → run (expect fail) → implement → run (expect pass). See CLAUDE.md.
+- Tests: `npx vitest run "pattern"` only. NEVER run npm test, npm run build, or E2E tests.
+- **E2E specs** (`e2e/tests/*.spec.ts`): write the spec file but do NOT run it. The lead runs E2E after merging.
+- Report "Starting Task N: [title] [FOO-XXX]" and "Completed Task N: [title] [FOO-XXX]" to the lead for each task.
+- Do NOT update Linear issues — the lead handles all state transitions.
+- NEVER hand-write generated files (migrations, snapshots). Report as blocker.
 
-WORKFLOW FOR EACH TASK:
-
-For unit/integration test tasks (files in src/):
-1. Send message to lead: "Starting Task N: [title] [FOO-XXX]"
-2. Read relevant existing source files to understand patterns
-3. Write failing test(s) in the appropriate __tests__/ directory
-4. Run: npx vitest run "test-pattern" — confirm test fails
-5. Implement the minimal code to make test pass
-6. Run: npx vitest run "test-pattern" — confirm test passes
-7. Send message to lead: "Completed Task N: [title] [FOO-XXX]"
-8. Move to next task
-
-For E2E test tasks (files in e2e/tests/*.spec.ts):
-1. Send message to lead: "Starting Task N: [title] [FOO-XXX]"
-2. Read existing E2E specs and fixtures to understand patterns
-3. Write the Playwright spec file — DO NOT run it
-4. Send message to lead: "Completed Task N: [title] [FOO-XXX] — E2E spec written"
-5. Move to next task
-
-WHEN ALL TASKS ARE DONE:
-1. Run typecheck: npm run typecheck
-   - Fix any type errors before committing
-   - This catches integration issues early (e.g., incorrect type casts, missing fields)
-2. Commit all changes in your workspace:
+WHEN ALL TASKS DONE:
+1. npm run typecheck — fix any type errors
+2. Commit:
    git add -A -- ':!node_modules' ':!.env' ':!.env.local'
-   git commit -m "worker-{N}: [brief summary of all changes]
+   git commit -m "worker-{N}: [summary]
 
    Tasks: Task X (FOO-XXX), Task Y (FOO-YYY)
    Files: path/to/file.ts, path/to/other.ts"
    Do NOT push.
-3. Send final summary to the lead:
----
-WORKER: worker-{N}
-STATUS: COMPLETE
-TASKS COMPLETED:
-- Task N: [title] (FOO-XXX) - [what was done]
-FILES MODIFIED:
-- path/to/file.ts - [what changed]
-COMMIT: [output of: git log --oneline -1]
----
+3. Send final summary to the lead (MUST send before going idle):
+   WORKER: worker-{N} | STATUS: COMPLETE
+   TASKS: [list with FOO-XXX ids and what was done]
+   FILES: [list of modified files]
+   COMMIT: [git log --oneline -1 output]
 
-IMPORTANT: You MUST send this summary BEFORE going idle. The lead cannot
-proceed to merge without it. If your context is running low, commit and
-send the summary immediately — do not wait.
-
-If you encounter a blocker, send a message to the lead describing it. Do NOT guess or work around it.
+If blocked, message the lead. Do NOT guess or work around it.
 ```
 
 ### Lead Populates Testing Context
 
-Before spawning workers, the lead reads 1-2 existing test files from the domains workers will touch. Extract testing environment gotchas that workers would otherwise discover by trial and error. Insert these as a `TESTING NOTES` block in the worker prompt where `{TESTING_CONTEXT}` appears.
+Before spawning workers, the lead reads 1-2 existing test files from the domains workers will touch. Extract testing gotchas that workers would otherwise discover by trial and error. Insert as a `TESTING NOTES` block where `{TESTING_CONTEXT}` appears. Omit if the tasks are straightforward.
 
-**Example for React component tasks (SSE/streaming):**
+**Example for React component tasks:**
 ```
 TESTING NOTES:
-- React 19 + testing-library v16: wrap async triggers in await act(async () => { fireEvent.click(...) })
-- Plain waitFor() does NOT flush await reader.read() chains — use act() for stream consumption
+- React 19 + testing-library v16: wrap async triggers in await act(async () => { ... })
 - For tests with FileReader macrotasks (Blob conversion), waitFor is still needed for the fetch assertion
-- Add mockFetch.mockReset() to beforeEach to prevent mock queue leakage from delayed mocks
+- Add mockFetch.mockReset() to beforeEach to prevent mock queue leakage
 ```
 
 **Example for API route tasks:**
 ```
 TESTING NOTES:
 - Route tests mock @/lib/session and @/lib/claude at module level
-- Use vi.mocked(functionName).mockResolvedValueOnce() for async mocks
 - SSE route tests need a consumeSSEStream helper — check existing test files for the pattern
 ```
 
-If the tasks are straightforward (no known gotchas), omit the `{TESTING_CONTEXT}` placeholder or replace with: `No special testing notes.`
+### Conditional Protocol Consistency Block
 
-### Protocol Consistency Reminder
-
-When tasks define or extend an **event protocol** (e.g., `StreamEvent`, WebSocket messages, API response shapes), add this to the worker prompt after the task descriptions:
+When tasks define or extend an **event protocol** (e.g., `StreamEvent`, WebSocket messages, API response shapes), append this to the worker prompt after the task descriptions. **Omit for all other tasks.**
 
 ```
 PROTOCOL CONSISTENCY: These tasks define/extend a streaming event protocol.
-Every code path (fast path, slow path, error path, timeout path) must yield
-the SAME set of event types in consistent order. After implementing, verify:
+Every code path must yield the SAME set of event types in consistent order:
 - ALL exit paths yield at minimum: [usage] + [result event] + [done]
 - Error paths yield either [error] OR [result + done], never both
-- No path silently returns without a terminal event (done or error)
+- No path silently returns without a terminal event
 ```
-
-Omit this block for tasks that don't involve event protocols.
 
 ### Assign tasks and label issues
 
@@ -453,7 +401,18 @@ If the plan required new npm packages that workers couldn't install:
 npm install <package-name>
 ```
 
-### 6. Run E2E Tests (if workers wrote E2E specs)
+### 6. Run Post-Merge Integration Tests
+
+Run the full unit/integration test suite immediately after all merges:
+```bash
+npm test
+```
+
+**Why here (before bug-hunter):** Workers only run targeted tests (`npx vitest run "pattern"`) in their worktrees. Cross-domain integration bugs (missing events on certain paths, stale closures at boundaries, type mismatches between worker outputs) only surface when all code is merged and the full suite runs. Catching these before bug-hunter reduces the bug-hunter's job to logic issues that tests don't cover.
+
+If failures → fix directly, then re-run until all tests pass.
+
+### 7. Run E2E Tests (if workers wrote E2E specs)
 
 Run the `verifier` agent in E2E mode:
 ```
@@ -461,7 +420,7 @@ Task tool with subagent_type "verifier" and prompt "e2e"
 ```
 If E2E tests fail → fix the specs directly, then re-run.
 
-### 7. Run Full Verification
+### 8. Run Full Verification
 
 **Bug hunter:**
 ```
@@ -470,7 +429,7 @@ Task tool with subagent_type "bug-hunter"
 
 Fix ALL real bugs — pre-existing or new. Only skip verifiable false positives.
 
-**Full test suite:**
+**Verifier (tests + lint + build):**
 ```
 Task tool with subagent_type "verifier"
 ```
