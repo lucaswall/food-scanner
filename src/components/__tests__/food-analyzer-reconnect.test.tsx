@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FoodAnalyzer } from "../food-analyzer";
-import type { FoodAnalysis, FoodLogResponse, AnalyzeFoodResult } from "@/types";
+import type { FoodAnalysis, FoodLogResponse } from "@/types";
+import type { StreamEvent } from "@/lib/sse";
 
 // Mock ResizeObserver for Radix UI
 beforeAll(() => {
@@ -180,11 +181,6 @@ const mockAnalysis: FoodAnalysis = {
   keywords: ["empanada", "carne", "beef"],
 };
 
-const mockAnalysisResult: AnalyzeFoodResult = {
-  type: "analysis",
-  analysis: mockAnalysis,
-};
-
 const mockLogResponse: FoodLogResponse = {
   success: true,
   fitbitFoodId: 12345,
@@ -196,6 +192,30 @@ const emptyMatchesResponse = () => ({
   ok: true,
   json: () => Promise.resolve({ success: true, data: { matches: [] } }),
 });
+
+function makeSseAnalyzeResponse(events: StreamEvent[]) {
+  const encoder = new TextEncoder();
+  const chunks = events.map((e) => encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
+  let index = 0;
+  const mockReader = {
+    read: (): Promise<{ done: boolean; value: Uint8Array | undefined }> => {
+      if (index < chunks.length) {
+        return Promise.resolve({ done: false, value: chunks[index++] });
+      }
+      return Promise.resolve({ done: true, value: undefined });
+    },
+    releaseLock: () => {},
+  };
+  return {
+    ok: true,
+    status: 200,
+    headers: {
+      get: (h: string) =>
+        h.toLowerCase() === "content-type" ? "text/event-stream" : null,
+    },
+    body: { getReader: () => mockReader },
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -211,10 +231,9 @@ describe("FoodAnalyzer reconnect flow", () => {
   describe("FITBIT_TOKEN_INVALID during log", () => {
     it("saves pending submission when FITBIT_TOKEN_INVALID is received", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: false,
@@ -251,10 +270,9 @@ describe("FoodAnalyzer reconnect flow", () => {
 
     it("redirects to /api/auth/fitbit when FITBIT_TOKEN_INVALID is received", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: false,
@@ -286,10 +304,9 @@ describe("FoodAnalyzer reconnect flow", () => {
 
     it("non-token errors still show inline error message", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: false,
@@ -479,10 +496,9 @@ describe("FoodAnalyzer reconnect flow", () => {
 
     it("savePendingSubmission includes date and time from FITBIT_TOKEN_INVALID flow", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
-        })
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
         .mockResolvedValueOnce(emptyMatchesResponse())
         .mockResolvedValueOnce({
           ok: false,
