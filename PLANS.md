@@ -84,3 +84,27 @@ Add the same registration integrity rule to `ANALYSIS_SYSTEM_PROMPT`. The re-log
 - The `report_nutrition` tool and `runToolLoop()` code path work correctly (confirmed by many other conversations). The model simply chose not to call the tool.
 - The `ANALYSIS_SYSTEM_PROMPT` has a similar gap but is less likely to trigger because `analyzeFood` transitions to chat mode for ambiguous requests. Still worth fixing for consistency.
 - Testing prompt content via string matching is the established pattern in this codebase (see `CHAT_SYSTEM_PROMPT web search guidance` tests at line 3334)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-16
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Step 1: Add tests for system prompt guardrails — 4 new tests for registration integrity, meal type, re-log from history, and ANALYSIS_SYSTEM_PROMPT
+- Step 2: Update CHAT_SYSTEM_PROMPT with guardrails — 3 new rules added (registration integrity, re-log from history, no meal type questions)
+- Step 3: Update ANALYSIS_SYSTEM_PROMPT with consistent guardrails — registration integrity rule added, exported for testing
+- Step 4: Verify — all tests pass, lint clean, build succeeds
+
+### Files Modified
+- `src/lib/claude.ts` — Added 3 guardrail rules to CHAT_SYSTEM_PROMPT, 1 to ANALYSIS_SYSTEM_PROMPT, exported ANALYSIS_SYSTEM_PROMPT
+- `src/lib/__tests__/claude.test.ts` — Added 4 new tests for prompt guardrail content
+
+### Linear Updates
+- FOO-555: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 1841 tests pass, zero warnings
