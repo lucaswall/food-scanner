@@ -1124,5 +1124,67 @@ More tasks remain. Tasks 9-16 from Iteration 1 (SSE streaming core, tool indicat
 - Worker 2: merge commit (no conflicts)
 - Worker 3: merge commit (no conflicts, 3 type cast fixes post-merge)
 
+### Review Findings
+
+Summary: 4 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 4 issue(s) — Linear issues created
+- DISCARDED: 6 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] SECURITY: No per-message content length limit in chat-food route + no description length limit in analyze-food route (`src/app/api/chat-food/route.ts:61-65`, `src/app/api/analyze-food/route.ts:40-44`)
+- [MEDIUM] BUG: estimateTokenCount ignores tool_use/tool_result blocks — truncation may not trigger in multi-tool conversations (`src/lib/claude.ts:396-416`)
+- [MEDIUM] BUG: Stale closure loses initialImagesSent on chat error retry — food photos lost on retry (`src/components/food-chat.tsx:240,278,386`)
+- [LOW] TEST: AbortSignal test has vacuously-true assertion — provides no regression protection (`src/lib/__tests__/claude.test.ts:764-772`)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: Chat images lack MIME type validation — Anthropic API rejects invalid images; no security impact beyond single-user allowlist auth
+- [DISCARDED] TYPE: analysis field in messages not validated — user manipulates their own conversation context; no cross-boundary impact, no crash risk
+- [DISCARDED] BUG: Dead assignment before early throw in validateFoodAnalysis — not a bug; throw is always reached correctly; dead code is cosmetic
+- [DISCARDED] CONVENTION: Missing `action` fields in log statements in claude.ts — style-only convention not enforced by CLAUDE.md; zero correctness impact (same finding discarded in Iterations 1, 2, 3)
+- [DISCARDED] EDGE CASE: truncateConversation skips truncation for ≤5 messages — pathological case impossible in practice; 5 food chat messages cannot approach 150K tokens
+- [DISCARDED] TYPE: Duplicate of per-message content length limit — merged with Security finding #1
+
+### Linear Updates
+- FOO-557: Review → Merge (SSE streaming complete)
+- FOO-558: Review → Merge (Tool indicators complete)
+- FOO-572: Created in Todo (Fix: per-message content length + description length limits)
+- FOO-573: Created in Todo (Fix: estimateTokenCount ignores tool blocks)
+- FOO-574: Created in Todo (Fix: stale closure loses initialImagesSent on error)
+- FOO-575: Created in Todo (Fix: AbortSignal test vacuously-true assertion)
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
-Task 16 (Integration & Verification) remains — manual testing and E2E.
+Task 16 (Integration & Verification) remains — manual testing and E2E. Fix plan below addresses review findings.
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 4
+**Linear Issues:** [FOO-572](https://linear.app/lw-claude/issue/FOO-572), [FOO-573](https://linear.app/lw-claude/issue/FOO-573), [FOO-574](https://linear.app/lw-claude/issue/FOO-574), [FOO-575](https://linear.app/lw-claude/issue/FOO-575)
+
+### Fix 1: No per-message content length limit + no description length limit
+**Linear Issue:** [FOO-572](https://linear.app/lw-claude/issue/FOO-572)
+
+1. Write tests in `src/app/api/chat-food/__tests__/route.test.ts` for: message content > 2000 chars → expect validation error; message content exactly 2000 chars → accept
+2. Add per-message `content.length <= 2000` check in chat-food route validation loop (line 64)
+3. Write tests in `src/app/api/analyze-food/__tests__/route.test.ts` for: description > 2000 chars → expect validation error; description exactly 2000 chars → accept
+4. Add `description.length <= 2000` check in analyze-food route after string validation (line 44)
+
+### Fix 2: estimateTokenCount ignores tool_use/tool_result blocks
+**Linear Issue:** [FOO-573](https://linear.app/lw-claude/issue/FOO-573)
+
+1. Write test in `src/lib/__tests__/claude.test.ts` for: messages with tool_use and tool_result blocks → verify estimate includes their token contribution
+2. Update `estimateTokenCount` in `src/lib/claude.ts` to count `tool_use` blocks (serialize input to JSON, estimate ~4 chars/token) and `tool_result` blocks (content string, ~4 chars/token)
+
+### Fix 3: Stale closure loses initialImagesSent on chat error retry
+**Linear Issue:** [FOO-574](https://linear.app/lw-claude/issue/FOO-574)
+
+1. Write test in `src/components/__tests__/food-chat.test.tsx` for: first send with initial images fails → retry → verify images are re-sent in the second request body
+2. Replace the stale closure check in `revertOnError` (line 240) and the catch block (line 386) with a ref-based approach: use `initialImagesSentRef` alongside the state, or unconditionally reset `setInitialImagesSent(false)` when `compressedImages.length > 0` in the error path
+
+### Fix 4: AbortSignal test has vacuously-true assertion
+**Linear Issue:** [FOO-575](https://linear.app/lw-claude/issue/FOO-575)
+
+1. Rewrite the AbortSignal test in `src/lib/__tests__/claude.test.ts` (line 764-772) to assert meaningful behavior: verify that collecting events from the generator with an already-aborted signal yields an error event with "Request aborted by client" message, or that the generator terminates before yielding a done event
