@@ -4,10 +4,61 @@
 
 | Feature | Summary |
 |---------|---------|
+| [DB Food Reuse in Chat](#db-food-reuse-in-chat) | When Claude reports a food from the DB, log it by reusing the existing custom food |
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
 
+
+---
+
+## DB Food Reuse in Chat
+
+### Problem
+
+When the user says "log the same as yesterday" or "I had that chicken again", Claude uses `search_food_log` to find the matching food from the DB and reports its nutrition via `report_nutrition`. But `report_nutrition` has no way to reference the existing `custom_food` — it only sends raw nutrition values. When the user logs it, the system treats it as a brand-new food: creates a duplicate `custom_food` row and registers a new Fitbit food, even though the identical food already exists. The post-analysis match finder (`/api/find-matches`) may surface the original as a "Use this" card, but the user has to notice and click it instead of the main log button.
+
+### Goal
+
+When Claude reports a food that came from the DB, the logging flow automatically reuses the existing `custom_food` and its `fitbitFoodId` — same behavior as the initial analysis match reuse and quick-select paths.
+
+### Design
+
+#### Claude Reports a Source Reference
+
+- Add an optional `source_custom_food_id` field to the `report_nutrition` tool schema. Claude includes this when the reported nutrition comes directly from a `search_food_log` result.
+- The `search_food_log` tool already returns food entries. Its response must include the `customFoodId` so Claude can pass it through.
+- When Claude modifies the nutrition (e.g., "same as yesterday but half portion"), it should NOT set `source_custom_food_id` — the food is no longer identical, so a new custom food is correct.
+
+#### Client Passes the Reference Through
+
+- The `FoodAnalysis` type gains an optional `sourceCustomFoodId` field.
+- `food-analyzer.tsx` includes `sourceCustomFoodId` in the `/api/log-food` request body when present.
+- The log button label stays "Log to Fitbit" (not "Log as new") when a source reference exists.
+
+#### Server Reuses the Food
+
+- `/api/log-food` checks for `sourceCustomFoodId`. When present, it follows the existing `reuseCustomFoodId` path — looks up the custom food, logs with its `fitbitFoodId`, creates a `food_log_entry` pointing to the existing `custom_food`. No duplicate created.
+- If the referenced custom food no longer exists (deleted between search and log), falls back to the normal new-food path.
+
+#### Match Finder Deduplication
+
+- When `sourceCustomFoodId` is set, the `/api/find-matches` call can be skipped entirely — the reuse target is already known.
+
+### Edge Cases
+
+- Claude modifies the nutrition from the DB food (portion adjustment, ingredient change) → no `source_custom_food_id`, creates a new food as today.
+- Referenced custom food was deleted between search and log → graceful fallback to new-food creation.
+- Claude finds multiple DB foods and combines them into one report → no `source_custom_food_id`, creates a new food.
+- User corrects the analysis in follow-up messages after Claude set `source_custom_food_id` → client clears the reference when a new `report_nutrition` arrives without it.
+
+### Implementation Order
+
+1. Add `customFoodId` to `search_food_log` tool response format
+2. Add optional `source_custom_food_id` to `report_nutrition` tool schema + system prompt instructions for when to include it
+3. Thread `sourceCustomFoodId` through `FoodAnalysis` type → client → `/api/log-food` request
+4. `/api/log-food` maps `sourceCustomFoodId` to existing `reuseCustomFoodId` path
+5. Skip `/api/find-matches` call when `sourceCustomFoodId` is present
 
 ---
 
