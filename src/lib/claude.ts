@@ -7,7 +7,7 @@ import { getRequiredEnv } from "@/lib/env";
 import { recordUsage } from "@/lib/claude-usage";
 import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } from "@/lib/chat-tools";
 
-const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
+export const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
 
 let _client: Anthropic | null = null;
 
