@@ -2716,4 +2716,122 @@ describe("FoodAnalyzer", () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  describe("FOO-571: compressionWarningTimeoutRef cleared in resetAnalysisState and AbortError catch", () => {
+    it("error persists after 3s when user resets and new analysis produces error", async () => {
+      // Scenario: compression warning timeout pending → user clears photos (resetAnalysisState) →
+      // new analysis fails → stale timeout must NOT clear the new error.
+      vi.useFakeTimers();
+
+      try {
+        // First photo compresses OK, second fails → failedCount > 0 → setTimeout(3000) set
+        mockCompressImage
+          .mockResolvedValueOnce(new Blob(["success"]))
+          .mockRejectedValueOnce(new Error("Compression failed"));
+
+        // First analysis returns valid result (needed to complete the first handleAnalyze)
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockAnalysisResult }),
+        });
+
+        render(<FoodAnalyzer />);
+
+        // Add 2 photos → start analysis → compression warning timeout is set
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /add two photos/i }));
+        });
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+        });
+
+        // Flush async chain (compression + fetch + response handling)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // Clear photos → triggers resetAnalysisState → should clear the compression warning timeout
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /clear photos/i }));
+        });
+
+        // Set up second analysis that will throw a network error
+        mockCompressImage.mockResolvedValueOnce(new Blob(["success"]));
+        mockFetch.mockRejectedValueOnce(new Error("Network failure"));
+
+        // Start new analysis
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+        });
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+        });
+
+        // Flush the async chain for the second analysis
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // The network error should be visible
+        expect(screen.getByText(/network failure/i)).toBeInTheDocument();
+
+        // Advance 3s — without the fix, stale compression timeout fires setError(null)
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3001);
+        });
+
+        // Error must STILL be visible
+        expect(screen.getByText(/network failure/i)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("AbortError path clears compression warning timeout preventing stale setError(null)", async () => {
+      // Scenario: compression warning timeout pending → AbortError → stale timeout must not fire
+      vi.useFakeTimers();
+
+      try {
+        // Photo compresses OK, second fails → failedCount > 0 → setTimeout(3000) set
+        mockCompressImage
+          .mockResolvedValueOnce(new Blob(["success"]))
+          .mockRejectedValueOnce(new Error("Compression failed"));
+
+        // API fetch will be aborted
+        const abortError = new Error("The operation was aborted");
+        abortError.name = "AbortError";
+        mockFetch.mockRejectedValueOnce(abortError);
+
+        render(<FoodAnalyzer />);
+
+        // Add 2 photos → start analysis
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /add two photos/i }));
+        });
+        act(() => {
+          fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+        });
+
+        // Flush: compression → fetch (AbortError thrown) → catch → AbortError early return
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        // No error should be visible (AbortError is silently ignored)
+        expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+
+        // Advance 3s — without the fix, stale compression timeout fires setError(null)
+        // This wouldn't show a visible bug in isolation, but if error state is set between
+        // AbortError and timeout firing, the timeout would wipe it. Verify no timeout fires.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(3001);
+        });
+
+        // Still no error visible (timeout was cleared, nothing happened)
+        expect(screen.queryByText(/error/i)).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

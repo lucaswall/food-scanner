@@ -1009,3 +1009,35 @@ More tasks remain. Tasks 9-16 from Iteration 1 (SSE streaming core, tool indicat
 
 1. Write test in `src/components/__tests__/food-analyzer.test.tsx` for: compression warning timeout pending + user resets + new analysis produces error → verify error is NOT cleared by stale timeout. Write test for: compression warning timeout pending + AbortError → verify no stale setError(null) fires
 2. Add `if (compressionWarningTimeoutRef.current) { clearTimeout(compressionWarningTimeoutRef.current); compressionWarningTimeoutRef.current = null; }` at the start of `resetAnalysisState` (after the abort controller cleanup) and at the start of the AbortError catch branch (before `return`)
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-02-17
+**Method:** Single-agent (team workers lost their worktrees — fell back to single-agent)
+
+### Tasks Completed This Iteration
+- Fix 1: analyzeFood double-records usage when data tools path fires (FOO-569) — moved recordUsage to fast-path and text-only fallback only; data tools path delegates to runToolLoop which records per-iteration
+- Fix 2: keywords arrays have no element count limit at API boundary (FOO-570) — added length <= 20 check for both keywords and newKeywords in isValidFoodLogRequest
+- Fix 3: compressionWarningTimeoutRef not cleared in resetAnalysisState and AbortError catch (FOO-571) — added clearTimeout + null at start of resetAnalysisState and AbortError catch branch
+
+### Files Modified
+- `src/lib/claude.ts` — Moved recordUsage from unconditional position to fast-path and text-only fallback branches
+- `src/lib/__tests__/claude.test.ts` — Added test verifying recordUsage called exactly twice (not 3x) on data tools path
+- `src/app/api/log-food/route.ts` — Added keywords.length <= 20 and newKeywords.length <= 20 validation
+- `src/app/api/log-food/__tests__/route.test.ts` — Added 3 tests for keywords array count limit (>20 rejected, 20 accepted, reuse path)
+- `src/components/food-analyzer.tsx` — Added compressionWarningTimeoutRef cleanup in resetAnalysisState and AbortError catch
+- `src/components/__tests__/food-analyzer.test.tsx` — Added 2 tests for stale timeout scenarios (reset + error, AbortError)
+
+### Linear Updates
+- FOO-569: Todo → In Progress → Review
+- FOO-570: Todo → In Progress → Review
+- FOO-571: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found in changes
+- verifier: All 1917 tests pass, zero warnings, build clean
+
+### Continuation Status
+More tasks remain. Tasks 9-16 from Iteration 1 (SSE streaming core, tool indicators, integration) still pending.

@@ -457,21 +457,21 @@ export async function analyzeFood(
       (block) => block.type === "tool_use" && block.name === "report_nutrition"
     );
 
-    // Record usage (fire-and-forget)
-    recordUsage(userId, response.model, "food-analysis", {
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-      cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
-      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
-    }).catch((error) => {
-      l.warn(
-        { error: error instanceof Error ? error.message : String(error), userId },
-        "failed to record API usage"
-      );
-    });
-
     if (reportNutritionBlock && reportNutritionBlock.type === "tool_use") {
       // Fast path: Claude called report_nutrition directly
+      // Record usage here (runToolLoop is NOT called on this path)
+      recordUsage(userId, response.model, "food-analysis", {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      }).catch((error) => {
+        l.warn(
+          { error: error instanceof Error ? error.message : String(error), userId },
+          "failed to record API usage"
+        );
+      });
+
       const analysis = validateFoodAnalysis(reportNutritionBlock.input);
       l.info(
         { foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
@@ -538,6 +538,19 @@ export async function analyzeFood(
     }
 
     // Text-only fallback: Claude responded with text, no tool calls
+    // Record usage here (runToolLoop is NOT called on this path)
+    recordUsage(userId, response.model, "food-analysis", {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+    }).catch((error) => {
+      l.warn(
+        { error: error instanceof Error ? error.message : String(error), userId },
+        "failed to record API usage"
+      );
+    });
+
     const textBlocks = response.content.filter(
       (block) => block.type === "text"
     ) as Anthropic.TextBlock[];

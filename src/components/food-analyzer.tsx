@@ -77,6 +77,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    // Clear stale compression warning timeout to prevent it from wiping future errors
+    if (compressionWarningTimeoutRef.current) {
+      clearTimeout(compressionWarningTimeoutRef.current);
+      compressionWarningTimeoutRef.current = null;
+    }
     // Invalidate any in-flight find-matches fetch
     findMatchesGenerationRef.current += 1;
     setAnalysis(null);
@@ -236,6 +241,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     } catch (err) {
       // Ignore abort errors
       if (err instanceof Error && err.name === "AbortError") {
+        // Clear stale compression warning timeout to prevent it from wiping future errors
+        if (compressionWarningTimeoutRef.current) {
+          clearTimeout(compressionWarningTimeoutRef.current);
+          compressionWarningTimeoutRef.current = null;
+        }
         return;
       }
       // Clear compression warning timeout before setting real error

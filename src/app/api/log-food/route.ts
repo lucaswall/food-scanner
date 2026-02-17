@@ -36,7 +36,7 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
       if (typeof req.newNotes !== "string" || req.newNotes.length > 2000) return false;
     }
     if (req.newKeywords !== undefined) {
-      if (!Array.isArray(req.newKeywords) || !req.newKeywords.every((k: unknown) => typeof k === "string" && (k as string).length <= 100)) return false;
+      if (!Array.isArray(req.newKeywords) || req.newKeywords.length > 20 || !req.newKeywords.every((k: unknown) => typeof k === "string" && (k as string).length <= 100)) return false;
     }
     if (req.newConfidence !== undefined && req.newConfidence !== "high" && req.newConfidence !== "medium" && req.newConfidence !== "low") return false;
     return true;
@@ -73,10 +73,11 @@ function isValidFoodLogRequest(body: unknown): body is FoodLogRequest {
     return false;
   }
 
-  // Validate keywords if present: must be an array of strings, each ≤100 chars
+  // Validate keywords if present: must be an array of strings, each ≤100 chars, max 20 elements
   if (req.keywords !== undefined) {
     if (
       !Array.isArray(req.keywords) ||
+      req.keywords.length > 20 ||
       !req.keywords.every((k: unknown) => typeof k === "string" && (k as string).length <= 100)
     ) {
       return false;

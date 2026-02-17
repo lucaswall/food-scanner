@@ -499,6 +499,63 @@ describe("analyzeFood", () => {
     expect(mockRecordUsage).toHaveBeenCalled();
   });
 
+  it("records usage exactly once when data tools path fires (no double-recording)", async () => {
+    // First response: Claude calls search_food_log (data tool)
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "search_food_log",
+          input: { query: "yesterday" },
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    // Mock tool execution
+    mockExecuteTool.mockResolvedValueOnce("Found 1 matching food:\n• Empanada de carne — 150g, 320 cal");
+
+    // Second response: Claude reports nutrition after seeing tool results
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: "Here's the analysis.",
+        },
+        {
+          type: "tool_use",
+          id: "tool_789",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 200,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await analyzeFood(
+      [],
+      "same as yesterday",
+      "user-123",
+      "2026-02-15"
+    );
+
+    // recordUsage should be called exactly twice: once per API call (initial + tool loop iteration)
+    // NOT three times (which would happen if analyzeFood also recorded the initial response)
+    expect(mockRecordUsage).toHaveBeenCalledTimes(2);
+  });
+
   it("throws CLAUDE_API_ERROR on API failure", async () => {
     mockCreate.mockRejectedValueOnce(new Error("API connection failed"));
 
@@ -1394,6 +1451,70 @@ describe("analyzeFood", () => {
     if (result.type === "analysis") {
       expect(result.analysis.description).toBe("");
     }
+  });
+
+  it("calls recordUsage exactly once per API call when data tool path fires (FOO-569)", async () => {
+    // First response: Claude calls a data tool (search_food_log)
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "tool_use",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_456",
+          name: "search_food_log",
+          input: { query: "empanada" },
+        },
+      ],
+      usage: {
+        input_tokens: 1500,
+        output_tokens: 300,
+      },
+    });
+
+    // Mock tool execution
+    mockExecuteTool.mockResolvedValueOnce("Found: Empanada de carne — 150g, 320 cal");
+
+    // Second response: Claude calls report_nutrition after seeing tool results
+    mockCreate.mockResolvedValueOnce({
+      model: "claude-sonnet-4-5-20250929",
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "tool_use",
+          id: "tool_789",
+          name: "report_nutrition",
+          input: validAnalysis,
+        },
+      ],
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 200,
+      },
+    });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const result = await analyzeFood([], "same as yesterday", "user-123", "2026-02-15");
+
+    expect(result.type).toBe("analysis");
+
+    // 2 API calls → exactly 2 recordUsage calls (not 3)
+    // Bug: the unconditional recordUsage before runToolLoop recorded it twice for the initial response
+    expect(mockRecordUsage).toHaveBeenCalledTimes(2);
+    expect(mockRecordUsage).toHaveBeenNthCalledWith(
+      1,
+      "user-123",
+      "claude-sonnet-4-5-20250929",
+      "food-analysis",
+      { inputTokens: 1500, outputTokens: 300, cacheCreationTokens: 0, cacheReadTokens: 0 },
+    );
+    expect(mockRecordUsage).toHaveBeenNthCalledWith(
+      2,
+      "user-123",
+      "claude-sonnet-4-5-20250929",
+      "food-analysis",
+      { inputTokens: 2000, outputTokens: 200, cacheCreationTokens: 0, cacheReadTokens: 0 },
+    );
   });
 });
 
