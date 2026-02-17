@@ -43,3 +43,6 @@ e2e/.auth/
 
 # Production migration backups
 _migrations/
+
+# Worker worktrees (plan-implement agent team)
+_workers/

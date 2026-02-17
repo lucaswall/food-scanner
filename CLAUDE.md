@@ -68,7 +68,7 @@ Two test suites with different purposes and runtimes:
 
 **E2E tests do NOT run in:** plan-implement (workers use unit tests for TDD), code-audit, bug-hunter, or any planning skill.
 
-**Concurrency rule:** Team workers must ONLY use verifier in TDD mode (`verifier "pattern"`). Full verification (`verifier` with no args) and E2E tests (`verifier "e2e"`) are lead-only. Concurrent runs corrupt shared resources (`.next/` build dir, port 3001, database state).
+**Concurrency rule:** plan-implement workers run in isolated git worktrees (`_workers/worker-N/`) and use `npx vitest run "pattern"` directly for TDD (not the verifier agent). Full verification (`verifier` no args) and E2E tests (`verifier "e2e"`) are lead-only.
 
 ---
 
