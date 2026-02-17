@@ -174,6 +174,47 @@ function summarizeResponse(response: Anthropic.Message): Record<string, unknown>
   };
 }
 
+/** Serialize a single content block for logging, replacing base64 image data with a placeholder */
+function serializeBlockForLog(block: Anthropic.ContentBlockParam | Anthropic.ContentBlock): unknown {
+  if (typeof block === "string") return block;
+
+  if (block.type === "image" && "source" in block) {
+    const source = block.source as { type: string; media_type?: string; data?: string };
+    return { type: "image", mediaType: source.media_type, dataLength: source.data?.length ?? 0 };
+  }
+  if (block.type === "text" && "text" in block) {
+    return { type: "text", text: (block as { text: string }).text };
+  }
+  if (block.type === "tool_use") {
+    const tb = block as Anthropic.ToolUseBlock;
+    return { type: "tool_use", id: tb.id, name: tb.name, input: tb.input };
+  }
+  if (block.type === "tool_result") {
+    const tr = block as { type: string; tool_use_id: string; content?: unknown; is_error?: boolean };
+    return { type: "tool_result", toolUseId: tr.tool_use_id, content: tr.content, isError: tr.is_error };
+  }
+  // web_search_tool_result, server_tool_use, etc. — pass through
+  return block;
+}
+
+/** Serialize Anthropic messages for debug logging (strips base64 image data) */
+function serializeMessagesForLog(messages: Anthropic.MessageParam[]): unknown[] {
+  return messages.map((msg) => {
+    if (typeof msg.content === "string") {
+      return { role: msg.role, content: msg.content };
+    }
+    return {
+      role: msg.role,
+      content: (msg.content as Anthropic.ContentBlockParam[]).map(serializeBlockForLog),
+    };
+  });
+}
+
+/** Serialize a Claude response's content blocks for debug logging */
+function serializeResponseContentForLog(response: Anthropic.Message): unknown[] {
+  return response.content.map(serializeBlockForLog);
+}
+
 function normalizeKeywords(raw: string[]): string[] {
   const normalized = raw
     .flatMap(k => {
@@ -331,6 +372,17 @@ export async function analyzeFood(
 
     const systemPrompt = `${ANALYSIS_SYSTEM_PROMPT}\n\nToday's date is: ${currentDate}`;
 
+    l.debug(
+      {
+        action: "analyze_food_request_detail",
+        systemPrompt,
+        userDescription: description || "Analyze this food.",
+        imageCount: images.length,
+        imageMimeTypes: images.map((img) => img.mimeType),
+      },
+      "Claude API request detail"
+    );
+
     const response = await getClient().messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 1024,
@@ -369,6 +421,10 @@ export async function analyzeFood(
     }, { signal });
 
     l.debug({ action: "analyze_food_response", ...summarizeResponse(response) }, "Claude API response received");
+    l.debug(
+      { action: "analyze_food_response_content", content: serializeResponseContentForLog(response) },
+      "Claude API response content"
+    );
 
     // Check if report_nutrition was called
     const reportNutritionBlock = response.content.find(
@@ -562,6 +618,10 @@ export async function conversationalRefine(
       { action: "conversational_refine_messages", messageCount: anthropicMessages.length, truncated: anthropicMessages.length < preCount, hasImages: images.length > 0, hasInitialAnalysis: !!initialAnalysis },
       "conversation prepared for Claude API"
     );
+    l.debug(
+      { action: "conversational_refine_messages_detail", messages: serializeMessagesForLog(anthropicMessages) },
+      "full conversation messages for Claude API"
+    );
 
     // Build system prompt with date and initial analysis context
     let systemPrompt = CHAT_SYSTEM_PROMPT;
@@ -590,6 +650,11 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         : tool
     );
 
+    l.debug(
+      { action: "conversational_refine_request_detail", systemPrompt },
+      "Claude API chat request system prompt"
+    );
+
     const response = await getClient().messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 2048,
@@ -606,6 +671,10 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     }, { signal });
 
     l.debug({ action: "conversational_refine_response", ...summarizeResponse(response) }, "Claude API response received");
+    l.debug(
+      { action: "conversational_refine_response_content", content: serializeResponseContentForLog(response) },
+      "Claude API chat response content"
+    );
 
     // Check if Claude used any data tools (not report_nutrition)
     const dataToolUseBlocks = response.content.filter(
@@ -804,6 +873,10 @@ export async function runToolLoop(
           { iteration, messageCount: conversationMessages.length },
           "calling Claude API in tool loop"
         );
+        l.debug(
+          { action: "tool_loop_request_detail", iteration, messages: serializeMessagesForLog(conversationMessages) },
+          "tool loop full conversation state"
+        );
 
         const iterElapsed = startTimer();
         response = await getClient().messages.create({
@@ -825,6 +898,10 @@ export async function runToolLoop(
 
       lastResponse = response;
       l.debug({ action: "tool_loop_iteration", iteration, ...summarizeResponse(response) }, "tool loop iteration response");
+      l.debug(
+        { action: "tool_loop_response_content", iteration, content: serializeResponseContentForLog(response) },
+        "tool loop response content"
+      );
 
       // Record usage (fire-and-forget)
       if (userId) {
@@ -963,6 +1040,19 @@ export async function runToolLoop(
         );
 
         toolResults.push(...dataToolResults);
+
+        l.debug(
+          {
+            action: "tool_loop_tool_results",
+            iteration,
+            results: toolResults.map((r) => ({
+              toolUseId: r.tool_use_id,
+              content: r.content,
+              isError: r.is_error,
+            })),
+          },
+          "tool results sent back to Claude"
+        );
 
         // Add user message with all tool_result blocks
         conversationMessages.push({

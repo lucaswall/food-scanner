@@ -362,6 +362,6 @@ export async function executeTool(
         throw new Error(`Unknown tool: ${toolName}`);
     }
   })();
-  l.debug({ action: "execute_tool_result", tool: toolName, resultLength: result.length }, "data tool execution complete");
+  l.debug({ action: "execute_tool_result", tool: toolName, resultLength: result.length, result }, "data tool execution complete");
   return result;
 }
