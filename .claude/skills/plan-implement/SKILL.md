@@ -109,6 +109,12 @@ Example: if `FEATURE_BRANCH` is `feat/foo-123-notifications`, worker branches ar
 
 ### Bootstrap Worktree Environments
 
+**Pre-check:** Verify `.gitignore` covers symlinks before creating them. The `node_modules/` entry (with trailing slash) only matches directories — a symlink is a file and won't be excluded. Ensure a bare `node_modules` entry exists:
+```bash
+grep -q '^node_modules$' .gitignore || sed -i '' '/^node_modules\//i\
+node_modules' .gitignore
+```
+
 Each worktree needs dependencies and environment variables:
 ```bash
 # For each worker N:
@@ -174,7 +180,7 @@ RULES:
 - Report progress to the lead after completing each task
 - Do NOT update Linear issues — the lead handles all Linear state transitions
 - NEVER hand-write generated files (migrations, snapshots). Report as blocker — the lead handles it.
-- **NEVER use Bash for ANY file operation.** This includes BOTH mutations (sed, awk, cat >, echo >, tee, cp, mv, rm, mkdir) AND reads/searches (grep, rg, find, ls, cat, head, tail). Use the dedicated tools instead: Read (to read files), Glob (to find files), Grep (to search content), Edit/Write (to modify files). **The ONLY acceptable Bash uses are:** (1) cd to workspace, (2) `npx vitest run "pattern"` for tests, (3) `npx tsc --noEmit` for typechecking, (4) `git add -A && git commit` at the end. Every other Bash call triggers a permission prompt on the lead's terminal — avoid it.
+- **NEVER use Bash for ANY file operation.** This includes BOTH mutations (sed, awk, cat >, echo >, tee, cp, mv, rm, mkdir) AND reads/searches (grep, rg, find, ls, cat, head, tail). Use the dedicated tools instead: Read (to read files), Glob (to find files), Grep (to search content), Edit/Write (to modify files). **The ONLY acceptable Bash uses are:** (1) cd to workspace, (2) `npx vitest run "pattern"` for tests, (3) `npm run typecheck` for typechecking, (4) `git add -A && git commit` at the end. Every other Bash call triggers a permission prompt on the lead's terminal — avoid it.
 
 WORKFLOW FOR EACH TASK:
 
@@ -197,7 +203,7 @@ For E2E test tasks (files in e2e/tests/*.spec.ts):
 
 WHEN ALL TASKS ARE DONE:
 1. Commit all changes in your workspace:
-   git add -A
+   git add -A -- ':!node_modules' ':!.env' ':!.env.local'
    git commit -m "worker-{N}: [brief summary of all changes]"
    Do NOT push.
 2. Send final summary to the lead:
@@ -282,7 +288,7 @@ git merge <FEATURE_BRANCH>-worker-N
 
 **After each merge (starting from the second):**
 ```bash
-npx tsc --noEmit
+npm run typecheck
 ```
 If type errors → fix them before merging the next worker. This catches integration issues early before they compound.
 
@@ -290,7 +296,14 @@ If type errors → fix them before merging the next worker. This catches integra
 1. Review the conflicting files — understand both workers' intent from the plan
 2. Resolve conflicts, keeping correct logic from both sides
 3. `git add` resolved files, then `git commit` (git's auto-generated merge message is fine)
-4. Run `npx tsc --noEmit` before continuing to the next merge
+4. Run `npm run typecheck` before continuing to the next merge
+
+**If `git merge` fails entirely** (e.g., worktree artifacts like committed symlinks):
+1. Fall back to cherry-pick: `git cherry-pick <FEATURE_BRANCH>-worker-N --no-commit`
+2. Unstage any worktree artifacts: `git reset HEAD node_modules 2>/dev/null`
+3. Commit: `git commit -m "fix: [worker summary]"`
+4. Verify `node_modules` is still a real directory (not a symlink): `ls -ld node_modules | head -1`
+5. If it became a symlink: `rm -f node_modules && npm install`
 
 ### 3. Run Lead-Reserved Tasks (Generated Files)
 
@@ -534,7 +547,7 @@ If `TeamCreate` fails or worktree setup fails, implement the plan sequentially a
 - **Lead runs all CLI generators** — Drizzle-kit, prisma generate, etc. reserved for lead post-merge
 - **Workers test via vitest only** — `npx vitest run "pattern"` in their worktree. No build, no full suite, no E2E.
 - **E2E test tasks are write-only for workers** — Workers write specs but do NOT run them
-- **Foundation-first merge order** — Merge lower-level workers first (types → services → routes → UI). Typecheck gate (`npx tsc --noEmit`) after each merge.
+- **Foundation-first merge order** — Merge lower-level workers first (types → services → routes → UI). Typecheck gate (`npm run typecheck`) after each merge.
 - **Workers commit, don't push** — Workers `git add -A && git commit` in their worktree. Lead merges locally via the shared git object database.
 - **Always clean up worktrees** — Remove worktrees, prune metadata, delete worker branches after merge
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
