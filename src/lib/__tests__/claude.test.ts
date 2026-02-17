@@ -411,6 +411,68 @@ describe("analyzeFood", () => {
     );
   });
 
+  it("slow path: yields needs_chat when tool loop ends with text only (no analysis)", async () => {
+    // First stream: Claude calls search_food_log (data tool)
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("search_food_log", { query: "milanesa" }, "tool_1", "Let me check your history...")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Found: Milanesa grande — 300g, 550 cal; Milanesa chica — 150g, 280 cal");
+
+    // Second stream: Claude responds with text only (no report_nutrition) — asks clarifying question
+    mockStream.mockReturnValueOnce(
+      makeTextStream("I found both sizes. Which do you want?")
+    );
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(
+      analyzeFood([], "milanesa como ayer", "user-123", "2026-02-15")
+    );
+
+    // Should emit needs_chat with accumulated text from the tool loop's text-only response
+    expect(events).toContainEqual({
+      type: "needs_chat",
+      message: "I found both sizes. Which do you want?",
+    });
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+    // Should NOT contain an analysis event
+    expect(events.find((e) => e.type === "analysis")).toBeUndefined();
+  });
+
+  it("slow path: needs_chat only contains final text, not intermediate thinking from earlier iterations", async () => {
+    // First stream: Claude calls search_food_log with thinking text
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("search_food_log", { query: "milanesa" }, "tool_1", "Let me check your history...")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Found: Milanesa grande — 300g, 550 cal; Milanesa chica — 150g, 280 cal");
+
+    // Second stream: Claude calls another data tool with more thinking text
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("get_nutrition_summary", { date: "2026-02-14" }, "tool_2", "Let me also check yesterday's totals...")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Total yesterday: 2100 cal");
+
+    // Third stream: Claude responds with text only (no report_nutrition)
+    mockStream.mockReturnValueOnce(
+      makeTextStream("Which size milanesa did you have?")
+    );
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(
+      analyzeFood([], "milanesa como ayer", "user-123", "2026-02-15")
+    );
+
+    // needs_chat should ONLY contain the final text, not intermediate thinking
+    const needsChatEvent = events.find((e) => e.type === "needs_chat");
+    expect(needsChatEvent).toBeDefined();
+    expect((needsChatEvent as { type: "needs_chat"; message: string }).message).toBe(
+      "Which size milanesa did you have?"
+    );
+    // Must NOT contain intermediate thinking text
+    expect((needsChatEvent as { type: "needs_chat"; message: string }).message).not.toContain(
+      "Let me check"
+    );
+  });
+
   // --- Validation errors ---
 
   it("throws CLAUDE_API_ERROR when report_nutrition has missing fields", async () => {
