@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-02-16
+
+### Added
+
+- AI uses tools during initial food analysis, including web search and your food history
+- Tap-to-expand nutrition detail dialogs in chat messages
+- Automatic transition to chat when AI needs more information about your food
+
+### Changed
+
+- Compact chat header with streamlined controls
+
+### Fixed
+
+- Chat no longer falsely claims food was logged when it wasn't
+- Minor chat and analysis reliability improvements
+
 ## [1.10.0] - 2026-02-15
 
 ### Added
@@ -190,7 +207,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/lucaswall/food-scanner/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/lucaswall/food-scanner/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/lucaswall/food-scanner/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/lucaswall/food-scanner/compare/v1.8.0...v1.9.0
