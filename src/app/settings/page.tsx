@@ -3,6 +3,7 @@ import { getSession } from "@/lib/session";
 import { SettingsContent } from "@/components/settings-content";
 import { ApiKeyManager } from "@/components/api-key-manager";
 import { ClaudeUsageSection } from "@/components/claude-usage-section";
+import { AboutSection } from "@/components/about-section";
 
 export default async function SettingsPage() {
   const session = await getSession();
@@ -18,6 +19,9 @@ export default async function SettingsPage() {
         <ApiKeyManager />
         <div className="mt-6">
           <ClaudeUsageSection />
+        </div>
+        <div className="mt-6">
+          <AboutSection />
         </div>
       </div>
     </>
