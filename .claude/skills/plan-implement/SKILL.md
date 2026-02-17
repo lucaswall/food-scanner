@@ -186,6 +186,8 @@ All your work happens in this directory. You have a complete, independent copy o
 ASSIGNED TASKS:
 {paste the full task descriptions from PLANS.md for this work unit}
 
+{TESTING_CONTEXT — see "Lead Populates Testing Context" below}
+
 STARTUP (do these 3 steps in order before anything else):
 1. Run via Bash: cd {absolute_project_path}/_workers/worker-{N}
 2. Run via Bash: npx vitest --version
@@ -243,11 +245,17 @@ For E2E test tasks (files in e2e/tests/*.spec.ts):
 5. Move to next task
 
 WHEN ALL TASKS ARE DONE:
-1. Commit all changes in your workspace:
+1. Run typecheck: npm run typecheck
+   - Fix any type errors before committing
+   - This catches integration issues early (e.g., incorrect type casts, missing fields)
+2. Commit all changes in your workspace:
    git add -A -- ':!node_modules' ':!.env' ':!.env.local'
-   git commit -m "worker-{N}: [brief summary of all changes]"
+   git commit -m "worker-{N}: [brief summary of all changes]
+
+   Tasks: Task X (FOO-XXX), Task Y (FOO-YYY)
+   Files: path/to/file.ts, path/to/other.ts"
    Do NOT push.
-2. Send final summary to the lead:
+3. Send final summary to the lead:
 ---
 WORKER: worker-{N}
 STATUS: COMPLETE
@@ -258,8 +266,50 @@ FILES MODIFIED:
 COMMIT: [output of: git log --oneline -1]
 ---
 
+IMPORTANT: You MUST send this summary BEFORE going idle. The lead cannot
+proceed to merge without it. If your context is running low, commit and
+send the summary immediately — do not wait.
+
 If you encounter a blocker, send a message to the lead describing it. Do NOT guess or work around it.
 ```
+
+### Lead Populates Testing Context
+
+Before spawning workers, the lead reads 1-2 existing test files from the domains workers will touch. Extract testing environment gotchas that workers would otherwise discover by trial and error. Insert these as a `TESTING NOTES` block in the worker prompt where `{TESTING_CONTEXT}` appears.
+
+**Example for React component tasks (SSE/streaming):**
+```
+TESTING NOTES:
+- React 19 + testing-library v16: wrap async triggers in await act(async () => { fireEvent.click(...) })
+- Plain waitFor() does NOT flush await reader.read() chains — use act() for stream consumption
+- For tests with FileReader macrotasks (Blob conversion), waitFor is still needed for the fetch assertion
+- Add mockFetch.mockReset() to beforeEach to prevent mock queue leakage from delayed mocks
+```
+
+**Example for API route tasks:**
+```
+TESTING NOTES:
+- Route tests mock @/lib/session and @/lib/claude at module level
+- Use vi.mocked(functionName).mockResolvedValueOnce() for async mocks
+- SSE route tests need a consumeSSEStream helper — check existing test files for the pattern
+```
+
+If the tasks are straightforward (no known gotchas), omit the `{TESTING_CONTEXT}` placeholder or replace with: `No special testing notes.`
+
+### Protocol Consistency Reminder
+
+When tasks define or extend an **event protocol** (e.g., `StreamEvent`, WebSocket messages, API response shapes), add this to the worker prompt after the task descriptions:
+
+```
+PROTOCOL CONSISTENCY: These tasks define/extend a streaming event protocol.
+Every code path (fast path, slow path, error path, timeout path) must yield
+the SAME set of event types in consistent order. After implementing, verify:
+- ALL exit paths yield at minimum: [usage] + [result event] + [done]
+- Error paths yield either [error] OR [result + done], never both
+- No path silently returns without a terminal event (done or error)
+```
+
+Omit this block for tasks that don't involve event protocols.
 
 ### Assign tasks and label issues
 
@@ -301,6 +351,16 @@ After spawning workers, wait at least **5 minutes** before taking any corrective
 2. If files are modified → worker IS making progress silently. Wait 3 more minutes.
 3. If NO files modified → send ONE status check message. Wait 2 more minutes.
 4. If still no response and no file changes → the worker is stuck. Do NOT delete its worktree. Instead, fall back to single-agent mode for that worker's tasks (implement them yourself in the main workspace). Leave the worktree intact until the post-worker cleanup phase.
+
+### Lead Non-Interference Rule
+
+While workers are actively working (uncommitted changes visible in their worktree):
+- Do NOT read or debug their source files from the main workspace
+- Do NOT attempt to fix their tests or implementation
+- DO check their worktree status to confirm activity: `git -C _workers/worker-N status --short`
+- Only intervene if: (a) worker explicitly reports a blocker via message, OR (b) worker is idle with no file changes for 5+ minutes after the grace period
+
+If the user reports a worker is struggling, check worktree status first. If changes exist, the worker is making progress — report this to the user and wait. Workers often hit temporary test failures and self-resolve within a few turns.
 
 ### Message Handling
 
