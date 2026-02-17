@@ -1,8 +1,36 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { FoodChat } from "../food-chat";
 import type { FoodAnalysis, FoodLogResponse, ConversationMessage } from "@/types";
+import type { StreamEvent } from "@/lib/sse";
 import { compressImage } from "@/lib/image";
+
+// Helper to create SSE mock fetch responses.
+// Uses a manual reader mock instead of ReadableStream to avoid jsdom stream quirks.
+function makeSSEFetchResponse(events: StreamEvent[], ok = true) {
+  const encoder = new TextEncoder();
+  const data = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+  const encoded = encoder.encode(data);
+
+  let readCalled = false;
+  const mockReader = {
+    read: vi.fn().mockImplementation(() => {
+      if (!readCalled) {
+        readCalled = true;
+        return Promise.resolve({ done: false as const, value: encoded });
+      }
+      return Promise.resolve({ done: true as const, value: undefined });
+    }),
+    releaseLock: vi.fn(),
+    cancel: vi.fn().mockResolvedValue(undefined),
+  };
+
+  return {
+    ok,
+    headers: new Headers({ "Content-Type": "text/event-stream" }),
+    body: { getReader: () => mockReader },
+  };
+}
 
 // Mock ResizeObserver for Radix UI and scrollIntoView for auto-scroll
 beforeAll(() => {
@@ -96,8 +124,18 @@ const defaultProps = {
   onLogged: vi.fn(),
 };
 
+// Props for SSE tests — no initial images to avoid FileReader macrotask timing issues
+const sseProps = {
+  initialAnalysis: mockAnalysis,
+  compressedImages: [] as Blob[],
+  initialMealTypeId: 3,
+  onClose: vi.fn(),
+  onLogged: vi.fn(),
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockFetch.mockReset();
 });
 
 describe("FoodChat", () => {
@@ -1296,6 +1334,287 @@ describe("FoodChat", () => {
       const select = selector.querySelector("select") as HTMLSelectElement;
       // Default meal type is determined by time of day, so just verify it's set
       expect(select.value).toMatch(/^[1-7]$/);
+    });
+  });
+
+  // FOO-557: SSE streaming
+  describe("SSE streaming", () => {
+    it("text_delta events build assistant message content", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Hello " },
+          { type: "text_delta", text: "world" },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Hi there" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      expect(screen.getByText("Hello world")).toBeInTheDocument();
+    });
+
+    it("analysis event from SSE attaches analysis to assistant message", async () => {
+      const updatedAnalysis: FoodAnalysis = { ...mockAnalysis, calories: 640, amount: 300 };
+
+      mockFetch
+        .mockResolvedValueOnce(
+          makeSSEFetchResponse([
+            { type: "text_delta", text: "Updated to 2 empanadas" },
+            { type: "analysis", analysis: updatedAnalysis },
+            { type: "done" },
+          ])
+        )
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({ success: true, data: mockLogResponse })
+            ),
+        });
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Make it 2" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      expect(screen.getByText("Updated to 2 empanadas")).toBeInTheDocument();
+
+      // Log button should use the updated analysis from SSE
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      });
+
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      expect(logCall).toBeDefined();
+      const body = JSON.parse((logCall as unknown[][])[1].body as string);
+      expect(body.calories).toBe(640);
+      expect(body.amount).toBe(300);
+    });
+
+    it("error event from SSE shows error and reverts user message", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Thinking..." },
+          { type: "error", message: "Failed to process message" },
+        ])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Hi there" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      expect(screen.getByText(/failed to process message/i)).toBeInTheDocument();
+      // User message should be reverted, input restored
+      expect(input).toHaveValue("Hi there");
+      // User message bubble should not remain in chat
+      expect(screen.queryByText("Hi there")).not.toBeInTheDocument();
+    });
+
+    it("loading state clears after SSE done event", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Response complete" },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Test" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      expect(screen.queryByTestId("chat-loading")).not.toBeInTheDocument();
+    });
+
+    it("input is re-enabled after SSE stream completes", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Done" },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Test" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      expect(input).not.toBeDisabled();
+    });
+
+    it("SSE stream: requests still include initialAnalysis and images", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Got it" },
+          { type: "done" },
+        ])
+      );
+
+      // Uses defaultProps (with images) intentionally — images go through FileReader (macrotask)
+      // so we use waitFor for the fetch assertion rather than act
+      render(<FoodChat {...defaultProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Hi" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/chat-food",
+          expect.objectContaining({ method: "POST" })
+        );
+      });
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse((callArgs as unknown[][])[1].body as string);
+      expect(body.initialAnalysis).toEqual(mockAnalysis);
+      expect(body.images).toHaveLength(2); // initial images sent on first message
+    });
+  });
+
+  // FOO-558: Thinking messages
+  describe("thinking messages", () => {
+    it("tool_start event splits message: prior text becomes thinking, new message starts", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Let me check your history..." },
+          { type: "tool_start", tool: "search_food_log" },
+          { type: "text_delta", text: "Based on your history, here's the answer" },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "What did I eat?" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      expect(screen.getByText("Let me check your history...")).toBeInTheDocument();
+      expect(screen.getByText("Based on your history, here's the answer")).toBeInTheDocument();
+    });
+
+    it("thinking text is rendered with data-testid=thinking-message", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Searching..." },
+          { type: "tool_start", tool: "search_food_log" },
+          { type: "text_delta", text: "Final answer" },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Check" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      const thinkingEl = screen.getByTestId("thinking-message");
+      expect(thinkingEl).toBeInTheDocument();
+    });
+
+    it("thinking messages persist in conversation history after response completes", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Checking logs..." },
+          { type: "tool_start", tool: "search_food_log" },
+          { type: "text_delta", text: "I found your entry" },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Find food" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      // Both thinking text and final response should remain visible
+      expect(screen.getByText("Checking logs...")).toBeInTheDocument();
+      expect(screen.getByText("I found your entry")).toBeInTheDocument();
+    });
+
+    it("thinking messages are excluded from next API call payload", async () => {
+      // First message: triggers thinking
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "Searching..." },
+          { type: "tool_start", tool: "search" },
+          { type: "text_delta", text: "Here's what I found" },
+          { type: "done" },
+        ])
+      );
+      // Second message: plain response
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([{ type: "text_delta", text: "OK" }, { type: "done" }])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+
+      fireEvent.change(input, { target: { value: "Find food" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      expect(screen.getByText("Here's what I found")).toBeInTheDocument();
+
+      fireEvent.change(input, { target: { value: "Follow up" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+
+      const secondCallArgs = mockFetch.mock.calls[1];
+      const body = JSON.parse((secondCallArgs as unknown[][])[1].body as string);
+      // Thinking messages should be filtered from the payload
+      const thinkingMessages = body.messages.filter(
+        (m: { isThinking?: boolean }) => m.isThinking
+      );
+      expect(thinkingMessages).toHaveLength(0);
+    });
+
+    it("multiple tool loops create separate thinking bubbles", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "text_delta", text: "First search..." },
+          { type: "tool_start", tool: "search_food_log" },
+          { type: "text_delta", text: "Second search..." },
+          { type: "tool_start", tool: "search_food_log" },
+          { type: "text_delta", text: "Final answer" },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Complex query" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      const thinkingEls = screen.getAllByTestId("thinking-message");
+      expect(thinkingEls).toHaveLength(2);
     });
   });
 

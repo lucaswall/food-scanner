@@ -400,6 +400,7 @@ export interface ConversationMessage {
   role: "user" | "assistant";
   content: string;
   analysis?: FoodAnalysis;
+  isThinking?: boolean;
 }
 
 export interface ChatFoodRequest {
