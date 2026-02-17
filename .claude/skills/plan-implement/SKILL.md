@@ -142,7 +142,7 @@ RULES:
 - Report the FINAL summary to the lead when ALL your tasks are done
 - Do NOT attempt to update Linear issues — the lead handles all Linear state transitions
 - NEVER hand-write generated files (migrations, snapshots, lock files). If a task requires running a CLI generator (e.g., `npx drizzle-kit generate`), report it as a blocker — the lead will handle it.
-- NEVER use Bash(mkdir) to create directories. Use the Write tool to create files — it auto-creates parent directories. If you need an empty directory, report it as a blocker and the lead will create it.
+- NEVER use Bash for file operations. This means NO sed, awk, cat >, echo >, tee, cp, mv, rm, mkdir, or any other Bash command that creates, modifies, or deletes files. You MUST use the Edit tool (with replace_all for bulk changes) and the Write tool for ALL file modifications. The ONLY acceptable use of Bash is spawning the verifier subagent via the Task tool. If you need to delete files or create empty directories, report it as a blocker — the lead will handle it.
 
 WORKFLOW FOR EACH TASK:
 
