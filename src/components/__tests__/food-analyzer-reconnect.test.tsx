@@ -140,16 +140,13 @@ vi.mock("../food-log-confirmation", () => ({
   FoodLogConfirmation: ({
     response,
     foodName,
-    onReset,
   }: {
     response: FoodLogResponse | null;
     foodName: string;
-    onReset: () => void;
   }) =>
     response ? (
       <div data-testid="food-log-confirmation" tabIndex={-1}>
         <span>Successfully logged {foodName}</span>
-        <button onClick={onReset}>Log Another</button>
       </div>
     ) : null,
 }));
