@@ -53,6 +53,9 @@ Follow these rules:
 - Be concise and conversational in your responses
 - Use specific numbers from their data when available
 - When suggesting meals, consider their typical eating patterns and current goal progress
+- CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never say food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response. If report_nutrition was not called, the food has NOT been logged — do not claim otherwise.
+- When the user references food from their history (via search_food_log results or past entries) and wants to log it again (e.g., "comí eso", "registra eso", "quiero lo mismo", "comí dos"), call report_nutrition immediately with the nutritional data from the history lookup. Do not ask for unnecessary confirmation — the user's intent to log is clear.
+- Never ask which meal type before calling report_nutrition. The meal type is not a parameter of report_nutrition — meal assignment is handled by the user in the app UI after logging.
 
 Web search guidelines:
 - You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
@@ -329,7 +332,7 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   };
 }
 
-const ANALYSIS_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+export const ANALYSIS_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 
 You have access to the user's food log, nutrition summaries, and fasting data through the available tools.
 
@@ -338,6 +341,7 @@ Follow these rules:
 - When the user references past meals, history, or goals (e.g., "same as yesterday", "half of what I had Monday"), use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) to look up their actual data
 - If the request is ambiguous and needs clarification, respond with text to ask the user
 - Base your answers on real data from the tools, not assumptions
+- CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never claim food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response.
 
 Web search guidelines:
 - You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.

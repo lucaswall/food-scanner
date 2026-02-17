@@ -3353,6 +3353,45 @@ describe("CHAT_SYSTEM_PROMPT web search guidance", () => {
   });
 });
 
+describe("CHAT_SYSTEM_PROMPT registration guardrails", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("requires report_nutrition to be called before claiming food is registered", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/report_nutrition/);
+    // Must instruct that food is only logged when report_nutrition is actually called
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/only.*register|only.*log|never.*claim|never.*say.*register/i);
+  });
+
+  it("instructs not to ask about meal types", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/meal.type/i);
+    // Must mention that meal type is not a parameter / handled by the UI
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/never ask.*meal.type|do not ask.*meal.type|meal.type.*ui|meal.type.*not.*parameter/i);
+  });
+
+  it("instructs to re-log food from history using report_nutrition", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Must mention re-logging from history / past entries and calling report_nutrition
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/history|past.*entry|search_food_log.*result/i);
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/log.*again|re-log|log.*it|report_nutrition/i);
+  });
+});
+
+describe("ANALYSIS_SYSTEM_PROMPT registration guardrails", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("requires report_nutrition to be called before claiming food is registered", async () => {
+    const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Must instruct that food is only logged when report_nutrition is actually called
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/only.*register|only.*log|never.*claim|never.*say.*register/i);
+  });
+});
+
 describe("All Claude tool definitions have strict mode", () => {
   it("all tool definitions have strict: true", async () => {
     const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");

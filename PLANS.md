@@ -1,221 +1,89 @@
-# Implementation Plan
+# Fix Plan: Chat model hallucinates food registration without calling report_nutrition
 
+**Issue:** FOO-555
+**Date:** 2026-02-16
 **Status:** COMPLETE
-**Branch:** feat/FOO-554-dialog-zindex-and-log-another-cleanup
-**Issues:** FOO-554, FOO-553
-**Created:** 2026-02-16
-**Last Updated:** 2026-02-16
+**Branch:** fix/FOO-555-chat-hallucinated-registration
 
-## Summary
+## Investigation
 
-Fix two UX issues: (1) nutrition detail dialogs are invisible when opened from within FoodChat due to a z-index stacking conflict, and (2) remove the unreliable "Log Another" button from the post-log confirmation screen, leaving only the "Done" button.
+### Bug Report
+In the chat-food conversation, when user says "Si es barra, pero ahora comí dos" (referring to CRUDDA Brownie from yesterday's log), Claude responds "Perfecto, registré 2 barras CRUDDA Brownie" — claiming it registered the food. But `hasAnalysis=false` in every response. The `report_nutrition` tool was never called. Claude also asked "which meal type?" even though `report_nutrition` has no meal_type parameter. When user explicitly said "Registra las barras", Claude insisted they were "already registered."
 
-## Issues
+### Classification
+- **Type:** Integration (AI prompt/behavior issue)
+- **Severity:** High (food logging is the core feature — users lose trust when the model lies about registering)
+- **Affected Area:** `CHAT_SYSTEM_PROMPT` in `src/lib/claude.ts` and `ANALYSIS_SYSTEM_PROMPT`
 
-### FOO-554: Nutrition dialog hidden behind FoodChat overlay due to z-index conflict
+### Root Cause Analysis
+The `CHAT_SYSTEM_PROMPT` (lines 31-61 of `src/lib/claude.ts`) lacks critical guardrails:
 
-**Priority:** High
-**Labels:** Bug
-**Description:** Tapping the mini nutrition card inside FoodChat opens a dialog that renders behind the chat overlay (z-50 < z-[60]), making the tap-to-expand feature completely non-functional in the chat flow. Only affects dialogs opened from within FoodChat — the analyzer page works fine.
+1. **No instruction that "registering" requires calling `report_nutrition`.** Line 45 says "When the user describes or shows food, analyze it and call report_nutrition" — but after a `search_food_log` lookup + user reference ("es barra, comí dos"), the model doesn't treat this as "describing food." It thinks the lookup itself was enough.
 
-**Acceptance Criteria:**
-- [ ] Bottom-sheet dialog variant renders above FoodChat overlay (z-[60])
-- [ ] Default dialog variant remains at z-50 (no regression)
-- [ ] Other dialog usages (food-history, analysis-result) unaffected
-- [ ] Dialog overlay also renders above FoodChat for bottom-sheet variant
+2. **No prohibition against claiming registration without tool use.** The model can say "registré" in text without any mechanism verifying `report_nutrition` was called.
 
-### FOO-553: Remove 'Log Another' button from post-log confirmation
+3. **No instruction about meal types.** The model asked "which meal type?" before logging, but `report_nutrition` has no `meal_type` parameter (line 68-146). Meal assignment happens in the frontend UI. This unnecessary question blocked the tool call entirely.
 
-**Priority:** High
-**Labels:** Improvement
-**Description:** The "Log Another" button on the post-log confirmation screen is unnecessary. Remove it entirely — only the "Done" button should remain, navigating back to `/app`.
+4. **Ambiguous "re-log from history" flow.** When user references food from a history lookup and says they want to log it, the system prompt doesn't cover this case. Line 45 only mentions "describes or shows food" — referencing a past entry doesn't clearly match either trigger.
 
-**Acceptance Criteria:**
-- [ ] "Log Another" button removed from `FoodLogConfirmation`
-- [ ] "Done" button becomes primary variant (`variant="default"`) and is centered
-- [ ] Done button navigates to `/app`
-- [ ] Remove 3 "Log Another" test cases from `food-log-confirmation.test.tsx`
-- [ ] Update E2E test in `analyze.spec.ts` (remove "Log Another" assertion)
-- [ ] Clean up stale mocks in `food-analyzer-reconnect.test.tsx` and `quick-select.test.tsx`
+#### Evidence
+- **File:** `src/lib/claude.ts:31-61` — `CHAT_SYSTEM_PROMPT` missing guardrails
+- **File:** `src/lib/claude.ts:68-146` — `REPORT_NUTRITION_TOOL` has no `meal_type` parameter
+- **File:** `src/lib/claude.ts:332-346` — `ANALYSIS_SYSTEM_PROMPT` has the same gap (less likely to trigger since analyze-food transitions to chat, but should be consistent)
+- **Logs:** Staging deployment 2026-02-17 ~00:46-00:47 UTC, requestIds: `96faf10c`, `e6ef804f`, `7a9060c5`, `dc5c5480`, `670cf2ae`
+- **Conversation:** 5 messages, all returned `hasAnalysis=false` / `blockTypes=["text"]` — zero `report_nutrition` calls
 
-## Prerequisites
+### Impact
+- Users think food is logged when it isn't — data loss
+- Trust broken when repeated "register" commands are ignored
+- Core food logging workflow broken for the "re-log from history" use case
 
-- [ ] On `main` branch with clean working tree
-- [ ] All existing tests pass
+## Fix Plan (TDD Approach)
 
-## Implementation Tasks
+### Step 1: Add tests for system prompt guardrails
 
-### Task 1: Add test for bottom-sheet dialog z-index override
+**File:** `src/lib/__tests__/claude.test.ts` (modify)
+**Pattern:** Follow the existing `CHAT_SYSTEM_PROMPT web search guidance` describe block (line 3334)
 
-**Issue:** FOO-554
-**Files:**
-- `src/components/ui/__tests__/dialog.test.tsx` (modify)
+**Tests:**
+1. `CHAT_SYSTEM_PROMPT` contains instruction that `report_nutrition` must be called to actually register/log food (assert prompt matches a pattern about never claiming registration without calling the tool)
+2. `CHAT_SYSTEM_PROMPT` contains instruction not to ask about meal types (assert prompt mentions meal type is handled by the UI / not a parameter of report_nutrition)
+3. `CHAT_SYSTEM_PROMPT` contains instruction for re-logging food from history (assert prompt mentions that when user references past food and wants to log it, call report_nutrition)
+4. `ANALYSIS_SYSTEM_PROMPT` — same test for the registration guardrail (export it or test via the `analyzeFood` function's system prompt construction)
 
-**TDD Steps:**
+### Step 2: Update CHAT_SYSTEM_PROMPT with guardrails
 
-1. **RED** — Add two test cases to the existing `DialogContent variant prop` describe block:
-   - Test that `dialogContentVariants({ variant: "bottom-sheet" })` output contains `z-[70]` and does NOT contain `z-50` (twMerge removes the overridden class)
-   - Test that `dialogContentVariants({ variant: "default" })` output still contains `z-50`
-   - Run: `npm test -- dialog`
-   - Verify: The bottom-sheet z-[70] test fails (currently outputs z-50)
+**File:** `src/lib/claude.ts` (modify — lines 31-61)
 
-2. **GREEN** — Implemented in Task 2.
+**Behavior:**
+Add three new rules to the `CHAT_SYSTEM_PROMPT` "Follow these rules:" section:
 
-**Notes:**
-- `cn()` uses `twMerge` which resolves conflicting z-index classes — later value wins
-- The overlay z-index cannot be tested via CVA variants (it's a separate component), so that will be verified in Task 2's integration step
+1. **Registration integrity rule:** Add a rule after line 45 that explicitly states: food is ONLY registered/logged when `report_nutrition` is called. Never say food is "registered", "logged", or "recorded" in text without having called `report_nutrition` in that turn. If `report_nutrition` hasn't been called, the food has NOT been logged.
 
-### Task 2: Fix dialog z-index for bottom-sheet variant
+2. **Re-log from history rule:** Add a rule that when the user references food from their history (via `search_food_log` results) and indicates they want to log it again (e.g., "comí eso", "registra eso", "quiero lo mismo"), immediately call `report_nutrition` with the nutritional data from the history lookup. Do not ask for confirmation — the user's intent is clear.
 
-**Issue:** FOO-554
-**Files:**
-- `src/components/ui/dialog.tsx` (modify)
+3. **No meal type questions rule:** Add a rule that `report_nutrition` does not accept a meal type parameter — meal assignment is handled by the user in the app UI. Never ask which meal type before calling `report_nutrition`. Just call the tool and let the user assign the meal type afterward.
 
-**TDD Steps:**
+### Step 3: Update ANALYSIS_SYSTEM_PROMPT with consistent guardrails
 
-1. **GREEN** — Two changes needed in `dialog.tsx`:
+**File:** `src/lib/claude.ts` (modify — lines 332-346)
 
-   a. **Content z-index:** In `dialogContentVariants`, add `z-[70]` to the `bottom-sheet` variant string. Since `twMerge` resolves conflicts, it will override the `z-50` in the base class.
+**Behavior:**
+Add the same registration integrity rule to `ANALYSIS_SYSTEM_PROMPT`. The re-log and meal-type rules are less critical here since this prompt is for initial analysis, but the registration integrity rule should be universal.
 
-   b. **Overlay z-index:** In the `DialogContent` component, pass a conditional `className` to `DialogOverlay` — when `variant === "bottom-sheet"`, pass `"z-[70]"`. `DialogOverlay` already accepts className via its `cn()` call, so `twMerge` will override its base `z-50`.
+### Step 4: Verify
 
-   - Run: `npm test -- dialog`
-   - Verify: All dialog tests pass including the new z-[70] assertion from Task 1
+- [ ] All new tests pass
+- [ ] All existing tests pass (especially the existing CHAT_SYSTEM_PROMPT tests)
+- [ ] TypeScript compiles without errors
+- [ ] Lint passes
+- [ ] Build succeeds
 
-2. **REFACTOR** — No refactoring needed, this is a minimal change.
-
-**Notes:**
-- `DialogOverlay` already destructures `className` and merges it via `cn()` — no interface changes needed
-- `DialogContent` already has access to `variant` prop — just add conditional logic before the JSX return
-- z-[70] > z-[60] (FoodChat) > z-50 (default dialog, bottom-nav)
-- Other components using `variant="bottom-sheet"` (`food-history.tsx:349`, `analysis-result.tsx:101`) will also get z-[70] — this is harmless since those are never rendered inside a z-[60] container
-
-### Task 3: Update FoodLogConfirmation tests for Log Another removal
-
-**Issue:** FOO-553
-**Files:**
-- `src/components/__tests__/food-log-confirmation.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Modify existing tests:
-   - **Remove** the 3 "Log Another" test cases (lines 251-294): "renders Log Another button alongside Done button", "navigates to /app/analyze when Log Another button is clicked", "Log Another button has primary variant and Done has outline variant"
-   - **Update** the "navigates to /app when Done button is clicked" test (line 97): the test itself is fine (clicks Done, expects `/app`), but the button variant will change
-   - **Add** a new test: "Done button has default variant" — assert `data-variant="default"` on the Done button
-   - **Add** a new test: "Done button is the only action button" — assert only 1 button with role="button" exists in the actions area (or assert "Log Another" is absent)
-   - Run: `npm test -- food-log-confirmation`
-   - Verify: New tests fail (Done currently has `variant="outline"` and Log Another still exists)
-
-2. **GREEN** — Implemented in Task 4.
-
-### Task 4: Remove Log Another button and restyle Done button
-
-**Issue:** FOO-553
-**Files:**
-- `src/components/food-log-confirmation.tsx` (modify)
-
-**TDD Steps:**
-
-1. **GREEN** — In `food-log-confirmation.tsx`:
-   - Remove the entire `<div className="flex gap-3">` wrapper (lines 86-103) and replace with a single centered Done button
-   - The Done button should: use `variant="default"` (primary), add `data-variant="default"`, keep `min-h-[44px] min-w-[120px]`, navigate to `/app` on click
-   - Wrap in a `<div className="flex justify-center">` for centering
-   - Run: `npm test -- food-log-confirmation`
-   - Verify: All tests pass
-
-2. **REFACTOR** — No refactoring needed.
-
-**Notes:**
-- No props to remove from the component interface — `FoodLogConfirmation` doesn't have `onLogAnother` or `onReset` props (it uses `router.push` internally)
-- The parent components (`food-analyzer.tsx:498`, `quick-select.tsx:192`, `chat-page-client.tsx:18`) don't pass any action callbacks — no parent changes needed
-
-### Task 5: Clean up stale test mocks referencing removed behavior
-
-**Issue:** FOO-553
-**Files:**
-- `src/components/__tests__/food-analyzer-reconnect.test.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **GREEN** — Clean up stale mock definitions:
-
-   a. **`food-analyzer-reconnect.test.tsx`** (lines 139-155): The mock destructures `onReset` and renders a "Log Another" button — these props don't exist on the real component. Simplify the mock to match the pattern in `food-analyzer.test.tsx:163-178` (only destructure `response`, `foodName`; render a simple div).
-
-   b. **`quick-select.test.tsx`** (lines 44-64): The mock destructures `onDone` and `onLogAnother` — both are phantom props. Simplify the mock to only destructure `response` and `foodName`, render a simple confirmation div. Also remove test "does not pass onDone to FoodLogConfirmation so Done navigates to /app" (line 495) since the concept of passing onDone is irrelevant now (Done behavior is internal to the component).
-
-   - Run: `npm test -- food-analyzer-reconnect quick-select`
-   - Verify: All tests pass
-
-2. **REFACTOR** — Ensure mock patterns are consistent across all test files that mock `FoodLogConfirmation`:
-   - `food-analyzer.test.tsx:163` — already clean (no phantom props) ✓
-   - `food-analyzer-reconnect.test.tsx` — cleaned in step 1a
-   - `quick-select.test.tsx` — cleaned in step 1b
-
-### Task 6: Update E2E test for Log Another removal
-
-**Issue:** FOO-553
-**Files:**
-- `e2e/tests/analyze.spec.ts` (modify)
-
-**TDD Steps:**
-
-1. **GREEN** — In `analyze.spec.ts`:
-   - Remove lines 127-128 that assert "Log Another" button visibility
-   - Keep the "Done" button assertion (line 130-131)
-   - No new assertions needed — the "Done" button check is sufficient
-
-   - Run: `npm run e2e` (lead-only, not during TDD)
-   - Verify: E2E tests pass
-
-**Notes:**
-- E2E tests are lead-only and run during final verification, not during the TDD loop
-
-### Task 7: Integration & Verification
-
-**Issue:** FOO-554, FOO-553
-**Files:** Various files from previous tasks
-
-**Steps:**
-
-1. Run full unit test suite: `npm test`
-2. Run linter: `npm run lint`
-3. Run type checker: `npm run typecheck`
-4. Run build: `npm run build`
-5. Run E2E tests: `npm run e2e`
-6. Manual verification:
-   - [ ] Open FoodChat, get an analysis, tap the mini nutrition card → dialog should appear ABOVE the chat
-   - [ ] Log food via analyzer → confirmation shows only "Done" button, centered, primary variant
-   - [ ] Click "Done" → navigates to `/app`
-   - [ ] Log food via quick-select → same confirmation behavior
-   - [ ] Log food via chat → same confirmation behavior
-
-## Error Handling
-
-| Error Scenario | Expected Behavior | Test Coverage |
-|---------------|-------------------|---------------|
-| Dialog z-50 behind z-[60] overlay | Bottom-sheet variant uses z-[70] to paint above | Unit test (CVA variant output) |
-| Default dialog z-index regression | Default variant keeps z-50 | Unit test (CVA variant output) |
-| Done button missing after removal | Single centered Done button remains | Unit test + E2E |
-
-## Risks & Open Questions
-
-- [ ] Risk: Other consumers of `bottom-sheet` variant (`food-history.tsx`, `analysis-result.tsx`) get elevated z-index. Mitigation: These are never rendered inside z-[60] containers, so z-[70] is harmless — the overlay still works correctly.
-- [ ] Risk: `twMerge` doesn't resolve `z-50` vs `z-[70]` correctly. Mitigation: `twMerge` handles arbitrary z-index values and removes the lower one. Confirmed by the `cn()` implementation using `tailwind-merge`.
-
-## Scope Boundaries
-
-**In Scope:**
-- Fix bottom-sheet dialog z-index to render above FoodChat
-- Remove "Log Another" button from FoodLogConfirmation
-- Restyle "Done" button as primary and centered
-- Update all affected unit tests and E2E tests
-- Clean up stale test mocks
-
-**Out of Scope:**
-- Refactoring the FoodChat z-index itself (z-[60] is correct for a full-screen overlay)
-- Adding a generic z-index prop to Dialog (not needed — variant-based is sufficient)
-- Changing bottom-nav z-index (z-50, unrelated)
+## Notes
+- This is a prompt engineering fix — no code logic changes needed, only system prompt text
+- The `report_nutrition` tool and `runToolLoop()` code path work correctly (confirmed by many other conversations). The model simply chose not to call the tool.
+- The `ANALYSIS_SYSTEM_PROMPT` has a similar gap but is less likely to trigger because `analyzeFood` transitions to chat mode for ambiguous requests. Still worth fixing for consistency.
+- Testing prompt content via string matching is the established pattern in this codebase (see `CHAT_SYSTEM_PROMPT web search guidance` tests at line 3334)
 
 ---
 
@@ -225,50 +93,32 @@ Fix two UX issues: (1) nutrition detail dialogs are invisible when opened from w
 **Method:** Single-agent (fly solo)
 
 ### Tasks Completed This Iteration
-- Task 1: Add test for bottom-sheet dialog z-index override (FOO-554) - Added z-[70] CVA variant assertion
-- Task 2: Fix dialog z-index for bottom-sheet variant (FOO-554) - Added z-[70] to bottom-sheet variant and overlay
-- Task 3: Update FoodLogConfirmation tests for Log Another removal (FOO-553) - Removed 3 Log Another tests, added Done-only assertions
-- Task 4: Remove Log Another button and restyle Done button (FOO-553) - Single centered primary Done button
-- Task 5: Clean up stale test mocks (FOO-553) - Simplified mocks in food-analyzer-reconnect and quick-select tests
-- Task 6: Update E2E test for Log Another removal (FOO-553) - Removed Log Another assertion from analyze.spec.ts
-- Task 7: Integration & Verification (FOO-554, FOO-553) - Full suite pass
+- Step 1: Add tests for system prompt guardrails — 4 new tests for registration integrity, meal type, re-log from history, and ANALYSIS_SYSTEM_PROMPT
+- Step 2: Update CHAT_SYSTEM_PROMPT with guardrails — 3 new rules added (registration integrity, re-log from history, no meal type questions)
+- Step 3: Update ANALYSIS_SYSTEM_PROMPT with consistent guardrails — registration integrity rule added, exported for testing
+- Step 4: Verify — all tests pass, lint clean, build succeeds
 
 ### Files Modified
-- `src/components/ui/__tests__/dialog.test.tsx` - Added z-index variant tests
-- `src/components/ui/dialog.tsx` - Added z-[70] to bottom-sheet variant and overlay
-- `src/components/__tests__/food-log-confirmation.test.tsx` - Replaced Log Another tests with Done-only assertions
-- `src/components/food-log-confirmation.tsx` - Removed Log Another button, restyled Done as primary centered
-- `src/components/__tests__/food-analyzer-reconnect.test.tsx` - Simplified FoodLogConfirmation mock (removed onReset)
-- `src/components/__tests__/quick-select.test.tsx` - Simplified FoodLogConfirmation mock (removed onDone/onLogAnother), removed phantom prop test
-- `e2e/tests/analyze.spec.ts` - Removed Log Another button assertion
+- `src/lib/claude.ts` — Added 3 guardrail rules to CHAT_SYSTEM_PROMPT, 1 to ANALYSIS_SYSTEM_PROMPT, exported ANALYSIS_SYSTEM_PROMPT
+- `src/lib/__tests__/claude.test.ts` — Added 4 new tests for prompt guardrail content
 
 ### Linear Updates
-- FOO-554: Todo → In Progress → Review
-- FOO-553: Todo → In Progress → Review
+- FOO-555: Todo → In Progress → Review
 
 ### Pre-commit Verification
 - bug-hunter: Passed — no bugs found
-- verifier: All 1837 tests pass, zero warnings
-
-### Continuation Status
-All tasks completed.
+- verifier: All 1841 tests pass, zero warnings
 
 ### Review Findings
 
-Files reviewed: 7
-Reviewers: security, reliability, quality (agent team)
+Files reviewed: 2
+Reviewers: single-agent (security, reliability, quality checks)
 Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
 
 No issues found - all implementations are correct and follow project conventions.
 
-**Discarded findings (not bugs):**
-- [DISCARDED] EDGE CASE: `.catch(() => {})` on `invalidateFoodCaches()` silently swallows errors (`src/components/food-log-confirmation.tsx:30`) — Intentional fire-and-forget for non-critical cache invalidation. Empty catch prevents unhandled rejection warnings. Cache failure doesn't affect user (food already logged).
-- [DISCARDED] CONVENTION: Two Done button tests at inconsistent indentation, nested inside `nutrition facts card` describe block (`src/components/__tests__/food-log-confirmation.test.tsx:250-273`) — Style/organization issue. Tests execute correctly and verify the right behavior.
-- [DISCARDED] CONVENTION: Three empty lines between test blocks after test removal (`src/components/__tests__/quick-select.test.tsx:486-488`) — Cosmetic formatting.
-
 ### Linear Updates
-- FOO-554: Review → Merge
-- FOO-553: Review → Merge
+- FOO-555: Review → Merge
 
 <!-- REVIEW COMPLETE -->
 
