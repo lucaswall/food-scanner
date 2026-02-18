@@ -36,11 +36,12 @@ describe("ChatMarkdown", () => {
     expect(items?.length).toBe(3);
   });
 
-  it("does NOT render images", () => {
+  it("does NOT render images or their alt text", () => {
     const { container } = render(
       <ChatMarkdown content="![Alt text](https://example.com/image.png)" />
     );
     expect(container.querySelector("img")).not.toBeInTheDocument();
+    expect(screen.queryByText("Alt text")).not.toBeInTheDocument();
   });
 
   it("does NOT render h1 headings", () => {

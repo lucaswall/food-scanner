@@ -45,6 +45,8 @@ describe("GET /api/health", () => {
   });
 
   it("returns version from package.json", async () => {
+    vi.stubEnv("COMMIT_SHA", "");
+    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
     const response = await GET();
     const body = await response.json();
     expect(body.data.version).toBe(packageJson.version);

@@ -284,3 +284,56 @@ Three independent UI/DX improvements: (1) render markdown in chat assistant mess
 - Markdown rendering in other parts of the app (analysis results, loading steps)
 - Service worker or offline support for commit hash
 - Syntax highlighting in code blocks (not expected in food chat responses)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-18
+**Method:** Agent team (2 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Install react-markdown and remark-gfm — Added production dependencies (lead)
+- Task 2: Create ChatMarkdown component with tests — New component wrapping react-markdown + remark-gfm, blocks images and headings, 8 tests (worker-1)
+- Task 3: Integrate ChatMarkdown into food-chat message rendering — Assistant messages now use ChatMarkdown, user messages stay plain text (worker-1)
+- Task 4: Add auto-scroll to analysis progress on analyze click — scrollIntoView({ behavior: 'smooth' }) on analysisSectionRef after setLoading(true), 1 new test (worker-1)
+- Task 5: Expose commit hash at build time via next.config.ts — COMMIT_SHA from RAILWAY_GIT_COMMIT_SHA, truncated to 7 chars (worker-2)
+- Task 6: Add commitHash to health route and format staging version — New commitHash field, version formatted as X.Y.Z+hash on staging, 4 new tests (worker-2)
+- Task 7: Update about-section to display commit hash — Conditional "Commit" row in font-mono text-xs, 2 new tests (worker-2)
+
+### Files Modified
+- `package.json` / `package-lock.json` — Added react-markdown and remark-gfm
+- `src/components/chat-markdown.tsx` — Created ChatMarkdown component
+- `src/components/__tests__/chat-markdown.test.tsx` — Created tests for ChatMarkdown
+- `src/components/food-chat.tsx` — Integrated ChatMarkdown for assistant messages
+- `src/components/food-analyzer.tsx` — Added scrollIntoView on analyze
+- `src/components/__tests__/food-analyzer.test.tsx` — Added scrollIntoView mock + test
+- `src/components/__tests__/food-analyzer-reconnect.test.tsx` — Added scrollIntoView mock (post-merge fix)
+- `next.config.ts` — Added env.COMMIT_SHA build-time injection
+- `src/app/api/health/route.ts` — Added commitHash field, staging version format
+- `src/app/api/health/__tests__/route.test.ts` — Added commit hash tests, hardened version test
+- `src/components/about-section.tsx` — Added commitHash to HealthData, conditional Commit row
+- `src/components/__tests__/about-section.test.tsx` — Added commit hash display tests
+
+### Linear Updates
+- FOO-586: Todo → In Progress → Review
+- FOO-587: Todo → In Progress → Review
+- FOO-588: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs (2 medium, 1 low) — all fixed before commit
+  - Fixed: unwrapDisallowed leaking img alt text (used components prop instead)
+  - Fixed: hardened version test with explicit env stubs
+  - Fixed: scrollIntoView mock missing in food-analyzer-reconnect.test.tsx
+- verifier: All 1934 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 2, 3, 4 (UI domain — markdown rendering, chat integration, auto-scroll)
+- Worker 2: Tasks 5, 6, 7 (infra/API domain — next.config, health route, about-section)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: clean merge via ort strategy (no conflicts)
+
+### Continuation Status
+All tasks completed.
