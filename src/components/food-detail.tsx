@@ -5,7 +5,7 @@ import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, AlertCircle } from "lucide-react";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogEntryDetail } from "@/types";
 
@@ -34,7 +34,7 @@ function formatTime(time: string | null): string {
 
 export function FoodDetail({ entryId }: FoodDetailProps) {
   const router = useRouter();
-  const { data, error, isLoading } = useSWR<FoodLogEntryDetail>(
+  const { data, error, isLoading, mutate } = useSWR<FoodLogEntryDetail>(
     `/api/food-history/${entryId}`,
     apiFetcher,
   );
@@ -58,9 +58,22 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back
         </Button>
-        <p className="text-center text-destructive">
-          Failed to load food entry details
-        </p>
+        <div
+          data-testid="error-container"
+          className="flex flex-col items-center gap-4 p-6 bg-destructive/10 border border-destructive/20 rounded-lg text-center"
+        >
+          <AlertCircle data-testid="error-icon" className="h-10 w-10 text-destructive" />
+          <p className="text-sm text-destructive">
+            Something went wrong loading this food entry.
+          </p>
+          <Button
+            onClick={() => mutate()}
+            variant="outline"
+            className="min-h-[44px]"
+          >
+            Try again
+          </Button>
+        </div>
       </div>
     );
   }
