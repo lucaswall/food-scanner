@@ -410,3 +410,77 @@ Implement 6 high-priority backlog fixes across chat accessibility, empty/error s
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 5 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 5 issue(s) — Linear issues created
+- DISCARDED: 1 finding — not applicable in context
+
+**Issues requiring fix:**
+- [HIGH] BUG: `AbortSignal.any()` breaks food analysis on iOS 16 / Chrome <116 (`src/components/food-analyzer.tsx:186`) — uses API not available on older browsers; food-chat.tsx already avoids it
+- [HIGH] BUG: `validateFoodAnalysis` missing try/catch in end_turn path (`src/lib/claude.ts:740`) — inconsistent with tool_use and partial-response paths; malformed input crashes request
+- [MEDIUM] BUG: food-history.tsx fetch calls missing timeout, safeResponseJson, and error logging (`src/components/food-history.tsx:130,133,147,176,179,198`) — inconsistent with project patterns in food-chat.tsx
+- [MEDIUM] ASYNC: `conversationalRefine` doesn't handle `pause_turn` / `server_tool_use` blocks (`src/lib/claude.ts:1339`) — web search silently dropped; same gap in `analyzeFood`
+- [MEDIUM] TEST: food-detail.test.tsx only covers error state — no happy path or loading tests (`src/components/__tests__/food-detail.test.tsx`)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: Prompt injection chain via AI-generated content in system prompt (`src/lib/claude.ts:1291-1299`) — In this single-user app, the user is the only one who can upload images and receive responses. Injecting text via food_name into the system prompt provides no additional capability beyond what the user already has (typing directly to Claude). Not exploitable.
+
+### Linear Updates
+- FOO-604: Review → Merge (original task completed)
+- FOO-605: Review → Merge (original task completed)
+- FOO-609: Review → Merge (original task completed)
+- FOO-610: Review → Merge (original task completed)
+- FOO-645: Review → Merge (original task completed)
+- FOO-648: Review → Merge (original task completed)
+- FOO-649: Created in Todo (Fix: AbortSignal.any() browser compat)
+- FOO-650: Created in Todo (Fix: validateFoodAnalysis missing try/catch)
+- FOO-651: Created in Todo (Fix: food-history.tsx fetch patterns)
+- FOO-652: Created in Todo (Fix: conversationalRefine pause_turn handling)
+- FOO-653: Created in Todo (Fix: food-detail.test.tsx missing happy path tests)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-649](https://linear.app/lw-claude/issue/FOO-649), [FOO-650](https://linear.app/lw-claude/issue/FOO-650), [FOO-651](https://linear.app/lw-claude/issue/FOO-651), [FOO-652](https://linear.app/lw-claude/issue/FOO-652), [FOO-653](https://linear.app/lw-claude/issue/FOO-653)
+
+### Fix 1: AbortSignal.any() browser compat in food-analyzer.tsx
+**Linear Issue:** [FOO-649](https://linear.app/lw-claude/issue/FOO-649)
+
+1. Write test in `food-analyzer.test.tsx` that verifies analysis works when `AbortSignal.any` is undefined (matching the existing test pattern in `food-chat.test.tsx:1440-1476`)
+2. Replace `AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` at line 186 with the manual timeout pattern from `food-chat.tsx:297-298`
+
+### Fix 2: validateFoodAnalysis missing try/catch in end_turn path
+**Linear Issue:** [FOO-650](https://linear.app/lw-claude/issue/FOO-650)
+
+1. Write test in `claude.test.ts` that verifies `runToolLoop` gracefully yields `done` (without analysis) when `validateFoodAnalysis` throws in the `end_turn` path
+2. Wrap `validateFoodAnalysis` call at `claude.ts:740` in try/catch matching the pattern at lines 789-800
+
+### Fix 3: food-history.tsx fetch patterns
+**Linear Issue:** [FOO-651](https://linear.app/lw-claude/issue/FOO-651)
+
+1. Write tests in `food-history.test.tsx` for:
+   - Fetch timeout behavior (mock AbortSignal.timeout)
+   - Error logging in catch blocks (spy on console.error)
+2. Add `signal: AbortSignal.timeout(15000)` to both fetch calls (lines 130, 176)
+3. Replace `response.json()` with `safeResponseJson(response)` at lines 133, 179
+4. Add `console.error(error)` in both catch blocks (lines 147, 198)
+
+### Fix 4: conversationalRefine pause_turn handling
+**Linear Issue:** [FOO-652](https://linear.app/lw-claude/issue/FOO-652)
+
+1. Write test in `claude.test.ts` that verifies `conversationalRefine` enters `runToolLoop` when `stop_reason` is `"pause_turn"` (even with no `tool_use` blocks)
+2. Update condition at `claude.ts:1339` to: `if ((dataToolUseBlocks.length > 0 || response.stop_reason === "pause_turn") && userId && currentDate)`
+3. Apply same fix to `analyzeFood` (around line 1051)
+
+### Fix 5: food-detail.test.tsx missing happy path tests
+**Linear Issue:** [FOO-653](https://linear.app/lw-claude/issue/FOO-653)
+
+1. Add loading state test: mock SWR returning `{ isLoading: true }`, verify skeleton/loading indicator renders
+2. Add successful render test: mock SWR returning full food entry data, verify food name heading, nutrition values, notes, and date/time metadata render correctly
+3. Add `!data` guard test: mock SWR returning `{ data: undefined, isLoading: false, error: undefined }`, verify component returns null (no crash)
