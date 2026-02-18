@@ -10,8 +10,11 @@ test.describe('Setup Fitbit Page', () => {
     // Verify we're on the setup fitbit page
     await expect(page).toHaveURL('/app/setup-fitbit');
 
+    // Wait for page to fully render — under parallel test load the heading may take longer
+    await page.waitForLoadState('networkidle');
+
     // Verify main heading
-    await expect(page.getByRole('heading', { name: 'Set Up Fitbit', level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Set Up Fitbit', level: 1 })).toBeVisible({ timeout: 10000 });
 
     // Verify back button is visible (uses aria-label)
     const backButton = page.getByRole('link', { name: 'Back to Food Scanner' });

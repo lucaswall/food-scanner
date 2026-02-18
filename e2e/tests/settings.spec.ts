@@ -83,9 +83,12 @@ test.describe('Settings Page', () => {
 
     // The Fitbit App Credentials section shows Client ID in a <code> element
     // with an "Edit" button, and Client Secret as masked with a "Replace Secret" button.
+    // The Edit button is conditionally rendered after SWR fetches credentials data,
+    // which may complete after networkidle — wait explicitly for the button.
 
     // Click "Edit" to enable Client ID editing
     const editButton = page.getByRole('button', { name: 'Edit' });
+    await expect(editButton).toBeVisible({ timeout: 10000 });
     await editButton.click();
 
     // Now the Client ID input should be visible
@@ -151,8 +154,9 @@ test.describe('Settings Page', () => {
     await page.waitForLoadState('networkidle');
 
     // Find and click the "Replace Secret" button
+    // Button is conditionally rendered after SWR fetches credentials — wait explicitly
     const replaceSecretButton = page.getByRole('button', { name: 'Replace Secret' });
-    await expect(replaceSecretButton).toBeVisible();
+    await expect(replaceSecretButton).toBeVisible({ timeout: 10000 });
     await replaceSecretButton.click();
 
     // Verify a Client Secret input appears
@@ -210,12 +214,14 @@ test.describe('Settings Page', () => {
     await page.goto('/settings');
     await page.waitForLoadState('networkidle');
 
-    // Scroll down to the Claude API Usage section
-    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(300);
+    // Claude API Usage section is below SettingsContent (which uses min-h-screen),
+    // so we need to scroll the heading into view directly rather than relying on
+    // scrollTo(bottom) which may not reach it under parallel test load
+    const usageHeading = page.getByRole('heading', { name: /Claude API Usage/i });
+    await usageHeading.scrollIntoViewIfNeeded();
 
     // Verify Claude API Usage heading is visible
-    await expect(page.getByRole('heading', { name: /Claude API Usage/i })).toBeVisible();
+    await expect(usageHeading).toBeVisible({ timeout: 10000 });
 
     // Verify usage data is visible
     // The ClaudeUsageSection component groups usage by month and shows:
