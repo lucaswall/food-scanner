@@ -337,3 +337,58 @@ Three independent UI/DX improvements: (1) render markdown in chat assistant mess
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 3 issue(s) — Linear issues created
+- DISCARDED: 6 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] TIMEOUT: analyze-food fetch missing timeout — user stuck in loading state if SSE stream hangs (`src/components/food-analyzer.tsx:184`) — FOO-589
+- [LOW] CONVENTION: Health route test doesn't explicitly stub COMMIT_SHA — fragile in CI (`src/app/api/health/__tests__/route.test.ts:131`) — FOO-590
+- [LOW] CONVENTION: food-analyzer-reconnect tests missing mockFetch.mockReset() — potential test bleed (`src/components/__tests__/food-analyzer-reconnect.test.tsx:225`) — FOO-591
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: Missing CSP header (next.config.ts) — Not a bug; defense-in-depth improvement. Current code is safe (react-markdown without rehype-raw doesn't parse raw HTML).
+- [DISCARDED] SECURITY: Raw SWR error message rendered (about-section.tsx:42) — Standard error display to authenticated user; SWR wraps fetch failures as Error instances with known safe messages.
+- [DISCARDED] SECURITY: Health endpoint exposes infrastructure details (route.ts:19-26) — Intentional by design per CLAUDE.md ("public, no auth").
+- [DISCARDED] RESOURCE: Pending-submission fetch not tied to abort controller (food-analyzer.tsx:506-510) — React 18 safely handles state updates on unmounted components; bounded by existing 15s timeout.
+- [DISCARDED] TYPE: SWR error typed as any (about-section.tsx:41) — SWR consistently wraps fetch failures as Error instances; .message access is safe.
+- [DISCARDED] TYPE: Non-null assertion on response.body (food-chat.tsx:317) — Safe after response.ok check; 200 streaming responses always have a body.
+
+### Linear Updates
+- FOO-586: Review → Merge (original task completed)
+- FOO-587: Review → Merge (original task completed)
+- FOO-588: Review → Merge (original task completed)
+- FOO-589: Created in Todo (Fix: analyze-food fetch missing timeout)
+- FOO-590: Created in Todo (Fix: health route test fragility)
+- FOO-591: Created in Todo (Fix: food-analyzer-reconnect missing mockReset)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-589](https://linear.app/lw-claude/issue/FOO-589), [FOO-590](https://linear.app/lw-claude/issue/FOO-590), [FOO-591](https://linear.app/lw-claude/issue/FOO-591)
+
+### Fix 1: Add timeout to analyze-food fetch
+**Linear Issue:** [FOO-589](https://linear.app/lw-claude/issue/FOO-589)
+
+1. Write test in `src/components/__tests__/food-analyzer.test.tsx` that verifies the fetch uses a timeout signal (mock `AbortSignal.any` and `AbortSignal.timeout`)
+2. In `src/components/food-analyzer.tsx:184`, replace `signal: controller.signal` with `signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` matching food-chat.tsx pattern
+3. Verify the timeout error is handled gracefully in the existing catch block
+
+### Fix 2: Explicitly stub COMMIT_SHA in health route test
+**Linear Issue:** [FOO-590](https://linear.app/lw-claude/issue/FOO-590)
+
+1. In `src/app/api/health/__tests__/route.test.ts:131`, add `vi.stubEnv("COMMIT_SHA", "")` before the `GET()` call
+2. Verify test passes with explicit stub
+
+### Fix 3: Add mockFetch.mockReset() to food-analyzer-reconnect tests
+**Linear Issue:** [FOO-591](https://linear.app/lw-claude/issue/FOO-591)
+
+1. In `src/components/__tests__/food-analyzer-reconnect.test.tsx:225`, add `mockFetch.mockReset()` before `vi.clearAllMocks()` in the `beforeEach` block
+2. Verify all reconnect tests still pass
