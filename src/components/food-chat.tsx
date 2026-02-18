@@ -583,6 +583,9 @@ export function FoodChat({
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
+        role="log"
+        aria-live="polite"
+        aria-atomic="false"
         className="flex-1 overflow-y-auto px-3 py-2 space-y-2"
       >
         {messages.map((msg, idx) => {
@@ -781,6 +784,7 @@ export function FoodChat({
 
           <Input
             placeholder="Type a message..."
+            aria-label="Message"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
