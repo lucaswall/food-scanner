@@ -47,7 +47,7 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
     );
   }
 
-  if (error || !data) {
+  if (error) {
     return (
       <div className="max-w-md mx-auto p-4 space-y-6">
         <Button
@@ -76,6 +76,10 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
         </div>
       </div>
     );
+  }
+
+  if (!data) {
+    return null;
   }
 
   return (

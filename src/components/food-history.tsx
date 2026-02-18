@@ -132,15 +132,18 @@ export function FoodHistory() {
       });
       const result = await response.json();
 
-      if (result.success) {
-        const newEntries = result.data.entries as FoodLogHistoryEntry[];
-        if (append) {
-          setEntries((prev) => [...prev, ...newEntries]);
-        } else {
-          setEntries(newEntries);
-        }
-        setHasMore(newEntries.length >= 20);
+      if (!response.ok || !result.success) {
+        setFetchError("Failed to load entries. Please try again.");
+        return;
       }
+
+      const newEntries = result.data.entries as FoodLogHistoryEntry[];
+      if (append) {
+        setEntries((prev) => [...prev, ...newEntries]);
+      } else {
+        setEntries(newEntries);
+      }
+      setHasMore(newEntries.length >= 20);
     } catch {
       setFetchError("Failed to load entries. Please try again.");
     } finally {
