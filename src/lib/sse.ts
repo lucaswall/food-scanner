@@ -34,7 +34,16 @@ export function createSSEResponse(
         }
         controller.close();
       } catch (err) {
-        logger.error({ err }, "SSE generator threw an unexpected error");
+        // controller.enqueue() throws TypeError on a closed/errored stream (client disconnect).
+        // Narrow check to controller-related messages to avoid masking generator TypeErrors.
+        const isClientDisconnect =
+          err instanceof TypeError &&
+          (err.message.includes("enqueue") || err.message.includes("Controller") || err.message.includes("closed"));
+        if (isClientDisconnect) {
+          logger.warn({ err }, "SSE client disconnected during streaming");
+        } else {
+          logger.error({ err }, "SSE generator threw an unexpected error");
+        }
         try {
           const isOverloaded = err instanceof Error && err.name === "CLAUDE_API_ERROR" && err.message.includes("overloaded");
           const errorEvent: StreamEvent = isOverloaded

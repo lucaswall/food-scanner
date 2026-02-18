@@ -83,6 +83,54 @@ describe("ChatMarkdown", () => {
     expect(wrapper?.className).toContain("overflow-x-auto");
   });
 
+  it("sanitizes javascript: protocol links", () => {
+    const { container } = render(
+      <ChatMarkdown content="[click me](javascript:alert('xss'))" />
+    );
+    const link = container.querySelector("a");
+    expect(link).toBeInTheDocument();
+    // href should be removed entirely (null) for unsafe protocols
+    expect(link?.getAttribute("href")).toBeNull();
+  });
+
+  it("sanitizes data: protocol links", () => {
+    const { container } = render(
+      <ChatMarkdown content="[click me](data:text/html,<script>alert('xss')</script>)" />
+    );
+    const link = container.querySelector("a");
+    expect(link).toBeInTheDocument();
+    expect(link?.getAttribute("href")).toBeNull();
+  });
+
+  it("allows http: and https: protocol links", () => {
+    const { container } = render(
+      <ChatMarkdown content="[site](https://example.com) and [other](http://test.com)" />
+    );
+    const links = container.querySelectorAll("a");
+    expect(links).toHaveLength(2);
+    expect(links[0].getAttribute("href")).toBe("https://example.com");
+    expect(links[1].getAttribute("href")).toBe("http://test.com");
+  });
+
+  it("allows uppercase protocol links (HTTPS://, HTTP://)", () => {
+    const { container } = render(
+      <ChatMarkdown content="[site](HTTPS://example.com) and [other](HTTP://test.com)" />
+    );
+    const links = container.querySelectorAll("a");
+    expect(links).toHaveLength(2);
+    expect(links[0].getAttribute("href")).toBe("HTTPS://example.com");
+    expect(links[1].getAttribute("href")).toBe("HTTP://test.com");
+  });
+
+  it("allows mailto: protocol links", () => {
+    const { container } = render(
+      <ChatMarkdown content="[email](mailto:user@example.com)" />
+    );
+    const link = container.querySelector("a");
+    expect(link).toBeInTheDocument();
+    expect(link?.getAttribute("href")).toBe("mailto:user@example.com");
+  });
+
   it("uses compact padding and text-xs on table cells", () => {
     const table = `| Name | Calories |
 | ---- | -------- |

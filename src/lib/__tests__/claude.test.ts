@@ -656,7 +656,7 @@ describe("analyzeFood", () => {
 
   // --- API call arguments ---
 
-  it("passes all 6 tools to Claude with tool_choice auto", async () => {
+  it("passes all 5 tools to Claude with tool_choice auto", async () => {
     mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
 
     const { analyzeFood } = await import("@/lib/claude");
@@ -1452,7 +1452,7 @@ describe("truncateConversation", () => {
     expect(result).toEqual(messages);
   });
 
-  it("keeps first + last 4 when over token limit (deduplicates consecutive roles)", async () => {
+  it("keeps first message + last 4, deduplicating at junction", async () => {
     const { truncateConversation } = await import("@/lib/claude");
     const messages = Array.from({ length: 10 }, (_, i) => ({
       role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
@@ -1460,8 +1460,11 @@ describe("truncateConversation", () => {
     }));
 
     const result = truncateConversation(messages, 150000);
+    // first=messages[0](user), last4=[msg6(user), msg7(asst), msg8(user), msg9(asst)]
+    // Junction dedup: msg6 dropped (same role as first), result = [msg0, msg7, msg8, msg9]
     expect(result).toHaveLength(4);
-    expect(result[0]).toBe(messages[6]);
+    expect(result[0]).toBe(messages[0]); // Original first message preserved
+    expect(result[1]).toBe(messages[7]);
     expect(result[3]).toBe(messages[9]);
   });
 
@@ -1493,6 +1496,29 @@ describe("truncateConversation", () => {
     const result = truncateConversation(messages, 15000);
     // If tool blocks are counted, 6 messages totaling ~20K+ tokens exceeds 15K → truncated
     expect(result.length).toBeLessThan(messages.length);
+  });
+
+  it("preserves original first message when it shares role with first of last-4", async () => {
+    const { truncateConversation } = await import("@/lib/claude");
+    // 6-message conversation: first (user) and third-from-end (user) share role
+    // first=[user₀], last4=[user₂, asst₃, user₄, asst₅]
+    // Bug: dedup replaces user₀ with user₂, losing original context
+    const messages: Anthropic.MessageParam[] = [
+      { role: "user", content: "Original food photo request" }, // user₀
+      { role: "assistant", content: "x".repeat(100000) },      // asst₁ (large, to trigger truncation)
+      { role: "user", content: "Follow up question" },         // user₂
+      { role: "assistant", content: "x".repeat(100000) },      // asst₃
+      { role: "user", content: "Another question" },           // user₄
+      { role: "assistant", content: "Final response" },         // asst₅
+    ];
+
+    // Use a threshold lower than total (~50K tokens) to force truncation
+    const result = truncateConversation(messages, 40000);
+
+    // Original first message must be preserved
+    expect(result[0].content).toBe("Original food photo request");
+    // Result must start with user₀
+    expect(result[0].role).toBe("user");
   });
 
   it("ensures no consecutive same-role messages after truncation", async () => {
@@ -1735,7 +1761,7 @@ const minimalStreamParams = {
 
 describe("createStreamWithRetry", () => {
   beforeEach(() => { setupMocks(); });
-  afterEach(() => { vi.resetModules(); });
+  afterEach(() => { vi.useRealTimers(); vi.resetModules(); });
 
   it("yields text deltas and returns on success without retry", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("Hello world"));
@@ -1835,7 +1861,7 @@ describe("createStreamWithRetry", () => {
 
 describe("analyzeFood overload retry", () => {
   beforeEach(() => { setupMocks(); });
-  afterEach(() => { vi.resetModules(); });
+  afterEach(() => { vi.useRealTimers(); vi.resetModules(); });
 
   it("on 529 error: yields retry message and retries successfully", async () => {
     vi.useFakeTimers();
@@ -1888,7 +1914,7 @@ describe("analyzeFood overload retry", () => {
 
 describe("runToolLoop overload retry", () => {
   beforeEach(() => { setupMocks(); });
-  afterEach(() => { vi.resetModules(); });
+  afterEach(() => { vi.useRealTimers(); vi.resetModules(); });
 
   it("on 529 error: yields retry message and retries successfully", async () => {
     vi.useFakeTimers();
@@ -1941,7 +1967,7 @@ describe("runToolLoop overload retry", () => {
 
 describe("conversationalRefine overload retry", () => {
   beforeEach(() => { setupMocks(); });
-  afterEach(() => { vi.resetModules(); });
+  afterEach(() => { vi.useRealTimers(); vi.resetModules(); });
 
   it("on 529 error: yields retry message and retries successfully", async () => {
     vi.useFakeTimers();

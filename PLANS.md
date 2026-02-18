@@ -422,3 +422,37 @@ Summary: 6 issue(s) found, 7 discarded (Team: security, reliability, quality rev
 
 1. Write test in `src/lib/__tests__/claude.test.ts` for a 6-message conversation where first message and first of last-4 share the same role — verify the original first message content is preserved
 2. In `src/lib/claude.ts`, modify the dedup logic (lines 533-541) to start deduplication at index 1 within the last-4 group only, preserving the original first message unconditionally
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-18
+**Method:** Single-agent (small batch — 4 tasks, 6 files)
+
+### Tasks Completed This Iteration
+- Fix 1: SSE false error logging on client disconnect - Narrowed TypeError detection to controller-related messages, log at warn level (FOO-597)
+- Fix 2: ChatMarkdown XSS link sanitization - Added custom `a` component with case-insensitive protocol allowlist (FOO-598)
+- Fix 3: Minor code quality fixes - Added `action` fields to retry logs, fixed test description "6 tools" → "5 tools", added `vi.useRealTimers()` to afterEach in 4 describe blocks (FOO-599)
+- Fix 4: truncateConversation preserves original first message - Dedup now operates within last-4 group only, junction dedup guards against total context erasure (FOO-600)
+
+### Files Modified
+- `src/lib/sse.ts` - Narrowed client-disconnect detection: TypeError + message check for controller keywords
+- `src/lib/__tests__/sse.test.ts` - Added 2 tests: controller TypeError → warn, non-controller TypeError → error
+- `src/components/chat-markdown.tsx` - Added custom `a` component with case-insensitive protocol allowlist + rel="noopener noreferrer"
+- `src/components/__tests__/chat-markdown.test.tsx` - Added 5 tests: javascript:/data: sanitization, http/https/mailto/uppercase allowed
+- `src/lib/claude.ts` - Added `action` fields to retry logs, fixed truncateConversation dedup logic
+- `src/lib/__tests__/claude.test.ts` - Fixed test description, added `vi.useRealTimers()` to 4 afterEach blocks, added truncation preservation test, updated existing truncation test
+
+### Linear Updates
+- FOO-597: Todo → In Progress → Review
+- FOO-598: Todo → In Progress → Review
+- FOO-599: Todo → In Progress → Review
+- FOO-600: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs (case-sensitive regex, broad TypeError check, edge case guard), all fixed
+- verifier: All 1966 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

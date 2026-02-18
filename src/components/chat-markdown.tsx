@@ -18,6 +18,10 @@ export function ChatMarkdown({ content }: ChatMarkdownProps) {
         unwrapDisallowed
         components={{
           img: () => null,
+          a: ({ href, children }) => {
+            const safeHref = href && /^(https?:|mailto:)/i.test(href) ? href : undefined;
+            return <a href={safeHref} rel="noopener noreferrer">{children}</a>;
+          },
           table: ({ children }) => (
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">{children}</table>

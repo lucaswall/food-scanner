@@ -220,14 +220,14 @@ export async function* createStreamWithRetry(
     } catch (error) {
       if (isOverloadedError(error) && attempt < maxRetries) {
         const delayMs = RETRY_DELAYS_MS[attempt] ?? 3000;
-        log.warn({ attempt, delayMs }, "Claude API overloaded, retrying stream");
+        log.warn({ action: "stream_retry", attempt, delayMs }, "Claude API overloaded, retrying stream");
         attempt++;
         yield { type: "text_delta", text: "\n\n*The AI service is momentarily busy, retrying...*\n\n" };
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
         continue;
       }
       if (isOverloadedError(error)) {
-        log.error({ attempt }, "Claude API persistently overloaded, exhausted retries");
+        log.error({ action: "stream_retry_exhausted", attempt }, "Claude API persistently overloaded, exhausted retries");
         throw new ClaudeApiError("The AI service is temporarily overloaded. Please try again in a moment.");
       }
       throw error;
@@ -525,20 +525,26 @@ export function truncateConversation(
   }
 
   const firstMessage = messages[0];
-  const lastFourMessages = messages.slice(-4);
+  const lastFour = messages.slice(-4);
 
-  const result = [firstMessage, ...lastFourMessages];
-
-  // Remove consecutive same-role messages (keep the later one)
-  const filtered: Anthropic.MessageParam[] = [result[0]];
-  for (let i = 1; i < result.length; i++) {
-    if (result[i].role === filtered[filtered.length - 1].role) {
-      // Drop the earlier one (replace it with the current one)
-      filtered[filtered.length - 1] = result[i];
+  // Deduplicate consecutive same-role within last-4 only (keep the later one)
+  const dedupedLast: Anthropic.MessageParam[] = [lastFour[0]];
+  for (let i = 1; i < lastFour.length; i++) {
+    if (lastFour[i].role === dedupedLast[dedupedLast.length - 1].role) {
+      dedupedLast[dedupedLast.length - 1] = lastFour[i];
     } else {
-      filtered.push(result[i]);
+      dedupedLast.push(lastFour[i]);
     }
   }
+
+  // Handle junction: if first message shares role with start of deduped last-4,
+  // drop the first of deduped last-4 to preserve the original context.
+  // Only shift if there are at least 2 messages, to avoid total context erasure.
+  if (dedupedLast.length > 1 && dedupedLast[0].role === firstMessage.role) {
+    dedupedLast.shift();
+  }
+
+  const filtered = [firstMessage, ...dedupedLast];
 
   l.debug(
     { action: "truncate_conversation", estimatedTokens, maxTokens, messagesBefore: messages.length, messagesAfter: filtered.length },
