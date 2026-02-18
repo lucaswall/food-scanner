@@ -179,6 +179,55 @@ describe("FoodHistory", () => {
     expect(screen.getByText(/take a photo or use quick select/i)).toBeInTheDocument();
   });
 
+  it("empty state renders an icon", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText(/no food log entries/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("empty-state-icon")).toBeInTheDocument();
+  });
+
+  it("empty state has Scan Food link to /app/analyze", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText(/no food log entries/i)).toBeInTheDocument();
+    });
+
+    const scanLink = screen.getByRole("link", { name: /scan food/i });
+    expect(scanLink).toBeInTheDocument();
+    expect(scanLink).toHaveAttribute("href", "/app/analyze");
+  });
+
+  it("empty state has Quick Select link to /app/quick-select", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText(/no food log entries/i)).toBeInTheDocument();
+    });
+
+    const quickSelectLink = screen.getByRole("link", { name: /quick select/i });
+    expect(quickSelectLink).toBeInTheDocument();
+    expect(quickSelectLink).toHaveAttribute("href", "/app/quick-select");
+  });
+
   it("delete button opens AlertDialog and confirm deletes entry", async () => {
     mockFetch
       .mockResolvedValueOnce({

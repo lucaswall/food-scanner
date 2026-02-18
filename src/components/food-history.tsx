@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { Trash2 } from "lucide-react";
+import { Trash2, UtensilsCrossed } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogHistoryEntry } from "@/types";
@@ -223,8 +223,17 @@ export function FoodHistory() {
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
+        <UtensilsCrossed data-testid="empty-state-icon" className="h-12 w-12 text-muted-foreground" />
         <p className="text-muted-foreground">No food log entries</p>
         <p className="text-sm text-muted-foreground">Take a photo or use Quick Select to log your first meal</p>
+        <div className="flex gap-3">
+          <Button asChild variant="outline" className="min-h-[44px]">
+            <Link href="/app/analyze">Scan Food</Link>
+          </Button>
+          <Button asChild variant="outline" className="min-h-[44px]">
+            <Link href="/app/quick-select">Quick Select</Link>
+          </Button>
+        </div>
       </div>
     );
   }
