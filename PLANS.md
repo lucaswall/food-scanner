@@ -275,3 +275,46 @@ Real example: query "té leche" fails because it's matched as a single substring
 - Modifying E2E fixtures (historical usage data)
 - Any changes to the find-matches endpoint (already uses correct matching)
 - Service worker or PWA changes
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-17
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Task 1: Replace query parameter with keywords in search_food_log tool definition (FOO-581)
+- Task 2: Update searchFoods to use keyword matching via computeMatchRatio (FOO-581)
+- Task 3: Update executeSearchFoodLog to pass keywords to searchFoods (FOO-581)
+- Task 4: Bump Anthropic SDK and update Claude model constant (FOO-582)
+- Task 5: Add Sonnet 4.6 pricing entry and update all test references (FOO-582)
+- Task 6: Upgrade web search tool to v2 (FOO-583) — SDK 0.75.0 includes WebSearchTool20260209 in main ToolUnion, no beta header needed
+- Task 7: Integration & Verification
+
+### Files Modified
+- `src/lib/chat-tools.ts` — Replaced `query` property with `keywords` array in SEARCH_FOOD_LOG_TOOL schema; updated executeSearchFoodLog to read keywords; added mutual exclusivity note to tool description
+- `src/lib/food-log.ts` — Changed searchFoods signature from `query: string` to `keywords: string[]`; replaced `.includes()` with `computeMatchRatio() >= 0.5`; added case-insensitive normalization of existing keywords
+- `src/lib/claude.ts` — Changed CLAUDE_MODEL to `claude-sonnet-4-6`; changed WEB_SEARCH_TOOL type to `web_search_20260209`; updated function signatures to use `Anthropic.Messages.ToolUnion`
+- `src/lib/claude-usage.ts` — Added `claude-sonnet-4-6` pricing entry ($3/$15 per MTok)
+- `src/app/api/search-foods/route.ts` — Converted free-text query to keywords array; added whitespace-only query validation
+- `src/lib/__tests__/chat-tools.test.ts` — Updated schema and execution tests for keywords
+- `src/lib/__tests__/food-log.test.ts` — Rewrote searchFoods tests for keyword-based matching; added case-insensitivity test
+- `src/lib/__tests__/claude.test.ts` — Replaced model and web search tool references (~30 occurrences)
+- `src/lib/__tests__/claude-usage.test.ts` — Added Sonnet 4.6 pricing test
+- `src/app/api/health/__tests__/route.test.ts` — Updated model references
+- `src/components/__tests__/about-section.test.tsx` — Updated model references
+- `src/app/api/search-foods/__tests__/route.test.ts` — Updated assertions for keyword arrays; added whitespace-only test
+- `package.json` — Bumped `@anthropic-ai/sdk` to 0.75.0
+
+### Linear Updates
+- FOO-581: Todo → In Progress → Review
+- FOO-582: Todo → In Progress → Review
+- FOO-583: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (3 fixed: case-sensitive keyword matching, whitespace-only query edge case, mutual exclusivity documentation; 1 skipped as false positive: non-nullable schema in non-strict mode)
+- verifier: All 1919 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

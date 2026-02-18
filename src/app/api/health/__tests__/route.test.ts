@@ -16,7 +16,7 @@ vi.mock("@/lib/logger", () => {
 });
 
 vi.mock("@/lib/claude", () => ({
-  CLAUDE_MODEL: "claude-sonnet-4-5-20250929",
+  CLAUDE_MODEL: "claude-sonnet-4-6",
 }));
 
 const { GET } = await import("@/app/api/health/route");
@@ -88,7 +88,7 @@ describe("GET /api/health", () => {
   it("returns claudeModel from claude.ts", async () => {
     const response = await GET();
     const body = await response.json();
-    expect(body.data.claudeModel).toBe("claude-sonnet-4-5-20250929");
+    expect(body.data.claudeModel).toBe("claude-sonnet-4-6");
   });
 
   it("returns all required about fields", async () => {

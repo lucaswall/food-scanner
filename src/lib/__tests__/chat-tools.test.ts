@@ -55,8 +55,9 @@ describe("Chat Tool Definitions", () => {
   it("SEARCH_FOOD_LOG_TOOL has correct schema", () => {
     expect(SEARCH_FOOD_LOG_TOOL.name).toBe("search_food_log");
     expect(SEARCH_FOOD_LOG_TOOL.description).toContain("Search the user's food log");
+    expect(SEARCH_FOOD_LOG_TOOL.description).toContain("mutually exclusive");
     expect(SEARCH_FOOD_LOG_TOOL.input_schema.type).toBe("object");
-    expect(SEARCH_FOOD_LOG_TOOL.input_schema.properties).toHaveProperty("query");
+    expect(SEARCH_FOOD_LOG_TOOL.input_schema.properties).toHaveProperty("keywords");
     expect(SEARCH_FOOD_LOG_TOOL.input_schema.properties).toHaveProperty("date");
     expect(SEARCH_FOOD_LOG_TOOL.input_schema.properties).toHaveProperty("from_date");
     expect(SEARCH_FOOD_LOG_TOOL.input_schema.properties).toHaveProperty("to_date");
@@ -89,10 +90,11 @@ describe("Chat Tool Definitions", () => {
     // Data query tools are non-strict to stay under the 16 union-type parameter limit
     expect(SEARCH_FOOD_LOG_TOOL).not.toHaveProperty("strict");
     expect(schema).not.toHaveProperty("additionalProperties");
-    expect(schema.required).toEqual(["query", "date", "from_date", "to_date", "meal_type", "limit"]);
+    expect(schema.required).toEqual(["keywords", "date", "from_date", "to_date", "meal_type", "limit"]);
 
-    // All string params should be nullable
-    expect(props.query.type).toEqual(["string", "null"]);
+    // keywords should be an array of strings
+    expect(props.keywords.type).toBe("array");
+    expect((props.keywords as Record<string, unknown>).items).toEqual({ type: "string" });
     expect(props.date.type).toEqual(["string", "null"]);
     expect(props.from_date.type).toEqual(["string", "null"]);
     expect(props.to_date.type).toEqual(["string", "null"]);
@@ -143,7 +145,7 @@ describe("executeTool - search_food_log", () => {
     vi.clearAllMocks();
   });
 
-  it("executes query-only search", async () => {
+  it("executes keyword-only search", async () => {
     mockSearchFoods.mockResolvedValue([
       {
         customFoodId: 1,
@@ -167,17 +169,50 @@ describe("executeTool - search_food_log", () => {
 
     const result = await executeTool(
       "search_food_log",
-      { query: "pizza" },
+      { keywords: ["pizza"] },
       "user-123",
       "2026-02-15"
     );
 
-    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", "pizza", { limit: 10 }, expect.anything());
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", ["pizza"], { limit: 10 }, expect.anything());
     expect(result).toContain("[id:1]");
     expect(result).toContain("Pizza napolitana");
     expect(result).toContain("300g");
     expect(result).toContain("600 cal");
     expect(result).toContain("Lunch");
+  });
+
+  it("executes keyword search with multiple keywords", async () => {
+    mockSearchFoods.mockResolvedValue([
+      {
+        customFoodId: 5,
+        foodName: "Té con leche",
+        amount: 250,
+        unitId: 209,
+        calories: 80,
+        proteinG: 4,
+        carbsG: 10,
+        fatG: 2,
+        fiberG: 0,
+        sodiumMg: 50,
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        fitbitFoodId: 555,
+        mealTypeId: 1,
+      },
+    ]);
+
+    const result = await executeTool(
+      "search_food_log",
+      { keywords: ["te", "leche"] },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", ["te", "leche"], { limit: 10 }, expect.anything());
+    expect(result).toContain("Té con leche");
   });
 
   it("executes date-only search", async () => {
@@ -623,7 +658,13 @@ describe("executeTool - error handling", () => {
   it("throws error for search_food_log without required parameters", async () => {
     await expect(
       executeTool("search_food_log", {}, "user-123", "2026-02-15")
-    ).rejects.toThrow("At least one of query, date, or from_date+to_date must be provided");
+    ).rejects.toThrow("At least one of keywords, date, or from_date+to_date must be provided");
+  });
+
+  it("throws error for search_food_log with empty keywords array and no date", async () => {
+    await expect(
+      executeTool("search_food_log", { keywords: [], date: null, from_date: null, to_date: null }, "user-123", "2026-02-15")
+    ).rejects.toThrow("At least one of keywords, date, or from_date+to_date must be provided");
   });
 
   it("throws error for get_nutrition_summary without required parameters", async () => {
@@ -635,16 +676,16 @@ describe("executeTool - error handling", () => {
   it("search_food_log accepts null parameters (falsy check works)", async () => {
     mockSearchFoods.mockResolvedValue([]);
 
-    // All params null except query - should work
+    // All params null except keywords - should work
     const result = await executeTool(
       "search_food_log",
-      { query: "pizza", date: null, from_date: null, to_date: null, meal_type: null, limit: null },
+      { keywords: ["pizza"], date: null, from_date: null, to_date: null, meal_type: null, limit: null },
       "user-123",
       "2026-02-15"
     );
 
     expect(result).toContain("No foods found");
-    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", "pizza", { limit: 10 }, expect.anything());
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-123", ["pizza"], { limit: 10 }, expect.anything());
   });
 
   it("get_nutrition_summary accepts null parameters", async () => {

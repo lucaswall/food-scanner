@@ -33,7 +33,7 @@ function makeTextStream(
       { type: "message_stop" },
     ],
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-sonnet-4-6",
       stop_reason: "end_turn",
       content: [{ type: "text", text }],
       usage: {
@@ -58,7 +58,7 @@ function makeReportNutritionStream(
       { type: "message_stop" },
     ],
     {
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-sonnet-4-6",
       stop_reason: "tool_use",
       content: [{ type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: analysis }],
       usage: {
@@ -98,7 +98,7 @@ function makeDataToolStream(
   content.push({ type: "tool_use", id: toolId, name: toolName, input: toolInput });
 
   return createMockStream(rawEvents, {
-    model: "claude-sonnet-4-5-20250929",
+    model: "claude-sonnet-4-6",
     stop_reason: "tool_use",
     content,
     usage: {
@@ -296,7 +296,7 @@ describe("analyzeFood", () => {
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
       "user-123",
-      "claude-sonnet-4-5-20250929",
+      "claude-sonnet-4-6",
       "food-analysis",
       { inputTokens: 1500, outputTokens: 300, cacheCreationTokens: 0, cacheReadTokens: 0 }
     );
@@ -350,7 +350,7 @@ describe("analyzeFood", () => {
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
       "user-123",
-      "claude-sonnet-4-5-20250929",
+      "claude-sonnet-4-6",
       "food-analysis",
       expect.objectContaining({ inputTokens: 1500, outputTokens: 50 })
     );
@@ -370,7 +370,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "end_turn",
           content: [
             { type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: { ...validAnalysis, calories: 160, amount: 75 } },
@@ -480,7 +480,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: { food_name: "Test" } }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -501,7 +501,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: { ...validAnalysis, calories: "320" } }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -522,7 +522,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: { ...validAnalysis, confidence: "very_high" } }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -543,7 +543,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: { ...validAnalysis, keywords: "empanada" } }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -581,7 +581,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: { ...validAnalysis, keywords: ["cerveza", "sin alcohol", "clausthaler"] } }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -601,7 +601,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: { ...validAnalysis, keywords: ["cerveza", "cerveza", "sin-alcohol"] } }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -621,7 +621,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: { ...validAnalysis, keywords: ["a", "b", "c", "d", "e", "f", "g"] } }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -719,7 +719,7 @@ describe("analyzeFood", () => {
 
     const call = mockStream.mock.calls[0][0];
     expect(call.tools[0]).toEqual(
-      expect.objectContaining({ type: "web_search_20250305", name: "web_search" })
+      expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
   });
 
@@ -741,7 +741,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: withTier1 }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -765,7 +765,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: withNullTier1 }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -788,7 +788,7 @@ describe("analyzeFood", () => {
       createMockStream(
         [{ type: "message_stop" }],
         {
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-sonnet-4-6",
           stop_reason: "tool_use",
           content: [{ type: "tool_use", id: "t1", name: "report_nutrition", input: { ...validAnalysis, saturated_fat_g: -1 } }],
           usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -813,7 +813,7 @@ describe("analyzeFood", () => {
     );
     mockExecuteTool.mockResolvedValueOnce("some result");
     mockStream.mockReturnValueOnce(createMockStream([], {
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-sonnet-4-6",
       stop_reason: "end_turn",
       content: [{ type: "text", text: "" }],
       usage: { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
@@ -936,7 +936,7 @@ describe("runToolLoop", () => {
       { type: "message_stop" },
     ];
     mockStream.mockReturnValueOnce(createMockStream(rawEvents, {
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-sonnet-4-6",
       stop_reason: "tool_use",
       content: [
         { type: "tool_use", id: "t1", name: "get_nutrition_summary", input: { date: "2026-02-15" } },
@@ -968,7 +968,7 @@ describe("runToolLoop", () => {
       { type: "message_stop" },
     ];
     mockStream.mockReturnValueOnce(createMockStream(rawEvents, {
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-sonnet-4-6",
       stop_reason: "tool_use",
       content: [
         { type: "tool_use", id: "t_report", name: "report_nutrition", input: validAnalysis },
@@ -1026,7 +1026,7 @@ describe("runToolLoop", () => {
     mockExecuteTool.mockResolvedValueOnce("Result...");
     mockStream.mockReturnValueOnce(
       createMockStream([{ type: "message_stop" }], {
-        model: "claude-sonnet-4-5-20250929",
+        model: "claude-sonnet-4-6",
         stop_reason: "end_turn",
         content: [{ type: "text", text: "Done." }],
         usage: { input_tokens: 1700, output_tokens: 150, cache_creation_input_tokens: 50, cache_read_input_tokens: 200 },
@@ -1042,14 +1042,14 @@ describe("runToolLoop", () => {
     expect(mockRecordUsage).toHaveBeenNthCalledWith(
       1,
       "user-123",
-      "claude-sonnet-4-5-20250929",
+      "claude-sonnet-4-6",
       "food-chat",
       { inputTokens: 1500, outputTokens: 100, cacheCreationTokens: 0, cacheReadTokens: 0 },
     );
     expect(mockRecordUsage).toHaveBeenNthCalledWith(
       2,
       "user-123",
-      "claude-sonnet-4-5-20250929",
+      "claude-sonnet-4-6",
       "food-chat",
       { inputTokens: 1700, outputTokens: 150, cacheCreationTokens: 50, cacheReadTokens: 200 },
     );
@@ -1077,7 +1077,7 @@ describe("runToolLoop", () => {
 
     const call = mockStream.mock.calls[0][0];
     expect(call.tools[0]).toEqual(
-      expect.objectContaining({ type: "web_search_20250305", name: "web_search" })
+      expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
   });
 
@@ -1086,7 +1086,7 @@ describe("runToolLoop", () => {
     mockStream.mockReturnValueOnce(createMockStream(
       [{ type: "message_stop" }],
       {
-        model: "claude-sonnet-4-5-20250929",
+        model: "claude-sonnet-4-6",
         stop_reason: "tool_use",
         content: [
           { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "Big Mac nutrition" } },
@@ -1129,7 +1129,7 @@ describe("runToolLoop", () => {
     mockStream.mockReturnValueOnce(createMockStream(
       [{ type: "message_stop" }],
       {
-        model: "claude-sonnet-4-5-20250929",
+        model: "claude-sonnet-4-6",
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "Here's the analysis." },
@@ -1181,7 +1181,7 @@ describe("runToolLoop", () => {
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
       "user-123",
-      "claude-sonnet-4-5-20250929",
+      "claude-sonnet-4-6",
       "food-analysis",
       expect.any(Object),
     );
@@ -1206,7 +1206,7 @@ describe("conversationalRefine", () => {
         { type: "message_stop" },
       ],
       {
-        model: "claude-sonnet-4-5-20250929",
+        model: "claude-sonnet-4-6",
         stop_reason: "end_turn",
         content: [
           { type: "text", text: "I've updated the portion size to 200g" },
@@ -1389,7 +1389,7 @@ describe("conversationalRefine", () => {
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
       "user-123",
-      "claude-sonnet-4-5-20250929",
+      "claude-sonnet-4-6",
       "food-chat",
       expect.objectContaining({ inputTokens: 1800, outputTokens: 400 })
     );
@@ -1405,7 +1405,7 @@ describe("conversationalRefine", () => {
 
     const call = mockStream.mock.calls[0][0];
     expect(call.tools[0]).toEqual(
-      expect.objectContaining({ type: "web_search_20250305", name: "web_search" })
+      expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
   });
 });

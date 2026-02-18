@@ -13,7 +13,7 @@ const mockHealthData = {
   version: "1.11.0",
   environment: "Production",
   fitbitMode: "Live",
-  claudeModel: "claude-sonnet-4-5-20250929",
+  claudeModel: "claude-sonnet-4-6",
 };
 
 describe("AboutSection", () => {
@@ -78,7 +78,7 @@ describe("AboutSection", () => {
 
     render(<AboutSection />);
 
-    expect(screen.getByText("claude-sonnet-4-5-20250929")).toBeInTheDocument();
+    expect(screen.getByText("claude-sonnet-4-6")).toBeInTheDocument();
   });
 
   it("renders GitHub Releases link with correct href", () => {

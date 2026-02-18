@@ -26,6 +26,10 @@ export const MODEL_PRICING: Record<
     inputPricePerMToken: 3,
     outputPricePerMToken: 15,
   },
+  "claude-sonnet-4-6": {
+    inputPricePerMToken: 3,
+    outputPricePerMToken: 15,
+  },
   "claude-haiku-4-5-20251001": {
     inputPricePerMToken: 0.8,
     outputPricePerMToken: 4,
