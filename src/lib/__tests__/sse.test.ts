@@ -282,4 +282,26 @@ describe("createSSEResponse - error handling", () => {
       expect.any(String),
     );
   });
+
+  it("sends the actual error message and AI_OVERLOADED code when generator throws an overloaded error", async () => {
+    const overloadedError = new Error("Claude API is currently overloaded, please try again later");
+
+    async function* overloadedGenerator(): AsyncGenerator<StreamEvent> {
+      throw overloadedError;
+    }
+
+    const response = createSSEResponse(overloadedGenerator());
+    const text = await response.text();
+    const { events } = parseSSEEvents(text, "");
+
+    const errorEvent = events.find((e) => e.type === "error");
+    expect(errorEvent).toBeDefined();
+
+    const typedEvent = errorEvent as { type: "error"; message: string; code?: string };
+    // Must pass through the actual error message (not a generic one)
+    expect(typedEvent.message).toBe(overloadedError.message);
+    expect(typedEvent.message).not.toBe("An internal error occurred");
+    // Must use AI_OVERLOADED code
+    expect(typedEvent.code).toBe("AI_OVERLOADED");
+  });
 });
