@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** COMPLETE
+**Status:** IN_PROGRESS
 **Branch:** feat/FOO-601-critical-bugs
 **Issues:** FOO-601, FOO-602, FOO-603, FOO-606, FOO-607
 **Created:** 2026-02-18
@@ -422,5 +422,41 @@ Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
 - bug-hunter: Found 2 bugs (timer leak on !response.ok path, test assertion ordering), both fixed
 - verifier: All 1976 tests pass, zero warnings, build clean
 
-### Continuation Status
-All tasks completed.
+### Review Findings
+
+Summary: 1 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 1 issue(s) — Linear issue created
+- DISCARDED: 7 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [LOW] RESOURCE: 120s timeout timer leaks on unmount — `timeoutId` not cleared when AbortError catch returns early (`src/components/food-chat.tsx:296,404`)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] RESOURCE: SSE stream not cancelled on error event (`src/components/food-chat.tsx:379-381`) — Server closes stream after sending error event; controller in ref is aborted on unmount; no data consumed after releaseLock
+- [DISCARDED] EDGE CASE: base64 split could return undefined (`src/components/food-chat.tsx:210`) — FileReader.readAsDataURL spec guarantees `data:mediatype;base64,data` format; comma is always present
+- [DISCARDED] ERROR: Missing console.error in handleSend catch (`src/components/food-chat.tsx:402-422`) — Style preference; errors properly surfaced to user via setError(); not a correctness issue
+- [DISCARDED] ERROR: Missing console.error in handleLog catch (`src/components/food-chat.tsx:488-495`) — Same as above
+- [DISCARDED] EDGE CASE: FITBIT_NOT_CONNECTED error code not tested (`src/components/__tests__/food-chat.test.tsx:1100-1116`) — Identical code path (same `||` branch) fully covered by FITBIT_CREDENTIALS_MISSING test
+- [DISCARDED] CONVENTION: setTimeout in tests without fake timers (`src/components/__tests__/food-chat.test.tsx:552-565,577-591`) — React 18 silently ignores state updates on unmounted components; no test-visible impact
+- [DISCARDED] CONVENTION: window.location override not in try/finally (`src/components/__tests__/food-chat.test.tsx:1065-1098`) — Deterministic test; impossible to throw between override and restore
+
+### Linear Updates
+- FOO-641: Review → Merge (original task completed)
+- FOO-642: Review → Merge (original task completed)
+- FOO-643: Review → Merge (original task completed)
+- FOO-644: Created in Todo (Fix: 120s timeout timer leak on unmount)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 2
+**Linear Issues:** [FOO-644](https://linear.app/lw-claude/issue/FOO-644)
+
+### Fix 1: 120s timeout timer leaks on unmount
+**Linear Issue:** [FOO-644](https://linear.app/lw-claude/issue/FOO-644)
+
+1. Write test in `src/components/__tests__/food-chat.test.tsx` that verifies the timeout is cleared when the component unmounts during an active chat request — mock setTimeout/clearTimeout, trigger send, unmount, assert clearTimeout was called with the timeout ID
+2. Add `clearTimeout(timeoutId)` before the `return` in the AbortError catch block at `src/components/food-chat.tsx:404-405`
