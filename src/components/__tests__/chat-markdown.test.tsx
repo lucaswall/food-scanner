@@ -69,4 +69,78 @@ describe("ChatMarkdown", () => {
     const wrapper = container.firstChild as HTMLElement;
     expect(wrapper.className).toContain("text-sm");
   });
+
+  it("wraps table in overflow-x-auto container for mobile scrolling", () => {
+    const table = `| Name | Calories | Protein | Carbs | Fat |
+| ---- | -------- | ------- | ----- | --- |
+| Apple | 95 | 0.5 | 25 | 0.3 |
+| Banana | 105 | 1.3 | 27 | 0.4 |`;
+    const { container } = render(<ChatMarkdown content={table} />);
+    const tableEl = container.querySelector("table");
+    expect(tableEl).toBeInTheDocument();
+    // Table must be wrapped in an overflow-x-auto container
+    const wrapper = tableEl?.parentElement;
+    expect(wrapper?.className).toContain("overflow-x-auto");
+  });
+
+  it("sanitizes javascript: protocol links", () => {
+    const { container } = render(
+      <ChatMarkdown content="[click me](javascript:alert('xss'))" />
+    );
+    const link = container.querySelector("a");
+    expect(link).toBeInTheDocument();
+    // href should be removed entirely (null) for unsafe protocols
+    expect(link?.getAttribute("href")).toBeNull();
+  });
+
+  it("sanitizes data: protocol links", () => {
+    const { container } = render(
+      <ChatMarkdown content="[click me](data:text/html,<script>alert('xss')</script>)" />
+    );
+    const link = container.querySelector("a");
+    expect(link).toBeInTheDocument();
+    expect(link?.getAttribute("href")).toBeNull();
+  });
+
+  it("allows http: and https: protocol links", () => {
+    const { container } = render(
+      <ChatMarkdown content="[site](https://example.com) and [other](http://test.com)" />
+    );
+    const links = container.querySelectorAll("a");
+    expect(links).toHaveLength(2);
+    expect(links[0].getAttribute("href")).toBe("https://example.com");
+    expect(links[1].getAttribute("href")).toBe("http://test.com");
+  });
+
+  it("allows uppercase protocol links (HTTPS://, HTTP://)", () => {
+    const { container } = render(
+      <ChatMarkdown content="[site](HTTPS://example.com) and [other](HTTP://test.com)" />
+    );
+    const links = container.querySelectorAll("a");
+    expect(links).toHaveLength(2);
+    expect(links[0].getAttribute("href")).toBe("HTTPS://example.com");
+    expect(links[1].getAttribute("href")).toBe("HTTP://test.com");
+  });
+
+  it("allows mailto: protocol links", () => {
+    const { container } = render(
+      <ChatMarkdown content="[email](mailto:user@example.com)" />
+    );
+    const link = container.querySelector("a");
+    expect(link).toBeInTheDocument();
+    expect(link?.getAttribute("href")).toBe("mailto:user@example.com");
+  });
+
+  it("uses compact padding and text-xs on table cells", () => {
+    const table = `| Name | Calories |
+| ---- | -------- |
+| Apple | 95 |`;
+    const { container } = render(<ChatMarkdown content={table} />);
+    const th = container.querySelector("th");
+    const td = container.querySelector("td");
+    expect(th?.className).toContain("px-1.5");
+    expect(td?.className).toContain("px-1.5");
+    expect(th?.className).toContain("text-xs");
+    expect(td?.className).toContain("text-xs");
+  });
 });

@@ -282,4 +282,66 @@ describe("createSSEResponse - error handling", () => {
       expect.any(String),
     );
   });
+
+  it("logs client-disconnect TypeError at warn level, not error", async () => {
+    // In production, controller.enqueue() throws TypeError when client disconnects.
+    // Simulate by having the generator throw a TypeError with the controller message.
+    const disconnectError = new TypeError("Failed to execute 'enqueue' on 'ReadableStreamDefaultController': Cannot enqueue a chunk into a closed readable stream");
+
+    async function* disconnectGen(): AsyncGenerator<StreamEvent> {
+      throw disconnectError;
+    }
+
+    const response = createSSEResponse(disconnectGen());
+    await response.text();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: disconnectError }),
+      expect.stringContaining("disconnect"),
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("logs non-controller TypeError at error level, not warn", async () => {
+    // A TypeError from inside the generator (programming bug) should still be error level.
+    const generatorBug = new TypeError("Cannot read properties of null (reading 'content')");
+
+    async function* buggyGen(): AsyncGenerator<StreamEvent> {
+      throw generatorBug;
+    }
+
+    const response = createSSEResponse(buggyGen());
+    await response.text();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: generatorBug }),
+      expect.any(String),
+    );
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("sends the actual error message and AI_OVERLOADED code when generator throws an overloaded error", async () => {
+    const overloadedError = Object.assign(
+      new Error("Claude API is currently overloaded, please try again later"),
+      { name: "CLAUDE_API_ERROR" },
+    );
+
+    async function* overloadedGenerator(): AsyncGenerator<StreamEvent> {
+      throw overloadedError;
+    }
+
+    const response = createSSEResponse(overloadedGenerator());
+    const text = await response.text();
+    const { events } = parseSSEEvents(text, "");
+
+    const errorEvent = events.find((e) => e.type === "error");
+    expect(errorEvent).toBeDefined();
+
+    const typedEvent = errorEvent as { type: "error"; message: string; code?: string };
+    // Must pass through the actual error message (not a generic one)
+    expect(typedEvent.message).toBe(overloadedError.message);
+    expect(typedEvent.message).not.toBe("An internal error occurred");
+    // Must use AI_OVERLOADED code
+    expect(typedEvent.code).toBe("AI_OVERLOADED");
+  });
 });

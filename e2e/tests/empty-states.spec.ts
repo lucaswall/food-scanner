@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { captureScreenshots } from '../fixtures/screenshots';
 
 // Uses default authenticated storage state from global setup
 
@@ -9,6 +10,8 @@ test.describe('Empty and Error States', () => {
 
     // The food detail component shows "Failed to load food entry details" text
     await expect(page.getByText('Failed to load food entry details')).toBeVisible({ timeout: 10000 });
+
+    await captureScreenshots(page, 'food-detail-error');
 
     // Verify back button is present
     await expect(page.getByRole('button', { name: /Back/ })).toBeVisible();

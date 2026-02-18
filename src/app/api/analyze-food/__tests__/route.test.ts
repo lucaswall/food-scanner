@@ -56,10 +56,16 @@ vi.mock("@/lib/logger", () => {
 });
 
 // Mock Claude API — analyzeFood now returns AsyncGenerator<StreamEvent>
-const mockAnalyzeFood = vi.fn();
-vi.mock("@/lib/claude", () => ({
-  analyzeFood: mockAnalyzeFood,
+const { mockAnalyzeFood } = vi.hoisted(() => ({
+  mockAnalyzeFood: vi.fn(),
 }));
+vi.mock("@/lib/claude", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/claude")>();
+  return {
+    ...actual,
+    analyzeFood: mockAnalyzeFood,
+  };
+});
 
 const { POST } = await import("@/app/api/analyze-food/route");
 const { logger } = await import("@/lib/logger");

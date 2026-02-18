@@ -172,6 +172,69 @@ class ClaudeApiError extends Error {
   }
 }
 
+/**
+ * Returns true if the error is a Claude API overloaded error (HTTP 529).
+ * Checks both the Anthropic SDK APIError status and duck-typing on the error body.
+ */
+export function isOverloadedError(error: unknown): boolean {
+  // Check 1: Anthropic SDK APIError with status 529
+  if (error instanceof Anthropic.APIError && error.status === 529) {
+    return true;
+  }
+  // Check 2: Duck-typing — error body has type: 'overloaded_error'
+  if (error !== null && typeof error === "object" && "error" in error) {
+    const body = (error as Record<string, unknown>).error;
+    if (body !== null && typeof body === "object" && "type" in (body as object)) {
+      return (body as Record<string, unknown>).type === "overloaded_error";
+    }
+  }
+  return false;
+}
+
+const RETRY_DELAYS_MS = [1000, 3000] as const;
+
+/**
+ * Creates a Claude API stream with automatic retry on 529 (overloaded) errors.
+ * Yields a retry text_delta event before each retry so the UI can show feedback.
+ * Throws ClaudeApiError if all retries are exhausted or if a non-529 error occurs.
+ *
+ * Passes maxRetries: 0 in request options to disable SDK-level retries for this call
+ * (avoiding double-retry with the client's default maxRetries: 2).
+ */
+export async function* createStreamWithRetry(
+  streamParams: Parameters<Anthropic["beta"]["messages"]["stream"]>[0],
+  requestOptions: { signal?: AbortSignal | null } | null | undefined,
+  log: Logger,
+  maxRetries = 2,
+): AsyncGenerator<StreamEvent, Anthropic.Message> {
+  let attempt = 0;
+
+  while (true) {
+    try {
+      const stream = getClient().beta.messages.stream(
+        streamParams,
+        { ...(requestOptions ?? {}), maxRetries: 0 },
+      );
+      const msg: Anthropic.Message = yield* streamTextDeltas(stream);
+      return msg;
+    } catch (error) {
+      if (isOverloadedError(error) && attempt < maxRetries) {
+        const delayMs = RETRY_DELAYS_MS[attempt] ?? 3000;
+        log.warn({ action: "stream_retry", attempt, delayMs }, "Claude API overloaded, retrying stream");
+        attempt++;
+        yield { type: "text_delta", text: "\n\n*The AI service is momentarily busy, retrying...*\n\n" };
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+      if (isOverloadedError(error)) {
+        log.error({ action: "stream_retry_exhausted", attempt }, "Claude API persistently overloaded, exhausted retries");
+        throw new ClaudeApiError("The AI service is temporarily overloaded. Please try again in a moment.");
+      }
+      throw error;
+    }
+  }
+}
+
 /** Build a debug payload summarizing a Claude API response */
 function summarizeResponse(response: Anthropic.Message): Record<string, unknown> {
   const blockTypes = response.content.map((b) => b.type);
@@ -462,20 +525,26 @@ export function truncateConversation(
   }
 
   const firstMessage = messages[0];
-  const lastFourMessages = messages.slice(-4);
+  const lastFour = messages.slice(-4);
 
-  const result = [firstMessage, ...lastFourMessages];
-
-  // Remove consecutive same-role messages (keep the later one)
-  const filtered: Anthropic.MessageParam[] = [result[0]];
-  for (let i = 1; i < result.length; i++) {
-    if (result[i].role === filtered[filtered.length - 1].role) {
-      // Drop the earlier one (replace it with the current one)
-      filtered[filtered.length - 1] = result[i];
+  // Deduplicate consecutive same-role within last-4 only (keep the later one)
+  const dedupedLast: Anthropic.MessageParam[] = [lastFour[0]];
+  for (let i = 1; i < lastFour.length; i++) {
+    if (lastFour[i].role === dedupedLast[dedupedLast.length - 1].role) {
+      dedupedLast[dedupedLast.length - 1] = lastFour[i];
     } else {
-      filtered.push(result[i]);
+      dedupedLast.push(lastFour[i]);
     }
   }
+
+  // Handle junction: if first message shares role with start of deduped last-4,
+  // drop the first of deduped last-4 to preserve the original context.
+  // Only shift if there are at least 2 messages, to avoid total context erasure.
+  if (dedupedLast.length > 1 && dedupedLast[0].role === firstMessage.role) {
+    dedupedLast.shift();
+  }
+
+  const filtered = [firstMessage, ...dedupedLast];
 
   l.debug(
     { action: "truncate_conversation", estimatedTokens, maxTokens, messagesBefore: messages.length, messagesAfter: filtered.length },
@@ -604,7 +673,8 @@ export async function* runToolLoop(
       );
 
       const iterElapsed = startTimer();
-      const stream = getClient().beta.messages.stream({
+      // Stream text deltas in real time (with overload retry)
+      const response = yield* createStreamWithRetry({
         model: CLAUDE_MODEL,
         max_tokens: maxTokens,
         betas: [BETA_HEADER],
@@ -618,10 +688,7 @@ export async function* runToolLoop(
         tools: toolsWithCache,
         tool_choice: { type: "auto" },
         messages: conversationMessages,
-      }, { signal: options?.signal });
-
-      // Stream text deltas in real time
-      const response = yield* streamTextDeltas(stream);
+      }, { signal: options?.signal }, l);
 
       l.debug({ action: "tool_loop_api_call", iteration, durationMs: iterElapsed() }, "tool loop API call completed");
       l.debug({ action: "tool_loop_iteration", iteration, ...summarizeResponse(response) }, "tool loop iteration response");
@@ -912,7 +979,8 @@ export async function* analyzeFood(
       "Claude API request detail"
     );
 
-    const stream = getClient().beta.messages.stream({
+    // Stream text deltas from the initial response (with overload retry)
+    const response = yield* createStreamWithRetry({
       model: CLAUDE_MODEL,
       max_tokens: 1024,
       betas: [BETA_HEADER],
@@ -926,10 +994,7 @@ export async function* analyzeFood(
       tools: toolsWithCache,
       tool_choice: { type: "auto" },
       messages: [userMessage],
-    }, { signal });
-
-    // Stream text deltas from the initial response
-    const response = yield* streamTextDeltas(stream);
+    }, { signal }, l);
 
     l.debug({ action: "analyze_food_response", ...summarizeResponse(response) }, "Claude API response received");
     l.debug(
@@ -1236,7 +1301,8 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       "Claude API chat request system prompt"
     );
 
-    const stream = getClient().beta.messages.stream({
+    // Stream text deltas from the initial response (with overload retry)
+    const response = yield* createStreamWithRetry({
       model: CLAUDE_MODEL,
       max_tokens: 2048,
       betas: [BETA_HEADER],
@@ -1250,10 +1316,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       tools: toolsWithCache,
       tool_choice: { type: "auto" },
       messages: anthropicMessages,
-    }, { signal });
-
-    // Stream text deltas from the initial response
-    const response = yield* streamTextDeltas(stream);
+    }, { signal }, l);
 
     l.debug({ action: "conversational_refine_response", ...summarizeResponse(response) }, "Claude API response received");
     l.debug(
