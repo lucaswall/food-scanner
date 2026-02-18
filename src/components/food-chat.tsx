@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MealTypeSelector } from "./meal-type-selector";
+import { MealTypeSelector } from "@/components/meal-type-selector";
 import {
   Send,
   ArrowLeft,
@@ -21,8 +21,8 @@ import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { getTodayDate } from "@/lib/date-utils";
 import { savePendingSubmission } from "@/lib/pending-submission";
-import { MiniNutritionCard } from "./mini-nutrition-card";
-import { ChatMarkdown } from "./chat-markdown";
+import { MiniNutritionCard } from "@/components/mini-nutrition-card";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import type {
   FoodAnalysis,
   FoodLogResponse,
@@ -248,6 +248,8 @@ export function FoodChat({
       setError(errorMessage);
     };
 
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
     try {
       const allMessages = [...messages, userMessage];
       // When seeded, send all messages (they're all "real" conversation turns)
@@ -292,12 +294,17 @@ export function FoodChat({
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
+      timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 120000);
+
       const response = await fetch("/api/chat-food", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const result = (await safeResponseJson(response)) as {
@@ -310,11 +317,16 @@ export function FoodChat({
 
       const contentType = response.headers?.get("Content-Type") ?? "";
       if (contentType.includes("text/event-stream")) {
+        if (!response.body) {
+          revertOnError("No response body");
+          return;
+        }
+
         // SSE streaming path: use functional setMessages updaters so React 18 applies
         // each event in order (functional updaters are always applied sequentially).
         setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
-        const reader = response.body!.getReader();
+        const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         let streamFinished = false;
@@ -408,6 +420,7 @@ export function FoodChat({
         );
       }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -520,6 +533,7 @@ export function FoodChat({
       <div className="border-b bg-background px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] space-y-2">
         {latestAnalysis ? (
           <div className="flex items-center gap-2">
+            <h1 className="sr-only">{title}</h1>
             <button
               onClick={onClose}
               aria-label="Back"

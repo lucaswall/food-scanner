@@ -1,61 +1,77 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Branch:** feat/FOO-593-overload-retry-and-fixes
-**Issues:** FOO-593, FOO-594, FOO-595, FOO-596
+**Branch:** feat/FOO-601-critical-bugs
+**Issues:** FOO-601, FOO-602, FOO-603, FOO-606, FOO-607
 **Created:** 2026-02-18
 **Last Updated:** 2026-02-18
 
 ## Summary
 
-Four improvements: (1) Add retry with user feedback for Claude API 529 overloaded errors, (2) fix markdown table overflow on mobile, (3) add E2E screenshots for the free-form chat page, and (4) add E2E screenshots for secondary UI states (Quick Select Recent tab, food detail error, refine chat error).
+Fix 5 critical bugs affecting visual correctness, accessibility, and security: a washed-out confirmation screen in light mode, missing landmarks on the chat page, broken settings page layout, broken color tokens in the pending submission handler, and missing Content-Security-Policy header.
 
 ## Issues
 
-### FOO-593: Claude API overloaded_error crashes food analysis and chat with no retry
+### FOO-601: Analyze confirmation screen washed out in light mode
 
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** When the Anthropic Claude API returns 529 `overloaded_error`, the SSE stream crashes with a generic "An internal error occurred" message. The SDK has `maxRetries: 2` which handles transparent retries, but there is no user feedback during retries and the final error message is unhelpful. Affects both `/api/analyze-food` and `/api/chat-food` routes.
-
-**Acceptance Criteria:**
-- [ ] Automatic retries (1-2) with exponential backoff for `overloaded_error` only
-- [ ] Visible SSE message during retry ("The AI service is momentarily busy, retrying...")
-- [ ] Improved final error message when all retries exhausted (clear, specific, not the user's fault)
-- [ ] Both routes covered (analyze-food and chat-food)
-
-### FOO-594: Markdown tables in chat overflow on mobile screens
-
-**Priority:** Medium
+**Priority:** Urgent
 **Labels:** Bug
-**Description:** The `ChatMarkdown` component renders tables with `[&_table]:w-full` but has no overflow handling. Tables with 4+ columns overflow on mobile. Cell padding is generous for mobile. Single-file change in `src/components/chat-markdown.tsx`.
+**Description:** The success confirmation screen after logging food is reportedly nearly unreadable in light mode. The dark mode version renders correctly (vibrant green checkmark, white text, solid Done button). The light mode version may appear washed out. This was identified from E2E screenshot review.
 
 **Acceptance Criteria:**
-- [ ] Tables scroll horizontally when too wide for the screen
-- [ ] Cell padding reduced for mobile-friendly display
-- [ ] Existing table rendering tests still pass
+- [ ] Success confirmation text is clearly readable in both light and dark mode
+- [ ] Done button is visually distinct and looks interactive in both modes
+- [ ] Green checkmark icon is vibrant in both modes
+- [ ] Contrast ratio meets WCAG AA (4.5:1) for all text elements
 
-### FOO-595: Chat page (/app/chat) has no E2E screenshots
+### FOO-602: Chat page missing landmark structure (main, h1, SkipLink)
 
-**Priority:** Low
-**Labels:** Improvement
-**Description:** The free-form chat page has 5 E2E tests in `refine-chat.spec.ts` ("Free-form Chat" describe block) but none call `captureScreenshots()`. The chat page is a key feature with zero visual representation in the screenshot gallery.
-
-**Acceptance Criteria:**
-- [ ] Screenshot of initial chat state (greeting message)
-- [ ] Screenshot of chat with text-only conversation
-- [ ] Screenshot of chat with food analysis + MiniNutritionCard + "Log to Fitbit" button
-
-### FOO-596: Missing E2E screenshots for secondary UI states
-
-**Priority:** Low
-**Labels:** Improvement
-**Description:** Several secondary UI states have tests but no screenshot coverage: Quick Select "Recent" tab, food detail error state, and refine chat error banner.
+**Priority:** High
+**Labels:** Bug
+**Description:** The Chat page (`/app/chat`) has no `<main>` landmark, no `<h1>` heading (when analysis is present), and no SkipLink. Every other app page has all three. Screen reader users and keyboard users have no landmarks or route announcement.
 
 **Acceptance Criteria:**
-- [ ] Screenshot of Quick Select "Recent" tab
-- [ ] Screenshot of food detail error state
-- [ ] Screenshot of refine chat error banner
+- [ ] Chat page has `<main id="main-content">` landmark
+- [ ] Chat page always has an `<h1>` heading (visible or sr-only)
+- [ ] `<SkipLink />` present on chat page
+- [ ] Route navigation announced by Next.js route announcer
+
+### FOO-603: Settings page layout broken — sections outside main, inconsistent widths
+
+**Priority:** High
+**Labels:** Bug
+**Description:** The Settings page has two structural problems: (1) `SettingsContent` closes `<main>` at its own boundary, causing `ApiKeyManager`, `ClaudeUsageSection`, and `AboutSection` to render outside the main landmark. (2) `SettingsContent` uses `max-w-sm` (384px) while the sections below use `max-w-2xl` (672px), creating a jarring width jump.
+
+**Acceptance Criteria:**
+- [ ] All settings sections are within a single `<main>` landmark
+- [ ] Consistent max-width across all settings sections
+- [ ] Valid heading hierarchy (no skipped levels)
+- [ ] No jarring width changes when scrolling
+- [ ] SkipLink still present and functional
+
+### FOO-606: Pending submission handler uses broken color tokens
+
+**Priority:** High
+**Labels:** Bug
+**Description:** Two color issues: (1) Resubmitting alert uses `text-primary-foreground` (near-white in light mode, oklch 0.985) on `bg-primary/10` (very light background), making text invisible. (2) Success state uses hardcoded `border-green-500 bg-green-500/10 text-green-600 text-green-900` bypassing semantic tokens — `text-green-900` is nearly invisible on dark backgrounds.
+
+**Acceptance Criteria:**
+- [ ] Resubmitting alert text readable in both light and dark mode (4.5:1 contrast)
+- [ ] Success state text readable in both modes
+- [ ] All colors use semantic theme tokens, no hardcoded color values
+
+### FOO-607: No Content-Security-Policy header configured
+
+**Priority:** High
+**Labels:** Security
+**Description:** The app has no CSP header (`next.config.ts` headers section). The app uses `dangerouslySetInnerHTML` for an inline theme script in `layout.tsx:70`. Without CSP, injected scripts run unchecked.
+
+**Acceptance Criteria:**
+- [ ] Content-Security-Policy header present in all responses
+- [ ] Inline theme script continues to work under the CSP
+- [ ] No external scripts can execute without explicit allowlisting
+- [ ] Image sources allow `data:` and `blob:` (needed for photo handling)
+- [ ] Build and tests pass with the new header
 
 ## Prerequisites
 
@@ -65,329 +81,292 @@ Four improvements: (1) Add retry with user feedback for Claude API 529 overloade
 
 ## Implementation Tasks
 
-### Task 1: Fix markdown table overflow in ChatMarkdown
+### Task 1: Investigate and fix confirmation screen light mode colors (FOO-601)
 
-**Issue:** FOO-594
+**Issue:** FOO-601
 **Files:**
-- `src/components/__tests__/chat-markdown.test.tsx` (modify)
-- `src/components/chat-markdown.tsx` (modify)
+- `src/components/food-log-confirmation.tsx` (modify)
+- `src/components/__tests__/food-log-confirmation.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add test: Render a multi-column table and verify the `<table>` element is wrapped in a container with the `overflow-x-auto` class. Also verify table cells use compact styling classes.
-   - Run: `npm test -- chat-markdown`
-   - Verify: New test fails because table has no overflow wrapper
+1. **INVESTIGATE** — Run the E2E screenshot suite and visually inspect `e2e/screenshots/light/analyze-confirmation.png` vs `dark/analyze-confirmation.png`. The issue was identified from screenshot review, so the first step is to reproduce and understand what's actually wrong.
 
-2. **GREEN** — Use ReactMarkdown's `components` prop to provide a custom `table` renderer that wraps the native `<table>` in a `<div className="overflow-x-auto">`. Move table-specific Tailwind classes from the outer div to the custom renderer. Reduce cell padding from `px-2` to `px-1.5` and add `text-xs` for compact mobile rendering.
-   - Run: `npm test -- chat-markdown`
-   - Verify: All tests pass including new overflow test
+2. **RED** — Based on findings, write a test in `food-log-confirmation.test.tsx` that asserts the correct CSS classes are applied. For example, if the issue is incorrect color token usage, test that the rendered output uses the correct token classes (e.g., `text-foreground` instead of `text-primary-foreground`). If the icon uses a color that doesn't meet contrast requirements, assert the correct class.
 
-3. **REFACTOR** — Verify all existing ChatMarkdown tests still pass. Clean up the outer div's className — table-related classes should now live on the custom renderer, not the outer wrapper.
-   - Run: `npm test -- chat-markdown`
+3. **GREEN** — Fix the color tokens in `food-log-confirmation.tsx`. Reference the dark mode version as the correct design intent. Key areas to audit:
+   - CheckCircle icon: currently `text-success` — verify this resolves to a visible green in light mode (oklch 0.691 on white background)
+   - Heading text: inherits `text-foreground` — should be near-black in light mode
+   - NutritionFactsCard: rendered inline, uses `border-foreground` — verify contrast
+   - Done button: `variant="default"` — should be dark bg with white text
+
+4. **REFACTOR** — If no actual code bug is found (the CSS tokens are correct and the screenshot shows normal rendering), close the issue with a comment explaining the findings. The issue may have been a screenshot timing artifact (captured during the `animate-slide-up` animation at partial opacity).
 
 **Notes:**
-- Pattern reference: ReactMarkdown `components` prop usage — see existing `img: () => null` in the component
-- The table wrapper approach is preferred over CSS-only `[&_table]:overflow-x-auto` because we need a block-level wrapper div around the inline table
+- E2E screenshots are generated by Playwright. Run `npm run e2e` to regenerate.
+- Light mode CSS variables: `--success: oklch(0.691 0.169 145.477)`, `--foreground: oklch(0.145 0 0)`, `--primary: oklch(0.205 0 0)`, `--primary-foreground: oklch(0.985 0 0)`
+- The confirmation is rendered in two contexts: `food-analyzer.tsx:567-577` (analyze flow) and `chat-page-client.tsx:17-25` (chat flow). Check both.
 
----
+### Task 2: Add landmark structure to chat page (FOO-602)
 
-### Task 2: Add overloaded error detection helper
-
-**Issue:** FOO-593
+**Issue:** FOO-602
 **Files:**
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/claude.ts` (modify)
+- `src/app/app/chat/page.tsx` (modify)
+- `src/components/chat-page-client.tsx` (modify)
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify — if it exists, otherwise create)
 
 **TDD Steps:**
 
-1. **RED** — Add tests for a new `isOverloadedError()` function:
-   - Returns `true` for an Anthropic `APIError` with status 529
-   - Returns `true` for an error whose `.error?.type` is `'overloaded_error'`
-   - Returns `false` for other error types (400, 401, 429, generic Error)
-   - Run: `npm test -- claude`
-   - Verify: Tests fail (function doesn't exist yet)
+1. **RED** — Write tests asserting:
+   - The chat page renders a `<main id="main-content">` landmark
+   - An `<h1>` heading is always present (even when `latestAnalysis` mode shows the MealTypeSelector + Log button header instead of the simple title header)
+   - A SkipLink component is rendered
 
-2. **GREEN** — Export an `isOverloadedError(error: unknown): boolean` function from `claude.ts`. Import `Anthropic` and check: (a) `error instanceof Anthropic.APIError && error.status === 529`, or (b) the error body object has `type: 'overloaded_error'`.
-   - Run: `npm test -- claude`
-   - Verify: Detection tests pass
+2. **GREEN** — Implement the changes:
+   - In `src/app/app/chat/page.tsx`: Add `<SkipLink />` before the client component
+   - In `src/components/chat-page-client.tsx`: Wrap the content in `<main id="main-content">`. The confirmation state already wraps in a `<div className="min-h-screen ...">` — add `<main>` around it. The FoodChat state renders a `fixed inset-0` overlay — the `<main>` should wrap FoodChat too.
+   - In `src/components/food-chat.tsx`: When `latestAnalysis` is present (lines 521-552), the header has no `<h1>`. Add an sr-only `<h1>` (e.g., `<h1 className="sr-only">Chat</h1>`) so the Next.js route announcer can find it. The simple header mode (lines 554-564) already has `<h1>`.
+
+3. **REFACTOR** — Verify the SkipLink target `#main-content` correctly focuses the main landmark. The existing `SkipLink` component (in `src/components/skip-link.tsx`) defaults to `#main-content`.
 
 **Notes:**
-- The Anthropic SDK maps 529 to `InternalServerError` (status >= 500 catch-all). The `.status` property reliably carries the original HTTP status code.
-- Import the `APIError` type from `@anthropic-ai/sdk` — it's re-exported at the top level: `Anthropic.APIError`
+- Pattern reference: `src/app/app/setup-fitbit/page.tsx` shows the standard landmark pattern — `<SkipLink />` + `<main id="main-content">` wrapping content.
+- FoodChat uses `fixed inset-0 z-[60]` positioning — the `<main>` wrapper must not interfere with this layout. Consider adding `<main>` with just `id="main-content"` and `className="contents"` (CSS `display: contents`) so it acts as a semantic-only wrapper.
+- The chat page's `<SkipLink />` must be rendered in the Server Component (`page.tsx`) to be in the DOM before hydration. Since SkipLink is not a client component, this works directly.
 
----
+### Task 3: Fix settings page layout (FOO-603)
 
-### Task 3: Create stream retry wrapper with SSE feedback
-
-**Issue:** FOO-593
+**Issue:** FOO-603
 **Files:**
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/claude.ts` (modify)
+- `src/app/settings/page.tsx` (modify)
+- `src/components/settings-content.tsx` (modify)
+- `src/components/__tests__/settings-content.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add tests for a new `createStreamWithRetry()` async generator:
-   - Test: On first success, yields text deltas and returns the final message (no retry)
-   - Test: On first 529 error, yields a retry text_delta event ("momentarily busy"), delays, retries, and succeeds on second attempt
-   - Test: On persistent 529 (all attempts fail), yields retry feedback then throws `ClaudeApiError` with a user-friendly overloaded message
-   - Test: On non-529 error (e.g., 401), throws immediately without retry
-   - Run: `npm test -- claude`
-   - Verify: Tests fail
+1. **RED** — Write tests asserting:
+   - All settings sections (profile/auth card, Fitbit credentials card, appearance card, API keys, Claude usage, About) are within a single `<main>` element
+   - The `<main>` element has `id="main-content"`
+   - All sections have consistent max-width (no `max-w-sm` vs `max-w-2xl` mismatch)
+   - Heading hierarchy is valid: `<h1>` Settings, then `<h2>` for each section
 
-2. **GREEN** — Export `createStreamWithRetry()` from `claude.ts`. Signature:
-   - Accepts: stream creation params (same shape as `getClient().beta.messages.stream()` args), a logger, and max retries count (default 2)
-   - Behavior: Creates a stream with `maxRetries: 0` (disable SDK retries for this call), iterates via `streamTextDeltas()`. On 529 catch: yields `{ type: "text_delta", text: "\n\n*The AI service is momentarily busy, retrying...*\n\n" }`, delays (1s first retry, 3s second), and retries. On final failure: throws `ClaudeApiError` with message "The AI service is temporarily overloaded. Please try again in a moment."
-   - Returns: The `Anthropic.Message` (final message from stream)
-   - Run: `npm test -- claude`
-   - Verify: All retry tests pass
+2. **GREEN** — Restructure the layout:
+   - **Option A (recommended):** Move `<main>` and `<SkipLink>` to `settings/page.tsx`. Have `SettingsContent` render only its cards (no `<main>`, no `<SkipLink>`, no `min-h-screen` centering). The page file wraps everything in a single `<main>` with consistent width.
+   - Remove the `flex min-h-screen items-center justify-center` centering from `SettingsContent` — settings is a scrollable page, not a centered card.
+   - Use `max-w-2xl` for all sections (matching the current ApiKeyManager/ClaudeUsage/About width) instead of `max-w-sm`.
+   - Verify heading hierarchy: `SettingsContent` has `<h1>Settings</h1>` + `<h2>Fitbit App Credentials</h2>` + `<h2>Appearance</h2>`. `ApiKeyManager` should use `<h2>` (check its current heading level). `ClaudeUsageSection` should use `<h2>`. `AboutSection` already uses `<h2>`.
+   - Keep the back arrow button — despite FOO-629 noting it's inconsistent, that issue is separate and in the backlog.
+
+3. **REFACTOR** — Remove the `min-h-screen items-center justify-center` vertical centering. Settings is a content-heavy scrollable page that should start at the top, not be centered. Use top padding consistent with other app pages.
 
 **Notes:**
-- The existing `streamTextDeltas()` function yields text deltas and returns the final message — reuse it inside the retry loop
-- `maxRetries: 0` is passed as a request option (second arg to `.stream()`) to disable SDK-level retries for this specific call, while keeping the client's default `maxRetries: 2` for any other direct API calls
-- The italic markdown formatting (`*...*`) in the retry message renders nicely through the existing `ChatMarkdown` component
+- Current structure: `SettingsContent` renders `<div class="flex min-h-screen items-center justify-center"><SkipLink /><main id="main-content" class="max-w-sm">...cards...</main></div>`. Then page.tsx renders sibling `<div class="max-w-2xl">...more sections...</div>`.
+- Target structure: `page.tsx` renders `<SkipLink /><main id="main-content" class="max-w-2xl mx-auto px-4 py-6 pb-24">` wrapping both `<SettingsContent />` and the additional sections.
+- `SettingsContent` is a client component (uses `useState`, `useSWR`). The `<main>` wrapper should be in the server component (`page.tsx`).
 
----
+### Task 4: Fix pending submission handler color tokens (FOO-606)
 
-### Task 4: Apply retry wrapper to analyzeFood
-
-**Issue:** FOO-593
+**Issue:** FOO-606
 **Files:**
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/claude.ts` (modify)
+- `src/components/pending-submission-handler.tsx` (modify)
+- `src/components/__tests__/pending-submission-handler.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add test: When `analyzeFood` encounters a 529 error from the stream, it yields a retry text_delta, delays, retries the stream, and succeeds. Add another test: When `analyzeFood` encounters persistent 529, it throws with the overloaded message.
-   - Run: `npm test -- claude`
-   - Verify: Tests fail
+1. **RED** — Write tests asserting the correct CSS classes for each state:
+   - Resubmitting state: Alert should NOT have `text-primary-foreground` class. Should use `text-primary` or `text-foreground`.
+   - Success state: Alert should NOT have hardcoded `text-green-*` classes. Should use semantic `text-success` / `border-success` / `bg-success/10` tokens.
 
-2. **GREEN** — Replace the direct `getClient().beta.messages.stream()` + `yield* streamTextDeltas()` pattern in `analyzeFood` (around line 915) with a call to `createStreamWithRetry()`. Pass the same params and options.
-   - Run: `npm test -- claude`
-   - Verify: All `analyzeFood` tests pass including new retry tests
+2. **GREEN** — Fix the color tokens in `pending-submission-handler.tsx`:
+   - **Resubmitting state (line 114-119):** Change `bg-primary/10` + `text-primary-foreground` → use `bg-info/10 border-info` + `text-info-foreground` (or `text-foreground`). The resubmitting state is informational, not a primary action. Using the `info` semantic tokens is most appropriate. The Loader2 icon can use `text-info`.
+   - **Success state (lines 125-129):** Replace `border-green-500 bg-green-500/10` → `border-success bg-success/10`. Replace `text-green-600` on icon → `text-success`. Replace `text-green-900` on text → `text-success-foreground` (or `text-foreground`). Check that `--success` and `--success-foreground` have good contrast in both modes.
+
+3. **REFACTOR** — Verify the semantic tokens provide correct contrast:
+   - Light mode: `--success: oklch(0.691 0.169 145.477)` (green), `--success-foreground: oklch(0.985 0 0)` (near-white)
+   - Dark mode: `--success: oklch(0.753 0.159 145.477)` (lighter green), `--success-foreground: oklch(0.145 0 0)` (near-black)
+   - For the success alert, `text-success` on a light `bg-success/10` background should provide good contrast in both modes. The `text-success-foreground` token (near-white in light mode) would NOT work on a light background — use `text-success` or `text-foreground` instead.
 
 **Notes:**
-- The slow path in `analyzeFood` (data tools + tool loop) also calls `runToolLoop` which has its own stream creation — that's covered in Task 5
-- The tool loop continuation uses `runToolLoop` which will get its own retry in Task 5
+- Pattern reference: The existing `Alert variant="destructive"` in the error state (lines 136-140) correctly uses the destructive variant with inherited colors — no hardcoded values.
+- The `info` tokens exist in the design system: `--info: oklch(0.567 0.214 254.604)` (light), `--info-foreground: oklch(0.205 0 0)` (light). These are blue-toned and appropriate for "in progress" states.
+- Existing test file at `src/components/__tests__/pending-submission-handler.test.tsx` already tests state transitions. Add class assertions to existing test cases.
 
----
+### Task 5: Add Content-Security-Policy header (FOO-607)
 
-### Task 5: Apply retry wrapper to runToolLoop and conversationalRefine
-
-**Issue:** FOO-593
+**Issue:** FOO-607
 **Files:**
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/claude.ts` (modify)
+- `next.config.ts` (modify)
+- `src/components/__tests__/csp-header.test.ts` (create — optional, see notes)
 
 **TDD Steps:**
 
-1. **RED** — Add tests:
-   - `runToolLoop`: On 529 during a tool loop iteration, yields retry feedback and retries
-   - `conversationalRefine`: On 529, yields retry feedback and retries
-   - Both: On persistent 529, throw overloaded error
-   - Run: `npm test -- claude`
-   - Verify: Tests fail
+1. **RED** — Write a test that verifies the CSP header is present and contains required directives. Since `next.config.ts` headers are returned as an async function, test the function output directly by importing the config or by writing an integration test that checks the actual response headers.
 
-2. **GREEN** — Replace direct stream creation in `runToolLoop` (around line 607) and `conversationalRefine` (around line 1239) with `createStreamWithRetry()`. Same pattern as Task 4.
-   - Run: `npm test -- claude`
-   - Verify: All tests pass
+   Alternatively, since this is a configuration change with no runtime logic, the build verification (`npm run build`) and manual verification via `curl -I` may be sufficient. Use judgment on whether a unit test adds value here.
 
----
+2. **GREEN** — Add a CSP header to `next.config.ts`:
 
-### Task 6: Improve error handling in SSE response for overloaded errors
+   The app's resource requirements:
+   - **Scripts:** Self-hosted only + one inline theme script → `script-src 'self' 'unsafe-inline'`
+   - **Styles:** Tailwind CSS (bundled by Next.js) + potential inline styles → `style-src 'self' 'unsafe-inline'`
+   - **Images:** Self-hosted + data URIs (base64 images) + blob URIs (camera/gallery) → `img-src 'self' data: blob:`
+   - **Connections:** Same-origin API calls only → `connect-src 'self'`
+   - **Fonts:** Next.js self-hosts Google fonts → `font-src 'self'`
+   - **Frames:** Already blocked by X-Frame-Options: DENY → `frame-ancestors 'none'`
+   - **Default:** Restrict everything else → `default-src 'self'`
+   - **Base URI:** Prevent base tag injection → `base-uri 'self'`
+   - **Form actions:** Allow form submissions to self only → `form-action 'self'`
 
-**Issue:** FOO-593
-**Files:**
-- `src/lib/__tests__/sse.test.ts` (modify or create)
-- `src/lib/sse.ts` (modify)
+   Add the header to the existing headers array in `next.config.ts`, alongside the other security headers.
 
-**TDD Steps:**
+   Note: `'unsafe-inline'` for `script-src` is a pragmatic starting point. The inline theme script prevents flash-of-wrong-theme and can't easily use a nonce with Next.js static export. A future improvement could migrate to nonce-based CSP.
 
-1. **RED** — Add tests for `createSSEResponse` error handling:
-   - Test: When the generator throws a `ClaudeApiError` containing "overloaded" in the message, the SSE error event has a specific user-friendly message and code `AI_OVERLOADED`
-   - Test: When the generator throws a generic error, the SSE error event still has the existing generic message
-   - Run: `npm test -- sse`
-   - Verify: New test fails (current implementation always sends "An internal error occurred")
-
-2. **GREEN** — In `createSSEResponse`'s catch block, detect overloaded errors: check if the error message includes "overloaded" (from the `ClaudeApiError` thrown by `createStreamWithRetry`). If so, set the error event message to the actual error message and code to `AI_OVERLOADED`. Otherwise keep the existing generic handling.
-   - Run: `npm test -- sse`
-   - Verify: All SSE tests pass
+3. **REFACTOR** — After adding the CSP, run `npm run build` and `npm run dev` to verify:
+   - The inline theme script still works (no CSP violation in browser console)
+   - Images load correctly (photo capture, gallery)
+   - API calls work (fetch to /api/* endpoints)
+   - Google fonts load (self-hosted by Next.js, should be under `'self'`)
 
 **Notes:**
-- The client-side error handling in `food-chat.tsx` (line 362) and `food-analyzer.tsx` (line 267) already displays `event.message` from the SSE error event. So improving the server-side message automatically improves what the user sees — no client changes needed.
-- Pattern: `if (err instanceof Error && err.message.includes('overloaded'))` — simple string check on the ClaudeApiError message
+- The `X-Frame-Options: DENY` header can be kept alongside `frame-ancestors 'none'` for backward compatibility with older browsers.
+- Do NOT add `'unsafe-eval'` — the app has no eval usage and this would weaken the CSP significantly.
+- Railway deployment should inherit the CSP from `next.config.ts` headers — no separate config needed.
+- The app has no external CDN scripts, analytics, or third-party integrations that would need allowlisting.
 
----
+### Task 6: Integration verification
 
-### Task 7: Add E2E screenshots for free-form chat page
-
-**Issue:** FOO-595
+**Issue:** FOO-601, FOO-602, FOO-603, FOO-606, FOO-607
 **Files:**
-- `e2e/tests/refine-chat.spec.ts` (modify)
-
-**Steps:**
-
-1. In the "Free-form Chat" describe block, add `captureScreenshots()` calls to existing tests:
-   - `'shows greeting message and title header'` test: add `captureScreenshots(page, 'chat')` after verifying the greeting is visible
-   - `'sends message and displays response'` test: add `captureScreenshots(page, 'chat-conversation')` after verifying the response is visible
-   - `'header updates when analysis arrives from API'` test: add `captureScreenshots(page, 'chat-with-analysis')` after verifying the Log to Fitbit button is visible
-
-2. Import `captureScreenshots` is already imported at the top of the file.
-
-**Notes:**
-- Follow the same pattern as existing screenshot tests: wait for content to be visible, then capture
-- The existing tests already set up mocks and verify content — just append the screenshot call
-
----
-
-### Task 8: Add E2E screenshots for secondary UI states
-
-**Issue:** FOO-596
-**Files:**
-- `e2e/tests/quick-select.spec.ts` (modify)
-- `e2e/tests/empty-states.spec.ts` (modify)
-- `e2e/tests/refine-chat.spec.ts` (modify)
-
-**Steps:**
-
-1. **Quick Select Recent tab** — In `quick-select.spec.ts`, add `captureScreenshots(page, 'quick-select-recent')` at the end of the `'recent tab displays recently logged foods'` test (after verifying foods are visible).
-
-2. **Food detail error state** — In `empty-states.spec.ts`:
-   - Import `captureScreenshots` from `'../fixtures/screenshots'`
-   - In the `'invalid food detail ID shows error state'` test, add `captureScreenshots(page, 'food-detail-error')` after verifying the error message is visible
-
-3. **Refine chat error banner** — In `refine-chat.spec.ts`, add `captureScreenshots(page, 'refine-chat-error')` in the `'shows dismissible error in chat on API failure'` test, after verifying the error banner is visible and BEFORE clicking the dismiss button.
-
-**Notes:**
-- `captureScreenshots` is already imported in `quick-select.spec.ts` and `refine-chat.spec.ts`
-- For `empty-states.spec.ts`, the import needs to be added
-
----
-
-### Task 9: Integration & Verification
-
-**Issues:** FOO-593, FOO-594, FOO-595, FOO-596
-**Files:** Various files from previous tasks
+- Various files from previous tasks
 
 **Steps:**
 
 1. Run full test suite: `npm test`
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
-4. Build check: `npm run build`
-5. E2E tests: `npm run e2e` (verifies screenshot tasks 7-8)
+4. Run build: `npm run build`
+5. Manual verification:
+   - [ ] Start dev server and check Settings page layout in both modes
+   - [ ] Check chat page with screen reader or accessibility inspector
+   - [ ] Verify pending submission handler colors (trigger via Fitbit token expiry flow)
+   - [ ] Inspect CSP header via browser DevTools Network tab
+   - [ ] Check browser console for CSP violations
+6. Run E2E tests: `npm run e2e` (generates fresh screenshots for FOO-601 verification)
 
 ## Error Handling
 
 | Error Scenario | Expected Behavior | Test Coverage |
-|---|---|---|
-| Claude API returns 529 once | Retry text shown in SSE, stream retried, succeeds | Unit test (Task 3) |
-| Claude API returns 529 persistently | Retry text shown, user-friendly overloaded error after max retries | Unit test (Task 3) |
-| Claude API returns 400/401/403 | Fails immediately, no retry | Unit test (Task 3) |
-| Table too wide for mobile | Scrolls horizontally | Unit test (Task 1) |
-| SSE generator throws overloaded error | Error event with `AI_OVERLOADED` code and friendly message | Unit test (Task 6) |
+|---------------|-------------------|---------------|
+| CSP blocks legitimate resource | Adjust policy directive | Manual + build verification |
+| Settings layout breaks on narrow screens | Responsive max-w with px-4 padding | Visual inspection |
+| Chat SkipLink target missing | SkipLink href matches main id | Unit test |
+| Semantic tokens undefined | Build fails (Tailwind compile) | Build verification |
 
 ## Risks & Open Questions
 
-- [ ] The `maxRetries: 0` per-call override may not be supported on `.stream()` beta method — verify during implementation by checking the Anthropic SDK types. If not supported, set `maxRetries: 0` on the client constructor and handle all retries manually.
-- [ ] The 529 retry delay (1s, 3s) may need tuning based on real-world Anthropic overload patterns. Start conservative and adjust if needed.
+- [ ] **FOO-601 may not be a code bug.** The E2E screenshots may have captured the confirmation during the `animate-slide-up` animation (at partial opacity). If investigation reveals no actual color token issue, close with a comment explaining findings.
+- [ ] **CSP with `'unsafe-inline'`** is a stepping stone, not the final security posture. A nonce-based approach would be stronger but requires Next.js middleware changes. This is acceptable as a first iteration.
+- [ ] **Settings page restructure** changes the visual layout. The back arrow (FOO-629) and vertical centering removal change the page's look. The fix is correct per the issue requirements but the user should verify the new layout.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Overloaded error retry with SSE feedback for both analyze and chat routes
-- Improved error messaging for overloaded errors
-- Markdown table overflow fix for mobile
-- E2E screenshot additions for chat page and secondary states
+- Fix color tokens for confirmation and pending submission (FOO-601, FOO-606)
+- Add landmark structure to chat page (FOO-602)
+- Restructure settings page layout (FOO-603)
+- Add CSP header (FOO-607)
 
 **Out of Scope:**
-- Dashboard empty state screenshot (FOO-596 mentions this as lower priority — would need a separate test context without seeded meals)
-- Retry for other transient errors (429, 500) — SDK handles these transparently
-- Client-side changes for error display (existing code already shows `event.message`)
+- FOO-608: Setup Fitbit excessive whitespace (Canceled — standard centered layout)
+- FOO-611: Landing page excessive whitespace (Canceled — standard centered layout)
+- FOO-625: Food history raw fetch (Canceled — initial load already uses SWR)
+- FOO-627: Chat messages anchored to top (Canceled — auto-scroll already implemented)
+- FOO-639: Chat "+" button no label (Canceled — already has aria-label="Add photo")
+- Remaining 26 backlog issues (deferred to next batch)
+- Nonce-based CSP (future improvement beyond this plan)
+- Settings back arrow removal (FOO-629 — separate backlog issue)
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-02-18
-**Method:** Agent team (2 workers, worktree-isolated)
+**Method:** Agent team (3 workers, worktree-isolated)
 
 ### Tasks Completed This Iteration
-- Task 1: Fix markdown table overflow in ChatMarkdown - Added custom table/th/td renderers with overflow-x-auto wrapper and compact styling (worker-2)
-- Task 2: Add overloaded error detection helper - Exported `isOverloadedError()` with status 529 and duck-type checks (worker-1)
-- Task 3: Create stream retry wrapper with SSE feedback - Added `createStreamWithRetry()` async generator with exponential backoff and retry text_delta events (worker-1)
-- Task 4: Apply retry wrapper to analyzeFood - Replaced direct stream creation with `createStreamWithRetry()` (worker-1)
-- Task 5: Apply retry wrapper to runToolLoop and conversationalRefine - Applied retry wrapper to both functions (worker-1)
-- Task 6: Improve error handling in SSE response for overloaded errors - Added `AI_OVERLOADED` code detection via error name check (worker-2)
-- Task 7: Add E2E screenshots for free-form chat page - Added captureScreenshots to 3 chat tests (worker-2)
-- Task 8: Add E2E screenshots for secondary UI states - Added captureScreenshots to quick-select, empty-states, and refine-chat tests (worker-2)
+- Task 1: Investigate and fix confirmation screen light mode colors (FOO-601) — No code bug found; component already uses correct semantic tokens (`text-success`, default foreground). Added verification test confirming correct classes. (worker-1)
+- Task 2: Add landmark structure to chat page (FOO-602) — Added SkipLink in page.tsx, single stable `<main id="main-content" className="contents">` wrapper in chat-page-client.tsx, sr-only `<h1>` in food-chat.tsx for latestAnalysis mode. (worker-2)
+- Task 3: Fix settings page layout (FOO-603) — Moved SkipLink and `<main>` to settings/page.tsx with consistent max-w-2xl, removed flex min-h-screen centering from SettingsContent, fixed indentation. (worker-2)
+- Task 4: Fix pending submission handler color tokens (FOO-606) — Resubmitting state: replaced `text-primary-foreground` with `text-foreground`, `border-primary` with `border-info`. Success state: replaced hardcoded `border-green-500 bg-green-500/10 text-green-600 text-green-900` with semantic `border-success bg-success/10 text-success text-foreground`. (worker-1)
+- Task 5: Add Content-Security-Policy header (FOO-607) — Added CSP to next.config.ts (production-only): `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`. (worker-3)
 
 ### Files Modified
-- `src/lib/claude.ts` - Added `isOverloadedError()`, `createStreamWithRetry()`, applied retry to analyzeFood/runToolLoop/conversationalRefine
-- `src/lib/__tests__/claude.test.ts` - Added 19 tests for overloaded detection and retry logic, added APIError to mock
-- `src/components/chat-markdown.tsx` - Custom table/th/td renderers with overflow-x-auto wrapper and compact padding
-- `src/components/__tests__/chat-markdown.test.tsx` - Added overflow wrapper and compact padding tests
-- `src/lib/sse.ts` - Added overloaded error detection (name-based check) with AI_OVERLOADED code
-- `src/lib/__tests__/sse.test.ts` - Added overloaded error handling test
-- `e2e/tests/refine-chat.spec.ts` - Added chat, chat-conversation, chat-with-analysis, and refine-chat-error screenshots
-- `e2e/tests/quick-select.spec.ts` - Added quick-select-recent screenshot
-- `e2e/tests/empty-states.spec.ts` - Added food-detail-error screenshot with import
-- `src/app/api/analyze-food/__tests__/route.test.ts` - Fixed vi.mock hoisting with vi.hoisted() and importOriginal pattern
-- `src/app/api/chat-food/__tests__/route.test.ts` - Fixed vi.mock hoisting with vi.hoisted()
+- `next.config.ts` — Added CSP header (production-only)
+- `src/lib/__tests__/csp-header.test.ts` — Created CSP header tests (production + development)
+- `src/components/pending-submission-handler.tsx` — Fixed color tokens for resubmitting and success states
+- `src/components/__tests__/pending-submission-handler.test.tsx` — Added color token tests with null safety
+- `src/components/__tests__/food-log-confirmation.test.tsx` — Added verification test for text-success class
+- `src/app/app/chat/page.tsx` — Added SkipLink
+- `src/components/chat-page-client.tsx` — Single stable `<main>` wrapper
+- `src/components/food-chat.tsx` — Added sr-only `<h1>` for latestAnalysis mode
+- `src/components/__tests__/food-chat.test.tsx` — Added landmark structure tests
+- `src/app/settings/page.tsx` — Moved SkipLink and `<main>` here with consistent width
+- `src/components/settings-content.tsx` — Removed `<main>`, SkipLink, centering; fixed indentation
+- `src/components/__tests__/settings-content.test.tsx` — Updated tests for moved landmarks
 
 ### Linear Updates
-- FOO-593: Todo → In Progress → Review
-- FOO-594: Todo → Review
-- FOO-595: Todo → Review
-- FOO-596: Todo → Review
+- FOO-601: Todo → In Progress → Review
+- FOO-602: Todo → In Progress → Review
+- FOO-603: Todo → In Progress → Review
+- FOO-606: Todo → In Progress → Review
+- FOO-607: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 3 bugs (stale eslint-disable, log off-by-one, fragile string matching), all fixed
-- verifier: All 1958 tests pass, zero warnings, build clean
+- bug-hunter: Found 4 real bugs (CSP dev/prod scoping, settings indentation, unstable chat `<main>`, test null safety), all fixed
+- verifier: All 1973 tests pass, zero warnings, build clean
 
 ### Work Partition
-- Worker 1: Tasks 2, 3, 4, 5 (Claude retry domain — claude.ts)
-- Worker 2: Tasks 1, 6, 7, 8 (UI + SSE + E2E — chat-markdown, sse, e2e specs)
+- Worker 1: Tasks 1, 4 (visual/color domain — confirmation screen, pending submission handler)
+- Worker 2: Tasks 2, 3 (page structure domain — chat landmarks, settings layout)
+- Worker 3: Task 5 (security config domain — CSP header)
 
 ### Merge Summary
-- Worker 1: committed directly to feature branch (fast-forward equivalent)
-- Worker 2: merged cleanly, no conflicts
-- Post-merge fixes: stale eslint-disable removed, log ordering fixed, SSE overload detection changed from instanceof to name-based check (avoids sse.ts → claude.ts import chain that pulled pg into client bundles), route test mocks fixed with vi.hoisted()
-
-### Continuation Status
-All tasks completed.
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merged cleanly (no conflicts), typecheck passed
+- Worker 3: merged cleanly (no conflicts), typecheck passed
 
 ### Review Findings
 
-Summary: 6 issue(s) found, 7 discarded (Team: security, reliability, quality reviewers)
-- FIX: 6 issue(s) — Linear issues created
-- DISCARDED: 7 finding(s) — false positives / not applicable
+Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 3 issue(s) — Linear issues created
+- DISCARDED: 8 finding(s) — false positives / not applicable
 
 **Issues requiring fix:**
-- [MEDIUM] RESOURCE: SSE false error logging on client disconnect — `controller.enqueue()` TypeError on client disconnect logged as ERROR (`src/lib/sse.ts:36-37`)
-- [LOW] SECURITY: ChatMarkdown XSS — ReactMarkdown renders links without filtering `javascript:`/`data:` protocol URIs (`src/components/chat-markdown.tsx:19-32`)
-- [LOW] CONVENTION: Missing `action` field in `createStreamWithRetry` warn/error logs (`src/lib/claude.ts:223,230`)
-- [LOW] BUG: Misleading test description "passes all 6 tools" but asserts 5 (`src/lib/__tests__/claude.test.ts:659`)
-- [LOW] BUG: Fake timer cleanup missing try/finally — 8 tests leak timers on assertion failure (`src/lib/__tests__/claude.test.ts`)
-- [LOW] EDGE CASE: `truncateConversation` silently drops original first message when same role as last-4 start (`src/lib/claude.ts:527-541`)
+- [MEDIUM] BUG: `AbortSignal.any()` browser compatibility — breaks chat on iOS 16, Chrome <116, Firefox <124 (`src/components/food-chat.tsx:299`)
+- [LOW] BUG: `response.body!` non-null assertion — potential TypeError if body is null (`src/components/food-chat.tsx:317`)
+- [LOW] CONVENTION: Three relative imports instead of `@/` alias (`src/components/food-chat.tsx:6,24,25`)
+- [LOW] BUG: Missing `act()` wrapper in test cleanup causes potential test contamination (`src/components/__tests__/pending-submission-handler.test.tsx:276`)
 
 **Discarded findings (not bugs):**
-- [DISCARDED] BUG: "All chat-food E2E mocks use JSON but route returns SSE" — False positive. Client code (`food-chat.tsx:311-391`) explicitly handles both Content-Types: SSE streaming path at line 312 and JSON fallback path at line 372. The E2E mocks correctly exercise the JSON fallback.
-- [DISCARDED] TYPE: `JSON.parse(json) as StreamEvent` without runtime validation (`src/lib/sse.ts:88`) — Internal trust boundary. The only producer is our own server (`formatSSEEvent`), malformed JSON already caught by try/catch at line 90.
-- [DISCARDED] CONVENTION: `waitForTimeout()` fixed delays in `quick-select.spec.ts` — Pre-existing test pattern not introduced by this iteration. Tests pass reliably; this is a style preference.
-- [DISCARDED] CONVENTION: Overly permissive assertion in `quick-select.spec.ts:152-157` — Pre-existing pattern handling legitimate UI variation in log-food flow.
-- [DISCARDED] CONVENTION: Duplicate test in `analyze-food/route.test.ts:317-327` — Redundant but harmless; not introduced by this iteration.
-- [DISCARDED] BUG: `truncateConversation` skips all truncation when `messages.length <= 5` — Logically correct: the algorithm keeps first + last 4 messages; with ≤5 messages, all are in the keep set and there's nothing to truncate.
-- [DISCARDED] ASYNC: AbortSignal checked only at loop boundary in `runToolLoop` (`src/lib/claude.ts:654`) — Standard loop-boundary check pattern; signal is available at the network layer for lower-level cancellation.
+- [DISCARDED] SECURITY: CSP uses `unsafe-inline` for script-src — documented conscious trade-off in the plan; Next.js inline theme script requires it; nonce-based CSP deferred as future improvement
+- [DISCARDED] SECURITY: CSP only in production — intentional design choice after bug-hunter review; dev mode CSP interferes with Next.js HMR and dev tooling
+- [DISCARDED] TYPE: Type assertions on own API responses (`food-chat.tsx:303,374,446`) — internal API with matching types; `success` boolean validates shape immediately after
+- [DISCARDED] CONVENTION: Tests in wrong describe block (`food-log-confirmation.test.tsx:250,262`) — organizational preference only, zero correctness impact
+- [DISCARDED] RESOURCE: No abort path for compressImage (`food-chat.tsx:167-201`) — React 18 silently ignores state updates on unmounted components; no user-visible impact
+- [DISCARDED] RESOURCE: No AbortController for pending-submission fetch (`pending-submission-handler.tsx:55`) — React 18 handles gracefully; component stays mounted during fetch lifecycle
+- [DISCARDED] ASYNC: `response.body!` non-null assertion (duplicate) — merged with Quality reviewer finding above
+- [DISCARDED] TYPE: Non-null assertion on response.body (duplicate) — merged with Reliability reviewer finding above
 
 ### Linear Updates
-- FOO-593: Review → Merge (original task completed)
-- FOO-594: Review → Merge (original task completed)
-- FOO-595: Review → Merge (original task completed)
-- FOO-596: Review → Merge (original task completed)
-- FOO-597: Created in Todo (Fix: SSE false error logging)
-- FOO-598: Created in Todo (Fix: ChatMarkdown XSS link sanitization)
-- FOO-599: Created in Todo (Fix: Minor code quality — log fields, test description, fake timers)
-- FOO-600: Created in Todo (Fix: truncateConversation drops first message)
+- FOO-601: Review → Merge (original task completed)
+- FOO-602: Review → Merge (original task completed)
+- FOO-603: Review → Merge (original task completed)
+- FOO-606: Review → Merge (original task completed)
+- FOO-607: Review → Merge (original task completed)
+- FOO-641: Created in Todo (Fix: AbortSignal.any() browser compatibility)
+- FOO-642: Created in Todo (Fix: response.body! guard + relative imports)
+- FOO-643: Created in Todo (Fix: missing act() in test cleanup)
 
 <!-- REVIEW COMPLETE -->
 
@@ -396,89 +375,97 @@ Summary: 6 issue(s) found, 7 discarded (Team: security, reliability, quality rev
 ## Fix Plan
 
 **Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-597](https://linear.app/lw-claude/issue/FOO-597), [FOO-598](https://linear.app/lw-claude/issue/FOO-598), [FOO-599](https://linear.app/lw-claude/issue/FOO-599), [FOO-600](https://linear.app/lw-claude/issue/FOO-600)
+**Linear Issues:** [FOO-641](https://linear.app/lw-claude/issue/FOO-641), [FOO-642](https://linear.app/lw-claude/issue/FOO-642), [FOO-643](https://linear.app/lw-claude/issue/FOO-643)
 
-### Fix 1: SSE false error logging on client disconnect
-**Linear Issue:** [FOO-597](https://linear.app/lw-claude/issue/FOO-597)
+### Fix 1: AbortSignal.any() browser compatibility
+**Linear Issue:** [FOO-641](https://linear.app/lw-claude/issue/FOO-641)
 
-1. Write test in `src/lib/__tests__/sse.test.ts` verifying that a client-disconnect TypeError is logged at warn (not error) level
-2. In `src/lib/sse.ts` catch block (line 36), detect client-disconnect errors (TypeError when `controller.desiredSize === null`) and log at warn level; keep error level for genuine unexpected errors
+1. Write test in `src/components/__tests__/food-chat.test.tsx` that verifies chat works when `AbortSignal.any` is undefined (mock it as undefined, verify fallback)
+2. Replace `AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` in `src/components/food-chat.tsx:299` with a manual combined signal: create AbortController, set 120s setTimeout that calls `.abort()`, clean up timeout in finally block
 
-### Fix 2: ChatMarkdown XSS — add link href sanitization
-**Linear Issue:** [FOO-598](https://linear.app/lw-claude/issue/FOO-598)
+### Fix 2: response.body! guard and @/ imports
+**Linear Issue:** [FOO-642](https://linear.app/lw-claude/issue/FOO-642)
 
-1. Write test in `src/components/__tests__/chat-markdown.test.tsx` verifying that `javascript:` and `data:` protocol links are sanitized (href removed or set to `#`)
-2. Add a custom `a` component override in `chat-markdown.tsx` that only allows `http:`, `https:`, and `mailto:` protocols
+1. Write test in `src/components/__tests__/food-chat.test.tsx` for null response.body scenario (mock fetch with `body: null`, verify graceful error message)
+2. Add null guard before `response.body!.getReader()` at `src/components/food-chat.tsx:317`: `if (!response.body) { revertOnError("No response body"); return; }`
+3. Fix 3 relative imports to use `@/` alias (lines 6, 24, 25)
 
-### Fix 3: Minor code quality fixes
-**Linear Issue:** [FOO-599](https://linear.app/lw-claude/issue/FOO-599)
+### Fix 3: Missing act() in test cleanup
+**Linear Issue:** [FOO-643](https://linear.app/lw-claude/issue/FOO-643)
 
-1. Add `{ action: "stream_retry" }` to the warn log at `src/lib/claude.ts:223` and `{ action: "stream_retry_exhausted" }` to the error log at line 230
-2. Fix test description at `src/lib/__tests__/claude.test.ts:659` from "6 tools" to "5 tools"
-3. Add `afterEach(() => { vi.useRealTimers(); })` to the 4 describe blocks that use fake timers: `createStreamWithRetry`, `analyzeFood overload retry`, `runToolLoop overload retry`, `conversationalRefine overload retry`
-
-### Fix 4: truncateConversation silently drops original first message
-**Linear Issue:** [FOO-600](https://linear.app/lw-claude/issue/FOO-600)
-
-1. Write test in `src/lib/__tests__/claude.test.ts` for a 6-message conversation where first message and first of last-4 share the same role — verify the original first message content is preserved
-2. In `src/lib/claude.ts`, modify the dedup logic (lines 533-541) to start deduplication at index 1 within the last-4 group only, preserving the original first message unconditionally
+1. Wrap `resolveFetch(...)` at `src/components/__tests__/pending-submission-handler.test.tsx:276` in `await act(async () => { ... })`
+2. Verify no React warnings in test output
 
 ---
 
 ## Iteration 2
 
 **Implemented:** 2026-02-18
-**Method:** Single-agent (small batch — 4 tasks, 6 files)
+**Method:** Single-agent (small batch — 3 tasks, ~3 files)
 
 ### Tasks Completed This Iteration
-- Fix 1: SSE false error logging on client disconnect - Narrowed TypeError detection to controller-related messages, log at warn level (FOO-597)
-- Fix 2: ChatMarkdown XSS link sanitization - Added custom `a` component with case-insensitive protocol allowlist (FOO-598)
-- Fix 3: Minor code quality fixes - Added `action` fields to retry logs, fixed test description "6 tools" → "5 tools", added `vi.useRealTimers()` to afterEach in 4 describe blocks (FOO-599)
-- Fix 4: truncateConversation preserves original first message - Dedup now operates within last-4 group only, junction dedup guards against total context erasure (FOO-600)
+- Fix 1: AbortSignal.any() browser compatibility (FOO-641) — Replaced `AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` with manual `setTimeout` + `controller.abort()` pattern. Clears timeout immediately after fetch response. Test verifies chat works when `AbortSignal.any` is undefined.
+- Fix 2: response.body! guard and @/ imports (FOO-642) — Added null guard before `response.body.getReader()` with graceful error message. Fixed 3 relative imports (`./meal-type-selector`, `./mini-nutrition-card`, `./chat-markdown`) to use `@/components/` alias.
+- Fix 3: Missing act() in test cleanup (FOO-643) — Wrapped `resolveFetch(...)` cleanup in `await act(async () => { ... })` to prevent React state update warnings and test contamination.
 
 ### Files Modified
-- `src/lib/sse.ts` - Narrowed client-disconnect detection: TypeError + message check for controller keywords
-- `src/lib/__tests__/sse.test.ts` - Added 2 tests: controller TypeError → warn, non-controller TypeError → error
-- `src/components/chat-markdown.tsx` - Added custom `a` component with case-insensitive protocol allowlist + rel="noopener noreferrer"
-- `src/components/__tests__/chat-markdown.test.tsx` - Added 5 tests: javascript:/data: sanitization, http/https/mailto/uppercase allowed
-- `src/lib/claude.ts` - Added `action` fields to retry logs, fixed truncateConversation dedup logic
-- `src/lib/__tests__/claude.test.ts` - Fixed test description, added `vi.useRealTimers()` to 4 afterEach blocks, added truncation preservation test, updated existing truncation test
+- `src/components/food-chat.tsx` — Replaced AbortSignal.any with manual timeout, added response.body null guard, fixed 3 relative imports
+- `src/components/__tests__/food-chat.test.tsx` — Added 2 new test cases (AbortSignal.any fallback, response.body null guard)
+- `src/components/__tests__/pending-submission-handler.test.tsx` — Added act() wrapper to test cleanup, added act import
 
 ### Linear Updates
-- FOO-597: Todo → In Progress → Review
-- FOO-598: Todo → In Progress → Review
-- FOO-599: Todo → In Progress → Review
-- FOO-600: Todo → In Progress → Review
+- FOO-641: Todo → In Progress → Review
+- FOO-642: Todo → In Progress → Review
+- FOO-643: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 3 bugs (case-sensitive regex, broad TypeError check, edge case guard), all fixed
-- verifier: All 1966 tests pass, zero warnings, build clean
-
-### Continuation Status
-All tasks completed.
+- bug-hunter: Found 2 bugs (timer leak on !response.ok path, test assertion ordering), both fixed
+- verifier: All 1976 tests pass, zero warnings, build clean
 
 ### Review Findings
 
-Files reviewed: 6
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+Summary: 1 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 1 issue(s) — Linear issue created
+- DISCARDED: 7 finding(s) — false positives / not applicable
 
-No issues found - all implementations are correct and follow project conventions.
+**Issues requiring fix:**
+- [LOW] RESOURCE: 120s timeout timer leaks on unmount — `timeoutId` not cleared when AbortError catch returns early (`src/components/food-chat.tsx:296,404`)
 
 **Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: vbscript: protocol not blocked in ChatMarkdown (`src/components/chat-markdown.tsx:22`) — False positive. The regex is an allowlist (`^(https?:|mailto:)`); anything not matching (including vbscript:) gets `href=undefined`. vbscript: IS blocked.
-- [DISCARDED] SECURITY: tel:/ftp: protocols not in allowlist (`src/components/chat-markdown.tsx:22`) — By design. AI-generated chat markdown has no legitimate need for tel: or ftp: links.
-- [DISCARDED] SECURITY: err.message passed to client for overloaded errors (`src/lib/sse.ts:48`) — False positive. The check requires `name === "CLAUDE_API_ERROR"` (internal class with controlled messages) + `message.includes("overloaded")`. External errors cannot match all 3 conditions.
-- [DISCARDED] EDGE CASE: truncateConversation same-role when dedupedLast has 1 element (`src/lib/claude.ts:543`) — Impossible in context. Anthropic API enforces alternating user/assistant roles; all 4 last messages cannot share the same role.
-- [DISCARDED] EDGE CASE: client-disconnect detection relies on runtime-specific error message substrings (`src/lib/sse.ts:39-41`) — Style concern. Worst case is warn→error log level change; no functionality or data impact.
-- [DISCARDED] CONVENTION: Missing `action` field in SSE log calls (`src/lib/sse.ts:43,45`) — Style-only cosmetic preference with zero correctness impact. Not explicitly enforced by CLAUDE.md.
-- [DISCARDED] CONVENTION: Redundant vi.useRealTimers() calls in tests (`src/lib/__tests__/claude.test.ts:1764,1814,1839`) — Defense-in-depth pattern; inline calls guard against test throws before afterEach runs.
+- [DISCARDED] RESOURCE: SSE stream not cancelled on error event (`src/components/food-chat.tsx:379-381`) — Server closes stream after sending error event; controller in ref is aborted on unmount; no data consumed after releaseLock
+- [DISCARDED] EDGE CASE: base64 split could return undefined (`src/components/food-chat.tsx:210`) — FileReader.readAsDataURL spec guarantees `data:mediatype;base64,data` format; comma is always present
+- [DISCARDED] ERROR: Missing console.error in handleSend catch (`src/components/food-chat.tsx:402-422`) — Style preference; errors properly surfaced to user via setError(); not a correctness issue
+- [DISCARDED] ERROR: Missing console.error in handleLog catch (`src/components/food-chat.tsx:488-495`) — Same as above
+- [DISCARDED] EDGE CASE: FITBIT_NOT_CONNECTED error code not tested (`src/components/__tests__/food-chat.test.tsx:1100-1116`) — Identical code path (same `||` branch) fully covered by FITBIT_CREDENTIALS_MISSING test
+- [DISCARDED] CONVENTION: setTimeout in tests without fake timers (`src/components/__tests__/food-chat.test.tsx:552-565,577-591`) — React 18 silently ignores state updates on unmounted components; no test-visible impact
+- [DISCARDED] CONVENTION: window.location override not in try/finally (`src/components/__tests__/food-chat.test.tsx:1065-1098`) — Deterministic test; impossible to throw between override and restore
 
 ### Linear Updates
-- FOO-597: Review → Merge
-- FOO-598: Review → Merge
-- FOO-599: Review → Merge
-- FOO-600: Review → Merge
+- FOO-641: Review → Merge (original task completed)
+- FOO-642: Review → Merge (original task completed)
+- FOO-643: Review → Merge (original task completed)
+- FOO-644: Created in Todo (Fix: 120s timeout timer leak on unmount)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-02-18
+**Method:** Direct fix (trivial one-liner)
+
+### Tasks Completed This Iteration
+- Fix 1: 120s timeout timer leaks on unmount (FOO-644) — Hoisted `timeoutId` declaration above `try` block, added `clearTimeout(timeoutId)` in `finally` block to ensure cleanup on all exit paths (success, error, abort).
+
+### Files Modified
+- `src/components/food-chat.tsx` — Hoisted timeoutId, added clearTimeout in finally block
+
+### Linear Updates
+- FOO-644: Todo → Merge
+
+### Pre-commit Verification
+- verifier: All 1976 tests pass, zero warnings, build clean
 
 <!-- REVIEW COMPLETE -->
 

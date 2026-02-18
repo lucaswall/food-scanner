@@ -302,6 +302,21 @@ describe("FoodLogConfirmation", () => {
     });
   });
 
+  // FOO-601: Color token verification
+  describe("color tokens", () => {
+    it("CheckCircle icon uses text-success semantic token", () => {
+      render(
+        <FoodLogConfirmation
+          response={mockResponse}
+          foodName="Test Food"
+        />
+      );
+
+      const icon = screen.getByTestId("success-icon");
+      expect(icon).toHaveClass("text-success");
+    });
+  });
+
   // FOO-498: SWR Cache Invalidation
   describe("cache invalidation", () => {
     it("calls invalidateFoodCaches when response is truthy", () => {

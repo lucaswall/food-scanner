@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { PendingSubmissionHandler } from "../pending-submission-handler";
 import type { PendingSubmission } from "@/lib/pending-submission";
 
@@ -237,6 +237,74 @@ describe("PendingSubmissionHandler", () => {
       expect(body.newNotes).toBe("Test notes");
       expect(body.newKeywords).toEqual(["test"]);
       expect(body.newConfidence).toBe("high");
+    });
+  });
+
+  // FOO-606: Color token correctness
+  describe("color tokens", () => {
+    it("resubmitting state uses info tokens not primary-foreground", async () => {
+      const pending: PendingSubmission = {
+        analysis: null,
+        mealTypeId: 3,
+        foodName: "Empanada",
+        reuseCustomFoodId: 123,
+        date: "2026-02-07",
+        time: "14:30",
+      };
+      mockGetPending.mockReturnValue(pending);
+
+      // Keep fetch pending so we can inspect the resubmitting state
+      let resolveFetch!: (v: unknown) => void;
+      mockFetch.mockReturnValueOnce(new Promise((r) => { resolveFetch = r; }));
+
+      render(<PendingSubmissionHandler />);
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+      });
+
+      const alert = screen.getByRole("alert");
+      const description = alert.querySelector('[data-slot="alert-description"]');
+      expect(description).not.toBeNull();
+
+      expect(alert).toHaveClass("border-info");
+      expect(alert).not.toHaveClass("border-primary");
+      expect(description).not.toHaveClass("text-primary-foreground");
+      expect(description).toHaveClass("text-foreground");
+
+      // Cleanup: resolve pending fetch inside act() to let React process state updates
+      await act(async () => {
+        resolveFetch({ ok: false, json: () => Promise.resolve({ success: false, error: {} }) });
+      });
+    });
+
+    it("success state uses semantic success tokens not hardcoded green", async () => {
+      const pending: PendingSubmission = {
+        analysis: null,
+        mealTypeId: 3,
+        foodName: "Empanada",
+        reuseCustomFoodId: 123,
+      };
+      mockGetPending.mockReturnValue(pending);
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: {} }),
+      });
+
+      render(<PendingSubmissionHandler />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Successfully resubmitted Empanada/i)).toBeInTheDocument();
+      });
+
+      const alert = screen.getByRole("alert");
+      const description = alert.querySelector('[data-slot="alert-description"]');
+      expect(description).not.toBeNull();
+
+      expect(alert).toHaveClass("border-success");
+      expect(alert).not.toHaveClass("border-green-500");
+      expect(description).not.toHaveClass("text-green-900");
+      expect(description).toHaveClass("text-foreground");
     });
   });
 

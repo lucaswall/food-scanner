@@ -111,9 +111,9 @@ export function PendingSubmissionHandler() {
 
   if (status === "resubmitting") {
     return (
-      <Alert variant="default" className="border-primary bg-primary/10">
-        <Loader2 className="h-4 w-4 text-primary animate-spin" />
-        <AlertDescription className="text-sm text-primary-foreground">
+      <Alert variant="default" className="border-info bg-info/10">
+        <Loader2 className="h-4 w-4 text-info animate-spin" />
+        <AlertDescription className="text-sm text-foreground">
           Reconnected! Resubmitting {foodName}...
         </AlertDescription>
       </Alert>
@@ -122,9 +122,9 @@ export function PendingSubmissionHandler() {
 
   if (status === "success") {
     return (
-      <Alert variant="default" className="border-green-500 bg-green-500/10">
-        <CheckCircle2 className="h-4 w-4 text-green-600" />
-        <AlertDescription className="text-sm text-green-900">
+      <Alert variant="default" className="border-success bg-success/10">
+        <CheckCircle2 className="h-4 w-4 text-success" />
+        <AlertDescription className="text-sm text-foreground">
           Successfully resubmitted {foodName}
         </AlertDescription>
       </Alert>
