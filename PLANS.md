@@ -395,3 +395,32 @@ Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
 
 1. Wrap `resolveFetch(...)` at `src/components/__tests__/pending-submission-handler.test.tsx:276` in `await act(async () => { ... })`
 2. Verify no React warnings in test output
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-18
+**Method:** Single-agent (small batch — 3 tasks, ~3 files)
+
+### Tasks Completed This Iteration
+- Fix 1: AbortSignal.any() browser compatibility (FOO-641) — Replaced `AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` with manual `setTimeout` + `controller.abort()` pattern. Clears timeout immediately after fetch response. Test verifies chat works when `AbortSignal.any` is undefined.
+- Fix 2: response.body! guard and @/ imports (FOO-642) — Added null guard before `response.body.getReader()` with graceful error message. Fixed 3 relative imports (`./meal-type-selector`, `./mini-nutrition-card`, `./chat-markdown`) to use `@/components/` alias.
+- Fix 3: Missing act() in test cleanup (FOO-643) — Wrapped `resolveFetch(...)` cleanup in `await act(async () => { ... })` to prevent React state update warnings and test contamination.
+
+### Files Modified
+- `src/components/food-chat.tsx` — Replaced AbortSignal.any with manual timeout, added response.body null guard, fixed 3 relative imports
+- `src/components/__tests__/food-chat.test.tsx` — Added 2 new test cases (AbortSignal.any fallback, response.body null guard)
+- `src/components/__tests__/pending-submission-handler.test.tsx` — Added act() wrapper to test cleanup, added act import
+
+### Linear Updates
+- FOO-641: Todo → In Progress → Review
+- FOO-642: Todo → In Progress → Review
+- FOO-643: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 bugs (timer leak on !response.ok path, test assertion ordering), both fixed
+- verifier: All 1976 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

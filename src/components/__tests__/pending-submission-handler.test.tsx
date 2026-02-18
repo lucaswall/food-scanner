@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import { PendingSubmissionHandler } from "../pending-submission-handler";
 import type { PendingSubmission } from "@/lib/pending-submission";
 
@@ -272,8 +272,10 @@ describe("PendingSubmissionHandler", () => {
       expect(description).not.toHaveClass("text-primary-foreground");
       expect(description).toHaveClass("text-foreground");
 
-      // Cleanup
-      resolveFetch({ ok: false, json: () => Promise.resolve({ success: false, error: {} }) });
+      // Cleanup: resolve pending fetch inside act() to let React process state updates
+      await act(async () => {
+        resolveFetch({ ok: false, json: () => Promise.resolve({ success: false, error: {} }) });
+      });
     });
 
     it("success state uses semantic success tokens not hardcoded green", async () => {

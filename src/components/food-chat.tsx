@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MealTypeSelector } from "./meal-type-selector";
+import { MealTypeSelector } from "@/components/meal-type-selector";
 import {
   Send,
   ArrowLeft,
@@ -21,8 +21,8 @@ import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { getTodayDate } from "@/lib/date-utils";
 import { savePendingSubmission } from "@/lib/pending-submission";
-import { MiniNutritionCard } from "./mini-nutrition-card";
-import { ChatMarkdown } from "./chat-markdown";
+import { MiniNutritionCard } from "@/components/mini-nutrition-card";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import type {
   FoodAnalysis,
   FoodLogResponse,
@@ -292,12 +292,17 @@ export function FoodChat({
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
+      // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
+      const timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 120000);
+
       const response = await fetch("/api/chat-food", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const result = (await safeResponseJson(response)) as {
@@ -310,11 +315,16 @@ export function FoodChat({
 
       const contentType = response.headers?.get("Content-Type") ?? "";
       if (contentType.includes("text/event-stream")) {
+        if (!response.body) {
+          revertOnError("No response body");
+          return;
+        }
+
         // SSE streaming path: use functional setMessages updaters so React 18 applies
         // each event in order (functional updaters are always applied sequentially).
         setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
-        const reader = response.body!.getReader();
+        const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         let streamFinished = false;

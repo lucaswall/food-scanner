@@ -1422,6 +1422,70 @@ describe("FoodChat", () => {
     });
   });
 
+  // FOO-641: AbortSignal.any() browser compatibility
+  describe("AbortSignal.any fallback", () => {
+    it("chat works when AbortSignal.any is not available (older browsers)", async () => {
+      const originalAny = AbortSignal.any;
+      // Simulate older browser that doesn't have AbortSignal.any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (AbortSignal as any).any = undefined;
+
+      try {
+        mockFetch.mockResolvedValueOnce(
+          makeSSEFetchResponse([
+            { type: "text_delta", text: "Response without AbortSignal.any" },
+            { type: "done" },
+          ])
+        );
+
+        render(<FoodChat {...sseProps} />);
+        const input = screen.getByPlaceholderText(/type a message/i);
+        fireEvent.change(input, { target: { value: "Test" } });
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: /send/i }));
+        });
+
+        // Fetch should have been called with a signal (manual fallback)
+        await waitFor(() => {
+          expect(mockFetch).toHaveBeenCalledWith(
+            "/api/chat-food",
+            expect.objectContaining({ signal: expect.any(AbortSignal) })
+          );
+        });
+        // Response rendered proves the request completed successfully
+        expect(screen.getByText("Response without AbortSignal.any")).toBeInTheDocument();
+      } finally {
+        // Restore
+        AbortSignal.any = originalAny;
+      }
+    });
+  });
+
+  // FOO-642: response.body null guard
+  describe("response.body null guard", () => {
+    it("shows error gracefully when response.body is null for SSE", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ "Content-Type": "text/event-stream" }),
+        body: null,
+      });
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Test message" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      // Should show an error and revert the user message
+      await waitFor(() => {
+        expect(screen.getByText(/no response body/i)).toBeInTheDocument();
+      });
+      // User message should be reverted
+      expect(input).toHaveValue("Test message");
+    });
+  });
+
   // FOO-576: AbortController cleanup on unmount
   describe("AbortController cleanup", () => {
     it("aborts in-flight SSE request on unmount", async () => {
