@@ -15,7 +15,7 @@ Each worker operates in its own **git worktree** — a fully isolated working di
 
 1. **Read PLANS.md** — Understand the full context and history
 2. **Read CLAUDE.md** — Understand TDD workflow and project rules
-3. **Verify Linear MCP** — Call `mcp__linear__list_teams`. If unavailable, STOP and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
+3. **Verify Linear MCP** — Call `mcp__linear__list_teams` **directly** (never delegate to a subagent — subagents don't have MCP access). If the tool is unavailable or errors, **STOP immediately** and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill." Do NOT rationalize continuing without Linear.
 4. **Identify pending work** — Use this priority order:
    - Check latest Iteration block for "Tasks Remaining" section
    - Look for `## Fix Plan` (h2 level) with no iteration after it
@@ -24,19 +24,35 @@ Each worker operates in its own **git worktree** — a fully isolated working di
 
 ## Scope Assessment
 
-Before partitioning into work units, assess whether workers are justified:
+Before partitioning into work units, assess whether workers are justified. Worker overhead (worktree setup, team creation, spawning, coordination, merge, cleanup) is significant — only use workers when the implementation work clearly exceeds that overhead.
 
-1. Count the pending tasks/fixes
-2. Estimate total files modified (from the plan descriptions)
+### Step 1: Classify each task
 
-| Pending tasks | Est. files modified | Decision |
-|---------------|---------------------|----------|
-| 1–3 tasks OR ≤6 files total | Small batch | **Skip workers → single-agent mode** |
-| 4+ tasks AND >6 files total | Medium+ batch | Proceed with workers |
+For each pending task/fix, estimate its size:
 
-For small batches, announce: "Small batch (N tasks, ~M files) — implementing in single-agent mode for efficiency." Then jump directly to "Fallback: Single-Agent Mode."
+| Size | Description | Examples |
+|------|-------------|---------|
+| **S** | Single-line or few-line surgical change | Replace one API call, add try/catch, add an attribute, fix a condition |
+| **M** | Moderate implementation with tests | New error state with tests, add timeout+logging to multiple calls |
+| **L** | Substantial new code or multi-file feature | New component, new API route, refactor a module, implement a protocol |
 
-**Rationale:** Worker overhead (worktree setup, team creation, task assignment, merge, cleanup) exceeds implementation time for small batches. Iterations 1–2 succeeded with 7–8 tasks; Iteration 3 failed with 3 tasks because workers took longer to start than the fixes took to implement.
+### Step 2: Compute effective scope
+
+1. **Count independent work units** — Group tasks that share files into a single unit. E.g., two fixes both touching `claude.ts` = 1 unit, not 2.
+2. **Estimate total effort** — Sum the task sizes: S=1, M=2, L=4.
+
+### Step 3: Decision
+
+| Independent work units | Total effort | Decision |
+|------------------------|-------------|----------|
+| 1 unit (any effort) | Any | **Single-agent** — no parallelism benefit |
+| 2+ units | ≤6 points | **Single-agent** — worker overhead exceeds implementation time |
+| 2+ units | 7–11 points | **Workers if ≥3 units**, otherwise single-agent |
+| 2+ units | ≥12 points | **Workers** — parallelism pays off |
+
+Announce the decision with reasoning: "N tasks across M independent units, effort score P — [workers/single-agent mode]." Then jump to "Fallback: Single-Agent Mode" if single-agent, or continue to "Work Partitioning" if workers.
+
+**Rationale:** Pure task/file counts miss complexity. Five surgical fixes (5×S=5 points) don't justify workers even across 7 files, but four substantial features (4×L=16 points) clearly do. The effort score captures this. Calibrated from: Iteration 1 (7 tasks, mostly M/L → workers succeeded), Iteration 3 (3 small tasks → workers wasted time), Fix Plan (5 tasks, all S → single-agent appropriate).
 
 ## Work Partitioning
 
