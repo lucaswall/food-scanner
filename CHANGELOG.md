@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-02-18
+
+### Added
+
+- Chat messages now render formatted text with bold, lists, and code blocks
+
+### Changed
+
+- Chat auto-scrolls to keep latest messages in view during analysis
+- App automatically retries when AI service is temporarily overloaded
+
+### Fixed
+
+- Fitbit food logging now correctly rounds nutritional values
+- Light mode color inconsistencies across the app
+- Settings page layout and spacing issues
+- Nutrition table display on mobile devices
+
 ## [1.12.0] - 2026-02-17
 
 ### Added
@@ -225,7 +243,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/lucaswall/food-scanner/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/lucaswall/food-scanner/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/lucaswall/food-scanner/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/lucaswall/food-scanner/compare/v1.9.1...v1.10.0
