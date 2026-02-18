@@ -143,8 +143,10 @@ vi.mock("@anthropic-ai/sdk", () => {
       constructor(options: Record<string, unknown>) {
         mockConstructorArgs(options);
       }
-      messages = {
-        stream: mockStream,
+      beta = {
+        messages: {
+          stream: mockStream,
+        },
       };
     },
   };

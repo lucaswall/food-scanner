@@ -68,6 +68,8 @@ Web search guidelines:
 - When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
 - If web search returns nothing useful, fall back to estimation from your training data and say so.`;
 
+const BETA_HEADER = "code-execution-web-tools-2026-02-09";
+
 export const WEB_SEARCH_TOOL = {
   type: "web_search_20260209",
   name: "web_search",
@@ -476,7 +478,7 @@ export function truncateConversation(
  * Returns the complete final message after the stream is exhausted.
  */
 async function* streamTextDeltas(
-  stream: { [Symbol.asyncIterator](): AsyncIterator<unknown>; finalMessage(): Promise<Anthropic.Message> },
+  stream: { [Symbol.asyncIterator](): AsyncIterator<unknown>; finalMessage(): Promise<Anthropic.Message | Anthropic.Beta.Messages.BetaMessage> },
 ): AsyncGenerator<StreamEvent, Anthropic.Message> {
   for await (const event of stream) {
     const e = event as Record<string, unknown>;
@@ -489,7 +491,7 @@ async function* streamTextDeltas(
       yield { type: "text_delta", text: (e.delta as { type: "text_delta"; text: string }).text };
     }
   }
-  return await stream.finalMessage();
+  return await stream.finalMessage() as Anthropic.Message;
 }
 
 /**
@@ -590,9 +592,10 @@ export async function* runToolLoop(
       );
 
       const iterElapsed = startTimer();
-      const stream = getClient().messages.stream({
+      const stream = getClient().beta.messages.stream({
         model: CLAUDE_MODEL,
         max_tokens: maxTokens,
+        betas: [BETA_HEADER],
         system: [
           {
             type: "text" as const,
@@ -883,9 +886,10 @@ export async function* analyzeFood(
       "Claude API request detail"
     );
 
-    const stream = getClient().messages.stream({
+    const stream = getClient().beta.messages.stream({
       model: CLAUDE_MODEL,
       max_tokens: 1024,
+      betas: [BETA_HEADER],
       system: [
         {
           type: "text" as const,
@@ -1206,9 +1210,10 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       "Claude API chat request system prompt"
     );
 
-    const stream = getClient().messages.stream({
+    const stream = getClient().beta.messages.stream({
       model: CLAUDE_MODEL,
       max_tokens: 2048,
+      betas: [BETA_HEADER],
       system: [
         {
           type: "text" as const,
