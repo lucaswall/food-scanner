@@ -455,3 +455,27 @@ Summary: 1 issue found (Single-agent review: security, reliability, quality)
    - `if (err instanceof DOMException && err.name === "TimeoutError") { setError("Analysis timed out. Please try again."); vibrateError(); return; }`
    - Keep the existing `AbortError` check as-is (silent return for user-initiated abort)
 3. Verify all food-analyzer tests pass
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-02-18
+**Method:** Single-agent (small batch, 1 fix)
+
+### Tasks Completed This Iteration
+- Fix 1: Add TimeoutError handling to handleAnalyze catch block — Added `DOMException` + `TimeoutError` check before generic error handler, showing "Analysis timed out. Please try again." Also refactored compression warning timeout cleanup to a single block at the top of the catch. New test verifying user-friendly timeout message. (FOO-592)
+
+### Files Modified
+- `src/components/food-analyzer.tsx` — Added TimeoutError handling, consolidated compression warning cleanup
+- `src/components/__tests__/food-analyzer.test.tsx` — New timeout error test, fixed scrollIntoView mock prototype leak (try/finally)
+
+### Linear Updates
+- FOO-592: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 medium issues — 1 fixed (scrollIntoView mock prototype pollution), 1 discarded (ChatMarkdown heading text fallthrough is intentional per PLANS.md spec)
+- verifier: All 1936 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

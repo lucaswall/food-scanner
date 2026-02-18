@@ -433,28 +433,33 @@ describe("FoodAnalyzer", () => {
   });
 
   it("scrolls analysis section into view when Analyze is clicked", async () => {
+    const original = Element.prototype.scrollIntoView;
     const scrollIntoViewMock = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoViewMock;
 
-    mockFetch.mockResolvedValueOnce(
-      makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
-    );
+    try {
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+      );
 
-    render(<FoodAnalyzer />);
+      render(<FoodAnalyzer />);
 
-    const addPhotoButton = screen.getByRole("button", { name: /add photo/i });
-    fireEvent.click(addPhotoButton);
+      const addPhotoButton = screen.getByRole("button", { name: /add photo/i });
+      fireEvent.click(addPhotoButton);
 
-    await waitFor(() => {
-      const analyzeButton = screen.getByRole("button", { name: /analyze/i });
-      expect(analyzeButton).not.toBeDisabled();
-    });
+      await waitFor(() => {
+        const analyzeButton = screen.getByRole("button", { name: /analyze/i });
+        expect(analyzeButton).not.toBeDisabled();
+      });
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
-    });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+      });
 
-    expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth" });
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth" });
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
   });
 
   it("passes combined abort+timeout signal to analyze-food fetch", async () => {
@@ -576,6 +581,28 @@ describe("FoodAnalyzer", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/failed to analyze/i)).toBeInTheDocument();
+    });
+  });
+
+  it("shows user-friendly message when analyze-food fetch times out", async () => {
+    mockFetch.mockRejectedValueOnce(
+      new DOMException("The operation was aborted due to timeout", "TimeoutError")
+    );
+
+    render(<FoodAnalyzer />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /analyze/i })
+      ).not.toBeDisabled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/analysis timed out/i)).toBeInTheDocument();
     });
   });
 

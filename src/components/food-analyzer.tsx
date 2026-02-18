@@ -273,19 +273,20 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         reader.releaseLock();
       }
     } catch (err) {
-      // Ignore abort errors
-      if (err instanceof Error && err.name === "AbortError") {
-        // Clear stale compression warning timeout to prevent it from wiping future errors
-        if (compressionWarningTimeoutRef.current) {
-          clearTimeout(compressionWarningTimeoutRef.current);
-          compressionWarningTimeoutRef.current = null;
-        }
-        return;
-      }
-      // Clear compression warning timeout before setting real error
+      // Clear stale compression warning timeout before handling any error
       if (compressionWarningTimeoutRef.current) {
         clearTimeout(compressionWarningTimeoutRef.current);
         compressionWarningTimeoutRef.current = null;
+      }
+      // Ignore abort errors (user-initiated cancel)
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+      // User-friendly message for timeout errors
+      if (err instanceof DOMException && err.name === "TimeoutError") {
+        setError("Analysis timed out. Please try again.");
+        vibrateError();
+        return;
       }
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
