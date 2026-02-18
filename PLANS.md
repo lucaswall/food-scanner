@@ -1,253 +1,233 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-576-sse-fixes
-**Issues:** FOO-576, FOO-577, FOO-578, FOO-579, FOO-580
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-581-keyword-search-and-model-upgrade
+**Issues:** FOO-581, FOO-582, FOO-583
 **Created:** 2026-02-17
 **Last Updated:** 2026-02-17
 
 ## Summary
 
-Fix 5 issues from the SSE deep review: a High-priority bug where the analyzeFood slow path silently loses text-only responses, a High-priority performance issue where FoodChat leaks Claude API resources on unmount, and 3 Low-priority polish fixes for defensive SSE error handling, consecutive tool_start empty bubbles, and text_delta token fragments in the loading indicator.
+Three improvements to the food analysis pipeline:
+1. Fix the search_food_log tool to use keyword-based matching (same as find-matches) instead of naive substring matching
+2. Upgrade the Claude model from Sonnet 4.5 to Sonnet 4.6 and bump the SDK
+3. Upgrade the web search tool from v1 to v2 with dynamic filtering for better accuracy and 24% token savings
 
 ## Issues
 
-### FOO-576: FoodChat missing AbortController cleanup on unmount
-
-**Priority:** High
-**Labels:** Performance
-**Description:** FoodChat uses `AbortSignal.timeout(120000)` but has no AbortController to cancel in-flight SSE fetches on unmount. When the user navigates away during streaming, the Claude API call continues for up to 120 seconds.
-
-**Acceptance Criteria:**
-- [ ] FoodChat creates an AbortController per `handleSend()` call (stored in a ref)
-- [ ] Signal combines controller + timeout via `AbortSignal.any()`
-- [ ] useEffect cleanup aborts on unmount
-- [ ] SSE reader catch block handles AbortError gracefully
-- [ ] Test: unmount during active SSE aborts the fetch
-
-### FOO-577: analyzeFood slow path text-only response silently lost
+### FOO-581: search_food_log uses substring matching instead of keyword-based matching
 
 **Priority:** High
 **Labels:** Bug
-**Description:** When `analyzeFood()` triggers the slow path (data tools), it delegates to `runToolLoop()` via `yield*`. If Claude responds with text only (no `report_nutrition`), the text_delta events are consumed as ephemeral loading indicators and no `needs_chat` event is emitted. The user sees nothing after the loading animation ends.
+**Description:** The `search_food_log` tool uses naive `.includes()` substring matching on free-text queries, while the `find-matches` endpoint uses Claude-generated keyword set intersection via `computeMatchRatio()`. This creates a UX inconsistency where the UI shows food matches but the chat can't find them.
+
+Real example: query "té leche" fails because it's matched as a single substring against "Té con leche" (the "con" breaks it), and accent characters aren't normalized.
 
 **Acceptance Criteria:**
-- [ ] analyzeFood slow path wraps `runToolLoop()` iteration (not `yield*`) to intercept events
-- [ ] Text from `text_delta` events is accumulated during the slow path
-- [ ] If `done` arrives without a prior `analysis` event, `needs_chat` is yielded with accumulated text
-- [ ] `runToolLoop` itself remains unchanged (conversationalRefine still uses it directly)
-- [ ] Test: analyzeFood slow path with text-only tool loop response triggers `needs_chat`
+- [ ] `search_food_log` tool accepts a `keywords` array parameter instead of a `query` string
+- [ ] Matching uses `computeMatchRatio()` from `src/lib/food-matching.ts`
+- [ ] The tool description instructs Claude to generate keywords following the same rules as `report_nutrition`
+- [ ] Date-based and meal-type searches continue to work unchanged
+- [ ] Foods that `find-matches` can find are also findable via `search_food_log`
 
-### FOO-578: createSSEResponse catch block can throw on cancelled stream
+### FOO-582: Upgrade Claude model from Sonnet 4.5 to Sonnet 4.6
 
-**Priority:** Low
-**Labels:** Bug
-**Description:** In `createSSEResponse()`, if the generator throws after client disconnect, the catch block calls `controller.enqueue()` and `controller.close()` on a cancelled ReadableStream, which may throw and produce unhandled rejection warnings.
-
-**Acceptance Criteria:**
-- [ ] Catch block wraps `controller.enqueue()` and `controller.close()` in nested try/catch
-- [ ] Inner catch silently ignores (stream already closed)
-- [ ] Test: generator throws after stream cancel doesn't produce unhandled rejection
-
-### FOO-579: FoodChat consecutive tool_start events create empty message bubbles
-
-**Priority:** Low
+**Priority:** Medium
 **Labels:** Improvement
-**Description:** When Claude calls multiple tools simultaneously, consecutive `tool_start` events each push a new empty assistant message, creating briefly visible empty chat bubbles.
+**Description:** The app uses `claude-sonnet-4-5-20250929` (pinned snapshot). Sonnet 4.6 (`claude-sonnet-4-6`) is available with better coding performance, improved long-context reasoning, and stronger safety — at the same price ($3/$15 per MTok).
 
 **Acceptance Criteria:**
-- [ ] tool_start handler skips pushing a new message if last assistant message is already empty (no content, not isThinking)
-- [ ] Test: multiple consecutive tool_start events produce only one empty assistant message
+- [ ] `CLAUDE_MODEL` changed to `claude-sonnet-4-6`
+- [ ] SDK bumped to `@anthropic-ai/sdk@^0.75.0`
+- [ ] `MODEL_PRICING` includes `claude-sonnet-4-6` entry
+- [ ] All test references updated
+- [ ] E2E fixtures left as-is (historical data)
+- [ ] No adaptive thinking or effort level changes
 
-### FOO-580: FoodAnalyzer text_delta shows token fragments in loading step
+### FOO-583: Upgrade web search tool to v2 with dynamic filtering
 
-**Priority:** Low
+**Priority:** Medium
 **Labels:** Improvement
-**Description:** During analysis, `text_delta` events replace `loadingStep` with individual token fragments instead of accumulating. The user sees single words flash by.
+**Description:** The food analysis uses the old web search tool version (`web_search_20250305`). The new v2 (`web_search_20260209`) includes dynamic filtering for 24% fewer input tokens and improved accuracy.
 
 **Acceptance Criteria:**
-- [ ] text_delta content is accumulated into a ref/variable during analysis SSE streaming
-- [ ] The accumulated text is displayed as loadingStep
-- [ ] tool_start events reset the accumulator (new thinking phase)
-- [ ] Test: multiple text_delta events produce a coherent loading step message
+- [ ] `WEB_SEARCH_TOOL` type changed to `web_search_20260209`
+- [ ] Beta header `anthropic-beta: code-execution-web-tools-2026-02-09` added to API calls
+- [ ] TypeScript types updated for the new tool type
+- [ ] All test references updated
+- [ ] Existing web search behavior preserved (no regressions)
 
 ## Prerequisites
 
-- [ ] On `main` branch, clean working tree
-- [ ] `npm test` passes
-- [ ] No DB schema changes required
+- [ ] `main` branch is clean and up to date
+- [ ] `npm install` runs successfully
+- [ ] `npm test` passes before starting
 
 ## Implementation Tasks
 
-### Task 1: Guard createSSEResponse catch block against cancelled stream
+### Task 1: Replace query parameter with keywords in search_food_log tool definition
 
-**Issue:** FOO-578
+**Issue:** FOO-581
 **Files:**
-- `src/lib/sse.ts` (modify)
-- `src/lib/__tests__/sse.test.ts` (modify)
+- `src/lib/chat-tools.ts` (modify)
+- `src/lib/__tests__/chat-tools.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add test in `src/lib/__tests__/sse.test.ts` under the "error handling" describe block:
-   - Test: "does not throw when generator errors after stream is cancelled"
-   - Create an async generator that throws an Error
-   - Create a `createSSEResponse()` from it
-   - Get the reader from the response body, then call `reader.cancel()` to simulate client disconnect
-   - Consume the reader to trigger the generator iteration — the catch block should not produce unhandled rejections
-   - Run: `npm test -- sse`
-   - Verify: Test fails (currently no guard)
+1. **RED** — Update the tool schema test in `chat-tools.test.ts`:
+   - Change the `SEARCH_FOOD_LOG_TOOL` schema test to expect a `keywords` property (type: array of strings) instead of `query` (type: string/null)
+   - Update the `required` array assertion to use `keywords` instead of `query`
+   - Update the non-strict schema test to check `keywords` has `type: "array"` with `items: { type: "string" }`
+   - Run: `npm test -- chat-tools`
+   - Verify: Schema tests fail because the tool still has `query`
 
-2. **GREEN** — Modify `src/lib/sse.ts` `createSSEResponse()`:
-   - In the catch block (lines 36-45), wrap `controller.enqueue()` and `controller.close()` in a nested `try { ... } catch { /* stream already closed */ }`
-   - Run: `npm test -- sse`
-   - Verify: Test passes
+2. **GREEN** — Update `SEARCH_FOOD_LOG_TOOL` in `chat-tools.ts`:
+   - Replace the `query` property with a `keywords` property: `type: "array"`, `items: { type: "string" }`, description instructs Claude to generate 1-5 lowercase single-word tokens (same rules as report_nutrition's keywords)
+   - Update `required` array: replace `"query"` with `"keywords"`
+   - Update the tool `description` to mention keyword-based search instead of free-text search
+   - Run: `npm test -- chat-tools`
+   - Verify: Schema tests pass
 
-3. **REFACTOR** — No refactoring needed; this is a single defensive wrapper.
+3. **REFACTOR** — Ensure the description is clear and concise. Reference the keyword generation rules from `report_nutrition`.
+
+### Task 2: Update searchFoods to use keyword matching via computeMatchRatio
+
+**Issue:** FOO-581
+**Files:**
+- `src/lib/food-log.ts` (modify)
+- `src/lib/__tests__/food-log.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update `searchFoods` tests in `food-log.test.ts`:
+   - Change the function signature in tests: replace `query: string` with `keywords: string[]`
+   - Add test: searching with keywords `["te", "leche"]` matches a food with keywords `["te", "leche", "azucar"]` (match ratio >= 0.5)
+   - Add test: searching with keywords `["pizza"]` matches a food with keywords `["pizza", "jamon", "muzzarella"]` (match ratio >= 0.5)
+   - Add test: searching with keywords `["cerveza", "sin-alcohol"]` does NOT match a food with keywords `["pizza", "jamon"]` (match ratio < 0.5)
+   - Run: `npm test -- food-log`
+   - Verify: Tests fail because `searchFoods` still expects a string
+
+2. **GREEN** — Refactor `searchFoods` in `food-log.ts`:
+   - Change signature from `searchFoods(userId, query: string, ...)` to `searchFoods(userId, keywords: string[], ...)`
+   - Import `computeMatchRatio` from `@/lib/food-matching`
+   - Replace the application-level filter block (lines 544-551) with keyword-based matching: for each row, compute `computeMatchRatio(keywords, row.custom_foods.keywords ?? [])` and include if ratio >= 0.5
+   - Remove the `lowerQuery` variable and `.includes()` logic
+   - Keep the grouping, sorting, and limit logic unchanged
+   - Run: `npm test -- food-log`
+   - Verify: Tests pass
+
+3. **REFACTOR** — Clean up: remove unused `lowerQuery` variable, ensure consistent naming.
+
+### Task 3: Update executeSearchFoodLog to pass keywords to searchFoods
+
+**Issue:** FOO-581
+**Files:**
+- `src/lib/chat-tools.ts` (modify)
+- `src/lib/__tests__/chat-tools.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update execution tests in `chat-tools.test.ts`:
+   - In "executes query-only search" test: change params from `{ query: "pizza" }` to `{ keywords: ["pizza"] }` and update the `mockSearchFoods` assertion to expect `["pizza"]` instead of `"pizza"`
+   - In "search_food_log accepts null parameters" test: update params to use `keywords: ["pizza"]` instead of `query: "pizza"`, update assertion
+   - Add new test: "executes keyword search with multiple keywords" — pass `{ keywords: ["te", "leche"] }`, verify `mockSearchFoods` called with `["te", "leche"]`
+   - Add test: "returns error when keywords is null and no date provided" — pass `{ keywords: null, date: null, from_date: null, to_date: null }`, expect the "at least one of" error
+   - Run: `npm test -- chat-tools`
+   - Verify: Tests fail because `executeSearchFoodLog` still reads `query`
+
+2. **GREEN** — Update `executeSearchFoodLog` in `chat-tools.ts`:
+   - Read `keywords` instead of `query` from params
+   - Validate that `keywords` is a non-empty array (instead of checking for a truthy `query` string)
+   - In Case 1 (keyword-only search): pass the `keywords` array to `searchFoods()` instead of the query string
+   - Update the "no results" message to reference keywords instead of the query string
+   - Run: `npm test -- chat-tools`
+   - Verify: Tests pass
+
+3. **REFACTOR** — Ensure the error message for missing parameters still makes sense with the new keyword approach.
+
+### Task 4: Bump Anthropic SDK and update Claude model constant
+
+**Issue:** FOO-582
+**Files:**
+- `package.json` (modify)
+- `src/lib/claude.ts` (modify)
+
+**Steps:**
+
+1. Run `npm install @anthropic-ai/sdk@^0.75.0` to bump the SDK
+2. Change `CLAUDE_MODEL` in `src/lib/claude.ts:11` from `"claude-sonnet-4-5-20250929"` to `"claude-sonnet-4-6"`
+3. Run `npm run typecheck` — verify no new type errors from the SDK bump
+4. Run `npm test` — tests will fail due to model string mismatches (expected, fixed in Task 5)
 
 **Notes:**
-- The fix is a 3-line change. The existing error-handling tests in sse.test.ts (lines 220-264) validate the happy path; the new test validates the cancel-then-error edge case.
+- The SDK bump is needed because semver 0.x treats minor as breaking: `^0.74.0` only resolves to `0.74.x`
+- If `npm install @anthropic-ai/sdk@^0.75.0` fails (version not published), try `@anthropic-ai/sdk@latest` and pin whatever version installs
 
-### Task 2: Emit needs_chat for text-only responses in analyzeFood slow path
+### Task 5: Add Sonnet 4.6 pricing entry and update all test references
 
-**Issue:** FOO-577
+**Issue:** FOO-582
+**Files:**
+- `src/lib/claude-usage.ts` (modify)
+- `src/lib/__tests__/claude-usage.test.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/app/api/health/__tests__/route.test.ts` (modify)
+- `src/components/__tests__/about-section.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Add a test in `claude-usage.test.ts` for the new pricing entry:
+   - Test that `MODEL_PRICING["claude-sonnet-4-6"]` exists with `inputPricePerMToken: 3` and `outputPricePerMToken: 15`
+   - Run: `npm test -- claude-usage`
+   - Verify: Test fails because the entry doesn't exist yet
+
+2. **GREEN** — Add the pricing entry in `claude-usage.ts`:
+   - Add `"claude-sonnet-4-6": { inputPricePerMToken: 3, outputPricePerMToken: 15 }` to `MODEL_PRICING`
+   - Keep existing entries for `claude-sonnet-4-5-20250929` and others (historical usage records reference them)
+   - Run: `npm test -- claude-usage`
+   - Verify: Test passes
+
+3. **Update test references** — Find-and-replace `claude-sonnet-4-5-20250929` → `claude-sonnet-4-6` in:
+   - `src/lib/__tests__/claude.test.ts` (~27 occurrences)
+   - `src/app/api/health/__tests__/route.test.ts` (2 occurrences)
+   - `src/components/__tests__/about-section.test.tsx` (2 occurrences)
+   - Do NOT change `e2e/fixtures/db.ts` (historical usage records)
+   - Run: `npm test`
+   - Verify: All tests pass
+
+### Task 6: Upgrade web search tool to v2 with beta header
+
+**Issue:** FOO-583
 **Files:**
 - `src/lib/claude.ts` (modify)
 - `src/lib/__tests__/claude.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add test in `src/lib/__tests__/claude.test.ts` in the analyzeFood describe block:
-   - Test: "slow path: yields needs_chat when tool loop ends with text only (no analysis)"
-   - Mock first stream: data tool call (like `makeDataToolStream("search_food_log", ...)`)
-   - Mock `executeTool` to return search results
-   - Mock second stream: text-only response via `makeTextStream("I found both sizes. Which do you want?")` — this simulates Claude responding with text after using data tools, without calling `report_nutrition`
-   - Collect events from `analyzeFood()`
-   - Assert: events contain `{ type: "needs_chat", message: "I found both sizes. Which do you want?" }`
-   - Assert: events contain `{ type: "done" }`
-   - Assert: events do NOT contain `{ type: "analysis", ... }`
+1. **RED** — Update web search tool tests in `claude.test.ts`:
+   - Change all `web_search_20250305` assertions to `web_search_20260209` (3 occurrences)
+   - Remove `name: "web_search"` from assertions (v2 doesn't require a name field)
+   - Add assertions that the API calls include the beta header `anthropic-beta: code-execution-web-tools-2026-02-09`
    - Run: `npm test -- claude`
-   - Verify: Test fails (currently `needs_chat` is not emitted on slow path)
+   - Verify: Tests fail because the tool still uses the old type
 
-2. **GREEN** — Modify `src/lib/claude.ts` `analyzeFood()` slow path (around line 1001):
-   - Replace `yield* runToolLoop(...)` with a manual iteration loop over `runToolLoop()`
-   - Accumulate text from `text_delta` events into a local string variable
-   - Track whether an `analysis` event was seen (boolean flag)
-   - For all events except `done`, yield them through (pass-through)
-   - When `done` is encountered: if no `analysis` was seen and accumulated text is non-empty, yield `{ type: "needs_chat", message: accumulatedText }` before yielding `done`
+2. **GREEN** — Update `WEB_SEARCH_TOOL` and API calls in `claude.ts`:
+   - Change `WEB_SEARCH_TOOL` type from `"web_search_20250305"` to `"web_search_20260209"`, remove `name` property
+   - Update the TypeScript type annotations: the `buildToolsWithCache` function signature and `tools` option type need to reference the new web search tool type. If the SDK (0.75.0+) exports `WebSearchTool20260209`, use it. If not, define a local type and cast.
+   - Add the beta header to API calls: in `getClient().messages.stream()` calls (there are 4: in `runToolLoop`, `analyzeFood` initial call, and `conversationalRefine` initial call, plus the one in `analyzeFood`'s slow path which goes through `runToolLoop`), include `headers: { 'anthropic-beta': 'code-execution-web-tools-2026-02-09' }` in the options object alongside `signal`
    - Run: `npm test -- claude`
-   - Verify: Test passes
+   - Verify: Tests pass
 
-3. **REFACTOR** — Verify the existing slow path test ("slow path: yields tool_start and eventually analysis when data tools used" at line 361) still passes — it should, since the analysis case is unaffected.
-
-**Notes:**
-- `runToolLoop` must NOT be modified — it's also used by `conversationalRefine` where text-only end_turn is normal behavior.
-- The `text_delta` events are still yielded to the client (food-analyzer shows them as loading indicators). The accumulated text is only used if no analysis arrives.
-- Reference pattern: fast path text-only handling at claude.ts:1027-1043 — the slow path wrapper should produce the same outcome.
-- The existing test at line 395 (`makeTextStream("Based on your log...")`) currently doesn't assert `needs_chat` — after this fix it should be updated to verify `needs_chat` is emitted there too.
-
-### Task 3: Add AbortController cleanup to FoodChat on unmount
-
-**Issue:** FOO-576
-**Files:**
-- `src/components/food-chat.tsx` (modify)
-- `src/components/__tests__/food-chat.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test in `src/components/__tests__/food-chat.test.tsx`:
-   - Test: "aborts in-flight SSE request on unmount"
-   - Spy on `AbortController.prototype.abort`
-   - Render FoodChat with SSE props, trigger a send to start streaming
-   - `unmount()` the component
-   - Assert: `abort()` was called
-   - Restore the spy
-   - Run: `npm test -- food-chat`
-   - Verify: Test fails (no AbortController in food-chat currently)
-   - Reference: `src/components/__tests__/food-analyzer.test.tsx:2182-2210` — same pattern
-
-2. **GREEN** — Modify `src/components/food-chat.tsx`:
-   - Add an `abortControllerRef = useRef<AbortController | null>(null)` (follow food-analyzer.tsx:118 pattern)
-   - In `handleSend()` (around line 289): create a new `AbortController`, store in ref, use `AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` as the fetch signal
-   - Add/modify the unmount useEffect (line 138-145) to also abort the controller: `abortControllerRef.current?.abort()`
-   - In the SSE reader catch block: handle `AbortError` by silently returning (don't call `revertOnError`)
-   - Run: `npm test -- food-chat`
-   - Verify: Test passes
-
-3. **REFACTOR** — Verify the timeout test ("shows friendly error when SSE stream times out", if it exists) still passes with the combined signal.
+3. **REFACTOR** — Extract the beta header string into a constant (e.g., `WEB_SEARCH_BETA_HEADER`) for DRY. Ensure the request options merge correctly when `signal` is also present.
 
 **Notes:**
-- Reference implementation: `src/components/food-analyzer.tsx:118,162-164,534-543` — FoodAnalyzer already has the correct pattern.
-- `AbortSignal.any()` is available in modern browsers and Node.js 20+. The project targets modern browsers (PWA).
-- The existing unmount useEffect at food-chat.tsx:138-145 clears `compressionWarningTimeoutRef` — add the abort call to the same cleanup function.
+- The SDK's `messages.stream()` second parameter is `RequestOptions` which accepts `headers`
+- Currently the code passes `{ signal: options?.signal }` — merge with `{ signal: options?.signal, headers: { 'anthropic-beta': 'code-execution-web-tools-2026-02-09' } }`
+- If SDK 0.75.0 doesn't export the new web search type, use `as const` assertion on the tool object and cast appropriately in the `buildToolsWithCache` type signature
 
-### Task 4: Prevent empty bubbles from consecutive tool_start events in FoodChat
+### Task 7: Integration & Verification
 
-**Issue:** FOO-579
-**Files:**
-- `src/components/food-chat.tsx` (modify)
-- `src/components/__tests__/food-chat.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test in `src/components/__tests__/food-chat.test.tsx`:
-   - Test: "consecutive tool_start events produce only one empty assistant message"
-   - Mock SSE response with: `[text_delta("Hello"), tool_start("search_food_log"), tool_start("get_nutrition_summary"), text_delta("Here's what I found"), done]`
-   - Render and send a message
-   - Assert: exactly 1 thinking message (the "Hello" one gets isThinking flag)
-   - Assert: the final assistant message contains "Here's what I found"
-   - Assert: no empty visible message bubbles (no assistant messages with empty content that aren't the final streaming one)
-   - Run: `npm test -- food-chat`
-   - Verify: Test fails (currently 2 empty messages are pushed)
-
-2. **GREEN** — Modify `src/components/food-chat.tsx` tool_start handler (line 341-351):
-   - Add an early return condition: if the last assistant message is already empty AND not isThinking, skip pushing a new message (the existing empty message will serve as the placeholder)
-   - The existing logic (set isThinking on last message if it has content, then push new) remains for when there IS prior text
-   - Run: `npm test -- food-chat`
-   - Verify: Test passes
-
-3. **REFACTOR** — Verify the existing test "multiple tool loops create separate thinking bubbles" (line 1682) still passes — it has text between tool_start events so shouldn't be affected.
-
-**Notes:**
-- The fix is a 2-3 line guard clause. Reference the existing tool_start handler structure at food-chat.tsx:341-351.
-- The existing test at line 1682 uses `[text_delta, tool_start, text_delta, tool_start, text_delta, done]` with text between each tool_start — this pattern should be unaffected since the guard only skips when the last message is empty.
-
-### Task 5: Accumulate text_delta into coherent loading step in FoodAnalyzer
-
-**Issue:** FOO-580
-**Files:**
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test: "accumulates text_delta events into coherent loading step during analysis"
-   - Mock SSE response with: `[text_delta("Let me "), text_delta("analyze "), text_delta("this food"), tool_start("search_food_log"), analysis({...}), done]`
-   - Render FoodAnalyzer with a test image, trigger analysis
-   - After text_delta events: assert the loading step shows "Let me analyze this food" (accumulated)
-   - After tool_start: assert the loading step switches to the tool description (accumulator resets)
-   - Run: `npm test -- food-analyzer`
-   - Verify: Test fails (currently shows only "this food")
-
-2. **GREEN** — Modify `src/components/food-analyzer.tsx`:
-   - Add a `textDeltaBufferRef = useRef("")` to accumulate text_delta content across SSE events
-   - In the SSE event loop, text_delta handler (line 213-214): append `event.text` to `textDeltaBufferRef.current`, then `setLoadingStep(textDeltaBufferRef.current)`
-   - In tool_start handler (line 215-216): reset `textDeltaBufferRef.current = ""`
-   - Reset the buffer at the start of `handleAnalyze` (before the SSE loop) to avoid stale state
-   - Run: `npm test -- food-analyzer`
-   - Verify: Test passes
-
-3. **REFACTOR** — Verify existing tests still pass, particularly any test that checks loadingStep text.
-
-**Notes:**
-- The ref pattern is used because we're inside an async function (the SSE reader loop). A useState would cause unnecessary re-renders on each token; a ref accumulates silently and only triggers a single `setLoadingStep` per token.
-- Reference: `src/components/food-chat.tsx:327-333` — chat correctly accumulates with `last.content + event.text`, demonstrating the expected pattern.
-
-### Task 6: Integration & Verification
-
-**Issue:** FOO-576, FOO-577, FOO-578, FOO-579, FOO-580
-**Files:**
-- Various files from previous tasks
+**Issue:** FOO-581, FOO-582, FOO-583
+**Files:** Various files from previous tasks
 
 **Steps:**
 
@@ -255,11 +235,7 @@ Fix 5 issues from the SSE deep review: a High-priority bug where the analyzeFood
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
-5. Manual verification notes:
-   - [ ] SSE streaming for food analysis still works (text_delta → tool_start → analysis flow)
-   - [ ] Chat mode transitions work (needs_chat from both fast and slow paths)
-   - [ ] Navigating away during active stream cancels properly
-   - [ ] Multiple tool calls in chat don't show empty bubbles
+5. Verify no warnings in any of the above (zero warnings policy)
 
 ## MCP Usage During Implementation
 
@@ -271,92 +247,31 @@ Fix 5 issues from the SSE deep review: a High-priority bug where the analyzeFood
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| Client disconnects during SSE | Server catch block handles gracefully | Task 1 (sse.test.ts) |
-| Slow path text-only response | Emits needs_chat, transitions to chat | Task 2 (claude.test.ts) |
-| Unmount during active chat SSE | Aborts fetch, no resource leak | Task 3 (food-chat.test.tsx) |
-| AbortError in SSE reader | Silently handled, no error toast | Task 3 (food-chat.test.tsx) |
+| Empty keywords array passed to search | Return error message | Unit test (Task 3) |
+| No keywords match (ratio < 0.5) | Return "No foods found" | Unit test (Task 2) |
+| Unknown model string in pricing lookup | Log warning, use zero pricing | Existing test |
+| SDK bump breaks types | TypeScript compilation error | typecheck (Task 7) |
+| Beta header not recognized by API | API should ignore unknown betas gracefully | Manual verification |
 
 ## Risks & Open Questions
 
-- [ ] `AbortSignal.any()` browser support: Modern browsers support it. Verify in tsconfig/target that it's available. If not, fall back to manual signal combining.
+- [ ] SDK 0.75.0 may not be published yet — fallback to `@latest` and pin
+- [ ] SDK 0.75.0 may not export `WebSearchTool20260209` type — use local type + cast
+- [ ] Web search v2 beta header behavior needs manual verification with real API calls
 
 ## Scope Boundaries
 
 **In Scope:**
-- Guard createSSEResponse catch block against cancelled stream
-- Emit needs_chat for text-only responses in analyzeFood slow path
-- Add AbortController cleanup to FoodChat
-- Prevent empty bubbles from consecutive tool_start events
-- Accumulate text_delta into coherent loading step
+- Replace substring search with keyword matching in search_food_log
+- Upgrade Claude model to Sonnet 4.6
+- Bump Anthropic SDK to 0.75.0+
+- Add Sonnet 4.6 pricing entry
+- Upgrade web search tool to v2 with beta header
+- Update all affected tests
 
 **Out of Scope:**
-- Refactoring the SSE streaming architecture
-- Adding retry/reconnection logic to SSE consumers
-- Changing the StreamEvent type union
-- Server-side abort propagation (already works correctly)
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-17
-**Method:** Single-agent (fly solo)
-
-### Tasks Completed This Iteration
-- Task 1: Guard createSSEResponse catch block against cancelled stream (FOO-578)
-- Task 2: Emit needs_chat for text-only responses in analyzeFood slow path (FOO-577)
-- Task 3: Add AbortController cleanup to FoodChat on unmount (FOO-576)
-- Task 4: Prevent empty bubbles from consecutive tool_start events in FoodChat (FOO-579)
-- Task 5: Accumulate text_delta into coherent loading step in FoodAnalyzer (FOO-580)
-- Task 6: Integration & Verification
-
-### Files Modified
-- `src/lib/sse.ts` — Wrapped catch block controller ops in nested try/catch for cancelled stream safety
-- `src/lib/__tests__/sse.test.ts` — Added cancel-then-error test
-- `src/lib/claude.ts` — Slow path: replaced `yield*` with manual iteration to detect text-only completion and emit needs_chat; reset accumulated text on tool_start
-- `src/lib/__tests__/claude.test.ts` — Added slow path text-only needs_chat test and multi-iteration accumulated text test
-- `src/components/food-chat.tsx` — Added AbortController ref, AbortSignal.any() for combined cancel+timeout, unmount cleanup, AbortError handling, consecutive tool_start dedup guard
-- `src/components/__tests__/food-chat.test.tsx` — Added AbortController unmount test and consecutive tool_start dedup test
-- `src/components/food-analyzer.tsx` — Added textDeltaBufferRef for accumulating text_delta tokens, reset on tool_start
-- `src/components/__tests__/food-analyzer.test.tsx` — Added text_delta accumulation test
-
-### Linear Updates
-- FOO-576: Todo → In Progress → Review
-- FOO-577: Todo → In Progress → Review
-- FOO-578: Todo → In Progress → Review
-- FOO-579: Todo → In Progress → Review
-- FOO-580: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 2 HIGH bugs (1 false positive for unmount-only AbortError, 1 real — accumulated text not reset on tool_start), fixed the real one before proceeding
-- verifier: All 1912 tests pass, zero lint warnings, zero type errors, build clean
-
-### Review Findings
-
-Files reviewed: 8
-Reviewers: security, reliability, quality (single-agent fly solo)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Claude API Integration
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Discarded findings (not bugs):**
-- [DISCARDED] ASYNC: `AbortSignal.any()` browser support — Project targets modern browsers (PWA) and already uses `AbortSignal.timeout()` which requires similar browser versions. Not a bug.
-- [DISCARDED] RESOURCE: `setLoading(false)` called on unmounted component after AbortError — React 18+ removed the warning for state updates on unmounted components. Standard behavior.
-
-### Linear Updates
-- FOO-576: Review → Merge
-- FOO-577: Review → Merge
-- FOO-578: Review → Merge
-- FOO-579: Review → Merge
-- FOO-580: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-All tasks completed.
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge. E2E tests passed (115 tests).
+- Adaptive thinking or effort level configuration
+- Changing Haiku model version
+- Modifying E2E fixtures (historical usage data)
+- Any changes to the find-matches endpoint (already uses correct matching)
+- Service worker or PWA changes
