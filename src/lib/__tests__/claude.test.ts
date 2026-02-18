@@ -1657,6 +1657,52 @@ describe("ANALYSIS_SYSTEM_PROMPT thinking instruction (Task 13)", () => {
   });
 });
 
+// =============================================================================
+// Task 5: Anti-confirmation rules (FOO-645)
+// =============================================================================
+
+describe("Task 5: CHAT_SYSTEM_PROMPT anti-confirmation rules (FOO-645)", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("explains that report_nutrition surfaces a UI card, not a direct log", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Should explain that calling report_nutrition shows a UI card, not logs food directly
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/UI card/i);
+  });
+
+  it("explains that user confirms via Log to Fitbit button, not text", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/Log to Fitbit.*button|button.*Log to Fitbit/i);
+  });
+
+  it("has blanket anti-confirmation rule: never ask 'should I log/register this?'", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Should explicitly say never ask for confirmation before report_nutrition
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/never ask.*log|never ask.*register|never ask.*confirmation/i);
+  });
+});
+
+describe("Task 5: ANALYSIS_SYSTEM_PROMPT anti-confirmation rules (FOO-645)", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("has anti-confirmation rule: never ask for confirmation before calling report_nutrition", async () => {
+    const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Should explicitly say never ask for confirmation before report_nutrition
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/never ask.*confirmation|do not ask.*confirmation/i);
+  });
+
+  it("explains that report_nutrition surfaces a UI card, not a direct log", async () => {
+    const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Should explain that calling report_nutrition shows a UI card, not logs food directly
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/UI card/i);
+  });
+
+  it("explains that user confirms via Log to Fitbit button", async () => {
+    const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/Log to Fitbit.*button|button.*Log to Fitbit/i);
+  });
+});
+
 describe("All Claude tool definitions have strict mode", () => {
   afterEach(() => { vi.resetModules(); });
 

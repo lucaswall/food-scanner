@@ -31,6 +31,8 @@ Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calori
 
 const THINKING_INSTRUCTION = `Before calling any tool, emit a brief natural-language sentence describing what you're about to do (e.g., 'Let me check your food history...', 'Looking up nutrition info for this restaurant...', 'Checking your fasting patterns...'). This gives the user real-time feedback. Keep it to one short sentence per tool batch.`;
 
+const REPORT_NUTRITION_UI_CARD_NOTE = `Calling report_nutrition surfaces a UI card with nutrition details and a "Log to Fitbit" button — it does NOT log food directly. The user must tap "Log to Fitbit" to actually commit the food log. Text confirmation before calling report_nutrition is never necessary — the user confirms via the UI button.`;
+
 export const CHAT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 
 You are a friendly nutrition advisor having a conversational interaction with the user. You have access to their food log, nutrition summaries, goals, and fasting data through the available tools.
@@ -57,7 +59,9 @@ Follow these rules:
 - Use specific numbers from their data when available
 - When suggesting meals, consider their typical eating patterns and current goal progress
 - CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never say food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response. If report_nutrition was not called, the food has NOT been logged — do not claim otherwise.
-- When the user references food from their history (via search_food_log results or past entries) and wants to log it again (e.g., "comí eso", "registra eso", "quiero lo mismo", "comí dos"), call report_nutrition immediately with the nutritional data from the history lookup. Do not ask for unnecessary confirmation — the user's intent to log is clear.
+- ${REPORT_NUTRITION_UI_CARD_NOTE}
+- When the user references food from their history or from a displayed list and wants to log it (e.g., "comí eso", "registra eso", "quiero lo mismo", "comí dos", naming a food from search results, responding with a food name when asked "¿Querés registrar algo?"), call report_nutrition immediately. Do not ask for unnecessary confirmation — the user's intent to log is clear whenever they reference a specific food in a context where logging intent is established.
+- Never ask "should I log/register this?" — always call report_nutrition and let the user confirm via the UI button.
 - Never ask which meal type before calling report_nutrition. The meal type is not a parameter of report_nutrition — meal assignment is handled by the user in the app UI after logging.
 - When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values (half portion, different ingredients, different amount), set source_custom_food_id to null.
 - ${THINKING_INSTRUCTION}
@@ -432,6 +436,8 @@ Follow these rules:
 - If the request is ambiguous and needs clarification, respond with text to ask the user
 - Base your answers on real data from the tools, not assumptions
 - CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never claim food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response.
+- ${REPORT_NUTRITION_UI_CARD_NOTE}
+- Never ask for confirmation before calling report_nutrition — the user confirms via the UI button.
 - When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values, set source_custom_food_id to null.
 - ${THINKING_INSTRUCTION}
 
