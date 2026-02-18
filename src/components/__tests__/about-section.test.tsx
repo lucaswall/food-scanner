@@ -14,6 +14,7 @@ const mockHealthData = {
   environment: "Production",
   fitbitMode: "Live",
   claudeModel: "claude-sonnet-4-6",
+  commitHash: "",
 };
 
 describe("AboutSection", () => {
@@ -163,5 +164,32 @@ describe("AboutSection", () => {
     render(<AboutSection />);
 
     expect(screen.getByText("About")).toBeInTheDocument();
+  });
+
+  it("renders Commit row with hash in monospace when commitHash is non-empty", () => {
+    mockUseSWR.mockReturnValue({
+      data: { ...mockHealthData, commitHash: "abc1234" },
+      error: null,
+      isLoading: false,
+    });
+
+    render(<AboutSection />);
+
+    expect(screen.getByText("Commit")).toBeInTheDocument();
+    const commitValue = screen.getByText("abc1234");
+    expect(commitValue).toBeInTheDocument();
+    expect(commitValue).toHaveClass("font-mono");
+  });
+
+  it("does not render Commit row when commitHash is empty", () => {
+    mockUseSWR.mockReturnValue({
+      data: { ...mockHealthData, commitHash: "" },
+      error: null,
+      isLoading: false,
+    });
+
+    render(<AboutSection />);
+
+    expect(screen.queryByText("Commit")).not.toBeInTheDocument();
   });
 });

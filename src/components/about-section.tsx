@@ -10,6 +10,7 @@ interface HealthData {
   environment: string;
   fitbitMode: string;
   claudeModel: string;
+  commitHash: string;
 }
 
 export function AboutSection() {
@@ -62,6 +63,12 @@ export function AboutSection() {
           <span className="text-muted-foreground">Claude Model</span>
           <span className="font-mono text-xs">{data?.claudeModel}</span>
         </div>
+        {data?.commitHash && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Commit</span>
+            <span className="font-mono text-xs">{data.commitHash}</span>
+          </div>
+        )}
       </div>
       <div className="mt-4">
         <a
