@@ -355,3 +355,70 @@ Four improvements: (1) Add retry with user feedback for Claude API 529 overloade
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 6 issue(s) found, 7 discarded (Team: security, reliability, quality reviewers)
+- FIX: 6 issue(s) — Linear issues created
+- DISCARDED: 7 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] RESOURCE: SSE false error logging on client disconnect — `controller.enqueue()` TypeError on client disconnect logged as ERROR (`src/lib/sse.ts:36-37`)
+- [LOW] SECURITY: ChatMarkdown XSS — ReactMarkdown renders links without filtering `javascript:`/`data:` protocol URIs (`src/components/chat-markdown.tsx:19-32`)
+- [LOW] CONVENTION: Missing `action` field in `createStreamWithRetry` warn/error logs (`src/lib/claude.ts:223,230`)
+- [LOW] BUG: Misleading test description "passes all 6 tools" but asserts 5 (`src/lib/__tests__/claude.test.ts:659`)
+- [LOW] BUG: Fake timer cleanup missing try/finally — 8 tests leak timers on assertion failure (`src/lib/__tests__/claude.test.ts`)
+- [LOW] EDGE CASE: `truncateConversation` silently drops original first message when same role as last-4 start (`src/lib/claude.ts:527-541`)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] BUG: "All chat-food E2E mocks use JSON but route returns SSE" — False positive. Client code (`food-chat.tsx:311-391`) explicitly handles both Content-Types: SSE streaming path at line 312 and JSON fallback path at line 372. The E2E mocks correctly exercise the JSON fallback.
+- [DISCARDED] TYPE: `JSON.parse(json) as StreamEvent` without runtime validation (`src/lib/sse.ts:88`) — Internal trust boundary. The only producer is our own server (`formatSSEEvent`), malformed JSON already caught by try/catch at line 90.
+- [DISCARDED] CONVENTION: `waitForTimeout()` fixed delays in `quick-select.spec.ts` — Pre-existing test pattern not introduced by this iteration. Tests pass reliably; this is a style preference.
+- [DISCARDED] CONVENTION: Overly permissive assertion in `quick-select.spec.ts:152-157` — Pre-existing pattern handling legitimate UI variation in log-food flow.
+- [DISCARDED] CONVENTION: Duplicate test in `analyze-food/route.test.ts:317-327` — Redundant but harmless; not introduced by this iteration.
+- [DISCARDED] BUG: `truncateConversation` skips all truncation when `messages.length <= 5` — Logically correct: the algorithm keeps first + last 4 messages; with ≤5 messages, all are in the keep set and there's nothing to truncate.
+- [DISCARDED] ASYNC: AbortSignal checked only at loop boundary in `runToolLoop` (`src/lib/claude.ts:654`) — Standard loop-boundary check pattern; signal is available at the network layer for lower-level cancellation.
+
+### Linear Updates
+- FOO-593: Review → Merge (original task completed)
+- FOO-594: Review → Merge (original task completed)
+- FOO-595: Review → Merge (original task completed)
+- FOO-596: Review → Merge (original task completed)
+- FOO-597: Created in Todo (Fix: SSE false error logging)
+- FOO-598: Created in Todo (Fix: ChatMarkdown XSS link sanitization)
+- FOO-599: Created in Todo (Fix: Minor code quality — log fields, test description, fake timers)
+- FOO-600: Created in Todo (Fix: truncateConversation drops first message)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-597](https://linear.app/lw-claude/issue/FOO-597), [FOO-598](https://linear.app/lw-claude/issue/FOO-598), [FOO-599](https://linear.app/lw-claude/issue/FOO-599), [FOO-600](https://linear.app/lw-claude/issue/FOO-600)
+
+### Fix 1: SSE false error logging on client disconnect
+**Linear Issue:** [FOO-597](https://linear.app/lw-claude/issue/FOO-597)
+
+1. Write test in `src/lib/__tests__/sse.test.ts` verifying that a client-disconnect TypeError is logged at warn (not error) level
+2. In `src/lib/sse.ts` catch block (line 36), detect client-disconnect errors (TypeError when `controller.desiredSize === null`) and log at warn level; keep error level for genuine unexpected errors
+
+### Fix 2: ChatMarkdown XSS — add link href sanitization
+**Linear Issue:** [FOO-598](https://linear.app/lw-claude/issue/FOO-598)
+
+1. Write test in `src/components/__tests__/chat-markdown.test.tsx` verifying that `javascript:` and `data:` protocol links are sanitized (href removed or set to `#`)
+2. Add a custom `a` component override in `chat-markdown.tsx` that only allows `http:`, `https:`, and `mailto:` protocols
+
+### Fix 3: Minor code quality fixes
+**Linear Issue:** [FOO-599](https://linear.app/lw-claude/issue/FOO-599)
+
+1. Add `{ action: "stream_retry" }` to the warn log at `src/lib/claude.ts:223` and `{ action: "stream_retry_exhausted" }` to the error log at line 230
+2. Fix test description at `src/lib/__tests__/claude.test.ts:659` from "6 tools" to "5 tools"
+3. Add `afterEach(() => { vi.useRealTimers(); })` to the 4 describe blocks that use fake timers: `createStreamWithRetry`, `analyzeFood overload retry`, `runToolLoop overload retry`, `conversationalRefine overload retry`
+
+### Fix 4: truncateConversation silently drops original first message
+**Linear Issue:** [FOO-600](https://linear.app/lw-claude/issue/FOO-600)
+
+1. Write test in `src/lib/__tests__/claude.test.ts` for a 6-message conversation where first message and first of last-4 share the same role — verify the original first message content is preserved
+2. In `src/lib/claude.ts`, modify the dedup logic (lines 533-541) to start deduplication at index 1 within the last-4 group only, preserving the original first message unconditionally
