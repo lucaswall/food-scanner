@@ -159,6 +159,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setCompressedImages(compressedBlobs);
     setLoading(true);
     setLoadingStep("Analyzing food...");
+    analysisSectionRef.current?.scrollIntoView({ behavior: "smooth" });
     textDeltaBufferRef.current = "";
 
     // Create AbortController for this analysis

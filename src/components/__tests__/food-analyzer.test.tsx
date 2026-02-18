@@ -11,6 +11,11 @@ beforeAll(() => {
     unobserve() {}
     disconnect() {}
   };
+
+  // Mock scrollIntoView for auto-scroll tests
+  if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
 });
 
 // Mock fetch (must be before component mocks that might use it)
@@ -425,6 +430,31 @@ describe("FoodAnalyzer", () => {
       const analyzeButton = screen.getByRole("button", { name: /analyze/i });
       expect(analyzeButton).not.toBeDisabled();
     });
+  });
+
+  it("scrolls analysis section into view when Analyze is clicked", async () => {
+    const scrollIntoViewMock = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
+
+    mockFetch.mockResolvedValueOnce(
+      makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+    );
+
+    render(<FoodAnalyzer />);
+
+    const addPhotoButton = screen.getByRole("button", { name: /add photo/i });
+    fireEvent.click(addPhotoButton);
+
+    await waitFor(() => {
+      const analyzeButton = screen.getByRole("button", { name: /analyze/i });
+      expect(analyzeButton).not.toBeDisabled();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+    });
+
+    expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth" });
   });
 
   it("Analyze button calls /api/analyze-food on click", async () => {
