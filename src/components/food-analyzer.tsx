@@ -181,7 +181,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       const response = await fetch("/api/analyze-food", {
         method: "POST",
         body: formData,
-        signal: controller.signal,
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
       });
 
       // Validation errors return JSON; successful analysis returns SSE stream

@@ -457,6 +457,46 @@ describe("FoodAnalyzer", () => {
     expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth" });
   });
 
+  it("passes combined abort+timeout signal to analyze-food fetch", async () => {
+    const mockAnySignal = {} as AbortSignal;
+    const originalAny = AbortSignal.any;
+    const anySpy = vi.fn().mockReturnValue(mockAnySignal);
+    AbortSignal.any = anySpy;
+
+    try {
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+      });
+
+      await waitFor(() => {
+        const analyzeCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/analyze-food"
+        );
+        expect(analyzeCall).toBeDefined();
+        expect((analyzeCall![1] as RequestInit).signal).toBe(mockAnySignal);
+      });
+
+      expect(anySpy).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.any(AbortSignal),
+        ])
+      );
+    } finally {
+      AbortSignal.any = originalAny;
+    }
+  });
+
   it("Analyze button calls /api/analyze-food on click", async () => {
     mockFetch.mockResolvedValueOnce(
       makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])

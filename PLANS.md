@@ -392,3 +392,33 @@ Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
 
 1. In `src/components/__tests__/food-analyzer-reconnect.test.tsx:225`, add `mockFetch.mockReset()` before `vi.clearAllMocks()` in the `beforeEach` block
 2. Verify all reconnect tests still pass
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-18
+**Method:** Single-agent (fly solo — small batch, 3 fixes)
+
+### Tasks Completed This Iteration
+- Fix 1: Add timeout to analyze-food fetch — Added `AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` to `/api/analyze-food` fetch, matching food-chat.tsx pattern. New test with try/finally cleanup guard. (FOO-589)
+- Fix 2: Explicitly stub COMMIT_SHA in health route test — Added `vi.stubEnv("COMMIT_SHA", "")` and renamed test to "when COMMIT_SHA is empty" for accuracy (FOO-590)
+- Fix 3: Add mockFetch.mockReset() to food-analyzer-reconnect tests — Added `mockFetch.mockReset()` before `vi.clearAllMocks()` in beforeEach (FOO-591)
+
+### Files Modified
+- `src/components/food-analyzer.tsx` — Added AbortSignal.any timeout wrapper to analyze-food fetch
+- `src/components/__tests__/food-analyzer.test.tsx` — New test for combined abort+timeout signal with try/finally cleanup
+- `src/app/api/health/__tests__/route.test.ts` — Explicit COMMIT_SHA stub, renamed test
+- `src/components/__tests__/food-analyzer-reconnect.test.tsx` — Added mockFetch.mockReset() to beforeEach
+
+### Linear Updates
+- FOO-589: Todo → In Progress → Review
+- FOO-590: Todo → In Progress → Review
+- FOO-591: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 issues — 2 fixed (AbortSignal.any cleanup guard, test name), 2 discarded (synchronous race false positive, COMMIT_SHA build-time behavior is by design)
+- verifier: All 1935 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

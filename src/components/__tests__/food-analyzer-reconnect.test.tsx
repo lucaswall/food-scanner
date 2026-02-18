@@ -222,6 +222,7 @@ function makeSseAnalyzeResponse(events: StreamEvent[]) {
 }
 
 beforeEach(() => {
+  mockFetch.mockReset();
   vi.clearAllMocks();
   mockGetPending.mockReturnValue(null);
   // Prevent actual navigation

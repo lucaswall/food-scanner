@@ -128,7 +128,8 @@ describe("GET /api/health", () => {
     expect(body.data.version).toBe(packageJson.version);
   });
 
-  it("returns empty commitHash when COMMIT_SHA is not set", async () => {
+  it("returns empty commitHash when COMMIT_SHA is empty", async () => {
+    vi.stubEnv("COMMIT_SHA", "");
     const response = await GET();
     const body = await response.json();
     expect(body.data.commitHash).toBe("");
