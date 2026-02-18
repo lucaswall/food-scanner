@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Branch:** feat/FOO-601-critical-bugs
 **Issues:** FOO-601, FOO-602, FOO-603, FOO-606, FOO-607
 **Created:** 2026-02-18
@@ -286,3 +286,55 @@ Fix 5 critical bugs affecting visual correctness, accessibility, and security: a
 - Remaining 26 backlog issues (deferred to next batch)
 - Nonce-based CSP (future improvement beyond this plan)
 - Settings back arrow removal (FOO-629 — separate backlog issue)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-18
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Investigate and fix confirmation screen light mode colors (FOO-601) — No code bug found; component already uses correct semantic tokens (`text-success`, default foreground). Added verification test confirming correct classes. (worker-1)
+- Task 2: Add landmark structure to chat page (FOO-602) — Added SkipLink in page.tsx, single stable `<main id="main-content" className="contents">` wrapper in chat-page-client.tsx, sr-only `<h1>` in food-chat.tsx for latestAnalysis mode. (worker-2)
+- Task 3: Fix settings page layout (FOO-603) — Moved SkipLink and `<main>` to settings/page.tsx with consistent max-w-2xl, removed flex min-h-screen centering from SettingsContent, fixed indentation. (worker-2)
+- Task 4: Fix pending submission handler color tokens (FOO-606) — Resubmitting state: replaced `text-primary-foreground` with `text-foreground`, `border-primary` with `border-info`. Success state: replaced hardcoded `border-green-500 bg-green-500/10 text-green-600 text-green-900` with semantic `border-success bg-success/10 text-success text-foreground`. (worker-1)
+- Task 5: Add Content-Security-Policy header (FOO-607) — Added CSP to next.config.ts (production-only): `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`. (worker-3)
+
+### Files Modified
+- `next.config.ts` — Added CSP header (production-only)
+- `src/lib/__tests__/csp-header.test.ts` — Created CSP header tests (production + development)
+- `src/components/pending-submission-handler.tsx` — Fixed color tokens for resubmitting and success states
+- `src/components/__tests__/pending-submission-handler.test.tsx` — Added color token tests with null safety
+- `src/components/__tests__/food-log-confirmation.test.tsx` — Added verification test for text-success class
+- `src/app/app/chat/page.tsx` — Added SkipLink
+- `src/components/chat-page-client.tsx` — Single stable `<main>` wrapper
+- `src/components/food-chat.tsx` — Added sr-only `<h1>` for latestAnalysis mode
+- `src/components/__tests__/food-chat.test.tsx` — Added landmark structure tests
+- `src/app/settings/page.tsx` — Moved SkipLink and `<main>` here with consistent width
+- `src/components/settings-content.tsx` — Removed `<main>`, SkipLink, centering; fixed indentation
+- `src/components/__tests__/settings-content.test.tsx` — Updated tests for moved landmarks
+
+### Linear Updates
+- FOO-601: Todo → In Progress → Review
+- FOO-602: Todo → In Progress → Review
+- FOO-603: Todo → In Progress → Review
+- FOO-606: Todo → In Progress → Review
+- FOO-607: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 real bugs (CSP dev/prod scoping, settings indentation, unstable chat `<main>`, test null safety), all fixed
+- verifier: All 1973 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1, 4 (visual/color domain — confirmation screen, pending submission handler)
+- Worker 2: Tasks 2, 3 (page structure domain — chat landmarks, settings layout)
+- Worker 3: Task 5 (security config domain — CSP header)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merged cleanly (no conflicts), typecheck passed
+- Worker 3: merged cleanly (no conflicts), typecheck passed
+
+### Continuation Status
+All tasks completed.

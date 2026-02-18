@@ -264,7 +264,8 @@ describe("PendingSubmissionHandler", () => {
       });
 
       const alert = screen.getByRole("alert");
-      const description = alert.querySelector('[data-slot="alert-description"]')!;
+      const description = alert.querySelector('[data-slot="alert-description"]');
+      expect(description).not.toBeNull();
 
       expect(alert).toHaveClass("border-info");
       expect(alert).not.toHaveClass("border-primary");
@@ -295,7 +296,8 @@ describe("PendingSubmissionHandler", () => {
       });
 
       const alert = screen.getByRole("alert");
-      const description = alert.querySelector('[data-slot="alert-description"]')!;
+      const description = alert.querySelector('[data-slot="alert-description"]');
+      expect(description).not.toBeNull();
 
       expect(alert).toHaveClass("border-success");
       expect(alert).not.toHaveClass("border-green-500");
