@@ -248,6 +248,8 @@ export function FoodChat({
       setError(errorMessage);
     };
 
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
     try {
       const allMessages = [...messages, userMessage];
       // When seeded, send all messages (they're all "real" conversation turns)
@@ -293,7 +295,7 @@ export function FoodChat({
       abortControllerRef.current = controller;
 
       // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
-      const timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 120000);
+      timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 120000);
 
       const response = await fetch("/api/chat-food", {
         method: "POST",
@@ -418,6 +420,7 @@ export function FoodChat({
         );
       }
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
