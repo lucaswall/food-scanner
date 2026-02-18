@@ -75,6 +75,11 @@ export const WEB_SEARCH_TOOL = {
   name: "web_search",
 } as const;
 
+export const CODE_EXECUTION_TOOL = {
+  type: "code_execution_20250825",
+  name: "code_execution",
+} as const;
+
 export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
   description:
@@ -208,8 +213,8 @@ function serializeBlockForLog(block: Anthropic.ContentBlockParam | Anthropic.Con
     const tr = block as { type: string; tool_use_id: string; content?: unknown; is_error?: boolean };
     return { type: "tool_result", toolUseId: tr.tool_use_id, content: tr.content, isError: tr.is_error };
   }
-  // web_search_tool_result, server_tool_use, etc. — pass through
-  return block;
+  // web_search_tool_result, server_tool_use, code execution results, etc. — pass through type only
+  return { type: (block as { type: string }).type };
 }
 
 /** Serialize Anthropic messages for debug logging (strips base64 image data) */
@@ -422,6 +427,18 @@ function estimateTokenCount(messages: Anthropic.MessageParam[]): number {
               }
             }
           }
+        } else if (block.type === "server_tool_use") {
+          // Server-side tools (web_search, bash_code_execution, etc.)
+          const serverBlock = block as { type: string; name: string; input?: unknown };
+          const inputStr = serverBlock.input ? JSON.stringify(serverBlock.input) : "";
+          tokens += Math.ceil((serverBlock.name.length + inputStr.length) / 4);
+        } else if (
+          block.type === "web_search_tool_result" ||
+          block.type === "bash_code_execution_tool_result" ||
+          block.type === "text_editor_code_execution_tool_result"
+        ) {
+          // Server-side tool results — estimate ~500 tokens each
+          tokens += 500;
         }
       }
     } else if (typeof message.content === "string") {
@@ -564,7 +581,7 @@ export async function* runToolLoop(
   if (!options?.systemPrompt && currentDate) {
     systemPrompt += `\n\nToday's date is: ${currentDate}`;
   }
-  const tools = options?.tools ?? [WEB_SEARCH_TOOL, ...DATA_TOOLS];
+  const tools = options?.tools ?? [WEB_SEARCH_TOOL, CODE_EXECUTION_TOOL, ...DATA_TOOLS];
   const operation = options?.operation ?? "food-chat";
   const maxTokens = options?.maxTokens ?? 2048;
   const toolsWithCache = buildToolsWithCache(tools);
@@ -675,12 +692,15 @@ export async function* runToolLoop(
           (block) => block.type === "tool_use"
         ) as Anthropic.ToolUseBlock[];
 
-        // Detect server_tool_use blocks (web search) — yield tool_start for these
+        // Detect server_tool_use blocks (web search, code execution) — yield tool_start for user-facing ones
         const serverToolUseBlocks = response.content.filter(
           (block) => block.type === "server_tool_use"
         ) as Array<{ type: string; name: string; id: string }>;
         for (const block of serverToolUseBlocks) {
-          yield { type: "tool_start", tool: block.name };
+          // Only show web_search to the user — code execution is an internal filtering mechanism
+          if (block.name === "web_search") {
+            yield { type: "tool_start", tool: block.name };
+          }
         }
 
         // Separate report_nutrition from data tools
@@ -773,6 +793,17 @@ export async function* runToolLoop(
         continue;
       }
 
+      if (response.stop_reason === "pause_turn") {
+        // Code execution or web search dynamic filtering paused a long-running turn.
+        // Send the response back as-is so Claude can continue.
+        l.info({ iteration }, "pause_turn received, continuing Claude's turn");
+        conversationMessages.push({
+          role: "assistant",
+          content: response.content,
+        });
+        continue;
+      }
+
       // Handle other stop reasons gracefully (refusal, max_tokens, etc.)
       l.warn(
         { stop_reason: response.stop_reason, iteration },
@@ -853,7 +884,7 @@ export async function* analyzeFood(
       "calling Claude API for food analysis"
     );
 
-    const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
+    const allTools = [WEB_SEARCH_TOOL, CODE_EXECUTION_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
     const toolsWithCache = buildToolsWithCache(allTools);
     const systemPrompt = `${ANALYSIS_SYSTEM_PROMPT}\n\nToday's date is: ${currentDate}`;
 
@@ -1202,7 +1233,7 @@ export async function* conversationalRefine(
 Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
     }
 
-    const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
+    const allTools = [WEB_SEARCH_TOOL, CODE_EXECUTION_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
     const toolsWithCache = buildToolsWithCache(allTools);
 
     l.debug(
