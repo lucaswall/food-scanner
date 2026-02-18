@@ -82,6 +82,15 @@ describe("MODEL_PRICING", () => {
     expect(pricing.inputPricePerMToken).toBe(0.8);
     expect(pricing.outputPricePerMToken).toBe(4);
   });
+
+  it("exports pricing for claude-sonnet-4-6", async () => {
+    const { MODEL_PRICING } = await import("@/lib/claude-usage");
+    const pricing = MODEL_PRICING["claude-sonnet-4-6"];
+
+    expect(pricing).toBeDefined();
+    expect(pricing.inputPricePerMToken).toBe(3);
+    expect(pricing.outputPricePerMToken).toBe(15);
+  });
 });
 
 describe("computeCost", () => {

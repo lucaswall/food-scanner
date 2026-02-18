@@ -1634,28 +1634,61 @@ describe("searchFoods", () => {
     mockWhere.mockReset();
   });
 
-  it("matches on food_name using case-insensitive substring match", async () => {
+  it("matches foods using keyword-based computeMatchRatio (ratio >= 0.5)", async () => {
     const rows = [
-      makeSearchRow({ customFoodId: 1, foodName: "Grilled Chicken Breast", fitbitFoodId: 100, entryId: 1, date: "2026-02-08" }),
-      makeSearchRow({ customFoodId: 2, foodName: "Chicken Salad", fitbitFoodId: 101, entryId: 2, date: "2026-02-07" }),
+      makeSearchRow({ customFoodId: 1, foodName: "Té con leche", fitbitFoodId: 100, keywords: ["te", "leche", "azucar"], entryId: 1, date: "2026-02-08" }),
+      makeSearchRow({ customFoodId: 2, foodName: "Café con leche", fitbitFoodId: 101, keywords: ["cafe", "leche"], entryId: 2, date: "2026-02-07" }),
     ];
     mockWhere.mockResolvedValue(rows);
 
-    const result = await searchFoods("user-uuid-123", "chicken");
+    const result = await searchFoods("user-uuid-123", ["te", "leche"]);
 
     expect(result).toHaveLength(2);
-    expect(result.every(f => f.foodName.toLowerCase().includes("chicken"))).toBe(true);
+    expect(result[0].foodName).toBe("Té con leche");
   });
 
-  it("matches on keywords array (any keyword matches)", async () => {
+  it("matches case-insensitively (existing keywords may have uppercase)", async () => {
     mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 1, foodName: "Tea with Milk", fitbitFoodId: 100, keywords: ["tea", "milk", "hot drink"], entryId: 1 }),
+      makeSearchRow({ customFoodId: 1, foodName: "Pizza Napolitana", fitbitFoodId: 100, keywords: ["Pizza", "Napolitana"], entryId: 1 }),
     ]);
 
-    const result = await searchFoods("user-uuid-123", "tea");
+    const result = await searchFoods("user-uuid-123", ["pizza"]);
 
     expect(result).toHaveLength(1);
-    expect(result[0].foodName).toBe("Tea with Milk");
+    expect(result[0].foodName).toBe("Pizza Napolitana");
+  });
+
+  it("matches single keyword against food with multiple keywords", async () => {
+    mockWhere.mockResolvedValue([
+      makeSearchRow({ customFoodId: 1, foodName: "Pizza de jamón y muzzarella", fitbitFoodId: 100, keywords: ["pizza", "jamon", "muzzarella"], entryId: 1 }),
+    ]);
+
+    const result = await searchFoods("user-uuid-123", ["pizza"]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].foodName).toBe("Pizza de jamón y muzzarella");
+  });
+
+  it("does not match when keyword match ratio is below 0.5", async () => {
+    mockWhere.mockResolvedValue([
+      makeSearchRow({ customFoodId: 1, foodName: "Pizza de jamón", fitbitFoodId: 100, keywords: ["pizza", "jamon"], entryId: 1 }),
+    ]);
+
+    const result = await searchFoods("user-uuid-123", ["cerveza", "sin-alcohol"]);
+
+    expect(result).toHaveLength(0);
+  });
+
+  it("excludes foods with null keywords", async () => {
+    mockWhere.mockResolvedValue([
+      makeSearchRow({ customFoodId: 1, foodName: "Pizza", fitbitFoodId: 100, keywords: null, entryId: 1 }),
+      makeSearchRow({ customFoodId: 2, foodName: "Pizza especial", fitbitFoodId: 101, keywords: ["pizza", "especial"], entryId: 2 }),
+    ]);
+
+    const result = await searchFoods("user-uuid-123", ["pizza"]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].foodName).toBe("Pizza especial");
   });
 
   it("sorts by log count DESC, then last-logged date DESC", async () => {
@@ -1663,13 +1696,13 @@ describe("searchFoods", () => {
     // Food B: 1 log entry, last on 2026-02-08 (more recent but fewer logs)
     // Food A should appear first because it has more log entries
     mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 1, foodName: "Chicken A", fitbitFoodId: 100, entryId: 1, date: "2026-02-06" }),
-      makeSearchRow({ customFoodId: 1, foodName: "Chicken A", fitbitFoodId: 100, entryId: 2, date: "2026-02-05" }),
-      makeSearchRow({ customFoodId: 1, foodName: "Chicken A", fitbitFoodId: 100, entryId: 3, date: "2026-02-04" }),
-      makeSearchRow({ customFoodId: 2, foodName: "Chicken B", fitbitFoodId: 101, entryId: 4, date: "2026-02-08" }),
+      makeSearchRow({ customFoodId: 1, foodName: "Chicken A", fitbitFoodId: 100, keywords: ["pollo", "grillado"], entryId: 1, date: "2026-02-06" }),
+      makeSearchRow({ customFoodId: 1, foodName: "Chicken A", fitbitFoodId: 100, keywords: ["pollo", "grillado"], entryId: 2, date: "2026-02-05" }),
+      makeSearchRow({ customFoodId: 1, foodName: "Chicken A", fitbitFoodId: 100, keywords: ["pollo", "grillado"], entryId: 3, date: "2026-02-04" }),
+      makeSearchRow({ customFoodId: 2, foodName: "Chicken B", fitbitFoodId: 101, keywords: ["pollo", "ensalada"], entryId: 4, date: "2026-02-08" }),
     ]);
 
-    const result = await searchFoods("user-uuid-123", "chicken");
+    const result = await searchFoods("user-uuid-123", ["pollo"]);
 
     expect(result[0].foodName).toBe("Chicken A"); // 3 logs
     expect(result[1].foodName).toBe("Chicken B"); // 1 log
@@ -1677,10 +1710,10 @@ describe("searchFoods", () => {
 
   it("returns CommonFood shape", async () => {
     mockWhere.mockResolvedValue([
-      makeSearchRow({ customFoodId: 42, foodName: "Rice Bowl", fitbitFoodId: 100, entryId: 1, date: "2026-02-08", mealTypeId: 3 }),
+      makeSearchRow({ customFoodId: 42, foodName: "Rice Bowl", fitbitFoodId: 100, keywords: ["arroz", "bowl"], entryId: 1, date: "2026-02-08", mealTypeId: 3 }),
     ]);
 
-    const result = await searchFoods("user-uuid-123", "rice");
+    const result = await searchFoods("user-uuid-123", ["arroz"]);
 
     expect(result[0]).toEqual({
       customFoodId: 42,
@@ -1704,11 +1737,11 @@ describe("searchFoods", () => {
 
   it("accepts limit parameter", async () => {
     const rows = Array.from({ length: 5 }, (_, i) =>
-      makeSearchRow({ customFoodId: i + 1, foodName: `Food ${i + 1}`, fitbitFoodId: 100 + i, entryId: i + 1 }),
+      makeSearchRow({ customFoodId: i + 1, foodName: `Food ${i + 1}`, fitbitFoodId: 100 + i, keywords: ["comida"], entryId: i + 1 }),
     );
     mockWhere.mockResolvedValue(rows);
 
-    const result = await searchFoods("user-uuid-123", "food", { limit: 3 });
+    const result = await searchFoods("user-uuid-123", ["comida"], { limit: 3 });
 
     expect(result).toHaveLength(3);
   });
@@ -1716,7 +1749,7 @@ describe("searchFoods", () => {
   it("returns empty array when no matches", async () => {
     mockWhere.mockResolvedValue([]);
 
-    const result = await searchFoods("user-uuid-123", "nonexistent");
+    const result = await searchFoods("user-uuid-123", ["nonexistent"]);
 
     expect(result).toEqual([]);
   });
@@ -1725,7 +1758,7 @@ describe("searchFoods", () => {
     // This is verified by checking that where clause includes userId filter
     mockWhere.mockResolvedValue([]);
 
-    await searchFoods("user-uuid-123", "chicken");
+    await searchFoods("user-uuid-123", ["pollo"]);
 
     expect(mockWhere).toHaveBeenCalled();
   });
@@ -1734,10 +1767,10 @@ describe("searchFoods", () => {
     it("includes foods with null fitbitFoodId", async () => {
       vi.stubEnv("FITBIT_DRY_RUN", "true");
       mockWhere.mockResolvedValue([
-        makeSearchRow({ customFoodId: 1, foodName: "Dry Run Chicken", fitbitFoodId: null, entryId: 1 }),
+        makeSearchRow({ customFoodId: 1, foodName: "Dry Run Chicken", fitbitFoodId: null, keywords: ["pollo"], entryId: 1 }),
       ]);
 
-      const result = await searchFoods("user-uuid-123", "chicken");
+      const result = await searchFoods("user-uuid-123", ["pollo"]);
 
       expect(result).toHaveLength(1);
       expect(result[0].fitbitFoodId).toBeNull();
@@ -2056,14 +2089,14 @@ describe("debug logging", () => {
     vi.mocked(logger.debug).mockClear();
   });
 
-  it("searchFoods logs debug with query and result count", async () => {
+  it("searchFoods logs debug with keywords and result count", async () => {
     mockWhere.mockReset();
     mockWhere.mockResolvedValue([]);
 
-    await searchFoods("user-123", "chicken");
+    await searchFoods("user-123", ["pollo"]);
 
     expect(logger.debug).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "search_foods", query: "chicken", resultCount: 0 }),
+      expect.objectContaining({ action: "search_foods", keywords: ["pollo"], resultCount: 0 }),
       expect.any(String),
     );
   });

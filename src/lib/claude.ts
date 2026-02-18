@@ -8,7 +8,7 @@ import { recordUsage } from "@/lib/claude-usage";
 import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } from "@/lib/chat-tools";
 import type { StreamEvent } from "@/lib/sse";
 
-export const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
+export const CLAUDE_MODEL = "claude-sonnet-4-6";
 
 let _client: Anthropic | null = null;
 
@@ -69,7 +69,7 @@ Web search guidelines:
 - If web search returns nothing useful, fall back to estimation from your training data and say so.`;
 
 export const WEB_SEARCH_TOOL = {
-  type: "web_search_20250305",
+  type: "web_search_20260209",
   name: "web_search",
 } as const;
 
@@ -384,8 +384,8 @@ const DATA_TOOLS = [
 
 /** Build toolsWithCache: adds cache_control to the last tool (doesn't mutate originals) */
 function buildToolsWithCache(
-  tools: Array<Anthropic.Tool | Anthropic.Messages.WebSearchTool20250305>,
-): Array<Anthropic.Tool | Anthropic.Messages.WebSearchTool20250305> {
+  tools: Array<Anthropic.Messages.ToolUnion>,
+): Array<Anthropic.Messages.ToolUnion> {
   return tools.map((tool, index) =>
     index === tools.length - 1
       ? { ...tool, cache_control: { type: "ephemeral" as const } }
@@ -549,7 +549,7 @@ export async function* runToolLoop(
   currentDate: string,
   options?: {
     systemPrompt?: string;
-    tools?: Array<Anthropic.Tool | Anthropic.Messages.WebSearchTool20250305>;
+    tools?: Array<Anthropic.Messages.ToolUnion>;
     operation?: string;
     signal?: AbortSignal;
     log?: Logger;

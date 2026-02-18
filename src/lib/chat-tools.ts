@@ -9,14 +9,15 @@ import type { Logger } from "@/lib/logger";
 
 export const SEARCH_FOOD_LOG_TOOL: Anthropic.Tool = {
   name: "search_food_log",
-  description: "Search the user's food log to find what they have eaten. Use this when the user references past meals, asks about foods they've eaten before, wants to see entries for a specific date or meal, or asks what they usually eat. Returns individual food entries with nutrition details, grouped by date and meal type when searching by date. When a query is provided without dates, returns the most frequently logged matches.",
+  description: "Search the user's food log to find what they have eaten. Use this when the user references past meals, asks about foods they've eaten before, wants to see entries for a specific date or meal, or asks what they usually eat. Three mutually exclusive modes: (1) keywords only — returns the most frequently logged matches; (2) date only — returns entries for that date grouped by meal type; (3) from_date+to_date — returns entries in the range. Do NOT combine keywords with date parameters — keywords are ignored when a date is provided.",
   input_schema: {
     type: "object" as const,
-    required: ["query", "date", "from_date", "to_date", "meal_type", "limit"],
+    required: ["keywords", "date", "from_date", "to_date", "meal_type", "limit"],
     properties: {
-      query: {
-        type: ["string", "null"],
-        description: "Food name or keyword to search",
+      keywords: {
+        type: "array",
+        items: { type: "string" },
+        description: "1-5 lowercase single-word tokens identifying the food to search for. Follow the same keyword rules as report_nutrition: food type first, then key modifiers, main ingredients, preparation method. Use hyphens for compound concepts (e.g., sin-alcohol). Use singular form.",
       },
       date: {
         type: ["string", "null"],
@@ -125,19 +126,23 @@ async function executeSearchFoodLog(
   currentDate: string,
   log?: Logger,
 ): Promise<string> {
-  const { query, date, from_date, to_date, meal_type, limit } = params;
+  const { keywords, date, from_date, to_date, meal_type, limit } = params;
   const effectiveLimit = (limit != null ? Number(limit) : 10);
 
+  // Validate keywords is a non-empty array when provided
+  const hasKeywords = Array.isArray(keywords) && keywords.length > 0;
+
   // Validate at least one search parameter
-  if (!query && !date && !(from_date && to_date)) {
-    throw new Error("At least one of query, date, or from_date+to_date must be provided");
+  if (!hasKeywords && !date && !(from_date && to_date)) {
+    throw new Error("At least one of keywords, date, or from_date+to_date must be provided");
   }
 
-  // Case 1: query only (search by name/keyword)
-  if (query && typeof query === "string" && !date && !from_date) {
-    const foods = await searchFoods(userId, query, { limit: effectiveLimit }, log);
+  // Case 1: keywords only (search by keyword matching)
+  if (hasKeywords && !date && !from_date) {
+    const keywordArray = (keywords as string[]).map(k => String(k).toLowerCase());
+    const foods = await searchFoods(userId, keywordArray, { limit: effectiveLimit }, log);
     if (foods.length === 0) {
-      return `No foods found matching "${query}".`;
+      return `No foods found matching keywords [${keywordArray.join(", ")}].`;
     }
     const lines = foods.map((food) => {
       const amountLabel = getUnitLabel(food.unitId, food.amount);

@@ -1,6 +1,7 @@
 import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc, between } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
+import { computeMatchRatio } from "@/lib/food-matching";
 import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry, FoodLogEntryDetail, DailyNutritionTotals } from "@/types";
 import { getCalorieGoalsByDateRange } from "@/lib/nutrition-goals";
 import { getLumenGoalsByDateRange } from "@/lib/lumen";
@@ -520,14 +521,13 @@ export async function deleteFoodLogEntry(
 
 export async function searchFoods(
   userId: string,
-  query: string,
+  keywords: string[],
   options: { limit?: number } = {},
   log?: Logger,
 ): Promise<CommonFood[]> {
   const l = log ?? logger;
   const db = getDb();
   const limit = options.limit ?? 10;
-  const lowerQuery = query.toLowerCase();
 
   const conditions = [eq(customFoods.userId, userId)];
 
@@ -541,13 +541,14 @@ export async function searchFoods(
     .leftJoin(foodLogEntries, eq(foodLogEntries.customFoodId, customFoods.id))
     .where(and(...conditions));
 
-  // Application-level filtering by name or keywords
+  // Application-level filtering by keyword match ratio
   const filtered = rows.filter((row) => {
-    const nameMatch = row.custom_foods.foodName.toLowerCase().includes(lowerQuery);
-    const keywordMatch = row.custom_foods.keywords?.some(
-      (kw) => kw.toLowerCase().includes(lowerQuery),
-    ) ?? false;
-    return nameMatch || keywordMatch;
+    const existingKeywords = row.custom_foods.keywords;
+    if (!existingKeywords || existingKeywords.length === 0) return false;
+    // Normalize existing keywords to lowercase — DB keywords may have mixed case
+    // if the model didn't follow the "lowercase tokens" instruction perfectly
+    const normalizedExisting = existingKeywords.map(k => k.toLowerCase());
+    return computeMatchRatio(keywords, normalizedExisting) >= 0.5;
   });
 
   // Group by customFoodId: count entries, track max date, keep best mealTypeId
@@ -610,7 +611,7 @@ export async function searchFoods(
       mealTypeId: entryRow.food_log_entries?.mealTypeId ?? 7,
     };
   });
-  l.debug({ action: "search_foods", query, resultCount: results.length }, "food search complete");
+  l.debug({ action: "search_foods", keywords, resultCount: results.length }, "food search complete");
   return results;
 }
 

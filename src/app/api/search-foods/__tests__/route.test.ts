@@ -77,7 +77,7 @@ describe("GET /api/search-foods", () => {
     expect(data.success).toBe(true);
     expect(data.data.foods).toHaveLength(1);
     expect(data.data.foods[0].foodName).toBe("Chicken");
-    expect(mockSearchFoods).toHaveBeenCalledWith("user-uuid-123", "chicken", { limit: 10 }, expect.anything());
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-uuid-123", ["chicken"], { limit: 10 }, expect.anything());
   });
 
   it("passes limit param to searchFoods", async () => {
@@ -91,7 +91,7 @@ describe("GET /api/search-foods", () => {
 
     await GET(makeRequest({ q: "rice", limit: "5" }));
 
-    expect(mockSearchFoods).toHaveBeenCalledWith("user-uuid-123", "rice", { limit: 5 }, expect.anything());
+    expect(mockSearchFoods).toHaveBeenCalledWith("user-uuid-123", ["rice"], { limit: 5 }, expect.anything());
   });
 
   it("returns 400 when query is missing", async () => {
@@ -121,6 +121,21 @@ describe("GET /api/search-foods", () => {
 
     expect(response.status).toBe(400);
     expect(data.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when query is whitespace only", async () => {
+    mockGetSession.mockResolvedValue({
+      sessionId: "test-session",
+      userId: "user-uuid-123",
+      fitbitConnected: true,
+    });
+
+    const response = await GET(makeRequest({ q: "   " }));
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(mockSearchFoods).not.toHaveBeenCalled();
   });
 
   it("returns 401 for unauthenticated user", async () => {

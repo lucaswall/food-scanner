@@ -86,6 +86,7 @@ export async function seedTestData() {
       caloriesFromFat: '32',
       confidence: 'high',
       notes: 'E2E test food',
+      keywords: ['grilled', 'chicken', 'breast'],
     })
     .returning();
 
@@ -107,6 +108,7 @@ export async function seedTestData() {
       sugarsG: '0.4',
       confidence: 'high',
       notes: 'E2E test food',
+      keywords: ['brown', 'rice'],
     })
     .returning();
 
@@ -128,6 +130,7 @@ export async function seedTestData() {
       sugarsG: '1.7',
       confidence: 'high',
       notes: 'E2E test food',
+      keywords: ['steamed', 'broccoli'],
     })
     .returning();
 

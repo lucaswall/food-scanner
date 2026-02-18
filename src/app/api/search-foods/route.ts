@@ -21,7 +21,11 @@ export async function GET(request: Request) {
     const limitParam = url.searchParams.get("limit");
     const limit = limitParam ? Math.max(1, Math.min(50, parseInt(limitParam, 10) || 10)) : 10;
 
-    const foods = await searchFoods(session!.userId, q, { limit }, log);
+    const keywords = q.toLowerCase().split(/\s+/).filter(Boolean);
+    if (keywords.length === 0) {
+      return errorResponse("VALIDATION_ERROR", "Query must contain at least one word", 400);
+    }
+    const foods = await searchFoods(session!.userId, keywords, { limit }, log);
 
     log.debug(
       { action: "search_foods", query: q, count: foods.length },
