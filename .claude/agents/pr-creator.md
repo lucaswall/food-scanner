@@ -47,8 +47,8 @@ Create a complete PR: analyze branch → commit local changes → push → PR.
 
 7. **Extract Linear issue IDs from PLANS.md** (if exists)
    - Read PLANS.md if present in project root
-   - Find the `**Linear Issues:**` line (may have single issue or comma-separated list)
-   - Extract all FOO-XXX issue identifiers
+   - Scan the ENTIRE file for all `FOO-\d+` identifiers (not just specific lines)
+   - Deduplicate and sort numerically
    - Store for use in PR body (for Linear's magic keyword automation)
 
 ### Phase 2: Determine Actions
@@ -191,8 +191,8 @@ Closes FOO-123, FOO-124
 - This enables the workflow: Review → Merge (after code review) → Done (after PR merge)
 
 **Issue extraction:**
-- Look for `**Linear Issues:**` line in PLANS.md
-- Pattern: `FOO-XXX` (may be multiple, comma or space-separated)
+- Scan the ENTIRE PLANS.md for all `FOO-\d+` identifiers (header, Fix Plans, Linear Updates, task lists — everywhere)
+- Deduplicate and sort numerically (e.g., FOO-601, FOO-602, ..., FOO-644)
 - If no issues found, omit the "Linear Issues" section entirely
 
 ## Rules
