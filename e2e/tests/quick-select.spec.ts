@@ -54,6 +54,8 @@ test.describe('Quick Select Page', () => {
     // Verify seeded foods from log entries appear (skip Broccoli — may be deleted by parallel test)
     await expect(page.getByText('Grilled Chicken Breast').first()).toBeVisible();
     await expect(page.getByText('Brown Rice').first()).toBeVisible();
+
+    await captureScreenshots(page, 'quick-select-recent');
   });
 
   test('tab switching works', async ({ page }) => {

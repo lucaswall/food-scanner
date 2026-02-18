@@ -189,6 +189,8 @@ test.describe('Refine Chat Screenshots', () => {
     // Wait for error banner to appear in the chat
     await expect(page.getByText(/Failed to process message/i)).toBeVisible({ timeout: 5000 });
 
+    await captureScreenshots(page, 'refine-chat-error');
+
     // Find and click the dismiss button (X icon)
     const dismissButton = page.getByRole('button', { name: /dismiss|close/i }).first();
     await expect(dismissButton).toBeVisible({ timeout: 2000 });
@@ -214,6 +216,8 @@ test.describe('Free-form Chat', () => {
 
     // Should NOT show "Log to Fitbit" button initially
     expect(await page.getByRole('button', { name: /log to fitbit/i }).count()).toBe(0);
+
+    await captureScreenshots(page, 'chat');
   });
 
   test('sends message and displays response', async ({ page }) => {
@@ -244,6 +248,8 @@ test.describe('Free-form Chat', () => {
 
     // Wait for the response
     await expect(page.getByText(/1,850 calories today/i)).toBeVisible({ timeout: 5000 });
+
+    await captureScreenshots(page, 'chat-conversation');
 
     // Verify "Log to Fitbit" button still not shown (no analysis in response)
     expect(await page.getByRole('button', { name: /log to fitbit/i }).count()).toBe(0);
@@ -301,6 +307,8 @@ test.describe('Free-form Chat', () => {
 
     // MiniNutritionCard should also appear with calorie info
     await expect(page.getByText('450')).toBeVisible();
+
+    await captureScreenshots(page, 'chat-with-analysis');
   });
 
   test('can log food from free-form chat after analysis arrives', async ({ page }) => {

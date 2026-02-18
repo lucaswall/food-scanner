@@ -69,4 +69,30 @@ describe("ChatMarkdown", () => {
     const wrapper = container.firstChild as HTMLElement;
     expect(wrapper.className).toContain("text-sm");
   });
+
+  it("wraps table in overflow-x-auto container for mobile scrolling", () => {
+    const table = `| Name | Calories | Protein | Carbs | Fat |
+| ---- | -------- | ------- | ----- | --- |
+| Apple | 95 | 0.5 | 25 | 0.3 |
+| Banana | 105 | 1.3 | 27 | 0.4 |`;
+    const { container } = render(<ChatMarkdown content={table} />);
+    const tableEl = container.querySelector("table");
+    expect(tableEl).toBeInTheDocument();
+    // Table must be wrapped in an overflow-x-auto container
+    const wrapper = tableEl?.parentElement;
+    expect(wrapper?.className).toContain("overflow-x-auto");
+  });
+
+  it("uses compact padding and text-xs on table cells", () => {
+    const table = `| Name | Calories |
+| ---- | -------- |
+| Apple | 95 |`;
+    const { container } = render(<ChatMarkdown content={table} />);
+    const th = container.querySelector("th");
+    const td = container.querySelector("td");
+    expect(th?.className).toContain("px-1.5");
+    expect(td?.className).toContain("px-1.5");
+    expect(th?.className).toContain("text-xs");
+    expect(td?.className).toContain("text-xs");
+  });
 });
