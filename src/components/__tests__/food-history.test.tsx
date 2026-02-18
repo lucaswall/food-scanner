@@ -16,6 +16,11 @@ beforeAll(() => {
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+// Mock safeResponseJson to delegate to response.json() (test responses don't have text())
+vi.mock("@/lib/safe-json", () => ({
+  safeResponseJson: async (response: { json: () => Promise<unknown> }) => response.json(),
+}));
+
 const { mockInvalidateFoodCaches } = vi.hoisted(() => ({
   mockInvalidateFoodCaches: vi.fn().mockResolvedValue(undefined),
 }));
@@ -226,6 +231,101 @@ describe("FoodHistory", () => {
     const quickSelectLink = screen.getByRole("link", { name: /quick select/i });
     expect(quickSelectLink).toBeInTheDocument();
     expect(quickSelectLink).toHaveAttribute("href", "/app/quick-select");
+  });
+
+  it("logs error to console when fetchEntries fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // SWR initial load succeeds
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Jump to Date triggers fetchEntries — mock it to fail
+    const dateInput = screen.getByLabelText(/jump to date/i);
+    fireEvent.change(dateInput, { target: { value: "2026-02-01" } });
+
+    mockFetch.mockRejectedValueOnce(new Error("network failure"));
+    fireEvent.click(screen.getByRole("button", { name: /go/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to load entries/i)).toBeInTheDocument();
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Failed to fetch food history entries:",
+      expect.any(Error),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it("logs error to console when delete fails", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+      })
+      .mockRejectedValueOnce(new Error("delete failed"));
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Click delete button + confirm
+    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+    fireEvent.click(deleteButtons[0]);
+    const confirmButton = await screen.findByRole("button", { name: /confirm/i });
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to delete entry/i)).toBeInTheDocument();
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "Failed to delete food history entry:",
+      expect.any(Error),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it("passes AbortSignal.timeout to fetch calls", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // The SWR call uses apiFetcher (not our fetch), but fetchEntries calls fetch directly
+    // Trigger a Jump to Date to exercise fetchEntries
+    const dateInput = screen.getByLabelText(/jump to date/i);
+    fireEvent.change(dateInput, { target: { value: "2026-02-01" } });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /go/i }));
+
+    await waitFor(() => {
+      const fetchCalls = mockFetch.mock.calls;
+      const jumpCall = fetchCalls[fetchCalls.length - 1];
+      expect((jumpCall[1] as RequestInit).signal).toBeDefined();
+    });
   });
 
   it("delete button opens AlertDialog and confirm deletes entry", async () => {

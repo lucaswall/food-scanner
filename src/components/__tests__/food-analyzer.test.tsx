@@ -465,11 +465,35 @@ describe("FoodAnalyzer", () => {
     }
   });
 
-  it("passes combined abort+timeout signal to analyze-food fetch", async () => {
-    const mockAnySignal = {} as AbortSignal;
+  it("passes AbortController signal to analyze-food fetch (no AbortSignal.any dependency)", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+    );
+
+    render(<FoodAnalyzer />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+    });
+
+    await waitFor(() => {
+      const analyzeCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/analyze-food"
+      );
+      expect(analyzeCall).toBeDefined();
+      expect((analyzeCall![1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
+    });
+  });
+
+  it("analysis works when AbortSignal.any is not available (older browsers)", async () => {
     const originalAny = AbortSignal.any;
-    const anySpy = vi.fn().mockReturnValue(mockAnySignal);
-    AbortSignal.any = anySpy;
+    // Simulate older browser that doesn't have AbortSignal.any
+    (AbortSignal as Record<string, unknown>).any = undefined;
 
     try {
       mockFetch.mockResolvedValueOnce(
@@ -488,18 +512,8 @@ describe("FoodAnalyzer", () => {
       });
 
       await waitFor(() => {
-        const analyzeCall = mockFetch.mock.calls.find(
-          (call: unknown[]) => call[0] === "/api/analyze-food"
-        );
-        expect(analyzeCall).toBeDefined();
-        expect((analyzeCall![1] as RequestInit).signal).toBe(mockAnySignal);
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne");
       });
-
-      expect(anySpy).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.any(AbortSignal),
-        ])
-      );
     } finally {
       AbortSignal.any = originalAny;
     }

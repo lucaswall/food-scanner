@@ -168,6 +168,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
+    const timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 120000);
+
     try {
       // Create FormData
       const formData = new FormData();
@@ -183,7 +186,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       const response = await fetch("/api/analyze-food", {
         method: "POST",
         body: formData,
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
+        signal: controller.signal,
       });
 
       // Validation errors return JSON; successful analysis returns SSE stream
@@ -293,6 +296,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
     } finally {
+      clearTimeout(timeoutId);
       setCompressing(false);
       setLoading(false);
       setLoadingStep(undefined);

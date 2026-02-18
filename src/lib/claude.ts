@@ -737,7 +737,14 @@ export async function* runToolLoop(
 
         let analysis: FoodAnalysis | undefined;
         if (reportNutritionBlock) {
-          analysis = validateFoodAnalysis(reportNutritionBlock.input);
+          try {
+            analysis = validateFoodAnalysis(reportNutritionBlock.input);
+          } catch (error) {
+            l.warn(
+              { error: error instanceof Error ? error.message : String(error) },
+              "invalid report_nutrition in end_turn, ignoring"
+            );
+          }
         }
 
         // Use pending analysis from earlier iteration if no analysis in final response
@@ -1052,16 +1059,25 @@ export async function* analyzeFood(
       (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name !== "report_nutrition"
     ) as Anthropic.ToolUseBlock[];
 
-    if (dataToolUseBlocks.length > 0) {
-      // Slow path: data tools were used in the initial response
+    if (dataToolUseBlocks.length > 0 || response.stop_reason === "pause_turn") {
+      // Slow path: data tools were used or server-side tools paused the turn
       l.info(
-        { dataToolCount: dataToolUseBlocks.length },
+        { dataToolCount: dataToolUseBlocks.length, stopReason: response.stop_reason },
         "running tool loop for data tools in food analysis"
       );
 
       // Yield tool_start for each data tool
       for (const tool of dataToolUseBlocks) {
         yield { type: "tool_start", tool: tool.name };
+      }
+
+      // Yield tool_start for server-side web search (pause_turn with no client-side tools)
+      if (response.stop_reason === "pause_turn") {
+        for (const block of response.content) {
+          if (block.type === "server_tool_use" && (block as { name: string }).name === "web_search") {
+            yield { type: "tool_start", tool: "web_search" };
+          }
+        }
       }
 
       // Yield usage for initial call
@@ -1088,14 +1104,14 @@ export async function* analyzeFood(
         );
       });
 
-      // Execute the initial data tools
+      // Execute the initial data tools (may be empty for pause_turn with server-side tools only)
       const toolResults = await executeDataTools(dataToolUseBlocks, userId, currentDate, l);
 
       // Build updated conversation: original user message + initial assistant response + tool results
       const updatedMessages: Anthropic.MessageParam[] = [
         userMessage,
         { role: "assistant", content: response.content },
-        { role: "user", content: toolResults },
+        ...(toolResults.length > 0 ? [{ role: "user" as const, content: toolResults }] : []),
       ];
 
       // Continue with the tool loop — wrap iteration to detect text-only completion
@@ -1335,16 +1351,25 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name !== "report_nutrition"
     ) as Anthropic.ToolUseBlock[];
 
-    // If data tools were used, run the tool loop
-    if (dataToolUseBlocks.length > 0 && userId && currentDate) {
+    // If data tools were used or server-side tools paused the turn, run the tool loop
+    if ((dataToolUseBlocks.length > 0 || response.stop_reason === "pause_turn") && userId && currentDate) {
       l.info(
-        { dataToolCount: dataToolUseBlocks.length },
+        { dataToolCount: dataToolUseBlocks.length, stopReason: response.stop_reason },
         "running tool loop for data tools in conversational refinement"
       );
 
       // Yield tool_start for each data tool
       for (const tool of dataToolUseBlocks) {
         yield { type: "tool_start", tool: tool.name };
+      }
+
+      // Yield tool_start for server-side web search (pause_turn with no client-side tools)
+      if (response.stop_reason === "pause_turn") {
+        for (const block of response.content) {
+          if (block.type === "server_tool_use" && (block as { name: string }).name === "web_search") {
+            yield { type: "tool_start", tool: "web_search" };
+          }
+        }
       }
 
       // Yield usage for initial call
@@ -1373,14 +1398,14 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         });
       }
 
-      // Execute initial data tools
+      // Execute initial data tools (may be empty for pause_turn with server-side tools only)
       const toolResults = await executeDataTools(dataToolUseBlocks, userId, currentDate, l);
 
       // Build updated conversation
       const updatedMessages: Anthropic.MessageParam[] = [
         ...anthropicMessages,
         { role: "assistant", content: response.content },
-        { role: "user", content: toolResults },
+        ...(toolResults.length > 0 ? [{ role: "user" as const, content: toolResults }] : []),
       ];
 
       // Continue with tool loop

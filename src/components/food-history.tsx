@@ -19,6 +19,7 @@ import {
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { Trash2, UtensilsCrossed } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
+import { safeResponseJson } from "@/lib/safe-json";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogHistoryEntry } from "@/types";
 
@@ -129,22 +130,27 @@ export function FoodHistory() {
 
       const response = await fetch(`/api/food-history?${params}`, {
         method: "GET",
+        signal: AbortSignal.timeout(15000),
       });
-      const result = await response.json();
+      const result = await safeResponseJson(response) as {
+        success?: boolean;
+        data?: { entries: FoodLogHistoryEntry[] };
+      };
 
       if (!response.ok || !result.success) {
         setFetchError("Failed to load entries. Please try again.");
         return;
       }
 
-      const newEntries = result.data.entries as FoodLogHistoryEntry[];
+      const newEntries = result.data?.entries ?? [];
       if (append) {
         setEntries((prev) => [...prev, ...newEntries]);
       } else {
         setEntries(newEntries);
       }
       setHasMore(newEntries.length >= 20);
-    } catch {
+    } catch (error) {
+      console.error("Failed to fetch food history entries:", error);
       setFetchError("Failed to load entries. Please try again.");
     } finally {
       setLoading(false);
@@ -175,8 +181,12 @@ export function FoodHistory() {
     try {
       const response = await fetch(`/api/food-history/${id}`, {
         method: "DELETE",
+        signal: AbortSignal.timeout(15000),
       });
-      const result = await response.json();
+      const result = await safeResponseJson(response) as {
+        success?: boolean;
+        error?: { code?: string; message?: string };
+      };
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
@@ -195,7 +205,8 @@ export function FoodHistory() {
       setEntries((prev) => prev.filter((e) => e.id !== id));
       mutate();
       invalidateFoodCaches().catch(() => {});
-    } catch {
+    } catch (error) {
+      console.error("Failed to delete food history entry:", error);
       setDeleteError("Failed to delete entry");
       vibrateError();
     } finally {

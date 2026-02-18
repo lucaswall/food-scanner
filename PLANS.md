@@ -484,3 +484,40 @@ Summary: 5 issue(s) found (Team: security, reliability, quality reviewers)
 1. Add loading state test: mock SWR returning `{ isLoading: true }`, verify skeleton/loading indicator renders
 2. Add successful render test: mock SWR returning full food entry data, verify food name heading, nutrition values, notes, and date/time metadata render correctly
 3. Add `!data` guard test: mock SWR returning `{ data: undefined, isLoading: false, error: undefined }`, verify component returns null (no crash)
+
+---
+
+## Iteration 2 (Fix Plan)
+
+**Implemented:** 2026-02-18
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Fix 1 (FOO-649): AbortSignal.any() browser compat — Replaced with manual setTimeout pattern, added test for undefined AbortSignal.any
+- Fix 2 (FOO-650): validateFoodAnalysis missing try/catch — Wrapped in try/catch at end_turn path, added test for malformed report_nutrition
+- Fix 3 (FOO-651): food-history.tsx fetch patterns — Added AbortSignal.timeout(15000), safeResponseJson, console.error logging, added 3 tests
+- Fix 4 (FOO-652): pause_turn handling — Updated analyzeFood and conversationalRefine conditions, handled empty toolResults for server-only tools, added tool_start for web_search on pause_turn, added tests
+- Fix 5 (FOO-653): food-detail.test.tsx happy path — Added loading state, successful render (6 tests), and !data guard tests
+
+### Files Modified
+- `src/components/food-analyzer.tsx` — Replaced AbortSignal.any() with manual timeout pattern
+- `src/components/__tests__/food-analyzer.test.tsx` — Updated AbortSignal tests for new pattern
+- `src/lib/claude.ts` — try/catch for validateFoodAnalysis, pause_turn handling in analyzeFood/conversationalRefine, tool_start for web_search
+- `src/lib/__tests__/claude.test.ts` — Tests for end_turn malformed input, pause_turn in both analyzeFood and conversationalRefine, tool_start assertions
+- `src/components/food-history.tsx` — safeResponseJson, AbortSignal.timeout, console.error logging, defensive data access
+- `src/components/__tests__/food-history.test.tsx` — Tests for error logging, timeout, safeResponseJson mock
+- `src/components/__tests__/food-detail.test.tsx` — 8 new tests: loading, successful render, !data guard
+
+### Linear Updates
+- FOO-649: In Progress → Review
+- FOO-650: In Progress → Review
+- FOO-651: In Progress → Review
+- FOO-652: In Progress → Review
+- FOO-653: In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 issues (2 HIGH, 2 MEDIUM). Fixed 2 real bugs (non-null assertion in food-history, missing tool_start for web_search on pause_turn). Dismissed 2 false positives (assistant-last messages valid for Anthropic API continuation, AbortSignal.timeout has wider browser support than AbortSignal.any).
+- verifier: All 2019 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

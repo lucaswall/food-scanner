@@ -849,6 +849,50 @@ describe("analyzeFood", () => {
     expect(errorEvent).toBeDefined();
     expect((errorEvent as { type: "error"; message: string }).message).toBe("Request aborted by client");
   });
+
+  it("enters tool loop when initial response has pause_turn (server-side web search)", async () => {
+    // First response: pause_turn with server_tool_use, no report_nutrition, no client-side tool_use
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "nutrition" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 2000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    // Second stream (in runToolLoop): Claude completes with report_nutrition in end_turn
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "text", text: "Based on the nutrition info..." },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+        ],
+        usage: { input_tokens: 2500, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(
+      analyzeFood([], "Big Mac", "user-123", "2026-02-15")
+    );
+
+    // Should yield tool_start for web_search before delegating to runToolLoop
+    expect(events).toContainEqual({ type: "tool_start", tool: "web_search" });
+
+    // Should have delegated to runToolLoop and produced an analysis
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+    expect(mockStream).toHaveBeenCalledTimes(2);
+  });
 });
 
 // =============================================================================
@@ -1208,6 +1252,30 @@ describe("runToolLoop", () => {
       expect.any(Object),
     );
   });
+
+  it("end_turn: gracefully yields done (no analysis) when validateFoodAnalysis throws", async () => {
+    // report_nutrition with malformed input in end_turn
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: { food_name: "" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
+    );
+
+    // Should yield done without analysis (malformed input ignored)
+    expect(events.find((e) => e.type === "analysis")).toBeUndefined();
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
 });
 
 // =============================================================================
@@ -1431,6 +1499,61 @@ describe("conversationalRefine", () => {
     );
     expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
     expect(call.betas).toContain("code-execution-web-tools-2026-02-09");
+  });
+
+  it("enters tool loop when stop_reason is pause_turn (server-side web search)", async () => {
+    // First response: pause_turn with server_tool_use (web search), no client-side tool_use blocks
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "McDonald's Big Mac nutrition" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 2000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    // Second stream (in runToolLoop): Claude completes with report_nutrition
+    mockStream.mockReturnValueOnce(createMockStream(
+      [
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Based on the nutrition info..." } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_stop" },
+      ],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "text", text: "Based on the nutrition info..." },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+        ],
+        usage: { input_tokens: 2500, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const events = await collectEvents(
+      conversationalRefine(
+        [{ role: "user", content: "I had a Big Mac" }],
+        [],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // Should yield tool_start for web_search before delegating to runToolLoop
+    expect(events).toContainEqual({ type: "tool_start", tool: "web_search" });
+
+    // Should have delegated to runToolLoop and produced an analysis
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+    // Two API calls: initial + runToolLoop
+    expect(mockStream).toHaveBeenCalledTimes(2);
   });
 });
 
