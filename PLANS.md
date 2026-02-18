@@ -521,3 +521,39 @@ Summary: 5 issue(s) found (Team: security, reliability, quality reviewers)
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 1 issue found (Single-agent review: security, reliability, quality)
+- FIX: 1 issue — Linear issue created
+- DISCARDED: 0 findings
+
+**Issues requiring fix:**
+- [HIGH] BUG: `pause_turn` creates consecutive assistant messages in `runToolLoop` (`src/lib/claude.ts:822,875,1114,1408`) — When `analyzeFood`/`conversationalRefine` enter `runToolLoop` from a `pause_turn` with no client-side tools, messages end with `assistant` role. If `runToolLoop`'s continuation response is `tool_use`, it pushes another `assistant` message, creating consecutive same-role messages that the Anthropic API rejects. Same issue in `runToolLoop`'s internal `pause_turn` handler at line 875.
+
+### Linear Updates
+- FOO-649: Review → Merge (fix completed)
+- FOO-650: Review → Merge (fix completed)
+- FOO-651: Review → Merge (fix completed)
+- FOO-652: Review → Merge (fix completed)
+- FOO-653: Review → Merge (fix completed)
+- FOO-654: Created in Todo (Fix: pause_turn consecutive assistant messages)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 2
+**Linear Issues:** [FOO-654](https://linear.app/lw-claude/issue/FOO-654)
+
+### Fix 1: pause_turn creates consecutive assistant messages in runToolLoop
+**Linear Issue:** [FOO-654](https://linear.app/lw-claude/issue/FOO-654)
+
+1. Write test in `claude.test.ts` for `analyzeFood`: initial response is `pause_turn` (web search), `runToolLoop` continuation is `tool_use` (search_food_log) then `end_turn` with analysis — verify no API error and analysis is yielded correctly
+2. Write test in `claude.test.ts` for `conversationalRefine`: same pattern — `pause_turn` then `tool_use` then `end_turn`
+3. Write test in `claude.test.ts` for `runToolLoop` internal: tool_use → pause_turn → tool_use → end_turn — verify no consecutive assistant messages
+4. Extract a helper function `pushAssistantMessage(messages, content)` in `claude.ts` that checks if the last message is already `assistant` and merges content arrays instead of pushing a new message
+5. Replace `conversationMessages.push({ role: "assistant", content: response.content })` at lines 822 and 875 with the new helper
+6. In `analyzeFood` (line 1111-1115) and `conversationalRefine` (line 1401-1408), the fix is inherited — `runToolLoop` now handles assistant-last messages correctly
