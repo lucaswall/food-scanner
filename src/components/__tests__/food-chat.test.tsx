@@ -1766,6 +1766,22 @@ describe("FoodChat", () => {
     });
   });
 
+  // FOO-602: Landmark structure
+  describe("landmark structure", () => {
+    it("renders h1 heading even when latestAnalysis is present (analysis mode header)", () => {
+      // defaultProps has initialAnalysis → latestAnalysis will be set → analysis mode header (no visible h1 in current impl)
+      render(<FoodChat {...defaultProps} />);
+      const heading = screen.getByRole("heading", { level: 1 });
+      expect(heading).toBeInTheDocument();
+    });
+
+    it("renders h1 heading in simple header mode (no analysis)", () => {
+      render(<FoodChat title="Chat" onClose={vi.fn()} onLogged={vi.fn()} />);
+      const heading = screen.getByRole("heading", { level: 1 });
+      expect(heading).toHaveTextContent("Chat");
+    });
+  });
+
   // FOO-532: Seeded conversation support
   describe("seeded conversations", () => {
     const seedMessages: ConversationMessage[] = [

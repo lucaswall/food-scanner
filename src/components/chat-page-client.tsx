@@ -14,26 +14,30 @@ export function ChatPageClient() {
 
   if (logResponse && loggedAnalysis) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <FoodLogConfirmation
-          response={logResponse}
-          foodName={loggedAnalysis.food_name}
-          analysis={loggedAnalysis}
-          mealTypeId={loggedMealTypeId ?? undefined}
-        />
-      </div>
+      <main id="main-content" className="contents">
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <FoodLogConfirmation
+            response={logResponse}
+            foodName={loggedAnalysis.food_name}
+            analysis={loggedAnalysis}
+            mealTypeId={loggedMealTypeId ?? undefined}
+          />
+        </div>
+      </main>
     );
   }
 
   return (
-    <FoodChat
-      title="Chat"
-      onClose={() => router.push("/app")}
-      onLogged={(response, analysis, mealTypeId) => {
-        setLogResponse(response);
-        setLoggedAnalysis(analysis);
-        setLoggedMealTypeId(mealTypeId);
-      }}
-    />
+    <main id="main-content" className="contents">
+      <FoodChat
+        title="Chat"
+        onClose={() => router.push("/app")}
+        onLogged={(response, analysis, mealTypeId) => {
+          setLogResponse(response);
+          setLoggedAnalysis(analysis);
+          setLoggedMealTypeId(mealTypeId);
+        }}
+      />
+    </main>
   );
 }

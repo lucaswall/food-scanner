@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SkipLink } from "@/components/skip-link";
 import { useTheme } from "@/hooks/use-theme";
 import { Sun, Moon, Monitor, ArrowLeft } from "lucide-react";
 import useSWR from "swr";
@@ -109,10 +108,8 @@ export function SettingsContent() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
-      <SkipLink />
-      <main id="main-content" className="flex w-full max-w-sm flex-col gap-6">
-        <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center gap-2">
           <Button asChild variant="ghost" size="icon" className="min-h-[44px] min-w-[44px]">
             <Link href="/app" aria-label="Back to Food Scanner">
               <ArrowLeft className="h-5 w-5" />
@@ -315,7 +312,6 @@ export function SettingsContent() {
             </Button>
           </div>
         </div>
-      </main>
     </div>
   );
 }
