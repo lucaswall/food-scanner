@@ -45,6 +45,8 @@ describe("GET /api/health", () => {
   });
 
   it("returns version from package.json", async () => {
+    vi.stubEnv("COMMIT_SHA", "");
+    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
     const response = await GET();
     const body = await response.json();
     expect(body.data.version).toBe(packageJson.version);
@@ -101,5 +103,35 @@ describe("GET /api/health", () => {
       fitbitMode: expect.any(String),
       claudeModel: expect.any(String),
     });
+  });
+
+  it("includes commitHash in response when COMMIT_SHA is set", async () => {
+    vi.stubEnv("COMMIT_SHA", "abc1234");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data.commitHash).toBe("abc1234");
+  });
+
+  it("formats version with commit hash for staging when COMMIT_SHA is set", async () => {
+    vi.stubEnv("COMMIT_SHA", "abc1234");
+    vi.stubEnv("APP_URL", "https://food-test.lucaswall.me");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data.version).toBe(`${packageJson.version}+abc1234`);
+  });
+
+  it("does not append commit hash to version for production when COMMIT_SHA is set", async () => {
+    vi.stubEnv("COMMIT_SHA", "abc1234");
+    vi.stubEnv("APP_URL", "https://food.lucaswall.me");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data.version).toBe(packageJson.version);
+  });
+
+  it("returns empty commitHash when COMMIT_SHA is empty", async () => {
+    vi.stubEnv("COMMIT_SHA", "");
+    const response = await GET();
+    const body = await response.json();
+    expect(body.data.commitHash).toBe("");
   });
 });

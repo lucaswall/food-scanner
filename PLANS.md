@@ -1,232 +1,244 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Branch:** feat/FOO-581-keyword-search-and-model-upgrade
-**Issues:** FOO-581, FOO-582, FOO-583
-**Created:** 2026-02-17
-**Last Updated:** 2026-02-17
+**Branch:** feat/FOO-586-markdown-autoscroll-commit-hash
+**Issues:** FOO-586, FOO-587, FOO-588
+**Created:** 2026-02-18
+**Last Updated:** 2026-02-18
 
 ## Summary
 
-Three improvements to the food analysis pipeline:
-1. Fix the search_food_log tool to use keyword-based matching (same as find-matches) instead of naive substring matching
-2. Upgrade the Claude model from Sonnet 4.5 to Sonnet 4.6 and bump the SDK
-3. Upgrade the web search tool from v1 to v2 with dynamic filtering for better accuracy and 24% token savings
+Three independent UI/DX improvements: (1) render markdown in chat assistant messages instead of raw text, (2) auto-scroll to the analysis progress area when the user taps "Analyze Food", and (3) display the git commit hash alongside the version on staging to make deployed commits identifiable.
 
 ## Issues
 
-### FOO-581: search_food_log uses substring matching instead of keyword-based matching
-
-**Priority:** High
-**Labels:** Bug
-**Description:** The `search_food_log` tool uses naive `.includes()` substring matching on free-text queries, while the `find-matches` endpoint uses Claude-generated keyword set intersection via `computeMatchRatio()`. This creates a UX inconsistency where the UI shows food matches but the chat can't find them.
-
-Real example: query "té leche" fails because it's matched as a single substring against "Té con leche" (the "con" breaks it), and accent characters aren't normalized.
-
-**Acceptance Criteria:**
-- [ ] `search_food_log` tool accepts a `keywords` array parameter instead of a `query` string
-- [ ] Matching uses `computeMatchRatio()` from `src/lib/food-matching.ts`
-- [ ] The tool description instructs Claude to generate keywords following the same rules as `report_nutrition`
-- [ ] Date-based and meal-type searches continue to work unchanged
-- [ ] Foods that `find-matches` can find are also findable via `search_food_log`
-
-### FOO-582: Upgrade Claude model from Sonnet 4.5 to Sonnet 4.6
+### FOO-586: Chat messages display raw markdown instead of rendered text
 
 **Priority:** Medium
 **Labels:** Improvement
-**Description:** The app uses `claude-sonnet-4-5-20250929` (pinned snapshot). Sonnet 4.6 (`claude-sonnet-4-6`) is available with better coding performance, improved long-context reasoning, and stronger safety — at the same price ($3/$15 per MTok).
+**Description:** The Claude AI model sends responses with markdown formatting (bold, lists, tables), but the chat UI renders them as plain text via `<p className="text-sm whitespace-pre-wrap">{msg.content}</p>` at `food-chat.tsx:610`. Users see literal `**` characters, raw pipe-delimited tables, and other formatting artifacts.
 
 **Acceptance Criteria:**
-- [ ] `CLAUDE_MODEL` changed to `claude-sonnet-4-6`
-- [ ] SDK bumped to `@anthropic-ai/sdk@^0.75.0`
-- [ ] `MODEL_PRICING` includes `claude-sonnet-4-6` entry
-- [ ] All test references updated
-- [ ] E2E fixtures left as-is (historical data)
-- [ ] No adaptive thinking or effort level changes
+- [ ] Assistant messages render markdown (bold, italic, lists, tables)
+- [ ] `remark-gfm` plugin is included for table support (highest-impact formatting issue)
+- [ ] User messages remain plain text
+- [ ] Thinking messages (line 598) remain plain italic text
+- [ ] Rendered markdown matches existing chat bubble typography (text-sm)
+- [ ] Headings, images, and other block-level elements that don't belong in chat bubbles are restricted
 
-### FOO-583: Upgrade web search tool to v2 with dynamic filtering
+### FOO-587: Analyze screen does not auto-scroll to show analysis progress
 
 **Priority:** Medium
 **Labels:** Improvement
-**Description:** The food analysis uses the old web search tool version (`web_search_20250305`). The new v2 (`web_search_20260209`) includes dynamic filtering for 24% fewer input tokens and improved accuracy.
+**Description:** When pressing "Analyze Food" with images attached, the image previews push the button and progress area below the fold. After tapping, nothing visually changes in the viewport — users must manually scroll to see the analysis is happening.
 
 **Acceptance Criteria:**
-- [ ] `WEB_SEARCH_TOOL` type changed to `web_search_20260209`
-- [ ] Beta header `anthropic-beta: code-execution-web-tools-2026-02-09` added to API calls
-- [ ] TypeScript types updated for the new tool type
-- [ ] All test references updated
-- [ ] Existing web search behavior preserved (no regressions)
+- [ ] After tapping "Analyze Food", the page scrolls to show the analysis progress indicator
+- [ ] Scroll uses `behavior: 'smooth'` for a polished experience
+- [ ] The `analysisSectionRef` (already exists at `food-analyzer.tsx:47`) is reused for the scroll target
+
+### FOO-588: Staging version display should include commit hash
+
+**Priority:** Low
+**Labels:** Improvement
+**Description:** Both staging and production display the same version string from `package.json`. There's no way to tell which commit is deployed on staging. The health route at `src/app/api/health/route.ts` returns bare `packageJson.version`, and the about section displays it as-is.
+
+**Acceptance Criteria:**
+- [ ] Staging displays version as `1.12.0+abc1234` (semver + 7-char commit hash)
+- [ ] Production displays version as `1.12.0` (unchanged behavior)
+- [ ] `/api/health` response includes a `commitHash` field (e.g., `"commitHash": "abc1234"`)
+- [ ] The `version` field in `/api/health` reflects the environment-specific format
+- [ ] Commit hash is injected at build time via `next.config.ts` (not runtime git commands)
+- [ ] Locally (dev), commit hash falls back to empty string
+- [ ] About section and health route tests updated
 
 ## Prerequisites
 
-- [ ] `main` branch is clean and up to date
-- [ ] `npm install` runs successfully
-- [ ] `npm test` passes before starting
+- [ ] `react-markdown` and `remark-gfm` npm packages installed (for FOO-586)
 
 ## Implementation Tasks
 
-### Task 1: Replace query parameter with keywords in search_food_log tool definition
+### Task 1: Install react-markdown and remark-gfm
 
-**Issue:** FOO-581
-**Files:**
-- `src/lib/chat-tools.ts` (modify)
-- `src/lib/__tests__/chat-tools.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update the tool schema test in `chat-tools.test.ts`:
-   - Change the `SEARCH_FOOD_LOG_TOOL` schema test to expect a `keywords` property (type: array of strings) instead of `query` (type: string/null)
-   - Update the `required` array assertion to use `keywords` instead of `query`
-   - Update the non-strict schema test to check `keywords` has `type: "array"` with `items: { type: "string" }`
-   - Run: `npm test -- chat-tools`
-   - Verify: Schema tests fail because the tool still has `query`
-
-2. **GREEN** — Update `SEARCH_FOOD_LOG_TOOL` in `chat-tools.ts`:
-   - Replace the `query` property with a `keywords` property: `type: "array"`, `items: { type: "string" }`, description instructs Claude to generate 1-5 lowercase single-word tokens (same rules as report_nutrition's keywords)
-   - Update `required` array: replace `"query"` with `"keywords"`
-   - Update the tool `description` to mention keyword-based search instead of free-text search
-   - Run: `npm test -- chat-tools`
-   - Verify: Schema tests pass
-
-3. **REFACTOR** — Ensure the description is clear and concise. Reference the keyword generation rules from `report_nutrition`.
-
-### Task 2: Update searchFoods to use keyword matching via computeMatchRatio
-
-**Issue:** FOO-581
-**Files:**
-- `src/lib/food-log.ts` (modify)
-- `src/lib/__tests__/food-log.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update `searchFoods` tests in `food-log.test.ts`:
-   - Change the function signature in tests: replace `query: string` with `keywords: string[]`
-   - Add test: searching with keywords `["te", "leche"]` matches a food with keywords `["te", "leche", "azucar"]` (match ratio >= 0.5)
-   - Add test: searching with keywords `["pizza"]` matches a food with keywords `["pizza", "jamon", "muzzarella"]` (match ratio >= 0.5)
-   - Add test: searching with keywords `["cerveza", "sin-alcohol"]` does NOT match a food with keywords `["pizza", "jamon"]` (match ratio < 0.5)
-   - Run: `npm test -- food-log`
-   - Verify: Tests fail because `searchFoods` still expects a string
-
-2. **GREEN** — Refactor `searchFoods` in `food-log.ts`:
-   - Change signature from `searchFoods(userId, query: string, ...)` to `searchFoods(userId, keywords: string[], ...)`
-   - Import `computeMatchRatio` from `@/lib/food-matching`
-   - Replace the application-level filter block (lines 544-551) with keyword-based matching: for each row, compute `computeMatchRatio(keywords, row.custom_foods.keywords ?? [])` and include if ratio >= 0.5
-   - Remove the `lowerQuery` variable and `.includes()` logic
-   - Keep the grouping, sorting, and limit logic unchanged
-   - Run: `npm test -- food-log`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Clean up: remove unused `lowerQuery` variable, ensure consistent naming.
-
-### Task 3: Update executeSearchFoodLog to pass keywords to searchFoods
-
-**Issue:** FOO-581
-**Files:**
-- `src/lib/chat-tools.ts` (modify)
-- `src/lib/__tests__/chat-tools.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update execution tests in `chat-tools.test.ts`:
-   - In "executes query-only search" test: change params from `{ query: "pizza" }` to `{ keywords: ["pizza"] }` and update the `mockSearchFoods` assertion to expect `["pizza"]` instead of `"pizza"`
-   - In "search_food_log accepts null parameters" test: update params to use `keywords: ["pizza"]` instead of `query: "pizza"`, update assertion
-   - Add new test: "executes keyword search with multiple keywords" — pass `{ keywords: ["te", "leche"] }`, verify `mockSearchFoods` called with `["te", "leche"]`
-   - Add test: "returns error when keywords is null and no date provided" — pass `{ keywords: null, date: null, from_date: null, to_date: null }`, expect the "at least one of" error
-   - Run: `npm test -- chat-tools`
-   - Verify: Tests fail because `executeSearchFoodLog` still reads `query`
-
-2. **GREEN** — Update `executeSearchFoodLog` in `chat-tools.ts`:
-   - Read `keywords` instead of `query` from params
-   - Validate that `keywords` is a non-empty array (instead of checking for a truthy `query` string)
-   - In Case 1 (keyword-only search): pass the `keywords` array to `searchFoods()` instead of the query string
-   - Update the "no results" message to reference keywords instead of the query string
-   - Run: `npm test -- chat-tools`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Ensure the error message for missing parameters still makes sense with the new keyword approach.
-
-### Task 4: Bump Anthropic SDK and update Claude model constant
-
-**Issue:** FOO-582
+**Issue:** FOO-586
 **Files:**
 - `package.json` (modify)
-- `src/lib/claude.ts` (modify)
 
 **Steps:**
 
-1. Run `npm install @anthropic-ai/sdk@^0.75.0` to bump the SDK
-2. Change `CLAUDE_MODEL` in `src/lib/claude.ts:11` from `"claude-sonnet-4-5-20250929"` to `"claude-sonnet-4-6"`
-3. Run `npm run typecheck` — verify no new type errors from the SDK bump
-4. Run `npm test` — tests will fail due to model string mismatches (expected, fixed in Task 5)
+1. Install `react-markdown` and `remark-gfm` as production dependencies via `npm install react-markdown remark-gfm`
+2. Verify the install succeeded and both packages appear in `package.json` dependencies
+3. Run `npm run typecheck` to confirm no type conflicts
 
 **Notes:**
-- The SDK bump is needed because semver 0.x treats minor as breaking: `^0.74.0` only resolves to `0.74.x`
-- If `npm install @anthropic-ai/sdk@^0.75.0` fails (version not published), try `@anthropic-ai/sdk@latest` and pin whatever version installs
+- `react-markdown` provides the `<ReactMarkdown>` component; `remark-gfm` adds GitHub Flavored Markdown support (tables, strikethrough, autolinks)
+- Both are production dependencies because they run in the client bundle
 
-### Task 5: Add Sonnet 4.6 pricing entry and update all test references
+### Task 2: Create ChatMarkdown component with tests
 
-**Issue:** FOO-582
+**Issue:** FOO-586
 **Files:**
-- `src/lib/claude-usage.ts` (modify)
-- `src/lib/__tests__/claude-usage.test.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/components/chat-markdown.tsx` (create)
+- `src/components/__tests__/chat-markdown.test.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write tests for the ChatMarkdown component:
+   - Renders plain text as-is
+   - Renders `**bold**` as a `<strong>` element
+   - Renders markdown tables (pipe-delimited) into `<table>` elements (requires remark-gfm)
+   - Renders numbered lists as `<ol>` elements
+   - Does NOT render images (restrict via `allowedElements` or `disallowedElements`)
+   - Does NOT render headings (h1-h6) — these don't belong in chat bubbles; should fall through as plain text or paragraphs
+   - Applies `text-sm` base typography to match chat bubble styling
+   - Run: `npm test -- chat-markdown`
+   - Verify: Tests fail (component doesn't exist)
+
+2. **GREEN** — Create the ChatMarkdown component:
+   - A `'use client'` component that wraps `react-markdown` with `remarkPlugins={[remarkGfm]}`
+   - Props: `content: string`
+   - Use `disallowedElements` to block `img`, `h1`-`h6` (or `allowedElements` allowlist — whichever is cleaner)
+   - Apply Tailwind `prose`-like styles inline (or minimal custom classes) so that tables, lists, and inline formatting look good inside the chat bubble's `text-sm` context. Do NOT add `@tailwindcss/typography` — hand-style the few elements that matter (table borders/padding, list spacing, paragraph spacing, strong/em)
+   - The wrapper element should NOT add its own `<p>` — `react-markdown` generates `<p>` tags from markdown paragraphs already
+   - Run: `npm test -- chat-markdown`
+   - Verify: All tests pass
+
+3. **REFACTOR** — Ensure the component is minimal and well-typed.
+
+**Notes:**
+- Reference existing component patterns in `src/components/` for file structure
+- The component should be reusable but currently only used in food-chat.tsx
+- `react-markdown` renders each block element (paragraph, table, list) as a proper HTML element — no need for `whitespace-pre-wrap`
+- Test with `@testing-library/react` — use `render(<ChatMarkdown content="**bold**" />)` and query the DOM
+
+### Task 3: Integrate ChatMarkdown into food-chat message rendering
+
+**Issue:** FOO-586
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify, if needed)
+
+**TDD Steps:**
+
+1. **RED** — If any existing food-chat tests assert on the raw text rendering of assistant messages (e.g., checking for `<p>` with `whitespace-pre-wrap`), update them to expect the new ChatMarkdown rendering instead. Run: `npm test -- food-chat`
+
+2. **GREEN** — Replace the plain text `<p>` at `food-chat.tsx:610` with the ChatMarkdown component:
+   - For `msg.role === "assistant"`: render `<ChatMarkdown content={msg.content} />`
+   - For `msg.role === "user"`: keep the existing `<p className="text-sm whitespace-pre-wrap">{msg.content}</p>`
+   - The thinking messages at line 598 remain unchanged (already italic/muted)
+   - Import ChatMarkdown at the top of the file
+   - Run: `npm test -- food-chat`
+   - Verify: All tests pass
+
+3. **REFACTOR** — Remove any now-unnecessary `whitespace-pre-wrap` class from the assistant message branch if it was there.
+
+**Notes:**
+- Both the analyze-food SSE path (`needs_chat` event) and the direct chat path render through the same `food-chat.tsx:610` line — single fix point
+- The `MiniNutritionCard` below the message (line 611-618) is unaffected — it's a sibling to the text content
+
+### Task 4: Add auto-scroll to analysis progress on analyze click
+
+**Issue:** FOO-587
+**Files:**
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write a test that clicks the "Analyze Food" button (with a photo or description present so `canAnalyze` is true) and asserts that `scrollIntoView` was called on the analysis section element. Mock `scrollIntoView` on `Element.prototype` (pattern already used in `food-chat.test.tsx:44`). Run: `npm test -- food-analyzer.test`
+
+2. **GREEN** — In `handleAnalyze()` in `food-analyzer.tsx`, after the `setLoading(true)` call (around line 160), add a `scrollIntoView({ behavior: 'smooth' })` call on `analysisSectionRef.current`. The ref already exists (line 47) and points to the analysis section `<div>` (line 638). Run: `npm test -- food-analyzer.test`
+
+3. **REFACTOR** — Verify the scroll timing feels right. The scroll should happen when loading starts (so the user sees the spinner), not when analysis completes (the focus effect at line 472 already handles that).
+
+**Notes:**
+- The `analysisSectionRef` is already wired up at line 638 — no new refs needed
+- `scrollIntoView` is already mocked in `food-chat.test.tsx` (line 44) — follow the same pattern
+- The scroll call should be unconditional during analyze (not gated on image count) since even text-only analysis benefits from seeing the progress area
+
+### Task 5: Expose commit hash at build time via next.config.ts
+
+**Issue:** FOO-588
+**Files:**
+- `next.config.ts` (modify)
+
+**Steps:**
+
+1. Add an `env` property to the Next.js config that captures `RAILWAY_GIT_COMMIT_SHA` at build time and exposes it as `COMMIT_SHA` (server-side only, no `NEXT_PUBLIC_` prefix needed since only the API route uses it). Truncate to 7 characters. Fall back to empty string when the env var is not set (local dev, CI).
+2. Run `npm run typecheck` to verify the config change is valid.
+3. Run `npm run build` to verify the build succeeds with the new config.
+
+**Notes:**
+- Railway sets `RAILWAY_GIT_COMMIT_SHA` automatically at build time — no Railway config changes needed
+- Next.js `env` in config inlines values at build time via webpack DefinePlugin — `process.env.COMMIT_SHA` in server code will resolve to the literal string
+- The about-section is a client component that fetches from `/api/health`, so the commit hash flows through the API response — no need for a `NEXT_PUBLIC_` var
+
+### Task 6: Add commitHash to health route and format staging version
+
+**Issue:** FOO-588
+**Files:**
+- `src/app/api/health/route.ts` (modify)
 - `src/app/api/health/__tests__/route.test.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Add tests for the new behavior:
+   - When `COMMIT_SHA` is set (e.g., `"abc1234"`), response includes `commitHash: "abc1234"`
+   - When `COMMIT_SHA` is set AND environment is Staging, `version` is `"X.Y.Z+abc1234"`
+   - When `COMMIT_SHA` is set AND environment is Production, `version` is `"X.Y.Z"` (unchanged)
+   - When `COMMIT_SHA` is empty/unset, `commitHash` is `""` and `version` is `"X.Y.Z"`
+   - Use `vi.stubEnv("COMMIT_SHA", "abc1234")` pattern (already used in existing tests)
+   - Run: `npm test -- route.test`
+   - Verify: New tests fail
+
+2. **GREEN** — Update the health route:
+   - Read `process.env.COMMIT_SHA` (will be inlined at build time via next.config.ts)
+   - Add `commitHash` field to the response
+   - When environment is Staging and commitHash is non-empty, format version as `${packageJson.version}+${commitHash}`
+   - Run: `npm test -- route.test`
+   - Verify: All tests pass
+
+3. **REFACTOR** — Ensure the version formatting logic is clean and readable.
+
+**Notes:**
+- The staging detection logic already exists: `appUrl.includes("food-test")` at line 11
+- The `successResponse` helper wraps the object in `{ success: true, data: ... }`
+- Follow the existing test patterns — each behavior gets its own `it()` block
+
+### Task 7: Update about-section to display commit hash
+
+**Issue:** FOO-588
+**Files:**
+- `src/components/about-section.tsx` (modify)
 - `src/components/__tests__/about-section.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add a test in `claude-usage.test.ts` for the new pricing entry:
-   - Test that `MODEL_PRICING["claude-sonnet-4-6"]` exists with `inputPricePerMToken: 3` and `outputPricePerMToken: 15`
-   - Run: `npm test -- claude-usage`
-   - Verify: Test fails because the entry doesn't exist yet
+1. **RED** — Add tests for commit hash display:
+   - When `commitHash` is present in health data, a "Commit" row displays the hash in monospace font
+   - When `commitHash` is empty, no "Commit" row is rendered
+   - Update `mockHealthData` to include `commitHash: ""` by default (matches production)
+   - Add a separate test with `commitHash: "abc1234"` (staging scenario)
+   - Run: `npm test -- about-section`
+   - Verify: New tests fail
 
-2. **GREEN** — Add the pricing entry in `claude-usage.ts`:
-   - Add `"claude-sonnet-4-6": { inputPricePerMToken: 3, outputPricePerMToken: 15 }` to `MODEL_PRICING`
-   - Keep existing entries for `claude-sonnet-4-5-20250929` and others (historical usage records reference them)
-   - Run: `npm test -- claude-usage`
-   - Verify: Test passes
-
-3. **Update test references** — Find-and-replace `claude-sonnet-4-5-20250929` → `claude-sonnet-4-6` in:
-   - `src/lib/__tests__/claude.test.ts` (~27 occurrences)
-   - `src/app/api/health/__tests__/route.test.ts` (2 occurrences)
-   - `src/components/__tests__/about-section.test.tsx` (2 occurrences)
-   - Do NOT change `e2e/fixtures/db.ts` (historical usage records)
-   - Run: `npm test`
+2. **GREEN** — Update the AboutSection component:
+   - Add `commitHash` to the `HealthData` interface
+   - Conditionally render a "Commit" row (same layout as existing rows) when `data?.commitHash` is non-empty
+   - Display the commit hash in `font-mono text-xs` (same style as Claude model row)
+   - Run: `npm test -- about-section`
    - Verify: All tests pass
 
-### Task 6: Upgrade web search tool to v2 with beta header
-
-**Issue:** FOO-583
-**Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update web search tool tests in `claude.test.ts`:
-   - Change all `web_search_20250305` assertions to `web_search_20260209` (3 occurrences)
-   - Remove `name: "web_search"` from assertions (v2 doesn't require a name field)
-   - Add assertions that the API calls include the beta header `anthropic-beta: code-execution-web-tools-2026-02-09`
-   - Run: `npm test -- claude`
-   - Verify: Tests fail because the tool still uses the old type
-
-2. **GREEN** — Update `WEB_SEARCH_TOOL` and API calls in `claude.ts`:
-   - Change `WEB_SEARCH_TOOL` type from `"web_search_20250305"` to `"web_search_20260209"`, remove `name` property
-   - Update the TypeScript type annotations: the `buildToolsWithCache` function signature and `tools` option type need to reference the new web search tool type. If the SDK (0.75.0+) exports `WebSearchTool20260209`, use it. If not, define a local type and cast.
-   - Add the beta header to API calls: in `getClient().messages.stream()` calls (there are 4: in `runToolLoop`, `analyzeFood` initial call, and `conversationalRefine` initial call, plus the one in `analyzeFood`'s slow path which goes through `runToolLoop`), include `headers: { 'anthropic-beta': 'code-execution-web-tools-2026-02-09' }` in the options object alongside `signal`
-   - Run: `npm test -- claude`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Extract the beta header string into a constant (e.g., `WEB_SEARCH_BETA_HEADER`) for DRY. Ensure the request options merge correctly when `signal` is also present.
+3. **REFACTOR** — Ensure the row fits the existing spacing and alignment pattern.
 
 **Notes:**
-- The SDK's `messages.stream()` second parameter is `RequestOptions` which accepts `headers`
-- Currently the code passes `{ signal: options?.signal }` — merge with `{ signal: options?.signal, headers: { 'anthropic-beta': 'code-execution-web-tools-2026-02-09' } }`
-- If SDK 0.75.0 doesn't export the new web search type, use `as const` assertion on the tool object and cast appropriately in the `buildToolsWithCache` type signature
+- Follow the existing row pattern: `<div className="flex items-center justify-between">` with label and value spans
+- The version row already shows the formatted version (which includes the hash suffix on staging) — the commit hash row is a separate explicit display for clarity
+- The "Commit" row should only appear when there's actually a hash to show (production and local will have empty string)
 
-### Task 7: Integration & Verification
+### Task 8: Integration & Verification
 
-**Issue:** FOO-581, FOO-582, FOO-583
+**Issue:** FOO-586, FOO-587, FOO-588
 **Files:** Various files from previous tasks
 
 **Steps:**
@@ -235,7 +247,12 @@ Real example: query "té leche" fails because it's matched as a single substring
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
-5. Verify no warnings in any of the above (zero warnings policy)
+5. Manual verification (post-deploy):
+   - [ ] Open chat, send a message that triggers markdown response (e.g., ask Claude to list foods) — verify tables render properly
+   - [ ] Attach multiple images on analyze screen, tap "Analyze Food" — verify page scrolls to show progress
+   - [ ] On staging, check Settings > About — verify version shows commit hash suffix
+   - [ ] On staging, check `/api/health` — verify `commitHash` field is present
+   - [ ] On production, verify version shows no hash suffix (after release)
 
 ## MCP Usage During Implementation
 
@@ -247,121 +264,241 @@ Real example: query "té leche" fails because it's matched as a single substring
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| Empty keywords array passed to search | Return error message | Unit test (Task 3) |
-| No keywords match (ratio < 0.5) | Return "No foods found" | Unit test (Task 2) |
-| Unknown model string in pricing lookup | Log warning, use zero pricing | Existing test |
-| SDK bump breaks types | TypeScript compilation error | typecheck (Task 7) |
-| Beta header not recognized by API | API should ignore unknown betas gracefully | Manual verification |
+| `react-markdown` fails to parse invalid markdown | Falls back to rendering raw text (react-markdown's default) | Not explicitly tested — library handles gracefully |
+| `COMMIT_SHA` env var missing at build time | Falls back to empty string, version shows without hash | Unit test |
+| `scrollIntoView` not available (SSR) | Ref is null during SSR, no-op via optional chaining | Not applicable (client-only component) |
 
 ## Risks & Open Questions
 
-- [ ] SDK 0.75.0 may not be published yet — fallback to `@latest` and pin
-- [ ] SDK 0.75.0 may not export `WebSearchTool20260209` type — use local type + cast
-- [ ] Web search v2 beta header behavior needs manual verification with real API calls
+- [ ] `react-markdown` bundle size — adds to client JS. Acceptable for the chat component which is already feature-heavy. If concerned, could lazy-load, but likely not worth the complexity.
+- [ ] Markdown table styling — need to ensure tables don't overflow the chat bubble on mobile. The ChatMarkdown component should apply `overflow-x-auto` and constrained `max-width` to table containers.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Replace substring search with keyword matching in search_food_log
-- Upgrade Claude model to Sonnet 4.6
-- Bump Anthropic SDK to 0.75.0+
-- Add Sonnet 4.6 pricing entry
-- Upgrade web search tool to v2 with beta header
-- Update all affected tests
+- Rendering markdown in assistant chat messages (FOO-586)
+- Auto-scrolling to analysis progress on analyze click (FOO-587)
+- Displaying commit hash on staging version and health API (FOO-588)
 
 **Out of Scope:**
-- Adaptive thinking or effort level configuration
-- Changing Haiku model version
-- Modifying E2E fixtures (historical usage data)
-- Any changes to the find-matches endpoint (already uses correct matching)
-- Service worker or PWA changes
+- Markdown rendering in other parts of the app (analysis results, loading steps)
+- Service worker or offline support for commit hash
+- Syntax highlighting in code blocks (not expected in food chat responses)
 
 ---
 
 ## Iteration 1
 
-**Implemented:** 2026-02-17
-**Method:** Single-agent (fly solo)
+**Implemented:** 2026-02-18
+**Method:** Agent team (2 workers, worktree-isolated)
 
 ### Tasks Completed This Iteration
-- Task 1: Replace query parameter with keywords in search_food_log tool definition (FOO-581)
-- Task 2: Update searchFoods to use keyword matching via computeMatchRatio (FOO-581)
-- Task 3: Update executeSearchFoodLog to pass keywords to searchFoods (FOO-581)
-- Task 4: Bump Anthropic SDK and update Claude model constant (FOO-582)
-- Task 5: Add Sonnet 4.6 pricing entry and update all test references (FOO-582)
-- Task 6: Upgrade web search tool to v2 (FOO-583) — SDK 0.75.0 includes WebSearchTool20260209 in main ToolUnion, no beta header needed
-- Task 7: Integration & Verification
+- Task 1: Install react-markdown and remark-gfm — Added production dependencies (lead)
+- Task 2: Create ChatMarkdown component with tests — New component wrapping react-markdown + remark-gfm, blocks images and headings, 8 tests (worker-1)
+- Task 3: Integrate ChatMarkdown into food-chat message rendering — Assistant messages now use ChatMarkdown, user messages stay plain text (worker-1)
+- Task 4: Add auto-scroll to analysis progress on analyze click — scrollIntoView({ behavior: 'smooth' }) on analysisSectionRef after setLoading(true), 1 new test (worker-1)
+- Task 5: Expose commit hash at build time via next.config.ts — COMMIT_SHA from RAILWAY_GIT_COMMIT_SHA, truncated to 7 chars (worker-2)
+- Task 6: Add commitHash to health route and format staging version — New commitHash field, version formatted as X.Y.Z+hash on staging, 4 new tests (worker-2)
+- Task 7: Update about-section to display commit hash — Conditional "Commit" row in font-mono text-xs, 2 new tests (worker-2)
 
 ### Files Modified
-- `src/lib/chat-tools.ts` — Replaced `query` property with `keywords` array in SEARCH_FOOD_LOG_TOOL schema; updated executeSearchFoodLog to read keywords; added mutual exclusivity note to tool description
-- `src/lib/food-log.ts` — Changed searchFoods signature from `query: string` to `keywords: string[]`; replaced `.includes()` with `computeMatchRatio() >= 0.5`; added case-insensitive normalization of existing keywords
-- `src/lib/claude.ts` — Changed CLAUDE_MODEL to `claude-sonnet-4-6`; changed WEB_SEARCH_TOOL type to `web_search_20260209`; updated function signatures to use `Anthropic.Messages.ToolUnion`
-- `src/lib/claude-usage.ts` — Added `claude-sonnet-4-6` pricing entry ($3/$15 per MTok)
-- `src/app/api/search-foods/route.ts` — Converted free-text query to keywords array; added whitespace-only query validation
-- `src/lib/__tests__/chat-tools.test.ts` — Updated schema and execution tests for keywords
-- `src/lib/__tests__/food-log.test.ts` — Rewrote searchFoods tests for keyword-based matching; added case-insensitivity test
-- `src/lib/__tests__/claude.test.ts` — Replaced model and web search tool references (~30 occurrences)
-- `src/lib/__tests__/claude-usage.test.ts` — Added Sonnet 4.6 pricing test
-- `src/app/api/health/__tests__/route.test.ts` — Updated model references
-- `src/components/__tests__/about-section.test.tsx` — Updated model references
-- `src/app/api/search-foods/__tests__/route.test.ts` — Updated assertions for keyword arrays; added whitespace-only test
-- `package.json` — Bumped `@anthropic-ai/sdk` to 0.75.0
+- `package.json` / `package-lock.json` — Added react-markdown and remark-gfm
+- `src/components/chat-markdown.tsx` — Created ChatMarkdown component
+- `src/components/__tests__/chat-markdown.test.tsx` — Created tests for ChatMarkdown
+- `src/components/food-chat.tsx` — Integrated ChatMarkdown for assistant messages
+- `src/components/food-analyzer.tsx` — Added scrollIntoView on analyze
+- `src/components/__tests__/food-analyzer.test.tsx` — Added scrollIntoView mock + test
+- `src/components/__tests__/food-analyzer-reconnect.test.tsx` — Added scrollIntoView mock (post-merge fix)
+- `next.config.ts` — Added env.COMMIT_SHA build-time injection
+- `src/app/api/health/route.ts` — Added commitHash field, staging version format
+- `src/app/api/health/__tests__/route.test.ts` — Added commit hash tests, hardened version test
+- `src/components/about-section.tsx` — Added commitHash to HealthData, conditional Commit row
+- `src/components/__tests__/about-section.test.tsx` — Added commit hash display tests
 
 ### Linear Updates
-- FOO-581: Todo → In Progress → Review
-- FOO-582: Todo → In Progress → Review
-- FOO-583: Todo → In Progress → Review
+- FOO-586: Todo → In Progress → Review
+- FOO-587: Todo → In Progress → Review
+- FOO-588: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 4 bugs (3 fixed: case-sensitive keyword matching, whitespace-only query edge case, mutual exclusivity documentation; 1 skipped as false positive: non-nullable schema in non-strict mode)
-- verifier: All 1919 tests pass, zero warnings, build clean
+- bug-hunter: Found 3 bugs (2 medium, 1 low) — all fixed before commit
+  - Fixed: unwrapDisallowed leaking img alt text (used components prop instead)
+  - Fixed: hardened version test with explicit env stubs
+  - Fixed: scrollIntoView mock missing in food-analyzer-reconnect.test.tsx
+- verifier: All 1934 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 2, 3, 4 (UI domain — markdown rendering, chat integration, auto-scroll)
+- Worker 2: Tasks 5, 6, 7 (infra/API domain — next.config, health route, about-section)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: clean merge via ort strategy (no conflicts)
+
+### Continuation Status (Iter 1)
+All tasks completed.
 
 ### Review Findings
 
-Files reviewed: 13
-Reviewers: security, reliability, quality (single-agent, fly solo)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 3 issue(s) — Linear issues created
+- DISCARDED: 6 finding(s) — false positives / not applicable
 
-No issues found - all implementations are correct and follow project conventions.
+**Issues requiring fix:**
+- [MEDIUM] TIMEOUT: analyze-food fetch missing timeout — user stuck in loading state if SSE stream hangs (`src/components/food-analyzer.tsx:184`) — FOO-589
+- [LOW] CONVENTION: Health route test doesn't explicitly stub COMMIT_SHA — fragile in CI (`src/app/api/health/__tests__/route.test.ts:131`) — FOO-590
+- [LOW] CONVENTION: food-analyzer-reconnect tests missing mockFetch.mockReset() — potential test bleed (`src/components/__tests__/food-analyzer-reconnect.test.tsx:225`) — FOO-591
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: Missing CSP header (next.config.ts) — Not a bug; defense-in-depth improvement. Current code is safe (react-markdown without rehype-raw doesn't parse raw HTML).
+- [DISCARDED] SECURITY: Raw SWR error message rendered (about-section.tsx:42) — Standard error display to authenticated user; SWR wraps fetch failures as Error instances with known safe messages.
+- [DISCARDED] SECURITY: Health endpoint exposes infrastructure details (route.ts:19-26) — Intentional by design per CLAUDE.md ("public, no auth").
+- [DISCARDED] RESOURCE: Pending-submission fetch not tied to abort controller (food-analyzer.tsx:506-510) — React 18 safely handles state updates on unmounted components; bounded by existing 15s timeout.
+- [DISCARDED] TYPE: SWR error typed as any (about-section.tsx:41) — SWR consistently wraps fetch failures as Error instances; .message access is safe.
+- [DISCARDED] TYPE: Non-null assertion on response.body (food-chat.tsx:317) — Safe after response.ok check; 200 streaming responses always have a body.
 
 ### Linear Updates
-- FOO-581: Review → Merge
-- FOO-582: Review → Merge
-- FOO-583: Review → Merge
+- FOO-586: Review → Merge (original task completed)
+- FOO-587: Review → Merge (original task completed)
+- FOO-588: Review → Merge (original task completed)
+- FOO-589: Created in Todo (Fix: analyze-food fetch missing timeout)
+- FOO-590: Created in Todo (Fix: health route test fragility)
+- FOO-591: Created in Todo (Fix: food-analyzer-reconnect missing mockReset)
 
 <!-- REVIEW COMPLETE -->
 
-### E2E Test Results
+---
 
-1 failure out of 115 E2E tests:
-- `quick-select.spec.ts:84` "search input filters results" — `searchFoods` returns empty because seed data has no `keywords` field
+## Fix Plan
 
-### Linear Updates (E2E findings)
-- FOO-584: Created in Todo (Fix: E2E seed data missing keywords)
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-589](https://linear.app/lw-claude/issue/FOO-589), [FOO-590](https://linear.app/lw-claude/issue/FOO-590), [FOO-591](https://linear.app/lw-claude/issue/FOO-591)
 
-### Continuation Status
-All tasks completed. E2E seed data fix applied (FOO-584).
+### Fix 1: Add timeout to analyze-food fetch
+**Linear Issue:** [FOO-589](https://linear.app/lw-claude/issue/FOO-589)
+
+1. Write test in `src/components/__tests__/food-analyzer.test.tsx` that verifies the fetch uses a timeout signal (mock `AbortSignal.any` and `AbortSignal.timeout`)
+2. In `src/components/food-analyzer.tsx:184`, replace `signal: controller.signal` with `signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` matching food-chat.tsx pattern
+3. Verify the timeout error is handled gracefully in the existing catch block
+
+### Fix 2: Explicitly stub COMMIT_SHA in health route test
+**Linear Issue:** [FOO-590](https://linear.app/lw-claude/issue/FOO-590)
+
+1. In `src/app/api/health/__tests__/route.test.ts:131`, add `vi.stubEnv("COMMIT_SHA", "")` before the `GET()` call
+2. Verify test passes with explicit stub
+
+### Fix 3: Add mockFetch.mockReset() to food-analyzer-reconnect tests
+**Linear Issue:** [FOO-591](https://linear.app/lw-claude/issue/FOO-591)
+
+1. In `src/components/__tests__/food-analyzer-reconnect.test.tsx:225`, add `mockFetch.mockReset()` before `vi.clearAllMocks()` in the `beforeEach` block
+2. Verify all reconnect tests still pass
 
 ---
 
 ## Iteration 2
 
-**Implemented:** 2026-02-17
-**Method:** Single-agent (direct fix)
+**Implemented:** 2026-02-18
+**Method:** Single-agent (fly solo — small batch, 3 fixes)
 
 ### Tasks Completed This Iteration
-- Fix 1: Add keywords to E2E seed custom foods (FOO-584)
+- Fix 1: Add timeout to analyze-food fetch — Added `AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` to `/api/analyze-food` fetch, matching food-chat.tsx pattern. New test with try/finally cleanup guard. (FOO-589)
+- Fix 2: Explicitly stub COMMIT_SHA in health route test — Added `vi.stubEnv("COMMIT_SHA", "")` and renamed test to "when COMMIT_SHA is empty" for accuracy (FOO-590)
+- Fix 3: Add mockFetch.mockReset() to food-analyzer-reconnect tests — Added `mockFetch.mockReset()` before `vi.clearAllMocks()` in beforeEach (FOO-591)
 
 ### Files Modified
-- `e2e/fixtures/db.ts` — Added `keywords` arrays to 3 seeded custom foods
+- `src/components/food-analyzer.tsx` — Added AbortSignal.any timeout wrapper to analyze-food fetch
+- `src/components/__tests__/food-analyzer.test.tsx` — New test for combined abort+timeout signal with try/finally cleanup
+- `src/app/api/health/__tests__/route.test.ts` — Explicit COMMIT_SHA stub, renamed test
+- `src/components/__tests__/food-analyzer-reconnect.test.tsx` — Added mockFetch.mockReset() to beforeEach
 
 ### Linear Updates
-- FOO-584: Todo → In Progress → Review
+- FOO-589: Todo → In Progress → Review
+- FOO-590: Todo → In Progress → Review
+- FOO-591: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- verifier: Pending (E2E + unit tests running)
+- bug-hunter: Found 4 issues — 2 fixed (AbortSignal.any cleanup guard, test name), 2 discarded (synchronous race false positive, COMMIT_SHA build-time behavior is by design)
+- verifier: All 1935 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.
+
+### Review Findings
+
+Summary: 1 issue found (Single-agent review: security, reliability, quality)
+- FIX: 1 issue — Linear issue created
+- DISCARDED: 0 findings
+
+**Issues requiring fix:**
+- [LOW] BUG: handleAnalyze catch block missing TimeoutError handling — user sees confusing browser-internal error message when 2-minute timeout fires instead of user-friendly "Analysis timed out. Please try again." (`src/components/food-analyzer.tsx:275-284`) — FOO-592
+
+### Linear Updates
+- FOO-589: Review → Merge (fix completed)
+- FOO-590: Review → Merge (fix completed)
+- FOO-591: Review → Merge (fix completed)
+- FOO-592: Created in Todo (Fix: handleAnalyze TimeoutError handling)
 
 <!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 2
+**Linear Issues:** [FOO-592](https://linear.app/lw-claude/issue/FOO-592)
+
+### Fix 1: Add TimeoutError handling to handleAnalyze catch block
+**Linear Issue:** [FOO-592](https://linear.app/lw-claude/issue/FOO-592)
+
+1. Write test in `src/components/__tests__/food-analyzer.test.tsx` that verifies TimeoutError from AbortSignal.timeout produces a user-friendly error message (not the raw DOMException message)
+2. In `src/components/food-analyzer.tsx:275-284`, add a TimeoutError check before the generic error handler, matching the pattern from `handleLogToFitbit` (line 370-378):
+   - `if (err instanceof DOMException && err.name === "TimeoutError") { setError("Analysis timed out. Please try again."); vibrateError(); return; }`
+   - Keep the existing `AbortError` check as-is (silent return for user-initiated abort)
+3. Verify all food-analyzer tests pass
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-02-18
+**Method:** Single-agent (small batch, 1 fix)
+
+### Tasks Completed This Iteration
+- Fix 1: Add TimeoutError handling to handleAnalyze catch block — Added `DOMException` + `TimeoutError` check before generic error handler, showing "Analysis timed out. Please try again." Also refactored compression warning timeout cleanup to a single block at the top of the catch. New test verifying user-friendly timeout message. (FOO-592)
+
+### Files Modified
+- `src/components/food-analyzer.tsx` — Added TimeoutError handling, consolidated compression warning cleanup
+- `src/components/__tests__/food-analyzer.test.tsx` — New timeout error test, fixed scrollIntoView mock prototype leak (try/finally)
+
+### Linear Updates
+- FOO-592: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 medium issues — 1 fixed (scrollIntoView mock prototype pollution), 1 discarded (ChatMarkdown heading text fallthrough is intentional per PLANS.md spec)
+- verifier: All 1936 tests pass, zero warnings, build clean
+
+### Review Findings
+
+Summary: 0 issues found (Team: security, reliability, quality reviewers)
+- FIX: 0 issues
+- DISCARDED: 7 findings — false positives / not applicable
+
+**Discarded findings (not bugs):**
+- [DISCARDED] TYPE: `matchResult` from find-matches fetch implicitly `any` (`src/components/food-analyzer.tsx:233-240`) — Internal API always returns correct shape; `matchResult.success && matchResult.data?.matches` check provides sufficient runtime validation. Style preference for extra defensive coding.
+- [DISCARDED] TYPE: `response.body!` non-null assertion (`src/components/food-analyzer.tsx:205`) — Same pattern reviewed and discarded in Iteration 1. After `response.ok` and content-type check, streaming responses always have a body.
+- [DISCARDED] EDGE CASE: No test for all-images-fail compression path (`src/components/__tests__/food-analyzer.test.tsx`) — Missing test coverage for pre-existing code path (not introduced in Iteration 3). The code itself works correctly.
+- [DISCARDED] CONVENTION: Dead `mockPush`/`useRouter` mock in test file (`src/components/__tests__/food-analyzer.test.tsx:177-178`) — Component uses `window.location.href`, not `useRouter`. Dead test code with zero correctness impact.
+- [DISCARDED] RESOURCE: Auto-resubmit fetch not aborted on unmount (`src/components/food-analyzer.tsx:507-537`) — React 18 silently handles state updates on unmounted components. Fetch bounded by 15s `AbortSignal.timeout`. Pre-existing code path.
+- [DISCARDED] RESOURCE: Find-matches fetch unabortable after analysis completes (`src/components/food-analyzer.tsx:228-232`) — Generation counter protects UI state from stale results. Fast local DB query unlikely to hang. Code hygiene concern, not a bug.
+- [DISCARDED] ASYNC: Auto-resubmit useEffect path has zero test coverage (`src/components/__tests__/food-analyzer.test.tsx`) — Missing test coverage for pre-existing code path (Fitbit reconnect flow), not a bug. Tested via E2E.
+
+### Linear Updates
+- FOO-592: Review → Merge (fix completed)
+
+<!-- REVIEW COMPLETE -->
+
+### Continuation Status
+All tasks completed.
 
 ---
 

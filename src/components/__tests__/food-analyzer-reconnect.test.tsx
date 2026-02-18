@@ -4,13 +4,17 @@ import { FoodAnalyzer } from "../food-analyzer";
 import type { FoodAnalysis, FoodLogResponse } from "@/types";
 import type { StreamEvent } from "@/lib/sse";
 
-// Mock ResizeObserver for Radix UI
+// Mock ResizeObserver for Radix UI and scrollIntoView for auto-scroll
 beforeAll(() => {
   global.ResizeObserver = class ResizeObserver {
     observe() {}
     unobserve() {}
     disconnect() {}
   };
+
+  if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => {};
+  }
 });
 
 // Mock fetch
@@ -218,6 +222,7 @@ function makeSseAnalyzeResponse(events: StreamEvent[]) {
 }
 
 beforeEach(() => {
+  mockFetch.mockReset();
   vi.clearAllMocks();
   mockGetPending.mockReturnValue(null);
   // Prevent actual navigation

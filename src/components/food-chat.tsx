@@ -22,6 +22,7 @@ import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { getTodayDate } from "@/lib/date-utils";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { MiniNutritionCard } from "./mini-nutrition-card";
+import { ChatMarkdown } from "./chat-markdown";
 import type {
   FoodAnalysis,
   FoodLogResponse,
@@ -607,7 +608,11 @@ export function FoodChat({
                       : "bg-muted rounded-bl-sm"
                   }`}
                 >
-                  <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                  {msg.role === "assistant" ? (
+                    <ChatMarkdown content={msg.content} />
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                  )}
                   {msg.role === "assistant" && msg.analysis && idx > 0 && (
                     <div className="mt-2">
                       <MiniNutritionCard
