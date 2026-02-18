@@ -201,7 +201,6 @@ const RETRY_DELAYS_MS = [1000, 3000] as const;
  * Passes maxRetries: 0 in request options to disable SDK-level retries for this call
  * (avoiding double-retry with the client's default maxRetries: 2).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function* createStreamWithRetry(
   streamParams: Parameters<Anthropic["beta"]["messages"]["stream"]>[0],
   requestOptions: { signal?: AbortSignal | null } | null | undefined,
@@ -221,8 +220,8 @@ export async function* createStreamWithRetry(
     } catch (error) {
       if (isOverloadedError(error) && attempt < maxRetries) {
         const delayMs = RETRY_DELAYS_MS[attempt] ?? 3000;
-        attempt++;
         log.warn({ attempt, delayMs }, "Claude API overloaded, retrying stream");
+        attempt++;
         yield { type: "text_delta", text: "\n\n*The AI service is momentarily busy, retrying...*\n\n" };
         await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
         continue;

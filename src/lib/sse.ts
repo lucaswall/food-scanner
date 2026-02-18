@@ -36,7 +36,7 @@ export function createSSEResponse(
       } catch (err) {
         logger.error({ err }, "SSE generator threw an unexpected error");
         try {
-          const isOverloaded = err instanceof Error && err.message.includes("overloaded");
+          const isOverloaded = err instanceof Error && err.name === "CLAUDE_API_ERROR" && err.message.includes("overloaded");
           const errorEvent: StreamEvent = isOverloaded
             ? { type: "error", message: err.message, code: "AI_OVERLOADED" }
             : { type: "error", message: "An internal error occurred", code: "STREAM_ERROR" };

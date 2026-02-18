@@ -284,7 +284,10 @@ describe("createSSEResponse - error handling", () => {
   });
 
   it("sends the actual error message and AI_OVERLOADED code when generator throws an overloaded error", async () => {
-    const overloadedError = new Error("Claude API is currently overloaded, please try again later");
+    const overloadedError = Object.assign(
+      new Error("Claude API is currently overloaded, please try again later"),
+      { name: "CLAUDE_API_ERROR" },
+    );
 
     async function* overloadedGenerator(): AsyncGenerator<StreamEvent> {
       throw overloadedError;

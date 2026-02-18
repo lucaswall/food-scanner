@@ -303,3 +303,55 @@ Four improvements: (1) Add retry with user feedback for Claude API 529 overloade
 - Dashboard empty state screenshot (FOO-596 mentions this as lower priority — would need a separate test context without seeded meals)
 - Retry for other transient errors (429, 500) — SDK handles these transparently
 - Client-side changes for error display (existing code already shows `event.message`)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-18
+**Method:** Agent team (2 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Fix markdown table overflow in ChatMarkdown - Added custom table/th/td renderers with overflow-x-auto wrapper and compact styling (worker-2)
+- Task 2: Add overloaded error detection helper - Exported `isOverloadedError()` with status 529 and duck-type checks (worker-1)
+- Task 3: Create stream retry wrapper with SSE feedback - Added `createStreamWithRetry()` async generator with exponential backoff and retry text_delta events (worker-1)
+- Task 4: Apply retry wrapper to analyzeFood - Replaced direct stream creation with `createStreamWithRetry()` (worker-1)
+- Task 5: Apply retry wrapper to runToolLoop and conversationalRefine - Applied retry wrapper to both functions (worker-1)
+- Task 6: Improve error handling in SSE response for overloaded errors - Added `AI_OVERLOADED` code detection via error name check (worker-2)
+- Task 7: Add E2E screenshots for free-form chat page - Added captureScreenshots to 3 chat tests (worker-2)
+- Task 8: Add E2E screenshots for secondary UI states - Added captureScreenshots to quick-select, empty-states, and refine-chat tests (worker-2)
+
+### Files Modified
+- `src/lib/claude.ts` - Added `isOverloadedError()`, `createStreamWithRetry()`, applied retry to analyzeFood/runToolLoop/conversationalRefine
+- `src/lib/__tests__/claude.test.ts` - Added 19 tests for overloaded detection and retry logic, added APIError to mock
+- `src/components/chat-markdown.tsx` - Custom table/th/td renderers with overflow-x-auto wrapper and compact padding
+- `src/components/__tests__/chat-markdown.test.tsx` - Added overflow wrapper and compact padding tests
+- `src/lib/sse.ts` - Added overloaded error detection (name-based check) with AI_OVERLOADED code
+- `src/lib/__tests__/sse.test.ts` - Added overloaded error handling test
+- `e2e/tests/refine-chat.spec.ts` - Added chat, chat-conversation, chat-with-analysis, and refine-chat-error screenshots
+- `e2e/tests/quick-select.spec.ts` - Added quick-select-recent screenshot
+- `e2e/tests/empty-states.spec.ts` - Added food-detail-error screenshot with import
+- `src/app/api/analyze-food/__tests__/route.test.ts` - Fixed vi.mock hoisting with vi.hoisted() and importOriginal pattern
+- `src/app/api/chat-food/__tests__/route.test.ts` - Fixed vi.mock hoisting with vi.hoisted()
+
+### Linear Updates
+- FOO-593: Todo → In Progress → Review
+- FOO-594: Todo → Review
+- FOO-595: Todo → Review
+- FOO-596: Todo → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs (stale eslint-disable, log off-by-one, fragile string matching), all fixed
+- verifier: All 1958 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 2, 3, 4, 5 (Claude retry domain — claude.ts)
+- Worker 2: Tasks 1, 6, 7, 8 (UI + SSE + E2E — chat-markdown, sse, e2e specs)
+
+### Merge Summary
+- Worker 1: committed directly to feature branch (fast-forward equivalent)
+- Worker 2: merged cleanly, no conflicts
+- Post-merge fixes: stale eslint-disable removed, log ordering fixed, SSE overload detection changed from instanceof to name-based check (avoids sse.ts → claude.ts import chain that pulled pg into client bundles), route test mocks fixed with vi.hoisted()
+
+### Continuation Status
+All tasks completed.

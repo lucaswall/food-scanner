@@ -56,7 +56,9 @@ vi.mock("@/lib/logger", () => {
 });
 
 // Mock conversationalRefine (returns AsyncGenerator<StreamEvent>) but keep real validateFoodAnalysis
-const mockConversationalRefine = vi.fn();
+const { mockConversationalRefine } = vi.hoisted(() => ({
+  mockConversationalRefine: vi.fn(),
+}));
 vi.mock("@/lib/claude", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/claude")>();
   return {
