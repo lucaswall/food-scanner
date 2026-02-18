@@ -647,10 +647,9 @@ describe("analyzeFood", () => {
     await collectEvents(analyzeFood([{ base64: "img", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15"));
 
     const call = mockStream.mock.calls[0][0];
-    expect(call.tools).toHaveLength(6);
+    expect(call.tools).toHaveLength(5);
     expect(call.tools.map((t: { name: string }) => t.name)).toEqual([
       "web_search",
-      "code_execution",
       "report_nutrition",
       "search_food_log",
       "get_nutrition_summary",
@@ -714,7 +713,7 @@ describe("analyzeFood", () => {
     expect(content[0]).toEqual({ type: "text", text: "2 medialunas y un cortado" });
   });
 
-  it("includes web_search and code_execution tools with beta header", async () => {
+  it("includes web_search tool with beta header (code_execution auto-injected by API)", async () => {
     mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
 
     const { analyzeFood } = await import("@/lib/claude");
@@ -724,9 +723,7 @@ describe("analyzeFood", () => {
     expect(call.tools[0]).toEqual(
       expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
-    expect(call.tools[1]).toEqual(
-      expect.objectContaining({ type: "code_execution_20250825", name: "code_execution" })
-    );
+    expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
     expect(call.betas).toContain("code-execution-web-tools-2026-02-09");
   });
 
@@ -1086,9 +1083,7 @@ describe("runToolLoop", () => {
     expect(call.tools[0]).toEqual(
       expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
-    expect(call.tools[1]).toEqual(
-      expect.objectContaining({ type: "code_execution_20250825", name: "code_execution" })
-    );
+    expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
     expect(call.betas).toContain("code-execution-web-tools-2026-02-09");
   });
 
@@ -1418,9 +1413,7 @@ describe("conversationalRefine", () => {
     expect(call.tools[0]).toEqual(
       expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
-    expect(call.tools[1]).toEqual(
-      expect.objectContaining({ type: "code_execution_20250825", name: "code_execution" })
-    );
+    expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
     expect(call.betas).toContain("code-execution-web-tools-2026-02-09");
   });
 });

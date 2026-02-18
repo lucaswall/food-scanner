@@ -75,11 +75,6 @@ export const WEB_SEARCH_TOOL = {
   name: "web_search",
 } as const;
 
-export const CODE_EXECUTION_TOOL = {
-  type: "code_execution_20250825",
-  name: "code_execution",
-} as const;
-
 export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
   description:
@@ -581,7 +576,7 @@ export async function* runToolLoop(
   if (!options?.systemPrompt && currentDate) {
     systemPrompt += `\n\nToday's date is: ${currentDate}`;
   }
-  const tools = options?.tools ?? [WEB_SEARCH_TOOL, CODE_EXECUTION_TOOL, ...DATA_TOOLS];
+  const tools = options?.tools ?? [WEB_SEARCH_TOOL, ...DATA_TOOLS];
   const operation = options?.operation ?? "food-chat";
   const maxTokens = options?.maxTokens ?? 2048;
   const toolsWithCache = buildToolsWithCache(tools);
@@ -884,7 +879,7 @@ export async function* analyzeFood(
       "calling Claude API for food analysis"
     );
 
-    const allTools = [WEB_SEARCH_TOOL, CODE_EXECUTION_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
+    const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
     const toolsWithCache = buildToolsWithCache(allTools);
     const systemPrompt = `${ANALYSIS_SYSTEM_PROMPT}\n\nToday's date is: ${currentDate}`;
 
@@ -1233,7 +1228,7 @@ export async function* conversationalRefine(
 Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
     }
 
-    const allTools = [WEB_SEARCH_TOOL, CODE_EXECUTION_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
+    const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
     const toolsWithCache = buildToolsWithCache(allTools);
 
     l.debug(
