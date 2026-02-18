@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AnalysisResult } from "../analysis-result";
 import type { FoodAnalysis } from "@/types";
+
+vi.mock("../chat-markdown", () => ({
+  ChatMarkdown: ({ content }: { content: string }) => (
+    <div data-testid="chat-markdown">{content}</div>
+  ),
+}));
 
 // Mock ResizeObserver for Radix UI
 beforeAll(() => {
@@ -525,6 +531,134 @@ describe("AnalysisResult", () => {
     // Default variant has bg-primary class, outline variant has bg-background
     expect(retryButton).toHaveClass("bg-primary");
     expect(retryButton).not.toHaveClass("bg-background");
+  });
+
+  // ---- FOO-648: AI Analysis narrative collapsible section ----
+  describe("FOO-648: AI Analysis narrative collapsible section", () => {
+    const longNarrative =
+      "This is a detailed AI narrative analysis of the food item, providing extra context about ingredients and preparation methods.";
+
+    it("renders AI Analysis collapsible section when narrative is provided (>20 chars)", () => {
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={vi.fn()}
+          narrative={longNarrative}
+        />
+      );
+
+      expect(screen.getByText("AI Analysis")).toBeInTheDocument();
+    });
+
+    it("collapsible section is collapsed by default (narrative text not visible)", () => {
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={vi.fn()}
+          narrative={longNarrative}
+        />
+      );
+
+      // The ChatMarkdown content should not be visible initially
+      expect(screen.queryByTestId("chat-markdown")).not.toBeInTheDocument();
+    });
+
+    it("clicking the trigger expands the section and shows narrative via ChatMarkdown", async () => {
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={vi.fn()}
+          narrative={longNarrative}
+        />
+      );
+
+      const trigger = screen.getByText("AI Analysis").closest("button");
+      expect(trigger).toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.click(trigger!);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("chat-markdown")).toBeInTheDocument();
+        expect(screen.getByTestId("chat-markdown")).toHaveTextContent(longNarrative);
+      });
+    });
+
+    it("does not render AI Analysis section when narrative is null", () => {
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={vi.fn()}
+          narrative={null}
+        />
+      );
+
+      expect(screen.queryByText("AI Analysis")).not.toBeInTheDocument();
+    });
+
+    it("does not render AI Analysis section when narrative is undefined", () => {
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByText("AI Analysis")).not.toBeInTheDocument();
+    });
+
+    it("does not render AI Analysis section when narrative is shorter than 20 chars", () => {
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={vi.fn()}
+          narrative="Too short"
+        />
+      );
+
+      expect(screen.queryByText("AI Analysis")).not.toBeInTheDocument();
+    });
+
+    it("does not render AI Analysis section when narrative is exactly 19 chars", () => {
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={vi.fn()}
+          narrative="1234567890123456789"
+        />
+      );
+
+      expect(screen.queryByText("AI Analysis")).not.toBeInTheDocument();
+    });
+
+    it("renders AI Analysis section when narrative is exactly 20 chars", () => {
+      render(
+        <AnalysisResult
+          analysis={mockAnalysis}
+          loading={false}
+          error={null}
+          onRetry={vi.fn()}
+          narrative="12345678901234567890"
+        />
+      );
+
+      expect(screen.getByText("AI Analysis")).toBeInTheDocument();
+    });
   });
 
   describe("accessible confidence indicator", () => {

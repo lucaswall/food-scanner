@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { ConfidenceBadge } from "@/components/confidence-badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChatMarkdown } from "@/components/chat-markdown";
+import { ChevronDown } from "lucide-react";
 
 interface AnalysisResultProps {
   analysis: FoodAnalysis | null;
@@ -14,6 +17,7 @@ interface AnalysisResultProps {
   error: string | null;
   onRetry: () => void;
   loadingStep?: string;
+  narrative?: string | null;
 }
 
 export function AnalysisResult({
@@ -22,8 +26,10 @@ export function AnalysisResult({
   error,
   onRetry,
   loadingStep,
+  narrative,
 }: AnalysisResultProps) {
   const [detailOpen, setDetailOpen] = useState(false);
+  const [narrativeOpen, setNarrativeOpen] = useState(false);
   if (loading) {
     return (
       <div
@@ -124,6 +130,32 @@ export function AnalysisResult({
       {analysis.notes && (
         <div className="pt-2 border-t">
           <p className="text-xs text-muted-foreground italic">{analysis.notes}</p>
+        </div>
+      )}
+
+      {/* AI Analysis narrative collapsible section */}
+      {narrative && narrative.length >= 20 && (
+        <div className="pt-2 border-t">
+          <Collapsible open={narrativeOpen} onOpenChange={setNarrativeOpen}>
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="flex w-full items-center justify-between text-sm font-medium text-foreground min-h-[44px] py-2"
+              >
+                <span>AI Analysis</span>
+                <ChevronDown
+                  className={`h-4 w-4 text-muted-foreground transition-transform duration-200 ${
+                    narrativeOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="pb-2">
+                <ChatMarkdown content={narrative} />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       )}
     </div>
