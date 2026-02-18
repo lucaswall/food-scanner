@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-02-17
+
+### Added
+
+- Real-time streaming shows what the AI is doing during analysis (searching web, checking history)
+- Keyword search to find foods by name
+- AI suggests previously logged foods during analysis for faster logging
+- About section in settings
+
+### Changed
+
+- Upgraded AI model for improved analysis quality
+
+### Fixed
+
+- Streaming reliability improvements for slow connections and interrupted analyses
+- Chat data queries no longer fail with API errors
+
 ## [1.11.0] - 2026-02-16
 
 ### Added
@@ -207,7 +225,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/lucaswall/food-scanner/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/lucaswall/food-scanner/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/lucaswall/food-scanner/compare/v1.9.1...v1.10.0
 [1.9.1]: https://github.com/lucaswall/food-scanner/compare/v1.9.0...v1.9.1
