@@ -520,6 +520,7 @@ export function FoodChat({
       <div className="border-b bg-background px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] space-y-2">
         {latestAnalysis ? (
           <div className="flex items-center gap-2">
+            <h1 className="sr-only">{title}</h1>
             <button
               onClick={onClose}
               aria-label="Back"

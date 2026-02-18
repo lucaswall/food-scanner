@@ -4,6 +4,7 @@ import { SettingsContent } from "@/components/settings-content";
 import { ApiKeyManager } from "@/components/api-key-manager";
 import { ClaudeUsageSection } from "@/components/claude-usage-section";
 import { AboutSection } from "@/components/about-section";
+import { SkipLink } from "@/components/skip-link";
 
 export default async function SettingsPage() {
   const session = await getSession();
@@ -14,16 +15,13 @@ export default async function SettingsPage() {
 
   return (
     <>
-      <SettingsContent />
-      <div className="container max-w-2xl mx-auto px-4 pb-24">
+      <SkipLink />
+      <main id="main-content" className="max-w-2xl mx-auto px-4 py-6 pb-24 space-y-6">
+        <SettingsContent />
         <ApiKeyManager />
-        <div className="mt-6">
-          <ClaudeUsageSection />
-        </div>
-        <div className="mt-6">
-          <AboutSection />
-        </div>
-      </div>
+        <ClaudeUsageSection />
+        <AboutSection />
+      </main>
     </>
   );
 }

@@ -36,17 +36,19 @@ describe("SettingsContent", () => {
     });
   });
 
-  it("renders SkipLink pointing to #main-content", () => {
+  it("does not render SkipLink (SkipLink is in page.tsx)", () => {
     render(<SettingsContent />);
-    const skipLink = screen.getByText("Skip to main content");
-    expect(skipLink).toBeInTheDocument();
-    expect(skipLink).toHaveAttribute("href", "#main-content");
+    expect(screen.queryByText("Skip to main content")).not.toBeInTheDocument();
   });
 
-  it("has id='main-content' on main element", () => {
+  it("does not render main element (main is in page.tsx)", () => {
     render(<SettingsContent />);
-    const main = screen.getByRole("main");
-    expect(main).toHaveAttribute("id", "main-content");
+    expect(screen.queryByRole("main")).not.toBeInTheDocument();
+  });
+
+  it("renders Settings h1 heading", () => {
+    render(<SettingsContent />);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings");
   });
 
   describe("accessibility - form labels", () => {
