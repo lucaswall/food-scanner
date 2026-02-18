@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { FoodAnalysis } from "@/types";
 import type { StreamEvent } from "@/lib/sse";
+import type { Logger } from "@/lib/logger";
 
 // --- Mock helpers ---
 
@@ -138,17 +139,32 @@ async function collectEventsExpectThrow(gen: AsyncGenerator<StreamEvent>): Promi
 const mockStream = vi.fn();
 const mockConstructorArgs = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => {
+  class MockAPIError extends Error {
+    status: number;
+    error: unknown;
+    constructor(status: number, message: string, error?: unknown) {
+      super(message);
+      this.name = "APIError";
+      this.status = status;
+      this.error = error;
+    }
+  }
+
+  class MockAnthropic {
+    static APIError = MockAPIError;
+    constructor(options: Record<string, unknown>) {
+      mockConstructorArgs(options);
+    }
+    beta = {
+      messages: {
+        stream: mockStream,
+      },
+    };
+  }
+
   return {
-    default: class MockAnthropic {
-      constructor(options: Record<string, unknown>) {
-        mockConstructorArgs(options);
-      }
-      beta = {
-        messages: {
-          stream: mockStream,
-        },
-      };
-    },
+    default: MockAnthropic,
+    APIError: MockAPIError,
   };
 });
 
@@ -1626,5 +1642,358 @@ describe("All Claude tool definitions have strict mode", () => {
     expect(SEARCH_FOOD_LOG_TOOL.strict).toBe(true);
     expect(GET_NUTRITION_SUMMARY_TOOL.strict).toBe(true);
     expect(GET_FASTING_INFO_TOOL.strict).toBe(true);
+  });
+});
+
+// Helper to get the MockAPIError constructor from the mocked SDK
+type MockAPIErrorCtor = new (status: number, message: string, error?: unknown) => Error & { status: number; error: unknown };
+async function getMockAPIErrorCtor(): Promise<MockAPIErrorCtor> {
+  const sdk = await import("@anthropic-ai/sdk") as unknown as { default: { APIError: MockAPIErrorCtor } };
+  return sdk.default.APIError;
+}
+
+// Helper logger for direct function tests
+function makeTestLogger(): Logger {
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
+}
+
+// =============================================================================
+// Task 2: isOverloadedError
+// =============================================================================
+
+describe("isOverloadedError", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("returns true for Anthropic APIError with status 529", async () => {
+    const APIError = await getMockAPIErrorCtor();
+    const { isOverloadedError } = await import("@/lib/claude");
+
+    expect(isOverloadedError(new APIError(529, "Overloaded"))).toBe(true);
+  });
+
+  it("returns true for error whose .error.type is overloaded_error", async () => {
+    const { isOverloadedError } = await import("@/lib/claude");
+
+    expect(isOverloadedError({ error: { type: "overloaded_error" } })).toBe(true);
+  });
+
+  it("returns false for APIError with status 400", async () => {
+    const APIError = await getMockAPIErrorCtor();
+    const { isOverloadedError } = await import("@/lib/claude");
+
+    expect(isOverloadedError(new APIError(400, "Bad Request"))).toBe(false);
+  });
+
+  it("returns false for APIError with status 401", async () => {
+    const APIError = await getMockAPIErrorCtor();
+    const { isOverloadedError } = await import("@/lib/claude");
+
+    expect(isOverloadedError(new APIError(401, "Unauthorized"))).toBe(false);
+  });
+
+  it("returns false for APIError with status 429", async () => {
+    const APIError = await getMockAPIErrorCtor();
+    const { isOverloadedError } = await import("@/lib/claude");
+
+    expect(isOverloadedError(new APIError(429, "Rate Limited"))).toBe(false);
+  });
+
+  it("returns false for generic Error", async () => {
+    const { isOverloadedError } = await import("@/lib/claude");
+
+    expect(isOverloadedError(new Error("Something went wrong"))).toBe(false);
+  });
+
+  it("returns false for null", async () => {
+    const { isOverloadedError } = await import("@/lib/claude");
+    expect(isOverloadedError(null)).toBe(false);
+  });
+
+  it("returns false for non-error values", async () => {
+    const { isOverloadedError } = await import("@/lib/claude");
+    expect(isOverloadedError(undefined)).toBe(false);
+    expect(isOverloadedError("string error")).toBe(false);
+    expect(isOverloadedError(42)).toBe(false);
+  });
+});
+
+// =============================================================================
+// Task 3: createStreamWithRetry
+// =============================================================================
+
+// Minimal stream params for createStreamWithRetry tests
+const minimalStreamParams = {
+  model: "claude-sonnet-4-6",
+  max_tokens: 1024,
+  betas: ["code-execution-web-tools-2026-02-09"],
+  system: [{ type: "text" as const, text: "test", cache_control: { type: "ephemeral" as const } }],
+  tools: [],
+  tool_choice: { type: "auto" as const },
+  messages: [{ role: "user" as const, content: "test" }],
+};
+
+describe("createStreamWithRetry", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("yields text deltas and returns on success without retry", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("Hello world"));
+
+    const { createStreamWithRetry } = await import("@/lib/claude");
+    const log = makeTestLogger();
+
+    const events = await collectEvents(createStreamWithRetry(minimalStreamParams, {}, log, 2));
+
+    expect(events).toContainEqual({ type: "text_delta", text: "Hello world" });
+    expect(mockStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes maxRetries: 0 in the request options to disable SDK retries", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { createStreamWithRetry } = await import("@/lib/claude");
+    const log = makeTestLogger();
+
+    await collectEvents(createStreamWithRetry(minimalStreamParams, { signal: undefined }, log, 2));
+
+    expect(mockStream).toHaveBeenCalledWith(
+      minimalStreamParams,
+      expect.objectContaining({ maxRetries: 0 }),
+    );
+  });
+
+  it("on 529 error: yields retry message, delays 1s, retries and succeeds", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream
+      .mockImplementationOnce(() => { throw new APIError(529, "Overloaded"); })
+      .mockReturnValueOnce(makeTextStream("Success after retry"));
+
+    const { createStreamWithRetry } = await import("@/lib/claude");
+    const log = makeTestLogger();
+
+    const eventsPromise = collectEvents(createStreamWithRetry(minimalStreamParams, {}, log, 2));
+    await vi.advanceTimersByTimeAsync(1000);
+    const events = await eventsPromise;
+
+    const retryMsg = events.find(
+      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
+    );
+    expect(retryMsg).toBeDefined();
+    expect(events).toContainEqual({ type: "text_delta", text: "Success after retry" });
+    expect(mockStream).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("on persistent 529: yields retry messages then throws ClaudeApiError", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream.mockImplementation(() => { throw new APIError(529, "Overloaded"); });
+
+    const { createStreamWithRetry } = await import("@/lib/claude");
+    const log = makeTestLogger();
+
+    const resultPromise = collectEventsExpectThrow(
+      createStreamWithRetry(minimalStreamParams, {}, log, 2)
+    );
+    await vi.advanceTimersByTimeAsync(5000); // 1s + 3s delays
+    const { events, error } = await resultPromise;
+
+    const retryMsgs = events.filter(
+      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
+    );
+    expect(retryMsgs).toHaveLength(2);
+    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
+    expect((error as Error).message).toContain("temporarily overloaded");
+
+    vi.useRealTimers();
+  });
+
+  it("on non-529 error: throws immediately without retry", async () => {
+    mockStream.mockImplementationOnce(() => { throw new Error("Network error"); });
+
+    const { createStreamWithRetry } = await import("@/lib/claude");
+    const log = makeTestLogger();
+
+    const { error } = await collectEventsExpectThrow(
+      createStreamWithRetry(minimalStreamParams, {}, log, 2)
+    );
+
+    expect(mockStream).toHaveBeenCalledTimes(1);
+    expect((error as Error).message).toBe("Network error");
+    expect((error as Error | undefined)?.name).not.toBe("CLAUDE_API_ERROR");
+  });
+});
+
+// =============================================================================
+// Task 4: analyzeFood retry on 529
+// =============================================================================
+
+describe("analyzeFood overload retry", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("on 529 error: yields retry message and retries successfully", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream
+      .mockImplementationOnce(() => { throw new APIError(529, "Overloaded"); })
+      .mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const eventsPromise = collectEvents(
+      analyzeFood([], undefined, "user-123", "2026-02-15")
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    const events = await eventsPromise;
+
+    const retryMsg = events.find(
+      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
+    );
+    expect(retryMsg).toBeDefined();
+    expect(events).toContainEqual({ type: "analysis", analysis: validAnalysis });
+    expect(mockStream).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("on persistent 529: throws ClaudeApiError with overloaded message", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream.mockImplementation(() => { throw new APIError(529, "Overloaded"); });
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const resultPromise = collectEventsExpectThrow(
+      analyzeFood([], undefined, "user-123", "2026-02-15")
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+    const { error } = await resultPromise;
+
+    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
+    expect((error as Error).message).toContain("temporarily overloaded");
+
+    vi.useRealTimers();
+  });
+});
+
+// =============================================================================
+// Task 5: runToolLoop retry on 529
+// =============================================================================
+
+describe("runToolLoop overload retry", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("on 529 error: yields retry message and retries successfully", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream
+      .mockImplementationOnce(() => { throw new APIError(529, "Overloaded"); })
+      .mockReturnValueOnce(makeTextStream("Here's your info."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const eventsPromise = collectEvents(
+      runToolLoop([{ role: "user", content: "How many calories?" }], "user-123", "2026-02-15")
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    const events = await eventsPromise;
+
+    const retryMsg = events.find(
+      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
+    );
+    expect(retryMsg).toBeDefined();
+    expect(events).toContainEqual({ type: "text_delta", text: "Here's your info." });
+    expect(mockStream).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("on persistent 529: throws ClaudeApiError with overloaded message", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream.mockImplementation(() => { throw new APIError(529, "Overloaded"); });
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const resultPromise = collectEventsExpectThrow(
+      runToolLoop([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+    const { error } = await resultPromise;
+
+    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
+    expect((error as Error).message).toContain("temporarily overloaded");
+
+    vi.useRealTimers();
+  });
+});
+
+// =============================================================================
+// Task 5: conversationalRefine retry on 529
+// =============================================================================
+
+describe("conversationalRefine overload retry", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("on 529 error: yields retry message and retries successfully", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream
+      .mockImplementationOnce(() => { throw new APIError(529, "Overloaded"); })
+      .mockReturnValueOnce(makeTextStream("Sure, I updated it."));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const eventsPromise = collectEvents(
+      conversationalRefine(
+        [{ role: "user", content: "Make it 200g" }],
+        [],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    const events = await eventsPromise;
+
+    const retryMsg = events.find(
+      (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
+    );
+    expect(retryMsg).toBeDefined();
+    expect(events).toContainEqual({ type: "text_delta", text: "Sure, I updated it." });
+    expect(mockStream).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("on persistent 529: throws ClaudeApiError with overloaded message", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream.mockImplementation(() => { throw new APIError(529, "Overloaded"); });
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const resultPromise = collectEventsExpectThrow(
+      conversationalRefine(
+        [{ role: "user", content: "Test" }],
+        [],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+    const { error } = await resultPromise;
+
+    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
+    expect((error as Error).message).toContain("temporarily overloaded");
+
+    vi.useRealTimers();
   });
 });
