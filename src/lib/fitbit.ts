@@ -139,12 +139,12 @@ export async function createFood(
     name: food.food_name,
     defaultFoodMeasurementUnitId: food.unit_id.toString(),
     defaultServingSize: food.amount.toString(),
-    calories: food.calories.toString(),
+    calories: Math.round(food.calories).toString(),
     protein: food.protein_g.toString(),
     totalCarbohydrate: food.carbs_g.toString(),
     totalFat: food.fat_g.toString(),
     dietaryFiber: food.fiber_g.toString(),
-    sodium: food.sodium_mg.toString(),
+    sodium: Math.round(food.sodium_mg).toString(),
     formType: "DRY",
     description: food.food_name,
   });
@@ -160,7 +160,7 @@ export async function createFood(
     params.set("sugars", food.sugars_g.toString());
   }
   if (food.calories_from_fat != null) {
-    params.set("caloriesFromFat", food.calories_from_fat.toString());
+    params.set("caloriesFromFat", Math.round(food.calories_from_fat).toString());
   }
 
   const response = await fetchWithRetry(

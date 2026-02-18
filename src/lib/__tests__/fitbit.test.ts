@@ -876,6 +876,33 @@ describe("createFood", () => {
 
     vi.restoreAllMocks();
   });
+
+  it("rounds integer-only Fitbit API fields (calories, sodium, caloriesFromFat)", async () => {
+    const foodWithDecimals = {
+      ...mockFoodAnalysis,
+      calories: 245.7,
+      sodium_mg: 312.4,
+      calories_from_fat: 22.5,
+    };
+    const mockResponse = { food: { foodId: 789, name: "Test" } };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(mockResponse), { status: 201 }),
+    );
+
+    await createFood("test-token", foodWithDecimals);
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const body = fetchCall[1]?.body as string;
+    expect(body).toContain("calories=246");
+    expect(body).toContain("sodium=312");
+    expect(body).toContain("caloriesFromFat=23");
+    expect(body).not.toContain("245.7");
+    expect(body).not.toContain("312.4");
+    expect(body).not.toContain("22.5");
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe("logFood", () => {
