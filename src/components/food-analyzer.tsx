@@ -58,6 +58,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
   const [compressedImages, setCompressedImages] = useState<Blob[] | null>(null);
+  const [analysisNarrative, setAnalysisNarrative] = useState<string | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [seedMessages, setSeedMessages] = useState<ConversationMessage[] | null>(null);
   const autoCaptureUsedRef = useRef(false);
@@ -95,6 +96,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     // Invalidate any in-flight find-matches fetch
     findMatchesGenerationRef.current += 1;
     setAnalysis(null);
+    setAnalysisNarrative(null);
     setError(null);
     setLogError(null);
     setLogResponse(null);
@@ -215,12 +217,12 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           for (const event of events) {
             if (event.type === "text_delta") {
               textDeltaBufferRef.current += event.text;
-              setLoadingStep(textDeltaBufferRef.current);
             } else if (event.type === "tool_start") {
               textDeltaBufferRef.current = "";
               setLoadingStep(TOOL_DESCRIPTIONS[event.tool] ?? "Processing...");
             } else if (event.type === "analysis") {
               setAnalysis(event.analysis);
+              setAnalysisNarrative(textDeltaBufferRef.current.trim() || null);
               setSeedMessages(null);
               // Fire async match search (non-blocking) — skip if Claude already identified the reused food
               if (!event.analysis.sourceCustomFoodId) {
@@ -649,6 +651,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           error={error}
           onRetry={handleRetry}
           loadingStep={loadingStep}
+          narrative={analysisNarrative}
         />
       </div>
 
