@@ -493,7 +493,7 @@ describe("FoodAnalyzer", () => {
   it("analysis works when AbortSignal.any is not available (older browsers)", async () => {
     const originalAny = AbortSignal.any;
     // Simulate older browser that doesn't have AbortSignal.any
-    (AbortSignal as Record<string, unknown>).any = undefined;
+    (AbortSignal as unknown as Record<string, unknown>).any = undefined;
 
     try {
       mockFetch.mockResolvedValueOnce(

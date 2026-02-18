@@ -893,6 +893,68 @@ describe("analyzeFood", () => {
     expect(events[events.length - 1]).toEqual({ type: "done" });
     expect(mockStream).toHaveBeenCalledTimes(2);
   });
+
+  it("pause_turn then tool_use: no consecutive assistant messages sent to API (FOO-654)", async () => {
+    // Stream 1: pause_turn with server-side web search (no client-side tool_use)
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "empanada nutrition" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 2000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    // Stream 2 (runToolLoop): Claude uses a data tool (tool_use stop_reason)
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("get_nutrition_summary", { date: "2026-02-15" }, "tool_data_1")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Nutrition: 300 cal protein 12g");
+
+    // Stream 3 (runToolLoop): Claude completes with report_nutrition
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+        ],
+        usage: { input_tokens: 3000, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(
+      analyzeFood([], "Empanada de carne", "user-123", "2026-02-15")
+    );
+
+    // Verify no consecutive assistant messages were sent to the API
+    // Stream 2 is the first runToolLoop call — messages should be [user, assistant] (merged)
+    const secondCallMsgs = mockStream.mock.calls[1][0].messages;
+    for (let i = 1; i < secondCallMsgs.length; i++) {
+      if (secondCallMsgs[i].role === "assistant") {
+        expect(secondCallMsgs[i - 1].role).not.toBe("assistant");
+      }
+    }
+
+    // Stream 3: messages should still have no consecutive assistant roles
+    const thirdCallMsgs = mockStream.mock.calls[2][0].messages;
+    for (let i = 1; i < thirdCallMsgs.length; i++) {
+      if (thirdCallMsgs[i].role === "assistant") {
+        expect(thirdCallMsgs[i - 1].role).not.toBe("assistant");
+      }
+    }
+
+    // Should still produce valid analysis
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(mockStream).toHaveBeenCalledTimes(3);
+  });
 });
 
 // =============================================================================
@@ -1276,6 +1338,87 @@ describe("runToolLoop", () => {
     expect(events.find((e) => e.type === "analysis")).toBeUndefined();
     expect(events[events.length - 1]).toEqual({ type: "done" });
   });
+
+  it("tool_use: merges assistant content when messages already end with assistant role (FOO-654)", async () => {
+    // Simulate the scenario where runToolLoop is entered with messages ending in assistant role
+    // (as happens after analyzeFood pause_turn with no client-side tools).
+    // Stream 1: tool_use response (should merge with existing assistant message, not create consecutive)
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("get_nutrition_summary", { date: "2026-02-15" }, "tool_1")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Nutrition: 1800 cal...");
+    // Stream 2: end_turn
+    mockStream.mockReturnValueOnce(makeTextStream("Here's your summary."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    // Pass messages ending with assistant role (simulating pause_turn entry from analyzeFood)
+    const events = await collectEvents(
+      runToolLoop(
+        [
+          { role: "user", content: "Analyze my food" },
+          { role: "assistant", content: [
+            { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "nutrition" } },
+            { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+          ] },
+        ],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // The second API call should NOT have consecutive assistant messages
+    const secondCall = mockStream.mock.calls[1][0];
+    for (let i = 1; i < secondCall.messages.length; i++) {
+      if (secondCall.messages[i].role === "assistant") {
+        expect(secondCall.messages[i - 1].role).not.toBe("assistant");
+      }
+    }
+    // Should complete successfully
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
+
+  it("pause_turn: merges assistant content when continuing after internal pause_turn (FOO-654)", async () => {
+    // Stream 1: pause_turn (server-side web search in runToolLoop)
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "calories" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    // Stream 2: tool_use after pause_turn continuation (tests the merge in pause_turn handler)
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("get_nutrition_summary", { date: "2026-02-15" }, "tool_2")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Nutrition: 2000 cal...");
+    // Stream 3: end_turn
+    mockStream.mockReturnValueOnce(makeTextStream("You had 2000 calories."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop(
+        [{ role: "user", content: "How many calories?" }],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // The third API call (after pause_turn + tool_use) should have no consecutive assistant messages
+    const thirdCall = mockStream.mock.calls[2][0];
+    for (let i = 1; i < thirdCall.messages.length; i++) {
+      if (thirdCall.messages[i].role === "assistant") {
+        expect(thirdCall.messages[i - 1].role).not.toBe("assistant");
+      }
+    }
+    // Should complete successfully with all 3 streams
+    expect(mockStream).toHaveBeenCalledTimes(3);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
 });
 
 // =============================================================================
@@ -1554,6 +1697,72 @@ describe("conversationalRefine", () => {
     expect(events[events.length - 1]).toEqual({ type: "done" });
     // Two API calls: initial + runToolLoop
     expect(mockStream).toHaveBeenCalledTimes(2);
+  });
+
+  it("pause_turn then tool_use: no consecutive assistant messages sent to API (FOO-654)", async () => {
+    // Stream 1: pause_turn with server-side web search (no client-side tool_use)
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "Big Mac calories" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 2000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    // Stream 2 (runToolLoop): Claude uses a data tool (tool_use stop_reason)
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("get_nutrition_summary", { date: "2026-02-15" }, "tool_data_1")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Nutrition: 550 cal protein 25g");
+
+    // Stream 3 (runToolLoop): Claude completes with report_nutrition
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+        ],
+        usage: { input_tokens: 3000, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const events = await collectEvents(
+      conversationalRefine(
+        [{ role: "user", content: "I had a Big Mac" }],
+        [],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // Stream 2 (first runToolLoop call): messages should have no consecutive assistant roles
+    const secondCallMsgs = mockStream.mock.calls[1][0].messages;
+    for (let i = 1; i < secondCallMsgs.length; i++) {
+      if (secondCallMsgs[i].role === "assistant") {
+        expect(secondCallMsgs[i - 1].role).not.toBe("assistant");
+      }
+    }
+
+    // Stream 3: messages should still have no consecutive assistant roles
+    const thirdCallMsgs = mockStream.mock.calls[2][0].messages;
+    for (let i = 1; i < thirdCallMsgs.length; i++) {
+      if (thirdCallMsgs[i].role === "assistant") {
+        expect(thirdCallMsgs[i - 1].role).not.toBe("assistant");
+      }
+    }
+
+    // Should still produce valid analysis
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(mockStream).toHaveBeenCalledTimes(3);
   });
 });
 

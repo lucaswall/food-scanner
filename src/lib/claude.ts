@@ -622,6 +622,23 @@ async function executeDataTools(
 }
 
 /**
+ * Appends an assistant message to the conversation, merging with the previous
+ * assistant message if one exists (prevents consecutive same-role messages
+ * that the Anthropic API rejects, e.g. after pause_turn continuations).
+ */
+function appendAssistantContent(
+  messages: Anthropic.MessageParam[],
+  content: Anthropic.ContentBlock[],
+): void {
+  const lastMsg = messages[messages.length - 1];
+  if (lastMsg?.role === "assistant" && Array.isArray(lastMsg.content)) {
+    lastMsg.content = [...(lastMsg.content as Anthropic.ContentBlock[]), ...content];
+  } else {
+    messages.push({ role: "assistant", content });
+  }
+}
+
+/**
  * Core streaming tool loop. Yields StreamEvent objects as Claude processes requests.
  *
  * Yields:
@@ -818,11 +835,8 @@ export async function* runToolLoop(
           "executing tools"
         );
 
-        // Add assistant message with tool_use blocks
-        conversationMessages.push({
-          role: "assistant",
-          content: response.content,
-        });
+        // Add assistant message with tool_use blocks (merges if last message is already assistant, e.g. after pause_turn)
+        appendAssistantContent(conversationMessages, response.content);
 
         // Build tool results
         const toolResults: Array<{
@@ -870,12 +884,9 @@ export async function* runToolLoop(
 
       if (response.stop_reason === "pause_turn") {
         // Code execution or web search dynamic filtering paused a long-running turn.
-        // Send the response back as-is so Claude can continue.
+        // Send the response back as-is so Claude can continue (merges if last is already assistant).
         l.info({ iteration }, "pause_turn received, continuing Claude's turn");
-        conversationMessages.push({
-          role: "assistant",
-          content: response.content,
-        });
+        appendAssistantContent(conversationMessages, response.content);
         continue;
       }
 

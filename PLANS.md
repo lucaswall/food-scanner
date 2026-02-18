@@ -557,3 +557,30 @@ Summary: 1 issue found (Single-agent review: security, reliability, quality)
 4. Extract a helper function `pushAssistantMessage(messages, content)` in `claude.ts` that checks if the last message is already `assistant` and merges content arrays instead of pushing a new message
 5. Replace `conversationMessages.push({ role: "assistant", content: response.content })` at lines 822 and 875 with the new helper
 6. In `analyzeFood` (line 1111-1115) and `conversationalRefine` (line 1401-1408), the fix is inherited — `runToolLoop` now handles assistant-last messages correctly
+
+---
+
+## Iteration 3
+
+**Implemented:** 2026-02-18
+**Method:** Single-agent (direct fix by lead)
+
+### Tasks Completed This Iteration
+- Fix 1: pause_turn creates consecutive assistant messages in runToolLoop (FOO-654) — Added `appendAssistantContent` helper that merges content with previous assistant message instead of creating consecutive same-role messages. Applied at both `tool_use` (line 839) and `pause_turn` (line 889) branches. 4 tests covering analyzeFood, conversationalRefine, and runToolLoop paths.
+- Bonus: Fixed 2 pre-existing type errors in test files (`food-analyzer.test.tsx` AbortSignal cast, `food-detail.test.tsx` missing `confidence` field)
+
+### Files Modified
+- `src/lib/claude.ts` — Added `appendAssistantContent` helper function, replaced direct message pushes at lines 839 and 889
+- `src/lib/__tests__/claude.test.ts` — 4 new tests for FOO-654 (analyzeFood pause→tool_use, conversationalRefine pause→tool_use, runToolLoop tool_use with assistant-last messages, runToolLoop internal pause→tool_use)
+- `src/components/__tests__/food-analyzer.test.tsx` — Fixed AbortSignal type cast (pre-existing)
+- `src/components/__tests__/food-detail.test.tsx` — Added missing `confidence` field to mock (pre-existing)
+
+### Linear Updates
+- FOO-654: Todo → In Progress → Review
+
+### Pre-commit Verification
+- typecheck: Clean (0 errors)
+- tests: All 2023 tests pass
+
+### Continuation Status
+All tasks completed.

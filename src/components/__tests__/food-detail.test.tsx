@@ -45,6 +45,7 @@ const mockEntry: FoodLogEntryDetail = {
   date: "2026-02-15",
   time: "12:30:00",
   fitbitLogId: 12345,
+  confidence: "high",
 };
 
 beforeEach(() => {
