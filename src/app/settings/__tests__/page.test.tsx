@@ -180,8 +180,9 @@ describe("Settings content (client component)", () => {
     renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
-      // The error message will be "Network error" since that's what the Error contains
-      expect(screen.getByText(/network error/i)).toBeInTheDocument();
+      // Both session and credentials SWR show errors — use getAllByText
+      const errors = screen.getAllByText(/network error/i);
+      expect(errors.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -195,7 +196,9 @@ describe("Settings content (client component)", () => {
     renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
-      expect(screen.getByText(/HTTP 500/i)).toBeInTheDocument();
+      // Both session and credentials SWR show errors — use getAllByText
+      const errors = screen.getAllByText(/HTTP 500/i);
+      expect(errors.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -212,7 +215,9 @@ describe("Settings content (client component)", () => {
     renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
-      expect(screen.getByText(/failed to load|session expired/i)).toBeInTheDocument();
+      // Both session and credentials SWR show errors — use getAllByText
+      const errors = screen.getAllByText(/failed to load|session expired/i);
+      expect(errors.length).toBeGreaterThanOrEqual(1);
     });
   });
 

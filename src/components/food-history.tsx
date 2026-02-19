@@ -116,6 +116,9 @@ export function FoodHistory() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
+    const timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 15000);
+
     if (append) {
       setLoadingMore(true);
     } else {
@@ -136,7 +139,7 @@ export function FoodHistory() {
 
       const response = await fetch(`/api/food-history?${params}`, {
         method: "GET",
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
+        signal: controller.signal,
       });
       const result = await safeResponseJson(response) as {
         success?: boolean;
@@ -162,8 +165,11 @@ export function FoodHistory() {
       console.error("Failed to fetch food history entries:", error);
       setFetchError("Failed to load entries. Please try again.");
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      clearTimeout(timeoutId);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, []);
 

@@ -506,3 +506,57 @@ Fix Plan created — more implementation needed.
 1. Add test case in `src/components/__tests__/food-log-confirmation.test.tsx` with `dryRun: true` in response prop
 2. Assert "Saved locally (Fitbit API skipped)" text is rendered
 3. Assert success vibration and cache invalidation still fire (dryRun is still a successful save)
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-19
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Fix 1: Remove optimistic update pattern in food-analyzer - Removed optimistic `setLogResponse` from `handleLogToFitbit` and `handleUseExisting`, only set after API confirms success (worker-1)
+- Fix 2: Add timeout to Lumen goals upload - Added `AbortSignal.timeout(15000)` to fetch call, handle timeout error with user-friendly message (worker-2)
+- Fix 3: Add request cancellation to food history - Added `useRef<AbortController>` with abort-on-new-request, manual timeout pattern (iOS 16 compat), guarded `finally` block to prevent loading state race (worker-2)
+- Fix 4: Handle SWR error state in quick-select and settings-content - Destructured `error` from `useSWR`, added `role="alert"` error displays with retry option in credentials section (worker-3)
+- Fix 5: Add dryRun test for food-log-confirmation - Added 3 tests covering dryRun text, vibration, and cache invalidation (worker-1)
+
+### Files Modified
+- `src/components/food-analyzer.tsx` - Removed 2 optimistic update blocks
+- `src/components/__tests__/food-analyzer.test.tsx` - Updated tests for non-optimistic flow
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Added 3 dryRun tests
+- `src/components/daily-dashboard.tsx` - Added AbortSignal.timeout to Lumen upload fetch
+- `src/components/__tests__/daily-dashboard.test.tsx` - Added 2 timeout tests
+- `src/components/food-history.tsx` - Added AbortController with manual timeout, guarded finally block
+- `src/components/__tests__/food-history.test.tsx` - Added 2 abort/cancellation tests
+- `src/components/quick-select.tsx` - Added SWR error destructuring and error display
+- `src/components/__tests__/quick-select.test.tsx` - Added 2 SWR error tests
+- `src/components/settings-content.tsx` - Added credentials SWR error display with retry
+- `src/components/__tests__/settings-content.test.tsx` - Added 3 SWR error tests
+- `src/app/settings/__tests__/page.test.tsx` - Fixed 3 tests for multiple error elements (post-merge)
+
+### Linear Updates
+- FOO-661: Todo → In Progress → Review
+- FOO-662: Todo → In Progress → Review
+- FOO-663: Todo → In Progress → Review
+- FOO-664: Todo → In Progress → Review
+- FOO-665: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 real bugs (AbortSignal.any() compat regression, loading state race condition), both fixed before proceeding. 1 false positive (SWR error propagation — apiFetcher already propagates correctly).
+- verifier: All 2053 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Fix 1, Fix 5 (food-analyzer + food-log-confirmation)
+- Worker 2: Fix 2, Fix 3 (daily-dashboard + food-history)
+- Worker 3: Fix 4 (quick-select + settings-content)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merged cleanly, typecheck passed
+- Worker 3: merged cleanly, typecheck passed
+- Post-merge: 3 test failures in page-level settings test (duplicate error text from dual SWR error handling), fixed with getAllByText
+- Post-bug-hunter: Replaced AbortSignal.any() with manual timeout pattern (iOS 16 compat), added guarded finally block to prevent loading state race
+
+### Continuation Status
+All tasks completed.
