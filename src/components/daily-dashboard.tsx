@@ -133,6 +133,7 @@ export function DailyDashboard() {
       const response = await fetch("/api/lumen-goals", {
         method: "POST",
         body: formData,
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!response.ok) {
@@ -143,7 +144,11 @@ export function DailyDashboard() {
       // Mutate SWR cache on success
       await mutateLumenGoals();
     } catch (error) {
-      setLumenUploadError(error instanceof Error ? error.message : "Upload failed");
+      if (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) {
+        setLumenUploadError("Upload timed out. Please try again.");
+      } else {
+        setLumenUploadError(error instanceof Error ? error.message : "Upload failed");
+      }
     } finally {
       // Reset file input
       if (fileInputRef.current) {
@@ -276,13 +281,12 @@ export function DailyDashboard() {
       )}
 
       {/* Update Lumen goals button */}
-      <div className="flex flex-col items-center gap-2">
+      <div className="flex flex-col gap-2">
         <Button
           variant="secondary"
-          size="sm"
           onClick={handleUpdateLumenGoals}
           disabled={isUploadingLumen}
-          className="min-h-[44px]"
+          className="w-full min-h-[44px]"
         >
           {isUploadingLumen ? (
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />

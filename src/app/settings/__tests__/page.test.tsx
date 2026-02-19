@@ -96,7 +96,7 @@ describe("Settings page (server component)", () => {
 
 describe("Settings content (client component)", () => {
   describe("back navigation", () => {
-    it("renders back button that links to /app", async () => {
+    it("does not render back button (Settings is a root page)", async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () =>
@@ -112,30 +112,7 @@ describe("Settings content (client component)", () => {
 
       renderWithSWR(<SettingsContent />);
 
-      const backButton = screen.getByRole("link", { name: /back to food scanner/i });
-      expect(backButton).toBeInTheDocument();
-      expect(backButton).toHaveAttribute("href", "/app");
-    });
-
-    it("back button has proper touch target size", async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: {
-              email: "test@example.com",
-              fitbitConnected: true,
-              expiresAt: Date.now() + 86400000,
-            },
-          }),
-      });
-
-      renderWithSWR(<SettingsContent />);
-
-      const backButton = screen.getByRole("link", { name: /back to food scanner/i });
-      expect(backButton).toHaveClass("min-h-[44px]");
-      expect(backButton).toHaveClass("min-w-[44px]");
+      expect(screen.queryByRole("link", { name: /back to food scanner/i })).not.toBeInTheDocument();
     });
   });
 
@@ -203,8 +180,9 @@ describe("Settings content (client component)", () => {
     renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
-      // The error message will be "Network error" since that's what the Error contains
-      expect(screen.getByText(/network error/i)).toBeInTheDocument();
+      // Both session and credentials SWR show errors — use getAllByText
+      const errors = screen.getAllByText(/network error/i);
+      expect(errors.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -218,7 +196,9 @@ describe("Settings content (client component)", () => {
     renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
-      expect(screen.getByText(/HTTP 500/i)).toBeInTheDocument();
+      // Both session and credentials SWR show errors — use getAllByText
+      const errors = screen.getAllByText(/HTTP 500/i);
+      expect(errors.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -235,7 +215,9 @@ describe("Settings content (client component)", () => {
     renderWithSWR(<SettingsContent />);
 
     await waitFor(() => {
-      expect(screen.getByText(/failed to load|session expired/i)).toBeInTheDocument();
+      // Both session and credentials SWR show errors — use getAllByText
+      const errors = screen.getAllByText(/failed to load|session expired/i);
+      expect(errors.length).toBeGreaterThanOrEqual(1);
     });
   });
 

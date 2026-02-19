@@ -790,7 +790,7 @@ describe("FoodAnalyzer", () => {
     });
   });
 
-  it("shows confirmation optimistically while log API is in flight", async () => {
+  it("does not show confirmation while log API is in flight (FOO-661)", async () => {
     mockFetch
       .mockResolvedValueOnce({
         ...makeSseAnalyzeResponse([
@@ -799,7 +799,7 @@ describe("FoodAnalyzer", () => {
       ]),
       })
       .mockResolvedValueOnce(emptyMatchesResponse())
-      .mockImplementationOnce(() => new Promise(() => {}));
+      .mockImplementationOnce(() => new Promise(() => {})); // hangs forever
 
     render(<FoodAnalyzer />);
 
@@ -815,10 +815,13 @@ describe("FoodAnalyzer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
-    // With optimistic UI, confirmation shows immediately instead of "Logging..." button
+    // Wait for logging state to activate (fetch has been called)
     await waitFor(() => {
-      expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      expect(mockFetch.mock.calls.some((call: unknown[]) => call[0] === "/api/log-food")).toBe(true);
     });
+
+    // Confirmation should NOT appear while fetch is still pending
+    expect(screen.queryByTestId("food-log-confirmation")).not.toBeInTheDocument();
   });
 
   it("saves pending and redirects on FITBIT_TOKEN_INVALID", async () => {
@@ -1517,6 +1520,19 @@ describe("FoodAnalyzer", () => {
       expect(analyzeButton).toBeDisabled();
     });
 
+    it("Analyze Food button has shadow-sm class when enabled", async () => {
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "2 scrambled eggs" } });
+
+      await waitFor(() => {
+        const analyzeButton = screen.getByRole("button", { name: /analyze food/i });
+        expect(analyzeButton).not.toBeDisabled();
+        expect(analyzeButton).toHaveClass("shadow-sm");
+      });
+    });
+
     it("sends description-only to API when no photos", async () => {
       mockFetch.mockResolvedValueOnce({
         ...makeSseAnalyzeResponse([
@@ -1585,16 +1601,17 @@ describe("FoodAnalyzer", () => {
     });
   });
 
-  describe("optimistic UI for food logging", () => {
-    it("shows confirmation immediately after tapping Log to Fitbit", async () => {
-      // Analyze response resolves immediately
+  describe("food logging confirmation behavior", () => {
+    it("shows confirmation only after API responds to Log to Fitbit", async () => {
       mockFetch
         .mockResolvedValueOnce(
           makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
         )
         .mockResolvedValueOnce(emptyMatchesResponse())
-        // Log-food fetch hangs — never resolves
-        .mockImplementationOnce(() => new Promise(() => {}));
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
 
       render(<FoodAnalyzer />);
 
@@ -1610,13 +1627,13 @@ describe("FoodAnalyzer", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
-      // Confirmation should appear immediately (optimistic) even though fetch hasn't resolved
+      // Confirmation appears only after the API responds
       await waitFor(() => {
         expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
       });
     });
 
-    it("shows confirmation immediately after tapping Use this (existing food)", async () => {
+    it("shows confirmation only after API responds to Use this (existing food)", async () => {
       mockFetch
         .mockResolvedValueOnce(
           makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
@@ -1625,8 +1642,10 @@ describe("FoodAnalyzer", () => {
           ok: true,
           json: () => Promise.resolve({ success: true, data: { matches: mockMatches } }),
         })
-        // Log-food fetch hangs — never resolves
-        .mockImplementationOnce(() => new Promise(() => {}));
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
 
       render(<FoodAnalyzer />);
 
@@ -1642,13 +1661,13 @@ describe("FoodAnalyzer", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /use this/i }));
 
-      // Confirmation should appear immediately (optimistic) even though fetch hasn't resolved
+      // Confirmation appears only after the API responds
       await waitFor(() => {
         expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
       });
     });
 
-    it("reverts to analysis view on log API error after optimistic update", async () => {
+    it("shows error and no confirmation on log API error", async () => {
       mockFetch
         .mockResolvedValueOnce(
           makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
@@ -1677,12 +1696,11 @@ describe("FoodAnalyzer", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
-      // Should revert and show error
+      // Should show error, no confirmation
       await waitFor(() => {
         expect(screen.getByTestId("log-error")).toBeInTheDocument();
       });
 
-      // Confirmation should be gone
       expect(screen.queryByTestId("food-log-confirmation")).not.toBeInTheDocument();
     });
   });
@@ -2211,9 +2229,9 @@ describe("FoodAnalyzer", () => {
       // Click log button
       fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
-      // Optimistic UI shows confirmation immediately
+      // Wait for the log-food fetch to be called (logging state is active)
       await waitFor(() => {
-        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+        expect(mockFetch.mock.calls.some((call: unknown[]) => call[0] === "/api/log-food")).toBe(true);
       });
 
       // Verify only ONE call to /api/log-food was made (logging state prevents double-submit)

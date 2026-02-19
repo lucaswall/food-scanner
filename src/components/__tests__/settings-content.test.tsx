@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SettingsContent } from "../settings-content";
+
+const mockFetch = vi.fn();
+vi.stubGlobal("fetch", mockFetch);
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -49,6 +52,11 @@ describe("SettingsContent", () => {
   it("renders Settings h1 heading", () => {
     render(<SettingsContent />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings");
+  });
+
+  it("does not render back arrow link", () => {
+    render(<SettingsContent />);
+    expect(screen.queryByRole("link", { name: /back to food scanner/i })).not.toBeInTheDocument();
   });
 
   describe("accessibility - form labels", () => {
@@ -117,6 +125,120 @@ describe("SettingsContent", () => {
 
       const systemButton = screen.getByRole("button", { name: /system/i });
       expect(systemButton).not.toHaveAttribute("aria-label");
+    });
+  });
+
+  describe("FOO-664: credentials SWR error state", () => {
+    it("shows error message when credentials fetch fails", () => {
+      mockUseSWRImplementation.mockImplementation((key: string) => {
+        if (key === "/api/auth/session") {
+          return { data: null, error: null };
+        }
+        if (key === "/api/fitbit-credentials") {
+          return { data: null, error: new Error("Failed to load"), mutate: vi.fn() };
+        }
+        return { data: null, error: null };
+      });
+
+      render(<SettingsContent />);
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(screen.getByText(/failed to load/i)).toBeInTheDocument();
+    });
+
+    it("shows retry button when credentials fetch fails", () => {
+      mockUseSWRImplementation.mockImplementation((key: string) => {
+        if (key === "/api/auth/session") {
+          return { data: null, error: null };
+        }
+        if (key === "/api/fitbit-credentials") {
+          return { data: null, error: new Error("Failed to load"), mutate: vi.fn() };
+        }
+        return { data: null, error: null };
+      });
+
+      render(<SettingsContent />);
+      expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    });
+
+    it("calls mutate when retry button is clicked", async () => {
+      const user = userEvent.setup();
+      const mockMutate = vi.fn();
+      mockUseSWRImplementation.mockImplementation((key: string) => {
+        if (key === "/api/auth/session") {
+          return { data: null, error: null };
+        }
+        if (key === "/api/fitbit-credentials") {
+          return { data: null, error: new Error("Failed to load"), mutate: mockMutate };
+        }
+        return { data: null, error: null };
+      });
+
+      render(<SettingsContent />);
+      await user.click(screen.getByRole("button", { name: /retry/i }));
+      expect(mockMutate).toHaveBeenCalled();
+    });
+  });
+
+  describe("credentials PATCH timeout", () => {
+    it("save client ID fetch includes AbortSignal timeout", async () => {
+      const user = userEvent.setup();
+      const mockMutate = vi.fn();
+      mockUseSWRImplementation.mockImplementation((key: string) => {
+        if (key === "/api/auth/session") {
+          return { data: null, error: null };
+        }
+        if (key === "/api/fitbit-credentials") {
+          return { data: { hasCredentials: true, clientId: "test-client-id" }, error: null, mutate: mockMutate };
+        }
+        return { data: null, error: null };
+      });
+
+      mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
+
+      render(<SettingsContent />);
+
+      // Click Edit to enter edit mode
+      await user.click(screen.getByRole("button", { name: /edit/i }));
+      // Type a new value
+      const input = screen.getByDisplayValue("test-client-id");
+      await user.clear(input);
+      await user.type(input, "new-client-id");
+      // Click Save
+      await user.click(screen.getByRole("button", { name: /save/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/fitbit-credentials",
+          expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        );
+      });
+    });
+
+    it("shows user-friendly message when save client ID times out", async () => {
+      const user = userEvent.setup();
+      mockUseSWRImplementation.mockImplementation((key: string) => {
+        if (key === "/api/auth/session") {
+          return { data: null, error: null };
+        }
+        if (key === "/api/fitbit-credentials") {
+          return { data: { hasCredentials: true, clientId: "test-client-id" }, error: null, mutate: vi.fn() };
+        }
+        return { data: null, error: null };
+      });
+
+      mockFetch.mockRejectedValueOnce(new DOMException("signal timed out", "TimeoutError"));
+
+      render(<SettingsContent />);
+
+      await user.click(screen.getByRole("button", { name: /edit/i }));
+      const input = screen.getByDisplayValue("test-client-id");
+      await user.clear(input);
+      await user.type(input, "new-client-id");
+      await user.click(screen.getByRole("button", { name: /save/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+      });
     });
   });
 });

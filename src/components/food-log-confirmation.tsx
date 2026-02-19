@@ -57,9 +57,6 @@ export function FoodLogConfirmation({
               ? "Reused existing food from your Fitbit library"
               : "Created new food in your Fitbit library"}
         </p>
-        {response.fitbitLogId != null && (
-          <p className="text-xs text-muted-foreground">Log ID: {response.fitbitLogId}</p>
-        )}
       </div>
 
       {analysis && (

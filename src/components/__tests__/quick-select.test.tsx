@@ -194,7 +194,20 @@ describe("QuickSelect", () => {
 
       await waitFor(() => {
         const recentBtn = screen.getByRole("button", { name: /recent/i });
-        expect(recentBtn.className).toMatch(/bg-muted/);
+        expect(recentBtn).toHaveClass("text-muted-foreground");
+        expect(recentBtn).not.toHaveClass("bg-muted");
+      });
+    });
+
+    it("tab buttons use rounded-full class", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        const suggestedBtn = screen.getByRole("button", { name: /suggested/i });
+        const recentBtn = screen.getByRole("button", { name: /recent/i });
+        expect(suggestedBtn).toHaveClass("rounded-full");
+        expect(recentBtn).toHaveClass("rounded-full");
       });
     });
 
@@ -476,6 +489,22 @@ describe("QuickSelect", () => {
 
 
 
+
+  it("renders food name as h2 heading in detail/confirm view", async () => {
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+    renderQuickSelect();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Empanada de carne"));
+
+    await waitFor(() => {
+      const heading = screen.getByRole("heading", { level: 2, name: "Empanada de carne" });
+      expect(heading).toBeInTheDocument();
+    });
+  });
 
   it("has back button from detail view to food list", async () => {
     mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
@@ -1186,6 +1215,87 @@ describe("QuickSelect", () => {
 
       // The referenced panel element must exist in the DOM
       expect(document.getElementById(panelId!)).toBeInTheDocument();
+    });
+  });
+
+  describe("FOO-664: search SWR error state", () => {
+    it("shows error message when search fetch fails", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () => Promise.resolve({ error: { message: "Search failed", code: "SEARCH_ERROR" } }),
+        });
+
+      render(
+        <SWRConfig value={{ provider: () => new Map(), shouldRetryOnError: false }}>
+          <QuickSelect />
+        </SWRConfig>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText("Search foods...");
+      fireEvent.change(searchInput, { target: { value: "emp" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+        expect(screen.getByText("Search failed")).toBeInTheDocument();
+      });
+    });
+
+    it("does not show empty state when search has an error", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () => Promise.resolve({ error: { message: "Search failed", code: "SEARCH_ERROR" } }),
+        });
+
+      render(
+        <SWRConfig value={{ provider: () => new Map(), shouldRetryOnError: false }}>
+          <QuickSelect />
+        </SWRConfig>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText("Search foods...");
+      fireEvent.change(searchInput, { target: { value: "emp" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText(/no results found/i)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("timeout error messaging", () => {
+    it("shows user-friendly message when log-food request times out", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockRejectedValueOnce(new DOMException("signal timed out", "TimeoutError"));
+
+      renderQuickSelect();
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Empanada de carne"));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+      });
     });
   });
 });

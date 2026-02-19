@@ -314,14 +314,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setLogError(null);
     setLogging(true);
 
-    // Optimistic: show confirmation immediately
-    const optimisticResponse: FoodLogResponse = {
-      success: true,
-      reusedFood: false,
-      foodLogId: 0,
-    };
-    setLogResponse(optimisticResponse);
-
     try {
       const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
         ? {
@@ -350,8 +342,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
-        // Revert optimistic update
-        setLogResponse(null);
         if (errorCode === "FITBIT_TOKEN_INVALID") {
           savePendingSubmission({
             analysis: analysis,
@@ -372,11 +362,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         return;
       }
 
-      // Replace optimistic response with real data
+      // Only set response after API confirms success
       setLogResponse(result.data ?? null);
     } catch (err) {
-      // Revert optimistic update
-      setLogResponse(null);
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setLogError("Request timed out. Please try again.");
       } else {
@@ -391,14 +379,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const handleUseExisting = async (match: FoodMatch) => {
     setLogError(null);
     setLogging(true);
-
-    // Optimistic: show confirmation immediately
-    const optimisticResponse: FoodLogResponse = {
-      success: true,
-      reusedFood: true,
-      foodLogId: 0,
-    };
-    setLogResponse(optimisticResponse);
 
     try {
       const requestBody: Record<string, unknown> = {
@@ -430,8 +410,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
-        // Revert optimistic update
-        setLogResponse(null);
         if (errorCode === "FITBIT_TOKEN_INVALID") {
           savePendingSubmission({
             analysis: null,
@@ -453,11 +431,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         return;
       }
 
-      // Replace optimistic response with real data
+      // Only set response after API confirms success
       setLogResponse(result.data ?? null);
     } catch (err) {
-      // Revert optimistic update
-      setLogResponse(null);
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setLogError("Request timed out. Please try again.");
       } else {
@@ -636,7 +612,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       <Button
         onClick={handleAnalyze}
         disabled={!canAnalyze}
-        className="w-full min-h-[44px]"
+        className="w-full min-h-[44px] shadow-sm"
       >
         {compressing ? "Preparing images..." : loading ? "Analyzing..." : "Analyze Food"}
       </Button>

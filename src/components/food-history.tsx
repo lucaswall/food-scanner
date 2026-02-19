@@ -82,6 +82,7 @@ export function FoodHistory() {
     apiFetcher,
   );
 
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [entries, setEntries] = useState<FoodLogHistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -93,6 +94,13 @@ export function FoodHistory() {
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
   const [jumpDate, setJumpDate] = useState("");
+
+  // Cleanup on unmount — abort any in-flight fetchEntries request
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Seed local entries state from SWR initial data.
   // After pagination or "Jump to Date", hasPaginated prevents SWR revalidation
@@ -110,6 +118,14 @@ export function FoodHistory() {
     append = false,
     cursor?: { lastDate: string; lastTime: string | null; lastId: number },
   ) => {
+    // Abort any in-flight request before starting a new one
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
+    const timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 15000);
+
     if (append) {
       setLoadingMore(true);
     } else {
@@ -130,7 +146,7 @@ export function FoodHistory() {
 
       const response = await fetch(`/api/food-history?${params}`, {
         method: "GET",
-        signal: AbortSignal.timeout(15000),
+        signal: controller.signal,
       });
       const result = await safeResponseJson(response) as {
         success?: boolean;
@@ -150,11 +166,17 @@ export function FoodHistory() {
       }
       setHasMore(newEntries.length >= 20);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return; // Intentional cancellation — do not show error
+      }
       console.error("Failed to fetch food history entries:", error);
       setFetchError("Failed to load entries. Please try again.");
     } finally {
-      setLoading(false);
-      setLoadingMore(false);
+      clearTimeout(timeoutId);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, []);
 
@@ -206,8 +228,12 @@ export function FoodHistory() {
       mutate();
       invalidateFoodCaches().catch(() => {});
     } catch (error) {
-      console.error("Failed to delete food history entry:", error);
-      setDeleteError("Failed to delete entry");
+      if (error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) {
+        setDeleteError("Request timed out. Please try again.");
+      } else {
+        console.error("Failed to delete food history entry:", error);
+        setDeleteError("Failed to delete entry");
+      }
       vibrateError();
     } finally {
       setDeletingId(null);
@@ -306,10 +332,15 @@ export function FoodHistory() {
       {groups.map((group) => (
         <div key={group.date} className="space-y-2">
           {/* Date header with summary */}
-          <div className="flex justify-between items-baseline border-b pb-1">
-            <h2 className="font-semibold">{formatDateHeader(group.date)}</h2>
-            <span className="text-sm text-muted-foreground">
-              {Math.round(group.totalCalories)} cal | P:{group.totalProteinG.toFixed(1)}g C:{group.totalCarbsG.toFixed(1)}g F:{group.totalFatG.toFixed(1)}g
+          <div className="flex flex-col border-b pb-1">
+            <div className="flex justify-between items-baseline">
+              <h2 className="font-semibold">{formatDateHeader(group.date)}</h2>
+              <span className="text-sm text-muted-foreground">
+                {Math.round(group.totalCalories)} cal
+              </span>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {`P: ${Math.round(group.totalProteinG)}g · C: ${Math.round(group.totalCarbsG)}g · F: ${Math.round(group.totalFatG)}g`}
             </span>
           </div>
 
@@ -327,7 +358,7 @@ export function FoodHistory() {
               >
                 <div className="flex justify-between items-start">
                   <div className="min-w-0">
-                    <p className="font-medium truncate">{entry.foodName}</p>
+                    <p className="font-medium">{entry.foodName}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatTime(entry.time)} · {FITBIT_MEAL_TYPE_LABELS[entry.mealTypeId] ?? "Unknown"} · {getUnitLabel(entry.unitId, entry.amount)}
                     </p>

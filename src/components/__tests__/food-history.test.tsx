@@ -151,8 +151,9 @@ describe("FoodHistory", () => {
     renderFoodHistory();
 
     await waitFor(() => {
-      // Today's total: 320 + 120 = 440 cal
-      expect(screen.getByText(/440/)).toBeInTheDocument();
+      // Today's total: 320 + 120 = 440 cal — scoped to date header
+      const todayHeader = screen.getAllByRole("heading", { level: 2 })[0];
+      expect(todayHeader.closest("div")).toHaveTextContent("440 cal");
     });
   });
 
@@ -1030,7 +1031,40 @@ describe("FoodHistory", () => {
     expect(headings).toHaveLength(2);
   });
 
-  it("daily summary rounds calories to integer and macros to one decimal", async () => {
+  it("food name element does not have truncate class (allows wrapping)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    const foodNameEl = screen.getByText("Empanada de carne");
+    expect(foodNameEl).not.toHaveClass("truncate");
+  });
+
+  it("date header shows calories on header line and macros as separate line with · separators", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Today: 320 + 120 = 440 cal total, P:12+6=18g, C:28+10=38g, F:18+5=23g
+    expect(screen.getByText("440 cal")).toBeInTheDocument();
+    expect(screen.getByText("P: 18g · C: 38g · F: 23g")).toBeInTheDocument();
+  });
+
+  it("daily summary rounds calories to integer and macros to integer", async () => {
     const fractionalEntries: FoodLogHistoryEntry[] = [
       {
         id: 1,
@@ -1079,11 +1113,9 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Food A")).toBeInTheDocument();
     });
 
-    // Total: 324.2 cal → 324 cal, P:26.04→26.0g, C:50.83→50.8g, F:21.11→21.1g
-    expect(screen.getByText(/324 cal/)).toBeInTheDocument();
-    expect(screen.getByText(/P:26\.0g/)).toBeInTheDocument();
-    expect(screen.getByText(/C:50\.8g/)).toBeInTheDocument();
-    expect(screen.getByText(/F:21\.1g/)).toBeInTheDocument();
+    // Total: 324.2 cal → 324 cal, P:26.04→26g, C:50.83→51g, F:21.11→21g
+    expect(screen.getByText("324 cal")).toBeInTheDocument();
+    expect(screen.getByText("P: 26g · C: 51g · F: 21g")).toBeInTheDocument();
   });
 
   it("shows cached data instantly on re-mount (SWR cache)", async () => {
@@ -1373,6 +1405,119 @@ describe("FoodHistory", () => {
     });
   });
 
+  // FOO-663: Request cancellation for concurrent Load More + Jump to Date
+  it("aborts in-flight Load More request when Jump to Date is triggered", async () => {
+    const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+      id: i + 1,
+      customFoodId: i + 1,
+      foodName: `Food ${i + 1}`,
+      calories: 100,
+      proteinG: 5,
+      carbsG: 10,
+      fatG: 3,
+      fiberG: 1,
+      sodiumMg: 50,
+      amount: 100,
+      unitId: 147,
+      mealTypeId: 3,
+      date: today,
+      time: "12:00:00",
+      fitbitLogId: 1000 + i,
+    }));
+
+    let loadMoreSignal: AbortSignal | undefined;
+
+    mockFetch
+      // Call 1: SWR initial load
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
+      })
+      // Call 2: Load More — captures signal, never resolves
+      .mockImplementationOnce((_url: string, opts?: RequestInit) => {
+        loadMoreSignal = opts?.signal as AbortSignal | undefined;
+        return new Promise(() => {});
+      })
+      // Call 3: Jump to Date — resolves immediately
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+      });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Food 1")).toBeInTheDocument();
+    });
+
+    // Set jump date (enables Go button)
+    const dateInput = screen.getByLabelText(/jump to date/i);
+    fireEvent.change(dateInput, { target: { value: "2026-01-01" } });
+
+    // Trigger Load More (in-flight, never resolves)
+    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
+    fireEvent.click(loadMoreButton);
+
+    // Immediately trigger Jump to Date (should abort Load More)
+    const goButton = screen.getByRole("button", { name: /go/i });
+    fireEvent.click(goButton);
+
+    // Load More signal should be aborted
+    await waitFor(() => {
+      expect(loadMoreSignal).toBeDefined();
+      expect(loadMoreSignal?.aborted).toBe(true);
+    });
+  });
+
+  it("does not show fetch error when Load More is intentionally aborted", async () => {
+    const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+      id: i + 1,
+      customFoodId: i + 1,
+      foodName: `Food ${i + 1}`,
+      calories: 100,
+      proteinG: 5,
+      carbsG: 10,
+      fatG: 3,
+      fiberG: 1,
+      sodiumMg: 50,
+      amount: 100,
+      unitId: 147,
+      mealTypeId: 3,
+      date: today,
+      time: "12:00:00",
+      fitbitLogId: 1000 + i,
+    }));
+
+    mockFetch
+      // Call 1: SWR initial load
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
+      })
+      // Call 2: Load More — rejected with AbortError (intentional cancellation)
+      .mockRejectedValueOnce(new DOMException("The operation was aborted.", "AbortError"));
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Food 1")).toBeInTheDocument();
+    });
+
+    // Trigger Load More
+    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
+    fireEvent.click(loadMoreButton);
+
+    // Wait for the button to re-enable (finally block ran, loadingMore=false)
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /load more/i })).not.toBeDisabled();
+    });
+
+    // No error message should be shown for intentional abort
+    const alerts = screen.queryAllByRole("alert");
+    const fetchAlert = alerts.find((el) => el.textContent?.includes("Failed to load entries"));
+    expect(fetchAlert).toBeUndefined();
+  });
+
   // FOO-498: SWR Cache Invalidation
   describe("cache invalidation after delete", () => {
     it("calls invalidateFoodCaches after successful delete", async () => {
@@ -1449,6 +1594,69 @@ describe("FoodHistory", () => {
       });
 
       expect(mockInvalidateFoodCaches).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("unmount cleanup", () => {
+    it("aborts in-flight request on component unmount", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+        })
+        .mockImplementationOnce(() => new Promise(() => {})); // Hang forever
+
+      const { unmount } = renderFoodHistory();
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Trigger a fetchEntries call via Jump to Date
+      const dateInput = screen.getByLabelText(/jump to date/i);
+      fireEvent.change(dateInput, { target: { value: "2026-02-01" } });
+      fireEvent.click(screen.getByRole("button", { name: /go/i }));
+
+      // Get the signal from the fetch call
+      await waitFor(() => {
+        expect(mockFetch.mock.calls.length).toBeGreaterThan(1);
+      });
+      const jumpCallArgs = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const signal = (jumpCallArgs[1] as RequestInit).signal;
+      expect(signal).toBeDefined();
+      expect(signal!.aborted).toBe(false);
+
+      // Unmount component while request is in flight
+      unmount();
+
+      // Signal should be aborted after unmount
+      expect(signal!.aborted).toBe(true);
+    });
+  });
+
+  describe("timeout error messaging", () => {
+    it("shows user-friendly message when delete request times out", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+        })
+        .mockRejectedValueOnce(new DOMException("signal timed out", "TimeoutError"));
+
+      renderFoodHistory();
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+      fireEvent.click(deleteButtons[0]);
+      const confirmButton = await screen.findByRole("button", { name: /confirm/i });
+      fireEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+      });
+      consoleSpy.mockRestore();
     });
   });
 });

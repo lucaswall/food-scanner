@@ -1,397 +1,324 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Branch:** feat/FOO-612-bugs-and-performance
-**Issues:** FOO-612, FOO-613, FOO-614, FOO-615, FOO-617, FOO-620, FOO-623, FOO-624, FOO-626, FOO-630, FOO-636, FOO-637, FOO-646, FOO-655, FOO-656, FOO-657, FOO-658, FOO-659
-**Created:** 2026-02-18
-**Last Updated:** 2026-02-18
+**Branch:** feat/FOO-621-ui-consistency-polish
+**Issues:** FOO-621, FOO-622, FOO-628, FOO-629, FOO-632, FOO-635, FOO-638, FOO-640
+**Created:** 2026-02-19
+**Last Updated:** 2026-02-19
 
 ## Summary
 
-Fix 8 bugs (mostly accessibility) and 5 performance issues across the app. All changes are surgical — most touch a single component file and its test. No schema changes, no API changes, no architectural rework.
+A batch of UI consistency and polish improvements across the Food Scanner app. These address visual inconsistencies (tab border-radius, action card sizing, button hierarchy), information density problems (food history layout, dense macro summaries), and UX refinements (removing technical Log ID from success screen, settings back arrow, food detail heading standardization, analyze button enabled state).
 
 ## Issues
 
-### FOO-612: Meal breakdown sections missing aria-expanded
+### FOO-621: Inconsistent tab/segmented-control border-radius
 
-**Priority:** Medium | **Labels:** Bug
-**Description:** Expandable meal headers (Breakfast, Lunch, etc.) have no `aria-expanded` attribute. Screen readers cannot determine section state.
-
-**Acceptance Criteria:**
-- [ ] Each meal header button has `aria-expanded={isExpanded}`
-- [ ] Test verifies aria-expanded toggles with expansion state
-
-### FOO-613: Remove incorrect tablist ARIA roles from segmented controls
-
-**Priority:** Medium | **Labels:** Bug
-**Description:** Three components use `role="tablist"` + `role="tab"` but only have click handlers — no arrow key navigation. Per ARIA Authoring Practices, tablists require arrow key support. Without it, the roles are misleading.
-
-**Components:** `dashboard-shell.tsx`, `quick-select.tsx`, `weekly-nutrition-chart.tsx`
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** Quick Select tab buttons use `rounded-lg` while Dashboard shell (Daily/Weekly toggle) uses `rounded-full`. Both are tab/segmented-control patterns that should look identical.
 
 **Acceptance Criteria:**
-- [ ] `role="tablist"` removed from all three container divs
-- [ ] `role="tab"` and `aria-selected` removed from all buttons within those containers
-- [ ] `aria-controls` kept on buttons (still useful for associating panels)
-- [ ] Tests updated to not query by role="tab"
+- [ ] All tab/segmented-control patterns use the same border-radius
+- [ ] Visual consistency across Quick Select and Dashboard shell
 
-### FOO-614: Data visualizations lack accessible representations
+### FOO-622: Home page action cards have inconsistent visual weight
 
-**Priority:** Medium | **Labels:** Bug
-**Description:** Three visualization components convey info only visually:
-1. Macro progress bars — plain divs, no `role="progressbar"` or ARIA values
-2. Calorie ring SVG — not hidden from screen readers (reads as geometry noise)
-3. Weekly nutrition chart — no accessible summary
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** "Take Photo" and "Quick Select" cards use `p-4` + `h-8 w-8` icons while "Chat" card uses `p-3` + `h-6 w-6` icon. The size difference feels haphazard rather than intentional.
 
 **Acceptance Criteria:**
-- [ ] Macro bars: inner div has `role="progressbar"`, `aria-valuenow`, `aria-valuemin={0}`, `aria-valuemax={100}`, `aria-label` (e.g., "Protein: 30 / 50g")
-- [ ] Calorie ring: SVG element has `aria-hidden="true"`. A visually-hidden text element provides the same info (e.g., "1200 of 2000 calories")
-- [ ] Weekly chart: chart container div has `aria-label` describing content (e.g., "Weekly calories chart")
+- [ ] All action cards use consistent padding and icon sizes, OR
+- [ ] Clear intentional visual hierarchy between primary and secondary actions
 
-### FOO-615: Confidence badge produces garbled accessible name
+### FOO-628: Food history names truncate too early and macro summary is dense
 
-**Priority:** Medium | **Labels:** Bug
-**Description:** The badge button contains `<div aria-label="Confidence: high">` plus `<span>high</span>`, producing "Confidence: high high" for screen readers.
-
-**Acceptance Criteria:**
-- [ ] Remove `aria-label` from the inner `<div>` (the indicator dot)
-- [ ] The button's accessible name is coherent (just the visible text)
-
-### FOO-617: Hardcoded amber color bypasses design system and fails contrast
-
-**Priority:** Medium | **Labels:** Bug
-**Description:** Photo compression warning uses `text-amber-600 dark:text-amber-400` instead of semantic tokens. `text-amber-600` on white gives ~3.0:1 contrast, below WCAG AA minimum of 4.5:1.
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** (1) Food names truncate prematurely via `truncate` CSS class even though names aren't particularly long — the bold calorie value takes too much horizontal space. (2) Date header macro summary (`420 cal | P:30.0g C:45.0g F:12.0g`) is a dense wall of abbreviated text.
 
 **Acceptance Criteria:**
-- [ ] Replace `text-amber-600 dark:text-amber-400` with `text-warning-foreground` or equivalent semantic token
-- [ ] Contrast meets WCAG AA (4.5:1) in both light and dark modes
+- [ ] Food names display fully or wrap instead of truncating prematurely
+- [ ] Macro summary is scannable at a glance
 
-### FOO-620: Chat photo menu buttons below 44px touch target
+### FOO-629: Settings page has back arrow despite being a root page
 
-**Priority:** Medium | **Labels:** Bug
-**Description:** Camera and Gallery buttons use `min-h-[36px]`, 8px below the 44px minimum (WCAG 2.5.8).
-
-**Acceptance Criteria:**
-- [ ] Both buttons use `min-h-[44px]`
-- [ ] Test verifies the min-height class
-
-### FOO-623: react-markdown and remark-gfm statically bundled
-
-**Priority:** Medium | **Labels:** Performance
-**Description:** `react-markdown` and `remark-gfm` are statically imported in `chat-markdown.tsx`, adding ~100KB+ gzipped to every bundle containing `food-chat.tsx`. Markdown rendering is only needed after AI response arrives.
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** Settings has a back arrow in its header (`settings-content.tsx:112-119`), but every other bottom-nav destination (Home, Quick Select, Analyze, History) has no back arrow.
 
 **Acceptance Criteria:**
-- [ ] `ChatMarkdown` loaded via `next/dynamic` with `{ ssr: false }` from the consumer (food-chat.tsx)
-- [ ] Chat rendering still works correctly after dynamic load
-- [ ] A loading fallback is shown while the component loads
+- [ ] Settings page has no back arrow in its header
+- [ ] Navigation pattern consistent across all bottom-nav destinations
 
-### FOO-624: Dashboard prefetch covers only 2 of 5+ required endpoints
+### FOO-632: Food detail views use different heading approaches from different entry points
 
-**Priority:** Medium | **Labels:** Performance
-**Description:** `DashboardPrefetch` only prefetches `common-foods` and `food-history`, but the daily dashboard immediately needs `nutrition-summary`, `nutrition-goals`, `lumen-goals`, and `earliest-entry`. Weekly dashboard needs `earliest-entry`, `nutrition-range`, and `fasting`.
-
-**Acceptance Criteria:**
-- [ ] Prefetch includes all endpoints the daily dashboard fetches on initial render (using today's date)
-- [ ] Prefetch includes key weekly dashboard endpoints
-- [ ] Uses `getTodayDate()` to build date-specific keys matching what the dashboard components will request
-
-### FOO-626: Dashboard shell tab switch missing useTransition
-
-**Priority:** Low | **Labels:** Performance
-**Description:** Switching between Daily/Weekly views triggers synchronous rendering. On lower-end devices this may block input beyond 200ms.
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** From Quick Select: page heading remains "Quick Select" with food content below. From History (food-detail page): page heading IS the food name with "Back" above. Same food detail context uses two different navigation patterns.
 
 **Acceptance Criteria:**
-- [ ] `setView` wrapped in `useTransition` (or `startTransition` from React)
-- [ ] Optional: show pending state indicator while transitioning
+- [ ] Food detail views use consistent heading pattern regardless of entry point
+- [ ] Navigation (back link) consistent across entry points
 
-### FOO-630: Dark mode refine-chat error banner has insufficient contrast
+### FOO-635: Food log confirmation exposes technical Log ID
 
-**Priority:** Medium | **Labels:** Bug
-**Description:** Error banner in food-chat uses `bg-destructive/10` background + `text-destructive` text. In dark mode the 10% opacity destructive background blends too much with the dark page background, reducing legibility.
-
-**Acceptance Criteria:**
-- [ ] Error banner text is legible in both light and dark modes
-- [ ] Use higher opacity or different approach for dark mode (e.g., `dark:bg-destructive/20`)
-
-### FOO-636: PWA manifest improvements — theme_color and maskable icons
-
-**Priority:** Low | **Labels:** Performance
-**Description:** `theme_color: "#ffffff"` is hardcoded white — dark mode users see white browser chrome. No maskable icon entry for Android adaptive launchers.
+**Priority:** Low
+**Labels:** Improvement
+**Description:** The success screen shows `Log ID: {response.fitbitLogId}` at `food-log-confirmation.tsx:60-62` which is meaningless to the user.
 
 **Acceptance Criteria:**
-- [ ] Add `<meta name="theme-color">` tags with `media="(prefers-color-scheme: ...)"` in the root layout for dynamic theme color
-- [ ] Add an icon entry with `"purpose": "any maskable"` in manifest.json
-- [ ] Consider using the app's actual background color tokens
+- [ ] Log ID not shown to users on the success screen
 
-### FOO-637: Add prefers-reduced-motion override for tw-animate-css animations
+### FOO-638: Dashboard "Update Lumen goals" button has inconsistent visual weight
 
-**Priority:** Medium | **Labels:** Bug
-**Description:** Custom animations respect `prefers-reduced-motion` via `globals.css:178-185`, but Radix UI components use `animate-in`/`animate-out` from tw-animate-css which has zero reduced-motion support.
-
-**Acceptance Criteria:**
-- [ ] All tw-animate-css animations suppressed under `prefers-reduced-motion: reduce`
-- [ ] Radix UI components still function (open/close state) — use `0.01ms` duration, not `none`
-- [ ] Existing custom animation overrides remain intact
-
-### FOO-646: Claude redundantly re-searches food log when data already in conversation context
-
-**Priority:** Low | **Labels:** Performance
-**Description:** When user confirms logging a food item already retrieved in a previous turn, Claude calls `search_food_log` again. The data is already in conversation context.
+**Priority:** Low
+**Labels:** Improvement
+**Description:** The "Update Lumen goals" button is a centered `variant="secondary" size="sm"` button (`daily-dashboard.tsx:280-293`), while other action buttons in the app are full-width.
 
 **Acceptance Criteria:**
-- [ ] System prompts include rule: do not re-search for food data already present in conversation
-- [ ] Both `CHAT_SYSTEM_PROMPT` and `ANALYSIS_SYSTEM_PROMPT` updated
+- [ ] Button styling consistent with secondary action patterns in the app
+
+### FOO-640: Analyze Food button looks disabled even with content entered
+
+**Priority:** Low
+**Labels:** Improvement
+**Description:** The "Analyze Food" button (`food-analyzer.tsx:636-642`) uses the default Button variant. The enabled vs disabled visual distinction relies solely on `disabled:opacity-50`, which is subtle. The enabled state should be more prominent.
+
+**Acceptance Criteria:**
+- [ ] Enabled Analyze Food button clearly distinct from disabled state
+- [ ] Primary action button styling consistent with other primary buttons in the app
 
 ## Prerequisites
 
-- [ ] On `main` branch with clean working tree
-- [ ] `npm test` passes
-- [ ] `npm run build` passes
+- [ ] All existing tests pass (`npm test`)
+- [ ] Clean working tree on feature branch
 
 ## Implementation Tasks
 
-### Task 1: Add aria-expanded to meal breakdown headers
+### Task 1: Remove Log ID from confirmation screen
 
-**Issue:** FOO-612
+**Issue:** FOO-635
 **Files:**
-- `src/components/meal-breakdown.tsx` (modify)
-- `src/components/__tests__/meal-breakdown.test.tsx` (modify)
+- `src/components/food-log-confirmation.tsx` (modify)
+- `src/components/__tests__/food-log-confirmation.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add test: render a meal, verify the header button has `aria-expanded="false"`, click it, verify it becomes `aria-expanded="true"`.
-   - Run: `npx vitest run meal-breakdown`
+1. **RED** — Update existing test `"displays fitbitLogId"` (line 86-95) to assert that the Log ID is NOT displayed. The test currently asserts `screen.getByText(/67890/)` — change it to assert `screen.queryByText(/Log ID/)` returns null.
+   - Run: `npm test -- food-log-confirmation`
+   - Verify: Test fails because Log ID is still rendered.
 
-2. **GREEN** — Add `aria-expanded={isExpanded}` to the `<button>` element at line 55.
-   - Run: `npx vitest run meal-breakdown`
+2. **GREEN** — Remove the conditional `{response.fitbitLogId != null && (...)}` block at lines 60-62 of `food-log-confirmation.tsx`.
+   - Run: `npm test -- food-log-confirmation`
+   - Verify: Test passes.
 
-**Notes:** Reference the existing `data-testid={`meal-header-${meal.mealTypeId}`}` for querying the button in tests.
+3. **REFACTOR** — No refactoring needed; this is a simple removal.
 
-### Task 2: Remove incorrect tablist ARIA roles from segmented controls
+**Notes:**
+- The existing test at line 86 (`"displays fitbitLogId"`) should be renamed to something like `"does not display fitbitLogId"` to reflect the new behavior.
 
-**Issue:** FOO-613
+---
+
+### Task 2: Remove back arrow from Settings page
+
+**Issue:** FOO-629
 **Files:**
-- `src/components/dashboard-shell.tsx` (modify)
+- `src/components/settings-content.tsx` (modify)
+- `src/components/__tests__/settings-content.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Add a test asserting that no back arrow link exists. Use `screen.queryByLabelText("Back to Food Scanner")` and assert it returns null. Also check that the h1 "Settings" is still rendered without the link wrapper.
+   - Run: `npm test -- settings-content`
+   - Verify: Test fails because the back arrow link exists.
+
+2. **GREEN** — Remove the `<Button asChild variant="ghost" size="icon">` wrapping the `<Link href="/app">` with `<ArrowLeft>` at lines 113-117 of `settings-content.tsx`. Keep the `<h1>Settings</h1>` heading. Remove the `ArrowLeft` import if unused.
+   - Run: `npm test -- settings-content`
+   - Verify: Test passes.
+
+3. **REFACTOR** — The heading's container `<div className="flex items-center gap-2">` may need adjustment since it was flexed to align the arrow with the heading. Simplify to just `<h1>` if the flex wrapper is no longer needed.
+
+**Notes:**
+- Compare with other root pages (Home at `src/app/app/page.tsx:22`, Analyze at `src/app/app/analyze/page.tsx:25`, Quick Select at `src/app/app/quick-select/page.tsx:17`) — they all use `<h1 className="text-2xl font-bold">`.
+
+---
+
+### Task 3: Standardize tab/segmented-control border-radius
+
+**Issue:** FOO-621
+**Files:**
 - `src/components/quick-select.tsx` (modify)
-- `src/components/weekly-nutrition-chart.tsx` (modify)
-- `src/components/__tests__/dashboard-shell.test.tsx` (modify)
-- `src/components/__tests__/weekly-nutrition-chart.test.tsx` (modify)
+- `src/components/__tests__/quick-select.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update existing tests that query by `role("tab")` or `role("tablist")` to use alternative selectors (testid or text content). Tests will fail because the roles still exist in the components.
-   - Actually: since we're removing roles, tests querying by role will break after the change. So update tests AND component simultaneously.
-   - Run: `npx vitest run dashboard-shell weekly-nutrition`
+1. **RED** — Add tests for the Quick Select tab buttons asserting they use `rounded-full` class (matching the dashboard shell pattern). Query for the tab buttons by their `aria-pressed` attribute or id (`tab-suggested`, `tab-recent`) and assert `.toHaveClass("rounded-full")`.
+   - Run: `npm test -- quick-select`
+   - Verify: Tests fail because buttons currently use `rounded-lg`.
 
-2. **GREEN** — In all three components:
-   - Remove `role="tablist"` from container divs
-   - Remove `role="tab"` and `aria-selected` from buttons
-   - Keep `aria-controls` on buttons (panel association is still useful)
-   - Run: `npx vitest run dashboard-shell weekly-nutrition quick-select`
+2. **GREEN** — In `quick-select.tsx`, change the tab buttons' className from `rounded-lg` to `rounded-full` (lines 295, 308). Also wrap the tab bar in a container matching the dashboard shell pattern: `<div className="flex gap-1 p-1 bg-muted rounded-full">` instead of the current `<div className="flex gap-2">`.
+   - Run: `npm test -- quick-select`
+   - Verify: Tests pass.
 
-**Notes:** `quick-select.tsx` also has `id="tab-suggested"` / `id="tab-recent"` — these can stay (they're valid HTML), but the `role="tab"` must go. The `weekly-nutrition-chart.tsx` has the metric selector tabs — same treatment.
+3. **REFACTOR** — Verify the inactive tab styling matches dashboard-shell's pattern. Dashboard shell uses `text-muted-foreground hover:text-foreground` for inactive state vs quick-select which uses `bg-muted text-muted-foreground`. With the new `p-1 bg-muted rounded-full` wrapper, the inactive tab should NOT have its own `bg-muted` (the container provides it). Update inactive tab styling to match: remove `bg-muted` from inactive state, add `hover:text-foreground`.
 
-### Task 3: Add accessible representations to data visualizations
+**Notes:**
+- Reference: `src/components/dashboard-shell.tsx:16-41` for the target segmented control pattern.
+- The active state uses `bg-primary text-primary-foreground` in both components — this is already consistent.
+- Add `px-4 py-2` to the tab buttons to match dashboard-shell sizing (currently the tabs only have `min-h-[44px]` for touch target).
 
-**Issue:** FOO-614
+---
+
+### Task 4: Normalize home page action card visual weight
+
+**Issue:** FOO-622
 **Files:**
-- `src/components/macro-bars.tsx` (modify)
-- `src/components/__tests__/macro-bars.test.tsx` (modify)
-- `src/components/calorie-ring.tsx` (modify)
-- `src/components/__tests__/calorie-ring.test.tsx` (modify)
-- `src/components/weekly-nutrition-chart.tsx` (modify)
-- `src/components/__tests__/weekly-nutrition-chart.test.tsx` (modify)
+- `src/app/app/page.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Macro bars: add test asserting each bar has `role="progressbar"`, `aria-valuenow`, `aria-valuemin`, `aria-valuemax`, and `aria-label` containing the macro name and values.
-   - Run: `npx vitest run macro-bars`
+1. **RED** — This is a styling-only change on a Server Component. The existing page uses consistent Link elements but with different padding/icon classes. Since this is purely visual, write a test (or update existing if present) that verifies all three action cards use the same structural classes. The test approach: render the page, query by link href, and assert consistent class patterns on the icon elements.
+   - However, since `app/page.tsx` is a Server Component with async getSession(), testing it directly requires mocking. Instead, verify via the component structure.
+   - This task can rely on visual verification + existing E2E screenshots.
 
-2. **GREEN** — Add ARIA attributes to the inner progress div (line 98-102 of `macro-bars.tsx`): `role="progressbar"`, `aria-valuenow={macro.percent}`, `aria-valuemin={0}`, `aria-valuemax={100}`, `aria-label={`${macro.name}: ${macro.label}`}`.
-   - Run: `npx vitest run macro-bars`
+2. **GREEN** — Unify all three action cards to the same padding and icon size. Make the Chat card match the primary cards: change `p-3` to `p-4` and `h-6 w-6` to `h-8 w-8`. Since Chat is full-width (not in the grid), give it `flex-row` layout (horizontal icon + text) instead of `flex-col` to differentiate it visually while keeping consistent sizing. This provides intentional hierarchy: primary actions (grid, vertical, prominent) vs secondary action (full-width, horizontal, inline).
+   - Update at `src/app/app/page.tsx:43-49`: change padding to `p-4`, icon to `h-8 w-8`.
 
-3. **RED** — Calorie ring: add test asserting the SVG has `aria-hidden="true"` and a visually-hidden span exists with the calorie text.
-   - Run: `npx vitest run calorie-ring`
+3. **REFACTOR** — Ensure the Chat card's horizontal layout feels balanced. It should have the same `shadow-sm` and `rounded-xl border bg-card` pattern.
 
-4. **GREEN** — Add `aria-hidden="true"` to the `<svg>` element. Add a `<span className="sr-only">` inside the container with text like `${calories} of ${goal} calories`.
-   - Run: `npx vitest run calorie-ring`
+**Notes:**
+- The current layout: 2-column grid for Take Photo + Quick Select, then full-width Chat below. Keep this structure — it already provides hierarchy.
+- The fix normalizes icon/padding sizes while the layout (grid vs full-width) provides the visual distinction.
 
-5. **RED** — Weekly chart: add test asserting the chart container has an `aria-label`.
-   - Run: `npx vitest run weekly-nutrition-chart`
+---
 
-6. **GREEN** — Add `aria-label={`Weekly ${selectedMetric} chart`}` to the chart container div (the one with `id="panel-metric"`).
-   - Run: `npx vitest run weekly-nutrition-chart`
+### Task 5: Improve Analyze Food button enabled state contrast
 
-### Task 4: Fix confidence badge garbled accessible name
-
-**Issue:** FOO-615
+**Issue:** FOO-640
 **Files:**
-- `src/components/confidence-badge.tsx` (modify)
-- `src/components/__tests__/confidence-badge.test.tsx` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add test: render badge with confidence="high", verify the indicator div does NOT have an `aria-label` attribute.
-   - Run: `npx vitest run confidence-badge`
+1. **RED** — Add a test that verifies the Analyze Food button has `data-variant="default"` when enabled (it should already have this since the Button component sets it). Also add a test that the button does NOT have any additional opacity class when enabled. The real fix is visual — ensure the button renders with the primary variant styling.
+   - Run: `npm test -- food-analyzer`
+   - Verify: Test may already pass for variant check.
 
-2. **GREEN** — Remove `aria-label={`Confidence: ${confidence}`}` from the `<div>` at line 39-43.
-   - Run: `npx vitest run confidence-badge`
+2. **GREEN** — The button at line 636-642 already uses the default variant. The issue is that the default variant's visual weight relies on the `bg-primary` color, and `disabled:opacity-50` is the only distinction. To make the enabled state more prominent and the disabled state more clearly inactive, add explicit `data-variant="default"` attribute and add a subtle shadow class (e.g., `shadow-sm`) to the enabled button to make it pop. The disabled state inherits `disabled:opacity-50` from the base button styles, which combined with no shadow gives good distinction.
+   - Modify the Button at line 636: add `shadow-sm` to the className — `className="w-full min-h-[44px] shadow-sm"`.
+   - Also ensure `data-variant="default"` is set (the Button component does this automatically, no change needed).
 
-**Notes:** The existing icon has `aria-hidden="true"`, so the accessible name will come from the `<span>` text ("high", "medium", "low") which is sufficient.
+3. **REFACTOR** — Verify the button looks consistent with other primary action buttons (e.g., "Log to Fitbit" in quick-select.tsx at line 260-266). If "Log to Fitbit" doesn't have shadow-sm, add it there too for consistency.
 
-### Task 5: Replace hardcoded amber color with semantic token
+**Notes:**
+- The core issue is that `disabled:opacity-50` on a dark button makes it look gray, and without additional visual cues (shadow, etc.) the enabled/disabled states are hard to distinguish on mobile.
+- A `shadow-sm` addition gives the enabled button slight elevation, making it feel more interactive.
+- Also check if there's a `data-variant` attribute being used in tests — the Button component already outputs this.
 
-**Issue:** FOO-617
+---
+
+### Task 6: Make Lumen goals button full-width secondary
+
+**Issue:** FOO-638
 **Files:**
-- `src/components/food-chat.tsx` (modify)
-- `src/components/__tests__/food-chat.test.tsx` (modify)
+- `src/components/daily-dashboard.tsx` (modify)
+- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add or update test for the compression warning element: verify it does NOT contain `text-amber-600` class, and instead uses the semantic warning class.
-   - Run: `npx vitest run food-chat`
+1. **RED** — Add a test querying the "Update Lumen goals" button and asserting it has `w-full` class. Currently the button is centered in a `flex flex-col items-center` container and has `size="sm"`.
+   - Run: `npm test -- daily-dashboard`
+   - Verify: Test fails because button lacks `w-full`.
 
-2. **GREEN** — Replace `text-amber-600 dark:text-amber-400` with `text-warning` (or `text-muted-foreground` if warning text color doesn't exist as a standalone token — check `globals.css` for available warning tokens).
-   - Run: `npx vitest run food-chat`
+2. **GREEN** — In `daily-dashboard.tsx` at lines 279-297:
+   - Change the container from `<div className="flex flex-col items-center gap-2">` to `<div className="flex flex-col gap-2">` (remove centering).
+   - Change the button: remove `size="sm"`, add `w-full` to className, keep `variant="secondary"`.
+   - Result: `<Button variant="secondary" onClick={handleUpdateLumenGoals} disabled={isUploadingLumen} className="w-full min-h-[44px]">`.
+   - Run: `npm test -- daily-dashboard`
+   - Verify: Test passes.
 
-**Notes:** Check which warning semantic tokens are available in the design system. The `text-warning` class maps to `hsl(var(--warning))` which should be the amber/yellow color with proper contrast.
+3. **REFACTOR** — Verify the error message `{lumenUploadError && ...}` still renders correctly without the centering container.
 
-### Task 6: Fix chat photo menu button touch targets
+**Notes:**
+- Reference other secondary/outline full-width buttons: "Reconnect Fitbit" in settings at `settings-content.tsx:150` uses `variant="outline" className="w-full"`.
+- The button should be outlined or secondary, full-width, matching the app's action button hierarchy.
 
-**Issue:** FOO-620
+---
+
+### Task 7: Improve food history layout and macro readability
+
+**Issue:** FOO-628
 **Files:**
-- `src/components/food-chat.tsx` (modify)
-- `src/components/__tests__/food-chat.test.tsx` (modify)
+- `src/components/food-history.tsx` (modify)
+- `src/components/__tests__/food-history.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add test: render food-chat, open photo menu, verify Camera and Gallery buttons have `min-h-[44px]` class (or use a more semantic assertion).
-   - Run: `npx vitest run food-chat`
+1. **RED** — Write tests for the improved layout:
+   - Test that the food name does NOT have the `truncate` class (allowing it to wrap).
+   - Test that the date header renders calories and macros in a readable format — instead of the dense `P:30.0g C:45.0g F:12.0g` format, use a more spaced format like `P: 30g · C: 45g · F: 12g` or render macros on a separate line.
+   - Run: `npm test -- food-history`
+   - Verify: Tests fail.
 
-2. **GREEN** — Change both `min-h-[36px]` to `min-h-[44px]` at lines 748 and 760 of `food-chat.tsx`.
-   - Run: `npx vitest run food-chat`
+2. **GREEN** — In `food-history.tsx`:
 
-### Task 7: Fix dark mode error banner contrast
+   **Food entry row (lines 328-341):**
+   - Remove `truncate` class from the food name `<p>` at line 330. Allow the name to wrap naturally to a second line. Keep `font-medium` on the name.
+   - Move the calorie display to be on its own line or reduce its visual weight so it doesn't compress the name. Currently the right column (`shrink-0 ml-2`) takes horizontal space. Consider: keep the layout but remove `truncate` and let `min-w-0` handle natural wrapping.
 
-**Issue:** FOO-630
+   **Date header (lines 309-313):**
+   - Break the dense macro summary into a more readable format. Instead of all on one line after the date, render:
+     - Line 1: date heading + total calories (e.g., "Today" on left, "420 cal" on right)
+     - Line 2: macros in a spaced, readable format below (e.g., "P: 30g · C: 45g · F: 12g" in `text-xs text-muted-foreground`)
+   - This splits the dense single-line summary into a scannable two-line header.
+
+   - Run: `npm test -- food-history`
+   - Verify: Tests pass.
+
+3. **REFACTOR** — Ensure the entry row layout handles long food names gracefully (e.g., "Grilled Chicken Breast with Vegetables and Rice" should wrap to 2 lines without breaking the calorie/macro column alignment). Round macro values to integers in the date header for cleaner display (use `Math.round()` instead of `.toFixed(1)`).
+
+**Notes:**
+- Currently: `{Math.round(group.totalCalories)} cal | P:{group.totalProteinG.toFixed(1)}g C:{group.totalCarbsG.toFixed(1)}g F:{group.totalFatG.toFixed(1)}g`
+- Target: split into two lines — calories on the header line, macros below.
+- For the entry rows: macros at `text-xs` on the right side are fine, just ensure the food name can wrap.
+
+---
+
+### Task 8: Standardize food detail heading pattern
+
+**Issue:** FOO-632
 **Files:**
-- `src/components/food-chat.tsx` (modify)
+- `src/components/quick-select.tsx` (modify)
+- `src/components/__tests__/quick-select.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **GREEN** — Increase the dark mode background opacity for better contrast. Change `bg-destructive/10` to `bg-destructive/10 dark:bg-destructive/20` at line 656. This doubles the background tint in dark mode, improving the text/background contrast ratio.
-   - Run: `npx vitest run food-chat`
+1. **RED** — When a food is selected in Quick Select (detail/confirm view), the component should render the food name as a heading element. Add a test that when a food is selected, an `<h2>` with the food name is rendered. Currently the food name only appears inside the NutritionFactsCard.
+   - Run: `npm test -- quick-select`
+   - Verify: Test fails because no heading with the food name exists in the detail view.
 
-**Notes:** This is a visual fix. The exact opacity may need visual verification. `dark:bg-destructive/20` is a reasonable starting point — the implementer should visually confirm in browser dark mode.
+2. **GREEN** — In `quick-select.tsx`, in the detail/confirm view (lines 208-268):
+   - After the "Back" button and before the NutritionFactsCard, add a heading with the food name: `<h2 className="text-2xl font-bold">{selectedFood.foodName}</h2>`.
+   - This matches the food-detail component pattern at `food-detail.tsx:99` which uses `<h1 className="text-2xl font-bold">{data.foodName}</h1>`.
+   - Use `<h2>` because the page's `<h1>` is "Quick Select" (from `quick-select/page.tsx:17`). In food-detail, the food name is `<h1>` because there's no other heading on the page.
+   - Run: `npm test -- quick-select`
+   - Verify: Test passes.
 
-### Task 8: Add prefers-reduced-motion override for tw-animate-css
+3. **REFACTOR** — Verify the heading spacing works well with the NutritionFactsCard below it. The `space-y-4` on the parent div should provide adequate spacing.
 
-**Issue:** FOO-637
-**Files:**
-- `src/app/globals.css` (modify)
+**Notes:**
+- The goal is NOT to make both views identical — Quick Select detail is a pre-log confirmation (with meal selector + Log button), while Food Detail is a historical view. The heading pattern should be consistent though: food name visible as a heading in both contexts.
+- Keep the "Back" ghost button pattern consistent across both views (both already use `<Button variant="ghost">` with `<ArrowLeft>`).
 
-**TDD Steps:**
+---
 
-1. **GREEN** — Add the following CSS block after the existing `prefers-reduced-motion` block at line 185 of `globals.css`:
-   - A `@media (prefers-reduced-motion: reduce)` rule targeting `[data-state]` elements (Radix UI convention)
-   - Set `animation-duration: 0.01ms !important`, `animation-iteration-count: 1 !important`, `transition-duration: 0.01ms !important`
-   - Using `0.01ms` instead of `none` to avoid breaking Radix `animationend` event handlers
-   - Run: `npm run build` (CSS changes don't need unit tests — verify via build)
+### Task 9: Integration & Verification
 
-**Notes:** This is a CSS-only change. The `[data-state]` selector targets all Radix UI components that use state-driven animations.
-
-### Task 9: Lazy load react-markdown via next/dynamic
-
-**Issue:** FOO-623
-**Files:**
-- `src/components/food-chat.tsx` (modify)
-- `src/components/__tests__/food-chat.test.tsx` (modify)
-- `src/components/__tests__/chat-markdown.test.tsx` (verify still passes)
-
-**TDD Steps:**
-
-1. **GREEN** — In `food-chat.tsx`, replace the static import of `ChatMarkdown` with `next/dynamic`:
-   - `const ChatMarkdown = dynamic(() => import('./chat-markdown').then(m => ({ default: m.ChatMarkdown })), { ssr: false, loading: () => <fallback> })`
-   - Use a simple text skeleton as fallback
-   - Run: `npx vitest run food-chat chat-markdown`
-
-**Notes:** The `ChatMarkdown` component is a named export, so the dynamic import needs the `.then()` wrapper to convert to default export. `ssr: false` is correct since markdown content only appears after client-side AI interaction. The `chat-markdown.tsx` file itself stays unchanged — only the import site changes.
-
-### Task 10: Expand dashboard prefetch to all endpoints
-
-**Issue:** FOO-624
-**Files:**
-- `src/components/dashboard-prefetch.tsx` (modify)
-- `src/components/__tests__/dashboard-prefetch.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update test to verify `preload` is called for all expected endpoints: `nutrition-summary`, `nutrition-goals`, `lumen-goals`, `earliest-entry` (in addition to existing `common-foods` and `food-history`). The date-specific endpoints should use today's date.
-   - Run: `npx vitest run dashboard-prefetch`
-
-2. **GREEN** — Import `getTodayDate` from `@/lib/date-utils`. Add preload calls for:
-   - `/api/nutrition-summary?date=${today}`
-   - `/api/nutrition-goals?clientDate=${today}`
-   - `/api/lumen-goals?date=${today}`
-   - `/api/earliest-entry`
-   - Run: `npx vitest run dashboard-prefetch`
-
-**Notes:** The SWR keys must exactly match what the dashboard components request. `DailyDashboard` initializes `selectedDate` with `getTodayDate()`, so using the same function ensures key match. Weekly endpoints (`nutrition-range`, `fasting`) have more complex keys — prefetch the simpler daily ones first as they're the default view.
-
-### Task 11: Add useTransition to dashboard shell tab switch
-
-**Issue:** FOO-626
-**Files:**
-- `src/components/dashboard-shell.tsx` (modify)
-- `src/components/__tests__/dashboard-shell.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add test: verify that switching tabs still renders the correct dashboard (Daily vs Weekly). This should already be covered, so the test may just need a check that `isPending` state is handled.
-   - Run: `npx vitest run dashboard-shell`
-
-2. **GREEN** — Import `useTransition` from React. Wrap the `setView()` calls in `startTransition()`. Optionally add a subtle opacity reduction on the panel div when `isPending` is true.
-   - Run: `npx vitest run dashboard-shell`
-
-### Task 12: PWA manifest improvements
-
-**Issue:** FOO-636
-**Files:**
-- `public/manifest.json` (modify)
-- `src/app/layout.tsx` (modify)
-
-**TDD Steps:**
-
-1. **GREEN** — In `manifest.json`:
-   - Add `"purpose": "any maskable"` to both icon entries
-   - Run: `npm run build` (manifest is static, no unit test needed)
-
-2. **GREEN** — In `src/app/layout.tsx`, add two `<meta name="theme-color">` tags in the `<head>`:
-   - One with `media="(prefers-color-scheme: light)"` and `content` matching the light background color
-   - One with `media="(prefers-color-scheme: dark)"` and `content` matching the dark background color
-   - Check `globals.css` for the actual `--background` HSL values in light and dark modes
-   - Run: `npm run build`
-
-**Notes:** The manifest.json `theme_color` remains as a fallback for browsers that don't support the meta tag. The meta tags take precedence and support dark mode.
-
-### Task 13: Add system prompt rule to avoid redundant food log re-searches
-
-**Issue:** FOO-646
-**Files:**
-- `src/lib/claude.ts` (modify)
-
-**TDD Steps:**
-
-1. **GREEN** — Add a rule to both `CHAT_SYSTEM_PROMPT` and `ANALYSIS_SYSTEM_PROMPT`:
-   - Something like: "Do not re-search for food data that is already present in the conversation from a previous tool call. If search_food_log already returned a food's nutritional data in an earlier turn, use that data directly instead of searching again."
-   - Place it near the other tool usage rules
-   - Run: `npm run build` (prompt changes don't need unit tests)
-
-**Notes:** This is a prompt engineering fix only. No code logic changes. The existing tests for claude.ts should still pass since they test the function behavior, not prompt content.
-
-### Task 14: Integration & Verification
-
-**Issue:** All
-**Files:** Various from previous tasks
+**Issues:** FOO-621, FOO-622, FOO-628, FOO-629, FOO-632, FOO-635, FOO-638, FOO-640
+**Files:** Various files from previous tasks
 
 **Steps:**
 
@@ -399,251 +326,272 @@ Fix 8 bugs (mostly accessibility) and 5 performance issues across the app. All c
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
+5. Manual verification checklist:
+   - [ ] Settings page has no back arrow, heading matches other root pages
+   - [ ] Quick Select tabs use rounded-full pill style matching Dashboard Daily/Weekly toggle
+   - [ ] Home page action cards have consistent icon sizes and padding
+   - [ ] Analyze Food button is visually prominent when enabled, clearly dimmed when disabled
+   - [ ] Update Lumen goals button is full-width secondary style
+   - [ ] Food history: food names wrap instead of truncating, date header has readable macro layout
+   - [ ] Quick Select detail view shows food name as heading above nutrition card
+   - [ ] Success screen after logging food does NOT show a Log ID
 
-## Worker Partitioning
+## MCP Usage During Implementation
 
-The 13 issues partition cleanly into 3 independent domains with zero shared files:
-
-| Worker | Domain | Issues | Files |
-|--------|--------|--------|-------|
-| 1 | Accessibility | FOO-612, 613, 614, 615 | meal-breakdown, dashboard-shell, quick-select, weekly-nutrition-chart, macro-bars, calorie-ring, confidence-badge + tests |
-| 2 | Visual/CSS | FOO-617, 620, 630, 637 | food-chat, globals.css + tests |
-| 3 | Performance | FOO-623, 624, 626, 636, 646 | food-chat (dynamic import only), dashboard-prefetch, dashboard-shell, manifest.json, layout.tsx, claude.ts + tests |
-
-**Conflict note:** Worker 2 and Worker 3 both touch `food-chat.tsx`, but in completely different sections (Worker 2: lines 725, 748, 760, 656 for CSS classes; Worker 3: imports section for dynamic import). Also Worker 1 and Worker 3 both touch `dashboard-shell.tsx` (Worker 1: removing ARIA roles; Worker 3: adding useTransition) and `weekly-nutrition-chart.tsx` (Worker 1: removing ARIA roles + adding chart aria-label; Worker 3: none actually). Lead merges sequentially to resolve.
+| MCP Server | Tool | Purpose |
+|------------|------|---------|
+| Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
 
 ## Error Handling
 
-| Error Scenario | Expected Behavior | Test Coverage |
-|---------------|-------------------|---------------|
-| ChatMarkdown dynamic import fails | Fallback UI shown | Unit test for fallback |
-| SWR prefetch fails | Silent — dashboard fetches normally | Existing SWR error handling |
-| Missing semantic CSS token | Build fails with unknown class | Build check |
+No new error handling is needed — all tasks are UI styling/layout changes to existing components.
 
 ## Risks & Open Questions
 
-- [ ] FOO-617: Need to verify which warning semantic token exists (`text-warning` vs `text-warning-foreground` vs something else). Check `globals.css` theme variables.
-- [ ] FOO-630: Exact opacity value for dark mode error banner needs visual verification. Starting with `dark:bg-destructive/20`.
-- [ ] FOO-636: Maskable icons ideally need a safe zone (inner 80% circle). Using `"purpose": "any maskable"` on existing icons is a pragmatic first step — icons may display slightly cropped on some Android launchers.
-- [ ] FOO-623: Dynamic import may cause a brief flash when ChatMarkdown first loads. The loading fallback should be minimal (small skeleton or empty div).
+- [ ] **Quick Select tab wrapper change (Task 3):** Adding the `p-1 bg-muted rounded-full` wrapper changes the visual appearance significantly. Verify the active/inactive contrast works well in both light and dark modes.
+- [ ] **Food name wrapping (Task 7):** Removing `truncate` allows long food names to wrap. Verify this doesn't break the row layout when names are 3+ lines long.
+- [ ] **Chat card layout change (Task 4):** Switching to horizontal layout changes the card's feel. Verify it still looks intentional on mobile widths.
 
 ## Scope Boundaries
 
 **In Scope:**
-- All 13 listed issues (8 bugs + 5 performance)
-- Unit test updates for changed components
-- Build verification
+- UI consistency fixes across 8 components
+- Test updates for changed behavior
+- Visual hierarchy improvements
 
 **Out of Scope:**
-- Full keyboard navigation for tab-like controls (FOO-613 removes misleading roles; adding proper keyboard support would be a separate feature)
-- Creating dedicated maskable icon assets (using "any maskable" purpose as pragmatic fix)
-- Comprehensive performance profiling or bundle size measurement
-- Other backlog issues (Improvement label items: FOO-619, 621, 622, 628, 629, 631, 632, 635, 638, 640)
+- No new features or functionality
+- No API changes
+- No database changes
+- No routing changes
 
 ---
 
 ## Iteration 1
 
-**Implemented:** 2026-02-18
+**Implemented:** 2026-02-19
 **Method:** Agent team (3 workers, worktree-isolated)
 
 ### Tasks Completed This Iteration
-- Task 1: Add aria-expanded to meal breakdown headers (FOO-612) — worker-1
-- Task 2: Remove incorrect tablist ARIA roles from segmented controls (FOO-613) — worker-1
-- Task 3: Add accessible representations to data visualizations (FOO-614) — worker-1
-- Task 4: Fix confidence badge garbled accessible name (FOO-615) — worker-1
-- Task 5: Replace hardcoded amber color with semantic token (FOO-617) — worker-2
-- Task 6: Fix chat photo menu button touch targets (FOO-620) — worker-2
-- Task 7: Fix dark mode error banner contrast (FOO-630) — worker-2
-- Task 8: Add prefers-reduced-motion override for tw-animate-css (FOO-637) — worker-2
-- Task 9: Lazy load react-markdown via next/dynamic (FOO-623) — worker-3
-- Task 10: Expand dashboard prefetch to all endpoints (FOO-624) — worker-3
-- Task 11: Add useTransition to dashboard shell tab switch (FOO-626) — worker-3
-- Task 12: PWA manifest improvements (FOO-636) — worker-3
-- Task 13: Add system prompt rule to avoid redundant food log re-searches (FOO-646) — worker-3
+- Task 1: Remove Log ID from confirmation screen - Removed fitbitLogId display block, updated test (worker-1)
+- Task 2: Remove back arrow from Settings page - Removed ArrowLeft/Link/Button, simplified heading, updated tests (worker-1)
+- Task 3: Standardize tab/segmented-control border-radius - Changed to rounded-full pill style matching dashboard-shell, updated tab container and inactive styling (worker-2)
+- Task 4: Normalize home page action card visual weight - Unified Chat card padding/icon size to match primary cards (worker-1)
+- Task 5: Improve Analyze Food button enabled state contrast - Added shadow-sm to enabled button (worker-3)
+- Task 6: Make Lumen goals button full-width secondary - Removed centering, removed size="sm", added w-full (worker-3)
+- Task 7: Improve food history layout and macro readability - Split date header into two lines (calories + macros with · separators), removed truncate from food names, rounded macros to integers (worker-3)
+- Task 8: Standardize food detail heading pattern - Added h2 food name heading in Quick Select detail view (worker-2)
 
 ### Files Modified
-- `src/components/meal-breakdown.tsx` — Added aria-expanded to header buttons
-- `src/components/dashboard-shell.tsx` — Removed tablist roles, added useTransition, static panel id, aria-pressed
-- `src/components/quick-select.tsx` — Removed tablist/tab/tabpanel roles
-- `src/components/weekly-nutrition-chart.tsx` — Removed tablist roles, added chart aria-label
-- `src/components/macro-bars.tsx` — Added progressbar role and ARIA attributes
-- `src/components/calorie-ring.tsx` — Added aria-hidden to SVG, sr-only text with formatted numbers
-- `src/components/confidence-badge.tsx` — Removed duplicate aria-label from indicator div
-- `src/components/food-chat.tsx` — Semantic warning color, 44px touch targets, dark mode contrast, dynamic ChatMarkdown import
-- `src/components/dashboard-prefetch.tsx` — Added 4 new endpoint prefetches
-- `src/app/globals.css` — Added prefers-reduced-motion override for tw-animate-css
-- `public/manifest.json` — Added maskable icon purpose
-- `src/lib/claude.ts` — Added redundant re-search prevention rule to system prompts
-- `src/components/__tests__/*.test.tsx` — Updated tests for all changes (8 test files)
-- `src/components/__tests__/analysis-result.test.tsx` — Updated for removed confidence aria-label
+- `src/components/food-log-confirmation.tsx` - Removed Log ID display
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Updated test to assert Log ID not shown
+- `src/components/settings-content.tsx` - Removed back arrow, simplified heading
+- `src/components/__tests__/settings-content.test.tsx` - Updated test to assert no back arrow
+- `src/app/settings/__tests__/page.test.tsx` - Updated page-level test for back arrow removal
+- `src/app/app/page.tsx` - Unified Chat card padding/icon sizes
+- `src/components/quick-select.tsx` - Rounded-full tabs, food name heading in detail view
+- `src/components/__tests__/quick-select.test.tsx` - Updated tab tests, added heading test
+- `src/components/food-analyzer.tsx` - Added shadow-sm to Analyze button
+- `src/components/__tests__/food-analyzer.test.tsx` - Added shadow-sm assertion
+- `src/components/daily-dashboard.tsx` - Full-width Lumen goals button
+- `src/components/__tests__/daily-dashboard.test.tsx` - Added w-full assertion
+- `src/components/food-history.tsx` - Two-line date header, removed truncate
+- `src/components/__tests__/food-history.test.tsx` - Updated macro format tests, added layout tests
 
 ### Linear Updates
-- FOO-612: Todo → In Progress → Review
-- FOO-613: Todo → In Progress → Review
-- FOO-614: Todo → In Progress → Review
-- FOO-615: Todo → In Progress → Review
-- FOO-617: Todo → In Progress → Review
-- FOO-620: Todo → In Progress → Review
-- FOO-623: Todo → In Progress → Review
-- FOO-624: Todo → In Progress → Review
-- FOO-626: Todo → In Progress → Review
-- FOO-630: Todo → In Progress → Review
-- FOO-636: Todo → In Progress → Review
-- FOO-637: Todo → In Progress → Review
-- FOO-646: Todo → In Progress → Review
+- FOO-621: Todo → In Progress → Review
+- FOO-622: Todo → In Progress → Review
+- FOO-628: Todo → In Progress → Review
+- FOO-629: Todo → In Progress → Review
+- FOO-632: Todo → In Progress → Review
+- FOO-635: Todo → In Progress → Review
+- FOO-638: Todo → In Progress → Review
+- FOO-640: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 5 bugs (2 HIGH, 3 MEDIUM), all fixed:
-  - text-warning → text-warning-foreground (contrast fix)
-  - Dashboard panel id made static (aria-controls validity)
-  - Orphaned role="tabpanel" removed from quick-select
-  - Calorie ring sr-only text uses formatted numbers
-  - Dashboard prefetch key verified matching DailyDashboard SWR key
-- Post-merge integration: 2 cross-worker conflicts fixed (dashboard-shell role→button query, analysis-result aria-label assertion)
-- verifier: All 2033 tests pass, zero lint warnings (main project), build clean
+- bug-hunter: Found 3 issues (stray blank line, fragile test assertion, vacuous test query), all fixed
+- verifier: All 2041 tests pass, zero warnings, build clean
 
 ### Work Partition
-- Worker 1 (Accessibility): Tasks 1-4 — meal-breakdown, dashboard-shell, quick-select, weekly-nutrition-chart, macro-bars, calorie-ring, confidence-badge
-- Worker 2 (Visual/CSS): Tasks 5-8 — food-chat, globals.css
-- Worker 3 (Performance): Tasks 9-13 — food-chat, dashboard-prefetch, dashboard-shell, manifest.json, claude.ts
+- Worker 1: Tasks 1, 2, 4 (isolated changes — confirmation, settings, home page)
+- Worker 2: Tasks 3, 8 (Quick Select domain — tabs, heading)
+- Worker 3: Tasks 5, 6, 7 (dashboard/analyzer — button styling, food history layout)
 
 ### Merge Summary
 - Worker 1: fast-forward (no conflicts)
-- Worker 2: merged cleanly, typecheck passed
-- Worker 3: auto-merged overlapping files (dashboard-shell, food-chat), typecheck passed
-
-### Continuation Status
-All tasks completed.
+- Worker 2: merged cleanly (no conflicts), typecheck passed
+- Worker 3: merged cleanly (no conflicts), typecheck passed
+- Post-merge: 2 test failures in page-level settings test (still expected removed back arrow), fixed
 
 ### Review Findings
 
-Summary: 8 findings from 3 reviewers (security, reliability, quality) — 4 FIX, 4 DISCARD
-- FIX: 4 issue(s) — Linear issues created in Todo
+Summary: 5 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 5 issue(s) — Linear issues created
 - DISCARDED: 4 finding(s) — false positives / not applicable
 
 **Issues requiring fix:**
-- [MEDIUM] BUG: Quick-select fetch has no timeout — button stuck in "Logging..." if server hangs (`src/components/quick-select.tsx:143`) — FOO-655
-- [MEDIUM] CONVENTION: Quick-select aria-controls references non-existent panel IDs (`src/components/quick-select.tsx:286,298`) — FOO-656
-- [LOW] CONVENTION: Quick-select uses raw `response.json()` instead of `safeResponseJson()` (`src/components/quick-select.tsx:153`) — FOO-657
-- [LOW] BUG: Meal breakdown sorts unrecognized meal types to top instead of bottom (`src/components/meal-breakdown.tsx:35-37`) — FOO-658
+- [MEDIUM] BUG: Optimistic update fires success side-effects (vibrateSuccess, invalidateFoodCaches) before API confirms (`src/components/food-analyzer.tsx:318-323, 396-401`) — FOO-661
+- [MEDIUM] TIMEOUT: Lumen goals upload fetch has no timeout — UI can get permanently stuck (`src/components/daily-dashboard.tsx:133-136`) — FOO-662
+- [MEDIUM] ASYNC: Race condition between Load More and Jump to Date — stale data appended to fresh results (`src/components/food-history.tsx:161-170, 217-222`) — FOO-663
+- [MEDIUM] BUG: SWR error state not handled in quick-select and settings-content — silent failures (`src/components/quick-select.tsx:90-93`, `src/components/settings-content.tsx:34-41`) — FOO-664
+- [LOW] EDGE CASE: Missing test for dryRun confirmation path (`src/components/__tests__/food-log-confirmation.test.tsx`) — FOO-665
 
 **Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: Prompt injection via initialAnalysis in system prompt (`src/lib/claude.ts:1320-1328`) — User already has direct conversational control over Claude; single-user with OAuth allowlist; initialAnalysis originates from user's own prior Claude response
-- [DISCARDED] BUG: validateFoodAnalysis accepts NaN (`src/lib/claude.ts:330-337`) — NaN cannot come from JSON.parse (no NaN literal in JSON spec); strict:true tool schema further prevents it; impossible in context
-- [DISCARDED] EDGE CASE: blobsToBase64 undefined if DataURL has no comma (`src/components/food-chat.tsx:218`) — readAsDataURL always produces `data:type;base64,DATA` format per browser spec; comma is guaranteed (duplicate finding from reliability + quality reviewers)
-- [DISCARDED] TYPE: Same as above — merged duplicate
+- [DISCARDED] CONVENTION: Button styling tests nested inside wrong describe block in food-log-confirmation test — style-only, zero correctness impact
+- [DISCARDED] CONVENTION: Hardcoded inline Tailwind instead of Button asChild in daily-dashboard empty state CTAs — style preference, not enforced by CLAUDE.md
+- [DISCARDED] CONVENTION: SessionInfo/CredentialsInfo interfaces defined locally in settings-content.tsx instead of src/types/ — structural improvement, not causing drift now
+- [DISCARDED] TYPE: `as { ... }` type assertions on safeResponseJson results without full runtime validation — code checks .success field before accessing typed properties, providing adequate runtime guard
 
 ### Linear Updates
-- FOO-612: Review → Merge
-- FOO-613: Review → Merge
-- FOO-614: Review → Merge
-- FOO-615: Review → Merge
-- FOO-617: Review → Merge
-- FOO-620: Review → Merge
-- FOO-623: Review → Merge
-- FOO-624: Review → Merge
-- FOO-626: Review → Merge
-- FOO-630: Review → Merge
-- FOO-636: Review → Merge
-- FOO-637: Review → Merge
-- FOO-646: Review → Merge
-- FOO-655: Created in Todo (Fix: quick-select fetch timeout)
-- FOO-656: Created in Todo (Fix: quick-select aria-controls IDs)
-- FOO-657: Created in Todo (Fix: quick-select safeResponseJson)
-- FOO-658: Created in Todo (Fix: meal-breakdown sort order)
+- FOO-621: Review → Merge
+- FOO-622: Review → Merge
+- FOO-628: Review → Merge
+- FOO-629: Review → Merge
+- FOO-632: Review → Merge
+- FOO-635: Review → Merge
+- FOO-638: Review → Merge
+- FOO-640: Review → Merge
+- FOO-661: Created in Todo (Fix: optimistic update side-effects)
+- FOO-662: Created in Todo (Fix: missing timeout on Lumen upload)
+- FOO-663: Created in Todo (Fix: race condition Load More vs Jump to Date)
+- FOO-664: Created in Todo (Fix: SWR error handling)
+- FOO-665: Created in Todo (Fix: missing dryRun test)
 
 <!-- REVIEW COMPLETE -->
+
+### Continuation Status
+Fix Plan created — more implementation needed.
 
 ---
 
 ## Fix Plan
 
 **Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-655](https://linear.app/lw-claude/issue/FOO-655), [FOO-656](https://linear.app/lw-claude/issue/FOO-656), [FOO-657](https://linear.app/lw-claude/issue/FOO-657), [FOO-658](https://linear.app/lw-claude/issue/FOO-658)
+**Linear Issues:** [FOO-661](https://linear.app/lw-claude/issue/FOO-661), [FOO-662](https://linear.app/lw-claude/issue/FOO-662), [FOO-663](https://linear.app/lw-claude/issue/FOO-663), [FOO-664](https://linear.app/lw-claude/issue/FOO-664), [FOO-665](https://linear.app/lw-claude/issue/FOO-665)
 
-### Fix 1: Add AbortSignal timeout to quick-select fetch
-**Linear Issue:** [FOO-655](https://linear.app/lw-claude/issue/FOO-655)
+### Fix 1: Remove optimistic update pattern in food-analyzer
+**Linear Issue:** [FOO-661](https://linear.app/lw-claude/issue/FOO-661)
 
-1. Write test in `src/components/__tests__/quick-select.test.tsx` verifying the fetch call includes a signal option
-2. Add `signal: AbortSignal.timeout(15000)` to the fetch options at `src/components/quick-select.tsx:143`
+1. Write test in `src/components/__tests__/food-analyzer.test.tsx` verifying that `vibrateSuccess` is NOT called before the API response resolves
+2. Remove optimistic `setLogResponse(...)` before `fetch()` in `handleLogToFitbit` (line 318-323) — only set after API confirms success
+3. Apply same fix to `handleUseExisting` (line 396-401)
+4. Follow QuickSelect's pattern: "Only set response after API confirms success"
 
-### Fix 2: Fix aria-controls panel ID references in quick-select
-**Linear Issue:** [FOO-656](https://linear.app/lw-claude/issue/FOO-656)
+### Fix 2: Add timeout to Lumen goals upload
+**Linear Issue:** [FOO-662](https://linear.app/lw-claude/issue/FOO-662)
 
-1. Write test in `src/components/__tests__/quick-select.test.tsx` verifying the content panel has an `id` and buttons reference it via `aria-controls`
-2. Add `id="panel-quick-select"` to the content div at `src/components/quick-select.tsx:311`
-3. Update both `aria-controls` values (lines 286, 298) from `"panel-suggested"`/`"panel-recent"` to `"panel-quick-select"`
+1. Write test in `src/components/__tests__/daily-dashboard.test.tsx` verifying fetch is called with `AbortSignal.timeout(15000)`
+2. Add `signal: AbortSignal.timeout(15000)` to the fetch call at `daily-dashboard.tsx:133-136`
+3. Handle AbortError in catch block with user-friendly timeout message
 
-### Fix 3: Replace response.json() with safeResponseJson() in quick-select
-**Linear Issue:** [FOO-657](https://linear.app/lw-claude/issue/FOO-657)
+### Fix 3: Add request cancellation to food history
+**Linear Issue:** [FOO-663](https://linear.app/lw-claude/issue/FOO-663)
 
-1. Import `safeResponseJson` from `@/lib/swr` in `src/components/quick-select.tsx`
-2. Replace `response.json()` at line 153 with `safeResponseJson(response)`
+1. Write test in `src/components/__tests__/food-history.test.tsx` for concurrent Load More + Jump to Date — verify stale Load More result is discarded
+2. Add `useRef<AbortController>` to manage in-flight requests in `food-history.tsx`
+3. In `fetchEntries`, abort previous controller before creating new one
+4. Pass `controller.signal` to fetch calls
+5. In catch block, skip error handling for `AbortError` (intentional cancellation)
 
-### Fix 4: Fix meal breakdown sort for unrecognized meal types
-**Linear Issue:** [FOO-658](https://linear.app/lw-claude/issue/FOO-658)
+### Fix 4: Handle SWR error state in quick-select and settings-content
+**Linear Issue:** [FOO-664](https://linear.app/lw-claude/issue/FOO-664)
 
-1. Write test in `src/components/__tests__/meal-breakdown.test.tsx` with a meal that has an unrecognized `mealTypeId` (e.g., 99), verifying it sorts to the end
-2. Update sort comparator at `src/components/meal-breakdown.tsx:35-37` to map `-1` to `Infinity`
+1. Write tests in `src/components/__tests__/quick-select.test.tsx` and `src/components/__tests__/settings-content.test.tsx` verifying error message renders when SWR returns an error
+2. In `quick-select.tsx:90-93`: destructure `error` from `useSWR`, render error message in search results area
+3. In `settings-content.tsx:34-41`: destructure `error` from `useSWR`, render error message with retry option in credentials section
+
+### Fix 5: Add dryRun test for food-log-confirmation
+**Linear Issue:** [FOO-665](https://linear.app/lw-claude/issue/FOO-665)
+
+1. Add test case in `src/components/__tests__/food-log-confirmation.test.tsx` with `dryRun: true` in response prop
+2. Assert "Saved locally (Fitbit API skipped)" text is rendered
+3. Assert success vibration and cache invalidation still fire (dryRun is still a successful save)
 
 ---
 
 ## Iteration 2
 
-**Implemented:** 2026-02-18
-**Method:** Single-agent (4 S-size fixes, 2 independent units, effort score 4)
+**Implemented:** 2026-02-19
+**Method:** Agent team (3 workers, worktree-isolated)
 
 ### Tasks Completed This Iteration
-- Fix 1: Add AbortSignal timeout to quick-select fetch (FOO-655)
-- Fix 2: Fix aria-controls panel ID references in quick-select (FOO-656)
-- Fix 3: Replace response.json() with safeResponseJson() in quick-select (FOO-657)
-- Fix 4: Fix meal breakdown sort for unrecognized meal types (FOO-658)
+- Fix 1: Remove optimistic update pattern in food-analyzer - Removed optimistic `setLogResponse` from `handleLogToFitbit` and `handleUseExisting`, only set after API confirms success (worker-1)
+- Fix 2: Add timeout to Lumen goals upload - Added `AbortSignal.timeout(15000)` to fetch call, handle timeout error with user-friendly message (worker-2)
+- Fix 3: Add request cancellation to food history - Added `useRef<AbortController>` with abort-on-new-request, manual timeout pattern (iOS 16 compat), guarded `finally` block to prevent loading state race (worker-2)
+- Fix 4: Handle SWR error state in quick-select and settings-content - Destructured `error` from `useSWR`, added `role="alert"` error displays with retry option in credentials section (worker-3)
+- Fix 5: Add dryRun test for food-log-confirmation - Added 3 tests covering dryRun text, vibration, and cache invalidation (worker-1)
 
 ### Files Modified
-- `src/components/quick-select.tsx` — Added AbortSignal.timeout(15000), fixed aria-controls to "panel-quick-select", added panel id, replaced response.json() with safeResponseJson() + type cast
-- `src/components/__tests__/quick-select.test.tsx` — Added timeout signal test, panel ID test, updated log-food mocks to use text() for safeResponseJson compatibility
-- `src/components/meal-breakdown.tsx` — Fixed sort comparator to map indexOf -1 to Infinity
-- `src/components/__tests__/meal-breakdown.test.tsx` — Added test for unrecognized mealTypeId sorting to end
+- `src/components/food-analyzer.tsx` - Removed 2 optimistic update blocks
+- `src/components/__tests__/food-analyzer.test.tsx` - Updated tests for non-optimistic flow
+- `src/components/__tests__/food-log-confirmation.test.tsx` - Added 3 dryRun tests
+- `src/components/daily-dashboard.tsx` - Added AbortSignal.timeout to Lumen upload fetch
+- `src/components/__tests__/daily-dashboard.test.tsx` - Added 2 timeout tests
+- `src/components/food-history.tsx` - Added AbortController with manual timeout, guarded finally block
+- `src/components/__tests__/food-history.test.tsx` - Added 2 abort/cancellation tests
+- `src/components/quick-select.tsx` - Added SWR error destructuring and error display
+- `src/components/__tests__/quick-select.test.tsx` - Added 2 SWR error tests
+- `src/components/settings-content.tsx` - Added credentials SWR error display with retry
+- `src/components/__tests__/settings-content.test.tsx` - Added 3 SWR error tests
+- `src/app/settings/__tests__/page.test.tsx` - Fixed 3 tests for multiple error elements (post-merge)
 
 ### Linear Updates
-- FOO-655: Todo → In Progress → Review
-- FOO-656: Todo → In Progress → Review
-- FOO-657: Todo → In Progress → Review
-- FOO-658: Todo → In Progress → Review
+- FOO-661: Todo → In Progress → Review
+- FOO-662: Todo → In Progress → Review
+- FOO-663: Todo → In Progress → Review
+- FOO-664: Todo → In Progress → Review
+- FOO-665: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 1 bug (safeResponseJson returns unknown, needs type cast) — fixed before proceeding
-- verifier: All 2035 tests pass, zero lint warnings, build clean
+- bug-hunter: Found 2 real bugs (AbortSignal.any() compat regression, loading state race condition), both fixed before proceeding. 1 false positive (SWR error propagation — apiFetcher already propagates correctly).
+- verifier: All 2053 tests pass, zero warnings, build clean
 
-### Continuation Status
-All tasks completed.
+### Work Partition
+- Worker 1: Fix 1, Fix 5 (food-analyzer + food-log-confirmation)
+- Worker 2: Fix 2, Fix 3 (daily-dashboard + food-history)
+- Worker 3: Fix 4 (quick-select + settings-content)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merged cleanly, typecheck passed
+- Worker 3: merged cleanly, typecheck passed
+- Post-merge: 3 test failures in page-level settings test (duplicate error text from dual SWR error handling), fixed with getAllByText
+- Post-bug-hunter: Replaced AbortSignal.any() with manual timeout pattern (iOS 16 compat), added guarded finally block to prevent loading state race
 
 ### Review Findings
 
-Files reviewed: 4
-Reviewer: single-agent (≤4 changed files)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+Summary: 3 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
 
-No issues found - all implementations are correct and follow project conventions.
+**Issues fixed inline:**
+- [MEDIUM] RESOURCE: Missing unmount cleanup for abortControllerRef — in-flight requests continue after navigation away (`src/components/food-history.tsx:85`) — added useEffect cleanup + test — FOO-666
+- [MEDIUM] TIMEOUT: PATCH requests in settings credentials have no timeout — UI stuck on "saving" indefinitely (`src/components/settings-content.tsx:66,90`) — added AbortSignal.timeout(15000) + TimeoutError handling + tests — FOO-667
+- [LOW] ASYNC: TimeoutError not distinguished from generic errors in log/delete handlers — user sees raw "signal timed out" string (`src/components/quick-select.tsx:186`, `src/components/food-history.tsx:223`) — added DOMException name check for user-friendly message + tests — FOO-668
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: API error messages rendered in UI — React JSX escapes content (no XSS), API layer sanitizes errors
+- [DISCARDED] SECURITY: No CSRF token on Fitbit reconnect forms — SameSite=Lax cookie policy mitigates CSRF
+- [DISCARDED] TYPE: Type assertion precision in quick-select FoodLogResponse — access guarded by !response.ok check, no runtime impact
+- [DISCARDED] TYPE: FoodChat mock omits optional initialMealTypeId prop — test quality concern, no production impact
 
 ### Linear Updates
-- FOO-655: Review → Merge
-- FOO-656: Review → Merge
-- FOO-657: Review → Merge
-- FOO-658: Review → Merge
+- FOO-661: Review → Merge
+- FOO-662: Review → Merge
+- FOO-663: Review → Merge
+- FOO-664: Review → Merge
+- FOO-665: Review → Merge
+- FOO-666: Created in Merge (Fix: missing unmount cleanup — fixed inline)
+- FOO-667: Created in Merge (Fix: missing timeout on credentials PATCH — fixed inline)
+- FOO-668: Created in Merge (Fix: TimeoutError shows raw browser string — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2058 pass
+- Bug-hunter: no new issues in the fixes (4 findings about pre-existing code, not introduced by inline changes)
 
 <!-- REVIEW COMPLETE -->
 
-### E2E Test Results
-
-Initial run: 7 failures from removed `role="tab"` selectors (FOO-613). Fixed inline:
-- Replaced `getByRole('tab')` → `getByRole('button')` in both E2E files
-- Replaced `aria-selected` → `aria-pressed` assertions
-- Added `aria-pressed` to quick-select buttons (matching dashboard-shell pattern)
-- FOO-659: Fixed and moved to Merge
-
-Re-run: all 115 E2E tests pass.
+### Continuation Status
+All tasks completed — all iterations reviewed, no Fix Plan needed.
 
 ---
 

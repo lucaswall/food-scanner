@@ -3,9 +3,10 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { FoodLogConfirmation } from "../food-log-confirmation";
 import type { FoodAnalysis, FoodLogResponse } from "@/types";
 
-const { mockPush, mockInvalidateFoodCaches } = vi.hoisted(() => ({
+const { mockPush, mockInvalidateFoodCaches, mockVibrateSuccess } = vi.hoisted(() => ({
   mockPush: vi.fn(),
   mockInvalidateFoodCaches: vi.fn().mockResolvedValue(undefined),
+  mockVibrateSuccess: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -19,6 +20,11 @@ vi.mock("@/lib/swr", async () => {
     invalidateFoodCaches: mockInvalidateFoodCaches,
   };
 });
+
+vi.mock("@/lib/haptics", () => ({
+  vibrateSuccess: mockVibrateSuccess,
+  vibrateError: vi.fn(),
+}));
 
 const mockResponse: FoodLogResponse = {
   success: true,
@@ -83,7 +89,7 @@ describe("FoodLogConfirmation", () => {
     expect(screen.getByText(/reused existing food/i)).toBeInTheDocument();
   });
 
-  it("displays fitbitLogId", () => {
+  it("does not display fitbitLogId", () => {
     render(
       <FoodLogConfirmation
         response={mockResponse}
@@ -91,7 +97,7 @@ describe("FoodLogConfirmation", () => {
       />
     );
 
-    expect(screen.getByText(/67890/)).toBeInTheDocument();
+    expect(screen.queryByText(/Log ID/)).not.toBeInTheDocument();
   });
 
   it("navigates to /app when Done button is clicked", () => {
@@ -343,6 +349,47 @@ describe("FoodLogConfirmation", () => {
       );
 
       expect(mockInvalidateFoodCaches).not.toHaveBeenCalled();
+    });
+  });
+
+  // FOO-665: dryRun mode
+  describe("dryRun mode", () => {
+    it("shows 'Saved locally (Fitbit API skipped)' when dryRun is true", () => {
+      const dryRunResponse = { ...mockResponse, dryRun: true };
+      render(
+        <FoodLogConfirmation
+          response={dryRunResponse}
+          foodName="Test Food"
+        />
+      );
+
+      expect(screen.getByText(/saved locally \(fitbit api skipped\)/i)).toBeInTheDocument();
+    });
+
+    it("still triggers success vibration when dryRun is true", () => {
+      mockVibrateSuccess.mockClear();
+      const dryRunResponse = { ...mockResponse, dryRun: true };
+      render(
+        <FoodLogConfirmation
+          response={dryRunResponse}
+          foodName="Test Food"
+        />
+      );
+
+      expect(mockVibrateSuccess).toHaveBeenCalledTimes(1);
+    });
+
+    it("still invalidates caches when dryRun is true", () => {
+      mockInvalidateFoodCaches.mockClear();
+      const dryRunResponse = { ...mockResponse, dryRun: true };
+      render(
+        <FoodLogConfirmation
+          response={dryRunResponse}
+          foodName="Test Food"
+        />
+      );
+
+      expect(mockInvalidateFoodCaches).toHaveBeenCalledTimes(1);
     });
   });
 });
