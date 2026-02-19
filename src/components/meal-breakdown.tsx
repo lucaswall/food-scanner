@@ -55,6 +55,7 @@ export function MealBreakdown({ meals }: MealBreakdownProps) {
             <button
               type="button"
               data-testid={`meal-header-${meal.mealTypeId}`}
+              aria-expanded={isExpanded}
               onClick={() => toggleMeal(meal.mealTypeId)}
               className="w-full flex items-center justify-between p-4 min-h-[44px] hover:bg-muted/50 transition-colors"
             >

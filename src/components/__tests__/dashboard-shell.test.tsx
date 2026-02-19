@@ -16,8 +16,8 @@ describe("DashboardShell", () => {
   it("renders segmented control with Daily and Weekly options", () => {
     render(<DashboardShell />);
 
-    expect(screen.getByRole("tab", { name: "Daily" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Weekly" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Daily" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Weekly" })).toBeInTheDocument();
   });
 
   it("defaults to daily view", () => {
@@ -31,7 +31,7 @@ describe("DashboardShell", () => {
     const user = userEvent.setup();
     render(<DashboardShell />);
 
-    const weeklyButton = screen.getByRole("tab", { name: "Weekly" });
+    const weeklyButton = screen.getByRole("button", { name: "Weekly" });
     await user.click(weeklyButton);
 
     expect(screen.getByTestId("weekly-dashboard")).toBeInTheDocument();
@@ -43,11 +43,11 @@ describe("DashboardShell", () => {
     render(<DashboardShell />);
 
     // Switch to weekly
-    const weeklyButton = screen.getByRole("tab", { name: "Weekly" });
+    const weeklyButton = screen.getByRole("button", { name: "Weekly" });
     await user.click(weeklyButton);
 
     // Switch back to daily
-    const dailyButton = screen.getByRole("tab", { name: "Daily" });
+    const dailyButton = screen.getByRole("button", { name: "Daily" });
     await user.click(dailyButton);
 
     expect(screen.getByTestId("daily-dashboard")).toBeInTheDocument();
@@ -57,8 +57,8 @@ describe("DashboardShell", () => {
   it("has minimum 44px height for touch targets on segmented control buttons", () => {
     render(<DashboardShell />);
 
-    const dailyButton = screen.getByRole("tab", { name: "Daily" });
-    const weeklyButton = screen.getByRole("tab", { name: "Weekly" });
+    const dailyButton = screen.getByRole("button", { name: "Daily" });
+    const weeklyButton = screen.getByRole("button", { name: "Weekly" });
 
     // Check for min-h-[44px] class or similar
     expect(dailyButton.className).toMatch(/min-h-\[44px\]/);
@@ -68,8 +68,8 @@ describe("DashboardShell", () => {
   it("applies active styling to the selected view button", () => {
     render(<DashboardShell />);
 
-    const dailyButton = screen.getByRole("tab", { name: "Daily" });
-    const weeklyButton = screen.getByRole("tab", { name: "Weekly" });
+    const dailyButton = screen.getByRole("button", { name: "Daily" });
+    const weeklyButton = screen.getByRole("button", { name: "Weekly" });
 
     // Daily should be active (has bg-primary or similar)
     expect(dailyButton.className).toMatch(/bg-primary/);
@@ -81,8 +81,8 @@ describe("DashboardShell", () => {
     const user = userEvent.setup();
     render(<DashboardShell />);
 
-    const dailyButton = screen.getByRole("tab", { name: "Daily" });
-    const weeklyButton = screen.getByRole("tab", { name: "Weekly" });
+    const dailyButton = screen.getByRole("button", { name: "Daily" });
+    const weeklyButton = screen.getByRole("button", { name: "Weekly" });
 
     // Check aria-controls attributes
     expect(dailyButton).toHaveAttribute("aria-controls", "panel-daily");

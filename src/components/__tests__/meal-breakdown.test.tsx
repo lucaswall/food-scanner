@@ -139,6 +139,24 @@ describe("MealBreakdown", () => {
     expect(screen.queryByText("Lunch")).not.toBeInTheDocument();
   });
 
+  it("header button has aria-expanded=false by default and aria-expanded=true when expanded", async () => {
+    const user = userEvent.setup();
+    render(<MealBreakdown meals={mockMeals} />);
+
+    const breakfastHeader = screen.getByTestId("meal-header-1");
+
+    // Initially collapsed
+    expect(breakfastHeader).toHaveAttribute("aria-expanded", "false");
+
+    // After click, expanded
+    await user.click(breakfastHeader);
+    expect(breakfastHeader).toHaveAttribute("aria-expanded", "true");
+
+    // After second click, collapsed again
+    await user.click(breakfastHeader);
+    expect(breakfastHeader).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("headers have touch-friendly height (min 44px)", () => {
     render(<MealBreakdown meals={mockMeals} />);
 

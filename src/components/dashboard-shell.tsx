@@ -12,10 +12,8 @@ export function DashboardShell() {
   return (
     <div className="space-y-6">
       {/* Segmented control */}
-      <div role="tablist" className="flex gap-1 p-1 bg-muted rounded-full">
+      <div className="flex gap-1 p-1 bg-muted rounded-full">
         <button
-          role="tab"
-          aria-selected={view === "daily"}
           aria-controls="panel-daily"
           onClick={() => setView("daily")}
           className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
@@ -27,8 +25,6 @@ export function DashboardShell() {
           Daily
         </button>
         <button
-          role="tab"
-          aria-selected={view === "weekly"}
           aria-controls="panel-weekly"
           onClick={() => setView("weekly")}
           className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${

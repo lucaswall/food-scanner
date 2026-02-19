@@ -163,8 +163,8 @@ describe("QuickSelect", () => {
       renderQuickSelect();
 
       await waitFor(() => {
-        expect(screen.getByRole("tab", { name: /suggested/i })).toBeInTheDocument();
-        expect(screen.getByRole("tab", { name: /recent/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /suggested/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /recent/i })).toBeInTheDocument();
       });
     });
 
@@ -173,27 +173,28 @@ describe("QuickSelect", () => {
       renderQuickSelect();
 
       await waitFor(() => {
-        const suggestedTab = screen.getByRole("tab", { name: /suggested/i });
-        expect(suggestedTab).toHaveAttribute("aria-selected", "true");
+        const suggestedBtn = screen.getByRole("button", { name: /suggested/i });
+        expect(suggestedBtn.className).toMatch(/bg-primary/);
       });
     });
 
-    it("tab container has tablist role", async () => {
+    it("tab bar renders Suggested and Recent control buttons", async () => {
       mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
       renderQuickSelect();
 
       await waitFor(() => {
-        expect(screen.getByRole("tablist")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /suggested/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /recent/i })).toBeInTheDocument();
       });
     });
 
-    it("inactive tab has aria-selected false", async () => {
+    it("inactive tab button has inactive styling", async () => {
       mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
       renderQuickSelect();
 
       await waitFor(() => {
-        const recentTab = screen.getByRole("tab", { name: /recent/i });
-        expect(recentTab).toHaveAttribute("aria-selected", "false");
+        const recentBtn = screen.getByRole("button", { name: /recent/i });
+        expect(recentBtn.className).toMatch(/bg-muted/);
       });
     });
 
@@ -227,7 +228,7 @@ describe("QuickSelect", () => {
         expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
+      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
 
       await waitFor(() => {
         const recentCalls = mockFetch.mock.calls.filter(
@@ -250,7 +251,7 @@ describe("QuickSelect", () => {
       });
 
       // Switch to Recent
-      fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
+      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
 
       await waitFor(() => {
         expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
@@ -275,7 +276,7 @@ describe("QuickSelect", () => {
       });
 
       // Switch to Recent tab (first visit)
-      fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
+      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
 
       await waitFor(() => {
         expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
@@ -286,14 +287,14 @@ describe("QuickSelect", () => {
       ).length;
 
       // Switch back to Suggested
-      fireEvent.click(screen.getByRole("tab", { name: /suggested/i }));
+      fireEvent.click(screen.getByRole("button", { name: /suggested/i }));
 
       await waitFor(() => {
         expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
       });
 
       // Switch back to Recent (revisit - should trigger revalidation)
-      fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
+      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
 
       await waitFor(() => {
         const fetchCountAfterRevisit = mockFetch.mock.calls.filter(
@@ -399,7 +400,7 @@ describe("QuickSelect", () => {
     });
 
     // Switch to Recent tab
-    fireEvent.click(screen.getByRole("tab", { name: /recent/i }));
+    fireEvent.click(screen.getByRole("button", { name: /recent/i }));
 
     // Brief moment - should not show empty state while loading new tab data
     await new Promise(r => setTimeout(r, 50));
@@ -1152,19 +1153,19 @@ describe("QuickSelect", () => {
         expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
       });
 
-      const suggestedTab = screen.getByRole("tab", { name: "Suggested" });
-      const recentTab = screen.getByRole("tab", { name: "Recent" });
+      const suggestedBtn = screen.getByRole("button", { name: "Suggested" });
+      const recentBtn = screen.getByRole("button", { name: "Recent" });
 
       // Check aria-controls attributes
-      expect(suggestedTab).toHaveAttribute("aria-controls", "panel-suggested");
-      expect(recentTab).toHaveAttribute("aria-controls", "panel-recent");
+      expect(suggestedBtn).toHaveAttribute("aria-controls", "panel-suggested");
+      expect(recentBtn).toHaveAttribute("aria-controls", "panel-recent");
 
       // Verify panel has matching ID
       const panel = screen.getByRole("tabpanel");
       expect(panel).toHaveAttribute("id", "panel-suggested");
 
       // Switch to Recent tab
-      fireEvent.click(recentTab);
+      fireEvent.click(recentBtn);
 
       await waitFor(() => {
         expect(panel).toHaveAttribute("id", "panel-recent");

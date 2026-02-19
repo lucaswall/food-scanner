@@ -280,11 +280,9 @@ export function QuickSelect() {
   return (
     <div className="space-y-4">
       {/* Tab bar */}
-      <div role="tablist" className="flex gap-2">
+      <div className="flex gap-2">
         <button
-          role="tab"
           id="tab-suggested"
-          aria-selected={activeTab === "suggested"}
           aria-controls="panel-suggested"
           onClick={() => setActiveTab("suggested")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
@@ -296,9 +294,7 @@ export function QuickSelect() {
           Suggested
         </button>
         <button
-          role="tab"
           id="tab-recent"
-          aria-selected={activeTab === "recent"}
           aria-controls="panel-recent"
           onClick={() => setActiveTab("recent")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${

@@ -99,14 +99,12 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
   return (
     <div className="space-y-4">
       {/* Metric selector */}
-      <div role="tablist" className="flex gap-1 p-1 bg-muted rounded-full">
+      <div className="flex gap-1 p-1 bg-muted rounded-full">
         {METRICS.map((metric) => {
           const isSelected = selectedMetric === metric.key;
           return (
             <button
               key={metric.key}
-              role="tab"
-              aria-selected={isSelected}
               aria-controls="panel-metric"
               data-testid={`metric-${metric.key}`}
               onClick={() => setSelectedMetric(metric.key)}
@@ -130,7 +128,7 @@ export function WeeklyNutritionChart({ days, weekStart }: WeeklyNutritionChartPr
       )}
 
       {/* Chart container */}
-      <div id="panel-metric" className="flex items-end gap-2 h-48">
+      <div id="panel-metric" aria-label={`Weekly ${selectedMetric} chart`} className="flex items-end gap-2 h-48">
         {weekDays.map((day, index) => {
           const { value, goal } = getMetricData(day.data, selectedMetric);
           const isEmpty = day.data === null || value === 0;

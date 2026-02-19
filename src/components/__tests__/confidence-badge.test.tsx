@@ -51,10 +51,10 @@ describe("ConfidenceBadge", () => {
     expect(screen.getByText("high")).toBeInTheDocument();
   });
 
-  it("has accessible label on indicator", () => {
-    render(<ConfidenceBadge confidence="medium" />);
+  it("indicator div does NOT have aria-label (text label is already visible)", () => {
+    render(<ConfidenceBadge confidence="high" />);
     const indicator = screen.getByTestId("confidence-indicator");
-    expect(indicator).toHaveAttribute("aria-label", "Confidence: medium");
+    expect(indicator).not.toHaveAttribute("aria-label");
   });
 
   it("shows tooltip with confidence explanation on hover", async () => {

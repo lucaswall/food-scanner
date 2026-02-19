@@ -109,6 +109,21 @@ describe("CalorieRing", () => {
     expect(marker).not.toBeInTheDocument();
   });
 
+  describe("accessibility", () => {
+    it("SVG has aria-hidden=true and a visually-hidden span describes the calories", () => {
+      render(<CalorieRing calories={1200} goal={2000} />);
+
+      const svg = screen.getByTestId("calorie-ring-svg");
+      expect(svg).toHaveAttribute("aria-hidden", "true");
+
+      // A visually-hidden sr-only span should exist with calorie text
+      const srOnly = document.querySelector(".sr-only");
+      expect(srOnly).toBeInTheDocument();
+      expect(srOnly?.textContent).toMatch(/1200/);
+      expect(srOnly?.textContent).toMatch(/2000/);
+    });
+  });
+
   describe("over-goal visual indicators", () => {
     it("calorie count has text-destructive class when over goal", () => {
       const { container } = render(<CalorieRing calories={2500} goal={2000} />);
