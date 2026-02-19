@@ -653,7 +653,7 @@ export function FoodChat({
         )}
 
         {error && (
-          <div className="flex items-start gap-2 px-3 py-2 bg-destructive/10 border border-destructive/20 rounded-2xl">
+          <div className="flex items-start gap-2 px-3 py-2 bg-destructive/10 dark:bg-destructive/20 border border-destructive/20 rounded-2xl">
             <p className="flex-1 text-sm text-destructive">{error}</p>
             <button
               onClick={() => setError(null)}
@@ -722,7 +722,7 @@ export function FoodChat({
         {/* Compression warning */}
         {compressionWarning && (
           <div className="px-3 pt-2">
-            <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
+            <p className="text-xs text-warning text-center">
               {compressionWarning}
             </p>
           </div>
@@ -745,7 +745,7 @@ export function FoodChat({
                 setShowPhotoMenu(false);
               }}
               aria-label="Take photo"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted text-sm min-h-[36px]"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted text-sm min-h-[44px]"
             >
               <Camera className="h-4 w-4" />
               Camera
@@ -756,7 +756,7 @@ export function FoodChat({
                 setShowPhotoMenu(false);
               }}
               aria-label="Choose from gallery"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted text-sm min-h-[36px]"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted text-sm min-h-[44px]"
             >
               <ImageIcon className="h-4 w-4" />
               Gallery
