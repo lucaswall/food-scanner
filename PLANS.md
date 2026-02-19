@@ -423,5 +423,86 @@ No new error handling is needed — all tasks are UI styling/layout changes to e
 - Worker 3: merged cleanly (no conflicts), typecheck passed
 - Post-merge: 2 test failures in page-level settings test (still expected removed back arrow), fixed
 
+### Review Findings
+
+Summary: 5 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 5 issue(s) — Linear issues created
+- DISCARDED: 4 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: Optimistic update fires success side-effects (vibrateSuccess, invalidateFoodCaches) before API confirms (`src/components/food-analyzer.tsx:318-323, 396-401`) — FOO-661
+- [MEDIUM] TIMEOUT: Lumen goals upload fetch has no timeout — UI can get permanently stuck (`src/components/daily-dashboard.tsx:133-136`) — FOO-662
+- [MEDIUM] ASYNC: Race condition between Load More and Jump to Date — stale data appended to fresh results (`src/components/food-history.tsx:161-170, 217-222`) — FOO-663
+- [MEDIUM] BUG: SWR error state not handled in quick-select and settings-content — silent failures (`src/components/quick-select.tsx:90-93`, `src/components/settings-content.tsx:34-41`) — FOO-664
+- [LOW] EDGE CASE: Missing test for dryRun confirmation path (`src/components/__tests__/food-log-confirmation.test.tsx`) — FOO-665
+
+**Discarded findings (not bugs):**
+- [DISCARDED] CONVENTION: Button styling tests nested inside wrong describe block in food-log-confirmation test — style-only, zero correctness impact
+- [DISCARDED] CONVENTION: Hardcoded inline Tailwind instead of Button asChild in daily-dashboard empty state CTAs — style preference, not enforced by CLAUDE.md
+- [DISCARDED] CONVENTION: SessionInfo/CredentialsInfo interfaces defined locally in settings-content.tsx instead of src/types/ — structural improvement, not causing drift now
+- [DISCARDED] TYPE: `as { ... }` type assertions on safeResponseJson results without full runtime validation — code checks .success field before accessing typed properties, providing adequate runtime guard
+
+### Linear Updates
+- FOO-621: Review → Merge
+- FOO-622: Review → Merge
+- FOO-628: Review → Merge
+- FOO-629: Review → Merge
+- FOO-632: Review → Merge
+- FOO-635: Review → Merge
+- FOO-638: Review → Merge
+- FOO-640: Review → Merge
+- FOO-661: Created in Todo (Fix: optimistic update side-effects)
+- FOO-662: Created in Todo (Fix: missing timeout on Lumen upload)
+- FOO-663: Created in Todo (Fix: race condition Load More vs Jump to Date)
+- FOO-664: Created in Todo (Fix: SWR error handling)
+- FOO-665: Created in Todo (Fix: missing dryRun test)
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
-All tasks completed.
+Fix Plan created — more implementation needed.
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-661](https://linear.app/lw-claude/issue/FOO-661), [FOO-662](https://linear.app/lw-claude/issue/FOO-662), [FOO-663](https://linear.app/lw-claude/issue/FOO-663), [FOO-664](https://linear.app/lw-claude/issue/FOO-664), [FOO-665](https://linear.app/lw-claude/issue/FOO-665)
+
+### Fix 1: Remove optimistic update pattern in food-analyzer
+**Linear Issue:** [FOO-661](https://linear.app/lw-claude/issue/FOO-661)
+
+1. Write test in `src/components/__tests__/food-analyzer.test.tsx` verifying that `vibrateSuccess` is NOT called before the API response resolves
+2. Remove optimistic `setLogResponse(...)` before `fetch()` in `handleLogToFitbit` (line 318-323) — only set after API confirms success
+3. Apply same fix to `handleUseExisting` (line 396-401)
+4. Follow QuickSelect's pattern: "Only set response after API confirms success"
+
+### Fix 2: Add timeout to Lumen goals upload
+**Linear Issue:** [FOO-662](https://linear.app/lw-claude/issue/FOO-662)
+
+1. Write test in `src/components/__tests__/daily-dashboard.test.tsx` verifying fetch is called with `AbortSignal.timeout(15000)`
+2. Add `signal: AbortSignal.timeout(15000)` to the fetch call at `daily-dashboard.tsx:133-136`
+3. Handle AbortError in catch block with user-friendly timeout message
+
+### Fix 3: Add request cancellation to food history
+**Linear Issue:** [FOO-663](https://linear.app/lw-claude/issue/FOO-663)
+
+1. Write test in `src/components/__tests__/food-history.test.tsx` for concurrent Load More + Jump to Date — verify stale Load More result is discarded
+2. Add `useRef<AbortController>` to manage in-flight requests in `food-history.tsx`
+3. In `fetchEntries`, abort previous controller before creating new one
+4. Pass `controller.signal` to fetch calls
+5. In catch block, skip error handling for `AbortError` (intentional cancellation)
+
+### Fix 4: Handle SWR error state in quick-select and settings-content
+**Linear Issue:** [FOO-664](https://linear.app/lw-claude/issue/FOO-664)
+
+1. Write tests in `src/components/__tests__/quick-select.test.tsx` and `src/components/__tests__/settings-content.test.tsx` verifying error message renders when SWR returns an error
+2. In `quick-select.tsx:90-93`: destructure `error` from `useSWR`, render error message in search results area
+3. In `settings-content.tsx:34-41`: destructure `error` from `useSWR`, render error message with retry option in credentials section
+
+### Fix 5: Add dryRun test for food-log-confirmation
+**Linear Issue:** [FOO-665](https://linear.app/lw-claude/issue/FOO-665)
+
+1. Add test case in `src/components/__tests__/food-log-confirmation.test.tsx` with `dryRun: true` in response prop
+2. Assert "Saved locally (Fitbit API skipped)" text is rendered
+3. Assert success vibration and cache invalidation still fire (dryRun is still a successful save)
