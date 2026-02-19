@@ -7,6 +7,7 @@
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
+| [Swipe Navigation Between Tabs](#swipe-navigation-between-tabs) | Swipe left/right to move between main app screens |
 
 
 ---
@@ -207,6 +208,72 @@ User picks in Settings:
 5. Background sync on reconnection
 6. Auto-log vs hold-for-review setting
 7. Notification for auto-logged items
+
+---
+
+## Swipe Navigation Between Tabs
+
+### Problem
+
+Navigation between the main app screens (Home, Quick Select, Analyze, History) requires tapping the bottom nav bar. On a mobile-first PWA, swiping left/right between screens is the expected native-app gesture. Without it, the app feels more like a website than an installed app.
+
+### Goal
+
+Let users swipe horizontally to move between the main tab screens, with an animated slide transition that matches the swipe direction. The bottom nav indicator stays in sync.
+
+### Design
+
+#### Swipeable Screens
+
+The four main content tabs participate in swipe navigation, in this order:
+
+1. **Home** (`/app`)
+2. **Quick Select** (`/app/quick-select`)
+3. **Analyze** (`/app/analyze`)
+4. **History** (`/app/history`)
+
+**Settings** (`/settings`) is excluded — it's a utility screen, not a content tab. **Chat** and **Food Detail** are drill-in screens accessed from within tabs, not swipe targets.
+
+#### Gesture Behavior
+
+- Horizontal swipe (>30px, velocity threshold) triggers navigation to the adjacent tab.
+- Swipe right → previous tab. Swipe left → next tab.
+- At the edges (Home = first, History = last), swipe in the blocked direction has a subtle rubber-band resistance effect and no navigation.
+- Vertical scroll takes priority — if the initial touch direction is more vertical than horizontal, no swipe navigation fires.
+
+#### Visual Transition
+
+- The current screen slides out in the swipe direction while the next screen slides in from the opposite side.
+- Transition duration ~250ms with ease-out curve.
+- The bottom nav active indicator animates to the new tab position in sync with the page transition.
+
+#### Bottom Nav Integration
+
+- Tapping a tab still works as before (instant navigation, no slide animation needed).
+- The active tab indicator reflects the current swipe position during the gesture (partial tracking), then snaps to the final position on release.
+
+### Architecture
+
+- **Animation library:** Framer Motion (~30KB tree-shaken). Handles both gesture detection and animated transitions in one package — no need for a separate swipe library.
+- **Page transitions:** `AnimatePresence` wrapping page content in the app layout. Slide variants (`slideLeft`, `slideRight`) driven by swipe direction. Each tab animates in/out with `transform: translateX()` + opacity.
+- **Gesture tracking:** Framer Motion's `drag="x"` with `dragConstraints` and `onDragEnd` for swipe detection. Provides real-time drag offset for partial tracking of the bottom nav indicator during the gesture.
+- **Routing:** `router.push()` on swipe completion. `AnimatePresence` with `mode="wait"` ensures the exit animation plays before the enter animation.
+- **State:** Swipe direction stored in a layout-level context so `AnimatePresence` variants resolve the correct enter/exit directions.
+
+### Edge Cases
+
+- Analyze screen has camera/image interactions — swipe gestures must not conflict with pinch-to-zoom or image panning. Disable horizontal swipe when a modal or image viewer is active.
+- Fast repeated swipes — debounce to prevent navigating multiple tabs at once.
+- Accessibility — swipe is supplementary. Tab bar remains the primary navigation for screen readers and keyboard users.
+- Desktop — swipe is touch-only. No mouse-drag equivalent needed.
+
+### Implementation Order
+
+1. Add Framer Motion dependency and swipeable layout wrapper (`drag="x"` + `AnimatePresence`)
+2. Slide transition variants (enter/exit animations with direction-aware sliding)
+3. Bottom nav indicator animation sync (Framer Motion `motion.div` for the active indicator)
+4. Edge rubber-band effect (elastic drag constraints at first/last tab)
+5. Conflict prevention on Analyze screen (disable during modals/image interaction)
 
 ---
 
