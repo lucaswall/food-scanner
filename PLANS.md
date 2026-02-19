@@ -85,3 +85,31 @@
 
 **Risks/Considerations:**
 - None significant — straightforward component swap with no data flow changes
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-19
+**Method:** Single-agent (1 task, 1 work unit, effort score 2)
+
+### Tasks Completed This Iteration
+- Task 1: Create HeaderActions component and replace FloatingActions — created new server component with Chat + Camera icon links, updated home page to flex header row, replaced page test mock, deleted old FloatingActions files (FOO-676)
+
+### Files Modified
+- `src/components/header-actions.tsx` — Created: two icon links (Chat, Camera) in flex row
+- `src/components/__tests__/header-actions.test.tsx` — Created: 4 tests (links, no Quick Select, touch targets, styling)
+- `src/app/app/page.tsx` — Updated: replaced FloatingActions with HeaderActions in header flex row
+- `src/app/app/__tests__/page.test.tsx` — Updated: replaced FloatingActions mock with HeaderActions
+- `src/components/floating-actions.tsx` — Deleted
+- `src/components/__tests__/floating-actions.test.tsx` — Deleted
+
+### Linear Updates
+- FOO-676: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 2067 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.
