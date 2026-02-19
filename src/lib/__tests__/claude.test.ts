@@ -1457,7 +1457,6 @@ describe("conversationalRefine", () => {
           { role: "assistant", content: "Got it", analysis: validAnalysis },
           { role: "user", content: "Actually it was 200g" },
         ],
-        [],
         "user-123",
         "2026-02-15"
       )
@@ -1477,7 +1476,6 @@ describe("conversationalRefine", () => {
         [
           { role: "user", content: "Thanks!" },
         ],
-        [],
         "user-123",
         "2026-02-15"
       )
@@ -1499,7 +1497,6 @@ describe("conversationalRefine", () => {
     const events = await collectEvents(
       conversationalRefine(
         [{ role: "user", content: "What did I have yesterday?" }],
-        [],
         "user-123",
         "2026-02-15"
       )
@@ -1515,7 +1512,7 @@ describe("conversationalRefine", () => {
 
     const { conversationalRefine, CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
     await collectEvents(
-      conversationalRefine([{ role: "user", content: "Test" }], [], "user-123", "2026-02-15")
+      conversationalRefine([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
     );
 
     const call = mockStream.mock.calls[0][0];
@@ -1529,7 +1526,6 @@ describe("conversationalRefine", () => {
     await collectEvents(
       conversationalRefine(
         [{ role: "user", content: "Make it 2" }],
-        [],
         "user-123",
         "2026-02-15",
         validAnalysis
@@ -1550,7 +1546,6 @@ describe("conversationalRefine", () => {
     await collectEvents(
       conversationalRefine(
         [{ role: "user", content: "What did I eat today?" }],
-        [],
         "user-123",
         "2026-02-15"
       )
@@ -1565,7 +1560,7 @@ describe("conversationalRefine", () => {
 
     const { conversationalRefine } = await import("@/lib/claude");
     await collectEvents(
-      conversationalRefine([{ role: "user", content: "Hi" }], [], "user-123")
+      conversationalRefine([{ role: "user", content: "Hi" }], "user-123")
     );
 
     const call = mockStream.mock.calls[0][0];
@@ -1577,7 +1572,7 @@ describe("conversationalRefine", () => {
 
     const { conversationalRefine } = await import("@/lib/claude");
     await collectEvents(
-      conversationalRefine([{ role: "user", content: "Test" }], [], "user-123", "2026-02-15")
+      conversationalRefine([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
     );
 
     expect(mockStream).toHaveBeenCalledWith(
@@ -1586,30 +1581,135 @@ describe("conversationalRefine", () => {
     );
   });
 
-  it("attaches images to the last user message", async () => {
+  it("attaches per-message images as content blocks before text", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("I see the food"));
 
     const { conversationalRefine } = await import("@/lib/claude");
     await collectEvents(
       conversationalRefine(
         [
-          { role: "user", content: "Here's the photo" },
-          { role: "assistant", content: "Got it" },
-          { role: "user", content: "Can you update it?" },
+          { role: "user", content: "Here's the photo", images: ["img_data_1"] },
         ],
-        [{ base64: "img_data", mimeType: "image/jpeg" }],
         "user-123",
         "2026-02-15"
       )
     );
 
     const call = mockStream.mock.calls[0][0];
-    const lastUserMsg = call.messages[call.messages.length - 1];
-    // Verify last user message has image
-    expect(lastUserMsg.role).toBe("user");
-    const imageBlocks = lastUserMsg.content.filter((b: { type: string }) => b.type === "image");
-    expect(imageBlocks).toHaveLength(1);
-    expect(imageBlocks[0].source.data).toBe("img_data");
+    const userMsg = call.messages[0];
+    expect(userMsg.role).toBe("user");
+    // Image blocks should come before text block
+    expect(userMsg.content[0].type).toBe("image");
+    expect(userMsg.content[0].source.data).toBe("img_data_1");
+    expect(userMsg.content[0].source.media_type).toBe("image/jpeg");
+    expect(userMsg.content[1].type).toBe("text");
+    expect(userMsg.content[1].text).toBe("Here's the photo");
+  });
+
+  it("attaches images to each message independently across turns", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("I see both meals"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(
+      conversationalRefine(
+        [
+          { role: "user", content: "First meal", images: ["img_turn1"] },
+          { role: "assistant", content: "Got it" },
+          { role: "user", content: "Second meal", images: ["img_turn2"] },
+        ],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    // First user message has its own image
+    const firstUser = call.messages[0];
+    expect(firstUser.content[0].type).toBe("image");
+    expect(firstUser.content[0].source.data).toBe("img_turn1");
+    expect(firstUser.content[1].type).toBe("text");
+
+    // Second user message has its own image
+    const secondUser = call.messages[2];
+    expect(secondUser.content[0].type).toBe("image");
+    expect(secondUser.content[0].source.data).toBe("img_turn2");
+    expect(secondUser.content[1].type).toBe("text");
+  });
+
+  it("user messages without images produce text-only content", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(
+      conversationalRefine(
+        [
+          { role: "user", content: "Just text, no images" },
+        ],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    const userMsg = call.messages[0];
+    expect(userMsg.content).toHaveLength(1);
+    expect(userMsg.content[0].type).toBe("text");
+    expect(userMsg.content[0].text).toBe("Just text, no images");
+  });
+
+  it("mixed conversation: only messages with images get image blocks", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("Analysis complete"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(
+      conversationalRefine(
+        [
+          { role: "user", content: "Photo of lunch", images: ["lunch_img"] },
+          { role: "assistant", content: "I see a salad" },
+          { role: "user", content: "Actually it was 300g" },
+          { role: "assistant", content: "Updated" },
+          { role: "user", content: "Here's dessert too", images: ["dessert_img"] },
+        ],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    // Message 0 (user with image): image + text
+    expect(call.messages[0].content[0].type).toBe("image");
+    expect(call.messages[0].content[1].type).toBe("text");
+    // Message 2 (user without image): text only
+    expect(call.messages[2].content).toHaveLength(1);
+    expect(call.messages[2].content[0].type).toBe("text");
+    // Message 4 (user with image): image + text
+    expect(call.messages[4].content[0].type).toBe("image");
+    expect(call.messages[4].content[1].type).toBe("text");
+  });
+
+  it("assistant messages are unaffected by per-message images", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(
+      conversationalRefine(
+        [
+          { role: "user", content: "Photo", images: ["img1"] },
+          { role: "assistant", content: "Got it", analysis: validAnalysis },
+          { role: "user", content: "Thanks" },
+        ],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    const assistantMsg = call.messages[1];
+    expect(assistantMsg.role).toBe("assistant");
+    // Assistant messages should have text content blocks only (text + analysis summary)
+    for (const block of assistantMsg.content) {
+      expect(block.type).toBe("text");
+    }
   });
 
   it("records usage", async () => {
@@ -1617,7 +1717,7 @@ describe("conversationalRefine", () => {
 
     const { conversationalRefine } = await import("@/lib/claude");
     await collectEvents(
-      conversationalRefine([{ role: "user", content: "Test" }], [], "user-123", "2026-02-15")
+      conversationalRefine([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
     );
 
     expect(mockRecordUsage).toHaveBeenCalledWith(
@@ -1633,7 +1733,7 @@ describe("conversationalRefine", () => {
 
     const { conversationalRefine } = await import("@/lib/claude");
     await collectEvents(
-      conversationalRefine([{ role: "user", content: "Test" }], [], "user-123", "2026-02-15")
+      conversationalRefine([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
     );
 
     const call = mockStream.mock.calls[0][0];
@@ -1682,7 +1782,6 @@ describe("conversationalRefine", () => {
     const events = await collectEvents(
       conversationalRefine(
         [{ role: "user", content: "I had a Big Mac" }],
-        [],
         "user-123",
         "2026-02-15"
       )
@@ -1737,7 +1836,6 @@ describe("conversationalRefine", () => {
     const events = await collectEvents(
       conversationalRefine(
         [{ role: "user", content: "I had a Big Mac" }],
-        [],
         "user-123",
         "2026-02-15"
       )
@@ -2359,7 +2457,6 @@ describe("conversationalRefine overload retry", () => {
     const eventsPromise = collectEvents(
       conversationalRefine(
         [{ role: "user", content: "Make it 200g" }],
-        [],
         "user-123",
         "2026-02-15"
       )
@@ -2387,7 +2484,6 @@ describe("conversationalRefine overload retry", () => {
     const resultPromise = collectEventsExpectThrow(
       conversationalRefine(
         [{ role: "user", content: "Test" }],
-        [],
         "user-123",
         "2026-02-15"
       )

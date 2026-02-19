@@ -134,3 +134,33 @@ Two compounding issues — one client-side, one server-side:
 - **Payload size:** Typical food chat has 1-3 images at ~150KB each compressed. Even with 9 images across all turns, payload stays well under the 32MB API limit.
 - **Anthropic best practice:** Their docs explicitly show multi-turn examples where each message keeps its own images. The "Four images across two conversation turns" example uses exactly this pattern.
 - Steps 2-5 can be partially parallelized: Steps 3+4 (server changes) are independent of Step 2 (client changes) until final integration.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-19
+**Method:** Single-agent (server changes tightly coupled via function signature; client has no unit tests)
+
+### Tasks Completed This Iteration
+- Step 1: Add `images` field to `ConversationMessage` type — added `images?: string[]`
+- Step 4: Update `conversationalRefine` to per-message images — removed `images: ImageInput[]` param, reads images from `msg.images`, removed `lastUserIndex` scan
+- Step 3: Update API route for per-message image validation — validates `messages[i].images`, enforces total count across messages, rejects images on assistant messages, rejects empty strings
+- Step 2: Embed images into messages on client — `handleSend` converts blobs to base64 and embeds in user message, removed `initialImagesSent` state (replaced with ref), images persist in conversation history across turns
+- Step 5: Clean up deprecated code — removed top-level `images` from `ChatFoodRequest`, removed old top-level image validation block in route, removed old image collection flow in client
+
+### Files Modified
+- `src/types/index.ts` — Added `images?: string[]` to `ConversationMessage`, removed top-level `images` from `ChatFoodRequest`
+- `src/lib/claude.ts` — Refactored `conversationalRefine` signature and per-message image attachment
+- `src/lib/__tests__/claude.test.ts` — 5 new per-message image tests, updated all existing call sites
+- `src/app/api/chat-food/route.ts` — Per-message image validation, role check, empty string check
+- `src/app/api/chat-food/__tests__/route.test.ts` — 4 new validation tests, updated existing image/call-site tests
+- `src/components/food-chat.tsx` — Embed images in messages, use ref for initial image tracking, fixed ref leak bug
+- `src/components/__tests__/food-chat.test.tsx` — Updated 4 image tests to check per-message format
+
+### Linear Updates
+- FOO-675: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 HIGH + 2 MEDIUM bugs, all fixed before proceeding
+- verifier: All 2068 tests pass, zero warnings

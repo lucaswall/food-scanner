@@ -1223,7 +1223,6 @@ export async function* analyzeFood(
  */
 export async function* conversationalRefine(
   messages: ConversationMessage[],
-  images: ImageInput[],
   userId?: string,
   currentDate?: string,
   initialAnalysis?: FoodAnalysis,
@@ -1233,37 +1232,25 @@ export async function* conversationalRefine(
   const l = log ?? logger;
   const elapsed = startTimer();
   try {
+    const totalImages = messages.reduce((sum, m) => sum + (m.images?.length ?? 0), 0);
     l.info(
-      { messageCount: messages.length, imageCount: images.length },
+      { messageCount: messages.length, imageCount: totalImages },
       "calling Claude API for conversational refinement"
     );
 
-    // Find the index of the last user message to attach images
-    let lastUserIndex = -1;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user") {
-        lastUserIndex = i;
-        break;
-      }
-    }
-
     // Convert ConversationMessage[] to Anthropic SDK message format
-    let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg, index) => {
+    let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => {
       const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
 
-      // Attach images to the last user message
-      if (msg.role === "user" && index === lastUserIndex && images.length > 0) {
+      // Attach per-message images (images before text is Anthropic best practice)
+      if (msg.role === "user" && msg.images && msg.images.length > 0) {
         content.push(
-          ...images.map((img) => ({
+          ...msg.images.map((base64) => ({
             type: "image" as const,
             source: {
               type: "base64" as const,
-              media_type: img.mimeType as
-                | "image/jpeg"
-                | "image/png"
-                | "image/gif"
-                | "image/webp",
-              data: img.base64,
+              media_type: "image/jpeg" as const,
+              data: base64,
             },
           }))
         );
@@ -1302,7 +1289,7 @@ export async function* conversationalRefine(
     const preCount = anthropicMessages.length;
     anthropicMessages = truncateConversation(anthropicMessages, 150000, l);
     l.debug(
-      { action: "conversational_refine_messages", messageCount: anthropicMessages.length, truncated: anthropicMessages.length < preCount, hasImages: images.length > 0, hasInitialAnalysis: !!initialAnalysis },
+      { action: "conversational_refine_messages", messageCount: anthropicMessages.length, truncated: anthropicMessages.length < preCount, hasImages: totalImages > 0, hasInitialAnalysis: !!initialAnalysis },
       "conversation prepared for Claude API"
     );
     l.debug(

@@ -264,7 +264,7 @@ describe("FoodChat", () => {
     expect(body.initialAnalysis).toEqual(mockAnalysis);
   });
 
-  it("sends initial images silently with first message", async () => {
+  it("sends initial images embedded in first user message", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       text: () =>
@@ -286,12 +286,15 @@ describe("FoodChat", () => {
 
     const callArgs = mockFetch.mock.calls[0];
     const body = JSON.parse(callArgs[1].body);
-    // Initial compressed images sent silently
-    expect(body.images).toBeDefined();
-    expect(body.images).toHaveLength(2);
+    // Initial compressed images embedded in the first user message
+    const userMsg = body.messages.find((m: { role: string }) => m.role === "user");
+    expect(userMsg.images).toBeDefined();
+    expect(userMsg.images).toHaveLength(2);
+    // No top-level images field
+    expect(body.images).toBeUndefined();
   });
 
-  it("does not re-send initial images on second message", async () => {
+  it("preserves first message images in conversation history on second message", async () => {
     // First message
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -331,19 +334,15 @@ describe("FoodChat", () => {
 
     const secondCallArgs = mockFetch.mock.calls[1];
     const secondBody = JSON.parse(secondCallArgs[1].body);
-    // No images on second message
-    expect(secondBody.images).toBeUndefined();
+    // First user message in history still has its embedded images
+    const firstUserMsg = secondBody.messages.find((m: { role: string; images?: string[] }) => m.role === "user" && m.images);
+    expect(firstUserMsg.images).toHaveLength(2);
+    // Second user message has no images
+    const lastUserMsg = secondBody.messages[secondBody.messages.length - 1];
+    expect(lastUserMsg.images).toBeUndefined();
   });
 
   it("re-sends initial images on retry after first message fails (FOO-574)", async () => {
-    // Use sseProps (no compressed images) to avoid FileReader macrotask leakage,
-    // then verify the stale closure via initialImagesSent ref behavior.
-    // The bug: revertOnError captures stale `initialImagesSent = false`, so after
-    // setInitialImagesSent(true) + error, the flag is never reverted.
-    // We test with SSE error events and no initial images, but with user-added images.
-
-    // Instead, test the stale closure directly: render with compressedImages,
-    // first send fails (JSON path for reliable timing), retry should include images.
     const { unmount } = render(<FoodChat {...defaultProps} />);
 
     // First message: HTTP error
@@ -365,9 +364,10 @@ describe("FoodChat", () => {
       expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
-    // Verify first call sent images
+    // Verify first call embedded images in user message
     const firstBody = JSON.parse(mockFetch.mock.calls[0][1].body);
-    expect(firstBody.images).toHaveLength(2);
+    const firstUserMsg = firstBody.messages.find((m: { role: string }) => m.role === "user");
+    expect(firstUserMsg.images).toHaveLength(2);
 
     // Wait for error to appear and loading to finish
     await waitFor(() => {
@@ -375,7 +375,7 @@ describe("FoodChat", () => {
       expect(input).not.toBeDisabled();
     });
 
-    // Retry: second message should re-send initial images
+    // Retry: second message should re-embed initial images (ref was reverted on error)
     mockFetch.mockResolvedValueOnce({
       ok: true,
       text: () =>
@@ -395,9 +395,10 @@ describe("FoodChat", () => {
 
     expect(mockFetch).toHaveBeenCalledTimes(2);
     const retryBody = JSON.parse(mockFetch.mock.calls[1][1].body);
-    // Images should be present on retry (not lost due to stale closure)
-    expect(retryBody.images).toBeDefined();
-    expect(retryBody.images).toHaveLength(2);
+    // Images should be embedded in user message on retry
+    const retryUserMsg = retryBody.messages.find((m: { role: string }) => m.role === "user");
+    expect(retryUserMsg.images).toBeDefined();
+    expect(retryUserMsg.images).toHaveLength(2);
 
     // Explicit unmount to prevent FileReader macrotask leakage to subsequent tests
     unmount();
@@ -1355,10 +1356,11 @@ describe("FoodChat", () => {
         expect(mockFetch).toHaveBeenCalled();
       });
 
-      // Verify images were sent
+      // Verify images are embedded in the user message
       const callArgs = mockFetch.mock.calls[0];
       const body = JSON.parse(callArgs[1].body);
-      expect(body.images).toBeDefined();
+      const userMsg = body.messages.find((m: { role: string }) => m.role === "user");
+      expect(userMsg.images).toBeDefined();
     });
 
     it("API calls go to /api/chat-food in free-form mode", async () => {
@@ -1722,7 +1724,9 @@ describe("FoodChat", () => {
       const callArgs = mockFetch.mock.calls[0];
       const body = JSON.parse(((callArgs as unknown[])[1] as { body: string }).body);
       expect(body.initialAnalysis).toEqual(mockAnalysis);
-      expect(body.images).toHaveLength(2); // initial images sent on first message
+      // Initial images are embedded in the first user message, not top-level
+      const userMsg = body.messages.find((m: { role: string }) => m.role === "user");
+      expect(userMsg.images).toHaveLength(2);
     });
   });
 
