@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { DailyDashboard } from "@/components/daily-dashboard";
 import { WeeklyDashboard } from "@/components/weekly-dashboard";
 
@@ -8,16 +8,16 @@ type DashboardView = "daily" | "weekly";
 
 export function DashboardShell() {
   const [view, setView] = useState<DashboardView>("daily");
+  const [isPending, startTransition] = useTransition();
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6${isPending ? " opacity-50" : ""}`}>
       {/* Segmented control */}
-      <div role="tablist" className="flex gap-1 p-1 bg-muted rounded-full">
+      <div className="flex gap-1 p-1 bg-muted rounded-full">
         <button
-          role="tab"
-          aria-selected={view === "daily"}
-          aria-controls="panel-daily"
-          onClick={() => setView("daily")}
+          aria-controls="panel-dashboard"
+          aria-pressed={view === "daily"}
+          onClick={() => startTransition(() => setView("daily"))}
           className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
             view === "daily"
               ? "bg-primary text-primary-foreground"
@@ -27,10 +27,9 @@ export function DashboardShell() {
           Daily
         </button>
         <button
-          role="tab"
-          aria-selected={view === "weekly"}
-          aria-controls="panel-weekly"
-          onClick={() => setView("weekly")}
+          aria-controls="panel-dashboard"
+          aria-pressed={view === "weekly"}
+          onClick={() => startTransition(() => setView("weekly"))}
           className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
             view === "weekly"
               ? "bg-primary text-primary-foreground"
@@ -42,7 +41,7 @@ export function DashboardShell() {
       </div>
 
       {/* Conditional dashboard rendering */}
-      <div id={view === "daily" ? "panel-daily" : "panel-weekly"}>
+      <div id="panel-dashboard">
         {view === "daily" ? <DailyDashboard /> : <WeeklyDashboard />}
       </div>
     </div>

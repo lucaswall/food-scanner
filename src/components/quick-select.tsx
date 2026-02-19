@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { apiFetcher } from "@/lib/swr";
+import { safeResponseJson } from "@/lib/safe-json";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { MealTypeSelector } from "./meal-type-selector";
 import { NutritionFactsCard } from "./nutrition-facts-card";
@@ -148,9 +149,14 @@ export function QuickSelect() {
           mealTypeId,
           ...getLocalDateTime(),
         }),
+        signal: AbortSignal.timeout(15000),
       });
 
-      const result = await response.json();
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data: FoodLogResponse;
+        error?: { code: string; message: string };
+      };
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
@@ -280,12 +286,11 @@ export function QuickSelect() {
   return (
     <div className="space-y-4">
       {/* Tab bar */}
-      <div role="tablist" className="flex gap-2">
+      <div className="flex gap-2">
         <button
-          role="tab"
           id="tab-suggested"
-          aria-selected={activeTab === "suggested"}
-          aria-controls="panel-suggested"
+          aria-controls="panel-quick-select"
+          aria-pressed={activeTab === "suggested"}
           onClick={() => setActiveTab("suggested")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "suggested"
@@ -296,10 +301,9 @@ export function QuickSelect() {
           Suggested
         </button>
         <button
-          role="tab"
           id="tab-recent"
-          aria-selected={activeTab === "recent"}
-          aria-controls="panel-recent"
+          aria-controls="panel-quick-select"
+          aria-pressed={activeTab === "recent"}
           onClick={() => setActiveTab("recent")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "recent"
@@ -313,9 +317,7 @@ export function QuickSelect() {
 
       {/* Tab content */}
       <div
-        role="tabpanel"
-        id={activeTab === "suggested" ? "panel-suggested" : "panel-recent"}
-        aria-labelledby={`tab-${activeTab}`}
+        id="panel-quick-select"
         className="space-y-4"
       >
         {/* Search input */}

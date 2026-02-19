@@ -5,6 +5,18 @@ import type { FoodAnalysis, FoodLogResponse, ConversationMessage } from "@/types
 import type { StreamEvent } from "@/lib/sse";
 import { compressImage } from "@/lib/image";
 
+// Mock next/dynamic to load the ChatMarkdown component synchronously.
+// Using vi.importActual so Vitest resolves TypeScript/ESM correctly.
+// The async factory is awaited by Vitest before allowing any module that imports
+// next/dynamic to proceed, so ChatMarkdown is always available before tests run.
+vi.mock("next/dynamic", async () => {
+  const { ChatMarkdown } = await vi.importActual<{
+    ChatMarkdown: React.ComponentType<{ content: string }>;
+  }>("../chat-markdown");
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+  return { default: (_importFn: any, _options?: any) => ChatMarkdown };
+});
+
 // Helper to create SSE mock fetch responses.
 // Uses a manual reader mock instead of ReadableStream to avoid jsdom stream quirks.
 function makeSSEFetchResponse(events: StreamEvent[], ok = true) {
@@ -1859,6 +1871,40 @@ describe("FoodChat", () => {
       const heading = screen.getByRole("heading", { level: 1 });
       expect(heading).toHaveTextContent("Chat");
     });
+  });
+
+  it("compression warning uses semantic warning color class, not hardcoded amber (FOO-617)", async () => {
+    const mockCompressImage = vi.mocked(compressImage);
+    mockCompressImage.mockRejectedValueOnce(new Error("Compression failed"));
+
+    render(<FoodChat {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    const galleryInput = screen.getByTestId("chat-gallery-input");
+    const files = [new File(["file1"], "photo1.jpg", { type: "image/jpeg" })];
+    Object.defineProperty(galleryInput, "files", { value: files });
+    fireEvent.change(galleryInput);
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn't be processed/i)).toBeInTheDocument();
+    });
+
+    const warningEl = screen.getByText(/couldn't be processed/i);
+    expect(warningEl).not.toHaveClass("text-amber-600");
+    expect(warningEl).not.toHaveClass("text-amber-400");
+    expect(warningEl).toHaveClass("text-warning-foreground");
+  });
+
+  it("camera and gallery buttons have 44px touch target (FOO-620)", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+    const cameraButton = screen.getByRole("button", { name: /take photo/i });
+    const galleryButton = screen.getByRole("button", { name: /choose from gallery/i });
+
+    expect(cameraButton).toHaveClass("min-h-[44px]");
+    expect(galleryButton).toHaveClass("min-h-[44px]");
   });
 
   // FOO-532: Seeded conversation support

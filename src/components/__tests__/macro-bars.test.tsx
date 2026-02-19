@@ -235,6 +235,41 @@ describe("MacroBars", () => {
     });
   });
 
+  describe("accessibility", () => {
+    it("each bar div has role=progressbar with aria-valuenow, aria-valuemin, aria-valuemax, and aria-label", () => {
+      const { container } = render(
+        <MacroBars proteinG={50} carbsG={100} fatG={30} proteinGoal={100} carbsGoal={200} fatGoal={60} />
+      );
+
+      const proteinBar = container.querySelector('[data-testid="macro-bar-protein"]');
+      const carbsBar = container.querySelector('[data-testid="macro-bar-carbs"]');
+      const fatBar = container.querySelector('[data-testid="macro-bar-fat"]');
+
+      // role=progressbar
+      expect(proteinBar).toHaveAttribute("role", "progressbar");
+      expect(carbsBar).toHaveAttribute("role", "progressbar");
+      expect(fatBar).toHaveAttribute("role", "progressbar");
+
+      // aria-valuemin / aria-valuemax
+      expect(proteinBar).toHaveAttribute("aria-valuemin", "0");
+      expect(proteinBar).toHaveAttribute("aria-valuemax", "100");
+      expect(carbsBar).toHaveAttribute("aria-valuemin", "0");
+      expect(carbsBar).toHaveAttribute("aria-valuemax", "100");
+      expect(fatBar).toHaveAttribute("aria-valuemin", "0");
+      expect(fatBar).toHaveAttribute("aria-valuemax", "100");
+
+      // aria-valuenow reflects the percent (50/100=50%, 100/200=50%, 30/60=50%)
+      expect(proteinBar).toHaveAttribute("aria-valuenow", "50");
+      expect(carbsBar).toHaveAttribute("aria-valuenow", "50");
+      expect(fatBar).toHaveAttribute("aria-valuenow", "50");
+
+      // aria-label contains macro name and values
+      expect(proteinBar?.getAttribute("aria-label")).toMatch(/protein/i);
+      expect(carbsBar?.getAttribute("aria-label")).toMatch(/carbs/i);
+      expect(fatBar?.getAttribute("aria-label")).toMatch(/fat/i);
+    });
+  });
+
   describe("over-goal visual indicators", () => {
     it("label has text-destructive class when consumed exceeds goal", () => {
       const { container } = render(

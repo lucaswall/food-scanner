@@ -183,3 +183,13 @@
     animation: none;
   }
 }
+
+/* Reduce motion for Radix UI [data-state] transitions from tw-animate-css.
+   Use 0.01ms (not none) to preserve animationend events that Radix relies on. */
+@media (prefers-reduced-motion: reduce) {
+  [data-state] {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

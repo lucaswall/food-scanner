@@ -97,6 +97,11 @@ export function MacroBars({
           <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
             <div
               data-testid={macro.testId}
+              role="progressbar"
+              aria-valuenow={macro.percent}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={`${macro.name}: ${macro.label}`}
               className={`h-full ${macro.color} transition-all duration-300`}
               style={{ width: `${macro.percent}%` }}
             />

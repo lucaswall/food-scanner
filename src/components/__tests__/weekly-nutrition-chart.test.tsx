@@ -655,27 +655,39 @@ describe("WeeklyNutritionChart", () => {
     expect(bottomPercent).toBeLessThanOrEqual(100);
   });
 
-  it("metric tab buttons have aria-controls pointing to the chart panel", () => {
+  it("metric buttons have aria-controls pointing to the chart panel", () => {
     render(<WeeklyNutritionChart days={mockDays} weekStart="2026-02-08" />);
 
-    const caloriesTab = screen.getByRole("tab", { name: "Calories" });
-    const proteinTab = screen.getByRole("tab", { name: "Protein" });
-    const carbsTab = screen.getByRole("tab", { name: "Carbs" });
-    const fatTab = screen.getByRole("tab", { name: "Fat" });
+    const caloriesBtn = screen.getByTestId("metric-calories");
+    const proteinBtn = screen.getByTestId("metric-protein");
+    const carbsBtn = screen.getByTestId("metric-carbs");
+    const fatBtn = screen.getByTestId("metric-fat");
 
     // Check aria-controls attributes
-    expect(caloriesTab).toHaveAttribute("aria-controls", "panel-metric");
-    expect(proteinTab).toHaveAttribute("aria-controls", "panel-metric");
-    expect(carbsTab).toHaveAttribute("aria-controls", "panel-metric");
-    expect(fatTab).toHaveAttribute("aria-controls", "panel-metric");
+    expect(caloriesBtn).toHaveAttribute("aria-controls", "panel-metric");
+    expect(proteinBtn).toHaveAttribute("aria-controls", "panel-metric");
+    expect(carbsBtn).toHaveAttribute("aria-controls", "panel-metric");
+    expect(fatBtn).toHaveAttribute("aria-controls", "panel-metric");
 
     // Verify chart container has the matching ID
     const chartPanel = document.getElementById("panel-metric");
     expect(chartPanel).toBeInTheDocument();
 
-    // Switch to protein tab and verify panel still has the same ID
-    fireEvent.click(proteinTab);
+    // Switch to protein button and verify panel still has the same ID
+    fireEvent.click(proteinBtn);
     expect(document.getElementById("panel-metric")).toBeInTheDocument();
+  });
+
+  it("chart container div has aria-label describing the selected metric", () => {
+    render(<WeeklyNutritionChart days={mockDays} weekStart="2026-02-08" />);
+
+    // Default metric is "calories"
+    const chartPanel = document.getElementById("panel-metric");
+    expect(chartPanel).toHaveAttribute("aria-label", "Weekly calories chart");
+
+    // Switch to protein
+    fireEvent.click(screen.getByTestId("metric-protein"));
+    expect(chartPanel).toHaveAttribute("aria-label", "Weekly protein chart");
   });
 
   it("shows a visual indicator on the current day column", () => {

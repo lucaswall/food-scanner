@@ -139,11 +139,55 @@ describe("MealBreakdown", () => {
     expect(screen.queryByText("Lunch")).not.toBeInTheDocument();
   });
 
+  it("header button has aria-expanded=false by default and aria-expanded=true when expanded", async () => {
+    const user = userEvent.setup();
+    render(<MealBreakdown meals={mockMeals} />);
+
+    const breakfastHeader = screen.getByTestId("meal-header-1");
+
+    // Initially collapsed
+    expect(breakfastHeader).toHaveAttribute("aria-expanded", "false");
+
+    // After click, expanded
+    await user.click(breakfastHeader);
+    expect(breakfastHeader).toHaveAttribute("aria-expanded", "true");
+
+    // After second click, collapsed again
+    await user.click(breakfastHeader);
+    expect(breakfastHeader).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("headers have touch-friendly height (min 44px)", () => {
     render(<MealBreakdown meals={mockMeals} />);
 
     const breakfastHeader = screen.getByTestId("meal-header-1");
     expect(breakfastHeader).toHaveClass("min-h-[44px]");
+  });
+
+  it("sorts unrecognized meal types to the end", () => {
+    const entry = (id: number, name: string, time: string, cal: number) => ({
+      id, customFoodId: id, foodName: name, time, calories: cal,
+      proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
+      saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
+    });
+    const sub = (cal: number) => ({
+      calories: cal, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
+      saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
+    });
+    const mealsWithUnknown = [
+      { mealTypeId: 99, subtotal: sub(200), entries: [entry(1, "Mystery", "10:00", 200)] },
+      { mealTypeId: 1, subtotal: sub(400), entries: [entry(2, "Eggs", "08:00", 400)] },
+      { mealTypeId: 3, subtotal: sub(500), entries: [entry(3, "Salad", "12:00", 500)] },
+    ];
+
+    render(<MealBreakdown meals={mealsWithUnknown} />);
+
+    const headers = screen.getAllByTestId(/meal-header-/);
+
+    // Breakfast (1) and Lunch (3) should come first, unknown (99) last
+    expect(headers[0]).toHaveAttribute("data-testid", "meal-header-1");
+    expect(headers[1]).toHaveAttribute("data-testid", "meal-header-3");
+    expect(headers[2]).toHaveAttribute("data-testid", "meal-header-99");
   });
 
   it("renders meals in logical order", () => {

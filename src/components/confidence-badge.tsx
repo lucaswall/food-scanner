@@ -38,7 +38,6 @@ export function ConfidenceBadge({ confidence }: ConfidenceBadgeProps) {
             )}
             <div
               data-testid="confidence-indicator"
-              aria-label={`Confidence: ${confidence}`}
               className={`w-3 h-3 rounded-full ${confidenceColors[confidence]}`}
             />
             <span className="text-sm text-muted-foreground capitalize">

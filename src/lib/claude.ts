@@ -54,6 +54,7 @@ Follow these rules:
 - Corrections from the user override previous values
 - When the user asks questions about their eating habits, nutrition, or goals, use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) to look up their actual data before responding
 - Base your answers on real data from the tools, not assumptions
+- Do not re-search for food data that is already present in the conversation from a previous tool call. If search_food_log already returned a food's nutritional data in an earlier turn, use that data directly instead of searching again.
 - If the user's intent is ambiguous, ask clarifying questions before updating the analysis
 - Be concise and conversational in your responses
 - Use specific numbers from their data when available
@@ -435,6 +436,7 @@ Follow these rules:
 - When the user references past meals, history, or goals (e.g., "same as yesterday", "half of what I had Monday"), use the data tools (search_food_log, get_nutrition_summary, get_fasting_info) to look up their actual data
 - If the request is ambiguous and needs clarification, respond with text to ask the user
 - Base your answers on real data from the tools, not assumptions
+- Do not re-search for food data that is already present in the conversation from a previous tool call. If search_food_log already returned a food's nutritional data in an earlier turn, use that data directly instead of searching again.
 - CRITICAL: Food is ONLY registered/logged when you call report_nutrition. Never claim food is "registered", "logged", or "recorded" unless you have called report_nutrition in that same response.
 - ${REPORT_NUTRITION_UI_CARD_NOTE}
 - Never ask for confirmation before calling report_nutrition — the user confirms via the UI button.
