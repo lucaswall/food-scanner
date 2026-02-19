@@ -66,7 +66,7 @@ export function MealTypeSelector({
         <SelectTrigger id={id} aria-label={ariaLabel} className="w-full min-h-[44px]">
           <SelectValue placeholder="Select meal type" />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className="z-[70]">
           {MEAL_TYPE_OPTIONS.map((option) => (
             <SelectItem
               key={option.id}
