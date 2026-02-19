@@ -37,9 +37,9 @@ vi.mock("@/components/lumen-banner", () => ({
   ),
 }));
 
-vi.mock("@/components/floating-actions", () => ({
-  FloatingActions: () => (
-    <div data-testid="floating-actions">FloatingActions</div>
+vi.mock("@/components/header-actions", () => ({
+  HeaderActions: () => (
+    <div data-testid="header-actions">HeaderActions</div>
   ),
 }));
 
@@ -89,11 +89,11 @@ describe("/app page", () => {
     expect(screen.getByTestId("dashboard-shell")).toBeInTheDocument();
   });
 
-  it("renders FloatingActions component", async () => {
+  it("renders HeaderActions component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
-    expect(screen.getByTestId("floating-actions")).toBeInTheDocument();
+    expect(screen.getByTestId("header-actions")).toBeInTheDocument();
   });
 
   describe("skip link", () => {

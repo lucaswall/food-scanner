@@ -1,187 +1,139 @@
-# Fix Plan: Images lost across conversation turns in chat
+# Implementation Plan
 
-**Issue:** FOO-675
-**Date:** 2026-02-19
 **Status:** COMPLETE
-**Branch:** fix/FOO-675-chat-images-lost-across-turns
+**Created:** 2026-02-19
+**Source:** Inline request: Move floating action buttons to header icons (Option A from investigation)
+**Linear Issues:** [FOO-676](https://linear.app/lw-claude/issue/FOO-676/move-floating-action-buttons-to-header-icons)
 
-## Investigation
+## Context Gathered
 
-### Bug Report
-When a user sends a first image in a chat conversation, then in a subsequent message adds another image (e.g., "add another thing"), Claude only sees/analyzes the second image — the first image is lost. The user has to explicitly insist before Claude processes both items together.
+### Codebase Analysis
+- **FloatingActions component:** `src/components/floating-actions.tsx` — three fixed-position FABs (Chat, Camera, Quick Select) stacked bottom-right with `z-[55]`
+- **Home page:** `src/app/app/page.tsx` — renders `<FloatingActions />` outside `<main>`, h1 "Food Scanner" is a plain text element with no flex row
+- **Bottom nav:** `src/components/bottom-nav.tsx` — already has Quick Select (`/app/quick-select`) and Analyze (`/app/analyze`) entries, 5 items at max
+- **FloatingActions usage:** Only on `/app/page.tsx` — not used elsewhere
+- **Test files:** `src/components/__tests__/floating-actions.test.tsx` (5 tests), `src/app/app/__tests__/page.test.tsx` (mocks FloatingActions, 1 test asserts it renders)
+- **E2E:** No E2E tests reference floating actions directly
+- **autoCapture:** Camera link uses `?autoCapture=true` to auto-open camera on the analyze page
 
-### Classification
-- **Type:** Frontend Bug + API Design Gap
-- **Severity:** High
-- **Affected Area:** Food chat image handling across conversation turns
+### Design Decision
+- **Drop Quick Select shortcut** — already in bottom nav, no need for header duplication
+- **Keep Chat + Camera** — Chat has no bottom nav entry; Camera shortcut (with autoCapture) provides quick photo access distinct from the nav's Analyze entry
+- **Header placement** — flex row with h1 left, icon links right. Matches common mobile app patterns (e.g., WhatsApp, Telegram header actions)
 
-### Root Cause Analysis
-Two compounding issues — one client-side, one server-side:
+## Original Plan
 
-**1. Client: Images are ephemeral, not embedded in messages**
-`src/components/food-chat.tsx:289-300` — `handleSend` collects images into a temporary `allImagesToSend` array. After sending, `pendingImages` is cleared (line 242). On subsequent turns, only new images from that turn are sent. Images from earlier turns are never re-sent.
+### Task 1: Create HeaderActions component and replace FloatingActions
+**Linear Issue:** [FOO-676](https://linear.app/lw-claude/issue/FOO-676/move-floating-action-buttons-to-header-icons)
 
-**2. Server: Images only attach to the last user message**
-`src/lib/claude.ts:1241-1270` — `conversationalRefine` finds `lastUserIndex` and attaches ALL images (the `images[]` param) only to that message. Even if all images were somehow sent, they'd all land on the latest message, not their original turns.
+**TDD Steps:**
 
-**3. Type system has no image support on messages**
-`src/types/index.ts:399-404` — `ConversationMessage` only has `content: string`, no image field. `ChatFoodRequest` carries images as a separate top-level `images?: string[]` array with no per-message association.
+1. Write tests in `src/components/__tests__/header-actions.test.tsx`:
+   - Renders two links: Chat (`/app/chat`) and Take Photo (`/app/analyze?autoCapture=true`)
+   - Links have correct aria-labels ("Chat" and "Take Photo")
+   - All links meet minimum touch target size (`min-h-[44px]`, `min-w-[44px]`)
+   - Uses `text-muted-foreground` styling for icons
+   - Does NOT render a Quick Select link
 
-**4. System prompt is aspirational**
-`src/lib/claude.ts:53` — "When new photos are provided, they add to the existing meal" — Claude can't do this because it literally can't see previous images.
+2. Run verifier (expect fail — component doesn't exist)
 
-#### Evidence
-- **File:** `src/components/food-chat.tsx:242` — `setPendingImages([])` clears images after each send
-- **File:** `src/components/food-chat.tsx:289-296` — Only current turn images collected
-- **File:** `src/lib/claude.ts:1241-1248` — `lastUserIndex` scan attaches images to wrong message
-- **File:** `src/lib/claude.ts:1255-1270` — Images only on last user message
-- **File:** `src/types/index.ts:399-410` — No image field on `ConversationMessage`; separate `images[]` on request
-- **File:** `src/app/api/chat-food/route.ts:86-115` — Route extracts `images[]` as flat array, no per-message mapping
+3. Create `src/components/header-actions.tsx`:
+   - Client component (`'use client'` not needed — no interactivity, just links)
+   - Actually this is a server component — just renders two Next.js `Link` elements
+   - Two icon links: `MessageCircle` (Chat) and `Camera` (Take Photo) from lucide-react
+   - Each link: `flex items-center justify-center rounded-full min-h-[44px] min-w-[44px] h-9 w-9 text-muted-foreground hover:text-foreground transition-colors`
+   - Layout: `flex items-center gap-1`
 
-#### Related Code
-- `src/components/food-chat.tsx:228-313` — `handleSend` function (image collection + API call)
-- `src/lib/claude.ts:1224-1300` — `conversationalRefine` function (message→Anthropic format conversion)
-- `src/app/api/chat-food/route.ts:85-114` — Image parsing and validation
-- `src/app/api/chat-food/__tests__/route.test.ts:503-531` — Existing image passing test (only tests single-turn)
+4. Update `src/app/app/page.tsx`:
+   - Replace `import { FloatingActions }` with `import { HeaderActions }`
+   - Change the h1 area to a flex row: `<div className="flex items-center justify-between">` wrapping the h1 and `<HeaderActions />`
+   - Remove the standalone `<FloatingActions />` at the bottom
+   - `<HeaderActions />` goes inside `<main>`, in the header flex row (not outside main like FloatingActions was)
 
-### Impact
-- Claude loses visual context from earlier turns, producing wrong or incomplete food analysis
-- Users must repeatedly ask Claude to "look at the other image" — broken UX
-- Affects all multi-image chat sessions (photo-based food analysis is the primary use case)
+5. Update `src/app/app/__tests__/page.test.tsx`:
+   - Replace `FloatingActions` mock with `HeaderActions` mock
+   - Update the test that asserts "renders FloatingActions component" → "renders HeaderActions component"
 
-## Fix Plan (TDD Approach)
+6. Delete `src/components/floating-actions.tsx` and `src/components/__tests__/floating-actions.test.tsx`
 
-### Step 1: Add `images` field to `ConversationMessage` type
-**File:** `src/types/index.ts` (modify)
+7. Run verifier (expect pass)
 
-**Behavior:**
-- Add optional `images?: string[]` field (base64 strings) to `ConversationMessage`
-- Keep the top-level `images?: string[]` on `ChatFoodRequest` for backward compat during transition (remove in Step 5)
-- This is purely a type change — no runtime behavior yet
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent - Review changes for bugs
+2. Run `verifier` agent - Verify all tests pass and zero warnings
 
-### Step 2: Embed images into messages on the client
-**File:** `src/components/food-chat.tsx` (modify)
-**Test:** Not unit-testable (React component with DOM/Blob APIs) — covered by E2E
+---
 
-**Behavior:**
-- When `handleSend` collects images (initial compressed images on first send, user-added `pendingImages` on any send), store them as base64 strings directly on the `ConversationMessage` object for that turn: `{ role: "user", content: "...", images: [...] }`
-- The `blobsToBase64` conversion already exists (line 212-226) — call it before creating the message object
-- Remove the separate `requestBody.images` field. Instead, the images travel inside `requestBody.messages[N].images`
-- Remove `initialImagesSent` state — no longer needed since images are embedded in the message that originally carried them. On every send, ALL messages (with their embedded images) are sent to the server as part of the conversation history.
-- Remove the `pendingImages`→`allImagesToSend`→`requestBody.images` flow (lines 289-300). Replace with: convert pending images to base64, attach to the new user message, add to messages state.
-- Keep `pendingImages` state for the UI indicator (showing thumbnails before send) — just attach them to the message on send instead of sending separately.
+## Plan Summary
 
-### Step 3: Update API route to extract per-message images
-**File:** `src/app/api/chat-food/route.ts` (modify)
-**Test:** `src/app/api/chat-food/__tests__/route.test.ts` (modify)
+**Objective:** Move floating action buttons to inline header icons to fix content overlap on home screen
 
-**Behavior:**
-- Accept images embedded in `messages[].images` (new format)
-- Validate per-message images: each `messages[i].images` entry must be valid base64, within size limit
-- Enforce total image count across all messages (sum of all `messages[i].images.length` <= MAX_IMAGES)
-- Convert each message's `images` from base64 strings to `ImageInput[]` format and pass through to `conversationalRefine`
-- Change `conversationalRefine` call signature: instead of a separate `images` param, pass messages that carry their own images (see Step 4)
+**Request:** Replace the three floating action buttons (Chat, Camera, Quick Select) that overlap dashboard content with two small icon buttons (Chat, Camera) in the page header next to the title. Drop Quick Select shortcut since it's already in the bottom nav.
 
-**Tests:**
-1. Accepts messages with per-message images and passes them to `conversationalRefine` correctly
-2. Validates per-message image base64 format
-3. Validates per-message image size limits
-4. Enforces total image count across all messages
-5. Rejects messages where `images` field is not an array of strings
-6. Works with messages that have no images (backward compat: text-only conversations)
+**Linear Issues:** FOO-676
 
-### Step 4: Update `conversationalRefine` to attach images per-message
-**File:** `src/lib/claude.ts` (modify)
-**Test:** `src/lib/__tests__/claude.test.ts` (modify)
+**Approach:** Create a new `HeaderActions` component with Chat and Camera icon links, integrate it into the home page header as a flex row alongside the h1, delete the old `FloatingActions` component entirely.
 
-**Behavior:**
-- Change the `ConversationMessage` → `Anthropic.MessageParam` mapping (lines 1251-1299): instead of finding `lastUserIndex` and attaching all images there, attach each message's own `images[]` to that message's content blocks
-- Remove the `lastUserIndex` scan (lines 1241-1248) and the conditional at line 1255
-- For each user message that has `images`, prepend image content blocks before the text content block (images-before-text is the Anthropic best practice per their docs)
-- Remove the top-level `images: ImageInput[]` parameter from `conversationalRefine` — images now come from the messages themselves
-- Update the function signature and all callers (`chat-food/route.ts`)
+**Scope:**
+- Tasks: 1
+- Files affected: 5 (create 2, modify 2, delete 2)
+- New tests: yes
 
-**Tests:**
-1. User message with images produces correct Anthropic content blocks (image blocks before text block)
-2. Multiple user messages each with their own images — each message gets its own image blocks
-3. User messages without images produce text-only content blocks
-4. Mixed conversation: some messages with images, some without — correct attachment per message
-5. Assistant messages are unaffected (no image blocks)
+**Key Decisions:**
+- Drop Quick Select from header shortcuts — already in bottom nav, redundant
+- Camera shortcut preserves `?autoCapture=true` for quick photo access
+- Server component (no `'use client'` needed — just static links)
 
-### Step 5: Clean up deprecated code paths
-**File:** `src/types/index.ts` (modify)
-**File:** `src/components/food-chat.tsx` (modify)
-**File:** `src/app/api/chat-food/route.ts` (modify)
-
-**Behavior:**
-- Remove top-level `images?: string[]` from `ChatFoodRequest` type
-- Remove `initialImagesSent` state variable and related logic from `food-chat.tsx`
-- Remove the old image validation block in `route.ts` that handled the top-level `images` array (replaced by per-message validation in Step 3)
-- Update the system prompt in `claude.ts:53` — the instruction "When new photos are provided, they add to the existing meal" now actually works correctly since Claude can see all images in their original positions. Keep the instruction but it's now truthful.
-
-### Step 6: Verify
-- [ ] All new tests pass
-- [ ] All existing tests pass (update tests broken by signature changes)
-- [ ] TypeScript compiles without errors
-- [ ] Lint passes
-- [ ] Build succeeds
-- [ ] Manual test: multi-image chat flow works correctly (both images visible to Claude)
-
-## Notes
-- **No DB changes required** — images remain ephemeral (client-side only, sent per-request)
-- **No migration needed** — this is a client+API change only
-- **Token impact:** Minimal. Images are ~1,000-1,400 tokens each. Re-sending via conversation history benefits from Anthropic prompt caching (0.1x cost for cached turns). Net cost increase is negligible.
-- **Payload size:** Typical food chat has 1-3 images at ~150KB each compressed. Even with 9 images across all turns, payload stays well under the 32MB API limit.
-- **Anthropic best practice:** Their docs explicitly show multi-turn examples where each message keeps its own images. The "Four images across two conversation turns" example uses exactly this pattern.
-- Steps 2-5 can be partially parallelized: Steps 3+4 (server changes) are independent of Step 2 (client changes) until final integration.
+**Risks/Considerations:**
+- None significant — straightforward component swap with no data flow changes
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-02-19
-**Method:** Single-agent (server changes tightly coupled via function signature; client has no unit tests)
+**Method:** Single-agent (1 task, 1 work unit, effort score 2)
 
 ### Tasks Completed This Iteration
-- Step 1: Add `images` field to `ConversationMessage` type — added `images?: string[]`
-- Step 4: Update `conversationalRefine` to per-message images — removed `images: ImageInput[]` param, reads images from `msg.images`, removed `lastUserIndex` scan
-- Step 3: Update API route for per-message image validation — validates `messages[i].images`, enforces total count across messages, rejects images on assistant messages, rejects empty strings
-- Step 2: Embed images into messages on client — `handleSend` converts blobs to base64 and embeds in user message, removed `initialImagesSent` state (replaced with ref), images persist in conversation history across turns
-- Step 5: Clean up deprecated code — removed top-level `images` from `ChatFoodRequest`, removed old top-level image validation block in route, removed old image collection flow in client
+- Task 1: Create HeaderActions component and replace FloatingActions — created new server component with Chat + Camera icon links, updated home page to flex header row, replaced page test mock, deleted old FloatingActions files (FOO-676)
 
 ### Files Modified
-- `src/types/index.ts` — Added `images?: string[]` to `ConversationMessage`, removed top-level `images` from `ChatFoodRequest`
-- `src/lib/claude.ts` — Refactored `conversationalRefine` signature and per-message image attachment
-- `src/lib/__tests__/claude.test.ts` — 5 new per-message image tests, updated all existing call sites
-- `src/app/api/chat-food/route.ts` — Per-message image validation, role check, empty string check
-- `src/app/api/chat-food/__tests__/route.test.ts` — 4 new validation tests, updated existing image/call-site tests
-- `src/components/food-chat.tsx` — Embed images in messages, use ref for initial image tracking, fixed ref leak bug
-- `src/components/__tests__/food-chat.test.tsx` — Updated 4 image tests to check per-message format
+- `src/components/header-actions.tsx` — Created: two icon links (Chat, Camera) in flex row
+- `src/components/__tests__/header-actions.test.tsx` — Created: 4 tests (links, no Quick Select, touch targets, styling)
+- `src/app/app/page.tsx` — Updated: replaced FloatingActions with HeaderActions in header flex row
+- `src/app/app/__tests__/page.test.tsx` — Updated: replaced FloatingActions mock with HeaderActions
+- `src/components/floating-actions.tsx` — Deleted
+- `src/components/__tests__/floating-actions.test.tsx` — Deleted
 
 ### Linear Updates
-- FOO-675: Todo → In Progress → Review
+- FOO-676: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 1 HIGH + 2 MEDIUM bugs, all fixed before proceeding
-- verifier: All 2068 tests pass, zero warnings
+- bug-hunter: Passed — no bugs found
+- verifier: All 2067 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.
 
 ### Review Findings
 
-Files reviewed: 7
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
+Summary: 1 issue found, fixed inline (single-agent review)
+- FIXED INLINE: 1 issue — verified via TDD + bug-hunter
 
-No issues found - all implementations are correct and follow project conventions.
+**Issue fixed inline:**
+- [LOW] CONVENTION: loading.tsx skeleton doesn't match new header flex row layout (`src/app/app/loading.tsx:7`) — wrapped heading skeleton in flex row, added two circular action skeletons + test
 
 **Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: No MIME type validation on per-message images (route.ts:88) + hardcoded image/jpeg (claude.ts:1253) — `compressImage` always outputs JPEG blobs; client-side constraint means all images are JPEG. The assumption is correct.
-- [DISCARDED] SECURITY: No max length on food_name/notes in validateFoodAnalysis (claude.ts:321,348) — These fields come from Claude's report_nutrition tool output, not user input. Rate limited. Self-exploitation only.
-- [DISCARDED] EDGE CASE: truncateConversation ≤5 messages bypass (claude.ts:531-533) — Design limitation, not a bug. Function truncates by removing messages; with ≤5 messages there's nothing to remove. Token overflow impossible given constraints (max 9 images × ~1K tokens = ~9K, far under 150K limit).
-- [DISCARDED] EDGE CASE: pause_turn without userId silently degrades (claude.ts:1355-1358) — Impossible code path; the only caller (route.ts:133-140) always passes both values.
-- [DISCARDED] CONVENTION: Missing action field in 3 log statements (claude.ts:611, 819, 926) — Pre-existing in unchanged code paths (executeDataTools, runToolLoop). Zero correctness impact.
+- [DISCARDED] Skeleton action count not tested — speculative future maintenance concern, not a current defect. Skeleton correctly renders 2 circles matching HeaderActions.
+- [DISCARDED] Loading skeleton uses div instead of main — false positive. SkipLink is inside page.tsx, not a layout file. During loading, loading.tsx replaces page.tsx entirely so no skip link is present and no #main-content target is needed.
 
 ### Linear Updates
-- FOO-675: Review → Merge
+- FOO-676: Review → Merge (original task)
+- FOO-677: Created in Merge (Fix: loading.tsx skeleton mismatch — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2067 pass
+- Bug-hunter: no new issues in fixes
 
 <!-- REVIEW COMPLETE -->
 
