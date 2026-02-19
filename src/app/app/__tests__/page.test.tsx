@@ -15,9 +15,9 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-vi.mock("@/components/daily-dashboard", () => ({
-  DailyDashboard: () => (
-    <div data-testid="daily-dashboard">DailyDashboard</div>
+vi.mock("@/components/dashboard-shell", () => ({
+  DashboardShell: () => (
+    <div data-testid="dashboard-shell">DashboardShell</div>
   ),
 }));
 
@@ -34,6 +34,12 @@ vi.mock("@/components/fitbit-status-banner", () => ({
 vi.mock("@/components/lumen-banner", () => ({
   LumenBanner: () => (
     <div data-testid="lumen-banner">LumenBanner</div>
+  ),
+}));
+
+vi.mock("@/components/floating-actions", () => ({
+  FloatingActions: () => (
+    <div data-testid="floating-actions">FloatingActions</div>
   ),
 }));
 
@@ -62,33 +68,6 @@ describe("/app page", () => {
     expect(screen.getByText("Food Scanner")).toBeInTheDocument();
   });
 
-  it("renders Take Photo CTA button linking to /app/analyze?autoCapture=true", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AppPage();
-    render(jsx);
-    const link = screen.getByRole("link", { name: /take photo/i });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/app/analyze?autoCapture=true");
-  });
-
-  it("renders Quick Select CTA button linking to /app/quick-select", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AppPage();
-    render(jsx);
-    const link = screen.getByRole("link", { name: /quick select/i });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/app/quick-select");
-  });
-
-  it("renders Chat CTA button linking to /app/chat", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AppPage();
-    render(jsx);
-    const link = screen.getByRole("link", { name: /^chat$/i });
-    expect(link).toBeInTheDocument();
-    expect(link).toHaveAttribute("href", "/app/chat");
-  });
-
   it("renders FitbitStatusBanner component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
@@ -96,28 +75,25 @@ describe("/app page", () => {
     expect(screen.getByTestId("fitbit-status-banner")).toBeInTheDocument();
   });
 
-  it("renders LumenBanner component between button grid and DailyDashboard", async () => {
+  it("renders LumenBanner component after DashboardShell", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
     expect(screen.getByTestId("lumen-banner")).toBeInTheDocument();
   });
 
-  it("renders daily dashboard component", async () => {
+  it("renders DashboardShell component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
-    expect(screen.getByTestId("daily-dashboard")).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-shell")).toBeInTheDocument();
   });
 
-  it("CTA buttons have min touch target size (44px)", async () => {
+  it("renders FloatingActions component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
-    const takePhoto = screen.getByRole("link", { name: /take photo/i });
-    const quickSelect = screen.getByRole("link", { name: /quick select/i });
-    expect(takePhoto).toHaveClass("min-h-[44px]");
-    expect(quickSelect).toHaveClass("min-h-[44px]");
+    expect(screen.getByTestId("floating-actions")).toBeInTheDocument();
   });
 
   describe("skip link", () => {

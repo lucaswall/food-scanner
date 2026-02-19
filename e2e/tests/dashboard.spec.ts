@@ -13,10 +13,10 @@ test.describe('Dashboard', () => {
     // Verify main heading
     await expect(page.getByRole('heading', { name: 'Food Scanner', level: 1 })).toBeVisible();
 
-    // Verify primary action buttons by text content
-    // Use first() to handle duplicate text in navigation
-    await expect(page.getByText('Take Photo').first()).toBeVisible();
-    await expect(page.getByText('Quick Select').first()).toBeVisible();
+    // Verify primary action buttons via FAB aria-labels
+    // "Quick Select" appears in both FAB and BottomNav — use .first() to target the FAB
+    await expect(page.getByRole('link', { name: 'Take Photo' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Quick Select' }).first()).toBeVisible();
 
     // Capture screenshot
     await page.waitForLoadState('networkidle');
@@ -65,15 +65,15 @@ test.describe('Dashboard', () => {
   test('action links navigate to correct pages', async ({ page }) => {
     await page.goto('/app');
 
-    // Click "Take Photo" and verify navigation to analyze with autoCapture
-    await page.getByText('Take Photo').first().click();
+    // Click "Take Photo" FAB and verify navigation to analyze with autoCapture
+    await page.getByRole('link', { name: 'Take Photo' }).click();
     await expect(page).toHaveURL('/app/analyze?autoCapture=true');
 
     // Go back to dashboard
     await page.goto('/app');
 
-    // Click "Quick Select" and verify navigation
-    await page.getByText('Quick Select').first().click();
+    // Click "Quick Select" FAB and verify navigation (use .first() — also in BottomNav)
+    await page.getByRole('link', { name: 'Quick Select' }).first().click();
     await expect(page).toHaveURL('/app/quick-select');
   });
 
@@ -132,13 +132,12 @@ test.describe('Dashboard', () => {
 
     // Seeded data has meals at 12:30 (lunch) and current time (dinner)
     // The fasting section should show some time or fasting-related content
-    // Check for fasting-related text OR time patterns OR numeric info
+    // Check for fasting-related text OR time patterns (hours/minutes format)
     const fastingText = await page.locator('text=/fasting|window|eating|last meal|first meal/i').count();
     const hasTimeInfo = await page.locator('text=/\\d{1,2}:\\d{2}|\\d+\\s*(hr|hour|h\\b|min)/i').count();
-    const hasNumericInfo = await page.locator('text=/\\d+.*\\d+/').count();
 
-    // At least one of these patterns should match
-    expect(fastingText + hasTimeInfo + hasNumericInfo).toBeGreaterThan(0);
+    // At least one fasting-specific pattern should match
+    expect(fastingText + hasTimeInfo).toBeGreaterThan(0);
   });
 
   test('daily view date navigation arrows work', async ({ page }) => {

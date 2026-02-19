@@ -9,10 +9,11 @@ describe("/app loading skeleton", () => {
     expect(heading).toBeInTheDocument();
   });
 
-  it("renders two card skeletons in a grid", () => {
+  it("renders toggle skeleton for Daily/Weekly segmented control", () => {
     render(<Loading />);
-    const cards = screen.getAllByTestId("skeleton-card");
-    expect(cards).toHaveLength(2);
+    const toggle = screen.getByTestId("skeleton-toggle");
+    expect(toggle).toBeInTheDocument();
+    expect(toggle).toHaveClass("h-11", "rounded-full");
   });
 
   it("renders dashboard preview skeleton", () => {
