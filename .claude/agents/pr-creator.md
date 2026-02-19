@@ -45,10 +45,9 @@ Create a complete PR: analyze branch → commit local changes → push → PR.
    git diff <base>...HEAD
    ```
 
-7. **Extract Linear issue IDs from PLANS.md** (if exists)
-   - Read PLANS.md if present in project root
-   - Scan the ENTIRE file for all `FOO-\d+` identifiers (not just specific lines)
-   - Deduplicate and sort numerically
+7. **Get Linear issue IDs**
+   - **If the caller provided explicit issue IDs** (e.g., "Linear issues to close: FOO-123, FOO-124"): use those directly. This is the authoritative list — do NOT scan PLANS.md.
+   - **Otherwise:** Read PLANS.md if present in project root. Scan the ENTIRE file for all `FOO-\d+` identifiers (not just specific lines). Deduplicate and sort numerically.
    - Store for use in PR body (for Linear's magic keyword automation)
 
 ### Phase 2: Determine Actions
@@ -191,9 +190,9 @@ Closes FOO-123, FOO-124
 - This enables the workflow: Review → Merge (after code review) → Done (after PR merge)
 
 **Issue extraction:**
-- Scan the ENTIRE PLANS.md for all `FOO-\d+` identifiers (header, Fix Plans, Linear Updates, task lists — everywhere)
-- Deduplicate and sort numerically (e.g., FOO-601, FOO-602, ..., FOO-644)
-- If no issues found, omit the "Linear Issues" section entirely
+- **Prefer explicit list:** If the caller provided "Linear issues to close: ..." in the prompt, use that list directly. Do NOT scan PLANS.md — the caller's list is authoritative and includes inline-fix issues that may be hard to parse from the file.
+- **Fallback to PLANS.md:** Only if no explicit list was provided, scan the ENTIRE PLANS.md for all `FOO-\d+` identifiers (header, Fix Plans, Linear Updates, task lists — everywhere). Deduplicate and sort numerically.
+- If no issues found from either source, omit the "Linear Issues" section entirely
 
 ## Rules
 
@@ -206,4 +205,4 @@ Closes FOO-123, FOO-124
 - Use HEREDOC for PR body to handle special characters
 - Always detect base branch dynamically (usually `main`)
 - Never stage files matching sensitive patterns (.env*, credentials*, secrets*, *.key, *.pem)
-- Include Linear issue IDs from PLANS.md with `Closes` keyword in PR body
+- Include Linear issue IDs with `Closes` keyword in PR body (prefer caller-provided list over PLANS.md scanning)
