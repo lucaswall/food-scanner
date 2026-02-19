@@ -306,10 +306,15 @@ export function FoodHistory() {
       {groups.map((group) => (
         <div key={group.date} className="space-y-2">
           {/* Date header with summary */}
-          <div className="flex justify-between items-baseline border-b pb-1">
-            <h2 className="font-semibold">{formatDateHeader(group.date)}</h2>
-            <span className="text-sm text-muted-foreground">
-              {Math.round(group.totalCalories)} cal | P:{group.totalProteinG.toFixed(1)}g C:{group.totalCarbsG.toFixed(1)}g F:{group.totalFatG.toFixed(1)}g
+          <div className="flex flex-col border-b pb-1">
+            <div className="flex justify-between items-baseline">
+              <h2 className="font-semibold">{formatDateHeader(group.date)}</h2>
+              <span className="text-sm text-muted-foreground">
+                {Math.round(group.totalCalories)} cal
+              </span>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {`P: ${Math.round(group.totalProteinG)}g · C: ${Math.round(group.totalCarbsG)}g · F: ${Math.round(group.totalFatG)}g`}
             </span>
           </div>
 
@@ -327,7 +332,7 @@ export function FoodHistory() {
               >
                 <div className="flex justify-between items-start">
                   <div className="min-w-0">
-                    <p className="font-medium truncate">{entry.foodName}</p>
+                    <p className="font-medium">{entry.foodName}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatTime(entry.time)} · {FITBIT_MEAL_TYPE_LABELS[entry.mealTypeId] ?? "Unknown"} · {getUnitLabel(entry.unitId, entry.amount)}
                     </p>

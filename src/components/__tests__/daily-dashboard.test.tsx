@@ -813,6 +813,37 @@ describe("DailyDashboard", () => {
     });
   });
 
+  it("'Update Lumen goals' button is full-width", async () => {
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockSummary }),
+        });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockGoals }),
+        });
+      }
+      if (url.includes("/api/lumen-goals")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+        });
+      }
+      return Promise.reject(new Error("Unknown URL"));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      const lumenButton = screen.getByRole("button", { name: /update lumen goals/i });
+      expect(lumenButton).toHaveClass("w-full");
+    });
+  });
+
   it("'Update Lumen goals' button triggers file picker on click", async () => {
     const user = userEvent.setup();
 

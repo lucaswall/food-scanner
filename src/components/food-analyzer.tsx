@@ -636,7 +636,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       <Button
         onClick={handleAnalyze}
         disabled={!canAnalyze}
-        className="w-full min-h-[44px]"
+        className="w-full min-h-[44px] shadow-sm"
       >
         {compressing ? "Preparing images..." : loading ? "Analyzing..." : "Analyze Food"}
       </Button>

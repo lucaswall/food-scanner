@@ -1030,7 +1030,40 @@ describe("FoodHistory", () => {
     expect(headings).toHaveLength(2);
   });
 
-  it("daily summary rounds calories to integer and macros to one decimal", async () => {
+  it("food name element does not have truncate class (allows wrapping)", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    const foodNameEl = screen.getByText("Empanada de carne");
+    expect(foodNameEl).not.toHaveClass("truncate");
+  });
+
+  it("date header shows calories on header line and macros as separate line with · separators", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    // Today: 320 + 120 = 440 cal total, P:12+6=18g, C:28+10=38g, F:18+5=23g
+    expect(screen.getByText("440 cal")).toBeInTheDocument();
+    expect(screen.getByText("P: 18g · C: 38g · F: 23g")).toBeInTheDocument();
+  });
+
+  it("daily summary rounds calories to integer and macros to integer", async () => {
     const fractionalEntries: FoodLogHistoryEntry[] = [
       {
         id: 1,
@@ -1079,11 +1112,9 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Food A")).toBeInTheDocument();
     });
 
-    // Total: 324.2 cal → 324 cal, P:26.04→26.0g, C:50.83→50.8g, F:21.11→21.1g
-    expect(screen.getByText(/324 cal/)).toBeInTheDocument();
-    expect(screen.getByText(/P:26\.0g/)).toBeInTheDocument();
-    expect(screen.getByText(/C:50\.8g/)).toBeInTheDocument();
-    expect(screen.getByText(/F:21\.1g/)).toBeInTheDocument();
+    // Total: 324.2 cal → 324 cal, P:26.04→26g, C:50.83→51g, F:21.11→21g
+    expect(screen.getByText("324 cal")).toBeInTheDocument();
+    expect(screen.getByText("P: 26g · C: 51g · F: 21g")).toBeInTheDocument();
   });
 
   it("shows cached data instantly on re-mount (SWR cache)", async () => {
