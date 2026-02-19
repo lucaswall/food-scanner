@@ -21,7 +21,7 @@ describe("FloatingActions", () => {
   it("container has fixed positioning classes", () => {
     const { container } = render(<FloatingActions />);
     const wrapper = container.firstElementChild as HTMLElement;
-    expect(wrapper).toHaveClass("fixed", "bottom-20", "right-4", "z-[55]");
+    expect(wrapper).toHaveClass("fixed", "bottom-[calc(5rem+env(safe-area-inset-bottom))]", "right-4", "z-[55]");
   });
 
   it("Quick Select button has primary styling and larger size", () => {

@@ -5,7 +5,7 @@ import { Camera, ListChecks, MessageCircle } from "lucide-react";
 
 export function FloatingActions() {
   return (
-    <div className="fixed bottom-20 right-4 z-[55] flex flex-col items-end gap-3">
+    <div className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-[55] flex flex-col items-end gap-3">
       <Link
         href="/app/chat"
         aria-label="Chat"

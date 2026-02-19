@@ -1,6 +1,7 @@
 # Implementation Plan
 
 **Created:** 2026-02-19
+**Status:** COMPLETE
 **Source:** Inline request: Reorganize home screen — dashboard data first, floating action buttons for Quick Select (primary), Take Photo, Chat
 **Linear Issues:** [FOO-669](https://linear.app/lw-claude/issue/FOO-669), [FOO-670](https://linear.app/lw-claude/issue/FOO-670), [FOO-671](https://linear.app/lw-claude/issue/FOO-671), [FOO-672](https://linear.app/lw-claude/issue/FOO-672)
 
@@ -204,3 +205,42 @@ Changes:
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 2 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 2 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [MEDIUM] BUG: FAB safe-area overlap on notched iOS devices (`src/components/floating-actions.tsx:8`) — changed `bottom-20` to `bottom-[calc(5rem+env(safe-area-inset-bottom))]` to account for BottomNav safe-area growth
+- [MEDIUM] EDGE CASE: Non-falsifiable fasting E2E test (`e2e/tests/dashboard.spec.ts:137`) — removed overly broad `hasNumericInfo` regex that matched any two-number text
+
+**Discarded findings (not bugs):**
+- [DISCARDED] BUG: Calorie null textContent misleading error (`e2e/tests/dashboard.spec.ts:86-93`) — test still fails correctly with `expect(0).toBeGreaterThan(0)`, just misleading error message
+- [DISCARDED] BUG: waitForTimeout flaky delays (`e2e/tests/dashboard.spec.ts:26,117,166,173,189,205,212`) — standard Playwright patterns for animation transitions, not causing failures
+- [DISCARDED] CONVENTION: Unnecessary "use client" (`src/components/floating-actions.tsx:1`) — zero correctness impact, component works correctly
+- [DISCARDED] TYPE: firstElementChild as HTMLElement null cast (`src/components/__tests__/floating-actions.test.tsx:23`, `src/app/app/__tests__/loading.test.tsx:27`) — impossible in context, render() always produces root element
+- [DISCARDED] CONVENTION: Misleading test name about ordering (`src/app/app/__tests__/page.test.tsx:78`) — test assertion (presence check) is valid
+- [DISCARDED] CONVENTION: Loading skeleton missing FitbitStatusBanner placeholder (`src/app/app/loading.tsx`) — FitbitStatusBanner is conditional (only shows when Fitbit has issues), skeletons represent default state
+
+### Linear Updates
+- FOO-669: Review → Merge (original task)
+- FOO-670: Review → Merge (original task)
+- FOO-671: Review → Merge (original task)
+- FOO-672: Review → Merge (original task)
+- FOO-673: Created in Merge (Fix: FAB safe-area overlap — fixed inline)
+- FOO-674: Created in Merge (Fix: non-falsifiable fasting test — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2,060 pass
+- Lint: zero violations
+- Build: clean, zero warnings
+- Bug-hunter: no new issues in inline fixes
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
