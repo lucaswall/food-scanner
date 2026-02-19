@@ -13,10 +13,9 @@ test.describe('Dashboard', () => {
     // Verify main heading
     await expect(page.getByRole('heading', { name: 'Food Scanner', level: 1 })).toBeVisible();
 
-    // Verify primary action buttons by text content
-    // Use first() to handle duplicate text in navigation
-    await expect(page.getByText('Take Photo').first()).toBeVisible();
-    await expect(page.getByText('Quick Select').first()).toBeVisible();
+    // Verify primary action buttons via FAB aria-labels
+    await expect(page.getByRole('link', { name: 'Take Photo' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Quick Select' })).toBeVisible();
 
     // Capture screenshot
     await page.waitForLoadState('networkidle');
@@ -65,15 +64,15 @@ test.describe('Dashboard', () => {
   test('action links navigate to correct pages', async ({ page }) => {
     await page.goto('/app');
 
-    // Click "Take Photo" and verify navigation to analyze with autoCapture
-    await page.getByText('Take Photo').first().click();
+    // Click "Take Photo" FAB and verify navigation to analyze with autoCapture
+    await page.getByRole('link', { name: 'Take Photo' }).click();
     await expect(page).toHaveURL('/app/analyze?autoCapture=true');
 
     // Go back to dashboard
     await page.goto('/app');
 
-    // Click "Quick Select" and verify navigation
-    await page.getByText('Quick Select').first().click();
+    // Click "Quick Select" FAB and verify navigation
+    await page.getByRole('link', { name: 'Quick Select' }).click();
     await expect(page).toHaveURL('/app/quick-select');
   });
 

@@ -169,3 +169,38 @@ Changes:
 - FAB overlap with right-aligned content (macro values "36g") when scrolling — mitigated by FABs being small and content having left-aligned labels
 - 40px secondary FABs meet the 44px touch target minimum if we account for gap spacing, but may need padding adjustment
 - Bottom nav still has Quick Select tab — intentional redundancy (nav = page switching, FAB = shortcut from home)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-19
+**Method:** Single-agent (effort score 6, 3 units — worker overhead exceeds implementation time)
+
+### Tasks Completed This Iteration
+- Task 1: Create FloatingActions component (FOO-669) — New client component with 3 stacked FABs, 5 unit tests
+- Task 2: Reorganize home page layout (FOO-670) — Dashboard first, removed action cards, added FloatingActions
+- Task 3: Update loading skeleton (FOO-671) — Removed card skeletons, added toggle skeleton
+- Task 4: Update E2E dashboard tests (FOO-672) — Updated selectors from text to aria-label roles
+
+### Files Modified
+- `src/components/floating-actions.tsx` — Created FloatingActions client component
+- `src/components/__tests__/floating-actions.test.tsx` — Created 5 unit tests
+- `src/app/app/page.tsx` — Removed action cards, reordered to dashboard-first, added FloatingActions
+- `src/app/app/__tests__/page.test.tsx` — Updated mocks and assertions, added DashboardShell mock
+- `src/app/app/loading.tsx` — Simplified skeleton to heading + toggle + preview
+- `src/app/app/__tests__/loading.test.tsx` — Updated to match new skeleton structure
+- `e2e/tests/dashboard.spec.ts` — Updated FAB selectors to use aria-label roles
+
+### Linear Updates
+- FOO-669: Todo → In Progress → Review
+- FOO-670: Todo → In Progress → Review
+- FOO-671: Todo → In Progress → Review
+- FOO-672: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 issues (1 false positive z-index, 1 fixed DashboardShell mock, 2 cosmetic skips)
+- verifier: All 2,060 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.
