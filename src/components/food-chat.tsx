@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealTypeSelector } from "@/components/meal-type-selector";
@@ -22,13 +23,20 @@ import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { getTodayDate } from "@/lib/date-utils";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
-import { ChatMarkdown } from "@/components/chat-markdown";
 import type {
   FoodAnalysis,
   FoodLogResponse,
   ConversationMessage,
   ChatFoodResponse,
 } from "@/types";
+
+const ChatMarkdown = dynamic(
+  () => import("./chat-markdown").then(m => ({ default: m.ChatMarkdown })),
+  {
+    ssr: false,
+    loading: () => <div className="animate-pulse h-4 bg-muted rounded" />,
+  }
+);
 
 const MAX_MESSAGES = 30;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { DailyDashboard } from "@/components/daily-dashboard";
 import { WeeklyDashboard } from "@/components/weekly-dashboard";
 
@@ -8,14 +8,15 @@ type DashboardView = "daily" | "weekly";
 
 export function DashboardShell() {
   const [view, setView] = useState<DashboardView>("daily");
+  const [isPending, startTransition] = useTransition();
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6${isPending ? " opacity-50" : ""}`}>
       {/* Segmented control */}
       <div className="flex gap-1 p-1 bg-muted rounded-full">
         <button
           aria-controls="panel-daily"
-          onClick={() => setView("daily")}
+          onClick={() => startTransition(() => setView("daily"))}
           className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
             view === "daily"
               ? "bg-primary text-primary-foreground"
@@ -26,7 +27,7 @@ export function DashboardShell() {
         </button>
         <button
           aria-controls="panel-weekly"
-          onClick={() => setView("weekly")}
+          onClick={() => startTransition(() => setView("weekly"))}
           className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
             view === "weekly"
               ? "bg-primary text-primary-foreground"

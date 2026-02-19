@@ -77,6 +77,19 @@ describe("DashboardShell", () => {
     expect(weeklyButton.className).toMatch(/text-muted-foreground/);
   });
 
+  it("tab switch with useTransition renders correct dashboard after transition", async () => {
+    const user = userEvent.setup();
+    render(<DashboardShell />);
+
+    await user.click(screen.getByRole("tab", { name: "Weekly" }));
+    expect(screen.getByTestId("weekly-dashboard")).toBeInTheDocument();
+    expect(screen.queryByTestId("daily-dashboard")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Daily" }));
+    expect(screen.getByTestId("daily-dashboard")).toBeInTheDocument();
+    expect(screen.queryByTestId("weekly-dashboard")).not.toBeInTheDocument();
+  });
+
   it("tab buttons have aria-controls pointing to their respective panels", async () => {
     const user = userEvent.setup();
     render(<DashboardShell />);
