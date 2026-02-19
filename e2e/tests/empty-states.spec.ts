@@ -8,8 +8,8 @@ test.describe('Empty and Error States', () => {
     await page.goto('/app/food-detail/99999');
     await page.waitForLoadState('networkidle');
 
-    // The food detail component shows "Failed to load food entry details" text
-    await expect(page.getByText('Failed to load food entry details')).toBeVisible({ timeout: 10000 });
+    // The food detail component shows error text when entry is not found
+    await expect(page.getByText('Something went wrong loading this food entry.')).toBeVisible({ timeout: 10000 });
 
     await captureScreenshots(page, 'food-detail-error');
 
