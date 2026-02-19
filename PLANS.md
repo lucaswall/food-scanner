@@ -515,3 +515,74 @@ The 13 issues partition cleanly into 3 independent domains with zero shared file
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 8 findings from 3 reviewers (security, reliability, quality) — 4 FIX, 4 DISCARD
+- FIX: 4 issue(s) — Linear issues created in Todo
+- DISCARDED: 4 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: Quick-select fetch has no timeout — button stuck in "Logging..." if server hangs (`src/components/quick-select.tsx:143`) — FOO-655
+- [MEDIUM] CONVENTION: Quick-select aria-controls references non-existent panel IDs (`src/components/quick-select.tsx:286,298`) — FOO-656
+- [LOW] CONVENTION: Quick-select uses raw `response.json()` instead of `safeResponseJson()` (`src/components/quick-select.tsx:153`) — FOO-657
+- [LOW] BUG: Meal breakdown sorts unrecognized meal types to top instead of bottom (`src/components/meal-breakdown.tsx:35-37`) — FOO-658
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: Prompt injection via initialAnalysis in system prompt (`src/lib/claude.ts:1320-1328`) — User already has direct conversational control over Claude; single-user with OAuth allowlist; initialAnalysis originates from user's own prior Claude response
+- [DISCARDED] BUG: validateFoodAnalysis accepts NaN (`src/lib/claude.ts:330-337`) — NaN cannot come from JSON.parse (no NaN literal in JSON spec); strict:true tool schema further prevents it; impossible in context
+- [DISCARDED] EDGE CASE: blobsToBase64 undefined if DataURL has no comma (`src/components/food-chat.tsx:218`) — readAsDataURL always produces `data:type;base64,DATA` format per browser spec; comma is guaranteed (duplicate finding from reliability + quality reviewers)
+- [DISCARDED] TYPE: Same as above — merged duplicate
+
+### Linear Updates
+- FOO-612: Review → Merge
+- FOO-613: Review → Merge
+- FOO-614: Review → Merge
+- FOO-615: Review → Merge
+- FOO-617: Review → Merge
+- FOO-620: Review → Merge
+- FOO-623: Review → Merge
+- FOO-624: Review → Merge
+- FOO-626: Review → Merge
+- FOO-630: Review → Merge
+- FOO-636: Review → Merge
+- FOO-637: Review → Merge
+- FOO-646: Review → Merge
+- FOO-655: Created in Todo (Fix: quick-select fetch timeout)
+- FOO-656: Created in Todo (Fix: quick-select aria-controls IDs)
+- FOO-657: Created in Todo (Fix: quick-select safeResponseJson)
+- FOO-658: Created in Todo (Fix: meal-breakdown sort order)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-655](https://linear.app/lw-claude/issue/FOO-655), [FOO-656](https://linear.app/lw-claude/issue/FOO-656), [FOO-657](https://linear.app/lw-claude/issue/FOO-657), [FOO-658](https://linear.app/lw-claude/issue/FOO-658)
+
+### Fix 1: Add AbortSignal timeout to quick-select fetch
+**Linear Issue:** [FOO-655](https://linear.app/lw-claude/issue/FOO-655)
+
+1. Write test in `src/components/__tests__/quick-select.test.tsx` verifying the fetch call includes a signal option
+2. Add `signal: AbortSignal.timeout(15000)` to the fetch options at `src/components/quick-select.tsx:143`
+
+### Fix 2: Fix aria-controls panel ID references in quick-select
+**Linear Issue:** [FOO-656](https://linear.app/lw-claude/issue/FOO-656)
+
+1. Write test in `src/components/__tests__/quick-select.test.tsx` verifying the content panel has an `id` and buttons reference it via `aria-controls`
+2. Add `id="panel-quick-select"` to the content div at `src/components/quick-select.tsx:311`
+3. Update both `aria-controls` values (lines 286, 298) from `"panel-suggested"`/`"panel-recent"` to `"panel-quick-select"`
+
+### Fix 3: Replace response.json() with safeResponseJson() in quick-select
+**Linear Issue:** [FOO-657](https://linear.app/lw-claude/issue/FOO-657)
+
+1. Import `safeResponseJson` from `@/lib/swr` in `src/components/quick-select.tsx`
+2. Replace `response.json()` at line 153 with `safeResponseJson(response)`
+
+### Fix 4: Fix meal breakdown sort for unrecognized meal types
+**Linear Issue:** [FOO-658](https://linear.app/lw-claude/issue/FOO-658)
+
+1. Write test in `src/components/__tests__/meal-breakdown.test.tsx` with a meal that has an unrecognized `mealTypeId` (e.g., 99), verifying it sorts to the end
+2. Update sort comparator at `src/components/meal-breakdown.tsx:35-37` to map `-1` to `Infinity`
