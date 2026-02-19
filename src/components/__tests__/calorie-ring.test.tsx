@@ -119,8 +119,8 @@ describe("CalorieRing", () => {
       // A visually-hidden sr-only span should exist with calorie text
       const srOnly = document.querySelector(".sr-only");
       expect(srOnly).toBeInTheDocument();
-      expect(srOnly?.textContent).toMatch(/1200/);
-      expect(srOnly?.textContent).toMatch(/2000/);
+      expect(srOnly?.textContent).toMatch(/1,200/);
+      expect(srOnly?.textContent).toMatch(/2,000/);
     });
   });
 

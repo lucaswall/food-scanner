@@ -198,22 +198,12 @@ describe("QuickSelect", () => {
       });
     });
 
-    it("tab content has tabpanel role", async () => {
+    it("tab content area does not have tabpanel role (tablist was removed for FOO-613)", async () => {
       mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
       renderQuickSelect();
 
       await waitFor(() => {
-        expect(screen.getByRole("tabpanel")).toBeInTheDocument();
-      });
-    });
-
-    it("tabpanel has aria-labelledby pointing to active tab", async () => {
-      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
-      renderQuickSelect();
-
-      await waitFor(() => {
-        const tabpanel = screen.getByRole("tabpanel");
-        expect(tabpanel).toHaveAttribute("aria-labelledby", "tab-suggested");
+        expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
       });
     });
 
@@ -1144,8 +1134,8 @@ describe("QuickSelect", () => {
     });
   });
 
-  describe("FOO-479: aria-controls for tab pattern", () => {
-    it("tab buttons have aria-controls pointing to their tabpanel", async () => {
+  describe("FOO-479: aria-controls for tab buttons", () => {
+    it("tab buttons have aria-controls attributes", async () => {
       mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
       renderQuickSelect();
 
@@ -1156,20 +1146,9 @@ describe("QuickSelect", () => {
       const suggestedBtn = screen.getByRole("button", { name: "Suggested" });
       const recentBtn = screen.getByRole("button", { name: "Recent" });
 
-      // Check aria-controls attributes
+      // Check aria-controls attributes still present
       expect(suggestedBtn).toHaveAttribute("aria-controls", "panel-suggested");
       expect(recentBtn).toHaveAttribute("aria-controls", "panel-recent");
-
-      // Verify panel has matching ID
-      const panel = screen.getByRole("tabpanel");
-      expect(panel).toHaveAttribute("id", "panel-suggested");
-
-      // Switch to Recent tab
-      fireEvent.click(recentBtn);
-
-      await waitFor(() => {
-        expect(panel).toHaveAttribute("id", "panel-recent");
-      });
     });
   });
 });

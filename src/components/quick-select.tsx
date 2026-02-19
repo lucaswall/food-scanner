@@ -309,9 +309,6 @@ export function QuickSelect() {
 
       {/* Tab content */}
       <div
-        role="tabpanel"
-        id={activeTab === "suggested" ? "panel-suggested" : "panel-recent"}
-        aria-labelledby={`tab-${activeTab}`}
         className="space-y-4"
       >
         {/* Search input */}

@@ -730,7 +730,7 @@ export function FoodChat({
         {/* Compression warning */}
         {compressionWarning && (
           <div className="px-3 pt-2">
-            <p className="text-xs text-warning text-center">
+            <p className="text-xs text-warning-foreground text-center">
               {compressionWarning}
             </p>
           </div>

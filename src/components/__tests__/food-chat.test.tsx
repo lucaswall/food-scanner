@@ -13,7 +13,7 @@ vi.mock("next/dynamic", async () => {
   const { ChatMarkdown } = await vi.importActual<{
     ChatMarkdown: React.ComponentType<{ content: string }>;
   }>("../chat-markdown");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
   return { default: (_importFn: any, _options?: any) => ChatMarkdown };
 });
 
@@ -1892,7 +1892,7 @@ describe("FoodChat", () => {
     const warningEl = screen.getByText(/couldn't be processed/i);
     expect(warningEl).not.toHaveClass("text-amber-600");
     expect(warningEl).not.toHaveClass("text-amber-400");
-    expect(warningEl).toHaveClass("text-warning");
+    expect(warningEl).toHaveClass("text-warning-foreground");
   });
 
   it("camera and gallery buttons have 44px touch target (FOO-620)", () => {

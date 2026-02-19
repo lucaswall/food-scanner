@@ -323,7 +323,8 @@ describe("AnalysisResult", () => {
     );
 
     const confidenceElement = screen.getByTestId("confidence-indicator");
-    expect(confidenceElement).toHaveAttribute("aria-label", "Confidence: high");
+    // aria-label was removed from indicator div to fix garbled accessible name (FOO-615)
+    expect(confidenceElement).not.toHaveAttribute("aria-label");
   });
 
   describe("confidence tooltip", () => {

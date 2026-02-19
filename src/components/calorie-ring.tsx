@@ -26,7 +26,7 @@ export function CalorieRing({ calories, goal }: CalorieRingProps) {
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <span className="sr-only">{calories} of {goal} calories</span>
+      <span className="sr-only">{formatNumber(calories)} of {formatNumber(goal)} calories</span>
       <div className="relative" style={{ width: size, height: size }}>
         <svg
           data-testid="calorie-ring-svg"

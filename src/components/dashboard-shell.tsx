@@ -15,7 +15,8 @@ export function DashboardShell() {
       {/* Segmented control */}
       <div className="flex gap-1 p-1 bg-muted rounded-full">
         <button
-          aria-controls="panel-daily"
+          aria-controls="panel-dashboard"
+          aria-pressed={view === "daily"}
           onClick={() => startTransition(() => setView("daily"))}
           className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
             view === "daily"
@@ -26,7 +27,8 @@ export function DashboardShell() {
           Daily
         </button>
         <button
-          aria-controls="panel-weekly"
+          aria-controls="panel-dashboard"
+          aria-pressed={view === "weekly"}
           onClick={() => startTransition(() => setView("weekly"))}
           className={`flex-1 rounded-full px-4 py-2 text-sm font-medium transition-colors min-h-[44px] ${
             view === "weekly"
@@ -39,7 +41,7 @@ export function DashboardShell() {
       </div>
 
       {/* Conditional dashboard rendering */}
-      <div id={view === "daily" ? "panel-daily" : "panel-weekly"}>
+      <div id="panel-dashboard">
         {view === "daily" ? <DailyDashboard /> : <WeeklyDashboard />}
       </div>
     </div>

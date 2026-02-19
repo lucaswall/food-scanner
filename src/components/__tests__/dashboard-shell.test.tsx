@@ -81,36 +81,40 @@ describe("DashboardShell", () => {
     const user = userEvent.setup();
     render(<DashboardShell />);
 
-    await user.click(screen.getByRole("tab", { name: "Weekly" }));
+    await user.click(screen.getByRole("button", { name: "Weekly" }));
     expect(screen.getByTestId("weekly-dashboard")).toBeInTheDocument();
     expect(screen.queryByTestId("daily-dashboard")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Daily" }));
+    await user.click(screen.getByRole("button", { name: "Daily" }));
     expect(screen.getByTestId("daily-dashboard")).toBeInTheDocument();
     expect(screen.queryByTestId("weekly-dashboard")).not.toBeInTheDocument();
   });
 
-  it("tab buttons have aria-controls pointing to their respective panels", async () => {
+  it("tab buttons have aria-controls pointing to the panel and aria-pressed reflecting state", async () => {
     const user = userEvent.setup();
     render(<DashboardShell />);
 
     const dailyButton = screen.getByRole("button", { name: "Daily" });
     const weeklyButton = screen.getByRole("button", { name: "Weekly" });
 
-    // Check aria-controls attributes
-    expect(dailyButton).toHaveAttribute("aria-controls", "panel-daily");
-    expect(weeklyButton).toHaveAttribute("aria-controls", "panel-weekly");
+    // Both buttons point to the same static panel
+    expect(dailyButton).toHaveAttribute("aria-controls", "panel-dashboard");
+    expect(weeklyButton).toHaveAttribute("aria-controls", "panel-dashboard");
 
-    // Verify panels have matching IDs
-    const dailyPanel = document.getElementById("panel-daily");
-    expect(dailyPanel).toBeInTheDocument();
-    expect(dailyPanel).toContainElement(screen.getByTestId("daily-dashboard"));
+    // aria-pressed reflects current state
+    expect(dailyButton).toHaveAttribute("aria-pressed", "true");
+    expect(weeklyButton).toHaveAttribute("aria-pressed", "false");
+
+    // Verify panel exists and contains the active dashboard
+    const panel = document.getElementById("panel-dashboard");
+    expect(panel).toBeInTheDocument();
+    expect(panel).toContainElement(screen.getByTestId("daily-dashboard"));
 
     // Switch to weekly view
     await user.click(weeklyButton);
 
-    const weeklyPanel = document.getElementById("panel-weekly");
-    expect(weeklyPanel).toBeInTheDocument();
-    expect(weeklyPanel).toContainElement(screen.getByTestId("weekly-dashboard"));
+    expect(dailyButton).toHaveAttribute("aria-pressed", "false");
+    expect(weeklyButton).toHaveAttribute("aria-pressed", "true");
+    expect(panel).toContainElement(screen.getByTestId("weekly-dashboard"));
   });
 });
