@@ -1861,6 +1861,40 @@ describe("FoodChat", () => {
     });
   });
 
+  it("compression warning uses semantic warning color class, not hardcoded amber (FOO-617)", async () => {
+    const mockCompressImage = vi.mocked(compressImage);
+    mockCompressImage.mockRejectedValueOnce(new Error("Compression failed"));
+
+    render(<FoodChat {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    const galleryInput = screen.getByTestId("chat-gallery-input");
+    const files = [new File(["file1"], "photo1.jpg", { type: "image/jpeg" })];
+    Object.defineProperty(galleryInput, "files", { value: files });
+    fireEvent.change(galleryInput);
+
+    await waitFor(() => {
+      expect(screen.getByText(/couldn't be processed/i)).toBeInTheDocument();
+    });
+
+    const warningEl = screen.getByText(/couldn't be processed/i);
+    expect(warningEl).not.toHaveClass("text-amber-600");
+    expect(warningEl).not.toHaveClass("text-amber-400");
+    expect(warningEl).toHaveClass("text-warning");
+  });
+
+  it("camera and gallery buttons have 44px touch target (FOO-620)", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+    const cameraButton = screen.getByRole("button", { name: /take photo/i });
+    const galleryButton = screen.getByRole("button", { name: /choose from gallery/i });
+
+    expect(cameraButton).toHaveClass("min-h-[44px]");
+    expect(galleryButton).toHaveClass("min-h-[44px]");
+  });
+
   // FOO-532: Seeded conversation support
   describe("seeded conversations", () => {
     const seedMessages: ConversationMessage[] = [
