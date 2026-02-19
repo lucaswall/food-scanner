@@ -1217,4 +1217,61 @@ describe("QuickSelect", () => {
       expect(document.getElementById(panelId!)).toBeInTheDocument();
     });
   });
+
+  describe("FOO-664: search SWR error state", () => {
+    it("shows error message when search fetch fails", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () => Promise.resolve({ error: { message: "Search failed", code: "SEARCH_ERROR" } }),
+        });
+
+      render(
+        <SWRConfig value={{ provider: () => new Map(), shouldRetryOnError: false }}>
+          <QuickSelect />
+        </SWRConfig>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText("Search foods...");
+      fireEvent.change(searchInput, { target: { value: "emp" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+        expect(screen.getByText("Search failed")).toBeInTheDocument();
+      });
+    });
+
+    it("does not show empty state when search has an error", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: false,
+          json: () => Promise.resolve({ error: { message: "Search failed", code: "SEARCH_ERROR" } }),
+        });
+
+      render(
+        <SWRConfig value={{ provider: () => new Map(), shouldRetryOnError: false }}>
+          <QuickSelect />
+        </SWRConfig>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const searchInput = screen.getByPlaceholderText("Search foods...");
+      fireEvent.change(searchInput, { target: { value: "emp" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText(/no results found/i)).not.toBeInTheDocument();
+    });
+  });
 });

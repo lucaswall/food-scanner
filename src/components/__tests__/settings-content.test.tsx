@@ -124,4 +124,55 @@ describe("SettingsContent", () => {
       expect(systemButton).not.toHaveAttribute("aria-label");
     });
   });
+
+  describe("FOO-664: credentials SWR error state", () => {
+    it("shows error message when credentials fetch fails", () => {
+      mockUseSWRImplementation.mockImplementation((key: string) => {
+        if (key === "/api/auth/session") {
+          return { data: null, error: null };
+        }
+        if (key === "/api/fitbit-credentials") {
+          return { data: null, error: new Error("Failed to load"), mutate: vi.fn() };
+        }
+        return { data: null, error: null };
+      });
+
+      render(<SettingsContent />);
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(screen.getByText(/failed to load/i)).toBeInTheDocument();
+    });
+
+    it("shows retry button when credentials fetch fails", () => {
+      mockUseSWRImplementation.mockImplementation((key: string) => {
+        if (key === "/api/auth/session") {
+          return { data: null, error: null };
+        }
+        if (key === "/api/fitbit-credentials") {
+          return { data: null, error: new Error("Failed to load"), mutate: vi.fn() };
+        }
+        return { data: null, error: null };
+      });
+
+      render(<SettingsContent />);
+      expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    });
+
+    it("calls mutate when retry button is clicked", async () => {
+      const user = userEvent.setup();
+      const mockMutate = vi.fn();
+      mockUseSWRImplementation.mockImplementation((key: string) => {
+        if (key === "/api/auth/session") {
+          return { data: null, error: null };
+        }
+        if (key === "/api/fitbit-credentials") {
+          return { data: null, error: new Error("Failed to load"), mutate: mockMutate };
+        }
+        return { data: null, error: null };
+      });
+
+      render(<SettingsContent />);
+      await user.click(screen.getByRole("button", { name: /retry/i }));
+      expect(mockMutate).toHaveBeenCalled();
+    });
+  });
 });

@@ -31,7 +31,7 @@ export function SettingsContent() {
       dedupingInterval: 5000,
     }
   );
-  const { data: credentials, mutate: mutateCredentials } = useSWR<CredentialsInfo, Error>(
+  const { data: credentials, mutate: mutateCredentials, error: credentialsLoadError } = useSWR<CredentialsInfo, Error>(
     "/api/fitbit-credentials",
     apiFetcher,
     {
@@ -159,6 +159,20 @@ export function SettingsContent() {
 
         {credentialsError && (
           <p className="text-sm text-destructive">{credentialsError}</p>
+        )}
+
+        {credentialsLoadError && (
+          <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+            <p className="text-sm text-destructive">{credentialsLoadError.message || "Failed to load credentials"}</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2 min-h-[44px]"
+              onClick={() => mutateCredentials()}
+            >
+              Retry
+            </Button>
+          </div>
         )}
 
         {credentials && !credentials.hasCredentials && (
