@@ -95,6 +95,13 @@ export function FoodHistory() {
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
   const [jumpDate, setJumpDate] = useState("");
 
+  // Cleanup on unmount — abort any in-flight fetchEntries request
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   // Seed local entries state from SWR initial data.
   // After pagination or "Jump to Date", hasPaginated prevents SWR revalidation
   // from overwriting local state with first-page-only data.
@@ -221,8 +228,12 @@ export function FoodHistory() {
       mutate();
       invalidateFoodCaches().catch(() => {});
     } catch (error) {
-      console.error("Failed to delete food history entry:", error);
-      setDeleteError("Failed to delete entry");
+      if (error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) {
+        setDeleteError("Request timed out. Please try again.");
+      } else {
+        console.error("Failed to delete food history entry:", error);
+        setDeleteError("Failed to delete entry");
+      }
       vibrateError();
     } finally {
       setDeletingId(null);

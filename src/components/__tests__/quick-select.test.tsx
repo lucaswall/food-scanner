@@ -1274,4 +1274,28 @@ describe("QuickSelect", () => {
       expect(screen.queryByText(/no results found/i)).not.toBeInTheDocument();
     });
   });
+
+  describe("timeout error messaging", () => {
+    it("shows user-friendly message when log-food request times out", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockRejectedValueOnce(new DOMException("signal timed out", "TimeoutError"));
+
+      renderQuickSelect();
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Empanada de carne"));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+      });
+    });
+  });
 });

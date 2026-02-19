@@ -1596,4 +1596,67 @@ describe("FoodHistory", () => {
       expect(mockInvalidateFoodCaches).not.toHaveBeenCalled();
     });
   });
+
+  describe("unmount cleanup", () => {
+    it("aborts in-flight request on component unmount", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+        })
+        .mockImplementationOnce(() => new Promise(() => {})); // Hang forever
+
+      const { unmount } = renderFoodHistory();
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Trigger a fetchEntries call via Jump to Date
+      const dateInput = screen.getByLabelText(/jump to date/i);
+      fireEvent.change(dateInput, { target: { value: "2026-02-01" } });
+      fireEvent.click(screen.getByRole("button", { name: /go/i }));
+
+      // Get the signal from the fetch call
+      await waitFor(() => {
+        expect(mockFetch.mock.calls.length).toBeGreaterThan(1);
+      });
+      const jumpCallArgs = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
+      const signal = (jumpCallArgs[1] as RequestInit).signal;
+      expect(signal).toBeDefined();
+      expect(signal!.aborted).toBe(false);
+
+      // Unmount component while request is in flight
+      unmount();
+
+      // Signal should be aborted after unmount
+      expect(signal!.aborted).toBe(true);
+    });
+  });
+
+  describe("timeout error messaging", () => {
+    it("shows user-friendly message when delete request times out", async () => {
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+        })
+        .mockRejectedValueOnce(new DOMException("signal timed out", "TimeoutError"));
+
+      renderFoodHistory();
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+      fireEvent.click(deleteButtons[0]);
+      const confirmButton = await screen.findByRole("button", { name: /confirm/i });
+      fireEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+      });
+      consoleSpy.mockRestore();
+    });
+  });
 });

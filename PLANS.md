@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Branch:** feat/FOO-621-ui-consistency-polish
 **Issues:** FOO-621, FOO-622, FOO-628, FOO-629, FOO-632, FOO-635, FOO-638, FOO-640
 **Created:** 2026-02-19
@@ -558,5 +558,43 @@ Fix Plan created — more implementation needed.
 - Post-merge: 3 test failures in page-level settings test (duplicate error text from dual SWR error handling), fixed with getAllByText
 - Post-bug-hunter: Replaced AbortSignal.any() with manual timeout pattern (iOS 16 compat), added guarded finally block to prevent loading state race
 
+### Review Findings
+
+Summary: 3 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [MEDIUM] RESOURCE: Missing unmount cleanup for abortControllerRef — in-flight requests continue after navigation away (`src/components/food-history.tsx:85`) — added useEffect cleanup + test — FOO-666
+- [MEDIUM] TIMEOUT: PATCH requests in settings credentials have no timeout — UI stuck on "saving" indefinitely (`src/components/settings-content.tsx:66,90`) — added AbortSignal.timeout(15000) + TimeoutError handling + tests — FOO-667
+- [LOW] ASYNC: TimeoutError not distinguished from generic errors in log/delete handlers — user sees raw "signal timed out" string (`src/components/quick-select.tsx:186`, `src/components/food-history.tsx:223`) — added DOMException name check for user-friendly message + tests — FOO-668
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: API error messages rendered in UI — React JSX escapes content (no XSS), API layer sanitizes errors
+- [DISCARDED] SECURITY: No CSRF token on Fitbit reconnect forms — SameSite=Lax cookie policy mitigates CSRF
+- [DISCARDED] TYPE: Type assertion precision in quick-select FoodLogResponse — access guarded by !response.ok check, no runtime impact
+- [DISCARDED] TYPE: FoodChat mock omits optional initialMealTypeId prop — test quality concern, no production impact
+
+### Linear Updates
+- FOO-661: Review → Merge
+- FOO-662: Review → Merge
+- FOO-663: Review → Merge
+- FOO-664: Review → Merge
+- FOO-665: Review → Merge
+- FOO-666: Created in Merge (Fix: missing unmount cleanup — fixed inline)
+- FOO-667: Created in Merge (Fix: missing timeout on credentials PATCH — fixed inline)
+- FOO-668: Created in Merge (Fix: TimeoutError shows raw browser string — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2058 pass
+- Bug-hunter: no new issues in the fixes (4 findings about pre-existing code, not introduced by inline changes)
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
-All tasks completed.
+All tasks completed — all iterations reviewed, no Fix Plan needed.
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.

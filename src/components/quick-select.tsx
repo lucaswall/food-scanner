@@ -184,7 +184,11 @@ export function QuickSelect() {
       // Only set response after API confirms success
       setLogResponse(result.data);
     } catch (err) {
-      setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setLogError("Request timed out. Please try again.");
+      } else {
+        setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+      }
       vibrateError();
     } finally {
       setLogging(false);

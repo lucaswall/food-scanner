@@ -67,6 +67,7 @@ export function SettingsContent() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ clientId: clientIdValue.trim() }),
+        signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -76,7 +77,11 @@ export function SettingsContent() {
       setShowReauth(true);
       await mutateCredentials();
     } catch (err) {
-      setCredentialsError(err instanceof Error ? err.message : "Failed to update");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setCredentialsError("Request timed out. Please try again.");
+      } else {
+        setCredentialsError(err instanceof Error ? err.message : "Failed to update");
+      }
     } finally {
       setCredentialsSaving(false);
     }
@@ -91,6 +96,7 @@ export function SettingsContent() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ clientSecret: secretValue.trim() }),
+        signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -101,7 +107,11 @@ export function SettingsContent() {
       setShowReauth(true);
       await mutateCredentials();
     } catch (err) {
-      setCredentialsError(err instanceof Error ? err.message : "Failed to update");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setCredentialsError("Request timed out. Please try again.");
+      } else {
+        setCredentialsError(err instanceof Error ? err.message : "Failed to update");
+      }
     } finally {
       setCredentialsSaving(false);
     }
