@@ -151,8 +151,9 @@ describe("FoodHistory", () => {
     renderFoodHistory();
 
     await waitFor(() => {
-      // Today's total: 320 + 120 = 440 cal
-      expect(screen.getByText(/440/)).toBeInTheDocument();
+      // Today's total: 320 + 120 = 440 cal — scoped to date header
+      const todayHeader = screen.getAllByRole("heading", { level: 2 })[0];
+      expect(todayHeader.closest("div")).toHaveTextContent("440 cal");
     });
   });
 

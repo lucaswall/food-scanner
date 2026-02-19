@@ -96,7 +96,7 @@ describe("Settings page (server component)", () => {
 
 describe("Settings content (client component)", () => {
   describe("back navigation", () => {
-    it("renders back button that links to /app", async () => {
+    it("does not render back button (Settings is a root page)", async () => {
       mockFetch.mockResolvedValue({
         ok: true,
         json: () =>
@@ -112,30 +112,7 @@ describe("Settings content (client component)", () => {
 
       renderWithSWR(<SettingsContent />);
 
-      const backButton = screen.getByRole("link", { name: /back to food scanner/i });
-      expect(backButton).toBeInTheDocument();
-      expect(backButton).toHaveAttribute("href", "/app");
-    });
-
-    it("back button has proper touch target size", async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: {
-              email: "test@example.com",
-              fitbitConnected: true,
-              expiresAt: Date.now() + 86400000,
-            },
-          }),
-      });
-
-      renderWithSWR(<SettingsContent />);
-
-      const backButton = screen.getByRole("link", { name: /back to food scanner/i });
-      expect(backButton).toHaveClass("min-h-[44px]");
-      expect(backButton).toHaveClass("min-w-[44px]");
+      expect(screen.queryByRole("link", { name: /back to food scanner/i })).not.toBeInTheDocument();
     });
   });
 

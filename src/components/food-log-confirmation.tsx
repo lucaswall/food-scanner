@@ -57,7 +57,6 @@ export function FoodLogConfirmation({
               ? "Reused existing food from your Fitbit library"
               : "Created new food in your Fitbit library"}
         </p>
-
       </div>
 
       {analysis && (

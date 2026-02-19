@@ -53,7 +53,7 @@ describe("SettingsContent", () => {
 
   it("does not render back arrow link", () => {
     render(<SettingsContent />);
-    expect(screen.queryByLabelText("Back to Food Scanner")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /back to food scanner/i })).not.toBeInTheDocument();
   });
 
   describe("accessibility - form labels", () => {
