@@ -586,3 +586,35 @@ Summary: 8 findings from 3 reviewers (security, reliability, quality) — 4 FIX,
 
 1. Write test in `src/components/__tests__/meal-breakdown.test.tsx` with a meal that has an unrecognized `mealTypeId` (e.g., 99), verifying it sorts to the end
 2. Update sort comparator at `src/components/meal-breakdown.tsx:35-37` to map `-1` to `Infinity`
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-18
+**Method:** Single-agent (4 S-size fixes, 2 independent units, effort score 4)
+
+### Tasks Completed This Iteration
+- Fix 1: Add AbortSignal timeout to quick-select fetch (FOO-655)
+- Fix 2: Fix aria-controls panel ID references in quick-select (FOO-656)
+- Fix 3: Replace response.json() with safeResponseJson() in quick-select (FOO-657)
+- Fix 4: Fix meal breakdown sort for unrecognized meal types (FOO-658)
+
+### Files Modified
+- `src/components/quick-select.tsx` — Added AbortSignal.timeout(15000), fixed aria-controls to "panel-quick-select", added panel id, replaced response.json() with safeResponseJson() + type cast
+- `src/components/__tests__/quick-select.test.tsx` — Added timeout signal test, panel ID test, updated log-food mocks to use text() for safeResponseJson compatibility
+- `src/components/meal-breakdown.tsx` — Fixed sort comparator to map indexOf -1 to Infinity
+- `src/components/__tests__/meal-breakdown.test.tsx` — Added test for unrecognized mealTypeId sorting to end
+
+### Linear Updates
+- FOO-655: Todo → In Progress → Review
+- FOO-656: Todo → In Progress → Review
+- FOO-657: Todo → In Progress → Review
+- FOO-658: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 bug (safeResponseJson returns unknown, needs type cast) — fixed before proceeding
+- verifier: All 2035 tests pass, zero lint warnings, build clean
+
+### Continuation Status
+All tasks completed.

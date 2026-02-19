@@ -30,10 +30,12 @@ export function MealBreakdown({ meals }: MealBreakdownProps) {
     });
   };
 
-  // Sort meals in logical order
+  // Sort meals in logical order (unrecognized types go to the end)
   const sortedMeals = [...meals].sort((a, b) => {
-    const orderA = MEAL_ORDER.indexOf(a.mealTypeId);
-    const orderB = MEAL_ORDER.indexOf(b.mealTypeId);
+    const rawA = MEAL_ORDER.indexOf(a.mealTypeId);
+    const rawB = MEAL_ORDER.indexOf(b.mealTypeId);
+    const orderA = rawA === -1 ? Infinity : rawA;
+    const orderB = rawB === -1 ? Infinity : rawB;
     return orderA - orderB;
   });
 

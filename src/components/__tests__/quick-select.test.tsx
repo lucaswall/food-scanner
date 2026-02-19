@@ -419,7 +419,7 @@ describe("QuickSelect", () => {
       .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
       });
 
     renderQuickSelect();
@@ -452,7 +452,7 @@ describe("QuickSelect", () => {
       .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
       });
 
     renderQuickSelect();
@@ -505,7 +505,7 @@ describe("QuickSelect", () => {
       .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
       });
 
     renderQuickSelect();
@@ -538,11 +538,11 @@ describe("QuickSelect", () => {
       .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
       .mockResolvedValueOnce({
         ok: false,
-        json: () =>
-          Promise.resolve({
+        text: () =>
+          Promise.resolve(JSON.stringify({
             success: false,
             error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
-          }),
+          })),
       });
 
     // Prevent actual navigation
@@ -821,11 +821,11 @@ describe("QuickSelect", () => {
         .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
         .mockResolvedValueOnce({
           ok: false,
-          json: () =>
-            Promise.resolve({
+          text: () =>
+            Promise.resolve(JSON.stringify({
               success: false,
               error: { code: "FITBIT_API_ERROR", message: "Failed to log" },
-            }),
+            })),
         });
 
       renderQuickSelect();
@@ -1121,10 +1121,10 @@ describe("QuickSelect", () => {
       // Resolve the API call
       resolveLogFetch!({
         ok: true,
-        json: () => Promise.resolve({
+        text: () => Promise.resolve(JSON.stringify({
           success: true,
           data: { success: true, fitbitLogId: 123, reusedFood: true },
-        }),
+        })),
       });
 
       // Now success screen should appear
@@ -1134,8 +1134,41 @@ describe("QuickSelect", () => {
     });
   });
 
-  describe("FOO-479: aria-controls for tab buttons", () => {
-    it("tab buttons have aria-controls attributes", async () => {
+  describe("FOO-655: fetch timeout", () => {
+    it("log-food fetch includes AbortSignal timeout", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse(mockFoods))
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+        });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Empanada de carne"));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        const logCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/log-food"
+        );
+        expect(logCall).toBeDefined();
+        expect(logCall![1]).toHaveProperty("signal");
+      });
+    });
+  });
+
+  describe("FOO-656: aria-controls panel IDs", () => {
+    it("tab buttons reference an existing panel element via aria-controls", async () => {
       mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
       renderQuickSelect();
 
@@ -1146,9 +1179,13 @@ describe("QuickSelect", () => {
       const suggestedBtn = screen.getByRole("button", { name: "Suggested" });
       const recentBtn = screen.getByRole("button", { name: "Recent" });
 
-      // Check aria-controls attributes still present
-      expect(suggestedBtn).toHaveAttribute("aria-controls", "panel-suggested");
-      expect(recentBtn).toHaveAttribute("aria-controls", "panel-recent");
+      // Both buttons should reference the same panel
+      const panelId = suggestedBtn.getAttribute("aria-controls");
+      expect(panelId).toBeTruthy();
+      expect(recentBtn).toHaveAttribute("aria-controls", panelId);
+
+      // The referenced panel element must exist in the DOM
+      expect(document.getElementById(panelId!)).toBeInTheDocument();
     });
   });
 });

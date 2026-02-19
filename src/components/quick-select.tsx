@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { apiFetcher } from "@/lib/swr";
+import { safeResponseJson } from "@/lib/safe-json";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { MealTypeSelector } from "./meal-type-selector";
 import { NutritionFactsCard } from "./nutrition-facts-card";
@@ -148,9 +149,14 @@ export function QuickSelect() {
           mealTypeId,
           ...getLocalDateTime(),
         }),
+        signal: AbortSignal.timeout(15000),
       });
 
-      const result = await response.json();
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data: FoodLogResponse;
+        error?: { code: string; message: string };
+      };
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
@@ -283,7 +289,7 @@ export function QuickSelect() {
       <div className="flex gap-2">
         <button
           id="tab-suggested"
-          aria-controls="panel-suggested"
+          aria-controls="panel-quick-select"
           onClick={() => setActiveTab("suggested")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "suggested"
@@ -295,7 +301,7 @@ export function QuickSelect() {
         </button>
         <button
           id="tab-recent"
-          aria-controls="panel-recent"
+          aria-controls="panel-quick-select"
           onClick={() => setActiveTab("recent")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "recent"
@@ -309,6 +315,7 @@ export function QuickSelect() {
 
       {/* Tab content */}
       <div
+        id="panel-quick-select"
         className="space-y-4"
       >
         {/* Search input */}
