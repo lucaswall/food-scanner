@@ -449,10 +449,13 @@ test.describe('Free-form Chat', () => {
     // Wait for response
     await expect(page.getByText(/I see a salad/i)).toBeVisible({ timeout: 5000 });
 
-    // Verify images were sent in the request
+    // Verify images were sent embedded in the first user message
     expect(chatRequestBody).toBeTruthy();
-    const body = chatRequestBody as { images?: string[] };
-    expect(body.images).toBeDefined();
-    expect(body.images!.length).toBeGreaterThan(0);
+    const body = chatRequestBody as { messages?: Array<{ role: string; content: string; images?: string[] }> };
+    expect(body.messages).toBeDefined();
+    const userMessage = body.messages!.find((m) => m.role === 'user');
+    expect(userMessage).toBeDefined();
+    expect(userMessage!.images).toBeDefined();
+    expect(userMessage!.images!.length).toBeGreaterThan(0);
   });
 });
