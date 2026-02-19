@@ -399,13 +399,13 @@ export interface DateRangeNutritionResponse {
 export interface ConversationMessage {
   role: "user" | "assistant";
   content: string;
+  images?: string[];
   analysis?: FoodAnalysis;
   isThinking?: boolean;
 }
 
 export interface ChatFoodRequest {
   messages: ConversationMessage[];
-  images?: string[];
   initialAnalysis?: FoodAnalysis;
 }
 

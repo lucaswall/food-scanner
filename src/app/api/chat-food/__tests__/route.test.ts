@@ -230,15 +230,16 @@ describe("POST /api/chat-food", () => {
     expect(body.error.message).toContain("30");
   });
 
-  it("returns 400 when images array exceeds MAX_IMAGES (9)", async () => {
+  it("returns 400 when total images across messages exceed MAX_IMAGES (9)", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
-    // Create 10 images (exceeds limit of 9)
-    const images = Array.from({ length: 10 }, () => "validbase64data");
-
+    // 5 images on first message + 5 on second = 10 (exceeds limit of 9)
     const request = createMockRequest({
-      messages: [{ role: "user", content: "Test" }],
-      images,
+      messages: [
+        { role: "user", content: "First", images: Array.from({ length: 5 }, () => "validbase64data") },
+        { role: "assistant", content: "OK" },
+        { role: "user", content: "Second", images: Array.from({ length: 5 }, () => "validbase64data") },
+      ],
     });
 
     const response = await POST(request);
@@ -248,12 +249,11 @@ describe("POST /api/chat-food", () => {
     expect(body.error.message).toContain("9");
   });
 
-  it("returns 400 when image string is not valid base64", async () => {
+  it("returns 400 when per-message image string is not valid base64", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
     const request = createMockRequest({
-      messages: [{ role: "user", content: "Test" }],
-      images: ["invalid base64 with spaces and @#$%"],
+      messages: [{ role: "user", content: "Test", images: ["invalid base64 with spaces and @#$%"] }],
     });
 
     const response = await POST(request);
@@ -263,16 +263,13 @@ describe("POST /api/chat-food", () => {
     expect(body.error.message).toContain("base64");
   });
 
-  it("returns 400 when decoded image exceeds MAX_IMAGE_SIZE (10MB)", async () => {
+  it("returns 400 when decoded per-message image exceeds MAX_IMAGE_SIZE (10MB)", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
-    // Create a base64 string that decodes to >10MB
-    // 10MB * 1.34 (base64 overhead) ≈ 13.4MB base64
-    const largeBase64 = "A".repeat(14 * 1024 * 1024); // 14MB of 'A' characters
+    const largeBase64 = "A".repeat(14 * 1024 * 1024);
 
     const request = createMockRequest({
-      messages: [{ role: "user", content: "Test" }],
-      images: [largeBase64],
+      messages: [{ role: "user", content: "Test", images: [largeBase64] }],
     });
 
     const response = await POST(request);
@@ -280,6 +277,63 @@ describe("POST /api/chat-food", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
     expect(body.error.message).toContain("10MB");
+  });
+
+  it("returns 400 when per-message images field is not an array", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test", images: "not-an-array" }],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when per-message images contains non-string entries", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test", images: [123] }],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when assistant message has images", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [
+        { role: "user", content: "Hello" },
+        { role: "assistant", content: "Hi", images: ["somebase64"] },
+      ],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("only valid on user messages");
+  });
+
+  it("returns 400 when per-message image is empty string", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test", images: [""] }],
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("must not be empty");
   });
 
   it("returns 400 when message content exceeds 2000 characters", async () => {
@@ -500,7 +554,7 @@ describe("POST /api/chat-food", () => {
     expect(errorEvent).toBeDefined();
   });
 
-  it("passes images to Claude when provided in request", async () => {
+  it("passes per-message images through to conversationalRefine", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockConversationalRefine.mockImplementation(async function* () {
       yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
@@ -508,20 +562,17 @@ describe("POST /api/chat-food", () => {
     });
 
     const request = createMockRequest({
-      messages: [{ role: "user", content: "What's this?" }],
-      images: ["base64imagedata1", "base64imagedata2"],
+      messages: [
+        { role: "user", content: "What's this?", images: ["base64imagedata1", "base64imagedata2"] },
+      ],
     });
 
     const response = await POST(request);
     expect(response.status).toBe(200);
 
-    // Verify conversationalRefine was called with images converted to ImageInput[]
+    // Verify conversationalRefine receives messages with images embedded
     expect(mockConversationalRefine).toHaveBeenCalledWith(
-      [{ role: "user", content: "What's this?" }],
-      [
-        { base64: "base64imagedata1", mimeType: "image/jpeg" },
-        { base64: "base64imagedata2", mimeType: "image/jpeg" },
-      ],
+      [{ role: "user", content: "What's this?", images: ["base64imagedata1", "base64imagedata2"] }],
       "user-uuid-123",
       expect.any(String), // currentDate
       undefined,
@@ -547,7 +598,6 @@ describe("POST /api/chat-food", () => {
 
     expect(mockConversationalRefine).toHaveBeenCalledWith(
       [{ role: "user", content: "Actually it was 200g" }],
-      [],
       "user-uuid-123",
       expect.any(String), // currentDate
       validAnalysis,
@@ -573,7 +623,6 @@ describe("POST /api/chat-food", () => {
 
     expect(mockConversationalRefine).toHaveBeenCalledWith(
       [{ role: "user", content: "Actually it was 200g" }],
-      [],
       "user-uuid-123",
       "2026-01-15",
       undefined,
@@ -597,7 +646,7 @@ describe("POST /api/chat-food", () => {
     expect(response.status).toBe(200);
 
     // Should fall back to a valid YYYY-MM-DD date, not use "bad-date"
-    const calledDate = mockConversationalRefine.mock.calls[0][3];
+    const calledDate = mockConversationalRefine.mock.calls[0][2];
     expect(calledDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(calledDate).not.toBe("bad-date");
   });
@@ -642,10 +691,9 @@ describe("POST /api/chat-food", () => {
     const textEvent = events.find((e) => e.type === "text_delta");
     expect(textEvent).toBeDefined();
 
-    // Verify conversationalRefine was called with no images and no initialAnalysis
+    // Verify conversationalRefine was called with no initialAnalysis
     expect(mockConversationalRefine).toHaveBeenCalledWith(
       [{ role: "user", content: "How many calories did I eat today?" }],
-      [],
       "user-uuid-123",
       expect.any(String), // currentDate
       undefined, // no initialAnalysis

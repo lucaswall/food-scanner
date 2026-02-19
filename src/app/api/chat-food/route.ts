@@ -51,7 +51,8 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", `messages array exceeds maximum of ${MAX_MESSAGES}`, 400);
   }
 
-  // Validate each message has required fields
+  // Validate each message has required fields and per-message images
+  let totalImageCount = 0;
   for (let i = 0; i < data.messages.length; i++) {
     const msg = data.messages[i];
     if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
@@ -67,6 +68,38 @@ export async function POST(request: Request) {
     if (message.content.length > 2000) {
       return errorResponse("VALIDATION_ERROR", `messages[${i}].content exceeds maximum length of 2000 characters`, 400);
     }
+
+    // Validate per-message images (only valid on user messages)
+    if (message.images !== undefined) {
+      if (message.role !== "user") {
+        return errorResponse("VALIDATION_ERROR", `messages[${i}].images is only valid on user messages`, 400);
+      }
+      if (!Array.isArray(message.images)) {
+        return errorResponse("VALIDATION_ERROR", `messages[${i}].images must be an array`, 400);
+      }
+      for (let j = 0; j < message.images.length; j++) {
+        if (typeof message.images[j] !== "string") {
+          return errorResponse("VALIDATION_ERROR", `messages[${i}].images[${j}] must be a base64 string`, 400);
+        }
+        const imageStr = message.images[j] as string;
+        if (imageStr.length === 0) {
+          return errorResponse("VALIDATION_ERROR", `messages[${i}].images[${j}] must not be empty`, 400);
+        }
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(imageStr)) {
+          return errorResponse("VALIDATION_ERROR", `messages[${i}].images[${j}] is not valid base64`, 400);
+        }
+        const decodedSize = Math.floor((imageStr.length * 3) / 4) -
+          (imageStr.endsWith("==") ? 2 : imageStr.endsWith("=") ? 1 : 0);
+        if (decodedSize > MAX_IMAGE_SIZE) {
+          return errorResponse("VALIDATION_ERROR", `messages[${i}].images[${j}] exceeds maximum size of 10MB`, 400);
+        }
+      }
+      totalImageCount += message.images.length;
+    }
+  }
+
+  if (totalImageCount > MAX_IMAGES) {
+    return errorResponse("VALIDATION_ERROR", `total images across messages exceeds maximum of ${MAX_IMAGES}`, 400);
   }
 
   const messages = data.messages as ConversationMessage[];
@@ -82,38 +115,6 @@ export async function POST(request: Request) {
     }
   }
 
-  // Parse optional images array
-  let images: Array<{ base64: string; mimeType: string }> = [];
-  if (data.images !== undefined) {
-    if (!Array.isArray(data.images)) {
-      return errorResponse("VALIDATION_ERROR", "images must be an array", 400);
-    }
-    if (data.images.length > MAX_IMAGES) {
-      return errorResponse("VALIDATION_ERROR", `images array exceeds maximum of ${MAX_IMAGES}`, 400);
-    }
-    for (let i = 0; i < data.images.length; i++) {
-      if (typeof data.images[i] !== "string") {
-        return errorResponse("VALIDATION_ERROR", `images[${i}] must be a base64 string`, 400);
-      }
-      const imageStr = data.images[i] as string;
-      // Validate base64 format (only valid base64 characters, non-empty)
-      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(imageStr)) {
-        return errorResponse("VALIDATION_ERROR", `images[${i}] is not valid base64`, 400);
-      }
-      // Validate decoded size does not exceed MAX_IMAGE_SIZE
-      const decodedSize = Math.floor((imageStr.length * 3) / 4) -
-        (imageStr.endsWith("==") ? 2 : imageStr.endsWith("=") ? 1 : 0);
-      if (decodedSize > MAX_IMAGE_SIZE) {
-        return errorResponse("VALIDATION_ERROR", `images[${i}] exceeds maximum size of 10MB`, 400);
-      }
-    }
-    // Convert base64 strings to ImageInput format
-    images = data.images.map((base64) => ({
-      base64: base64 as string,
-      mimeType: "image/jpeg", // Default to JPEG for chat (images are already compressed client-side)
-    }));
-  }
-
   // Use client-provided date (browser timezone) or fall back to server date
   let currentDate = getTodayDate();
   if (typeof data.clientDate === "string" && isValidDateFormat(data.clientDate)) {
@@ -124,14 +125,13 @@ export async function POST(request: Request) {
     {
       action: "chat_food_request",
       messageCount: messages.length,
-      imageCount: images.length,
+      imageCount: totalImageCount,
     },
     "processing conversational food chat request"
   );
 
   const generator = conversationalRefine(
     messages,
-    images,
     session!.userId,
     currentDate,
     initialAnalysis,

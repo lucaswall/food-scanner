@@ -84,9 +84,9 @@ export function FoodChat({
   const [logging, setLogging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mealTypeId, setMealTypeId] = useState(initialMealTypeId ?? getDefaultMealType());
-  // Initial images sent silently with first message; user-added images shown in indicator
-  const [initialImagesSent, setInitialImagesSent] = useState(false);
   const [pendingImages, setPendingImages] = useState<Blob[]>([]);
+  // Track whether initial compressed images have been embedded into a message
+  const initialImagesConsumedRef = useRef(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [showPhotoMenu, setShowPhotoMenu] = useState(false);
   const [compressionWarning, setCompressionWarning] = useState<string | null>(null);
@@ -228,14 +228,33 @@ export function FoodChat({
   const handleSend = async () => {
     if (!input.trim() || loading || compressing) return;
 
-    const userMessage: ConversationMessage = {
-      role: "user",
-      content: input.trim(),
-    };
-
     const userAddedImages = [...pendingImages];
     // Capture message count before adding anything so we can revert on error
     const messageCountBeforeSend = messages.length;
+
+    // Collect images for this turn: initial compressed images (first time) + user-added
+    const imageBlobsForThisTurn: Blob[] = [];
+    const consumedInitialImages = !initialImagesConsumedRef.current && compressedImages.length > 0;
+    if (consumedInitialImages) {
+      imageBlobsForThisTurn.push(...compressedImages);
+    }
+    imageBlobsForThisTurn.push(...userAddedImages);
+
+    // Convert to base64 and embed in the user message
+    let messageImages: string[] | undefined;
+    if (imageBlobsForThisTurn.length > 0) {
+      messageImages = await blobsToBase64(imageBlobsForThisTurn);
+    }
+    // Mark initial images as consumed only after successful conversion
+    if (consumedInitialImages) {
+      initialImagesConsumedRef.current = true;
+    }
+
+    const userMessage: ConversationMessage = {
+      role: "user",
+      content: input.trim(),
+      ...(messageImages ? { images: messageImages } : {}),
+    };
 
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
@@ -244,14 +263,12 @@ export function FoodChat({
     setLoading(true);
     setError(null);
 
-    let sentInitialImagesInThisCall = false;
-
     const revertOnError = (errorMessage: string) => {
       setMessages((prev) => prev.slice(0, messageCountBeforeSend));
       setInput(userMessage.content);
       setPendingImages(userAddedImages);
-      if (sentInitialImagesInThisCall) {
-        setInitialImagesSent(false);
+      if (consumedInitialImages) {
+        initialImagesConsumedRef.current = false;
       }
       setError(errorMessage);
     };
@@ -266,15 +283,15 @@ export function FoodChat({
       // Strip thinking messages and internal fields before sending to API
       const apiMessages = rawMessages
         .filter((m) => !m.isThinking)
-        .map(({ role, content, analysis }) => ({
+        .map(({ role, content, analysis, images }) => ({
           role,
           content,
           ...(analysis ? { analysis } : {}),
+          ...(images ? { images } : {}),
         })) as ConversationMessage[];
 
       const requestBody: {
         messages: ConversationMessage[];
-        images?: string[];
         initialAnalysis?: FoodAnalysis;
         clientDate: string;
       } = {
@@ -284,19 +301,6 @@ export function FoodChat({
 
       if (latestAnalysis) {
         requestBody.initialAnalysis = latestAnalysis;
-      }
-
-      // Collect all images to send: initial images (first time only) + user-added
-      const allImagesToSend: Blob[] = [];
-      if (!initialImagesSent && compressedImages.length > 0) {
-        allImagesToSend.push(...compressedImages);
-        setInitialImagesSent(true);
-        sentInitialImagesInThisCall = true;
-      }
-      allImagesToSend.push(...userAddedImages);
-
-      if (allImagesToSend.length > 0) {
-        requestBody.images = await blobsToBase64(allImagesToSend);
       }
 
       const controller = new AbortController();
@@ -417,8 +421,8 @@ export function FoodChat({
       setMessages((prev) => prev.slice(0, messageCountBeforeSend));
       setInput(userMessage.content);
       setPendingImages(userAddedImages);
-      if (sentInitialImagesInThisCall) {
-        setInitialImagesSent(false);
+      if (consumedInitialImages) {
+        initialImagesConsumedRef.current = false;
       }
       if (err instanceof DOMException && err.name === "TimeoutError") {
         setError("Request timed out. Please try again.");
