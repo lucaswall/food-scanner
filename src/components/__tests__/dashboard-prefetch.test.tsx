@@ -13,6 +13,11 @@ vi.mock("@/lib/swr", () => ({
   apiFetcher: (...args: unknown[]) => mockApiFetcher(...args),
 }));
 
+// Mock date-utils to return a fixed date for deterministic assertions
+vi.mock("@/lib/date-utils", () => ({
+  getTodayDate: vi.fn().mockReturnValue("2026-01-15"),
+}));
+
 import { DashboardPrefetch } from "../dashboard-prefetch";
 
 beforeEach(() => {
@@ -28,6 +33,26 @@ describe("DashboardPrefetch", () => {
   it("calls preload for /api/food-history?limit=20 on mount", () => {
     render(<DashboardPrefetch />);
     expect(mockPreload).toHaveBeenCalledWith("/api/food-history?limit=20", expect.any(Function));
+  });
+
+  it("calls preload for /api/nutrition-summary with today's date on mount", () => {
+    render(<DashboardPrefetch />);
+    expect(mockPreload).toHaveBeenCalledWith("/api/nutrition-summary?date=2026-01-15", expect.any(Function));
+  });
+
+  it("calls preload for /api/nutrition-goals with today's date on mount", () => {
+    render(<DashboardPrefetch />);
+    expect(mockPreload).toHaveBeenCalledWith("/api/nutrition-goals?clientDate=2026-01-15", expect.any(Function));
+  });
+
+  it("calls preload for /api/lumen-goals with today's date on mount", () => {
+    render(<DashboardPrefetch />);
+    expect(mockPreload).toHaveBeenCalledWith("/api/lumen-goals?date=2026-01-15", expect.any(Function));
+  });
+
+  it("calls preload for /api/earliest-entry on mount", () => {
+    render(<DashboardPrefetch />);
+    expect(mockPreload).toHaveBeenCalledWith("/api/earliest-entry", expect.any(Function));
   });
 
   it("renders nothing", () => {

@@ -5,6 +5,18 @@ import type { FoodAnalysis, FoodLogResponse, ConversationMessage } from "@/types
 import type { StreamEvent } from "@/lib/sse";
 import { compressImage } from "@/lib/image";
 
+// Mock next/dynamic to load the ChatMarkdown component synchronously.
+// Using vi.importActual so Vitest resolves TypeScript/ESM correctly.
+// The async factory is awaited by Vitest before allowing any module that imports
+// next/dynamic to proceed, so ChatMarkdown is always available before tests run.
+vi.mock("next/dynamic", async () => {
+  const { ChatMarkdown } = await vi.importActual<{
+    ChatMarkdown: React.ComponentType<{ content: string }>;
+  }>("../chat-markdown");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return { default: (_importFn: any, _options?: any) => ChatMarkdown };
+});
+
 // Helper to create SSE mock fetch responses.
 // Uses a manual reader mock instead of ReadableStream to avoid jsdom stream quirks.
 function makeSSEFetchResponse(events: StreamEvent[], ok = true) {
