@@ -290,6 +290,7 @@ export function QuickSelect() {
         <button
           id="tab-suggested"
           aria-controls="panel-quick-select"
+          aria-pressed={activeTab === "suggested"}
           onClick={() => setActiveTab("suggested")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "suggested"
@@ -302,6 +303,7 @@ export function QuickSelect() {
         <button
           id="tab-recent"
           aria-controls="panel-quick-select"
+          aria-pressed={activeTab === "recent"}
           onClick={() => setActiveTab("recent")}
           className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
             activeTab === "recent"

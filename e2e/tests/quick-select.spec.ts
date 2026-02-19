@@ -45,7 +45,7 @@ test.describe('Quick Select Page', () => {
     await page.waitForLoadState('networkidle');
 
     // Click the Recent tab
-    const recentTab = page.getByRole('tab', { name: /Recent/i });
+    const recentTab = page.getByRole('button', { name: /Recent/i });
     await recentTab.click();
 
     // Wait for content to load
@@ -63,15 +63,15 @@ test.describe('Quick Select Page', () => {
     await page.waitForLoadState('networkidle');
 
     // Get both tabs
-    const suggestedTab = page.getByRole('tab', { name: /Suggested/i });
-    const recentTab = page.getByRole('tab', { name: /Recent/i });
+    const suggestedTab = page.getByRole('button', { name: /Suggested/i });
+    const recentTab = page.getByRole('button', { name: /Recent/i });
 
     // Click Recent tab
     await recentTab.click();
     await page.waitForTimeout(300);
 
-    // Verify tab is active (check aria-selected or active class)
-    const recentTabSelected = await recentTab.getAttribute('aria-selected');
+    // Verify tab is active (check aria-pressed or active class)
+    const recentTabSelected = await recentTab.getAttribute('aria-pressed');
     expect(recentTabSelected).toBe('true');
 
     // Click Suggested tab
@@ -79,7 +79,7 @@ test.describe('Quick Select Page', () => {
     await page.waitForTimeout(300);
 
     // Verify suggested tab is now active
-    const suggestedTabSelected = await suggestedTab.getAttribute('aria-selected');
+    const suggestedTabSelected = await suggestedTab.getAttribute('aria-pressed');
     expect(suggestedTabSelected).toBe('true');
   });
 

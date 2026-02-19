@@ -35,8 +35,8 @@ test.describe('Dashboard', () => {
     await page.waitForLoadState('networkidle');
 
     // The DashboardShell has Daily/Weekly tabs
-    await expect(page.getByRole('tab', { name: 'Daily' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Weekly' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Daily' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Weekly' })).toBeVisible();
 
     // Verify the dashboard is in loading or loaded state (not empty/error)
     // The DailyDashboard component shows a skeleton while loading
@@ -58,8 +58,8 @@ test.describe('Dashboard', () => {
 
     // The dashboard should render nutrition data instead of being blocked by guard
     // Verify tabs are visible (indicates the guard passed and dashboard rendered)
-    await expect(page.getByRole('tab', { name: 'Daily' })).toBeVisible();
-    await expect(page.getByRole('tab', { name: 'Weekly' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Daily' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Weekly' })).toBeVisible();
   });
 
   test('action links navigate to correct pages', async ({ page }) => {
@@ -111,7 +111,7 @@ test.describe('Dashboard', () => {
     await page.waitForLoadState('networkidle');
 
     // Click the Weekly tab
-    const weeklyTab = page.getByRole('tab', { name: 'Weekly' });
+    const weeklyTab = page.getByRole('button', { name: 'Weekly' });
     await weeklyTab.click();
 
     // Wait for the view to update
@@ -146,8 +146,8 @@ test.describe('Dashboard', () => {
     await page.waitForLoadState('networkidle');
 
     // Verify Daily tab is active
-    const dailyTab = page.getByRole('tab', { name: 'Daily' });
-    await expect(dailyTab).toHaveAttribute('aria-selected', 'true');
+    const dailyTab = page.getByRole('button', { name: 'Daily' });
+    await expect(dailyTab).toHaveAttribute('aria-pressed', 'true');
 
     // Verify navigation buttons exist
     const prevButton = page.getByRole('button', { name: /Previous day/i });
@@ -183,7 +183,7 @@ test.describe('Dashboard', () => {
     await page.waitForLoadState('networkidle');
 
     // Switch to Weekly tab
-    const weeklyTab = page.getByRole('tab', { name: 'Weekly' });
+    const weeklyTab = page.getByRole('button', { name: 'Weekly' });
     await weeklyTab.click();
 
     // Wait for the view to update
