@@ -1517,6 +1517,19 @@ describe("FoodAnalyzer", () => {
       expect(analyzeButton).toBeDisabled();
     });
 
+    it("Analyze Food button has shadow-sm class when enabled", async () => {
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "2 scrambled eggs" } });
+
+      await waitFor(() => {
+        const analyzeButton = screen.getByRole("button", { name: /analyze food/i });
+        expect(analyzeButton).not.toBeDisabled();
+        expect(analyzeButton).toHaveClass("shadow-sm");
+      });
+    });
+
     it("sends description-only to API when no photos", async () => {
       mockFetch.mockResolvedValueOnce({
         ...makeSseAnalyzeResponse([

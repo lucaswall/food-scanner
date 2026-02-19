@@ -276,13 +276,12 @@ export function DailyDashboard() {
       )}
 
       {/* Update Lumen goals button */}
-      <div className="flex flex-col items-center gap-2">
+      <div className="flex flex-col gap-2">
         <Button
           variant="secondary"
-          size="sm"
           onClick={handleUpdateLumenGoals}
           disabled={isUploadingLumen}
-          className="min-h-[44px]"
+          className="w-full min-h-[44px]"
         >
           {isUploadingLumen ? (
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
