@@ -373,19 +373,20 @@ See [references/changelog-guidelines.md](references/changelog-guidelines.md) for
 **Process:**
 
 1. Review the commit list from Phase 1.7
-2. Filter out purely internal changes (they get zero entries)
-3. Move any items from the `## [Unreleased]` section into the new version entry
-4. Write a `## [version] - YYYY-MM-DD` entry, grouping changes under these section headers (omit empty sections):
+2. **Determine the net effect against production** — use `git diff origin/release..origin/main --stat` (not the commit list) as the source of truth for what actually changed. Commits that introduce and fix the same issue within the cycle, or that rework/remove staging-only code, produce zero changelog entries. The commit list helps understand intent; the diff shows what's actually shipping.
+3. Filter out purely internal changes (they get zero entries)
+4. Move any items from the `## [Unreleased]` section into the new version entry
+5. Write a `## [version] - YYYY-MM-DD` entry, grouping changes under these section headers (omit empty sections):
    - `### Added` — new features, new screens
    - `### Changed` — changes to existing functionality, UI improvements
    - `### Deprecated` — features that will be removed in a future release
    - `### Removed` — removed features
    - `### Fixed` — bug fixes
    - `### Security` — security-related changes, vulnerability fixes
-5. Group minor fixes into single items (e.g., "Minor bug fixes" or "Minor UI polish")
-6. Keep each section concise — aim for 3-8 items total across all sections
-7. Insert the new entry between `## [Unreleased]` and the previous version (keep Unreleased section empty)
-8. Update the comparison links at the bottom of the file:
+6. Group minor fixes into single items (e.g., "Minor bug fixes" or "Minor UI polish")
+7. Keep each section concise — aim for 3-8 items total across all sections
+8. Insert the new entry between `## [Unreleased]` and the previous version (keep Unreleased section empty)
+9. Update the comparison links at the bottom of the file:
    - `[Unreleased]` link: compare new version tag to HEAD
    - New version link: compare previous version tag to new version tag
    - Format: `[Unreleased]: https://github.com/lucaswall/food-scanner/compare/vNEW...HEAD`
