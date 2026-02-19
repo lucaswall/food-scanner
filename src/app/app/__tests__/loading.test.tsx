@@ -3,10 +3,17 @@ import { render, screen } from "@testing-library/react";
 import Loading from "@/app/app/loading";
 
 describe("/app loading skeleton", () => {
-  it("renders heading skeleton", () => {
+  it("renders heading skeleton in header row with action skeletons", () => {
     render(<Loading />);
     const heading = screen.getByTestId("skeleton-heading");
     expect(heading).toBeInTheDocument();
+
+    const headerRow = heading.parentElement as HTMLElement;
+    expect(headerRow).toHaveClass("flex", "items-center", "justify-between");
+
+    const actions = screen.getByTestId("skeleton-actions");
+    expect(actions).toBeInTheDocument();
+    expect(actions.parentElement).toBe(headerRow);
   });
 
   it("renders toggle skeleton for Daily/Weekly segmented control", () => {

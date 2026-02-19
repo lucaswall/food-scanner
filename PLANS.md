@@ -1,5 +1,6 @@
 # Implementation Plan
 
+**Status:** COMPLETE
 **Created:** 2026-02-19
 **Source:** Inline request: Move floating action buttons to header icons (Option A from investigation)
 **Linear Issues:** [FOO-676](https://linear.app/lw-claude/issue/FOO-676/move-floating-action-buttons-to-header-icons)
@@ -113,3 +114,31 @@
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 1 issue found, fixed inline (single-agent review)
+- FIXED INLINE: 1 issue — verified via TDD + bug-hunter
+
+**Issue fixed inline:**
+- [LOW] CONVENTION: loading.tsx skeleton doesn't match new header flex row layout (`src/app/app/loading.tsx:7`) — wrapped heading skeleton in flex row, added two circular action skeletons + test
+
+**Discarded findings (not bugs):**
+- [DISCARDED] Skeleton action count not tested — speculative future maintenance concern, not a current defect. Skeleton correctly renders 2 circles matching HeaderActions.
+- [DISCARDED] Loading skeleton uses div instead of main — false positive. SkipLink is inside page.tsx, not a layout file. During loading, loading.tsx replaces page.tsx entirely so no skip link is present and no #main-content target is needed.
+
+### Linear Updates
+- FOO-676: Review → Merge (original task)
+- FOO-677: Created in Merge (Fix: loading.tsx skeleton mismatch — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2067 pass
+- Bug-hunter: no new issues in fixes
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
