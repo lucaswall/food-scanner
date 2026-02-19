@@ -217,6 +217,8 @@ export function QuickSelect() {
           Back
         </Button>
 
+        <h2 className="text-2xl font-bold">{selectedFood.foodName}</h2>
+
         <NutritionFactsCard
           foodName={selectedFood.foodName}
           calories={selectedFood.calories}
@@ -286,16 +288,16 @@ export function QuickSelect() {
   return (
     <div className="space-y-4">
       {/* Tab bar */}
-      <div className="flex gap-2">
+      <div className="flex gap-1 p-1 bg-muted rounded-full">
         <button
           id="tab-suggested"
           aria-controls="panel-quick-select"
           aria-pressed={activeTab === "suggested"}
           onClick={() => setActiveTab("suggested")}
-          className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
+          className={`flex-1 min-h-[44px] rounded-full px-4 py-2 font-medium text-sm transition-colors ${
             activeTab === "suggested"
               ? "bg-primary text-primary-foreground"
-              : "bg-muted text-muted-foreground"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Suggested
@@ -305,10 +307,10 @@ export function QuickSelect() {
           aria-controls="panel-quick-select"
           aria-pressed={activeTab === "recent"}
           onClick={() => setActiveTab("recent")}
-          className={`flex-1 min-h-[44px] rounded-lg font-medium text-sm transition-colors ${
+          className={`flex-1 min-h-[44px] rounded-full px-4 py-2 font-medium text-sm transition-colors ${
             activeTab === "recent"
               ? "bg-primary text-primary-foreground"
-              : "bg-muted text-muted-foreground"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Recent

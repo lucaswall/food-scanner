@@ -194,7 +194,20 @@ describe("QuickSelect", () => {
 
       await waitFor(() => {
         const recentBtn = screen.getByRole("button", { name: /recent/i });
-        expect(recentBtn.className).toMatch(/bg-muted/);
+        expect(recentBtn).toHaveClass("text-muted-foreground");
+        expect(recentBtn).not.toHaveClass("bg-muted");
+      });
+    });
+
+    it("tab buttons use rounded-full class", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        const suggestedBtn = screen.getByRole("button", { name: /suggested/i });
+        const recentBtn = screen.getByRole("button", { name: /recent/i });
+        expect(suggestedBtn).toHaveClass("rounded-full");
+        expect(recentBtn).toHaveClass("rounded-full");
       });
     });
 
@@ -476,6 +489,22 @@ describe("QuickSelect", () => {
 
 
 
+
+  it("renders food name as h2 heading in detail/confirm view", async () => {
+    mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
+    renderQuickSelect();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Empanada de carne"));
+
+    await waitFor(() => {
+      const heading = screen.getByRole("heading", { level: 2, name: "Empanada de carne" });
+      expect(heading).toBeInTheDocument();
+    });
+  });
 
   it("has back button from detail view to food list", async () => {
     mockFetch.mockResolvedValueOnce(mockPaginatedResponse(mockFoods));
