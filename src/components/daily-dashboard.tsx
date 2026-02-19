@@ -133,6 +133,7 @@ export function DailyDashboard() {
       const response = await fetch("/api/lumen-goals", {
         method: "POST",
         body: formData,
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!response.ok) {
@@ -143,7 +144,11 @@ export function DailyDashboard() {
       // Mutate SWR cache on success
       await mutateLumenGoals();
     } catch (error) {
-      setLumenUploadError(error instanceof Error ? error.message : "Upload failed");
+      if (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) {
+        setLumenUploadError("Upload timed out. Please try again.");
+      } else {
+        setLumenUploadError(error instanceof Error ? error.message : "Upload failed");
+      }
     } finally {
       // Reset file input
       if (fileInputRef.current) {

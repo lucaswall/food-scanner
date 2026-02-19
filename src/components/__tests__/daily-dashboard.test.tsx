@@ -1501,6 +1501,82 @@ describe("DailyDashboard", () => {
     expect(fileInput.value).toBe("");
   });
 
+  it("Lumen upload fetch includes AbortSignal.timeout(15000) signal", async () => {
+    const user = userEvent.setup();
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockSummary }) });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockGoals }) });
+      }
+      if (url.includes("/api/lumen-goals") && url.includes("?")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockLumenGoals }) });
+      }
+      if (url === "/api/lumen-goals") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockLumenGoals }) });
+      }
+      return Promise.reject(new Error("Unknown URL: " + url));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
+    });
+
+    const fileInput = document.querySelector('input[type="file"][accept="image/*"]') as HTMLInputElement;
+    const testFile = new File(["test"], "lumen.jpg", { type: "image/jpeg" });
+    await user.upload(fileInput, testFile);
+
+    await waitFor(() => {
+      const postCall = mockFetch.mock.calls.find(
+        (call) => call[0] === "/api/lumen-goals" && call[1]?.method === "POST"
+      );
+      expect(postCall).toBeDefined();
+      expect(timeoutSpy).toHaveBeenCalledWith(15000);
+      expect((postCall![1] as RequestInit).signal).toBeDefined();
+    });
+
+    timeoutSpy.mockRestore();
+  });
+
+  it("shows timeout error message when Lumen upload times out (AbortError)", async () => {
+    const user = userEvent.setup();
+
+    mockFetch.mockImplementation((url: string) => {
+      if (url.includes("/api/nutrition-summary")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockSummary }) });
+      }
+      if (url.includes("/api/nutrition-goals")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockGoals }) });
+      }
+      if (url.includes("/api/lumen-goals") && url.includes("?")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockLumenGoals }) });
+      }
+      if (url === "/api/lumen-goals") {
+        return Promise.reject(new DOMException("The operation was aborted.", "AbortError"));
+      }
+      return Promise.reject(new Error("Unknown URL: " + url));
+    });
+
+    renderDailyDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /update lumen goals/i })).toBeInTheDocument();
+    });
+
+    const fileInput = document.querySelector('input[type="file"][accept="image/*"]') as HTMLInputElement;
+    const testFile = new File(["test"], "lumen.jpg", { type: "image/jpeg" });
+    await user.upload(fileInput, testFile);
+
+    await waitFor(() => {
+      expect(screen.getByText(/timed out/i)).toBeInTheDocument();
+    });
+  });
+
   it("renders FastingCard component with selected date", async () => {
     mockFetch.mockImplementation((url: string) => {
       if (url.includes("/api/nutrition-summary")) {

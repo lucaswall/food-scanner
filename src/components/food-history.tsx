@@ -82,6 +82,7 @@ export function FoodHistory() {
     apiFetcher,
   );
 
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [entries, setEntries] = useState<FoodLogHistoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -110,6 +111,11 @@ export function FoodHistory() {
     append = false,
     cursor?: { lastDate: string; lastTime: string | null; lastId: number },
   ) => {
+    // Abort any in-flight request before starting a new one
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     if (append) {
       setLoadingMore(true);
     } else {
@@ -130,7 +136,7 @@ export function FoodHistory() {
 
       const response = await fetch(`/api/food-history?${params}`, {
         method: "GET",
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
       });
       const result = await safeResponseJson(response) as {
         success?: boolean;
@@ -150,6 +156,9 @@ export function FoodHistory() {
       }
       setHasMore(newEntries.length >= 20);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return; // Intentional cancellation — do not show error
+      }
       console.error("Failed to fetch food history entries:", error);
       setFetchError("Failed to load entries. Please try again.");
     } finally {
