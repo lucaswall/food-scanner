@@ -83,7 +83,7 @@ describe("FoodLogConfirmation", () => {
     expect(screen.getByText(/reused existing food/i)).toBeInTheDocument();
   });
 
-  it("displays fitbitLogId", () => {
+  it("does not display fitbitLogId", () => {
     render(
       <FoodLogConfirmation
         response={mockResponse}
@@ -91,7 +91,7 @@ describe("FoodLogConfirmation", () => {
       />
     );
 
-    expect(screen.getByText(/67890/)).toBeInTheDocument();
+    expect(screen.queryByText(/Log ID/)).not.toBeInTheDocument();
   });
 
   it("navigates to /app when Done button is clicked", () => {

@@ -51,6 +51,11 @@ describe("SettingsContent", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Settings");
   });
 
+  it("does not render back arrow link", () => {
+    render(<SettingsContent />);
+    expect(screen.queryByLabelText("Back to Food Scanner")).not.toBeInTheDocument();
+  });
+
   describe("accessibility - form labels", () => {
     it("Client ID label has htmlFor and input has matching id", async () => {
       const user = userEvent.setup();
