@@ -1,305 +1,396 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-604-high-priority-batch
-**Issues:** FOO-604, FOO-605, FOO-609, FOO-610, FOO-645, FOO-648
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-612-bugs-and-performance
+**Issues:** FOO-612, FOO-613, FOO-614, FOO-615, FOO-617, FOO-620, FOO-623, FOO-624, FOO-626, FOO-630, FOO-636, FOO-637, FOO-646
 **Created:** 2026-02-18
 **Last Updated:** 2026-02-18
 
 ## Summary
 
-Implement 6 high-priority backlog fixes across chat accessibility, empty/error states, Claude prompt behavior, and analysis narrative preservation. These span `food-chat.tsx`, `food-detail.tsx`, `food-history.tsx`, `claude.ts`, `food-analyzer.tsx`, and `analysis-result.tsx`.
+Fix 8 bugs (mostly accessibility) and 5 performance issues across the app. All changes are surgical — most touch a single component file and its test. No schema changes, no API changes, no architectural rework.
 
 ## Issues
 
-### FOO-604: Chat messages area has no aria-live region
+### FOO-612: Meal breakdown sections missing aria-expanded
 
-**Priority:** High
-**Labels:** Bug
-**Description:** The messages scroll container in `food-chat.tsx:583-586` has no `aria-live` or `role="log"`. Screen reader users receive no announcement when new messages appear.
-
-**Acceptance Criteria:**
-- [ ] New chat messages are announced to screen readers
-- [ ] AI streaming responses are announced as they complete
-- [ ] Announcements don't replay entire conversation history
-
-### FOO-605: Chat text input has no accessible label
-
-**Priority:** High
-**Labels:** Bug
-**Description:** The `<Input>` at `food-chat.tsx:782` has `placeholder="Type a message..."` but no `aria-label`. When the user types, the placeholder disappears and the field becomes unlabeled.
+**Priority:** Medium | **Labels:** Bug
+**Description:** Expandable meal headers (Breakfast, Lunch, etc.) have no `aria-expanded` attribute. Screen readers cannot determine section state.
 
 **Acceptance Criteria:**
-- [ ] Chat input has a persistent accessible name via `aria-label`
-- [ ] Screen readers announce the field purpose regardless of content state
+- [ ] Each meal header button has `aria-expanded={isExpanded}`
+- [ ] Test verifies aria-expanded toggles with expansion state
 
-### FOO-609: History empty state — no icon, no CTA, blank screen
+### FOO-613: Remove incorrect tablist ARIA roles from segmented controls
 
-**Priority:** High
-**Labels:** Improvement
-**Description:** `food-history.tsx:223-229` shows two lines of muted text and 75% blank screen. No icon, no action buttons. Compare to `daily-dashboard.tsx:254-273` which has icon + "Scan Food" / "Quick Select" buttons.
+**Priority:** Medium | **Labels:** Bug
+**Description:** Three components use `role="tablist"` + `role="tab"` but only have click handlers — no arrow key navigation. Per ARIA Authoring Practices, tablists require arrow key support. Without it, the roles are misleading.
 
-**Acceptance Criteria:**
-- [ ] Empty state has a visual icon
-- [ ] "Scan Food" and "Quick Select" action buttons present
-- [ ] Empty state looks intentional and designed, not broken
-
-### FOO-610: Food detail error state — minimal feedback, no retry
-
-**Priority:** High
-**Labels:** Improvement
-**Description:** `food-detail.tsx:50-65` shows a plain "Back" button and red text "Failed to load food entry details". No retry, no icon, no card structure.
+**Components:** `dashboard-shell.tsx`, `quick-select.tsx`, `weekly-nutrition-chart.tsx`
 
 **Acceptance Criteria:**
-- [ ] Error state has a visual error icon
-- [ ] Retry button present and functional
-- [ ] Error message wrapped in a card/container for visual structure
-- [ ] "Go back" link available as fallback
+- [ ] `role="tablist"` removed from all three container divs
+- [ ] `role="tab"` and `aria-selected` removed from all buttons within those containers
+- [ ] `aria-controls` kept on buttons (still useful for associating panels)
+- [ ] Tests updated to not query by role="tab"
 
-### FOO-645: Claude asks unnecessary text confirmation before logging food from history
+### FOO-614: Data visualizations lack accessible representations
 
-**Priority:** High
-**Labels:** Bug
-**Description:** Claude asks "Queres que lo registre?" when the user names a food to log, instead of calling `report_nutrition` immediately. Root causes in `src/lib/claude.ts`:
-1. `CHAT_SYSTEM_PROMPT` (line 60) has anti-confirmation rule but narrow examples
-2. Neither prompt explains that `report_nutrition` surfaces a UI card — it doesn't log directly
-3. `ANALYSIS_SYSTEM_PROMPT` (line 425) has NO anti-confirmation rule
-
-**Acceptance Criteria:**
-- [ ] Both `CHAT_SYSTEM_PROMPT` and `ANALYSIS_SYSTEM_PROMPT` have anti-confirmation rules
-- [ ] Both prompts explain that `report_nutrition` surfaces a UI card with a "Log to Fitbit" button
-- [ ] Examples broadened to cover: naming food from list, responding to "Queres registrar algo?" with a food name, single-word food references
-- [ ] Existing unit tests for prompt content updated
-
-### FOO-648: AI analysis narrative lost after analysis completes — broken markdown during loading
-
-**Priority:** High
-**Labels:** Improvement
-**Description:** Two related issues: (1) `text_delta` events stream as raw text in `analysis-result.tsx:39-41` — markdown renders broken. (2) When `analysis` event fires, the narrative is permanently cleared (`food-analyzer.tsx:296` sets `loadingStep(undefined)`). The `needs_chat` path preserves text correctly via `seedMessages` + `ChatMarkdown` — only the happy path has this gap.
+**Priority:** Medium | **Labels:** Bug
+**Description:** Three visualization components convey info only visually:
+1. Macro progress bars — plain divs, no `role="progressbar"` or ARIA values
+2. Calorie ring SVG — not hidden from screen readers (reads as geometry noise)
+3. Weekly nutrition chart — no accessible summary
 
 **Acceptance Criteria:**
-- [ ] `text_delta` text no longer shown as raw broken markdown during loading
-- [ ] Tool status messages ("Searching web...", etc.) still shown during loading
-- [ ] Accumulated narrative preserved when analysis completes
-- [ ] Narrative displayed below nutrition grid using `ChatMarkdown` for proper rendering
-- [ ] Narrative section collapsed by default, expandable by user
-- [ ] Section hidden if narrative is empty or trivially short (<20 chars)
-- [ ] Narrative reset when analysis state is reset
+- [ ] Macro bars: inner div has `role="progressbar"`, `aria-valuenow`, `aria-valuemin={0}`, `aria-valuemax={100}`, `aria-label` (e.g., "Protein: 30 / 50g")
+- [ ] Calorie ring: SVG element has `aria-hidden="true"`. A visually-hidden text element provides the same info (e.g., "1200 of 2000 calories")
+- [ ] Weekly chart: chart container div has `aria-label` describing content (e.g., "Weekly calories chart")
+
+### FOO-615: Confidence badge produces garbled accessible name
+
+**Priority:** Medium | **Labels:** Bug
+**Description:** The badge button contains `<div aria-label="Confidence: high">` plus `<span>high</span>`, producing "Confidence: high high" for screen readers.
+
+**Acceptance Criteria:**
+- [ ] Remove `aria-label` from the inner `<div>` (the indicator dot)
+- [ ] The button's accessible name is coherent (just the visible text)
+
+### FOO-617: Hardcoded amber color bypasses design system and fails contrast
+
+**Priority:** Medium | **Labels:** Bug
+**Description:** Photo compression warning uses `text-amber-600 dark:text-amber-400` instead of semantic tokens. `text-amber-600` on white gives ~3.0:1 contrast, below WCAG AA minimum of 4.5:1.
+
+**Acceptance Criteria:**
+- [ ] Replace `text-amber-600 dark:text-amber-400` with `text-warning-foreground` or equivalent semantic token
+- [ ] Contrast meets WCAG AA (4.5:1) in both light and dark modes
+
+### FOO-620: Chat photo menu buttons below 44px touch target
+
+**Priority:** Medium | **Labels:** Bug
+**Description:** Camera and Gallery buttons use `min-h-[36px]`, 8px below the 44px minimum (WCAG 2.5.8).
+
+**Acceptance Criteria:**
+- [ ] Both buttons use `min-h-[44px]`
+- [ ] Test verifies the min-height class
+
+### FOO-623: react-markdown and remark-gfm statically bundled
+
+**Priority:** Medium | **Labels:** Performance
+**Description:** `react-markdown` and `remark-gfm` are statically imported in `chat-markdown.tsx`, adding ~100KB+ gzipped to every bundle containing `food-chat.tsx`. Markdown rendering is only needed after AI response arrives.
+
+**Acceptance Criteria:**
+- [ ] `ChatMarkdown` loaded via `next/dynamic` with `{ ssr: false }` from the consumer (food-chat.tsx)
+- [ ] Chat rendering still works correctly after dynamic load
+- [ ] A loading fallback is shown while the component loads
+
+### FOO-624: Dashboard prefetch covers only 2 of 5+ required endpoints
+
+**Priority:** Medium | **Labels:** Performance
+**Description:** `DashboardPrefetch` only prefetches `common-foods` and `food-history`, but the daily dashboard immediately needs `nutrition-summary`, `nutrition-goals`, `lumen-goals`, and `earliest-entry`. Weekly dashboard needs `earliest-entry`, `nutrition-range`, and `fasting`.
+
+**Acceptance Criteria:**
+- [ ] Prefetch includes all endpoints the daily dashboard fetches on initial render (using today's date)
+- [ ] Prefetch includes key weekly dashboard endpoints
+- [ ] Uses `getTodayDate()` to build date-specific keys matching what the dashboard components will request
+
+### FOO-626: Dashboard shell tab switch missing useTransition
+
+**Priority:** Low | **Labels:** Performance
+**Description:** Switching between Daily/Weekly views triggers synchronous rendering. On lower-end devices this may block input beyond 200ms.
+
+**Acceptance Criteria:**
+- [ ] `setView` wrapped in `useTransition` (or `startTransition` from React)
+- [ ] Optional: show pending state indicator while transitioning
+
+### FOO-630: Dark mode refine-chat error banner has insufficient contrast
+
+**Priority:** Medium | **Labels:** Bug
+**Description:** Error banner in food-chat uses `bg-destructive/10` background + `text-destructive` text. In dark mode the 10% opacity destructive background blends too much with the dark page background, reducing legibility.
+
+**Acceptance Criteria:**
+- [ ] Error banner text is legible in both light and dark modes
+- [ ] Use higher opacity or different approach for dark mode (e.g., `dark:bg-destructive/20`)
+
+### FOO-636: PWA manifest improvements — theme_color and maskable icons
+
+**Priority:** Low | **Labels:** Performance
+**Description:** `theme_color: "#ffffff"` is hardcoded white — dark mode users see white browser chrome. No maskable icon entry for Android adaptive launchers.
+
+**Acceptance Criteria:**
+- [ ] Add `<meta name="theme-color">` tags with `media="(prefers-color-scheme: ...)"` in the root layout for dynamic theme color
+- [ ] Add an icon entry with `"purpose": "any maskable"` in manifest.json
+- [ ] Consider using the app's actual background color tokens
+
+### FOO-637: Add prefers-reduced-motion override for tw-animate-css animations
+
+**Priority:** Medium | **Labels:** Bug
+**Description:** Custom animations respect `prefers-reduced-motion` via `globals.css:178-185`, but Radix UI components use `animate-in`/`animate-out` from tw-animate-css which has zero reduced-motion support.
+
+**Acceptance Criteria:**
+- [ ] All tw-animate-css animations suppressed under `prefers-reduced-motion: reduce`
+- [ ] Radix UI components still function (open/close state) — use `0.01ms` duration, not `none`
+- [ ] Existing custom animation overrides remain intact
+
+### FOO-646: Claude redundantly re-searches food log when data already in conversation context
+
+**Priority:** Low | **Labels:** Performance
+**Description:** When user confirms logging a food item already retrieved in a previous turn, Claude calls `search_food_log` again. The data is already in conversation context.
+
+**Acceptance Criteria:**
+- [ ] System prompts include rule: do not re-search for food data already present in conversation
+- [ ] Both `CHAT_SYSTEM_PROMPT` and `ANALYSIS_SYSTEM_PROMPT` updated
 
 ## Prerequisites
 
-- [ ] On `main` branch, clean working tree
-- [ ] `npm install` up to date
+- [ ] On `main` branch with clean working tree
+- [ ] `npm test` passes
+- [ ] `npm run build` passes
 
 ## Implementation Tasks
 
-### Task 1: Add aria-label to chat input (FOO-605)
+### Task 1: Add aria-expanded to meal breakdown headers
 
-**Issue:** FOO-605
+**Issue:** FOO-612
+**Files:**
+- `src/components/meal-breakdown.tsx` (modify)
+- `src/components/__tests__/meal-breakdown.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Add test: render a meal, verify the header button has `aria-expanded="false"`, click it, verify it becomes `aria-expanded="true"`.
+   - Run: `npx vitest run meal-breakdown`
+
+2. **GREEN** — Add `aria-expanded={isExpanded}` to the `<button>` element at line 55.
+   - Run: `npx vitest run meal-breakdown`
+
+**Notes:** Reference the existing `data-testid={`meal-header-${meal.mealTypeId}`}` for querying the button in tests.
+
+### Task 2: Remove incorrect tablist ARIA roles from segmented controls
+
+**Issue:** FOO-613
+**Files:**
+- `src/components/dashboard-shell.tsx` (modify)
+- `src/components/quick-select.tsx` (modify)
+- `src/components/weekly-nutrition-chart.tsx` (modify)
+- `src/components/__tests__/dashboard-shell.test.tsx` (modify)
+- `src/components/__tests__/weekly-nutrition-chart.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update existing tests that query by `role("tab")` or `role("tablist")` to use alternative selectors (testid or text content). Tests will fail because the roles still exist in the components.
+   - Actually: since we're removing roles, tests querying by role will break after the change. So update tests AND component simultaneously.
+   - Run: `npx vitest run dashboard-shell weekly-nutrition`
+
+2. **GREEN** — In all three components:
+   - Remove `role="tablist"` from container divs
+   - Remove `role="tab"` and `aria-selected` from buttons
+   - Keep `aria-controls` on buttons (panel association is still useful)
+   - Run: `npx vitest run dashboard-shell weekly-nutrition quick-select`
+
+**Notes:** `quick-select.tsx` also has `id="tab-suggested"` / `id="tab-recent"` — these can stay (they're valid HTML), but the `role="tab"` must go. The `weekly-nutrition-chart.tsx` has the metric selector tabs — same treatment.
+
+### Task 3: Add accessible representations to data visualizations
+
+**Issue:** FOO-614
+**Files:**
+- `src/components/macro-bars.tsx` (modify)
+- `src/components/__tests__/macro-bars.test.tsx` (modify)
+- `src/components/calorie-ring.tsx` (modify)
+- `src/components/__tests__/calorie-ring.test.tsx` (modify)
+- `src/components/weekly-nutrition-chart.tsx` (modify)
+- `src/components/__tests__/weekly-nutrition-chart.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Macro bars: add test asserting each bar has `role="progressbar"`, `aria-valuenow`, `aria-valuemin`, `aria-valuemax`, and `aria-label` containing the macro name and values.
+   - Run: `npx vitest run macro-bars`
+
+2. **GREEN** — Add ARIA attributes to the inner progress div (line 98-102 of `macro-bars.tsx`): `role="progressbar"`, `aria-valuenow={macro.percent}`, `aria-valuemin={0}`, `aria-valuemax={100}`, `aria-label={`${macro.name}: ${macro.label}`}`.
+   - Run: `npx vitest run macro-bars`
+
+3. **RED** — Calorie ring: add test asserting the SVG has `aria-hidden="true"` and a visually-hidden span exists with the calorie text.
+   - Run: `npx vitest run calorie-ring`
+
+4. **GREEN** — Add `aria-hidden="true"` to the `<svg>` element. Add a `<span className="sr-only">` inside the container with text like `${calories} of ${goal} calories`.
+   - Run: `npx vitest run calorie-ring`
+
+5. **RED** — Weekly chart: add test asserting the chart container has an `aria-label`.
+   - Run: `npx vitest run weekly-nutrition-chart`
+
+6. **GREEN** — Add `aria-label={`Weekly ${selectedMetric} chart`}` to the chart container div (the one with `id="panel-metric"`).
+   - Run: `npx vitest run weekly-nutrition-chart`
+
+### Task 4: Fix confidence badge garbled accessible name
+
+**Issue:** FOO-615
+**Files:**
+- `src/components/confidence-badge.tsx` (modify)
+- `src/components/__tests__/confidence-badge.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Add test: render badge with confidence="high", verify the indicator div does NOT have an `aria-label` attribute.
+   - Run: `npx vitest run confidence-badge`
+
+2. **GREEN** — Remove `aria-label={`Confidence: ${confidence}`}` from the `<div>` at line 39-43.
+   - Run: `npx vitest run confidence-badge`
+
+**Notes:** The existing icon has `aria-hidden="true"`, so the accessible name will come from the `<span>` text ("high", "medium", "low") which is sufficient.
+
+### Task 5: Replace hardcoded amber color with semantic token
+
+**Issue:** FOO-617
 **Files:**
 - `src/components/food-chat.tsx` (modify)
 - `src/components/__tests__/food-chat.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add test in `food-chat.test.tsx` that asserts the chat text input has `aria-label="Message"`. Query by role `textbox` and assert `toHaveAttribute("aria-label", "Message")`.
-   - Run: `npm test -- food-chat`
-   - Verify: Test fails (no aria-label present)
+1. **RED** — Add or update test for the compression warning element: verify it does NOT contain `text-amber-600` class, and instead uses the semantic warning class.
+   - Run: `npx vitest run food-chat`
 
-2. **GREEN** — Add `aria-label="Message"` to the `<Input>` at `food-chat.tsx:782`.
-   - Run: `npm test -- food-chat`
-   - Verify: Test passes
+2. **GREEN** — Replace `text-amber-600 dark:text-amber-400` with `text-warning` (or `text-muted-foreground` if warning text color doesn't exist as a standalone token — check `globals.css` for available warning tokens).
+   - Run: `npx vitest run food-chat`
 
-**Notes:**
-- Single attribute addition. No structural changes needed.
+**Notes:** Check which warning semantic tokens are available in the design system. The `text-warning` class maps to `hsl(var(--warning))` which should be the amber/yellow color with proper contrast.
 
-### Task 2: Add aria-live region to chat messages (FOO-604)
+### Task 6: Fix chat photo menu button touch targets
 
-**Issue:** FOO-604
+**Issue:** FOO-620
 **Files:**
 - `src/components/food-chat.tsx` (modify)
 - `src/components/__tests__/food-chat.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add test that asserts the messages scroll container has `role="log"` and `aria-live="polite"`. The container is identified by `ref={scrollContainerRef}` which can be queried by its role.
-   - Run: `npm test -- food-chat`
-   - Verify: Test fails
+1. **RED** — Add test: render food-chat, open photo menu, verify Camera and Gallery buttons have `min-h-[44px]` class (or use a more semantic assertion).
+   - Run: `npx vitest run food-chat`
 
-2. **GREEN** — Add `role="log"` and `aria-live="polite"` to the scroll container div at `food-chat.tsx:583-586`. Also add `aria-atomic="false"` so each new message is announced incrementally rather than replaying the entire history.
-   - Run: `npm test -- food-chat`
-   - Verify: Test passes
+2. **GREEN** — Change both `min-h-[36px]` to `min-h-[44px]` at lines 748 and 760 of `food-chat.tsx`.
+   - Run: `npx vitest run food-chat`
 
-**Notes:**
-- `role="log"` implies `aria-live="polite"` per ARIA spec, but adding both explicitly ensures compatibility with all screen readers.
-- `aria-atomic="false"` is critical — without it, some screen readers re-read the entire log region on each update.
+### Task 7: Fix dark mode error banner contrast
 
-### Task 3: Add CTA buttons and icon to history empty state (FOO-609)
-
-**Issue:** FOO-609
+**Issue:** FOO-630
 **Files:**
-- `src/components/food-history.tsx` (modify)
-- `src/components/__tests__/food-history.test.tsx` (modify)
+- `src/components/food-chat.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add tests for the empty state:
-   - Test that an icon element is rendered (e.g., by test-id or accessible name)
-   - Test that a "Scan Food" link to `/app/analyze` is present
-   - Test that a "Quick Select" link to `/app/quick-select` is present
-   - Run: `npm test -- food-history`
-   - Verify: Tests fail (current empty state is just text)
+1. **GREEN** — Increase the dark mode background opacity for better contrast. Change `bg-destructive/10` to `bg-destructive/10 dark:bg-destructive/20` at line 656. This doubles the background tint in dark mode, improving the text/background contrast ratio.
+   - Run: `npx vitest run food-chat`
 
-2. **GREEN** — Replace the empty state at `food-history.tsx:223-229`:
-   - Add a lucide icon above the text (use `UtensilsCrossed` or `CalendarX2` — pick whichever fits the "no food logged" semantic)
-   - Add `<Button asChild variant="outline">` wrapped `<Link>` components for "Scan Food" (`/app/analyze`) and "Quick Select" (`/app/quick-select`), matching the pattern in `daily-dashboard.tsx:258-271`
-   - Import `Link` from `next/link`, `Button` from `@/components/ui/button`, and the chosen icon from `lucide-react`
-   - Run: `npm test -- food-history`
-   - Verify: Tests pass
+**Notes:** This is a visual fix. The exact opacity may need visual verification. `dark:bg-destructive/20` is a reasonable starting point — the implementer should visually confirm in browser dark mode.
 
-**Notes:**
-- Follow the `daily-dashboard.tsx:254-273` empty state pattern exactly: centered flex column, icon, text, then button row with gap-3.
-- Use `<Button asChild variant="outline">` rather than hardcoded className strings (FOO-618 is about fixing the hardcoded pattern in daily-dashboard itself).
-- Both buttons need `min-h-[44px]` for touch targets.
+### Task 8: Add prefers-reduced-motion override for tw-animate-css
 
-### Task 4: Improve food detail error state (FOO-610)
-
-**Issue:** FOO-610
+**Issue:** FOO-637
 **Files:**
-- `src/components/food-detail.tsx` (modify)
-- `src/components/__tests__/food-detail.test.tsx` (create — no existing test file)
+- `src/app/globals.css` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Create `src/components/__tests__/food-detail.test.tsx`:
-   - Mock `next/navigation` (`useRouter` returning `{ back: vi.fn() }`)
-   - Mock `swr` to return `{ data: undefined, error: new Error("fetch failed"), isLoading: false }`
-   - Test 1: Error state renders an error icon (query by test-id `error-icon`)
-   - Test 2: Error state has a retry button (`role="button"` with name "Try again" or "Retry")
-   - Test 3: Retry button calls `mutate()` from SWR to refetch
-   - Test 4: "Go back" button is still present
-   - Test 5: Error message is inside a styled card container (query parent has appropriate classes)
-   - Run: `npm test -- food-detail`
-   - Verify: Tests fail
+1. **GREEN** — Add the following CSS block after the existing `prefers-reduced-motion` block at line 185 of `globals.css`:
+   - A `@media (prefers-reduced-motion: reduce)` rule targeting `[data-state]` elements (Radix UI convention)
+   - Set `animation-duration: 0.01ms !important`, `animation-iteration-count: 1 !important`, `transition-duration: 0.01ms !important`
+   - Using `0.01ms` instead of `none` to avoid breaking Radix `animationend` event handlers
+   - Run: `npm run build` (CSS changes don't need unit tests — verify via build)
 
-2. **GREEN** — Rewrite the error branch at `food-detail.tsx:50-65`:
-   - Wrap content in a card/container with `bg-destructive/10 border border-destructive/20 rounded-lg p-6`
-   - Add a lucide `AlertCircle` icon above the message
-   - Change the plain text to be more helpful: "Something went wrong loading this food entry."
-   - Add a "Try again" `<Button>` that calls SWR's `mutate()` to refetch (destructure `mutate` from `useSWR`)
-   - Keep the existing "Back" button below as fallback
-   - Run: `npm test -- food-detail`
-   - Verify: Tests pass
+**Notes:** This is a CSS-only change. The `[data-state]` selector targets all Radix UI components that use state-driven animations.
 
-**Notes:**
-- `useSWR` already returns `mutate` — just destructure it alongside `data`, `error`, `isLoading`.
-- Follow the error state pattern from `analysis-result.tsx:46-57` (centered column, icon, text, button).
+### Task 9: Lazy load react-markdown via next/dynamic
 
-### Task 5: Strengthen anti-confirmation rules in Claude prompts (FOO-645)
+**Issue:** FOO-623
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+- `src/components/__tests__/chat-markdown.test.tsx` (verify still passes)
 
-**Issue:** FOO-645
+**TDD Steps:**
+
+1. **GREEN** — In `food-chat.tsx`, replace the static import of `ChatMarkdown` with `next/dynamic`:
+   - `const ChatMarkdown = dynamic(() => import('./chat-markdown').then(m => ({ default: m.ChatMarkdown })), { ssr: false, loading: () => <fallback> })`
+   - Use a simple text skeleton as fallback
+   - Run: `npx vitest run food-chat chat-markdown`
+
+**Notes:** The `ChatMarkdown` component is a named export, so the dynamic import needs the `.then()` wrapper to convert to default export. `ssr: false` is correct since markdown content only appears after client-side AI interaction. The `chat-markdown.tsx` file itself stays unchanged — only the import site changes.
+
+### Task 10: Expand dashboard prefetch to all endpoints
+
+**Issue:** FOO-624
+**Files:**
+- `src/components/dashboard-prefetch.tsx` (modify)
+- `src/components/__tests__/dashboard-prefetch.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update test to verify `preload` is called for all expected endpoints: `nutrition-summary`, `nutrition-goals`, `lumen-goals`, `earliest-entry` (in addition to existing `common-foods` and `food-history`). The date-specific endpoints should use today's date.
+   - Run: `npx vitest run dashboard-prefetch`
+
+2. **GREEN** — Import `getTodayDate` from `@/lib/date-utils`. Add preload calls for:
+   - `/api/nutrition-summary?date=${today}`
+   - `/api/nutrition-goals?clientDate=${today}`
+   - `/api/lumen-goals?date=${today}`
+   - `/api/earliest-entry`
+   - Run: `npx vitest run dashboard-prefetch`
+
+**Notes:** The SWR keys must exactly match what the dashboard components request. `DailyDashboard` initializes `selectedDate` with `getTodayDate()`, so using the same function ensures key match. Weekly endpoints (`nutrition-range`, `fasting`) have more complex keys — prefetch the simpler daily ones first as they're the default view.
+
+### Task 11: Add useTransition to dashboard shell tab switch
+
+**Issue:** FOO-626
+**Files:**
+- `src/components/dashboard-shell.tsx` (modify)
+- `src/components/__tests__/dashboard-shell.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Add test: verify that switching tabs still renders the correct dashboard (Daily vs Weekly). This should already be covered, so the test may just need a check that `isPending` state is handled.
+   - Run: `npx vitest run dashboard-shell`
+
+2. **GREEN** — Import `useTransition` from React. Wrap the `setView()` calls in `startTransition()`. Optionally add a subtle opacity reduction on the panel div when `isPending` is true.
+   - Run: `npx vitest run dashboard-shell`
+
+### Task 12: PWA manifest improvements
+
+**Issue:** FOO-636
+**Files:**
+- `public/manifest.json` (modify)
+- `src/app/layout.tsx` (modify)
+
+**TDD Steps:**
+
+1. **GREEN** — In `manifest.json`:
+   - Add `"purpose": "any maskable"` to both icon entries
+   - Run: `npm run build` (manifest is static, no unit test needed)
+
+2. **GREEN** — In `src/app/layout.tsx`, add two `<meta name="theme-color">` tags in the `<head>`:
+   - One with `media="(prefers-color-scheme: light)"` and `content` matching the light background color
+   - One with `media="(prefers-color-scheme: dark)"` and `content` matching the dark background color
+   - Check `globals.css` for the actual `--background` HSL values in light and dark modes
+   - Run: `npm run build`
+
+**Notes:** The manifest.json `theme_color` remains as a fallback for browsers that don't support the meta tag. The meta tags take precedence and support dark mode.
+
+### Task 13: Add system prompt rule to avoid redundant food log re-searches
+
+**Issue:** FOO-646
 **Files:**
 - `src/lib/claude.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Add tests in `claude.test.ts`:
-   - Test that `CHAT_SYSTEM_PROMPT` contains text explaining `report_nutrition` surfaces a UI card, not a direct log
-   - Test that `ANALYSIS_SYSTEM_PROMPT` contains an anti-confirmation rule (asserting it includes a substring like "never ask" or "do not ask" + "confirmation")
-   - Test that `ANALYSIS_SYSTEM_PROMPT` explains `report_nutrition` surfaces a UI card
-   - Run: `npm test -- claude.test`
-   - Verify: Tests fail (ANALYSIS_SYSTEM_PROMPT has no such rules)
+1. **GREEN** — Add a rule to both `CHAT_SYSTEM_PROMPT` and `ANALYSIS_SYSTEM_PROMPT`:
+   - Something like: "Do not re-search for food data that is already present in the conversation from a previous tool call. If search_food_log already returned a food's nutritional data in an earlier turn, use that data directly instead of searching again."
+   - Place it near the other tool usage rules
+   - Run: `npm run build` (prompt changes don't need unit tests)
 
-2. **GREEN** — Modify both system prompts in `claude.ts`:
+**Notes:** This is a prompt engineering fix only. No code logic changes. The existing tests for claude.ts should still pass since they test the function behavior, not prompt content.
 
-   **In `CHAT_SYSTEM_PROMPT`** (around lines 48-61):
-   - Add context to `report_nutrition` tool description area: explain that calling `report_nutrition` surfaces a UI card with nutrition details and a "Log to Fitbit" button — it does NOT log food directly. The user must tap "Log to Fitbit" to actually commit the food log. Therefore, text confirmation before `report_nutrition` is never necessary.
-   - Broaden the existing anti-confirmation rule at line 60: expand examples beyond "comi eso" / "registra eso" to include: naming a food from a displayed list, responding to "Queres registrar algo?" with a food name, any single food reference in context where the conversation establishes logging intent.
-   - Add blanket rule: "Never ask 'should I log/register this?' — always call report_nutrition and let the user confirm via the UI button."
+### Task 14: Integration & Verification
 
-   **In `ANALYSIS_SYSTEM_PROMPT`** (around line 425-442):
-   - Add the same `report_nutrition` UI card explanation
-   - Add anti-confirmation rule: "When the food is clearly described or photographed, call report_nutrition immediately. Never ask for confirmation before calling report_nutrition — the user confirms via the UI button."
-   - Run: `npm test -- claude.test`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Extract shared anti-confirmation text into a const if both prompts use identical wording, to keep them in sync.
-
-**Notes:**
-- The existing `REPORT_NUTRITION_TOOL.description` at line 81 says "Report the nutritional analysis of the food" — this is what Claude reads. Adding the UI card context to the system prompt (not the tool description) is the right approach, since tool descriptions are tightly scoped.
-- Verify existing prompt tests still pass — check `claude.test.ts` for any hardcoded string assertions that might break.
-
-### Task 6: Accumulate narrative text and stop showing text_delta during loading (FOO-648 — Part 1: food-analyzer.tsx)
-
-**Issue:** FOO-648
-**Files:**
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add tests in `food-analyzer.test.tsx`:
-   - Test: When SSE stream emits `text_delta` events followed by an `analysis` event, the analysis result component receives a `narrative` prop containing the accumulated text delta content
-   - Test: During loading, `loadingStep` is NOT set from `text_delta` events (only from `tool_start` events)
-   - Test: `tool_start` events still set `loadingStep` correctly (e.g., "Searching web...")
-   - Test: `analysisNarrative` is reset to null when `resetAnalysisState()` is called
-   - Run: `npm test -- food-analyzer`
-   - Verify: Tests fail
-
-2. **GREEN** — Modify `food-analyzer.tsx`:
-   - Add new state: `const [analysisNarrative, setAnalysisNarrative] = useState<string | null>(null)`
-   - In the SSE handler for `text_delta` (line 216-218): keep accumulating into `textDeltaBufferRef.current`, but REMOVE the `setLoadingStep(textDeltaBufferRef.current)` call. The loading indicator should only show tool status messages.
-   - In the SSE handler for `analysis` (line 222-224): after `setAnalysis(event.analysis)`, add `setAnalysisNarrative(textDeltaBufferRef.current.trim() || null)` to preserve the narrative
-   - In `resetAnalysisState()` (line 84-105): add `setAnalysisNarrative(null)`
-   - Pass `narrative={analysisNarrative}` to `<AnalysisResult>` at line 646-652
-   - Run: `npm test -- food-analyzer`
-   - Verify: Tests pass
-
-**Notes:**
-- The `loadingStep` fallback text "Analyzing your food..." in `analysis-result.tsx:40` will now be the default during text_delta streaming, which is a better UX than showing raw broken markdown.
-- `textDeltaBufferRef` already exists at line 67 — no new ref needed.
-
-### Task 7: Display collapsible narrative section in analysis result (FOO-648 — Part 2: analysis-result.tsx)
-
-**Issue:** FOO-648
-**Files:**
-- `src/components/analysis-result.tsx` (modify)
-- `src/components/__tests__/analysis-result.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add tests in `analysis-result.test.tsx`:
-   - Test: When `narrative` prop is provided with meaningful content (>20 chars), a collapsible section titled "AI Analysis" is rendered
-   - Test: The collapsible section is collapsed by default (narrative text not visible)
-   - Test: Clicking the trigger expands the section and shows the narrative rendered via `ChatMarkdown`
-   - Test: When `narrative` is null, no "AI Analysis" section is rendered
-   - Test: When `narrative` is a short string (<20 chars), no "AI Analysis" section is rendered
-   - Run: `npm test -- analysis-result`
-   - Verify: Tests fail
-
-2. **GREEN** — Modify `analysis-result.tsx`:
-   - Add `narrative?: string | null` to `AnalysisResultProps`
-   - Import `Collapsible`, `CollapsibleContent`, `CollapsibleTrigger` from `@/components/ui/collapsible`
-   - Import `ChatMarkdown` from `@/components/chat-markdown`
-   - Import `ChevronDown` from `lucide-react` for the expand indicator
-   - After the notes section (line 128), add the collapsible narrative section:
-     - Only render if `narrative && narrative.length >= 20`
-     - Use `<Collapsible>` with `defaultOpen={false}`
-     - Trigger button: "AI Analysis" text + chevron icon that rotates on open
-     - Content: `<ChatMarkdown content={narrative} />`
-   - Add local state `const [narrativeOpen, setNarrativeOpen] = useState(false)` for controlling the chevron rotation
-   - Run: `npm test -- analysis-result`
-   - Verify: Tests pass
-
-**Notes:**
-- shadcn `Collapsible` is already in the project (imported in other components). Use the standard pattern.
-- `ChatMarkdown` at `src/components/chat-markdown.tsx` handles tables, lists, bold/italic — exactly what the narrative needs.
-- The 20-char threshold filters out trivially short narratives (e.g., just "Analyzing..." fragments).
-
-### Task 8: Integration & Verification
-
-**Issue:** FOO-604, FOO-605, FOO-609, FOO-610, FOO-645, FOO-648
+**Issue:** All
 **Files:** Various from previous tasks
 
 **Steps:**
@@ -308,285 +399,43 @@ Implement 6 high-priority backlog fixes across chat accessibility, empty/error s
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
-5. Manual verification:
-   - [ ] Open chat, verify screen reader announces new messages (FOO-604)
-   - [ ] Verify chat input has accessible name in browser dev tools (FOO-605)
-   - [ ] Navigate to History on a past date with no entries — verify icon + CTA buttons (FOO-609)
-   - [ ] Navigate to a food detail page with a bad ID — verify error card with retry + back (FOO-610)
-   - [ ] Analyze food and verify narrative appears in collapsible section after analysis (FOO-648)
-   - [ ] Verify tool status messages still show during loading (FOO-648)
 
-## MCP Usage During Implementation
+## Worker Partitioning
 
-| MCP Server | Tool | Purpose |
-|------------|------|---------|
-| Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
+The 13 issues partition cleanly into 3 independent domains with zero shared files:
+
+| Worker | Domain | Issues | Files |
+|--------|--------|--------|-------|
+| 1 | Accessibility | FOO-612, 613, 614, 615 | meal-breakdown, dashboard-shell, quick-select, weekly-nutrition-chart, macro-bars, calorie-ring, confidence-badge + tests |
+| 2 | Visual/CSS | FOO-617, 620, 630, 637 | food-chat, globals.css + tests |
+| 3 | Performance | FOO-623, 624, 626, 636, 646 | food-chat (dynamic import only), dashboard-prefetch, dashboard-shell, manifest.json, layout.tsx, claude.ts + tests |
+
+**Conflict note:** Worker 2 and Worker 3 both touch `food-chat.tsx`, but in completely different sections (Worker 2: lines 725, 748, 760, 656 for CSS classes; Worker 3: imports section for dynamic import). Also Worker 1 and Worker 3 both touch `dashboard-shell.tsx` (Worker 1: removing ARIA roles; Worker 3: adding useTransition) and `weekly-nutrition-chart.tsx` (Worker 1: removing ARIA roles + adding chart aria-label; Worker 3: none actually). Lead merges sequentially to resolve.
 
 ## Error Handling
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| SWR fetch error in food-detail | Show error card with retry button | Unit test (Task 4) |
-| SWR mutate retry in food-detail | Re-fetches the data | Unit test (Task 4) |
-| Empty history (no entries) | Show icon + CTA buttons | Unit test (Task 3) |
-| Narrative is null/empty | No "AI Analysis" section shown | Unit test (Task 7) |
-| Narrative is trivially short | No "AI Analysis" section shown | Unit test (Task 7) |
+| ChatMarkdown dynamic import fails | Fallback UI shown | Unit test for fallback |
+| SWR prefetch fails | Silent — dashboard fetches normally | Existing SWR error handling |
+| Missing semantic CSS token | Build fails with unknown class | Build check |
 
 ## Risks & Open Questions
 
-- [ ] FOO-645 is a prompt engineering change — behavior depends on Claude model responses and cannot be deterministically tested. Unit tests verify prompt content, but effectiveness requires manual testing with real food logging flows.
-- [ ] FOO-648 narrative length threshold (20 chars) may need tuning based on real usage — some short narratives may be useful. Start conservative and adjust.
-- [ ] FOO-604 `aria-live="polite"` on a streaming chat may be noisy if the screen reader announces every text delta chunk. The `role="log"` semantics help (logs are polite by default), but real screen reader testing is needed to verify the experience is good.
+- [ ] FOO-617: Need to verify which warning semantic token exists (`text-warning` vs `text-warning-foreground` vs something else). Check `globals.css` theme variables.
+- [ ] FOO-630: Exact opacity value for dark mode error banner needs visual verification. Starting with `dark:bg-destructive/20`.
+- [ ] FOO-636: Maskable icons ideally need a safe zone (inner 80% circle). Using `"purpose": "any maskable"` on existing icons is a pragmatic first step — icons may display slightly cropped on some Android launchers.
+- [ ] FOO-623: Dynamic import may cause a brief flash when ChatMarkdown first loads. The loading fallback should be minimal (small skeleton or empty div).
 
 ## Scope Boundaries
 
 **In Scope:**
-- Chat accessibility: aria-label on input, aria-live on messages container
-- History empty state: icon + CTA buttons
-- Food detail error state: icon + retry + card structure
-- Claude prompt: anti-confirmation rules in both system prompts
-- Analysis narrative: accumulate, preserve, display in collapsible section
+- All 13 listed issues (8 bugs + 5 performance)
+- Unit test updates for changed components
+- Build verification
 
 **Out of Scope:**
-- FOO-634 (aria-live assertive → polite on analysis-result loading) — separate issue, different priority
-- FOO-616 (dynamic state changes missing aria-live) — broader scope, separate plan
-- FOO-618 (daily-dashboard hardcoded button styles) — not blocked by this plan
-- Full screen reader E2E testing — requires manual verification beyond automated tests
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-18
-**Method:** Agent team (4 workers, worktree-isolated)
-
-### Tasks Completed This Iteration
-- Task 1: Add aria-label to chat input (FOO-605) — Added `aria-label="Message"` to chat input (worker-1)
-- Task 2: Add aria-live region to chat messages (FOO-604) — Added `role="log"`, `aria-live="polite"`, `aria-atomic="false"` to scroll container (worker-1)
-- Task 3: Add CTA buttons and icon to history empty state (FOO-609) — Added UtensilsCrossed icon + "Scan Food" and "Quick Select" buttons with 44px touch targets (worker-2)
-- Task 4: Improve food detail error state (FOO-610) — Added AlertCircle icon, styled error card, "Try again" retry button calling mutate(), "Back" fallback (worker-2)
-- Task 5: Strengthen anti-confirmation rules in Claude prompts (FOO-645) — Added shared `REPORT_NUTRITION_UI_CARD_NOTE` const, broadened examples, added anti-confirmation rules to both CHAT and ANALYSIS system prompts (worker-3)
-- Task 6: Accumulate narrative text (FOO-648 Part 1) — text_delta no longer sets loadingStep; narrative accumulated into state and passed to AnalysisResult (worker-4)
-- Task 7: Display collapsible narrative section (FOO-648 Part 2) — Collapsible "AI Analysis" section with ChatMarkdown rendering, collapsed by default, hidden if <20 chars (worker-4)
-
-### Files Modified
-- `src/components/food-chat.tsx` — Added aria-label and aria-live attributes
-- `src/components/__tests__/food-chat.test.tsx` — Added 2 accessibility tests
-- `src/components/food-history.tsx` — Replaced empty state with icon + CTA buttons; added response.ok guard in fetchEntries
-- `src/components/__tests__/food-history.test.tsx` — Added 3 empty state tests
-- `src/components/food-detail.tsx` — Rewrote error state with card, icon, retry; split error/!data guards
-- `src/components/__tests__/food-detail.test.tsx` — Created with 5 error state tests
-- `src/lib/claude.ts` — Added REPORT_NUTRITION_UI_CARD_NOTE, updated both system prompts
-- `src/lib/__tests__/claude.test.ts` — Added 6 prompt content tests
-- `src/components/food-analyzer.tsx` — Narrative accumulation, removed text_delta→loadingStep
-- `src/components/__tests__/food-analyzer.test.tsx` — Updated 2 old tests, added 3 new
-- `src/components/analysis-result.tsx` — Added collapsible narrative section with ChatMarkdown
-- `src/components/__tests__/analysis-result.test.tsx` — Added 8 collapsible narrative tests
-- `src/components/ui/collapsible.tsx` — Added shadcn Collapsible component
-
-### Linear Updates
-- FOO-604: Todo → In Progress → Review
-- FOO-605: Todo → In Progress → Review
-- FOO-609: Todo → In Progress → Review
-- FOO-610: Todo → In Progress → Review
-- FOO-645: Todo → In Progress → Review
-- FOO-648: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 2 medium bugs, fixed before proceeding (food-detail.tsx error/!data guard split, food-history.tsx fetchEntries response.ok check)
-- verifier: All 2004 tests pass, zero warnings, build clean
-
-### Work Partition
-- Worker 1: Tasks 1-2 (chat accessibility — food-chat.tsx)
-- Worker 2: Tasks 3-4 (empty/error states — food-history.tsx, food-detail.tsx)
-- Worker 3: Task 5 (Claude prompts — claude.ts)
-- Worker 4: Tasks 6-7 (analysis narrative — food-analyzer.tsx, analysis-result.tsx)
-
-### Merge Summary
-- Worker 3: fast-forward (foundation layer, no conflicts)
-- Worker 1: merged cleanly (no conflicts)
-- Worker 2: merged cleanly (no conflicts)
-- Worker 4: merged cleanly (no conflicts)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Summary: 5 issue(s) found (Team: security, reliability, quality reviewers)
-- FIX: 5 issue(s) — Linear issues created
-- DISCARDED: 1 finding — not applicable in context
-
-**Issues requiring fix:**
-- [HIGH] BUG: `AbortSignal.any()` breaks food analysis on iOS 16 / Chrome <116 (`src/components/food-analyzer.tsx:186`) — uses API not available on older browsers; food-chat.tsx already avoids it
-- [HIGH] BUG: `validateFoodAnalysis` missing try/catch in end_turn path (`src/lib/claude.ts:740`) — inconsistent with tool_use and partial-response paths; malformed input crashes request
-- [MEDIUM] BUG: food-history.tsx fetch calls missing timeout, safeResponseJson, and error logging (`src/components/food-history.tsx:130,133,147,176,179,198`) — inconsistent with project patterns in food-chat.tsx
-- [MEDIUM] ASYNC: `conversationalRefine` doesn't handle `pause_turn` / `server_tool_use` blocks (`src/lib/claude.ts:1339`) — web search silently dropped; same gap in `analyzeFood`
-- [MEDIUM] TEST: food-detail.test.tsx only covers error state — no happy path or loading tests (`src/components/__tests__/food-detail.test.tsx`)
-
-**Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: Prompt injection chain via AI-generated content in system prompt (`src/lib/claude.ts:1291-1299`) — In this single-user app, the user is the only one who can upload images and receive responses. Injecting text via food_name into the system prompt provides no additional capability beyond what the user already has (typing directly to Claude). Not exploitable.
-
-### Linear Updates
-- FOO-604: Review → Merge (original task completed)
-- FOO-605: Review → Merge (original task completed)
-- FOO-609: Review → Merge (original task completed)
-- FOO-610: Review → Merge (original task completed)
-- FOO-645: Review → Merge (original task completed)
-- FOO-648: Review → Merge (original task completed)
-- FOO-649: Created in Todo (Fix: AbortSignal.any() browser compat)
-- FOO-650: Created in Todo (Fix: validateFoodAnalysis missing try/catch)
-- FOO-651: Created in Todo (Fix: food-history.tsx fetch patterns)
-- FOO-652: Created in Todo (Fix: conversationalRefine pause_turn handling)
-- FOO-653: Created in Todo (Fix: food-detail.test.tsx missing happy path tests)
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-649](https://linear.app/lw-claude/issue/FOO-649), [FOO-650](https://linear.app/lw-claude/issue/FOO-650), [FOO-651](https://linear.app/lw-claude/issue/FOO-651), [FOO-652](https://linear.app/lw-claude/issue/FOO-652), [FOO-653](https://linear.app/lw-claude/issue/FOO-653)
-
-### Fix 1: AbortSignal.any() browser compat in food-analyzer.tsx
-**Linear Issue:** [FOO-649](https://linear.app/lw-claude/issue/FOO-649)
-
-1. Write test in `food-analyzer.test.tsx` that verifies analysis works when `AbortSignal.any` is undefined (matching the existing test pattern in `food-chat.test.tsx:1440-1476`)
-2. Replace `AbortSignal.any([controller.signal, AbortSignal.timeout(120000)])` at line 186 with the manual timeout pattern from `food-chat.tsx:297-298`
-
-### Fix 2: validateFoodAnalysis missing try/catch in end_turn path
-**Linear Issue:** [FOO-650](https://linear.app/lw-claude/issue/FOO-650)
-
-1. Write test in `claude.test.ts` that verifies `runToolLoop` gracefully yields `done` (without analysis) when `validateFoodAnalysis` throws in the `end_turn` path
-2. Wrap `validateFoodAnalysis` call at `claude.ts:740` in try/catch matching the pattern at lines 789-800
-
-### Fix 3: food-history.tsx fetch patterns
-**Linear Issue:** [FOO-651](https://linear.app/lw-claude/issue/FOO-651)
-
-1. Write tests in `food-history.test.tsx` for:
-   - Fetch timeout behavior (mock AbortSignal.timeout)
-   - Error logging in catch blocks (spy on console.error)
-2. Add `signal: AbortSignal.timeout(15000)` to both fetch calls (lines 130, 176)
-3. Replace `response.json()` with `safeResponseJson(response)` at lines 133, 179
-4. Add `console.error(error)` in both catch blocks (lines 147, 198)
-
-### Fix 4: conversationalRefine pause_turn handling
-**Linear Issue:** [FOO-652](https://linear.app/lw-claude/issue/FOO-652)
-
-1. Write test in `claude.test.ts` that verifies `conversationalRefine` enters `runToolLoop` when `stop_reason` is `"pause_turn"` (even with no `tool_use` blocks)
-2. Update condition at `claude.ts:1339` to: `if ((dataToolUseBlocks.length > 0 || response.stop_reason === "pause_turn") && userId && currentDate)`
-3. Apply same fix to `analyzeFood` (around line 1051)
-
-### Fix 5: food-detail.test.tsx missing happy path tests
-**Linear Issue:** [FOO-653](https://linear.app/lw-claude/issue/FOO-653)
-
-1. Add loading state test: mock SWR returning `{ isLoading: true }`, verify skeleton/loading indicator renders
-2. Add successful render test: mock SWR returning full food entry data, verify food name heading, nutrition values, notes, and date/time metadata render correctly
-3. Add `!data` guard test: mock SWR returning `{ data: undefined, isLoading: false, error: undefined }`, verify component returns null (no crash)
-
----
-
-## Iteration 2 (Fix Plan)
-
-**Implemented:** 2026-02-18
-**Method:** Single-agent (fly solo)
-
-### Tasks Completed This Iteration
-- Fix 1 (FOO-649): AbortSignal.any() browser compat — Replaced with manual setTimeout pattern, added test for undefined AbortSignal.any
-- Fix 2 (FOO-650): validateFoodAnalysis missing try/catch — Wrapped in try/catch at end_turn path, added test for malformed report_nutrition
-- Fix 3 (FOO-651): food-history.tsx fetch patterns — Added AbortSignal.timeout(15000), safeResponseJson, console.error logging, added 3 tests
-- Fix 4 (FOO-652): pause_turn handling — Updated analyzeFood and conversationalRefine conditions, handled empty toolResults for server-only tools, added tool_start for web_search on pause_turn, added tests
-- Fix 5 (FOO-653): food-detail.test.tsx happy path — Added loading state, successful render (6 tests), and !data guard tests
-
-### Files Modified
-- `src/components/food-analyzer.tsx` — Replaced AbortSignal.any() with manual timeout pattern
-- `src/components/__tests__/food-analyzer.test.tsx` — Updated AbortSignal tests for new pattern
-- `src/lib/claude.ts` — try/catch for validateFoodAnalysis, pause_turn handling in analyzeFood/conversationalRefine, tool_start for web_search
-- `src/lib/__tests__/claude.test.ts` — Tests for end_turn malformed input, pause_turn in both analyzeFood and conversationalRefine, tool_start assertions
-- `src/components/food-history.tsx` — safeResponseJson, AbortSignal.timeout, console.error logging, defensive data access
-- `src/components/__tests__/food-history.test.tsx` — Tests for error logging, timeout, safeResponseJson mock
-- `src/components/__tests__/food-detail.test.tsx` — 8 new tests: loading, successful render, !data guard
-
-### Linear Updates
-- FOO-649: In Progress → Review
-- FOO-650: In Progress → Review
-- FOO-651: In Progress → Review
-- FOO-652: In Progress → Review
-- FOO-653: In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 4 issues (2 HIGH, 2 MEDIUM). Fixed 2 real bugs (non-null assertion in food-history, missing tool_start for web_search on pause_turn). Dismissed 2 false positives (assistant-last messages valid for Anthropic API continuation, AbortSignal.timeout has wider browser support than AbortSignal.any).
-- verifier: All 2019 tests pass, zero warnings, build clean
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Summary: 1 issue found (Single-agent review: security, reliability, quality)
-- FIX: 1 issue — Linear issue created
-- DISCARDED: 0 findings
-
-**Issues requiring fix:**
-- [HIGH] BUG: `pause_turn` creates consecutive assistant messages in `runToolLoop` (`src/lib/claude.ts:822,875,1114,1408`) — When `analyzeFood`/`conversationalRefine` enter `runToolLoop` from a `pause_turn` with no client-side tools, messages end with `assistant` role. If `runToolLoop`'s continuation response is `tool_use`, it pushes another `assistant` message, creating consecutive same-role messages that the Anthropic API rejects. Same issue in `runToolLoop`'s internal `pause_turn` handler at line 875.
-
-### Linear Updates
-- FOO-649: Review → Merge (fix completed)
-- FOO-650: Review → Merge (fix completed)
-- FOO-651: Review → Merge (fix completed)
-- FOO-652: Review → Merge (fix completed)
-- FOO-653: Review → Merge (fix completed)
-- FOO-654: Created in Todo (Fix: pause_turn consecutive assistant messages)
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** Review findings from Iteration 2
-**Linear Issues:** [FOO-654](https://linear.app/lw-claude/issue/FOO-654)
-
-### Fix 1: pause_turn creates consecutive assistant messages in runToolLoop
-**Linear Issue:** [FOO-654](https://linear.app/lw-claude/issue/FOO-654)
-
-1. Write test in `claude.test.ts` for `analyzeFood`: initial response is `pause_turn` (web search), `runToolLoop` continuation is `tool_use` (search_food_log) then `end_turn` with analysis — verify no API error and analysis is yielded correctly
-2. Write test in `claude.test.ts` for `conversationalRefine`: same pattern — `pause_turn` then `tool_use` then `end_turn`
-3. Write test in `claude.test.ts` for `runToolLoop` internal: tool_use → pause_turn → tool_use → end_turn — verify no consecutive assistant messages
-4. Extract a helper function `pushAssistantMessage(messages, content)` in `claude.ts` that checks if the last message is already `assistant` and merges content arrays instead of pushing a new message
-5. Replace `conversationMessages.push({ role: "assistant", content: response.content })` at lines 822 and 875 with the new helper
-6. In `analyzeFood` (line 1111-1115) and `conversationalRefine` (line 1401-1408), the fix is inherited — `runToolLoop` now handles assistant-last messages correctly
-
----
-
-## Iteration 3
-
-**Implemented:** 2026-02-18
-**Method:** Single-agent (direct fix by lead)
-
-### Tasks Completed This Iteration
-- Fix 1: pause_turn creates consecutive assistant messages in runToolLoop (FOO-654) — Added `appendAssistantContent` helper that merges content with previous assistant message instead of creating consecutive same-role messages. Applied at both `tool_use` (line 839) and `pause_turn` (line 889) branches. 4 tests covering analyzeFood, conversationalRefine, and runToolLoop paths.
-- Bonus: Fixed 2 pre-existing type errors in test files (`food-analyzer.test.tsx` AbortSignal cast, `food-detail.test.tsx` missing `confidence` field)
-
-### Files Modified
-- `src/lib/claude.ts` — Added `appendAssistantContent` helper function, replaced direct message pushes at lines 839 and 889
-- `src/lib/__tests__/claude.test.ts` — 4 new tests for FOO-654 (analyzeFood pause→tool_use, conversationalRefine pause→tool_use, runToolLoop tool_use with assistant-last messages, runToolLoop internal pause→tool_use)
-- `src/components/__tests__/food-analyzer.test.tsx` — Fixed AbortSignal type cast (pre-existing)
-- `src/components/__tests__/food-detail.test.tsx` — Added missing `confidence` field to mock (pre-existing)
-
-### Linear Updates
-- FOO-654: Todo → In Progress → Review
-
-### Pre-commit Verification
-- typecheck: Clean (0 errors)
-- tests: All 2023 tests pass
-
-### Continuation Status
-All tasks completed.
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Full keyboard navigation for tab-like controls (FOO-613 removes misleading roles; adding proper keyboard support would be a separate feature)
+- Creating dedicated maskable icon assets (using "any maskable" purpose as pragmatic fix)
+- Comprehensive performance profiling or bundle size measurement
+- Other backlog issues (Improvement label items: FOO-619, 621, 622, 628, 629, 631, 632, 635, 638, 640)
