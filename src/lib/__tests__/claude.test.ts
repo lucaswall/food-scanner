@@ -849,6 +849,112 @@ describe("analyzeFood", () => {
     expect(errorEvent).toBeDefined();
     expect((errorEvent as { type: "error"; message: string }).message).toBe("Request aborted by client");
   });
+
+  it("enters tool loop when initial response has pause_turn (server-side web search)", async () => {
+    // First response: pause_turn with server_tool_use, no report_nutrition, no client-side tool_use
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "nutrition" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 2000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    // Second stream (in runToolLoop): Claude completes with report_nutrition in end_turn
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "text", text: "Based on the nutrition info..." },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+        ],
+        usage: { input_tokens: 2500, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(
+      analyzeFood([], "Big Mac", "user-123", "2026-02-15")
+    );
+
+    // Should yield tool_start for web_search before delegating to runToolLoop
+    expect(events).toContainEqual({ type: "tool_start", tool: "web_search" });
+
+    // Should have delegated to runToolLoop and produced an analysis
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+    expect(mockStream).toHaveBeenCalledTimes(2);
+  });
+
+  it("pause_turn then tool_use: no consecutive assistant messages sent to API (FOO-654)", async () => {
+    // Stream 1: pause_turn with server-side web search (no client-side tool_use)
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "empanada nutrition" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 2000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    // Stream 2 (runToolLoop): Claude uses a data tool (tool_use stop_reason)
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("get_nutrition_summary", { date: "2026-02-15" }, "tool_data_1")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Nutrition: 300 cal protein 12g");
+
+    // Stream 3 (runToolLoop): Claude completes with report_nutrition
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+        ],
+        usage: { input_tokens: 3000, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const events = await collectEvents(
+      analyzeFood([], "Empanada de carne", "user-123", "2026-02-15")
+    );
+
+    // Verify no consecutive assistant messages were sent to the API
+    // Stream 2 is the first runToolLoop call — messages should be [user, assistant] (merged)
+    const secondCallMsgs = mockStream.mock.calls[1][0].messages;
+    for (let i = 1; i < secondCallMsgs.length; i++) {
+      if (secondCallMsgs[i].role === "assistant") {
+        expect(secondCallMsgs[i - 1].role).not.toBe("assistant");
+      }
+    }
+
+    // Stream 3: messages should still have no consecutive assistant roles
+    const thirdCallMsgs = mockStream.mock.calls[2][0].messages;
+    for (let i = 1; i < thirdCallMsgs.length; i++) {
+      if (thirdCallMsgs[i].role === "assistant") {
+        expect(thirdCallMsgs[i - 1].role).not.toBe("assistant");
+      }
+    }
+
+    // Should still produce valid analysis
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(mockStream).toHaveBeenCalledTimes(3);
+  });
 });
 
 // =============================================================================
@@ -1208,6 +1314,111 @@ describe("runToolLoop", () => {
       expect.any(Object),
     );
   });
+
+  it("end_turn: gracefully yields done (no analysis) when validateFoodAnalysis throws", async () => {
+    // report_nutrition with malformed input in end_turn
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: { food_name: "" } },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
+    );
+
+    // Should yield done without analysis (malformed input ignored)
+    expect(events.find((e) => e.type === "analysis")).toBeUndefined();
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
+
+  it("tool_use: merges assistant content when messages already end with assistant role (FOO-654)", async () => {
+    // Simulate the scenario where runToolLoop is entered with messages ending in assistant role
+    // (as happens after analyzeFood pause_turn with no client-side tools).
+    // Stream 1: tool_use response (should merge with existing assistant message, not create consecutive)
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("get_nutrition_summary", { date: "2026-02-15" }, "tool_1")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Nutrition: 1800 cal...");
+    // Stream 2: end_turn
+    mockStream.mockReturnValueOnce(makeTextStream("Here's your summary."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    // Pass messages ending with assistant role (simulating pause_turn entry from analyzeFood)
+    const events = await collectEvents(
+      runToolLoop(
+        [
+          { role: "user", content: "Analyze my food" },
+          { role: "assistant", content: [
+            { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "nutrition" } },
+            { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+          ] },
+        ],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // The second API call should NOT have consecutive assistant messages
+    const secondCall = mockStream.mock.calls[1][0];
+    for (let i = 1; i < secondCall.messages.length; i++) {
+      if (secondCall.messages[i].role === "assistant") {
+        expect(secondCall.messages[i - 1].role).not.toBe("assistant");
+      }
+    }
+    // Should complete successfully
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
+
+  it("pause_turn: merges assistant content when continuing after internal pause_turn (FOO-654)", async () => {
+    // Stream 1: pause_turn (server-side web search in runToolLoop)
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "calories" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    // Stream 2: tool_use after pause_turn continuation (tests the merge in pause_turn handler)
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("get_nutrition_summary", { date: "2026-02-15" }, "tool_2")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Nutrition: 2000 cal...");
+    // Stream 3: end_turn
+    mockStream.mockReturnValueOnce(makeTextStream("You had 2000 calories."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop(
+        [{ role: "user", content: "How many calories?" }],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // The third API call (after pause_turn + tool_use) should have no consecutive assistant messages
+    const thirdCall = mockStream.mock.calls[2][0];
+    for (let i = 1; i < thirdCall.messages.length; i++) {
+      if (thirdCall.messages[i].role === "assistant") {
+        expect(thirdCall.messages[i - 1].role).not.toBe("assistant");
+      }
+    }
+    // Should complete successfully with all 3 streams
+    expect(mockStream).toHaveBeenCalledTimes(3);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
 });
 
 // =============================================================================
@@ -1432,6 +1643,127 @@ describe("conversationalRefine", () => {
     expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
     expect(call.betas).toContain("code-execution-web-tools-2026-02-09");
   });
+
+  it("enters tool loop when stop_reason is pause_turn (server-side web search)", async () => {
+    // First response: pause_turn with server_tool_use (web search), no client-side tool_use blocks
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "McDonald's Big Mac nutrition" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 2000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    // Second stream (in runToolLoop): Claude completes with report_nutrition
+    mockStream.mockReturnValueOnce(createMockStream(
+      [
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Based on the nutrition info..." } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_stop" },
+      ],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "text", text: "Based on the nutrition info..." },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+        ],
+        usage: { input_tokens: 2500, output_tokens: 300, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const events = await collectEvents(
+      conversationalRefine(
+        [{ role: "user", content: "I had a Big Mac" }],
+        [],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // Should yield tool_start for web_search before delegating to runToolLoop
+    expect(events).toContainEqual({ type: "tool_start", tool: "web_search" });
+
+    // Should have delegated to runToolLoop and produced an analysis
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+    // Two API calls: initial + runToolLoop
+    expect(mockStream).toHaveBeenCalledTimes(2);
+  });
+
+  it("pause_turn then tool_use: no consecutive assistant messages sent to API (FOO-654)", async () => {
+    // Stream 1: pause_turn with server-side web search (no client-side tool_use)
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search", input: { query: "Big Mac calories" } },
+          { type: "web_search_tool_result", tool_use_id: "srv_1", content: [] },
+        ],
+        usage: { input_tokens: 2000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    // Stream 2 (runToolLoop): Claude uses a data tool (tool_use stop_reason)
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("get_nutrition_summary", { date: "2026-02-15" }, "tool_data_1")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Nutrition: 550 cal protein 25g");
+
+    // Stream 3 (runToolLoop): Claude completes with report_nutrition
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: validAnalysis },
+        ],
+        usage: { input_tokens: 3000, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const events = await collectEvents(
+      conversationalRefine(
+        [{ role: "user", content: "I had a Big Mac" }],
+        [],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // Stream 2 (first runToolLoop call): messages should have no consecutive assistant roles
+    const secondCallMsgs = mockStream.mock.calls[1][0].messages;
+    for (let i = 1; i < secondCallMsgs.length; i++) {
+      if (secondCallMsgs[i].role === "assistant") {
+        expect(secondCallMsgs[i - 1].role).not.toBe("assistant");
+      }
+    }
+
+    // Stream 3: messages should still have no consecutive assistant roles
+    const thirdCallMsgs = mockStream.mock.calls[2][0].messages;
+    for (let i = 1; i < thirdCallMsgs.length; i++) {
+      if (thirdCallMsgs[i].role === "assistant") {
+        expect(thirdCallMsgs[i - 1].role).not.toBe("assistant");
+      }
+    }
+
+    // Should still produce valid analysis
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis).toEqual(validAnalysis);
+    expect(mockStream).toHaveBeenCalledTimes(3);
+  });
 });
 
 // =============================================================================
@@ -1654,6 +1986,52 @@ describe("ANALYSIS_SYSTEM_PROMPT thinking instruction (Task 13)", () => {
   it("emphasizes brevity — one short sentence", async () => {
     const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
     expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/one short sentence|brief.*sentence|short sentence/i);
+  });
+});
+
+// =============================================================================
+// Task 5: Anti-confirmation rules (FOO-645)
+// =============================================================================
+
+describe("Task 5: CHAT_SYSTEM_PROMPT anti-confirmation rules (FOO-645)", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("explains that report_nutrition surfaces a UI card, not a direct log", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Should explain that calling report_nutrition shows a UI card, not logs food directly
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/UI card/i);
+  });
+
+  it("explains that user confirms via Log to Fitbit button, not text", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/Log to Fitbit.*button|button.*Log to Fitbit/i);
+  });
+
+  it("has blanket anti-confirmation rule: never ask 'should I log/register this?'", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Should explicitly say never ask for confirmation before report_nutrition
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/never ask.*log|never ask.*register|never ask.*confirmation/i);
+  });
+});
+
+describe("Task 5: ANALYSIS_SYSTEM_PROMPT anti-confirmation rules (FOO-645)", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("has anti-confirmation rule: never ask for confirmation before calling report_nutrition", async () => {
+    const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Should explicitly say never ask for confirmation before report_nutrition
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/never ask.*confirmation|do not ask.*confirmation/i);
+  });
+
+  it("explains that report_nutrition surfaces a UI card, not a direct log", async () => {
+    const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    // Should explain that calling report_nutrition shows a UI card, not logs food directly
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/UI card/i);
+  });
+
+  it("explains that user confirms via Log to Fitbit button", async () => {
+    const { ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(ANALYSIS_SYSTEM_PROMPT).toMatch(/Log to Fitbit.*button|button.*Log to Fitbit/i);
   });
 });
 

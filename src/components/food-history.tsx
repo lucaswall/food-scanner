@@ -17,8 +17,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { Trash2 } from "lucide-react";
+import { Trash2, UtensilsCrossed } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
+import { safeResponseJson } from "@/lib/safe-json";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogHistoryEntry } from "@/types";
 
@@ -129,19 +130,27 @@ export function FoodHistory() {
 
       const response = await fetch(`/api/food-history?${params}`, {
         method: "GET",
+        signal: AbortSignal.timeout(15000),
       });
-      const result = await response.json();
+      const result = await safeResponseJson(response) as {
+        success?: boolean;
+        data?: { entries: FoodLogHistoryEntry[] };
+      };
 
-      if (result.success) {
-        const newEntries = result.data.entries as FoodLogHistoryEntry[];
-        if (append) {
-          setEntries((prev) => [...prev, ...newEntries]);
-        } else {
-          setEntries(newEntries);
-        }
-        setHasMore(newEntries.length >= 20);
+      if (!response.ok || !result.success) {
+        setFetchError("Failed to load entries. Please try again.");
+        return;
       }
-    } catch {
+
+      const newEntries = result.data?.entries ?? [];
+      if (append) {
+        setEntries((prev) => [...prev, ...newEntries]);
+      } else {
+        setEntries(newEntries);
+      }
+      setHasMore(newEntries.length >= 20);
+    } catch (error) {
+      console.error("Failed to fetch food history entries:", error);
       setFetchError("Failed to load entries. Please try again.");
     } finally {
       setLoading(false);
@@ -172,8 +181,12 @@ export function FoodHistory() {
     try {
       const response = await fetch(`/api/food-history/${id}`, {
         method: "DELETE",
+        signal: AbortSignal.timeout(15000),
       });
-      const result = await response.json();
+      const result = await safeResponseJson(response) as {
+        success?: boolean;
+        error?: { code?: string; message?: string };
+      };
 
       if (!response.ok || !result.success) {
         const errorCode = result.error?.code;
@@ -192,7 +205,8 @@ export function FoodHistory() {
       setEntries((prev) => prev.filter((e) => e.id !== id));
       mutate();
       invalidateFoodCaches().catch(() => {});
-    } catch {
+    } catch (error) {
+      console.error("Failed to delete food history entry:", error);
       setDeleteError("Failed to delete entry");
       vibrateError();
     } finally {
@@ -223,8 +237,17 @@ export function FoodHistory() {
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
+        <UtensilsCrossed data-testid="empty-state-icon" className="h-12 w-12 text-muted-foreground" />
         <p className="text-muted-foreground">No food log entries</p>
         <p className="text-sm text-muted-foreground">Take a photo or use Quick Select to log your first meal</p>
+        <div className="flex gap-3">
+          <Button asChild variant="outline" className="min-h-[44px]">
+            <Link href="/app/analyze">Scan Food</Link>
+          </Button>
+          <Button asChild variant="outline" className="min-h-[44px]">
+            <Link href="/app/quick-select">Quick Select</Link>
+          </Button>
+        </div>
       </div>
     );
   }

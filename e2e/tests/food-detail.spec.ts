@@ -133,7 +133,7 @@ test.describe.serial('Food Detail Page', () => {
     await page.waitForLoadState('networkidle');
 
     // Verify error message appears
-    await expect(page.getByText('Failed to load food entry details')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Something went wrong loading this food entry.')).toBeVisible({ timeout: 10000 });
 
     // Verify back button is present (page didn't crash)
     await expect(page.getByRole('button', { name: /Back/ })).toBeVisible();

@@ -104,12 +104,14 @@ vi.mock("../analysis-result", () => ({
     error,
     onRetry,
     loadingStep,
+    narrative,
   }: {
     analysis: FoodAnalysis | null;
     loading: boolean;
     error: string | null;
     onRetry: () => void;
     loadingStep?: string;
+    narrative?: string | null;
   }) => (
     <div
       data-testid="analysis-result"
@@ -124,6 +126,7 @@ vi.mock("../analysis-result", () => ({
         </>
       )}
       {analysis && <span data-testid="food-name">{analysis.food_name}</span>}
+      {narrative && <span data-testid="analysis-narrative">{narrative}</span>}
     </div>
   ),
 }));
@@ -462,11 +465,35 @@ describe("FoodAnalyzer", () => {
     }
   });
 
-  it("passes combined abort+timeout signal to analyze-food fetch", async () => {
-    const mockAnySignal = {} as AbortSignal;
+  it("passes AbortController signal to analyze-food fetch (no AbortSignal.any dependency)", async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+    );
+
+    render(<FoodAnalyzer />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+    });
+
+    await waitFor(() => {
+      const analyzeCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/analyze-food"
+      );
+      expect(analyzeCall).toBeDefined();
+      expect((analyzeCall![1] as RequestInit).signal).toBeInstanceOf(AbortSignal);
+    });
+  });
+
+  it("analysis works when AbortSignal.any is not available (older browsers)", async () => {
     const originalAny = AbortSignal.any;
-    const anySpy = vi.fn().mockReturnValue(mockAnySignal);
-    AbortSignal.any = anySpy;
+    // Simulate older browser that doesn't have AbortSignal.any
+    (AbortSignal as unknown as Record<string, unknown>).any = undefined;
 
     try {
       mockFetch.mockResolvedValueOnce(
@@ -485,18 +512,8 @@ describe("FoodAnalyzer", () => {
       });
 
       await waitFor(() => {
-        const analyzeCall = mockFetch.mock.calls.find(
-          (call: unknown[]) => call[0] === "/api/analyze-food"
-        );
-        expect(analyzeCall).toBeDefined();
-        expect((analyzeCall![1] as RequestInit).signal).toBe(mockAnySignal);
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne");
       });
-
-      expect(anySpy).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.any(AbortSignal),
-        ])
-      );
     } finally {
       AbortSignal.any = originalAny;
     }
@@ -3141,7 +3158,7 @@ describe("FoodAnalyzer", () => {
       expect(mockFetch).not.toHaveBeenCalledWith("/api/find-matches", expect.any(Object));
     });
 
-    it("text_delta events update loadingStep during streaming", async () => {
+    it("text_delta events accumulate in buffer but do not update loadingStep", async () => {
       const { response, send, close } = makeControllableSseResponse();
       mockFetch.mockResolvedValueOnce(response);
 
@@ -3158,16 +3175,22 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByText("Loading...")).toBeInTheDocument();
       });
 
-      // Send a text_delta event
+      // Send a text_delta event — should NOT update loadingStep
       act(() => {
         send({ type: "text_delta", text: "Thinking about this food..." });
       });
 
-      await waitFor(() => {
-        expect(screen.getByTestId("loading-step")).toHaveTextContent("Thinking about this food...");
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
       });
 
-      // Complete the stream
+      // loadingStep should NOT contain text_delta content
+      const loadingStepEl = screen.queryByTestId("loading-step");
+      if (loadingStepEl) {
+        expect(loadingStepEl).not.toHaveTextContent("Thinking about this food...");
+      }
+
+      // Complete the stream — narrative should be populated from accumulated text_delta
       act(() => {
         send({ type: "analysis", analysis: mockAnalysis });
         close();
@@ -3178,8 +3201,8 @@ describe("FoodAnalyzer", () => {
       });
     });
 
-    // FOO-580: text_delta accumulation
-    it("accumulates multiple text_delta events into coherent loading step", async () => {
+    // FOO-580/FOO-648: text_delta accumulation goes to narrative, tool_start updates loadingStep
+    it("tool_start resets text_delta buffer and updates loadingStep; narrative captures pre-tool text", async () => {
       const { response, send, close } = makeControllableSseResponse();
       mockFetch.mockResolvedValueOnce(response);
 
@@ -3195,7 +3218,7 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByText("Loading...")).toBeInTheDocument();
       });
 
-      // Send multiple text_delta tokens — should accumulate, not replace
+      // Send multiple text_delta tokens — these accumulate in buffer, do NOT update loadingStep
       act(() => {
         send({ type: "text_delta", text: "Let me " });
       });
@@ -3206,11 +3229,17 @@ describe("FoodAnalyzer", () => {
         send({ type: "text_delta", text: "this food" });
       });
 
-      await waitFor(() => {
-        expect(screen.getByTestId("loading-step")).toHaveTextContent("Let me analyze this food");
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
       });
 
-      // tool_start should reset the accumulator
+      // loadingStep should NOT contain text_delta content
+      const loadingStepEl1 = screen.queryByTestId("loading-step");
+      if (loadingStepEl1) {
+        expect(loadingStepEl1).not.toHaveTextContent("Let me analyze this food");
+      }
+
+      // tool_start should reset the accumulator and update loadingStep
       act(() => {
         send({ type: "tool_start", tool: "search_food_log" });
       });
@@ -3219,14 +3248,17 @@ describe("FoodAnalyzer", () => {
         expect(screen.getByTestId("loading-step")).toHaveTextContent("Checking your food log...");
       });
 
-      // New text_delta after tool_start should start fresh
+      // New text_delta after tool_start — still doesn't update loadingStep
       act(() => {
-        send({ type: "text_delta", text: "Found it" });
+        send({ type: "text_delta", text: "Found some data" });
       });
 
-      await waitFor(() => {
-        expect(screen.getByTestId("loading-step")).toHaveTextContent("Found it");
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
       });
+
+      // loadingStep should still show tool description
+      expect(screen.getByTestId("loading-step")).toHaveTextContent("Checking your food log...");
 
       act(() => {
         send({ type: "analysis", analysis: mockAnalysis });
@@ -3366,6 +3398,122 @@ describe("FoodAnalyzer", () => {
 
       // Loading step should be gone (loading ended)
       expect(screen.queryByTestId("loading-step")).not.toBeInTheDocument();
+    });
+  });
+
+  // ---- FOO-648: Analysis narrative ----
+  describe("FOO-648: analysis narrative", () => {
+    it("accumulates text_delta events into narrative passed to AnalysisResult", async () => {
+      const { response, send, close } = makeControllableSseResponse();
+      mockFetch.mockResolvedValueOnce(response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+
+      act(() => {
+        send({ type: "text_delta", text: "This is a detailed " });
+      });
+      act(() => {
+        send({ type: "text_delta", text: "analysis narrative." });
+      });
+      act(() => {
+        send({ type: "analysis", analysis: mockAnalysis });
+        close();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      // Narrative should be passed to AnalysisResult with accumulated text
+      expect(screen.getByTestId("analysis-narrative")).toHaveTextContent(
+        "This is a detailed analysis narrative."
+      );
+    });
+
+    it("text_delta events do not update loadingStep during streaming (FOO-648)", async () => {
+      const { response, send, close } = makeControllableSseResponse();
+      mockFetch.mockResolvedValueOnce(response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+
+      act(() => {
+        send({ type: "text_delta", text: "Thinking about this food in great detail..." });
+      });
+
+      // Wait briefly to let any state updates settle
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
+
+      // loadingStep should NOT show the text_delta content
+      const loadingStepEl = screen.queryByTestId("loading-step");
+      if (loadingStepEl) {
+        expect(loadingStepEl).not.toHaveTextContent("Thinking about this food in great detail...");
+      }
+
+      act(() => {
+        send({ type: "analysis", analysis: mockAnalysis });
+        close();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+    });
+
+    it("analysisNarrative is reset to null when resetAnalysisState is called (photos cleared)", async () => {
+      const { response, send, close } = makeControllableSseResponse();
+      mockFetch.mockResolvedValueOnce(response);
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+
+      act(() => {
+        send({ type: "text_delta", text: "This is a long enough narrative for testing." });
+        send({ type: "analysis", analysis: mockAnalysis });
+        close();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+        expect(screen.getByTestId("analysis-narrative")).toBeInTheDocument();
+      });
+
+      // Clear photos — triggers resetAnalysisState
+      fireEvent.click(screen.getByRole("button", { name: /clear photos/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("analysis-narrative")).not.toBeInTheDocument();
+      });
     });
   });
 });

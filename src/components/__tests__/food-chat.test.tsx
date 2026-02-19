@@ -853,6 +853,21 @@ describe("FoodChat", () => {
     expect(input.maxLength).toBe(500);
   });
 
+  it("chat input has aria-label Message (FOO-605)", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByRole("textbox", { name: "Message" });
+    expect(input).toHaveAttribute("aria-label", "Message");
+  });
+
+  it("messages scroll container has role=log and aria-live=polite (FOO-604)", () => {
+    render(<FoodChat {...defaultProps} />);
+
+    const log = screen.getByRole("log");
+    expect(log).toHaveAttribute("aria-live", "polite");
+    expect(log).toHaveAttribute("aria-atomic", "false");
+  });
+
   it("error message is dismissible", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
