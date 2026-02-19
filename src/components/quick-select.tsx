@@ -87,7 +87,7 @@ export function QuickSelect() {
     keepPreviousData: true,
   });
 
-  const { data: searchData, isLoading: searchLoading } = useSWR<{ foods: CommonFood[] }>(
+  const { data: searchData, isLoading: searchLoading, error: searchError } = useSWR<{ foods: CommonFood[] }>(
     isSearchActive ? `/api/search-foods?q=${encodeURIComponent(debouncedQuery)}` : null,
     apiFetcher,
   );
@@ -349,8 +349,15 @@ export function QuickSelect() {
           </div>
         )}
 
+        {/* Search error state */}
+        {isSearchActive && searchError && (
+          <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+            <p className="text-sm text-destructive">{searchError.message || "Failed to search foods"}</p>
+          </div>
+        )}
+
         {/* Empty state */}
-        {!searchLoading && !loadingFoods && foods.length === 0 && (
+        {!searchLoading && !loadingFoods && foods.length === 0 && !searchError && (
           <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
             <p className="text-muted-foreground">
               {isSearchActive ? "No results found" : "No foods found"}
