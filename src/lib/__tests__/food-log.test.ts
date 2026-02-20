@@ -1679,7 +1679,7 @@ describe("searchFoods", () => {
     expect(result).toHaveLength(0);
   });
 
-  it("excludes foods with null keywords", async () => {
+  it("matches null-keyword foods by food name fallback", async () => {
     mockWhere.mockResolvedValue([
       makeSearchRow({ customFoodId: 1, foodName: "Pizza", fitbitFoodId: 100, keywords: null, entryId: 1 }),
       makeSearchRow({ customFoodId: 2, foodName: "Pizza especial", fitbitFoodId: 101, keywords: ["pizza", "especial"], entryId: 2 }),
@@ -1687,8 +1687,7 @@ describe("searchFoods", () => {
 
     const result = await searchFoods("user-uuid-123", ["pizza"]);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].foodName).toBe("Pizza especial");
+    expect(result).toHaveLength(2);
   });
 
   it("sorts by log count DESC, then last-logged date DESC", async () => {
