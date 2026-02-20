@@ -36,7 +36,7 @@ test.describe('Authentication & Authorization', () => {
       await expect(page).toHaveURL('/app');
 
       // Verify we're seeing dashboard content, not landing page
-      await expect(page.getByRole('heading', { name: 'Food Scanner', level: 1 })).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Login with Google' })).not.toBeVisible();
     });
 

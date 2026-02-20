@@ -10,6 +10,6 @@ test.describe('Authenticated Access', () => {
     await expect(page).toHaveURL('/app');
 
     // Verify we're seeing the dashboard content, not the login page
-    await expect(page.getByRole('heading', { name: 'Food Scanner' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
   });
 });
