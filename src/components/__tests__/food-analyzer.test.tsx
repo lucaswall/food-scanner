@@ -3152,6 +3152,32 @@ describe("FoodAnalyzer", () => {
       });
     });
 
+    it("shows error when SSE response has null body", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (h: string) =>
+            h.toLowerCase() === "content-type" ? "text/event-stream" : null,
+        },
+        body: null,
+      });
+
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "test food" } });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/no response body/i)).toBeInTheDocument();
+      });
+    });
+
     it("calls /api/find-matches after analysis event (no sourceCustomFoodId)", async () => {
       mockFetch
         .mockResolvedValueOnce(

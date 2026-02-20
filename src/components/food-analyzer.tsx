@@ -207,7 +207,16 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       }
 
       // Consume SSE stream and handle events
-      const reader = response.body!.getReader();
+      if (!response.body) {
+        if (compressionWarningTimeoutRef.current) {
+          clearTimeout(compressionWarningTimeoutRef.current);
+          compressionWarningTimeoutRef.current = null;
+        }
+        setError("No response body");
+        vibrateError();
+        return;
+      }
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       try {

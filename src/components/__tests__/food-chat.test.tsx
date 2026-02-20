@@ -1535,6 +1535,51 @@ describe("FoodChat", () => {
     });
   });
 
+  // Review fix: reader.cancel() before releaseLock on SSE error
+  it("calls reader.cancel() before releaseLock when SSE stream encounters error event", async () => {
+    const encoder = new TextEncoder();
+    const events = [
+      { type: "text_delta", text: "Thinking..." },
+      { type: "error", message: "Server error" },
+    ];
+    const data = events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join("");
+    const encoded = encoder.encode(data);
+
+    let readCalled = false;
+    const mockReader = {
+      read: vi.fn().mockImplementation(() => {
+        if (!readCalled) {
+          readCalled = true;
+          return Promise.resolve({ done: false as const, value: encoded });
+        }
+        return Promise.resolve({ done: true as const, value: undefined });
+      }),
+      releaseLock: vi.fn(),
+      cancel: vi.fn().mockResolvedValue(undefined),
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ "Content-Type": "text/event-stream" }),
+      body: { getReader: () => mockReader },
+    });
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "Test" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    expect(screen.getByText(/server error/i)).toBeInTheDocument();
+    expect(mockReader.cancel).toHaveBeenCalled();
+    expect(mockReader.releaseLock).toHaveBeenCalled();
+    // Verify cancel is called before releaseLock
+    const cancelOrder = mockReader.cancel.mock.invocationCallOrder[0];
+    const releaseOrder = mockReader.releaseLock.mock.invocationCallOrder[0];
+    expect(cancelOrder).toBeLessThan(releaseOrder);
+  });
+
   // FOO-576: AbortController cleanup on unmount
   describe("AbortController cleanup", () => {
     it("aborts in-flight SSE request on unmount", async () => {

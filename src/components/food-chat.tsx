@@ -316,8 +316,6 @@ export function FoodChat({
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
-
       if (!response.ok) {
         const result = (await safeResponseJson(response)) as {
           success: boolean;
@@ -391,6 +389,7 @@ export function FoodChat({
             }
           }
         } finally {
+          await reader.cancel().catch(() => {});
           reader.releaseLock();
         }
       } else {
