@@ -7,6 +7,7 @@
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
+| [Nutritional Label Library](#nutritional-label-library) | Store scanned label data for instant reuse by keyword |
 
 
 ---
@@ -207,6 +208,61 @@ User picks in Settings:
 5. Background sync on reconnection
 6. Auto-log vs hold-for-review setting
 7. Notification for auto-logged items
+
+---
+
+## Nutritional Label Library
+
+### Problem
+
+When scanning a meal that includes a packaged product, the user photographs the nutrition label to give Claude exact data. But this information is attached to the meal as a whole — it's not stored independently. Next time the same product appears in a different meal, the user has to photograph the label again. Over time, the same labels get re-scanned repeatedly.
+
+### Goal
+
+Store nutritional label data extracted from photos as reusable entries in the database. When a user mentions a product by name, Claude can look it up by keyword and use the exact nutritional data without needing a new photo.
+
+### Design
+
+#### Capture Flow
+
+- During analysis, when Claude detects a nutrition label in the photos, it extracts the structured data (serving size, calories, macros, micronutrients) and stores it as a label entry.
+- Claude confirms what it captured: *"I saved the nutrition label for 'Yogur Ser Firme Vainilla' — next time just mention it by name."*
+- The user can correct the product name or keywords during the chat.
+
+#### Reuse Flow
+
+- When analyzing a meal, Claude searches the label library by keywords (product name, brand, type) before estimating nutrition.
+- If a match is found, Claude uses the exact label data instead of guessing: *"Using the label data you scanned for 'Yogur Ser Firme Vainilla' (120 cal per 125g). How much did you have?"*
+- The user can override: *"No, this is a different brand"* → Claude falls back to estimation.
+
+#### Label Management
+
+- Labels are browsable in a dedicated section (e.g., under Settings or as a tab in the food library).
+- Each label shows: product name, brand, serving size, key macros, date scanned.
+- Users can edit product names/keywords, update nutrition data (re-scan), or delete entries.
+- Search/filter by product name or brand.
+
+### Architecture
+
+- **New DB table:** `nutrition_labels` — stores product name, brand, keywords (for search), serving size, full nutrition data (JSON or structured columns), source image reference (optional), created/updated timestamps.
+- **Claude tool:** New `search_nutrition_labels` tool (similar to existing `search_food_log`) that queries the label library by keyword. Claude calls this during analysis when the user mentions a packaged product.
+- **Claude tool:** New `save_nutrition_label` tool that Claude calls when it extracts label data from a photo. Stores the structured nutrition data with user-provided or auto-detected product name.
+- **Portion math:** Labels define nutrition per serving. Claude handles portion scaling when the user specifies a different amount than the label's serving size.
+
+### Edge Cases
+
+- Multiple labels for the same product (e.g., re-scanned with updated packaging) → newest entry wins, old one is replaced or versioned.
+- Label is partially readable → Claude stores what it can extract, flags incomplete data.
+- User mentions a product that matches multiple labels → Claude lists matches and asks which one.
+- Label data is per-100g but user ate a specific portion → Claude calculates proportionally (same as current estimation behavior, but with exact base data).
+
+### Implementation Order
+
+1. `nutrition_labels` DB table and Drizzle schema
+2. `search_nutrition_labels` Claude tool (keyword search)
+3. `save_nutrition_label` Claude tool (extract + store from photos)
+4. Integration into analysis flow (search before estimating, save when label detected)
+5. Label management UI (browse, edit, delete)
 
 ---
 
