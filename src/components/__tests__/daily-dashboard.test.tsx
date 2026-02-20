@@ -49,6 +49,11 @@ vi.mock("@/lib/date-utils", async () => {
 // Mock Date.now
 vi.spyOn(Date, "now").mockImplementation(() => mockDateState.now);
 
+// Mock LumenBanner (tested separately — here we test DailyDashboard's conditional rendering)
+vi.mock("@/components/lumen-banner", () => ({
+  LumenBanner: () => <div data-testid="lumen-banner">LumenBanner</div>,
+}));
+
 // Mock ResizeObserver for UI components
 beforeAll(() => {
   global.ResizeObserver = class ResizeObserver {
@@ -1574,6 +1579,244 @@ describe("DailyDashboard", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/timed out/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("LumenBanner placement", () => {
+    it("renders LumenBanner after MacroBars when viewing today and no goals exist", async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        if (url.includes("/api/lumen-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { goals: null } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("lumen-banner")).toBeInTheDocument();
+      });
+    });
+
+    it("does not render LumenBanner when viewing a past date", async () => {
+      const user = userEvent.setup();
+
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        if (url.includes("/api/lumen-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { goals: null } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Previous day")).toBeInTheDocument();
+      });
+
+      // Navigate to previous day
+      await user.click(screen.getByLabelText("Previous day"));
+
+      await waitFor(() => {
+        expect(screen.getByText("Yesterday")).toBeInTheDocument();
+      });
+
+      // LumenBanner should not render on past dates
+      expect(screen.queryByTestId("lumen-banner")).not.toBeInTheDocument();
+    });
+
+    it("does not render LumenBanner when lumen goals exist for today", async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        if (url.includes("/api/lumen-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId("lumen-banner")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Settings button", () => {
+    it("renders a Settings link below 'Update Lumen goals' button", async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/lumen-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        const settingsLink = screen.getByRole("link", { name: /settings/i });
+        expect(settingsLink).toBeInTheDocument();
+        expect(settingsLink).toHaveAttribute("href", "/settings");
+      });
+    });
+
+    it("Settings link meets 44px touch target", async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/lumen-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        const settingsLink = screen.getByRole("link", { name: /settings/i });
+        expect(settingsLink).toHaveClass("min-h-[44px]");
+      });
+    });
+
+    it("Settings link is full-width", async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/lumen-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        const settingsLink = screen.getByRole("link", { name: /settings/i });
+        expect(settingsLink).toHaveClass("w-full");
+      });
     });
   });
 

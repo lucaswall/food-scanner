@@ -31,18 +31,6 @@ vi.mock("@/components/fitbit-status-banner", () => ({
   ),
 }));
 
-vi.mock("@/components/lumen-banner", () => ({
-  LumenBanner: () => (
-    <div data-testid="lumen-banner">LumenBanner</div>
-  ),
-}));
-
-vi.mock("@/components/header-actions", () => ({
-  HeaderActions: () => (
-    <div data-testid="header-actions">HeaderActions</div>
-  ),
-}));
-
 const { default: AppPage } = await import("@/app/app/page");
 
 const validSession: FullSession = {
@@ -61,11 +49,11 @@ describe("/app page", () => {
     expect(mockRedirect).toHaveBeenCalledWith("/");
   });
 
-  it("renders 'Food Scanner' heading", async () => {
+  it("does not render a heading element", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
-    expect(screen.getByText("Food Scanner")).toBeInTheDocument();
+    expect(screen.queryByRole("heading")).not.toBeInTheDocument();
   });
 
   it("renders FitbitStatusBanner component", async () => {
@@ -75,25 +63,11 @@ describe("/app page", () => {
     expect(screen.getByTestId("fitbit-status-banner")).toBeInTheDocument();
   });
 
-  it("renders LumenBanner component after DashboardShell", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AppPage();
-    render(jsx);
-    expect(screen.getByTestId("lumen-banner")).toBeInTheDocument();
-  });
-
   it("renders DashboardShell component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AppPage();
     render(jsx);
     expect(screen.getByTestId("dashboard-shell")).toBeInTheDocument();
-  });
-
-  it("renders HeaderActions component", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AppPage();
-    render(jsx);
-    expect(screen.getByTestId("header-actions")).toBeInTheDocument();
   });
 
   describe("skip link", () => {
