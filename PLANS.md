@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** COMPLETE
+**Status:** IN_PROGRESS
 **Branch:** feat/FOO-686-dashboard-layout-cleanup
 **Issues:** FOO-686, FOO-685, FOO-684
 **Created:** 2026-02-20
@@ -260,3 +260,50 @@ Restructure the dashboard layout to improve mobile UX: move the Lumen CTA banner
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Files reviewed: 7 (5 modified, 2 deleted)
+Reviewers: security, reliability, quality (agent team)
+Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, Test Quality
+
+No issues found - all implementations are correct and follow project conventions.
+
+**Discarded findings (not bugs):**
+- [DISCARDED] [low] CONVENTION: Test name "renders LumenBanner after MacroBars when viewing today and no goals exist" (`src/components/__tests__/daily-dashboard.test.tsx:1586`) claims positional ordering but only asserts element existence via `toBeInTheDocument()`. Style-only — the test correctly verifies the banner renders under the right conditions, and DOM ordering is structurally enforced by JSX.
+
+### Linear Updates
+- FOO-686: Review → Merge
+- FOO-685: Review → Merge
+- FOO-684: Review → Merge
+
+### E2E Test Results
+- 112 passed, 5 failed (all same root cause: removed heading)
+- FOO-687 created in Todo for E2E fix
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** E2E test failures from Iteration 1 review
+**Linear Issues:** [FOO-687](https://linear.app/lw-claude/issue/FOO-687/fix-e2e-tests-assert-removed-food-scanner-heading)
+
+### Fix 1: Update E2E tests that assert removed "Food Scanner" heading
+**Linear Issue:** [FOO-687](https://linear.app/lw-claude/issue/FOO-687/fix-e2e-tests-assert-removed-food-scanner-heading)
+
+**Files:**
+- `e2e/tests/auth-fixture.spec.ts` (modify)
+- `e2e/tests/auth.spec.ts` (modify)
+- `e2e/tests/dashboard.spec.ts` (modify)
+
+**Steps:**
+
+1. In `e2e/tests/auth-fixture.spec.ts:13`, replace `getByRole('heading', { name: 'Food Scanner' })` with an assertion for a visible element that confirms dashboard loaded (e.g., bottom nav `getByRole('navigation', { name: 'Main navigation' })` or the Daily/Weekly tabs).
+
+2. In `e2e/tests/auth.spec.ts:39`, same replacement — assert dashboard loaded via a non-heading element.
+
+3. In `e2e/tests/dashboard.spec.ts:14,43,55`, replace all 3 heading assertions with the same alternative element check.
+
+4. Run `npm run e2e` to verify all 117 tests pass.
