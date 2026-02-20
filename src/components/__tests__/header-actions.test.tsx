@@ -3,26 +3,26 @@ import { render, screen } from "@testing-library/react";
 import { HeaderActions } from "@/components/header-actions";
 
 describe("HeaderActions", () => {
-  it("renders two links with correct hrefs", () => {
+  it("renders a single link", () => {
     render(<HeaderActions />);
     const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(2);
-
-    const chat = screen.getByRole("link", { name: "Chat" });
-    expect(chat).toHaveAttribute("href", "/app/chat");
-
-    const takePhoto = screen.getByRole("link", { name: "Take Photo" });
-    expect(takePhoto).toHaveAttribute(
-      "href",
-      "/app/analyze?autoCapture=true"
-    );
+    expect(links).toHaveLength(1);
   });
 
-  it("does not render a Quick Select link", () => {
+  it("renders Settings link with href /settings", () => {
     render(<HeaderActions />);
-    expect(
-      screen.queryByRole("link", { name: "Quick Select" })
-    ).not.toBeInTheDocument();
+    const settingsLink = screen.getByRole("link", { name: "Settings" });
+    expect(settingsLink).toHaveAttribute("href", "/settings");
+  });
+
+  it("does not render a Chat link", () => {
+    render(<HeaderActions />);
+    expect(screen.queryByRole("link", { name: "Chat" })).not.toBeInTheDocument();
+  });
+
+  it("does not render a Take Photo link", () => {
+    render(<HeaderActions />);
+    expect(screen.queryByRole("link", { name: "Take Photo" })).not.toBeInTheDocument();
   });
 
   it("all links meet minimum touch target size", () => {
