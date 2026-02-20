@@ -9,10 +9,10 @@ test.describe('Bottom Navigation', () => {
 
     // Verify all 5 nav items are visible
     await expect(nav.getByRole('link', { name: /home/i })).toBeVisible();
-    await expect(nav.getByRole('link', { name: /quick select/i })).toBeVisible();
-    await expect(nav.getByRole('link', { name: /analyze/i })).toBeVisible();
     await expect(nav.getByRole('link', { name: /history/i })).toBeVisible();
-    await expect(nav.getByRole('link', { name: /settings/i })).toBeVisible();
+    await expect(nav.getByRole('link', { name: /analyze/i })).toBeVisible();
+    await expect(nav.getByRole('link', { name: /quick select/i })).toBeVisible();
+    await expect(nav.getByRole('link', { name: /^chat$/i })).toBeVisible();
   });
 
   test('shows Home as active on /app', async ({ page }) => {
@@ -48,16 +48,16 @@ test.describe('Bottom Navigation', () => {
     await expect(historyLink).toHaveAttribute('aria-current', 'page');
   });
 
-  test('navigates to Settings and shows it as active', async ({ page }) => {
+  test('navigates to Chat and shows it as active', async ({ page }) => {
     await page.goto('/app');
 
     const nav = page.locator('nav[aria-label="Main navigation"]');
-    await nav.getByRole('link', { name: /settings/i }).click();
+    await nav.getByRole('link', { name: /^chat$/i }).click();
 
-    await expect(page).toHaveURL('/settings');
+    await expect(page).toHaveURL('/app/chat');
 
-    const settingsLink = nav.getByRole('link', { name: /settings/i });
-    await expect(settingsLink).toHaveAttribute('aria-current', 'page');
+    const chatLink = nav.getByRole('link', { name: /^chat$/i });
+    await expect(chatLink).toHaveAttribute('aria-current', 'page');
   });
 
   test('nav bar remains visible after each navigation', async ({ page }) => {
@@ -74,12 +74,33 @@ test.describe('Bottom Navigation', () => {
     await nav.getByRole('link', { name: /history/i }).click();
     await expect(nav).toBeVisible();
 
-    // Navigate to Settings
-    await nav.getByRole('link', { name: /settings/i }).click();
+    // Navigate to Chat
+    await nav.getByRole('link', { name: /^chat$/i }).click();
     await expect(nav).toBeVisible();
 
     // Navigate back to Home
     await nav.getByRole('link', { name: /home/i }).click();
     await expect(nav).toBeVisible();
+  });
+
+  test('no active tab on Settings page', async ({ page }) => {
+    await page.goto('/settings');
+
+    const nav = page.locator('nav[aria-label="Main navigation"]');
+    await expect(nav).toBeVisible();
+
+    // No nav item should have aria-current="page" on the settings page
+    const activeLinks = nav.locator('[aria-current="page"]');
+    await expect(activeLinks).toHaveCount(0);
+  });
+
+  test('Chat tab is visible and nav bar visible on /app/chat', async ({ page }) => {
+    await page.goto('/app/chat');
+
+    const nav = page.locator('nav[aria-label="Main navigation"]');
+    await expect(nav).toBeVisible();
+
+    const chatLink = nav.getByRole('link', { name: /^chat$/i });
+    await expect(chatLink).toHaveAttribute('aria-current', 'page');
   });
 });

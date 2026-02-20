@@ -8,15 +8,15 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("BottomNav", () => {
-  it("renders five nav items (Home, Quick Select, Analyze, History, Settings)", () => {
+  it("renders five nav items (Home, History, Analyze, Quick Select, Chat)", () => {
     mockPathname.mockReturnValue("/app");
     render(<BottomNav />);
 
     expect(screen.getByText("Home")).toBeInTheDocument();
-    expect(screen.getByText("Quick Select")).toBeInTheDocument();
-    expect(screen.getByText("Analyze")).toBeInTheDocument();
     expect(screen.getByText("History")).toBeInTheDocument();
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByText("Analyze")).toBeInTheDocument();
+    expect(screen.getByText("Quick Select")).toBeInTheDocument();
+    expect(screen.getByText("Chat")).toBeInTheDocument();
   });
 
   it("Home links to /app", () => {
@@ -27,12 +27,12 @@ describe("BottomNav", () => {
     expect(homeLink).toHaveAttribute("href", "/app");
   });
 
-  it("Quick Select links to /app/quick-select", () => {
+  it("History links to /app/history", () => {
     mockPathname.mockReturnValue("/app");
     render(<BottomNav />);
 
-    const quickSelectLink = screen.getByRole("link", { name: /quick select/i });
-    expect(quickSelectLink).toHaveAttribute("href", "/app/quick-select");
+    const historyLink = screen.getByRole("link", { name: /history/i });
+    expect(historyLink).toHaveAttribute("href", "/app/history");
   });
 
   it("Analyze links to /app/analyze", () => {
@@ -43,20 +43,20 @@ describe("BottomNav", () => {
     expect(analyzeLink).toHaveAttribute("href", "/app/analyze");
   });
 
-  it("History links to /app/history", () => {
+  it("Quick Select links to /app/quick-select", () => {
     mockPathname.mockReturnValue("/app");
     render(<BottomNav />);
 
-    const historyLink = screen.getByRole("link", { name: /history/i });
-    expect(historyLink).toHaveAttribute("href", "/app/history");
+    const quickSelectLink = screen.getByRole("link", { name: /quick select/i });
+    expect(quickSelectLink).toHaveAttribute("href", "/app/quick-select");
   });
 
-  it("Settings links to /settings", () => {
+  it("Chat links to /app/chat", () => {
     mockPathname.mockReturnValue("/app");
     render(<BottomNav />);
 
-    const settingsLink = screen.getByRole("link", { name: /settings/i });
-    expect(settingsLink).toHaveAttribute("href", "/settings");
+    const chatLink = screen.getByRole("link", { name: /^chat$/i });
+    expect(chatLink).toHaveAttribute("href", "/app/chat");
   });
 
   it("active route is visually highlighted with aria-current", () => {
@@ -104,12 +104,25 @@ describe("BottomNav", () => {
     expect(homeLink).not.toHaveAttribute("aria-current");
   });
 
-  it("Settings is active when on /settings", () => {
+  it("Chat is active when on /app/chat", () => {
+    mockPathname.mockReturnValue("/app/chat");
+    render(<BottomNav />);
+
+    const chatLink = screen.getByRole("link", { name: /^chat$/i });
+    expect(chatLink).toHaveAttribute("aria-current", "page");
+
+    const homeLink = screen.getByRole("link", { name: /home/i });
+    expect(homeLink).not.toHaveAttribute("aria-current");
+  });
+
+  it("no nav item has aria-current when pathname is /settings", () => {
     mockPathname.mockReturnValue("/settings");
     render(<BottomNav />);
 
-    const settingsLink = screen.getByRole("link", { name: /settings/i });
-    expect(settingsLink).toHaveAttribute("aria-current", "page");
+    const links = screen.getAllByRole("link");
+    links.forEach((link) => {
+      expect(link).not.toHaveAttribute("aria-current");
+    });
   });
 
   it("nav has aria-label", () => {
@@ -127,7 +140,7 @@ describe("BottomNav", () => {
     render(<BottomNav />);
 
     const labels = screen.getAllByText(
-      /^(Home|Quick Select|Analyze|History|Settings)$/
+      /^(Home|History|Analyze|Quick Select|Chat)$/
     );
     labels.forEach((label) => {
       expect(label).toHaveClass("text-xs");
@@ -153,5 +166,45 @@ describe("BottomNav", () => {
     const nav = screen.getByRole("navigation");
     expect(nav).toHaveClass("pl-[env(safe-area-inset-left)]");
     expect(nav).toHaveClass("pr-[env(safe-area-inset-right)]");
+  });
+
+  it("active indicator element exists within the nav", () => {
+    mockPathname.mockReturnValue("/app");
+    render(<BottomNav />);
+
+    expect(screen.getByTestId("active-indicator")).toBeInTheDocument();
+  });
+
+  it("active indicator has a CSS transition class for smooth movement", () => {
+    mockPathname.mockReturnValue("/app");
+    render(<BottomNav />);
+
+    const indicator = screen.getByTestId("active-indicator");
+    expect(indicator).toHaveClass("motion-safe:transition-transform");
+  });
+
+  it("active indicator position corresponds to Home (index 0) when on /app", () => {
+    mockPathname.mockReturnValue("/app");
+    render(<BottomNav />);
+
+    const indicator = screen.getByTestId("active-indicator");
+    expect(indicator).toHaveStyle("transform: translateX(0%)");
+  });
+
+  it("active indicator position corresponds to Chat (index 4) when on /app/chat", () => {
+    mockPathname.mockReturnValue("/app/chat");
+    render(<BottomNav />);
+
+    const indicator = screen.getByTestId("active-indicator");
+    expect(indicator).toHaveStyle("transform: translateX(400%)");
+  });
+
+  it("active indicator has no transform when on /settings (no active tab)", () => {
+    mockPathname.mockReturnValue("/settings");
+    render(<BottomNav />);
+
+    const indicator = screen.getByTestId("active-indicator");
+    // When no tab is active, indicator is hidden
+    expect(indicator).toHaveClass("opacity-0");
   });
 });
