@@ -504,3 +504,77 @@ Restructure the app's navigation system: refactor Chat from a full-screen overla
 - Mouse-drag swipe on desktop
 - Tab reordering or customization by user
 - Chat page conversation persistence across navigations
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-20
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Remove fixed overlay from FoodChat — removed `fixed inset-0 z-[60]`, replaced with `flex flex-col h-full` (worker-1)
+- Task 2: Update ChatPageClient and loading skeleton — height-constrained container `h-[calc(100dvh-5rem)]`, removed safe-area classes (worker-1)
+- Task 3: Preserve overlay for Analyze refine flow — wrapped FoodChat in fixed overlay container in food-analyzer.tsx (worker-1)
+- Task 4: Update BottomNav tab order — Home, History, Analyze, Quick Select, Chat; created `src/lib/navigation.ts` with shared TAB_PATHS (worker-2)
+- Task 5: Replace HeaderActions — single Settings gear icon replacing Chat + Camera links (worker-2)
+- Task 6: Create swipe navigation hook — `useSwipeNavigation` with currentIndex, canSwipeLeft/Right, navigateToTab (worker-3)
+- Task 7: Create SwipeNavigationWrapper — react-swipeable gestures, disable conditions, CSS entry animation, reduced-motion support (worker-3)
+- Task 8: Integrate swipe in app layout — SwipeNavigationWrapper in layout, overscroll-behavior-y: contain, slide keyframes (worker-3)
+- Task 9: Add animated active indicator — CSS transition bar at top of BottomNav, motion-safe transitions (worker-2)
+- Task 10: Update navigation and dashboard E2E tests — new tab order, Chat tab, Settings gear, removed Settings nav tests (worker-2)
+- Task 11: Add Chat nav tab and refine-chat E2E tests — verified refine-chat specs, added Chat nav tab test (worker-2)
+
+### Files Modified
+- `src/components/food-chat.tsx` — Removed fixed overlay, now flex layout component
+- `src/components/__tests__/food-chat.test.tsx` — 3 new tests for layout assertions
+- `src/components/chat-page-client.tsx` — Height-constrained container for chat
+- `src/app/app/chat/loading.tsx` — Matching layout skeleton
+- `src/components/food-analyzer.tsx` — Overlay wrapper for refine chat
+- `src/components/__tests__/food-analyzer.test.tsx` — Overlay assertion test
+- `src/components/bottom-nav.tsx` — New tab order, MessageCircle, animated indicator
+- `src/components/__tests__/bottom-nav.test.tsx` — Updated for new tabs + indicator
+- `src/components/header-actions.tsx` — Settings gear icon only
+- `src/components/__tests__/header-actions.test.tsx` — Updated assertions
+- `src/lib/navigation.ts` — Shared TAB_PATHS constant (new)
+- `src/hooks/use-swipe-navigation.ts` — Swipe navigation hook (new)
+- `src/hooks/__tests__/use-swipe-navigation.test.ts` — 16 hook tests (new)
+- `src/components/swipe-navigation-wrapper.tsx` — Swipe wrapper component (new)
+- `src/components/__tests__/swipe-navigation-wrapper.test.tsx` — 10 wrapper tests (new)
+- `src/app/app/layout.tsx` — SwipeNavigationWrapper integration
+- `src/app/globals.css` — Slide animations, overscroll-behavior, reduced-motion
+- `e2e/tests/navigation.spec.ts` — Updated for new nav structure
+- `e2e/tests/dashboard.spec.ts` — Updated for Settings gear header
+- `package.json` / `package-lock.json` — react-swipeable dependency
+
+### Linear Updates
+- FOO-678: Todo → In Progress → Review
+- FOO-679: Todo → In Progress → Review
+- FOO-680: Todo → In Progress → Review
+- FOO-681: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 6 bugs (2 HIGH, 3 MEDIUM, 1 LOW), all fixed before proceeding
+- verifier: Build type error found and fixed (TAB_PATHS indexOf type cast)
+- All 2105 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3 (chat layout domain — FoodChat, ChatPageClient, food-analyzer)
+- Worker 2: Tasks 4, 5, 9, 10, 11 (navigation domain — BottomNav, HeaderActions, indicator, E2E)
+- Worker 3: Tasks 6, 7, 8 (swipe domain — hook, wrapper, layout integration)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merge commit (react-swipeable dependency conflict, resolved by committing deps first)
+- Worker 3: merge commit (no conflicts)
+- Post-merge: deduplicated TAB_PATHS (worker-3 local → shared import from @/lib/navigation)
+
+### Bug Fixes Applied Post-Merge
+- `navigateToTab` bounds guard (out-of-bounds index protection)
+- `isDisabled()` SSR guard (`typeof document` check)
+- Stale animation class fix (clear class when `prefers-reduced-motion`)
+- Removed spurious `TAB_PATHS` re-export from `bottom-nav.tsx`
+- Build fix: `TAB_PATHS.indexOf(pathname as typeof TAB_PATHS[number])` type cast
+
+### Continuation Status
+All tasks completed. Task 12 (Integration & Verification) pending E2E run.

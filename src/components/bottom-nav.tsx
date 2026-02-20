@@ -81,5 +81,3 @@ export function BottomNav() {
     </nav>
   );
 }
-
-export { TAB_PATHS };

@@ -14,6 +14,7 @@ function prefersReducedMotion(): boolean {
 }
 
 function isDisabled(): boolean {
+  if (typeof document === "undefined") return true;
   // Don't swipe when a dialog/modal is open
   if (document.querySelector('[data-state="open"][role="dialog"]')) {
     return true;
@@ -34,18 +35,14 @@ export function SwipeNavigationWrapper({ children }: SwipeNavigationWrapperProps
   function handleSwipedLeft() {
     if (!canSwipeLeft) return;
     if (isDisabled()) return;
-    if (!prefersReducedMotion()) {
-      setAnimationClass("animate-slide-in-left");
-    }
+    setAnimationClass(prefersReducedMotion() ? "" : "animate-slide-in-left");
     navigateToTab(currentIndex + 1);
   }
 
   function handleSwipedRight() {
     if (!canSwipeRight) return;
     if (isDisabled()) return;
-    if (!prefersReducedMotion()) {
-      setAnimationClass("animate-slide-in-right");
-    }
+    setAnimationClass(prefersReducedMotion() ? "" : "animate-slide-in-right");
     navigateToTab(currentIndex - 1);
   }
 
