@@ -14,26 +14,26 @@ export function ChatPageClient() {
 
   return (
     <main id="main-content" className="contents">
-      {logResponse && loggedAnalysis ? (
-        <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="flex flex-col h-[calc(100dvh-5rem)]">
+        {logResponse && loggedAnalysis ? (
           <FoodLogConfirmation
             response={logResponse}
             foodName={loggedAnalysis.food_name}
             analysis={loggedAnalysis}
             mealTypeId={loggedMealTypeId ?? undefined}
           />
-        </div>
-      ) : (
-        <FoodChat
-          title="Chat"
-          onClose={() => router.push("/app")}
-          onLogged={(response, analysis, mealTypeId) => {
-            setLogResponse(response);
-            setLoggedAnalysis(analysis);
-            setLoggedMealTypeId(mealTypeId);
-          }}
-        />
-      )}
+        ) : (
+          <FoodChat
+            title="Chat"
+            onClose={() => router.push("/app")}
+            onLogged={(response, analysis, mealTypeId) => {
+              setLogResponse(response);
+              setLoggedAnalysis(analysis);
+              setLoggedMealTypeId(mealTypeId);
+            }}
+          />
+        )}
+      </div>
     </main>
   );
 }

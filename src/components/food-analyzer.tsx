@@ -207,7 +207,16 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       }
 
       // Consume SSE stream and handle events
-      const reader = response.body!.getReader();
+      if (!response.body) {
+        if (compressionWarningTimeoutRef.current) {
+          clearTimeout(compressionWarningTimeoutRef.current);
+          compressionWarningTimeoutRef.current = null;
+        }
+        setError("No response body");
+        vibrateError();
+        return;
+      }
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       try {
@@ -559,21 +568,23 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     );
   }
 
-  // Show full-screen chat if open (FoodChat uses fixed positioning)
+  // Show full-screen chat if open — FoodChat is layout-only; the overlay is provided here
   if (chatOpen && (analysis || seedMessages)) {
     return (
-      <FoodChat
-        initialAnalysis={analysis ?? undefined}
-        seedMessages={seedMessages ?? undefined}
-        compressedImages={compressedImages || []}
-        initialMealTypeId={mealTypeId}
-        onClose={() => setChatOpen(false)}
-        onLogged={(response, refinedAnalysis, mealTypeId) => {
-          setAnalysis(refinedAnalysis);
-          setLogResponse(response);
-          setMealTypeId(mealTypeId);
-        }}
-      />
+      <div className="fixed inset-0 z-[60] flex flex-col bg-background pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <FoodChat
+          initialAnalysis={analysis ?? undefined}
+          seedMessages={seedMessages ?? undefined}
+          compressedImages={compressedImages || []}
+          initialMealTypeId={mealTypeId}
+          onClose={() => setChatOpen(false)}
+          onLogged={(response, refinedAnalysis, mealTypeId) => {
+            setAnalysis(refinedAnalysis);
+            setLogResponse(response);
+            setMealTypeId(mealTypeId);
+          }}
+        />
+      </div>
     );
   }
 
