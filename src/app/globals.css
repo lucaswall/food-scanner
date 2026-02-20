@@ -142,6 +142,7 @@
   }
   body {
     @apply bg-background text-foreground;
+    overscroll-behavior-y: contain;
   }
 }
 
@@ -174,10 +175,39 @@
   animation: slide-up 0.3s ease-out;
 }
 
+/* Swipe navigation entry animations */
+@keyframes slide-in-left {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.25s ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.25s ease-out;
+}
+
 /* Respect reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in,
   .animate-slide-up,
+  .animate-slide-in-left,
+  .animate-slide-in-right,
   .animate-spin,
   .animate-pulse {
     animation: none;
