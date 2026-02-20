@@ -1816,6 +1816,37 @@ describe("FoodAnalyzer", () => {
       });
     });
 
+    it("FoodChat is rendered inside a fixed overlay container when chatOpen is true", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ...makeSseAnalyzeResponse([
+        { type: "analysis", analysis: mockAnalysis },
+        { type: "done" },
+      ]),
+      });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /refine/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /refine/i }));
+
+      await waitFor(() => {
+        const foodChat = screen.getByTestId("food-chat");
+        const wrapper = foodChat.parentElement!;
+        expect(wrapper.className).toContain("fixed");
+        expect(wrapper.className).toContain("inset-0");
+        expect(wrapper.className).toContain("z-[60]");
+      });
+    });
+
     it("shows normal analyzer UI when chatOpen is false after analysis", async () => {
       mockFetch.mockResolvedValueOnce({
         ...makeSseAnalyzeResponse([

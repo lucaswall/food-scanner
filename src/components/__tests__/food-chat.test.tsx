@@ -168,6 +168,26 @@ beforeEach(() => {
 });
 
 describe("FoodChat", () => {
+  it("root element is a flex column that fills parent, not a fixed overlay", () => {
+    const { container } = render(<FoodChat {...defaultProps} />);
+    const root = container.firstChild as HTMLElement;
+    expect(root.className).not.toContain("fixed");
+    expect(root.className).toContain("flex-col");
+    expect(root.className).toContain("h-full");
+  });
+
+  it("header does not have safe-area-inset-top padding", () => {
+    const { container } = render(<FoodChat {...defaultProps} />);
+    const header = container.querySelector(".border-b") as HTMLElement;
+    expect(header?.className).not.toContain("safe-area-inset-top");
+  });
+
+  it("input row does not have safe-area-inset-bottom padding", () => {
+    const { container } = render(<FoodChat {...defaultProps} />);
+    const inputRow = container.querySelector('[class*="safe-area-inset-bottom"]');
+    expect(inputRow).toBeNull();
+  });
+
   it("renders initial assistant message from the initial analysis", () => {
     render(<FoodChat {...defaultProps} />);
 

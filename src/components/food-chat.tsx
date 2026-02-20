@@ -514,7 +514,7 @@ export function FoodChat({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-background">
+    <div className="flex flex-col h-full">
       {/* Hidden file inputs */}
       <input
         ref={cameraInputRef}
@@ -542,7 +542,7 @@ export function FoodChat({
       />
 
       {/* Top header: Conditional layout based on analysis presence */}
-      <div className="border-b bg-background px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] space-y-2">
+      <div className="border-b bg-background px-2 py-2 space-y-2">
         {latestAnalysis ? (
           <div className="flex items-center gap-2">
             <h1 className="sr-only">{title}</h1>
@@ -777,7 +777,7 @@ export function FoodChat({
         )}
 
         {/* Photo toggle + Text input + Send */}
-        <div className="flex items-center gap-1.5 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <div className="flex items-center gap-1.5 px-2 py-2">
           <Button
             ref={plusButtonRef}
             variant="ghost"
