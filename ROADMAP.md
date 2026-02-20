@@ -6,9 +6,7 @@
 |---------|---------|
 | [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
-| [Navigation Restructure](#navigation-restructure) | Promote Chat to bottom nav, move Settings to header, reorder tabs |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
-| [Swipe Navigation Between Tabs](#swipe-navigation-between-tabs) | Swipe left/right to move between all bottom nav tabs |
 
 
 ---
@@ -144,59 +142,6 @@ Let users open a chat on any logged food entry to conversationally edit it. Clau
 
 ---
 
-## Navigation Restructure
-
-### Problem
-
-The app's bottom nav has 5 tabs: Home, Quick Select, Analyze, History, Settings. Settings is a rarely-used utility screen occupying a prime thumb-zone slot. Meanwhile, Chat — the AI differentiator — is hidden behind a small icon in the top-right header, the hardest-to-reach zone on modern phones (49% of users navigate one-handed). The Camera header shortcut is redundant with the Analyze tab. The tab order doesn't reflect usage frequency — History (checked daily) is after Quick Select and Analyze.
-
-### Goal
-
-Restructure the bottom navigation to prioritize daily-use features, promote Chat to a first-class tab, and move Settings to the header where utility screens belong.
-
-### Design
-
-#### New Bottom Nav Order
-
-1. **Home** (`/app`) — Dashboard with daily/weekly view
-2. **History** (`/app/history`) — Daily log review (moved up — checked every session)
-3. **Analyze** (`/app/analyze`) — Photo analysis (center position, primary action)
-4. **Quick Select** (`/app/quick-select`) — Reuse past foods
-5. **Chat** (`/app/chat`) — Free-form AI nutritional chat (promoted from header icon)
-
-#### Settings Access
-
-- Remove Settings from the bottom nav.
-- Add a gear icon (Settings from lucide-react) to the Home screen header, replacing the current HeaderActions component.
-- The gear icon links to `/settings`. Same 44px touch target, `text-muted-foreground` styling.
-- Settings page retains the BottomNav (user can tap any tab to return). No back arrow needed — it was already removed (FOO-629).
-
-#### Header Actions Cleanup
-
-- Remove the Camera header shortcut — the Analyze tab serves the same purpose.
-- Remove the Chat header icon — Chat is now a bottom nav tab.
-- The HeaderActions component is replaced by a single Settings gear icon on the Home screen header.
-
-#### Other Pages
-
-- Quick Select, Analyze, History, and Chat pages show only their title in the header (no gear icon). Settings is accessible from any screen via the bottom nav being replaced by tapping Home first, or by bookmarking `/settings` directly. The gear icon only appears on Home to keep other headers clean.
-
-### Edge Cases
-
-- Deep links to `/settings` still work — the page renders normally with the bottom nav. The Home tab won't show as active (no tab matches `/settings`), which is correct since Settings is no longer a tab.
-- The settings layout currently imports BottomNav — it should continue to do so, but the nav won't highlight any tab.
-- Chat page (`/app/chat`) needs the bottom nav visible (currently it's a fixed full-screen overlay). The standalone chat page must be refactored to render within the app layout with bottom nav, not as an overlay.
-
-### Implementation Order
-
-1. Reorder bottom nav tabs: Home, History, Analyze, Quick Select, Chat
-2. Replace HeaderActions with a Settings gear icon on Home screen
-3. Remove Settings from bottom nav items
-4. Refactor `/app/chat` page to render within the app layout (not full-screen overlay)
-5. Update E2E tests for new nav order and Settings access
-
----
-
 ## Offline Queue with Background Sync
 
 ### Problem
@@ -262,79 +207,6 @@ User picks in Settings:
 5. Background sync on reconnection
 6. Auto-log vs hold-for-review setting
 7. Notification for auto-logged items
-
----
-
-## Swipe Navigation Between Tabs
-
-### Problem
-
-Navigation between the bottom nav screens requires tapping the bar. On a mobile-first PWA, swiping left/right between screens is the expected native-app gesture. Without it, the app feels more like a website than an installed app.
-
-### Prerequisites
-
-- [Navigation Restructure](#navigation-restructure)
-
-### Goal
-
-Let users swipe horizontally to move between all bottom nav tab screens, with an animated slide transition that matches the swipe direction. The bottom nav indicator stays in sync.
-
-### Design
-
-#### Swipeable Screens
-
-All five bottom nav tabs participate in swipe navigation, in this order:
-
-1. **Home** (`/app`)
-2. **History** (`/app/history`)
-3. **Analyze** (`/app/analyze`)
-4. **Quick Select** (`/app/quick-select`)
-5. **Chat** (`/app/chat`)
-
-**Settings** (`/settings`) is not a tab and does not participate. **Food Detail** is a drill-in screen, not a swipe target.
-
-#### Gesture Behavior
-
-- Horizontal swipe (>30px, velocity threshold) triggers navigation to the adjacent tab.
-- Swipe right → previous tab. Swipe left → next tab.
-- At the edges (Home = first, Chat = last), swipe in the blocked direction has a subtle rubber-band resistance effect and no navigation.
-- Vertical scroll takes priority — if the initial touch direction is more vertical than horizontal, no swipe navigation fires.
-
-#### Visual Transition
-
-- The current screen slides out in the swipe direction while the next screen slides in from the opposite side.
-- Transition duration ~250ms with ease-out curve.
-- The bottom nav active indicator animates to the new tab position in sync with the page transition.
-
-#### Bottom Nav Integration
-
-- Tapping a tab still works as before (instant navigation, no slide animation needed).
-- The active tab indicator reflects the current swipe position during the gesture (partial tracking), then snaps to the final position on release.
-
-### Architecture
-
-- **Animation library:** Framer Motion (~30KB tree-shaken). Handles both gesture detection and animated transitions in one package — no need for a separate swipe library.
-- **Page transitions:** `AnimatePresence` wrapping page content in the app layout. Slide variants (`slideLeft`, `slideRight`) driven by swipe direction. Each tab animates in/out with `transform: translateX()` + opacity.
-- **Gesture tracking:** Framer Motion's `drag="x"` with `dragConstraints` and `onDragEnd` for swipe detection. Provides real-time drag offset for partial tracking of the bottom nav indicator during the gesture.
-- **Routing:** `router.push()` on swipe completion. `AnimatePresence` with `mode="wait"` ensures the exit animation plays before the enter animation.
-- **State:** Swipe direction stored in a layout-level context so `AnimatePresence` variants resolve the correct enter/exit directions.
-
-### Edge Cases
-
-- Analyze screen has camera/image interactions — swipe gestures must not conflict with pinch-to-zoom or image panning. Disable horizontal swipe when a modal or image viewer is active.
-- Chat screen has a text input — swipe gestures must not conflict with text selection or scrolling message history. Disable horizontal swipe when the input is focused.
-- Fast repeated swipes — debounce to prevent navigating multiple tabs at once.
-- Accessibility — swipe is supplementary. Tab bar remains the primary navigation for screen readers and keyboard users.
-- Desktop — swipe is touch-only. No mouse-drag equivalent needed.
-
-### Implementation Order
-
-1. Add Framer Motion dependency and swipeable layout wrapper (`drag="x"` + `AnimatePresence`)
-2. Slide transition variants (enter/exit animations with direction-aware sliding)
-3. Bottom nav indicator animation sync (Framer Motion `motion.div` for the active indicator)
-4. Edge rubber-band effect (elastic drag constraints at first/last tab)
-5. Conflict prevention on Analyze screen (disable during modals/image interaction)
-6. Conflict prevention on Chat screen (disable during text input focus)
 
 ---
 
