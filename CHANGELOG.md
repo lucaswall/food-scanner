@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-02-20
+
+### Added
+
+- Swipe gestures to navigate between app sections
+- Reordered bottom navigation with Chat as the primary tab
+
+### Changed
+
+- Streamlined dashboard layout with cleaner spacing and alignment
+
 ## [1.14.1] - 2026-02-19
 
 ### Fixed
@@ -266,7 +277,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.14.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/lucaswall/food-scanner/compare/v1.14.1...v1.15.0
 [1.14.1]: https://github.com/lucaswall/food-scanner/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/lucaswall/food-scanner/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/lucaswall/food-scanner/compare/v1.12.0...v1.13.0
