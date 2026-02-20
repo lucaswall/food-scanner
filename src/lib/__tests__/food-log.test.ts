@@ -1763,6 +1763,62 @@ describe("searchFoods", () => {
     expect(mockWhere).toHaveBeenCalled();
   });
 
+  describe("food name fallback", () => {
+    it("matches by food name when keywords don't match", async () => {
+      mockWhere.mockResolvedValue([
+        makeSearchRow({ customFoodId: 1, foodName: "Merlin Bars Cafe Protein", fitbitFoodId: 100, keywords: ["barra", "proteina", "cafe"], entryId: 1 }),
+      ]);
+
+      const result = await searchFoods("user-uuid-123", ["merlin"]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].foodName).toBe("Merlin Bars Cafe Protein");
+    });
+
+    it("matches partial words in food name (bar matches Bars)", async () => {
+      mockWhere.mockResolvedValue([
+        makeSearchRow({ customFoodId: 1, foodName: "Merlin Bars Cafe Protein", fitbitFoodId: 100, keywords: ["barra", "proteina", "cafe"], entryId: 1 }),
+      ]);
+
+      const result = await searchFoods("user-uuid-123", ["bar"]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].foodName).toBe("Merlin Bars Cafe Protein");
+    });
+
+    it("requires all search terms to appear in food name", async () => {
+      mockWhere.mockResolvedValue([
+        makeSearchRow({ customFoodId: 1, foodName: "Merlin Bars Cafe Protein", fitbitFoodId: 100, keywords: ["barra", "proteina"], entryId: 1 }),
+      ]);
+
+      const result = await searchFoods("user-uuid-123", ["merlin", "chicken"]);
+
+      expect(result).toHaveLength(0);
+    });
+
+    it("matches food name even when keywords are null", async () => {
+      mockWhere.mockResolvedValue([
+        makeSearchRow({ customFoodId: 1, foodName: "Chocolate Brownie", fitbitFoodId: 100, keywords: null, entryId: 1 }),
+      ]);
+
+      const result = await searchFoods("user-uuid-123", ["brownie"]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].foodName).toBe("Chocolate Brownie");
+    });
+
+    it("prefers keyword match over food name match (both work)", async () => {
+      mockWhere.mockResolvedValue([
+        makeSearchRow({ customFoodId: 1, foodName: "Pizza Napolitana", fitbitFoodId: 100, keywords: ["pizza", "napolitana"], entryId: 1 }),
+      ]);
+
+      const result = await searchFoods("user-uuid-123", ["pizza"]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].foodName).toBe("Pizza Napolitana");
+    });
+  });
+
   describe("FITBIT_DRY_RUN=true", () => {
     it("includes foods with null fitbitFoodId", async () => {
       vi.stubEnv("FITBIT_DRY_RUN", "true");

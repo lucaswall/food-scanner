@@ -541,14 +541,21 @@ export async function searchFoods(
     .leftJoin(foodLogEntries, eq(foodLogEntries.customFoodId, customFoods.id))
     .where(and(...conditions));
 
-  // Application-level filtering by keyword match ratio
+  // Application-level filtering: keyword match ratio OR food name substring match
   const filtered = rows.filter((row) => {
+    // Primary: keyword-based matching (ratio >= 0.5)
     const existingKeywords = row.custom_foods.keywords;
-    if (!existingKeywords || existingKeywords.length === 0) return false;
-    // Normalize existing keywords to lowercase — DB keywords may have mixed case
-    // if the model didn't follow the "lowercase tokens" instruction perfectly
-    const normalizedExisting = existingKeywords.map(k => k.toLowerCase());
-    return computeMatchRatio(keywords, normalizedExisting) >= 0.5;
+    if (existingKeywords && existingKeywords.length > 0) {
+      // Normalize existing keywords to lowercase — DB keywords may have mixed case
+      // if the model didn't follow the "lowercase tokens" instruction perfectly
+      const normalizedExisting = existingKeywords.map(k => k.toLowerCase());
+      if (computeMatchRatio(keywords, normalizedExisting) >= 0.5) return true;
+    }
+
+    // Fallback: all search terms appear as substrings in the food name.
+    // This catches brand names (excluded from keywords) and partial words.
+    const foodNameLower = row.custom_foods.foodName.toLowerCase();
+    return keywords.every(kw => foodNameLower.includes(kw));
   });
 
   // Group by customFoodId: count entries, track max date, keep best mealTypeId
