@@ -10,9 +10,10 @@ import { CalorieRing } from "@/components/calorie-ring";
 import { MacroBars } from "@/components/macro-bars";
 import { MealBreakdown } from "@/components/meal-breakdown";
 import { FastingCard } from "@/components/fasting-card";
+import { LumenBanner } from "@/components/lumen-banner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Loader2, ScanEye, ListChecks } from "lucide-react";
+import { RefreshCw, Loader2, ScanEye, ListChecks, Settings } from "lucide-react";
 import type { NutritionSummary, NutritionGoals, LumenGoalsResponse } from "@/types";
 
 function DashboardSkeleton() {
@@ -252,6 +253,11 @@ export function DailyDashboard() {
         fatGoal={lumenGoals?.goals?.fatGoal}
       />
 
+      {/* Lumen CTA Banner — only show when viewing today and no goals set */}
+      {selectedDate === getTodayDate() && lumenGoals && !lumenGoals.goals && (
+        <LumenBanner />
+      )}
+
       {/* Fasting Card */}
       <FastingCard date={selectedDate} />
 
@@ -299,6 +305,15 @@ export function DailyDashboard() {
           <p className="text-sm text-destructive">{lumenUploadError}</p>
         )}
       </div>
+
+      {/* Settings link */}
+      <Link
+        href="/settings"
+        className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-11 px-4 py-2 w-full min-h-[44px] text-muted-foreground"
+      >
+        <Settings className="h-4 w-4" />
+        Settings
+      </Link>
 
       <input
         ref={fileInputRef}

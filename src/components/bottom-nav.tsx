@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, ListChecks, ScanEye, Clock, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TAB_PATHS } from "@/lib/navigation";
 
 const navItems = [
   {

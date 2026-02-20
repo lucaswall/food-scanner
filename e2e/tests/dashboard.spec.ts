@@ -10,10 +10,10 @@ test.describe('Dashboard', () => {
     // Verify we're on the dashboard
     await expect(page).toHaveURL('/app');
 
-    // Verify main heading
-    await expect(page.getByRole('heading', { name: 'Food Scanner', level: 1 })).toBeVisible();
+    // Verify dashboard loaded (no heading — removed in FOO-684)
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
 
-    // Verify Settings gear icon in header
+    // Verify Settings link in dashboard body
     await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
 
     // Capture screenshot
@@ -36,11 +36,8 @@ test.describe('Dashboard', () => {
     await expect(page.getByRole('button', { name: 'Daily' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Weekly' })).toBeVisible();
 
-    // Verify the dashboard is in loading or loaded state (not empty/error)
-    // The DailyDashboard component shows a skeleton while loading
-    // After loading, it should show either content or the skeleton
-    const heading = page.getByRole('heading', { name: 'Food Scanner', level: 1 });
-    await expect(heading).toBeVisible();
+    // Verify the dashboard loaded
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
   });
 
   test('shows Fitbit connected status', async ({ page }) => {
@@ -49,10 +46,8 @@ test.describe('Dashboard', () => {
     // Wait for page to load
     await page.waitForLoadState('networkidle');
 
-    // With seeded Fitbit credentials and tokens, the banner should show connected status
-    // The FitbitStatusBanner shows "Connected" or a green indicator when Fitbit is set up
     // Verify the page loads successfully and shows dashboard content
-    await expect(page.getByRole('heading', { name: 'Food Scanner', level: 1 })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
 
     // The dashboard should render nutrition data instead of being blocked by guard
     // Verify tabs are visible (indicates the guard passed and dashboard rendered)

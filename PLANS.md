@@ -1,466 +1,197 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Branch:** feat/FOO-678-navigation-restructure
-**Issues:** FOO-678, FOO-679, FOO-680, FOO-681
+**Branch:** feat/FOO-686-dashboard-layout-cleanup
+**Issues:** FOO-686, FOO-685, FOO-684
 **Created:** 2026-02-20
 **Last Updated:** 2026-02-20
 
 ## Summary
 
-Restructure the app's navigation system: refactor Chat from a full-screen overlay to a layout page, replace Settings with Chat in the bottom nav, add swipe gesture navigation between tabs, and update E2E tests for all changes. This is a cohesive set of 4 issues with strict dependencies: FOO-678 → FOO-679 → FOO-680 → FOO-681.
+Restructure the dashboard layout to improve mobile UX: move the Lumen CTA banner from the page bottom to immediately after macro bars, move settings access from the header gear icon into the dashboard body as a button, and remove the "Food Scanner" title to reclaim vertical space.
 
 ## Issues
 
-### FOO-678: Refactor Chat page from full-screen overlay to app layout page
+### FOO-686: Lumen goals CTA banner lost at bottom of dashboard — move below macro bars
 
 **Priority:** High
-**Labels:** Feature
-**Description:** The Chat page renders as a full-screen overlay (`fixed inset-0 z-[60]`) that hides the bottom navigation. This must be refactored so Chat can become a bottom nav tab where users can see and use the nav bar while in chat.
-
-**Key constraint:** FoodChat is used in two contexts:
-1. `/app/chat` page via ChatPageClient — must render within app layout (new behavior)
-2. Analyze page refine flow via `food-analyzer.tsx` line 565 — must remain an overlay
+**Labels:** Bug
+**Description:** The "Set today's macro goals — Upload Lumen screenshot" blue banner is rendered in `page.tsx` after `DashboardShell`, placing it below all DailyDashboard content (calorie ring, macro bars, fasting card, meal breakdown, "Update Lumen goals" button). When the user has no goals set, this is the most important action on the screen but is completely lost.
 
 **Acceptance Criteria:**
-- [ ] FoodChat component no longer uses `fixed inset-0 z-[60]` — it fills its parent container
-- [ ] Chat page (`/app/chat`) renders within app layout with BottomNav visible
-- [ ] Chat messages scroll within the chat container (not the whole page)
-- [ ] Chat input sits above BottomNav, not overlapping it
-- [ ] Refine chat from Analyze page still works as an overlay
-- [ ] FoodLogConfirmation renders within the layout, not fullscreen
-- [ ] Chat loading skeleton matches new layout
-- [ ] Back arrow still works for returning to previous screen
+- [ ] LumenBanner renders immediately after MacroBars in the DailyDashboard (before FastingCard)
+- [ ] LumenBanner only shows when viewing today's date (not past dates)
+- [ ] LumenBanner still hides itself when goals exist for today
+- [ ] LumenBanner no longer renders outside DashboardShell in page.tsx
+- [ ] Weekly view does not show LumenBanner (it's daily-specific)
 
-### FOO-679: Restructure bottom nav: new tab order with Chat, without Settings
-
-**Priority:** High
-**Labels:** Feature
-**Description:** Settings occupies a prime bottom nav slot despite being rarely used. Chat is hidden behind a header icon. Restructure: new tab order Home, History, Analyze, Quick Select, Chat. Move Settings to a header gear icon on the Home page. Remove Camera shortcut from header (redundant with Analyze tab).
-
-**Acceptance Criteria:**
-- [ ] Bottom nav shows 5 tabs: Home, History, Analyze, Quick Select, Chat
-- [ ] Settings is NOT in the bottom nav
-- [ ] Chat tab uses MessageCircle icon and links to `/app/chat`
-- [ ] Home page header shows Settings gear icon (links to `/settings`)
-- [ ] Camera shortcut removed from header
-- [ ] On `/settings` page, BottomNav renders but no tab is highlighted
-- [ ] Active state (`aria-current="page"`) works correctly for all tabs
-
-### FOO-680: Add swipe navigation between bottom nav tabs
-
-**Priority:** Medium
-**Labels:** Feature
-**Description:** Add left/right swipe gesture navigation between tabs using `react-swipeable`. Entry animation with CSS `translateX`, direction-lock threshold, edge handling, Safari back-swipe mitigation via `router.replace()`, accessibility support.
-
-**Acceptance Criteria:**
-- [ ] Swipe left → next tab, swipe right → previous tab
-- [ ] No navigation past first (Home) or last (Chat) tab
-- [ ] Entry animation: ~250ms ease-out CSS translateX from correct direction
-- [ ] Direction-lock: first 10px of movement determines horizontal vs vertical
-- [ ] Pull-to-refresh prevention: `overscroll-behavior-y: contain`
-- [ ] History stack stays flat: `router.replace()` used for swipe nav
-- [ ] Swipe disabled when dialog/modal open
-- [ ] Swipe disabled when text input focused (Chat page)
-- [ ] Respects `prefers-reduced-motion` — skip animation, navigate instantly
-- [ ] Animated active indicator on BottomNav transitions between tabs
-- [ ] Touch-only (no mouse-drag equivalent needed)
-- [ ] Settings page (`/settings`) does NOT participate in swipe
-
-### FOO-681: Update E2E tests for navigation restructure and swipe
+### FOO-685: Move settings access from header gear to button below "Update Lumen goals"
 
 **Priority:** Medium
 **Labels:** Improvement
-**Description:** Existing E2E tests validate old 5-tab nav order (Home, Quick Select, Analyze, History, Settings) and header actions (Chat, Camera). All must be updated for the new structure.
+**Description:** The gear icon in the top-right header is small and easy to miss. With the title being removed (FOO-684), the gear icon loses its anchor. Settings should be a full-width button placed below "Update Lumen goals" in the DailyDashboard body.
 
 **Acceptance Criteria:**
-- [ ] `navigation.spec.ts` updated for new tab order and Chat tab
-- [ ] `dashboard.spec.ts` updated for Settings gear icon in header
-- [ ] `refine-chat.spec.ts` verified — overlay behavior preserved from Analyze
-- [ ] Chat nav tab E2E test: navigates to /app/chat, BottomNav visible, active state
-- [ ] Settings accessibility: gear icon visible, navigates to /settings, no active tab
-- [ ] Swipe gesture logic tested via unit tests (Playwright touch API limited)
+- [ ] Settings gear icon removed from the dashboard header
+- [ ] A settings button (navigating to /settings) appears below "Update Lumen goals" in DailyDashboard
+- [ ] Settings button meets 44px touch target minimum
+- [ ] HeaderActions component deleted (no longer used anywhere)
+
+### FOO-684: Remove "Food Scanner" title from dashboard header
+
+**Priority:** Low
+**Labels:** Improvement
+**Description:** The "Food Scanner" `<h1>` in the dashboard header takes up vertical space without adding value. The user already knows what app they're in.
+
+**Acceptance Criteria:**
+- [ ] "Food Scanner" heading removed from the dashboard page
+- [ ] Header flex wrapper removed from page.tsx (becomes empty after FOO-685)
 
 ## Prerequisites
 
 - [ ] On `main` branch with clean working tree
-- [ ] No active PLANS.md (previous plan is COMPLETE)
+- [ ] All existing tests pass
 
 ## Implementation Tasks
 
-### Task 1: Remove fixed overlay from FoodChat and make it a layout component
+### Task 1: Move LumenBanner from page.tsx into DailyDashboard after MacroBars
 
-**Issue:** FOO-678
+**Issue:** FOO-686
 **Files:**
-- `src/components/__tests__/food-chat.test.tsx` (modify)
-- `src/components/food-chat.tsx` (modify)
+- `src/components/daily-dashboard.tsx` (modify)
+- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
+- `src/app/app/page.tsx` (modify)
+- `src/app/app/__tests__/page.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update food-chat.test.tsx:
-   - Assert FoodChat root element does NOT have `fixed` positioning class
-   - Assert FoodChat root is a flex column (`flex flex-col`) that fills its parent
-   - Assert header does NOT have `pt-[max(0.5rem,env(safe-area-inset-top))]`
-   - Assert input area does NOT have `pb-[max(0.5rem,env(safe-area-inset-bottom))]`
-   - Run: `npm test -- food-chat`
-   - Verify: Tests fail (FoodChat still has fixed overlay)
+1. **RED** — Update `daily-dashboard.test.tsx`:
+   - Add a test: "renders LumenBanner after MacroBars when viewing today and no goals exist". Mock LumenBanner as a div with `data-testid="lumen-banner"`. Assert it appears in the rendered output when lumenGoals data returns `{ goals: null }` and selectedDate equals today.
+   - Add a test: "does not render LumenBanner when viewing a past date". Navigate to previous day via DateNavigator, assert LumenBanner is not in the document.
+   - Add a test: "does not render LumenBanner when lumen goals exist for today". Mock lumenGoals with valid goals, assert LumenBanner is not in the document.
+   - Run: `npm test -- daily-dashboard`
+   - Verify: Tests fail (LumenBanner not rendered yet)
 
-2. **GREEN** — Update food-chat.tsx:
-   - Remove `fixed inset-0 z-[60] bg-background` from root div (line 517)
-   - Replace with flex column that fills parent: the root div becomes a flex column stretching to fill available space
-   - Remove safe-area-inset-top padding from the header div (line 545)
-   - Remove safe-area-inset-bottom padding from input container (line 780)
-   - Keep all chat functionality (messages, input, scroll, SSE, images) unchanged
-   - Run: `npm test -- food-chat`
+2. **GREEN** — Update `daily-dashboard.tsx`:
+   - Import `LumenBanner` from `@/components/lumen-banner`
+   - Import `getTodayDate` (already imported) — use it to check `selectedDate === getTodayDate()`
+   - After `MacroBars` and before `FastingCard`, conditionally render `<LumenBanner />` when `selectedDate === getTodayDate()` AND `lumenGoals` data has loaded AND `!lumenGoals?.goals`
+   - The LumenBanner component already handles its own loading/error/hide states internally, but we add the date guard and goals guard at the parent level to avoid showing it on past dates or when goals exist
+   - Run: `npm test -- daily-dashboard`
+   - Verify: New tests pass
+
+3. **RED** — Update `page.test.tsx`:
+   - Remove the `vi.mock("@/components/lumen-banner"...)` mock
+   - Remove the test "renders LumenBanner component after DashboardShell"
+   - Run: `npm test -- app/__tests__/page`
+   - Verify: Tests pass (mock removal is the change; if any test still references lumen-banner, it will fail)
+
+4. **GREEN** — Update `page.tsx`:
+   - Remove the `import { LumenBanner } from "@/components/lumen-banner"` line
+   - Remove `<LumenBanner />` from the JSX
+   - Run: `npm test -- app/__tests__/page`
+   - Verify: All page tests pass
+
+**Notes:**
+- LumenBanner uses `getTodayDate()` internally for its SWR key. DailyDashboard also fetches lumenGoals with `selectedDate`. SWR deduplicates by key, so when viewing today both will share the same cache entry.
+- The condition at the parent level (`selectedDate === getTodayDate() && !lumenGoals?.goals`) prevents rendering LumenBanner on past dates. LumenBanner's internal `data?.goals` check provides defense-in-depth.
+- When `lumenGoals` is still loading (undefined), don't render LumenBanner — avoid a flash. Once data arrives and goals are null, show it.
+
+### Task 2: Remove "Food Scanner" title and header wrapper from dashboard
+
+**Issue:** FOO-684, FOO-685
+**Files:**
+- `src/app/app/page.tsx` (modify)
+- `src/app/app/__tests__/page.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update `page.test.tsx`:
+   - Remove the test "renders 'Food Scanner' heading"
+   - Remove the test "renders HeaderActions component"
+   - Remove the `vi.mock("@/components/header-actions"...)` mock
+   - Add a test: "does not render a heading element" — assert `screen.queryByRole("heading")` returns null
+   - Run: `npm test -- app/__tests__/page`
+   - Verify: New test fails (heading still exists)
+
+2. **GREEN** — Update `page.tsx`:
+   - Remove `import { HeaderActions } from "@/components/header-actions"`
+   - Remove the entire `<div className="flex items-center justify-between">` block (contains `<h1>` and `<HeaderActions />`)
+   - Run: `npm test -- app/__tests__/page`
+   - Verify: All tests pass
+
+**Notes:**
+- After this task, the page structure becomes: `SkipLink` → `main` → `FitbitStatusBanner` → `DashboardShell` → `DashboardPrefetch`
+- The `SkipLink` still targets `#main-content` which remains on the `<main>` element
+
+### Task 3: Add Settings button to DailyDashboard
+
+**Issue:** FOO-685
+**Files:**
+- `src/components/daily-dashboard.tsx` (modify)
+- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update `daily-dashboard.test.tsx`:
+   - Add a test: "renders a Settings link below 'Update Lumen goals' button". Assert `screen.getByRole("link", { name: /settings/i })` exists with `href="/settings"`.
+   - Add a test: "Settings link meets 44px touch target". Assert the link has `min-h-[44px]` class.
+   - Add a test: "Settings link is full-width". Assert the link has `w-full` class.
+   - Run: `npm test -- daily-dashboard`
+   - Verify: Tests fail (no Settings link yet)
+
+2. **GREEN** — Update `daily-dashboard.tsx`:
+   - Import `Settings` icon from `lucide-react`
+   - Import `Link` from `next/link` (already imported)
+   - After the "Update Lumen goals" `<div className="flex flex-col gap-2">` block, add a new `Link` to `/settings` styled as a secondary button (use Button component with `asChild` or style a Link directly matching the existing button pattern)
+   - The link should be full-width, have `min-h-[44px]`, use the Settings icon, and read "Settings"
+   - Run: `npm test -- daily-dashboard`
    - Verify: Tests pass
 
-3. **REFACTOR** — Review that no unused safe-area classes remain
-
 **Notes:**
-- The `onClose` prop and back arrow behavior remain unchanged — user navigates to /app (or uses nav bar)
-- `z-[70]` on dialogs/SelectContent remains unchanged
-- All internal scroll logic (scrollContainerRef, handleScroll, scrollToBottom) stays the same — the messages area still uses `flex-1 overflow-y-auto`
+- Use `variant="ghost"` or `variant="outline"` to visually differentiate from the "Update Lumen goals" secondary button
+- Reference the existing "Update Lumen goals" Button pattern for styling consistency
+- The Settings icon is already used in `header-actions.tsx` — same import from lucide-react
 
-### Task 2: Update ChatPageClient and chat loading skeleton for layout rendering
+### Task 4: Delete unused HeaderActions component
 
-**Issue:** FOO-678
+**Issue:** FOO-685
 **Files:**
-- `src/components/chat-page-client.tsx` (modify)
-- `src/app/app/chat/loading.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — No new unit tests needed for ChatPageClient (behavior tested via E2E). Verify build passes after changes.
-
-2. **GREEN** — Update chat-page-client.tsx:
-   - Wrap FoodChat in a height-constrained container that fills available space between the top of the page and the BottomNav (viewport height minus BottomNav height, approximately `h-[calc(100dvh-5rem)]`)
-   - FoodLogConfirmation state: remove the `min-h-screen flex items-center justify-center p-4` wrapper (line 18) — render confirmation within the same height-constrained container
-   - The container should use flex column layout so FoodChat fills it
-
-3. **GREEN** — Update chat/loading.tsx:
-   - Remove `fixed inset-0 z-[60]` overlay pattern from root div (line 5)
-   - Match the new layout structure: height-constrained flex column with header skeleton, message area skeleton, and input area skeleton
-   - Remove safe-area-inset-top from header and safe-area-inset-bottom from input
-
-4. **REFACTOR** — Verify chat loading skeleton visually matches the loaded state structure
-
-**Notes:**
-- The `pb-20` on the app layout parent adds bottom padding for BottomNav clearance — the chat container's strict height accounts for this
-- Use `100dvh` (not `100vh`) for dynamic viewport height on mobile (accounts for collapsing browser chrome)
-- Reference: app layout at `src/app/app/layout.tsx` wraps children in `<div className="pb-20">`
-
-### Task 3: Preserve overlay behavior for Analyze page refine flow
-
-**Issue:** FOO-678
-**Files:**
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/__tests__/food-analyzer.test.tsx` (modify, if overlay assertions exist)
-
-**TDD Steps:**
-
-1. **RED** — Check existing food-analyzer tests for chat overlay assertions. If they exist, they should still pass after wrapping FoodChat. If not, add a test that when chatOpen is true, FoodChat is rendered inside a fixed overlay container.
-   - Run: `npm test -- food-analyzer`
-
-2. **GREEN** — In food-analyzer.tsx around line 562-577:
-   - Wrap the FoodChat render in a fixed overlay container div with `fixed inset-0 z-[60] flex flex-col bg-background`
-   - This preserves the exact same visual behavior FoodChat previously had on its own
-   - Run: `npm test -- food-analyzer`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Clean up the comment on line 562 (`// Show full-screen chat if open (FoodChat uses fixed positioning)`) — FoodChat no longer uses fixed positioning; the wrapper does
-
-**Notes:**
-- The overlay wrapper takes the `fixed inset-0 z-[60] bg-background` classes that were removed from FoodChat
-- onClose (`setChatOpen(false)`) and onLogged callbacks remain unchanged
-- Safe-area insets should be on the overlay wrapper's header/input areas — the wrapper should include `pt-[max(0.5rem,env(safe-area-inset-top))]` on top and `pb-[max(0.5rem,env(safe-area-inset-bottom))]` on bottom for the overlay context
-- This is the only location (besides ChatPageClient) that renders FoodChat
-
-### Task 4: Update BottomNav with new tab order and Chat tab
-
-**Issue:** FOO-679
-**Files:**
-- `src/components/__tests__/bottom-nav.test.tsx` (modify)
-- `src/components/bottom-nav.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update bottom-nav.test.tsx:
-   - Change "renders five nav items" test: assert Home, History, Analyze, Quick Select, Chat (in that order)
-   - Add test: Chat links to `/app/chat`
-   - Add test: Chat is active when pathname is `/app/chat`
-   - Remove test: "Settings links to /settings" and "Settings is active when on /settings"
-   - Update label regex tests to match new set: `Home|History|Analyze|Quick Select|Chat`
-   - Add test: when pathname is `/settings`, no nav item has `aria-current`
-   - Run: `npm test -- bottom-nav`
-   - Verify: Tests fail
-
-2. **GREEN** — Update bottom-nav.tsx:
-   - Change `navItems` array to: Home (`/app`), History (`/app/history`, Clock icon), Analyze (`/app/analyze`, ScanEye icon), Quick Select (`/app/quick-select`, ListChecks icon), Chat (`/app/chat`, MessageCircle icon)
-   - Remove Settings import, add MessageCircle import from lucide-react
-   - Chat isActive: `pathname === "/app/chat"` (exact match)
-   - Run: `npm test -- bottom-nav`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Consider exporting the `navItems` array or tab paths as a constant for reuse by the swipe navigation hook (FOO-680). If extracting, place in `src/lib/navigation.ts`.
-
-**Notes:**
-- Settings page at `/settings` still renders BottomNav via `src/app/settings/layout.tsx` but no tab highlights — this is the desired behavior since Settings is no longer a nav item
-- The BottomNav's `isActive` functions use exact path matching — no startsWith needed
-
-### Task 5: Replace HeaderActions with Settings gear icon
-
-**Issue:** FOO-679
-**Files:**
-- `src/components/__tests__/header-actions.test.tsx` (modify)
-- `src/components/header-actions.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update header-actions.test.tsx:
-   - Assert single link rendered (not 2)
-   - Assert Settings link with href `/settings`
-   - Assert uses Settings icon from lucide-react
-   - Assert NO Chat link rendered
-   - Assert NO "Take Photo" / Camera link rendered
-   - Assert touch target 44x44px
-   - Run: `npm test -- header-actions`
-   - Verify: Tests fail
-
-2. **GREEN** — Update header-actions.tsx:
-   - Replace Chat + Camera links with a single Settings gear icon link
-   - Import `Settings` icon from lucide-react (replace `Camera`, `MessageCircle` imports)
-   - Link to `/settings` with aria-label "Settings"
-   - Keep existing styling pattern for the link (rounded-full, muted-foreground, 44px touch target)
-   - Run: `npm test -- header-actions`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Remove unused imports (Camera, MessageCircle)
-
-**Notes:**
-- HeaderActions is only used on the Home page (`src/app/app/page.tsx` line 23)
-- The Home page import and usage remain the same — only the component's content changes
-- Camera shortcut is removed because Analyze tab serves the same purpose
-
-### Task 6: Install react-swipeable and create swipe navigation hook
-
-**Issue:** FOO-680
-**Files:**
-- `package.json` (modify — via npm install)
-- `src/hooks/use-swipe-navigation.ts` (create)
-- `src/hooks/__tests__/use-swipe-navigation.test.ts` (create)
-
-**TDD Steps:**
-
-1. Install react-swipeable: `npm install react-swipeable`
-
-2. **RED** — Create use-swipe-navigation.test.ts:
-   - Mock `usePathname` and `useRouter` from next/navigation
-   - Test: returns correct current tab index for each pathname (`/app` → 0, `/app/history` → 1, `/app/analyze` → 2, `/app/quick-select` → 3, `/app/chat` → 4)
-   - Test: returns -1 for non-swipeable paths (`/settings`, `/app/food-detail/123`)
-   - Test: `navigateToTab(index)` calls `router.replace(path)` with the correct path
-   - Test: `canSwipeLeft` is false when at last tab (index 4)
-   - Test: `canSwipeRight` is false when at first tab (index 0)
-   - Test: `canSwipeLeft` and `canSwipeRight` are both false when current index is -1
-   - Run: `npm test -- use-swipe-navigation`
-   - Verify: Tests fail
-
-3. **GREEN** — Create use-swipe-navigation.ts:
-   - Define ordered tab paths array (import from shared nav config if extracted in Task 4, or define locally)
-   - Hook reads current pathname and finds current tab index
-   - Returns: `currentIndex`, `canSwipeLeft`, `canSwipeRight`, `navigateToTab(index)`
-   - `navigateToTab` uses `router.replace()` (not `push`) for flat history stack
-   - Run: `npm test -- use-swipe-navigation`
-   - Verify: Tests pass
-
-4. **REFACTOR** — Ensure tab paths array is the single source of truth (shared with BottomNav if extracted)
-
-**Notes:**
-- The hook is pure navigation logic — no gesture detection, no animation
-- Gesture detection is handled by `react-swipeable` in the wrapper component (Task 7)
-- Animation state is managed by the wrapper component (Task 7)
-- `router.replace()` prevents Safari's back-swipe from creating unexpected navigation history
-
-### Task 7: Create SwipeNavigationWrapper component
-
-**Issue:** FOO-680
-**Files:**
-- `src/components/swipe-navigation-wrapper.tsx` (create)
-- `src/components/__tests__/swipe-navigation-wrapper.test.tsx` (create)
-
-**TDD Steps:**
-
-1. **RED** — Create swipe-navigation-wrapper.test.tsx:
-   - Mock useSwipeable from react-swipeable
-   - Mock useSwipeNavigation hook
-   - Test: renders children
-   - Test: applies `touch-action: pan-y` on container
-   - Test: calls navigateToTab with next index on swipe left (when canSwipeLeft)
-   - Test: calls navigateToTab with previous index on swipe right (when canSwipeRight)
-   - Test: does NOT navigate on swipe left when canSwipeLeft is false
-   - Test: does NOT navigate on swipe right when canSwipeRight is false
-   - Test: does NOT navigate when a dialog is open (check for `[data-state="open"]` on dialog elements)
-   - Test: does NOT navigate when a text input/textarea is focused
-   - Test: respects prefers-reduced-motion (skip animation, navigate instantly)
-   - Run: `npm test -- swipe-navigation-wrapper`
-   - Verify: Tests fail
-
-2. **GREEN** — Create swipe-navigation-wrapper.tsx:
-   - Client component (`'use client'`)
-   - Uses `useSwipeable` from react-swipeable for gesture detection
-   - Uses `useSwipeNavigation` hook for navigation logic
-   - Direction-lock: configure swipeable with delta threshold (~10px), and check initial movement direction — if more vertical than horizontal, abandon swipe
-   - On `onSwipedLeft`: if `canSwipeLeft`, navigate to `currentIndex + 1`
-   - On `onSwipedRight`: if `canSwipeRight`, navigate to `currentIndex - 1`
-   - Before navigating, check disable conditions: open dialog (`document.querySelector('[data-state="open"][role="dialog"]')`), focused input (`document.activeElement?.tagName === 'INPUT' || 'TEXTAREA'`)
-   - CSS entry animation: maintain direction state and apply `animate-slide-in-left` or `animate-slide-in-right` class using CSS `@keyframes` with `transform: translateX()`
-   - Duration: ~250ms ease-out
-   - If `prefers-reduced-motion`: skip animation (no translateX, just instant render)
-   - Container has `touch-action: pan-y` style
-   - Run: `npm test -- swipe-navigation-wrapper`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Extract animation keyframes to Tailwind config or a CSS module if needed
-
-**Notes:**
-- Reference the `animate-slide-up` pattern already used in `src/components/food-log-confirmation.tsx` line 41 for CSS animation approach
-- Desktop: touch events only, no mouse-drag needed
-- The animation is entry-only (new page slides in from correct direction). No exit animation — old page disappears and new page slides in. This matches native app behavior and avoids AnimatePresence issues with App Router.
-
-### Task 8: Integrate swipe wrapper in app layout and add pull-to-refresh prevention
-
-**Issue:** FOO-680
-**Files:**
-- `src/app/app/layout.tsx` (modify)
-- `src/app/globals.css` or root layout (modify — for overscroll-behavior)
-
-**TDD Steps:**
-
-1. **GREEN** — Update app layout:
-   - Import SwipeNavigationWrapper
-   - Wrap the `{children}` div in SwipeNavigationWrapper
-   - The wrapper sits between the pb-20 div and the actual page content
-
-2. **GREEN** — Add overscroll-behavior-y: contain:
-   - Add to `html` and/or `body` element styling to prevent pull-to-refresh from interfering with horizontal swipes
-   - This can be done in globals.css or the root layout
-
-3. Verify manually or via build that the layout still renders correctly
-
-**Notes:**
-- Settings page at `/settings` has its own layout (`src/app/settings/layout.tsx`) — it does NOT use the app layout, so swipe is naturally excluded from Settings
-- `overscroll-behavior-y: contain` prevents the browser's native pull-to-refresh gesture on the outer scroll container
-
-### Task 9: Add animated active indicator to BottomNav
-
-**Issue:** FOO-680
-**Files:**
-- `src/components/__tests__/bottom-nav.test.tsx` (modify)
-- `src/components/bottom-nav.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update bottom-nav.test.tsx:
-   - Assert active indicator element exists within the nav
-   - Assert indicator has a CSS transition class for smooth movement
-   - Assert indicator position corresponds to the active tab index
-   - Run: `npm test -- bottom-nav`
-   - Verify: Tests fail
-
-2. **GREEN** — Update bottom-nav.tsx:
-   - Add an animated indicator element (bar or dot) positioned under the active tab
-   - Use CSS `transition` and `transform: translateX()` to animate between positions
-   - Calculate indicator position based on active tab index (each tab is 1/5 of nav width)
-   - The indicator should transition smoothly on both tap navigation and swipe navigation
-   - Run: `npm test -- bottom-nav`
-   - Verify: Tests pass
-
-3. **REFACTOR** — Ensure indicator respects `prefers-reduced-motion` (instant position change, no transition)
-
-**Notes:**
-- The indicator is a visual enhancement — purely CSS, no JavaScript animation library needed
-- Reference: the nav currently has `max-w-md mx-auto` container with `flex justify-around`
-- Active tab index can be derived from pathname using the same navItems array
-
-### Task 10: Update navigation and dashboard E2E tests
-
-**Issue:** FOO-681
-**Files:**
-- `e2e/tests/navigation.spec.ts` (modify)
-- `e2e/tests/dashboard.spec.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Run existing E2E tests to confirm they fail with the new structure:
-   - `npm run e2e -- --grep "Bottom Navigation|Dashboard"`
-
-2. **GREEN** — Update navigation.spec.ts:
-   - "shows all 5 navigation items": assert Home, History, Analyze, Quick Select, Chat (remove Settings)
-   - "shows Home as active on /app": unchanged
-   - "navigates to Quick Select": unchanged
-   - "navigates to History": unchanged
-   - Remove "navigates to Settings" test entirely
-   - Add "navigates to Chat and shows it as active" test: click Chat, verify URL is `/app/chat`, verify `aria-current="page"`
-   - "nav bar remains visible": remove Settings from the navigation chain, add Chat
-   - Add "no active tab on Settings page": navigate to /settings via URL, verify nav visible but no `aria-current="page"` on any link
-
-3. **GREEN** — Update dashboard.spec.ts:
-   - Remove/update assertion for `getByRole('link', { name: 'Take Photo' })` — this link no longer exists in header
-   - Update "displays dashboard layout" test: assert Settings gear icon link instead of Take Photo/Quick Select FABs
-   - Update "action links navigate" test: test Settings gear navigates to `/settings`, remove Take Photo navigation test
-   - Keep all dashboard content tests (daily/weekly tabs, calorie display, etc.) unchanged
-
-4. Verify: `npm run e2e -- --grep "Bottom Navigation|Dashboard"`
-
-### Task 11: Add Chat nav tab and refine-chat E2E tests
-
-**Issue:** FOO-681
-**Files:**
-- `e2e/tests/navigation.spec.ts` (modify — may already be done in Task 10)
-- `e2e/tests/refine-chat.spec.ts` (verify/modify)
-
-**TDD Steps:**
-
-1. **GREEN** — Verify refine-chat.spec.ts:
-   - Run: `npm run e2e -- --grep "Refine Chat"`
-   - The `setupChatOverlay` helper navigates to `/app/analyze`, triggers analysis, clicks "Refine with chat"
-   - After Task 3's overlay wrapper, the refine chat should still work as a fixed overlay
-   - If tests pass: no changes needed
-   - If tests fail: update assertions to account for the overlay wrapper structure
-
-2. **GREEN** — Add Chat-as-nav-tab E2E test (in navigation.spec.ts or refine-chat.spec.ts):
-   - Navigate to `/app/chat` via bottom nav tap
-   - Assert BottomNav is visible (not hidden by overlay)
-   - Assert Chat tab has `aria-current="page"`
-   - Assert chat greeting message is visible ("Hi! Ask me anything about your nutrition")
-   - Navigate away via Home tab, then back to Chat — verify it works
-
-**Notes:**
-- Playwright does not support native touch/swipe gestures reliably — swipe logic is tested via unit tests in Task 7
-- The `touchscreen.swipe()` API exists but is limited; unit tests for useSwipeNavigation provide better coverage
-
-### Task 12: Integration & Verification
-
-**Issue:** FOO-678, FOO-679, FOO-680, FOO-681
-**Files:** Various files from previous tasks
+- `src/components/header-actions.tsx` (delete)
+- `src/components/__tests__/header-actions.test.tsx` (delete)
 
 **Steps:**
 
-1. Run full unit test suite: `npm test`
+1. Delete `src/components/header-actions.tsx`
+2. Delete `src/components/__tests__/header-actions.test.tsx`
+3. Run: `npm test` — verify no test failures from missing imports
+4. Run: `npm run typecheck` — verify no type errors from missing component
+
+**Notes:**
+- HeaderActions was only imported in `page.tsx` (removed in Task 2) and its own test file
+- No other components import or reference it
+
+### Task 5: Integration & Verification
+
+**Issue:** FOO-686, FOO-685, FOO-684
+**Files:**
+- Various files from previous tasks
+
+**Steps:**
+
+1. Run full test suite: `npm test`
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
-4. Run full E2E suite: `npm run e2e`
-5. Build check: `npm run build`
-6. Manual verification:
-   - [ ] Chat page renders within layout with BottomNav visible
-   - [ ] All 5 nav tabs work (tap navigation)
-   - [ ] Settings gear icon on Home page navigates to /settings
-   - [ ] Refine chat from Analyze still works as overlay
-   - [ ] Swipe left/right navigates between tabs on mobile
-   - [ ] Swipe respects edge boundaries (no wrap)
-   - [ ] Swipe disabled when dialog open or input focused
-   - [ ] Active indicator animates between tabs
-   - [ ] No pull-to-refresh interference during swipe
-   - [ ] Reduced motion: instant navigation, no slide animation
+4. Build check: `npm run build`
+5. Manual verification:
+   - [ ] Dashboard loads without "Food Scanner" title
+   - [ ] No gear icon in header
+   - [ ] LumenBanner appears after macro bars (when no goals set)
+   - [ ] LumenBanner disappears when navigating to a past date
+   - [ ] "Update Lumen goals" button still works
+   - [ ] Settings button appears below "Update Lumen goals"
+   - [ ] Settings button navigates to /settings
+   - [ ] Weekly view does not show LumenBanner
 
 ## MCP Usage During Implementation
 
@@ -472,147 +203,113 @@ Restructure the app's navigation system: refactor Chat from a full-screen overla
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| Swipe on non-swipeable page (/settings) | No navigation occurs | Unit test |
-| Swipe at edge (first/last tab) | No navigation, no error | Unit test |
-| Swipe while dialog open | Swipe ignored | Unit test |
-| Swipe while input focused | Swipe ignored | Unit test |
-| Chat page with no network | Existing error handling in FoodChat | Existing tests |
-| Browser without touch support | No swipe handlers attached, tap nav works | Graceful degradation |
+| LumenBanner SWR error on past date | Banner not shown (date guard) | Unit test (Task 1) |
+| LumenBanner SWR error on today | Banner shows upload prompt (existing behavior) | Existing unit test |
+| Settings link click | Navigates to /settings | Unit test (Task 3) |
 
 ## Risks & Open Questions
 
-- [ ] **CSS height for chat container:** The exact height calculation for the chat page container (viewport minus BottomNav) needs careful testing on real mobile devices. `100dvh` accounts for collapsing browser chrome but safe-area-inset-bottom interaction with BottomNav height may need fine-tuning.
-- [ ] **react-swipeable bundle size:** ~3KB gzipped per the issue. Verify actual impact on build size.
-- [ ] **viewTransition in next.config.js:** The issue suggests considering `viewTransition: true` for free tap-based nav transitions. This is opt-in and degrades gracefully — implementer should evaluate whether it complements or conflicts with the custom swipe animation.
-- [ ] **Overlay safe-area insets:** When FoodChat renders in the Analyze overlay context (Task 3), the overlay wrapper needs to handle safe-area insets that FoodChat no longer manages. Verify on iOS devices.
+- [ ] LumenBanner renders inside DailyDashboard but not WeeklyDashboard — acceptable since it's about "today's" goals which is daily-view-specific
+- [ ] The LumenBanner in `page.tsx` was visible on both Daily and Weekly views. Moving it inside DailyDashboard means weekly users won't see it. This is the intended behavior per the issue description.
 
 ## Scope Boundaries
 
 **In Scope:**
-- FoodChat overlay → layout refactor
-- Bottom nav tab reorder (Chat in, Settings out)
-- Settings gear icon in Home header
-- Swipe gesture navigation with react-swipeable
-- CSS entry animation for swipe
-- Animated active indicator on BottomNav
-- Pull-to-refresh prevention
-- All E2E test updates for nav changes
+- Moving LumenBanner rendering position
+- Removing dashboard title
+- Relocating settings access from header to dashboard body
+- Deleting unused HeaderActions component
 
 **Out of Scope:**
-- Service worker / offline support
-- Exit animation for page transitions (AnimatePresence broken with App Router per vercel/next.js#49279)
-- Mouse-drag swipe on desktop
-- Tab reordering or customization by user
-- Chat page conversation persistence across navigations
+- Changes to WeeklyDashboard layout
+- Changes to LumenBanner internal logic (upload flow, styling)
+- Changes to the /settings page itself
+- Changes to BottomNav or other navigation elements
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-02-20
-**Method:** Agent team (3 workers, worktree-isolated)
+**Method:** Single-agent (2 independent units, effort score 6 — worker overhead exceeds implementation time)
 
 ### Tasks Completed This Iteration
-- Task 1: Remove fixed overlay from FoodChat — removed `fixed inset-0 z-[60]`, replaced with `flex flex-col h-full` (worker-1)
-- Task 2: Update ChatPageClient and loading skeleton — height-constrained container `h-[calc(100dvh-5rem)]`, removed safe-area classes (worker-1)
-- Task 3: Preserve overlay for Analyze refine flow — wrapped FoodChat in fixed overlay container in food-analyzer.tsx (worker-1)
-- Task 4: Update BottomNav tab order — Home, History, Analyze, Quick Select, Chat; created `src/lib/navigation.ts` with shared TAB_PATHS (worker-2)
-- Task 5: Replace HeaderActions — single Settings gear icon replacing Chat + Camera links (worker-2)
-- Task 6: Create swipe navigation hook — `useSwipeNavigation` with currentIndex, canSwipeLeft/Right, navigateToTab (worker-3)
-- Task 7: Create SwipeNavigationWrapper — react-swipeable gestures, disable conditions, CSS entry animation, reduced-motion support (worker-3)
-- Task 8: Integrate swipe in app layout — SwipeNavigationWrapper in layout, overscroll-behavior-y: contain, slide keyframes (worker-3)
-- Task 9: Add animated active indicator — CSS transition bar at top of BottomNav, motion-safe transitions (worker-2)
-- Task 10: Update navigation and dashboard E2E tests — new tab order, Chat tab, Settings gear, removed Settings nav tests (worker-2)
-- Task 11: Add Chat nav tab and refine-chat E2E tests — verified refine-chat specs, added Chat nav tab test (worker-2)
+- Task 1: Move LumenBanner from page.tsx into DailyDashboard after MacroBars (FOO-686)
+- Task 2: Remove "Food Scanner" title and header wrapper from dashboard (FOO-684, FOO-685)
+- Task 3: Add Settings button to DailyDashboard (FOO-685)
+- Task 4: Delete unused HeaderActions component (FOO-685)
+- Task 5: Integration & Verification (FOO-686, FOO-685, FOO-684)
 
 ### Files Modified
-- `src/components/food-chat.tsx` — Removed fixed overlay, now flex layout component
-- `src/components/__tests__/food-chat.test.tsx` — 3 new tests for layout assertions
-- `src/components/chat-page-client.tsx` — Height-constrained container for chat
-- `src/app/app/chat/loading.tsx` — Matching layout skeleton
-- `src/components/food-analyzer.tsx` — Overlay wrapper for refine chat
-- `src/components/__tests__/food-analyzer.test.tsx` — Overlay assertion test
-- `src/components/bottom-nav.tsx` — New tab order, MessageCircle, animated indicator
-- `src/components/__tests__/bottom-nav.test.tsx` — Updated for new tabs + indicator
-- `src/components/header-actions.tsx` — Settings gear icon only
-- `src/components/__tests__/header-actions.test.tsx` — Updated assertions
-- `src/lib/navigation.ts` — Shared TAB_PATHS constant (new)
-- `src/hooks/use-swipe-navigation.ts` — Swipe navigation hook (new)
-- `src/hooks/__tests__/use-swipe-navigation.test.ts` — 16 hook tests (new)
-- `src/components/swipe-navigation-wrapper.tsx` — Swipe wrapper component (new)
-- `src/components/__tests__/swipe-navigation-wrapper.test.tsx` — 10 wrapper tests (new)
-- `src/app/app/layout.tsx` — SwipeNavigationWrapper integration
-- `src/app/globals.css` — Slide animations, overscroll-behavior, reduced-motion
-- `e2e/tests/navigation.spec.ts` — Updated for new nav structure
-- `e2e/tests/dashboard.spec.ts` — Updated for Settings gear header
-- `package.json` / `package-lock.json` — react-swipeable dependency
+- `src/components/daily-dashboard.tsx` — Added LumenBanner conditional rendering after MacroBars, added Settings link
+- `src/components/__tests__/daily-dashboard.test.tsx` — Added LumenBanner placement tests (3) and Settings button tests (3), added LumenBanner mock
+- `src/app/app/page.tsx` — Removed h1 heading, HeaderActions import, LumenBanner import, header flex wrapper
+- `src/app/app/__tests__/page.test.tsx` — Removed heading/HeaderActions/LumenBanner tests and mocks, added "no heading" test
+- `src/components/header-actions.tsx` — Deleted (no longer used)
+- `src/components/__tests__/header-actions.test.tsx` — Deleted (component removed)
+- `src/components/bottom-nav.tsx` — Removed unused TAB_PATHS import (lint fix)
 
 ### Linear Updates
-- FOO-678: Todo → In Progress → Review
-- FOO-679: Todo → In Progress → Review
-- FOO-680: Todo → In Progress → Review
-- FOO-681: Todo → In Progress → Review
+- FOO-686: Todo → In Progress → Review
+- FOO-685: Todo → In Progress → Review
+- FOO-684: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 6 bugs (2 HIGH, 3 MEDIUM, 1 LOW), all fixed before proceeding
-- verifier: Build type error found and fixed (TAB_PATHS indexOf type cast)
-- All 2105 tests pass, zero warnings, build clean
+- bug-hunter: Found 2 real bugs (missing earliest-entry mock in Settings tests, stale blank line), fixed before proceeding. 1 false positive (SWR deduplication concern — by design per plan notes).
+- verifier: All 2105 tests pass, zero lint warnings, clean typecheck, clean build.
 
-### Work Partition
-- Worker 1: Tasks 1, 2, 3 (chat layout domain — FoodChat, ChatPageClient, food-analyzer)
-- Worker 2: Tasks 4, 5, 9, 10, 11 (navigation domain — BottomNav, HeaderActions, indicator, E2E)
-- Worker 3: Tasks 6, 7, 8 (swipe domain — hook, wrapper, layout integration)
-
-### Merge Summary
-- Worker 1: fast-forward (no conflicts)
-- Worker 2: merge commit (react-swipeable dependency conflict, resolved by committing deps first)
-- Worker 3: merge commit (no conflicts)
-- Post-merge: deduplicated TAB_PATHS (worker-3 local → shared import from @/lib/navigation)
-
-### Bug Fixes Applied Post-Merge
-- `navigateToTab` bounds guard (out-of-bounds index protection)
-- `isDisabled()` SSR guard (`typeof document` check)
-- Stale animation class fix (clear class when `prefers-reduced-motion`)
-- Removed spurious `TAB_PATHS` re-export from `bottom-nav.tsx`
-- Build fix: `TAB_PATHS.indexOf(pathname as typeof TAB_PATHS[number])` type cast
+### Continuation Status
+All tasks completed.
 
 ### Review Findings
 
-Summary: 6 finding(s), 3 fixed inline (Team: security, reliability, quality reviewers)
-- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
-- DISCARDED: 3 finding(s) — false positives / not applicable
+Files reviewed: 7 (5 modified, 2 deleted)
+Reviewers: security, reliability, quality (agent team)
+Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, Test Quality
 
-**Issues fixed inline:**
-- [MEDIUM] TIMEOUT: SSE timeout cleared prematurely after headers arrive, leaving stream without timeout protection (`src/components/food-chat.tsx:319`) — removed redundant clearTimeout (finally block already handles it)
-- [LOW] RESOURCE: reader.cancel() not called on SSE error, TCP connection held open (`src/components/food-chat.tsx:393`) — added `await reader.cancel().catch(() => {})` before releaseLock
-- [MEDIUM] BUG: Non-null assertion on response.body in FoodAnalyzer SSE (`src/components/food-analyzer.tsx:210`) — added null guard + compressionWarningTimeoutRef cleanup, matching FoodChat pattern
+No issues found - all implementations are correct and follow project conventions.
 
 **Discarded findings (not bugs):**
-- [DISCARDED] TYPE: Unnecessary optional chaining on `response.headers?.get()` in food-chat.tsx:330 — `response.headers` is always a Headers object; `?.` is harmless style preference
-- [DISCARDED] EDGE-CASE: Missing boundary tests for out-of-range navigateToTab indices in use-swipe-navigation.test.ts — the guard exists and works (line 22-23); test covers main behavior
-- [DISCARDED] TEST: Imprecise dialog mock in swipe-navigation-wrapper.test.tsx — test style choice; mock pattern is standard and production selector is correct
+- [DISCARDED] [low] CONVENTION: Test name "renders LumenBanner after MacroBars when viewing today and no goals exist" (`src/components/__tests__/daily-dashboard.test.tsx:1586`) claims positional ordering but only asserts element existence via `toBeInTheDocument()`. Style-only — the test correctly verifies the banner renders under the right conditions, and DOM ordering is structurally enforced by JSX.
 
 ### Linear Updates
-- FOO-678: Review → Merge (original task)
-- FOO-679: Review → Merge (original task)
-- FOO-680: Review → Merge (original task)
-- FOO-681: Review → Merge (original task)
-- FOO-682: Created in Merge (Fix: SSE timeout + reader.cancel — fixed inline)
-- FOO-683: Created in Merge (Fix: response.body null guard — fixed inline)
+- FOO-686: Review → Merge
+- FOO-685: Review → Merge
+- FOO-684: Review → Merge
 
-### Inline Fix Verification
-- Unit tests: all 2107 pass
-- Bug-hunter: 2 follow-up improvements applied (compressionWarningTimeoutRef cleanup, test ordering assertion)
+### E2E Test Results
+- 112 passed, 5 failed (all same root cause: removed heading)
+- FOO-687 created in Todo for E2E fix
 
 <!-- REVIEW COMPLETE -->
 
 ---
 
+## Fix Plan
+
+**Source:** E2E test failures from Iteration 1 review
+**Linear Issues:** [FOO-687](https://linear.app/lw-claude/issue/FOO-687/fix-e2e-tests-assert-removed-food-scanner-heading)
+
+### Fix 1: Update E2E tests that assert removed "Food Scanner" heading
+**Linear Issue:** [FOO-687](https://linear.app/lw-claude/issue/FOO-687/fix-e2e-tests-assert-removed-food-scanner-heading)
+
+**Files:**
+- `e2e/tests/auth-fixture.spec.ts` (modify)
+- `e2e/tests/auth.spec.ts` (modify)
+- `e2e/tests/dashboard.spec.ts` (modify)
+
+**Steps:**
+
+1. In `e2e/tests/auth-fixture.spec.ts:13`, replace `getByRole('heading', { name: 'Food Scanner' })` with an assertion for a visible element that confirms dashboard loaded (e.g., bottom nav `getByRole('navigation', { name: 'Main navigation' })` or the Daily/Weekly tabs).
+
+2. In `e2e/tests/auth.spec.ts:39`, same replacement — assert dashboard loaded via a non-heading element.
+
+3. In `e2e/tests/dashboard.spec.ts:14,43,55`, replace all 3 heading assertions with the same alternative element check.
+
+4. Run `npm run e2e` to verify all 117 tests pass.
+
+---
+
 ## Status: COMPLETE
 
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
-
-- 12 tasks completed across 3 domains (chat layout, navigation, swipe)
-- 3 review bugs found and fixed inline (SSE timeout, reader.cancel, response.body null guard)
-- 2107 unit tests pass, 117 E2E tests pass, zero warnings
-- Linear issues: FOO-678, FOO-679, FOO-680, FOO-681 (original), FOO-682, FOO-683 (inline fixes)
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge. E2E test fixes applied inline.
