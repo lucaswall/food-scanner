@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-02-20
+
+### Fixed
+
+- Quick Select search now finds foods by name when keywords are missing
+
 ## [1.15.0] - 2026-02-20
 
 ### Added
@@ -277,7 +283,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.15.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.15.1...HEAD
+[1.15.1]: https://github.com/lucaswall/food-scanner/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/lucaswall/food-scanner/compare/v1.14.1...v1.15.0
 [1.14.1]: https://github.com/lucaswall/food-scanner/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/lucaswall/food-scanner/compare/v1.13.0...v1.14.0
