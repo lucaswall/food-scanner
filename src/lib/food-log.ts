@@ -53,7 +53,7 @@ export async function insertCustomFood(
       foodName: data.foodName,
       amount: String(data.amount),
       unitId: data.unitId,
-      calories: data.calories,
+      calories: Math.round(data.calories),
       proteinG: String(data.proteinG),
       carbsG: String(data.carbsG),
       fatG: String(data.fatG),

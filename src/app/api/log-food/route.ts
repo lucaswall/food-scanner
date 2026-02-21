@@ -131,6 +131,12 @@ export async function POST(request: Request) {
     );
   }
 
+  // Round calories at the API boundary — Claude can return fractional values
+  // for non-whole portions (e.g., 1.5 servings), but the DB column is integer
+  if (!body.reuseCustomFoodId) {
+    body.calories = Math.round(body.calories);
+  }
+
   if (!VALID_MEAL_TYPE_IDS.includes(body.mealTypeId)) {
     log.warn(
       { action: "log_food_validation", mealTypeId: body.mealTypeId },
