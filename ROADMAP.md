@@ -8,6 +8,7 @@
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
 | [Nutritional Label Library](#nutritional-label-library) | Store scanned label data for instant reuse by keyword |
+| [Google Health Connect Integration](#google-health-connect) | Push nutrition data directly to Health Connect via a thin Android wrapper |
 
 
 ---
@@ -263,6 +264,86 @@ Store nutritional label data extracted from photos as reusable entries in the da
 3. `save_nutrition_label` Claude tool (extract + store from photos)
 4. Integration into analysis flow (search before estimating, save when label detected)
 5. Label management UI (browse, edit, delete)
+
+---
+
+## Google Health Connect Integration
+
+### Problem
+
+Fitbit does not sync nutrition data to Health Connect — it only syncs activity data (steps, distance, exercise, calories burned). Food log entries pushed to Fitbit via the Food Scanner never reach Health Connect, so users who rely on Health Connect as their central health dashboard have no visibility into their nutritional intake.
+
+### Goal
+
+Push nutrition data directly to Google Health Connect so it appears alongside activity data from other apps, giving users a complete health picture in one place.
+
+### Design
+
+#### Integration Path
+
+Health Connect has no REST API — it is an Android-only on-device SDK. The app needs a thin Android component to bridge server-side food log data into Health Connect's `NutritionRecord` entries.
+
+#### What Gets Pushed
+
+Each `food_log_entry` maps to one Health Connect `NutritionRecord`:
+
+| Food Scanner Field | HC NutritionRecord Field | Notes |
+|---|---|---|
+| `foodName` | `name` | Direct |
+| `calories` | `energy` (kcal) | Direct |
+| `proteinG` | `protein` (g) | Direct |
+| `carbsG` | `totalCarbohydrate` (g) | Direct |
+| `fatG` | `totalFat` (g) | Direct |
+| `fiberG` | `dietaryFiber` (g) | Direct |
+| `sodiumMg` | `sodium` (g) | Convert mg → g |
+| `saturatedFatG` | `saturatedFat` (g) | Direct, nullable |
+| `transFatG` | `transFat` (g) | Direct, nullable |
+| `sugarsG` | `sugar` (g) | Direct, nullable |
+| `caloriesFromFat` | `energyFromFat` (kcal) | Direct, nullable |
+| `date` + `time` | `startTime` / `endTime` | Use same time for both |
+| `mealTypeId` | `mealType` | See mapping below |
+
+#### Meal Type Mapping
+
+| Food Scanner | Health Connect |
+|---|---|
+| 1 (Breakfast) | `MEAL_TYPE_BREAKFAST` (1) |
+| 2 (Morning Snack) | `MEAL_TYPE_SNACK` (4) |
+| 3 (Lunch) | `MEAL_TYPE_LUNCH` (2) |
+| 4 (Afternoon Snack) | `MEAL_TYPE_SNACK` (4) |
+| 5 (Dinner) | `MEAL_TYPE_DINNER` (3) |
+| 7 (Anytime) | `MEAL_TYPE_UNKNOWN` (0) |
+
+#### Sync Trigger
+
+Options to evaluate:
+- **Push notification** from server after each food log → Android app writes to HC.
+- **Polling** — Android app periodically checks a server API for new entries.
+- **Manual sync** — user taps "Sync to Health Connect" in the PWA, which triggers the Android companion.
+
+### Architecture
+
+- **Android companion app:** Minimal app (Kotlin, Jetpack Health Connect SDK) that authenticates with the Food Scanner API (using existing API key system) and writes `NutritionRecord` entries.
+- **Server API endpoint:** New `GET /api/v1/food-log` endpoint returning food log entries with full nutrition data, filterable by date range and a `since` cursor for incremental sync.
+- **Deduplication:** Each `food_log_entry.id` stored as Health Connect `Metadata.clientRecordId` to prevent duplicate writes. Edits and deletes propagated via the same mechanism.
+- **No read-back:** The app only writes to Health Connect, never reads from it. This keeps permissions minimal.
+
+### Edge Cases
+
+- User deletes a food log entry in Food Scanner → Android app deletes the corresponding HC record by `clientRecordId`.
+- User edits a food log entry → Android app updates the HC record.
+- Health Connect not installed on device → Android app prompts user to install it.
+- User has no API key → Android app guides them to generate one in the web app settings.
+- Multiple Android devices → Each device syncs independently; `clientRecordId` deduplication prevents duplicates.
+
+### Implementation Order
+
+1. Server API endpoint for food log export (`GET /api/v1/food-log` with date range and cursor)
+2. Android companion app skeleton (auth with API key, Health Connect permissions)
+3. `NutritionRecord` write logic with field mapping
+4. Incremental sync with `clientRecordId` deduplication
+5. Delete/update propagation
+6. Play Store listing
 
 ---
 
