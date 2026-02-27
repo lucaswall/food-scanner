@@ -221,65 +221,6 @@ Credentials are stored securely in the database on a per-user basis.
 
 ---
 
-## API Endpoints
-
-### Public
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health check |
-
-### Auth (`/api/auth/*`)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/auth/google` | Initiate Google OAuth |
-| GET | `/api/auth/google/callback` | Google OAuth callback |
-| POST | `/api/auth/fitbit` | Initiate Fitbit OAuth |
-| GET | `/api/auth/fitbit/callback` | Fitbit OAuth callback |
-| GET | `/api/auth/session` | Validate session |
-| POST | `/api/auth/logout` | Destroy session |
-| POST | `/api/auth/test-login` | Test auth bypass (E2E only, gated by `ENABLE_TEST_AUTH`) |
-
-### Browser-facing (`/api/*`, session auth)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/analyze-food` | AI nutrition analysis (one-shot) |
-| POST | `/api/chat-food` | Conversational food analysis (multi-turn) |
-| POST | `/api/log-food` | Log food to Fitbit |
-| POST | `/api/find-matches` | Find matching foods in library |
-| GET | `/api/search-foods` | Search custom food library |
-| GET | `/api/common-foods` | List common foods |
-| GET | `/api/food-history` | Food log history |
-| GET | `/api/food-history/[id]` | Food log entry detail |
-| DELETE | `/api/food-history/[id]` | Delete food log entry |
-| GET | `/api/nutrition-summary` | Daily nutrition summary |
-| GET | `/api/nutrition-goals` | Get nutrition goals |
-| GET | `/api/lumen-goals` | Get Lumen macro goals |
-| POST | `/api/lumen-goals` | Set Lumen macro goals |
-| GET | `/api/fasting` | Get fasting data |
-| GET | `/api/earliest-entry` | Get earliest food log entry date |
-| GET | `/api/claude-usage` | AI usage and cost tracking |
-| GET | `/api/fitbit-credentials` | Get Fitbit credential status |
-| POST | `/api/fitbit-credentials` | Save Fitbit credentials |
-| PATCH | `/api/fitbit-credentials` | Update Fitbit credentials |
-| GET | `/api/api-keys` | List API keys |
-| POST | `/api/api-keys` | Create API key |
-| DELETE | `/api/api-keys/[id]` | Revoke API key |
-
-### External API (`/api/v1/*`, Bearer API key auth)
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/food-log` | Food log entries |
-| GET | `/api/v1/nutrition-summary` | Nutrition summary |
-| GET | `/api/v1/nutrition-goals` | Nutrition goals |
-| GET | `/api/v1/lumen-goals` | Lumen macro goals |
-| GET | `/api/v1/activity-summary` | Fitbit activity summary |
-
----
-
 ## Local Development
 
 See [DEVELOPMENT.md](DEVELOPMENT.md) for complete local setup instructions.
@@ -313,6 +254,7 @@ No service worker or offline support — the app requires an internet connection
 
 | File | Description |
 |------|-------------|
+| [API.md](API.md) | External API reference (auth, endpoints, schemas) |
 | [ROADMAP.md](ROADMAP.md) | Feature ideas and specifications |
 | [CLAUDE.md](CLAUDE.md) | Technical reference for Claude Code |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local development setup |
