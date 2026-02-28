@@ -197,4 +197,44 @@ describe("GET /api/v1/nutrition-goals", () => {
       60000
     );
   });
+
+  it("returns ETag header on success response", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/nutrition-goals",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+
+    const firstRequest = createRequest(
+      "http://localhost:3000/api/v1/nutrition-goals",
+      { Authorization: "Bearer valid-key" }
+    );
+    const firstResponse = await GET(firstRequest);
+    const etag = firstResponse.headers.get("ETag")!;
+
+    const secondRequest = createRequest(
+      "http://localhost:3000/api/v1/nutrition-goals",
+      { Authorization: "Bearer valid-key", "If-None-Match": etag }
+    );
+    const secondResponse = await GET(secondRequest);
+
+    expect(secondResponse.status).toBe(304);
+    expect(await secondResponse.text()).toBe("");
+    expect(secondResponse.headers.get("ETag")).toBe(etag);
+    expect(secondResponse.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
 });

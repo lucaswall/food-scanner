@@ -54,7 +54,58 @@ All responses use a standard envelope:
 }
 ```
 
-All responses include `Cache-Control: private, no-cache`.
+All success responses include the following headers:
+
+| Header | Value |
+|---|---|
+| `ETag` | Strong ETag (e.g., `"a3f1b2c4d5e6f789"`) based on response data |
+| `Cache-Control` | `private, no-cache` |
+| `Content-Type` | `application/json` |
+
+Possible response statuses for GET endpoints: `200` (data returned), `304` (not modified — see below), `4xx`/`5xx` (errors).
+
+---
+
+## Conditional Requests (ETags)
+
+All GET endpoints support conditional requests via the `ETag` / `If-None-Match` mechanism. This allows clients to avoid downloading data they already have cached.
+
+### How it works
+
+**First request — always returns full data:**
+```
+GET /api/v1/food-log?date=2026-02-28
+Authorization: Bearer fsk_...
+
+HTTP/1.1 200 OK
+ETag: "a3f1b2c4d5e6f789"
+Cache-Control: private, no-cache
+Content-Type: application/json
+
+{ "success": true, "data": { ... }, "timestamp": 1709000000000 }
+```
+
+**Subsequent request — returns 304 if data unchanged:**
+```
+GET /api/v1/food-log?date=2026-02-28
+Authorization: Bearer fsk_...
+If-None-Match: "a3f1b2c4d5e6f789"
+
+HTTP/1.1 304 Not Modified
+ETag: "a3f1b2c4d5e6f789"
+Cache-Control: private, no-cache
+```
+
+A `304` response has **no body**. The client should use its previously cached data.
+
+If the data has changed since the last request, a normal `200` response is returned with updated data and a new `ETag`.
+
+### Notes
+
+- The `ETag` is computed from **response data content only**, not from the timestamp. The same data always produces the same ETag.
+- `Cache-Control: private, no-cache` means "cache the response privately, but always revalidate with the server before using it." This is the ideal pairing with ETags — the client can cache data locally and use `If-None-Match` to efficiently check for updates.
+- Wildcard (`If-None-Match: *`) and comma-separated lists are supported per [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#section-13.1.2).
+- Weak comparison semantics are used: `W/"abc"` in `If-None-Match` matches a stored `"abc"` ETag.
 
 ---
 

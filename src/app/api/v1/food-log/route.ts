@@ -1,5 +1,5 @@
 import { validateApiRequest } from "@/lib/api-auth";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getDailyNutritionSummary } from "@/lib/food-log";
 import { isValidDateFormat } from "@/lib/date-utils";
@@ -59,9 +59,7 @@ export async function GET(request: Request) {
       "v1 food log retrieved"
     );
 
-    const response = successResponse(summary);
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, summary);
   } catch (error) {
     log.error(
       { error: error instanceof Error ? error.message : String(error) },

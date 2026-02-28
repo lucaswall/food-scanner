@@ -259,4 +259,50 @@ describe("GET /api/v1/nutrition-summary", () => {
       60000
     );
   });
+
+  it("returns ETag header on success response", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-02-11",
+      meals: [],
+      totals: { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sodiumMg: 0, saturatedFatG: 0, transFatG: 0, sugarsG: 0, caloriesFromFat: 0 },
+    });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/nutrition-summary?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-02-11",
+      meals: [],
+      totals: { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sodiumMg: 0, saturatedFatG: 0, transFatG: 0, sugarsG: 0, caloriesFromFat: 0 },
+    });
+
+    const firstRequest = createRequest(
+      "http://localhost:3000/api/v1/nutrition-summary?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const firstResponse = await GET(firstRequest);
+    const etag = firstResponse.headers.get("ETag")!;
+
+    const secondRequest = createRequest(
+      "http://localhost:3000/api/v1/nutrition-summary?date=2026-02-11",
+      { Authorization: "Bearer valid-key", "If-None-Match": etag }
+    );
+    const secondResponse = await GET(secondRequest);
+
+    expect(secondResponse.status).toBe(304);
+    expect(await secondResponse.text()).toBe("");
+    expect(secondResponse.headers.get("ETag")).toBe(etag);
+    expect(secondResponse.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
 });
