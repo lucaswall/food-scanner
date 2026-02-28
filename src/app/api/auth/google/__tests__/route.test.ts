@@ -115,7 +115,7 @@ describe("POST /api/auth/google", () => {
       method: "POST",
       headers: { "x-forwarded-for": "1.2.3.4" },
     });
-    const response = await POST(req);
+    await POST(req);
 
     const storedState = mockRawSession.oauthState as string;
     expect(() => JSON.parse(storedState)).not.toThrow();

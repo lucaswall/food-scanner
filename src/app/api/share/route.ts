@@ -23,8 +23,8 @@ export async function POST(request: Request) {
   }
 
   const { customFoodId } = body as Record<string, unknown>;
-  if (typeof customFoodId !== "number" || customFoodId <= 0) {
-    return errorResponse("VALIDATION_ERROR", "customFoodId must be a positive number", 400);
+  if (typeof customFoodId !== "number" || !Number.isInteger(customFoodId) || customFoodId <= 0) {
+    return errorResponse("VALIDATION_ERROR", "customFoodId must be a positive integer", 400);
   }
 
   const token = await setShareToken(session!.userId, customFoodId);

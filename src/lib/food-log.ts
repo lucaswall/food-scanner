@@ -306,32 +306,47 @@ export async function getCommonFoods(
   }
 
   // Sort by descending total score
-  let sorted = [...scoreByFood.values()]
+  const allSorted = [...scoreByFood.values()]
     .sort((a, b) => b.totalScore - a.totalScore);
 
-  // Favorites pinning on page 1: favorites appear before non-favorites, sorted by date desc
-  if (options.cursor === undefined) {
-    const favorites = sorted.filter(item => item.bestRow.custom_foods.isFavorite);
-    const nonFavorites = sorted.filter(item => !item.bestRow.custom_foods.isFavorite);
-    favorites.sort((a, b) =>
-      b.bestRow.food_log_entries.date.localeCompare(a.bestRow.food_log_entries.date),
-    );
-    sorted = [...favorites, ...nonFavorites];
-  }
+  // Separate favorites from non-favorites — favorites are pinned on page 1 only,
+  // and the cursor system only paginates over non-favorites to avoid duplicates
+  const favorites = allSorted.filter(item => item.bestRow.custom_foods.isFavorite);
+  const nonFavorites = allSorted.filter(item => !item.bestRow.custom_foods.isFavorite);
 
-  // Cursor-based pagination: composite cursor {score, id} for stable pagination
+  // Cursor-based pagination over non-favorites only
+  let paginatedNonFavorites = nonFavorites;
   if (options.cursor !== undefined) {
     const { score: cursorScore, id: cursorId } = options.cursor;
-    sorted = sorted.filter((item) => {
+    paginatedNonFavorites = nonFavorites.filter((item) => {
       const foodId = item.bestRow.custom_foods.id;
       return item.totalScore < cursorScore ||
         (item.totalScore === cursorScore && foodId > cursorId);
     });
   }
 
-  // Fetch limit + 1 to detect if more items exist
-  const hasMore = sorted.length > limit;
-  const page = sorted.slice(0, limit);
+  // Page 1: favorites (sorted by date desc) + fill remaining slots with scored non-favorites
+  // Page 2+: only non-favorites (cursor already filtered above)
+  let page: typeof allSorted;
+  if (options.cursor === undefined) {
+    favorites.sort((a, b) =>
+      b.bestRow.food_log_entries.date.localeCompare(a.bestRow.food_log_entries.date),
+    );
+    const remainingSlots = Math.max(0, limit - favorites.length);
+    const hasMore = paginatedNonFavorites.length > remainingSlots;
+    page = [...favorites, ...paginatedNonFavorites.slice(0, remainingSlots)];
+    const lastNonFav = remainingSlots > 0 ? paginatedNonFavorites[remainingSlots - 1] : null;
+    const nextCursor: CommonFoodsCursor | null = hasMore && lastNonFav
+      ? { score: lastNonFav.totalScore, id: lastNonFav.bestRow.custom_foods.id }
+      : null;
+    const foods: CommonFood[] = page.map(({ bestRow }) => mapRowToCommonFood(bestRow));
+    l.debug({ action: "get_common_foods", resultCount: foods.length, hasMore }, "common foods retrieved");
+    return { foods, nextCursor };
+  }
+
+  // Page 2+: only non-favorites
+  const hasMore = paginatedNonFavorites.length > limit;
+  page = paginatedNonFavorites.slice(0, limit);
 
   const foods: CommonFood[] = page.map(({ bestRow }) => mapRowToCommonFood(bestRow));
 
@@ -972,6 +987,7 @@ export async function setShareToken(
 ): Promise<string | null> {
   const db = getDb();
 
+  // Check if food exists and already has a token
   const rows = await db
     .select()
     .from(customFoods)
@@ -982,13 +998,24 @@ export async function setShareToken(
 
   if (food.shareToken) return food.shareToken;
 
+  // Atomic: only set token if still null (prevents race condition)
   const token = nanoid(12);
   await db
     .update(customFoods)
     .set({ shareToken: token })
+    .where(and(
+      eq(customFoods.id, customFoodId),
+      eq(customFoods.userId, userId),
+      isNull(customFoods.shareToken),
+    ));
+
+  // Re-read to get the winner's token (handles concurrent race)
+  const refetch = await db
+    .select({ shareToken: customFoods.shareToken })
+    .from(customFoods)
     .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
 
-  return token;
+  return refetch[0]?.shareToken ?? null;
 }
 
 export async function getCustomFoodByShareToken(shareToken: string) {

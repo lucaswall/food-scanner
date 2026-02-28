@@ -560,13 +560,13 @@ export function FoodChat({
     setError(null);
 
     try {
-      const { date, time } = getLocalDateTime();
+      const { time } = getLocalDateTime();
       const saveBody = {
         entryId: editEntry.id,
         ...analysis,
         mealTypeId,
         date: editEntry.date,
-        time: selectedTime ?? time,
+        time: selectedTime ?? editEntry.time ?? time,
       };
 
       const response = await fetch("/api/edit-food", {

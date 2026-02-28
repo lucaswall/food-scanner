@@ -41,6 +41,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
   const [mealTypeId, setMealTypeId] = useState<number>(FitbitMealType.Anytime);
   const [isLogging, setIsLogging] = useState(false);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
+  const [logError, setLogError] = useState<string | null>(null);
 
   const { data, error, isLoading, mutate } = useSWR<SharedFood>(
     `/api/shared-food/${token}`,
@@ -94,6 +95,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
   async function handleLog() {
     if (!data || isLogging) return;
     setIsLogging(true);
+    setLogError(null);
 
     const now = new Date();
     const date = now.toISOString().slice(0, 10);
@@ -127,10 +129,19 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
         }),
       });
 
+      if (!response.ok) {
+        setLogError("Failed to log food. Please try again.");
+        return;
+      }
+
       const result = await response.json();
       if (result.success) {
         setLogResponse(result.data as FoodLogResponse);
+      } else {
+        setLogError(result.error?.message ?? "Failed to log food. Please try again.");
       }
+    } catch {
+      setLogError("Network error. Please check your connection and try again.");
     } finally {
       setIsLogging(false);
     }
@@ -168,6 +179,10 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
           disabled={isLogging}
         />
       </div>
+
+      {logError && (
+        <p className="text-sm text-destructive text-center">{logError}</p>
+      )}
 
       <Button
         onClick={handleLog}

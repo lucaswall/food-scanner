@@ -1031,8 +1031,8 @@ describe("getCommonFoods", () => {
       expect(result.foods[1].foodName).toBe("Low Score");
     });
 
-    it("favorites only prepended on page 1; subsequent pages use normal score ordering", async () => {
-      // Page 2 (cursor present): favorites follow normal score order, no pinning
+    it("favorites only appear on page 1; page 2+ returns only non-favorites", async () => {
+      // Page 2 (cursor present): favorites are excluded (already shown on page 1)
       mockWhere.mockResolvedValue([
         makeRow({ customFoodId: 1, foodName: "Fav Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: true }),
         makeRow({ customFoodId: 2, foodName: "Non-fav Food", time: "11:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3, isFavorite: false }),
@@ -1043,9 +1043,9 @@ describe("getCommonFoods", () => {
         cursor: { score: 999, id: 0 }, // high score cursor to include everything
       });
 
-      // On page 2, results are score-ordered (no pinning)
-      // Fav Food at 12:00:00 (exact match) scores higher than Non-fav at 11:00:00
-      expect(result.foods[0].foodName).toBe("Fav Food");
+      // Favorites excluded on page 2 — only non-favorites returned
+      expect(result.foods.length).toBe(1);
+      expect(result.foods[0].foodName).toBe("Non-fav Food");
     });
   });
 });
@@ -2307,6 +2307,8 @@ describe("setShareToken", () => {
   it("generates and returns token for food without one", async () => {
     mockWhere.mockResolvedValueOnce([{ ...mockFood, shareToken: null }]);
     mockUpdateWhere.mockResolvedValue(undefined);
+    // After atomic UPDATE, re-SELECT returns the new token
+    mockWhere.mockResolvedValueOnce([{ shareToken: "mock-token-12" }]);
 
     const token = await setShareToken("user-uuid-123", 42);
 
