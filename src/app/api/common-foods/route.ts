@@ -1,5 +1,5 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getCommonFoods, getRecentFoods } from "@/lib/food-log";
 
@@ -43,9 +43,7 @@ export async function GET(request: Request) {
         "recent foods retrieved",
       );
 
-      const response = successResponse({ foods: result.foods, nextCursor: result.nextCursor });
-      response.headers.set("Cache-Control", "private, no-cache");
-      return response;
+      return conditionalResponse(request, { foods: result.foods, nextCursor: result.nextCursor });
     }
 
     // Use client-provided time/date if available, otherwise fall back to server time/date
@@ -78,9 +76,7 @@ export async function GET(request: Request) {
       "common foods retrieved",
     );
 
-    const response = successResponse({ foods: result.foods, nextCursor: result.nextCursor });
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, { foods: result.foods, nextCursor: result.nextCursor });
   } catch (error) {
     log.error(
       {

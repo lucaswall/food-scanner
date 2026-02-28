@@ -365,4 +365,35 @@ describe("GET /api/nutrition-goals", () => {
     // Should fall back to server date
     expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-10", 2000, expect.any(Object));
   });
+
+  it("returns ETag header on success response", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+
+    const response = await GET(createRequest());
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+
+    const response1 = await GET(createRequest());
+    const etag = response1.headers.get("ETag")!;
+
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+
+    const response2 = await GET(new Request("http://localhost:3000/api/nutrition-goals", {
+      headers: { "if-none-match": etag },
+    }));
+
+    expect(response2.status).toBe(304);
+    expect(response2.headers.get("ETag")).toBe(etag);
+    expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
 });

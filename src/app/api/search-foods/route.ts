@@ -1,5 +1,5 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { searchFoods } from "@/lib/food-log";
 
@@ -32,9 +32,7 @@ export async function GET(request: Request) {
       "food search completed",
     );
 
-    const response = successResponse({ foods });
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, { foods });
   } catch (error) {
     log.error(
       {

@@ -1,9 +1,9 @@
-import { successResponse } from "@/lib/api-response";
+import { conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { CLAUDE_MODEL } from "@/lib/claude";
 import packageJson from "../../../../package.json";
 
-export async function GET() {
+export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/health");
   log.debug({ action: "health_check" }, "health check");
 
@@ -16,7 +16,7 @@ export async function GET() {
       ? `${packageJson.version}+${commitHash}`
       : packageJson.version;
 
-  return successResponse({
+  return conditionalResponse(request, {
     status: "ok",
     version,
     environment,

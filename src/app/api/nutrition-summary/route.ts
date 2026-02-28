@@ -1,5 +1,5 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getDailyNutritionSummary, getDateRangeNutritionSummary } from "@/lib/food-log";
 import { isValidDateFormat } from "@/lib/date-utils";
@@ -40,9 +40,7 @@ export async function GET(request: Request) {
         "nutrition summary retrieved"
       );
 
-      const response = successResponse(summary);
-      response.headers.set("Cache-Control", "private, no-cache");
-      return response;
+      return conditionalResponse(request, summary);
     } catch (error) {
       log.error(
         { error: error instanceof Error ? error.message : String(error) },
@@ -104,9 +102,7 @@ export async function GET(request: Request) {
         "nutrition summary range retrieved"
       );
 
-      const response = successResponse({ days });
-      response.headers.set("Cache-Control", "private, no-cache");
-      return response;
+      return conditionalResponse(request, { days });
     } catch (error) {
       log.error(
         { error: error instanceof Error ? error.message : String(error) },

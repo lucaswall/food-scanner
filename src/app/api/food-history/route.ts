@@ -1,5 +1,5 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogHistory } from "@/lib/food-log";
 
@@ -36,9 +36,7 @@ export async function GET(request: Request) {
 
     const entries = await getFoodLogHistory(session!.userId, { endDate, cursor, limit }, log);
 
-    const response = successResponse({ entries });
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, { entries });
   } catch (error) {
     log.error(
       {

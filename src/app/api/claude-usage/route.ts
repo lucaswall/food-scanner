@@ -1,5 +1,5 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getMonthlyUsage } from "@/lib/claude-usage";
 
@@ -34,9 +34,7 @@ export async function GET(request: Request) {
       "claude usage retrieved"
     );
 
-    const response = successResponse({ months: usage });
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, { months: usage });
   } catch (error) {
     log.error(
       { error: error instanceof Error ? error.message : String(error) },

@@ -137,9 +137,7 @@ function createMockGetRequest(date?: string): Request {
     ? `http://localhost/api/lumen-goals?date=${date}`
     : "http://localhost/api/lumen-goals";
 
-  return {
-    url,
-  } as unknown as Request;
+  return new Request(url);
 }
 
 beforeEach(() => {
@@ -232,6 +230,35 @@ describe("GET /api/lumen-goals", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
+  });
+
+  it("returns ETag header on success response", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetLumenGoalsByDate.mockResolvedValue(validLumenGoals);
+
+    const request = new Request("http://localhost/api/lumen-goals?date=2026-02-10");
+    const response = await GET(request);
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetLumenGoalsByDate.mockResolvedValue(validLumenGoals);
+
+    const response1 = await GET(new Request("http://localhost/api/lumen-goals?date=2026-02-10"));
+    const etag = response1.headers.get("ETag")!;
+
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetLumenGoalsByDate.mockResolvedValue(validLumenGoals);
+
+    const response2 = await GET(new Request("http://localhost/api/lumen-goals?date=2026-02-10", {
+      headers: { "if-none-match": etag },
+    }));
+
+    expect(response2.status).toBe(304);
+    expect(response2.headers.get("ETag")).toBe(etag);
+    expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 });
 

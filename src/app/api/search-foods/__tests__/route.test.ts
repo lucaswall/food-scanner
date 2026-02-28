@@ -181,4 +181,32 @@ describe("GET /api/search-foods", () => {
     expect(response.status).toBe(500);
     expect(data.error.code).toBe("INTERNAL_ERROR");
   });
+
+  it("returns ETag header on success response", async () => {
+    mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+    mockSearchFoods.mockResolvedValue([]);
+
+    const response = await GET(makeRequest({ q: "chicken" }));
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+    mockSearchFoods.mockResolvedValue([]);
+
+    const response1 = await GET(makeRequest({ q: "chicken" }));
+    const etag = response1.headers.get("ETag")!;
+
+    mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+    mockSearchFoods.mockResolvedValue([]);
+
+    const response2 = await GET(new Request("http://localhost:3000/api/search-foods?q=chicken", {
+      headers: { "if-none-match": etag },
+    }));
+
+    expect(response2.status).toBe(304);
+    expect(response2.headers.get("ETag")).toBe(etag);
+    expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
 });

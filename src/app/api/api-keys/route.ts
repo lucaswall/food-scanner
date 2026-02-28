@@ -1,9 +1,9 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { successResponse, errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { createApiKey, listApiKeys } from "@/lib/api-keys";
 
-export async function GET() {
+export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/api-keys");
   const session = await getSession();
 
@@ -17,12 +17,7 @@ export async function GET() {
 
   try {
     const keys = await listApiKeys(session!.userId, log);
-
-    const response = successResponse({ keys });
-
-    // Add Cache-Control header
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, { keys });
   } catch (error) {
     log.error(
       { action: "list_api_keys_error", error: error instanceof Error ? error.message : String(error) },
