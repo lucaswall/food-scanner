@@ -8,7 +8,7 @@
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
 | [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
 | [Nutritional Label Library](#nutritional-label-library) | Store scanned label data for instant reuse by keyword |
-| [Google Health Connect Integration](#google-health-connect) | Push nutrition data directly to Health Connect via a thin Android wrapper |
+| [Food Log Push Notifications](#food-log-push-notifications) | Notify the HealthHelper Android app in real time when food is logged |
 
 
 ---
