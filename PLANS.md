@@ -273,8 +273,118 @@
 - Worker 1: fast-forward (no conflicts)
 - Worker 2: 2 conflicts in `src/lib/etag.ts` and `src/lib/api-response.ts` (duplicate shared files — resolved by keeping worker-1 canonical version)
 
-### Continuation Status
-All tasks completed.
+### Review Findings
+
+Summary: 8 issue(s) found, 4 discarded (Team: security, reliability, quality reviewers)
+- FIX: 6 issue(s) — Linear issues created
+- DISCARDED: 4 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [HIGH] SECURITY: Raw API key logged in rate-limit debug messages — all 5 v1 routes pass raw Bearer token as rate-limit key, `checkRateLimit` logs it at debug level (`src/lib/rate-limit.ts:43`). Violates CLAUDE.md "Never log: API keys."
+- [HIGH] BUG: fitbit-credentials route missing try/catch on all 3 handlers — GET (line 23), POST (line 78), PATCH (lines 140/156/161). DB errors produce non-standard responses with no logging. PATCH has partial update risk.
+- [MEDIUM] BUG: food-history/[id] DELETE — `getFoodLogEntry()` call at line 55 is outside try/catch (starts line 60). Unhandled DB errors.
+- [LOW] CONVENTION: Missing structured `action` field in 14 error/warn log statements across 10 route files
+- [LOW] CONVENTION: common-foods `clientDate`/`clientTime` query params passed to DB without format validation (`src/app/api/common-foods/route.ts:51-54`)
+- [LOW] CONVENTION: API.md error response example shows `"details": null` but `errorResponse()` omits the field entirely when not provided
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: No max length on search query `q` param (`search-foods/route.ts:17`) — HTTP servers/proxies enforce URL length limits (~8KB), Drizzle parameterized queries prevent injection
+- [DISCARDED] EDGE CASE: etag.ts `??` fallback comment suggestion (`src/lib/etag.ts:5`) — style-only, code is correct, zero correctness impact
+- [DISCARDED] EDGE CASE: JSON.stringify key ordering sensitivity (`src/lib/etag.ts`) — design trade-off, tests explicitly document this behavior, all data comes from consistent ORM pipelines
+- [DISCARDED] CONVENTION: `await` on synchronous `conditionalResponse` in tests (`src/lib/__tests__/api-response.test.ts`) — harmless, common test pattern
+
+### Linear Updates
+- FOO-691: Review → Merge (ETag utility module)
+- FOO-692: Review → Merge (v1 routes ETag)
+- FOO-693: Review → Merge (internal routes ETag)
+- FOO-694: Review → Merge (API.md docs)
+- FOO-695: Created in Todo (Fix: raw API key in rate-limit logs)
+- FOO-696: Created in Todo (Fix: fitbit-credentials missing try/catch)
+- FOO-697: Created in Todo (Fix: food-history/[id] DELETE DB call outside try/catch)
+- FOO-698: Created in Todo (Fix: missing action field in error logs)
+- FOO-699: Created in Todo (Fix: common-foods clientDate/clientTime validation)
+- FOO-700: Created in Todo (Fix: API.md error response example)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-695](https://linear.app/lw-claude/issue/FOO-695), [FOO-696](https://linear.app/lw-claude/issue/FOO-696), [FOO-697](https://linear.app/lw-claude/issue/FOO-697), [FOO-698](https://linear.app/lw-claude/issue/FOO-698), [FOO-699](https://linear.app/lw-claude/issue/FOO-699), [FOO-700](https://linear.app/lw-claude/issue/FOO-700)
+
+### Fix 1: Raw API key logged in rate-limit debug messages
+**Linear Issue:** [FOO-695](https://linear.app/lw-claude/issue/FOO-695)
+
+1. Write test in `src/app/api/v1/food-log/__tests__/route.test.ts` verifying the rate-limit key does NOT contain the raw API key (assert it uses a hash/prefix instead)
+2. In each of the 5 v1 route files, replace the raw `apiKey` in the rate-limit key with a SHA-256 hash prefix (first 16 chars): `v1:food-log:${hashApiKey(apiKey)}`. Create a shared `hashApiKey` helper in `src/lib/api-auth.ts` (already imported by all v1 routes)
+3. Run tests: `npx vitest run v1`
+
+**Files:** `src/lib/api-auth.ts`, `src/lib/__tests__/api-auth.test.ts`, `src/app/api/v1/activity-summary/route.ts`, `src/app/api/v1/food-log/route.ts`, `src/app/api/v1/lumen-goals/route.ts`, `src/app/api/v1/nutrition-goals/route.ts`, `src/app/api/v1/nutrition-summary/route.ts`
+
+### Fix 2: fitbit-credentials route handlers missing try/catch
+**Linear Issue:** [FOO-696](https://linear.app/lw-claude/issue/FOO-696)
+
+1. Write tests in `src/app/api/fitbit-credentials/__tests__/route.test.ts`:
+   - GET: mock `getFitbitCredentials` to reject → expect 500 + standard error format
+   - POST: mock `saveFitbitCredentials` to reject → expect 500 + standard error format
+   - PATCH: mock `updateFitbitClientId` to reject → expect 500 + standard error format
+2. Wrap each handler's DB calls in try/catch with proper `log.error({ action: "..." })` + `errorResponse()`
+3. Run tests: `npx vitest run fitbit-credentials`
+
+**Files:** `src/app/api/fitbit-credentials/route.ts`, `src/app/api/fitbit-credentials/__tests__/route.test.ts`
+
+### Fix 3: food-history/[id] DELETE DB call outside try/catch
+**Linear Issue:** [FOO-697](https://linear.app/lw-claude/issue/FOO-697)
+
+1. Write test in `src/app/api/food-history/[id]/__tests__/route.test.ts`: mock `getFoodLogEntry` to reject → expect 500 + standard error format
+2. Move `getFoodLogEntry()` call (line 55) inside the existing try/catch block (line 60)
+3. Run tests: `npx vitest run food-history`
+
+**Files:** `src/app/api/food-history/[id]/route.ts`, `src/app/api/food-history/[id]/__tests__/route.test.ts`
+
+### Fix 4: Missing structured action field in error log statements
+**Linear Issue:** [FOO-698](https://linear.app/lw-claude/issue/FOO-698)
+
+Add `action` field to all 14 error/warn log statements following existing naming conventions:
+- `claude-usage/route.ts:39` → `action: "claude_usage_error"`
+- `earliest-entry/route.ts:28` → `action: "earliest_entry_error"`
+- `fasting/route.ts:67` → `action: "fasting_window_error"`
+- `fasting/route.ts:125` → `action: "fasting_windows_error"`
+- `lumen-goals/route.ts:49` → `action: "lumen_goals_error"`
+- `nutrition-goals/route.ts:29` → `action: "capture_calorie_goal_error"`
+- `nutrition-goals/route.ts:45` → `action: "nutrition_goals_error"`
+- `nutrition-summary/route.ts:45` → `action: "nutrition_summary_error"`
+- `nutrition-summary/route.ts:107` → `action: "nutrition_summary_range_error"`
+- `v1/food-log/route.ts:64` → `action: "v1_food_log_error"`
+- `v1/lumen-goals/route.ts:58` → `action: "v1_lumen_goals_error"`
+- `v1/nutrition-goals/route.ts:46` → `action: "v1_nutrition_goals_error"`
+- `v1/nutrition-summary/route.ts:64` → `action: "v1_nutrition_summary_error"`
+- `v1/activity-summary/route.ts:59` → `action: "v1_activity_summary_error"`
+
+No test changes needed — log format is not asserted in tests.
+
+**Files:** All 10 route files listed above
+
+### Fix 5: common-foods clientDate/clientTime missing format validation
+**Linear Issue:** [FOO-699](https://linear.app/lw-claude/issue/FOO-699)
+
+1. Write test in `src/app/api/common-foods/__tests__/route.test.ts`: pass invalid `clientDate` format → expect 400 validation error
+2. Add `isValidDateFormat(clientDate)` check after extracting the param, return `errorResponse("VALIDATION_ERROR", ...)` on failure
+3. Add basic time format validation for `clientTime` (HH:MM pattern)
+4. Run tests: `npx vitest run common-foods`
+
+**Files:** `src/app/api/common-foods/route.ts`, `src/app/api/common-foods/__tests__/route.test.ts`
+
+### Fix 6: API.md error response example inaccuracy
+**Linear Issue:** [FOO-700](https://linear.app/lw-claude/issue/FOO-700)
+
+1. Update `API.md` error response example: remove `"details": null` from the base example
+2. Add a note that `details` is only present when additional context is available
+3. No tests needed — documentation only
+
+**Files:** `API.md`
 
 ---
 
