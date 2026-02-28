@@ -2308,6 +2308,7 @@ describe("FoodChat", () => {
 
 const mockEditEntry: FoodLogEntryDetail = {
   id: 42,
+  customFoodId: 100,
   foodName: "Empanada de carne",
   description: "Standard Argentine beef empanada",
   notes: "Baked style",
@@ -2328,6 +2329,7 @@ const mockEditEntry: FoodLogEntryDetail = {
   time: "20:00:00",
   fitbitLogId: 12345,
   confidence: "high",
+  isFavorite: false,
 };
 
 const editModeProps = {

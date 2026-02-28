@@ -56,6 +56,7 @@ const mockEntry: FoodLogEntryDetail = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal("fetch", mockFetch);
   mockMutate.mockResolvedValue(undefined);
 });
 
@@ -176,7 +177,7 @@ describe("FoodDetail share button", () => {
         "/api/share",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ customFoodId: mockEntry.id }),
+          body: JSON.stringify({ customFoodId: mockEntry.customFoodId }),
         }),
       );
     });

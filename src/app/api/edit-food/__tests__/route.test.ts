@@ -76,6 +76,7 @@ const validSession: FullSession = {
 
 const existingEntry: FoodLogEntryDetail = {
   id: 42,
+  customFoodId: 100,
   foodName: "Empanada de carne",
   description: "Standard Argentine beef empanada",
   notes: "Baked style",
@@ -96,6 +97,7 @@ const existingEntry: FoodLogEntryDetail = {
   time: "20:00:00",
   fitbitLogId: 12345,
   confidence: "high",
+  isFavorite: false,
 };
 
 const validBody = {
