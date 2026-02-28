@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealTypeSelector } from "@/components/meal-type-selector";
+import { TimeSelector } from "@/components/time-selector";
 import {
   Send,
   ArrowLeft,
@@ -84,6 +85,7 @@ export function FoodChat({
   const [logging, setLogging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mealTypeId, setMealTypeId] = useState(initialMealTypeId ?? getDefaultMealType());
+  const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [pendingImages, setPendingImages] = useState<Blob[]>([]);
   // Track whether initial compressed images have been embedded into a message
   const initialImagesConsumedRef = useRef(false);
@@ -366,6 +368,12 @@ export function FoodChat({
                   msgs[msgs.length - 1] = { ...last, analysis: event.analysis };
                   return msgs;
                 });
+                if (event.analysis.time != null) {
+                  setSelectedTime(event.analysis.time);
+                }
+                if (event.analysis.mealTypeId != null) {
+                  setMealTypeId(event.analysis.mealTypeId);
+                }
               } else if (event.type === "tool_start") {
                 setMessages((prev) => {
                   const msgs = [...prev];
@@ -448,16 +456,20 @@ export function FoodChat({
     setError(null);
 
     try {
+      const localDateTime = getLocalDateTime();
+      const logTime = selectedTime ?? localDateTime.time;
       const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
         ? {
             reuseCustomFoodId: analysis.sourceCustomFoodId,
             mealTypeId,
-            ...getLocalDateTime(),
+            date: localDateTime.date,
+            time: logTime,
           }
         : {
             ...analysis,
             mealTypeId,
-            ...getLocalDateTime(),
+            date: localDateTime.date,
+            time: logTime,
           };
 
       const response = await fetch("/api/log-food", {
@@ -482,7 +494,8 @@ export function FoodChat({
             analysis: analysis,
             mealTypeId,
             foodName: analysis.food_name,
-            ...getLocalDateTime(),
+            date: localDateTime.date,
+            time: logTime,
           });
           window.location.href = "/api/auth/fitbit";
           return;
@@ -543,38 +556,43 @@ export function FoodChat({
       {/* Top header: Conditional layout based on analysis presence */}
       <div className="border-b bg-background px-2 py-2 space-y-2">
         {latestAnalysis ? (
-          <div className="flex items-center gap-2">
-            <h1 className="sr-only">{title}</h1>
-            <button
-              onClick={onClose}
-              aria-label="Back"
-              className="shrink-0 flex items-center justify-center size-11 rounded-full"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <div className="flex-1 min-w-0">
-              <MealTypeSelector
-                value={mealTypeId}
-                onChange={setMealTypeId}
-                showTimeHint={false}
-                ariaLabel="Meal type"
-              />
+          <>
+            <div className="flex items-center gap-2">
+              <h1 className="sr-only">{title}</h1>
+              <button
+                onClick={onClose}
+                aria-label="Back"
+                className="shrink-0 flex items-center justify-center size-11 rounded-full"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <div className="flex-1 min-w-0">
+                <MealTypeSelector
+                  value={mealTypeId}
+                  onChange={setMealTypeId}
+                  showTimeHint={false}
+                  ariaLabel="Meal type"
+                />
+              </div>
+              <Button
+                onClick={handleLog}
+                disabled={logging}
+                className="shrink-0 min-h-[44px]"
+              >
+                {logging ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Logging...
+                  </>
+                ) : (
+                  "Log to Fitbit"
+                )}
+              </Button>
             </div>
-            <Button
-              onClick={handleLog}
-              disabled={logging}
-              className="shrink-0 min-h-[44px]"
-            >
-              {logging ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Logging...
-                </>
-              ) : (
-                "Log to Fitbit"
-              )}
-            </Button>
-          </div>
+            <div className="flex items-center gap-2 pl-1">
+              <TimeSelector value={selectedTime} onChange={setSelectedTime} />
+            </div>
+          </>
         ) : (
           /* Simple header: Back button + Title */
           <div className="flex items-center gap-2">

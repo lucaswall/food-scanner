@@ -104,6 +104,27 @@ vi.mock("../meal-type-selector", () => ({
   ),
 }));
 
+// Mock TimeSelector
+vi.mock("../time-selector", () => ({
+  TimeSelector: ({
+    value,
+    onChange,
+  }: {
+    value: string | null;
+    onChange: (time: string | null) => void;
+  }) => (
+    <div data-testid="time-selector">
+      <button onClick={() => onChange(null)} aria-label="Reset to Now">Now</button>
+      <input
+        type="time"
+        aria-label="Meal time"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+      />
+    </div>
+  ),
+}));
+
 // Mock compressImage
 vi.mock("@/lib/image", () => ({
   compressImage: vi.fn((file: File) => Promise.resolve(new Blob([file.name]))),
@@ -2112,6 +2133,161 @@ describe("FoodChat", () => {
       // Without seedMessages: slice(1) skips initial assistant message, only user message sent
       expect(body.messages).toHaveLength(1);
       expect(body.messages[0].role).toBe("user");
+    });
+  });
+
+  // FOO-715: SSE analysis event auto-updates selectedTime and mealTypeId
+  describe("SSE analysis auto-update for time and mealTypeId", () => {
+    it("when SSE analysis includes time, selectedTime state updates", async () => {
+      const analysisWithTime: FoodAnalysis = { ...mockAnalysis, time: "13:45" };
+      mockFetch
+        .mockResolvedValueOnce(
+          makeSSEFetchResponse([
+            { type: "analysis", analysis: analysisWithTime },
+            { type: "done" },
+          ])
+        )
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () =>
+            Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+        });
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "What time?" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      // TimeSelector should now show 13:45
+      const timeInput = screen.getByLabelText(/meal time/i);
+      expect(timeInput).toHaveValue("13:45");
+    });
+
+    it("when SSE analysis includes mealTypeId, mealTypeId state updates", async () => {
+      const analysisWithMealType: FoodAnalysis = { ...mockAnalysis, mealTypeId: 1 };
+      mockFetch.mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "analysis", analysis: analysisWithMealType },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Breakfast?" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      // MealTypeSelector should now show Breakfast (1)
+      const selector = screen.getByTestId("meal-type-selector");
+      const select = selector.querySelector("select") as HTMLSelectElement;
+      expect(select.value).toBe("1");
+    });
+
+    it("manual time change after SSE auto-update still works", async () => {
+      const analysisWithTime: FoodAnalysis = { ...mockAnalysis, time: "13:45" };
+      mockFetch
+        .mockResolvedValueOnce(
+          makeSSEFetchResponse([
+            { type: "analysis", analysis: analysisWithTime },
+            { type: "done" },
+          ])
+        )
+        .mockResolvedValueOnce({
+          ok: true,
+          text: () =>
+            Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+        });
+
+      render(<FoodChat {...sseProps} />);
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "What time?" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /send/i }));
+      });
+
+      // Auto-set to 13:45, now manually change to 09:00
+      const timeInput = screen.getByLabelText(/meal time/i);
+      fireEvent.change(timeInput, { target: { value: "09:00" } });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+      });
+
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      const body = JSON.parse((logCall![1] as { body: string }).body);
+      expect(body.time).toBe("09:00");
+    });
+  });
+
+  // FOO-713: TimeSelector integration in food-chat
+  describe("TimeSelector integration", () => {
+    it("TimeSelector appears in header when latestAnalysis exists", () => {
+      render(<FoodChat {...defaultProps} />);
+      expect(screen.getByTestId("time-selector")).toBeInTheDocument();
+    });
+
+    it("TimeSelector is not shown when no latestAnalysis exists", () => {
+      render(<FoodChat title="Chat" onClose={vi.fn()} onLogged={vi.fn()} />);
+      expect(screen.queryByTestId("time-selector")).not.toBeInTheDocument();
+    });
+
+    it("default selectedTime is null (Now mode — input value is empty)", () => {
+      render(<FoodChat {...defaultProps} />);
+      const timeInput = screen.getByLabelText(/meal time/i);
+      expect(timeInput).toHaveValue("");
+    });
+
+    it("selected time is passed to /api/log-food", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+      });
+
+      render(<FoodChat {...defaultProps} />);
+
+      const timeInput = screen.getByLabelText(/meal time/i);
+      fireEvent.change(timeInput, { target: { value: "12:30" } });
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
+      });
+
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      const body = JSON.parse((logCall![1] as { body: string }).body);
+      expect(body.time).toBe("12:30");
+    });
+
+    it("uses current local time when selectedTime is null (Now mode)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+      });
+
+      render(<FoodChat {...defaultProps} />);
+      // Don't set a time — leave it as null (Now mode)
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
+      });
+
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      const body = JSON.parse((logCall![1] as { body: string }).body);
+      // time should be a string in HH:MM format (from getLocalDateTime())
+      expect(body.time).toMatch(/^\d{2}:\d{2}$/);
     });
   });
 });
