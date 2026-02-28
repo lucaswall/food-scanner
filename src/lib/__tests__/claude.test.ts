@@ -2497,3 +2497,84 @@ describe("conversationalRefine overload retry", () => {
     vi.useRealTimers();
   });
 });
+
+// =============================================================================
+// validateFoodAnalysis — time and mealTypeId fields (FOO-715)
+// =============================================================================
+
+describe("validateFoodAnalysis — time and mealTypeId fields", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("accepts valid HH:mm time string", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, time: "08:30" });
+    expect(result.time).toBe("08:30");
+  });
+
+  it("accepts null time", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, time: null });
+    expect(result.time).toBeNull();
+  });
+
+  it("omitted time yields undefined (backwards compatible)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis });
+    expect(result.time).toBeUndefined();
+  });
+
+  it("rejects invalid time format '25:00'", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, time: "25:00" })).toThrow();
+  });
+
+  it("rejects invalid time format 'abc'", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, time: "abc" })).toThrow();
+  });
+
+  it("rejects invalid time format '8:30' (missing leading zero)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, time: "8:30" })).toThrow();
+  });
+
+  it("accepts valid meal_type_id (1)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, meal_type_id: 1 });
+    expect(result.mealTypeId).toBe(1);
+  });
+
+  it("accepts valid meal_type_id (7)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, meal_type_id: 7 });
+    expect(result.mealTypeId).toBe(7);
+  });
+
+  it("accepts null meal_type_id", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, meal_type_id: null });
+    expect(result.mealTypeId).toBeNull();
+  });
+
+  it("omitted meal_type_id yields undefined (backwards compatible)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis });
+    expect(result.mealTypeId).toBeUndefined();
+  });
+
+  it("rejects meal_type_id outside valid range (0)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, meal_type_id: 0 })).toThrow();
+  });
+
+  it("rejects meal_type_id outside valid range (8)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, meal_type_id: 8 })).toThrow();
+  });
+
+  it("rejects meal_type_id = 6 (not a valid Fitbit meal type)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, meal_type_id: 6 })).toThrow();
+  });
+});

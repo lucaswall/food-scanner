@@ -5,6 +5,7 @@ import { PhotoCapture } from "./photo-capture";
 import { DescriptionInput } from "./description-input";
 import { AnalysisResult } from "./analysis-result";
 import { MealTypeSelector } from "./meal-type-selector";
+import { TimeSelector } from "./time-selector";
 import { FoodLogConfirmation } from "./food-log-confirmation";
 import { FoodMatchCard } from "./food-match-card";
 import { FoodChat } from "./food-chat";
@@ -51,6 +52,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [loadingStep, setLoadingStep] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
+  const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [logging, setLogging] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
@@ -324,16 +326,20 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setLogging(true);
 
     try {
+      const localDateTime = getLocalDateTime();
+      const logTime = selectedTime ?? localDateTime.time;
       const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
         ? {
             reuseCustomFoodId: analysis.sourceCustomFoodId,
             mealTypeId,
-            ...getLocalDateTime(),
+            date: localDateTime.date,
+            time: logTime,
           }
         : {
             ...analysis,
             mealTypeId,
-            ...getLocalDateTime(),
+            date: localDateTime.date,
+            time: logTime,
           };
 
       const response = await fetch("/api/log-food", {
@@ -356,7 +362,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             analysis: analysis,
             mealTypeId,
             foodName: analysis.food_name,
-            ...getLocalDateTime(),
+            date: localDateTime.date,
+            time: logTime,
           });
           window.location.href = "/api/auth/fitbit";
           return;
@@ -683,6 +690,12 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
               disabled={logging}
               id="meal-type-analyzer"
             />
+          </div>
+
+          {/* Time selector */}
+          <div className="space-y-1">
+            <Label>Meal Time</Label>
+            <TimeSelector value={selectedTime} onChange={setSelectedTime} />
           </div>
 
           {/* Log error display */}

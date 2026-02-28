@@ -158,6 +158,27 @@ vi.mock("../meal-type-selector", () => ({
   ),
 }));
 
+// Mock TimeSelector
+vi.mock("../time-selector", () => ({
+  TimeSelector: ({
+    value,
+    onChange,
+  }: {
+    value: string | null;
+    onChange: (time: string | null) => void;
+  }) => (
+    <div data-testid="time-selector">
+      <button onClick={() => onChange(null)} aria-label="Reset to Now">Now</button>
+      <input
+        type="time"
+        aria-label="Meal time"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+      />
+    </div>
+  ),
+}));
+
 vi.mock("../food-match-card", () => ({
   FoodMatchCard: ({
     match,
@@ -3589,6 +3610,116 @@ describe("FoodAnalyzer", () => {
       await waitFor(() => {
         expect(screen.queryByTestId("analysis-narrative")).not.toBeInTheDocument();
       });
+    });
+  });
+
+  // FOO-714: TimeSelector integration in food-analyzer
+  describe("TimeSelector integration", () => {
+    it("TimeSelector appears alongside MealTypeSelector after analysis", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse());
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("time-selector")).toBeInTheDocument();
+      });
+    });
+
+    it("TimeSelector is not shown before analysis", () => {
+      render(<FoodAnalyzer />);
+      expect(screen.queryByTestId("time-selector")).not.toBeInTheDocument();
+    });
+
+    it("selected time is passed to /api/log-food", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("time-selector")).toBeInTheDocument();
+      });
+
+      const timeInput = screen.getByLabelText(/meal time/i);
+      fireEvent.change(timeInput, { target: { value: "08:15" } });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
+      });
+
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      const body = JSON.parse((logCall![1] as { body: string }).body);
+      expect(body.time).toBe("08:15");
+    });
+
+    it("uses current local time when no time is selected (Now mode)", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      // Don't set time — leave as null
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith("/api/log-food", expect.any(Object));
+      });
+
+      const logCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      const body = JSON.parse((logCall![1] as { body: string }).body);
+      expect(body.time).toMatch(/^\d{2}:\d{2}$/);
     });
   });
 });
