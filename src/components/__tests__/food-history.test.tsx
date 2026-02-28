@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, cleanup } from "@testing-library/react";
 import { SWRConfig } from "swr";
 import { FoodHistory } from "../food-history";
 import type { FoodLogHistoryEntry } from "@/types";
@@ -32,6 +32,16 @@ vi.mock("@/lib/swr", async () => {
     invalidateFoodCaches: mockInvalidateFoodCaches,
   };
 });
+
+// Mock IntersectionObserver
+const mockObserve = vi.fn();
+const mockDisconnect = vi.fn();
+const MockIntersectionObserver = vi.fn(function (this: IntersectionObserver) {
+  this.observe = mockObserve;
+  this.disconnect = mockDisconnect;
+  this.unobserve = vi.fn();
+} as unknown as () => void);
+vi.stubGlobal("IntersectionObserver", MockIntersectionObserver);
 
 const today = "2026-02-06";
 const yesterday = "2026-02-05";
@@ -92,15 +102,27 @@ const mockEntries: FoodLogHistoryEntry[] = [
 
 function renderFoodHistory() {
   return render(
-    <SWRConfig value={{ provider: () => new Map() }}>
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
       <FoodHistory />
     </SWRConfig>
   );
 }
 
+/** Helper to trigger IntersectionObserver callback (simulates sentinel entering viewport) */
+function triggerIntersection() {
+  const calls = MockIntersectionObserver.mock.calls as unknown as [[IntersectionObserverCallback]];
+  calls[0][0]([{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockInvalidateFoodCaches.mockClear();
+  // Restore IntersectionObserver mock after vi.clearAllMocks() strips implementation
+  MockIntersectionObserver.mockImplementation(function (this: IntersectionObserver) {
+    this.observe = mockObserve;
+    this.disconnect = mockDisconnect;
+    this.unobserve = vi.fn();
+  } as unknown as () => void);
 });
 
 describe("FoodHistory", () => {
@@ -234,38 +256,6 @@ describe("FoodHistory", () => {
     expect(quickSelectLink).toHaveAttribute("href", "/app/quick-select");
   });
 
-  it("logs error to console when fetchEntries fails", async () => {
-    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    // SWR initial load succeeds
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
-    });
-
-    renderFoodHistory();
-
-    await waitFor(() => {
-      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
-    });
-
-    // Jump to Date triggers fetchEntries — mock it to fail
-    const dateInput = screen.getByLabelText(/jump to date/i);
-    fireEvent.change(dateInput, { target: { value: "2026-02-01" } });
-
-    mockFetch.mockRejectedValueOnce(new Error("network failure"));
-    fireEvent.click(screen.getByRole("button", { name: /go/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/failed to load entries/i)).toBeInTheDocument();
-    });
-
-    expect(consoleSpy).toHaveBeenCalledWith(
-      "Failed to fetch food history entries:",
-      expect.any(Error),
-    );
-    consoleSpy.mockRestore();
-  });
-
   it("logs error to console when delete fails", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockFetch
@@ -298,37 +288,6 @@ describe("FoodHistory", () => {
     consoleSpy.mockRestore();
   });
 
-  it("passes AbortSignal.timeout to fetch calls", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
-    });
-
-    renderFoodHistory();
-
-    await waitFor(() => {
-      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
-    });
-
-    // The SWR call uses apiFetcher (not our fetch), but fetchEntries calls fetch directly
-    // Trigger a Jump to Date to exercise fetchEntries
-    const dateInput = screen.getByLabelText(/jump to date/i);
-    fireEvent.change(dateInput, { target: { value: "2026-02-01" } });
-
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ success: true, data: { entries: [] } }),
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: /go/i }));
-
-    await waitFor(() => {
-      const fetchCalls = mockFetch.mock.calls;
-      const jumpCall = fetchCalls[fetchCalls.length - 1];
-      expect((jumpCall[1] as RequestInit).signal).toBeDefined();
-    });
-  });
-
   it("delete button opens AlertDialog and confirm deletes entry", async () => {
     mockFetch
       .mockResolvedValueOnce({
@@ -338,6 +297,11 @@ describe("FoodHistory", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ success: true }),
+      })
+      // Revalidation fetch after mutate()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries.filter((e) => e.id !== 1) } }),
       });
 
     renderFoodHistory();
@@ -448,10 +412,6 @@ describe("FoodHistory", () => {
 
   it("formatDateHeader shows Today/Yesterday using local date, not UTC", async () => {
     // Simulate a scenario where UTC date differs from local date.
-    // We mock Date so that:
-    // - Local methods (getFullYear/getMonth/getDate) return Feb 6
-    // - toISOString() returns "2026-02-07T..." (as if UTC is next day)
-    // This happens in practice near midnight in western timezones (e.g., UTC-3).
     const RealDate = globalThis.Date;
     const mockNow = new RealDate(2026, 1, 6, 23, 30, 0); // Feb 6 23:30 local
 
@@ -522,62 +482,10 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Late night snack")).toBeInTheDocument();
     });
 
-    // With the fix (local date methods), "2026-02-06" should show as "Today"
-    // With the bug (toISOString), todayStr would be "2026-02-07", so it wouldn't match
     expect(screen.getByText("Today")).toBeInTheDocument();
     expect(screen.getByText("Yesterday")).toBeInTheDocument();
 
     globalThis.Date = RealDate;
-  });
-
-  it("Load more sends composite cursor params (lastDate, lastTime, lastId)", async () => {
-    // Need 20 entries to trigger hasMore=true
-    const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
-      id: i + 1,
-      customFoodId: i + 1,
-      foodName: `Food ${i + 1}`,
-      calories: 100 + i * 10,
-      proteinG: 5,
-      carbsG: 10,
-      fatG: 3,
-      fiberG: 1,
-      sodiumMg: 50,
-      amount: 100,
-      unitId: 147,
-      mealTypeId: 3,
-      date: i < 10 ? today : yesterday,
-      time: "12:00:00",
-      fitbitLogId: 1000 + i,
-    }));
-
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: [] } }),
-      });
-
-    renderFoodHistory();
-
-    await waitFor(() => {
-      expect(screen.getByText("Food 1")).toBeInTheDocument();
-    });
-
-    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
-    fireEvent.click(loadMoreButton);
-
-    // Oldest entry is id=20, date=yesterday, time="12:00:00"
-    await waitFor(() => {
-      const url = mockFetch.mock.calls[1][0] as string;
-      expect(url).toContain(`lastDate=${yesterday}`);
-      expect(url).toContain("lastTime=12%3A00%3A00");
-      expect(url).toContain("lastId=20");
-      // Should NOT contain afterId
-      expect(url).not.toContain("afterId");
-    });
   });
 
   it("dialog has aria-describedby={undefined} to suppress Radix warning", async () => {
@@ -613,13 +521,11 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
-    // Click the entry row button (aria-label includes calories, not "Delete")
     const entryButton = screen.getByRole("button", { name: /empanada de carne, 320 calories/i });
     fireEvent.click(entryButton);
 
     await waitFor(() => {
       expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
-      // Fiber and sodium should be visible in the dialog
       expect(screen.getByText("2g")).toBeInTheDocument();
       expect(screen.getByText("450mg")).toBeInTheDocument();
     });
@@ -637,13 +543,11 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Cafe con leche")).toBeInTheDocument();
     });
 
-    // Click the second entry
     const entryButton = screen.getByRole("button", { name: /cafe con leche, 120 calories/i });
     fireEvent.click(entryButton);
 
     await waitFor(() => {
       expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
-      // Cafe con leche specific values
       expect(screen.getByText("0g")).toBeInTheDocument(); // fiber
       expect(screen.getByText("80mg")).toBeInTheDocument(); // sodium
     });
@@ -661,11 +565,9 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
-    // Click the delete button — should open AlertDialog, not nutrition dialog
     const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
     fireEvent.click(deleteButtons[0]);
 
-    // Nutrition dialog should NOT open
     await waitFor(() => {
       expect(screen.queryByText("Nutrition Facts")).not.toBeInTheDocument();
     });
@@ -687,7 +589,6 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
-    // Open dialog
     const entryButton = screen.getByRole("button", { name: /empanada de carne, 320 calories/i });
     fireEvent.click(entryButton);
 
@@ -695,7 +596,6 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
     });
 
-    // Close dialog
     const closeButton = screen.getByRole("button", { name: /close/i });
     fireEvent.click(closeButton);
 
@@ -716,7 +616,6 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
-    // Open dialog
     const entryButton = screen.getByRole("button", { name: /empanada de carne, 320 calories/i });
     fireEvent.click(entryButton);
 
@@ -724,293 +623,12 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Nutrition Facts")).toBeInTheDocument();
     });
 
-    // The DialogContent renders as role="dialog"
     const dialog = screen.getByRole("dialog");
     const classes = dialog.className;
-    // Should have bottom-sheet animation class for mobile
     expect(classes).toContain("data-[state=open]:slide-in-from-bottom");
     expect(classes).toContain("data-[state=closed]:slide-out-to-bottom");
-    // Should be positioned near bottom on mobile with spacing
     expect(dialog).toHaveClass("bottom-4");
-    // Should have rounded top corners
     expect(dialog).toHaveClass("rounded-t-lg");
-  });
-
-  it("Load more omits lastTime when entry time is null", async () => {
-    const entriesWithNullTime: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
-      id: i + 1,
-      customFoodId: i + 1,
-      foodName: `Food ${i + 1}`,
-      calories: 100,
-      proteinG: 5,
-      carbsG: 10,
-      fatG: 3,
-      fiberG: 1,
-      sodiumMg: 50,
-      amount: 100,
-      unitId: 147,
-      mealTypeId: 3,
-      date: today,
-      time: null,
-      fitbitLogId: 1000 + i,
-    }));
-
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: entriesWithNullTime } }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: [] } }),
-      });
-
-    renderFoodHistory();
-
-    await waitFor(() => {
-      expect(screen.getByText("Food 1")).toBeInTheDocument();
-    });
-
-    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
-    fireEvent.click(loadMoreButton);
-
-    await waitFor(() => {
-      const url = mockFetch.mock.calls[1][0] as string;
-      expect(url).toContain(`lastDate=${today}`);
-      expect(url).toContain("lastId=20");
-      expect(url).not.toContain("lastTime");
-    });
-  });
-
-  it("SWR revalidation after delete does not overwrite paginated entries", async () => {
-    // Initial 20 entries so "Load More" button appears
-    const initialEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
-      id: i + 1,
-      customFoodId: i + 1,
-      foodName: `Initial ${i + 1}`,
-      calories: 100,
-      proteinG: 5,
-      carbsG: 10,
-      fatG: 3,
-      fiberG: 1,
-      sodiumMg: 50,
-      amount: 100,
-      unitId: 147,
-      mealTypeId: 3,
-      date: today,
-      time: "12:00:00",
-      fitbitLogId: 1000 + i,
-    }));
-
-    // Extra entries returned by "Load More"
-    const paginatedEntries: FoodLogHistoryEntry[] = Array.from({ length: 5 }, (_, i) => ({
-      id: 100 + i,
-      customFoodId: 100 + i,
-      foodName: `Paginated ${i + 1}`,
-      calories: 200,
-      proteinG: 10,
-      carbsG: 20,
-      fatG: 6,
-      fiberG: 2,
-      sodiumMg: 100,
-      amount: 100,
-      unitId: 147,
-      mealTypeId: 3,
-      date: yesterday,
-      time: "10:00:00",
-      fitbitLogId: 2000 + i,
-    }));
-
-    // SWR revalidation after mutate() returns first page only (without deleted entry)
-    const revalidatedEntries = initialEntries.filter((e) => e.id !== 1);
-
-    mockFetch
-      // Call 1: SWR initial fetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: initialEntries } }),
-      })
-      // Call 2: "Load More" pagination
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: paginatedEntries } }),
-      })
-      // Call 3: DELETE API call
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true }),
-      })
-      // Call 4: SWR revalidation triggered by mutate()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: revalidatedEntries } }),
-      });
-
-    renderFoodHistory();
-
-    // Wait for initial entries
-    await waitFor(() => {
-      expect(screen.getByText("Initial 1")).toBeInTheDocument();
-    });
-
-    // Click "Load More" to append paginated entries
-    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
-    fireEvent.click(loadMoreButton);
-
-    // Wait for paginated entries to appear
-    await waitFor(() => {
-      expect(screen.getByText("Paginated 1")).toBeInTheDocument();
-    });
-
-    // Now delete an entry — click delete button, then confirm in AlertDialog
-    const deleteButtons = screen.getAllByRole("button", { name: /delete initial 1/i });
-    fireEvent.click(deleteButtons[0]);
-
-    // Confirm in AlertDialog
-    await waitFor(() => {
-      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
-    });
-    const confirmButton = screen.getByRole("button", { name: /confirm/i });
-    fireEvent.click(confirmButton);
-
-    // Wait for delete to complete and SWR revalidation to settle
-    await waitFor(() => {
-      // Deleted entry should be gone
-      expect(screen.queryByText("Initial 1")).not.toBeInTheDocument();
-    });
-
-    // Wait for SWR revalidation to complete
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledTimes(4);
-    });
-
-    // CRITICAL: Paginated entries should still be present after SWR revalidation
-    expect(screen.getByText("Paginated 1")).toBeInTheDocument();
-    expect(screen.getByText("Paginated 5")).toBeInTheDocument();
-    // Other initial entries should also still be present
-    expect(screen.getByText("Initial 2")).toBeInTheDocument();
-  });
-
-  it("shows error message when Load More fetch fails", async () => {
-    // Need 20 entries to trigger hasMore=true
-    const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
-      id: i + 1,
-      customFoodId: i + 1,
-      foodName: `Food ${i + 1}`,
-      calories: 100,
-      proteinG: 5,
-      carbsG: 10,
-      fatG: 3,
-      fiberG: 1,
-      sodiumMg: 50,
-      amount: 100,
-      unitId: 147,
-      mealTypeId: 3,
-      date: today,
-      time: "12:00:00",
-      fitbitLogId: 1000 + i,
-    }));
-
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
-      })
-      .mockRejectedValueOnce(new Error("Network error"));
-
-    renderFoodHistory();
-
-    await waitFor(() => {
-      expect(screen.getByText("Food 1")).toBeInTheDocument();
-    });
-
-    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
-    fireEvent.click(loadMoreButton);
-
-    await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toHaveTextContent(/failed to load entries/i);
-    });
-  });
-
-  it("shows error message when Jump to Date fetch fails", async () => {
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
-      })
-      .mockRejectedValueOnce(new Error("Network error"));
-
-    renderFoodHistory();
-
-    await waitFor(() => {
-      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
-    });
-
-    const dateInput = screen.getByLabelText(/jump to date/i);
-    fireEvent.change(dateInput, { target: { value: "2026-01-15" } });
-
-    const goButton = screen.getByRole("button", { name: /go/i });
-    fireEvent.click(goButton);
-
-    await waitFor(() => {
-      const alert = screen.getAllByRole("alert");
-      const fetchAlert = alert.find((el) => el.textContent?.includes("Failed to load entries"));
-      expect(fetchAlert).toBeTruthy();
-    });
-  });
-
-  it("clears fetch error on subsequent successful fetch", async () => {
-    const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
-      id: i + 1,
-      customFoodId: i + 1,
-      foodName: `Food ${i + 1}`,
-      calories: 100,
-      proteinG: 5,
-      carbsG: 10,
-      fatG: 3,
-      fiberG: 1,
-      sodiumMg: 50,
-      amount: 100,
-      unitId: 147,
-      mealTypeId: 3,
-      date: today,
-      time: "12:00:00",
-      fitbitLogId: 1000 + i,
-    }));
-
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
-      })
-      .mockRejectedValueOnce(new Error("Network error"))
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: [] } }),
-      });
-
-    renderFoodHistory();
-
-    await waitFor(() => {
-      expect(screen.getByText("Food 1")).toBeInTheDocument();
-    });
-
-    // First click: fails
-    fireEvent.click(screen.getByRole("button", { name: /load more/i }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/failed to load entries/i);
-    });
-
-    // Second click: succeeds — error should be cleared
-    fireEvent.click(screen.getByRole("button", { name: /load more/i }));
-
-    await waitFor(() => {
-      const alerts = screen.queryAllByRole("alert");
-      const fetchAlert = alerts.find((el) => el.textContent?.includes("Failed to load entries"));
-      expect(fetchAlert).toBeUndefined();
-    });
   });
 
   it("date headers use h2 elements", async () => {
@@ -1025,8 +643,6 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
-    // Date headers should be h2 (not h3) for proper heading hierarchy
-    // mockEntries span two dates, so we should get exactly 2 h2 headings
     const headings = screen.getAllByRole("heading", { level: 2 });
     expect(headings).toHaveLength(2);
   });
@@ -1341,11 +957,9 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
-    // Click delete button
     const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
     fireEvent.click(deleteButtons[0]);
 
-    // Confirm deletion in dialog
     await waitFor(() => {
       expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     });
@@ -1353,13 +967,11 @@ describe("FoodHistory", () => {
     const confirmButton = screen.getByRole("button", { name: /confirm/i });
     fireEvent.click(confirmButton);
 
-    // Should show error with reconnect link
     await waitFor(() => {
       expect(screen.getByText(/token expired/i)).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /reconnect fitbit/i })).toBeInTheDocument();
     });
 
-    // Verify link points to auth endpoint
     const reconnectLink = screen.getByRole("link", { name: /reconnect fitbit/i });
     expect(reconnectLink).toHaveAttribute("href", "/api/auth/fitbit");
   });
@@ -1386,11 +998,9 @@ describe("FoodHistory", () => {
       expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
     });
 
-    // Click delete button
     const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
     fireEvent.click(deleteButtons[0]);
 
-    // Confirm deletion in dialog
     await waitFor(() => {
       expect(screen.getByRole("alertdialog")).toBeInTheDocument();
     });
@@ -1398,124 +1008,10 @@ describe("FoodHistory", () => {
     const confirmButton = screen.getByRole("button", { name: /confirm/i });
     fireEvent.click(confirmButton);
 
-    // Should show error with Settings link
     await waitFor(() => {
       expect(screen.getByText(/credentials.*settings/i)).toBeInTheDocument();
       expect(screen.getByRole("link", { name: /settings/i })).toBeInTheDocument();
     });
-  });
-
-  // FOO-663: Request cancellation for concurrent Load More + Jump to Date
-  it("aborts in-flight Load More request when Jump to Date is triggered", async () => {
-    const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
-      id: i + 1,
-      customFoodId: i + 1,
-      foodName: `Food ${i + 1}`,
-      calories: 100,
-      proteinG: 5,
-      carbsG: 10,
-      fatG: 3,
-      fiberG: 1,
-      sodiumMg: 50,
-      amount: 100,
-      unitId: 147,
-      mealTypeId: 3,
-      date: today,
-      time: "12:00:00",
-      fitbitLogId: 1000 + i,
-    }));
-
-    let loadMoreSignal: AbortSignal | undefined;
-
-    mockFetch
-      // Call 1: SWR initial load
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
-      })
-      // Call 2: Load More — captures signal, never resolves
-      .mockImplementationOnce((_url: string, opts?: RequestInit) => {
-        loadMoreSignal = opts?.signal as AbortSignal | undefined;
-        return new Promise(() => {});
-      })
-      // Call 3: Jump to Date — resolves immediately
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: [] } }),
-      });
-
-    renderFoodHistory();
-
-    await waitFor(() => {
-      expect(screen.getByText("Food 1")).toBeInTheDocument();
-    });
-
-    // Set jump date (enables Go button)
-    const dateInput = screen.getByLabelText(/jump to date/i);
-    fireEvent.change(dateInput, { target: { value: "2026-01-01" } });
-
-    // Trigger Load More (in-flight, never resolves)
-    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
-    fireEvent.click(loadMoreButton);
-
-    // Immediately trigger Jump to Date (should abort Load More)
-    const goButton = screen.getByRole("button", { name: /go/i });
-    fireEvent.click(goButton);
-
-    // Load More signal should be aborted
-    await waitFor(() => {
-      expect(loadMoreSignal).toBeDefined();
-      expect(loadMoreSignal?.aborted).toBe(true);
-    });
-  });
-
-  it("does not show fetch error when Load More is intentionally aborted", async () => {
-    const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
-      id: i + 1,
-      customFoodId: i + 1,
-      foodName: `Food ${i + 1}`,
-      calories: 100,
-      proteinG: 5,
-      carbsG: 10,
-      fatG: 3,
-      fiberG: 1,
-      sodiumMg: 50,
-      amount: 100,
-      unitId: 147,
-      mealTypeId: 3,
-      date: today,
-      time: "12:00:00",
-      fitbitLogId: 1000 + i,
-    }));
-
-    mockFetch
-      // Call 1: SWR initial load
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
-      })
-      // Call 2: Load More — rejected with AbortError (intentional cancellation)
-      .mockRejectedValueOnce(new DOMException("The operation was aborted.", "AbortError"));
-
-    renderFoodHistory();
-
-    await waitFor(() => {
-      expect(screen.getByText("Food 1")).toBeInTheDocument();
-    });
-
-    // Trigger Load More
-    const loadMoreButton = screen.getByRole("button", { name: /load more/i });
-    fireEvent.click(loadMoreButton);
-
-    // Wait for the button to re-enable (finally block ran, loadingMore=false)
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: /load more/i })).not.toBeDisabled();
-    });
-
-    // No error message should be shown for intentional abort
-    const alerts = screen.queryAllByRole("alert");
-    const fetchAlert = alerts.find((el) => el.textContent?.includes("Failed to load entries"));
-    expect(fetchAlert).toBeUndefined();
   });
 
   // FOO-498: SWR Cache Invalidation
@@ -1529,6 +1025,11 @@ describe("FoodHistory", () => {
         .mockResolvedValueOnce({
           ok: true,
           json: () => Promise.resolve({ success: true }),
+        })
+        // Revalidation fetch after mutate()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries.filter((e) => e.id !== 1) } }),
         });
 
       renderFoodHistory();
@@ -1539,7 +1040,6 @@ describe("FoodHistory", () => {
 
       mockInvalidateFoodCaches.mockClear();
 
-      // Click delete button and confirm
       const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
       fireEvent.click(deleteButtons[0]);
 
@@ -1550,7 +1050,6 @@ describe("FoodHistory", () => {
       const confirmButton = screen.getByRole("button", { name: /confirm/i });
       fireEvent.click(confirmButton);
 
-      // Wait for delete to complete
       await waitFor(() => {
         expect(screen.queryByText("Empanada de carne")).not.toBeInTheDocument();
       });
@@ -1577,7 +1076,6 @@ describe("FoodHistory", () => {
 
       mockInvalidateFoodCaches.mockClear();
 
-      // Click delete button and confirm
       const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
       fireEvent.click(deleteButtons[0]);
 
@@ -1588,48 +1086,11 @@ describe("FoodHistory", () => {
       const confirmButton = screen.getByRole("button", { name: /confirm/i });
       fireEvent.click(confirmButton);
 
-      // Wait for error to appear
       await waitFor(() => {
         expect(screen.getByRole("alert")).toBeInTheDocument();
       });
 
       expect(mockInvalidateFoodCaches).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("unmount cleanup", () => {
-    it("aborts in-flight request on component unmount", async () => {
-      mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
-        })
-        .mockImplementationOnce(() => new Promise(() => {})); // Hang forever
-
-      const { unmount } = renderFoodHistory();
-      await waitFor(() => {
-        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
-      });
-
-      // Trigger a fetchEntries call via Jump to Date
-      const dateInput = screen.getByLabelText(/jump to date/i);
-      fireEvent.change(dateInput, { target: { value: "2026-02-01" } });
-      fireEvent.click(screen.getByRole("button", { name: /go/i }));
-
-      // Get the signal from the fetch call
-      await waitFor(() => {
-        expect(mockFetch.mock.calls.length).toBeGreaterThan(1);
-      });
-      const jumpCallArgs = mockFetch.mock.calls[mockFetch.mock.calls.length - 1];
-      const signal = (jumpCallArgs[1] as RequestInit).signal;
-      expect(signal).toBeDefined();
-      expect(signal!.aborted).toBe(false);
-
-      // Unmount component while request is in flight
-      unmount();
-
-      // Signal should be aborted after unmount
-      expect(signal!.aborted).toBe(true);
     });
   });
 
@@ -1657,6 +1118,393 @@ describe("FoodHistory", () => {
         expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
       });
       consoleSpy.mockRestore();
+    });
+  });
+
+  describe("infinite scroll sentinel", () => {
+    it("shows sentinel element when hasMore is true (20 entries)", async () => {
+      const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+        id: i + 1,
+        customFoodId: i + 1,
+        foodName: `Food ${i + 1}`,
+        calories: 100,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 3,
+        fiberG: 1,
+        sodiumMg: 50,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: today,
+        time: "12:00:00",
+        fitbitLogId: 1000 + i,
+      }));
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
+      });
+
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Food 1")).toBeInTheDocument();
+      });
+
+      expect(screen.getByTestId("infinite-scroll-sentinel")).toBeInTheDocument();
+    });
+
+    it("does not show sentinel when hasMore is false (fewer than 20 entries)", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+      });
+
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId("infinite-scroll-sentinel")).not.toBeInTheDocument();
+    });
+
+    it("does not show Load More button (replaced by infinite scroll)", async () => {
+      const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+        id: i + 1,
+        customFoodId: i + 1,
+        foodName: `Food ${i + 1}`,
+        calories: 100,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 3,
+        fiberG: 1,
+        sodiumMg: 50,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: today,
+        time: "12:00:00",
+        fitbitLogId: 1000 + i,
+      }));
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
+      });
+
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Food 1")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
+    });
+
+    it("IntersectionObserver triggers next page load with correct composite cursor params", async () => {
+      // Need 20 entries to trigger hasMore=true
+      const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+        id: i + 1,
+        customFoodId: i + 1,
+        foodName: `Food ${i + 1}`,
+        calories: 100 + i * 10,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 3,
+        fiberG: 1,
+        sodiumMg: 50,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: i < 10 ? today : yesterday,
+        time: "12:00:00",
+        fitbitLogId: 1000 + i,
+      }));
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
+        })
+        // revalidateFirstPage: true re-fetches page 0 when setSize(2) fires
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+        });
+
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Food 1")).toBeInTheDocument();
+      });
+
+      // Trigger intersection (sentinel enters viewport)
+      await act(async () => {
+        triggerIntersection();
+      });
+
+      // Oldest entry is id=20, date=yesterday, time="12:00:00"
+      // calls[0]=page0 initial, calls[1]=page0 re-fetch (revalidateFirstPage), calls[2]=page1 with cursor
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+      });
+
+      const url = mockFetch.mock.calls[2][0] as string;
+      expect(url).toContain(`lastDate=${yesterday}`);
+      expect(url).toContain("lastTime=12%3A00%3A00");
+      expect(url).toContain("lastId=20");
+      // Should NOT contain afterId
+      expect(url).not.toContain("afterId");
+    });
+
+    it("IntersectionObserver omits lastTime from cursor when entry time is null", async () => {
+      const entriesWithNullTime: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+        id: i + 1,
+        customFoodId: i + 1,
+        foodName: `Food ${i + 1}`,
+        calories: 100,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 3,
+        fiberG: 1,
+        sodiumMg: 50,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: today,
+        time: null,
+        fitbitLogId: 1000 + i,
+      }));
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: entriesWithNullTime } }),
+        })
+        // revalidateFirstPage: true re-fetches page 0 when setSize(2) fires
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: entriesWithNullTime } }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: [] } }),
+        });
+
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Food 1")).toBeInTheDocument();
+      });
+
+      await act(async () => {
+        triggerIntersection();
+      });
+
+      // calls[0]=page0 initial, calls[1]=page0 re-fetch (revalidateFirstPage), calls[2]=page1 with cursor
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(3);
+      });
+
+      const url = mockFetch.mock.calls[2][0] as string;
+      expect(url).toContain(`lastDate=${today}`);
+      expect(url).toContain("lastId=20");
+      expect(url).not.toContain("lastTime");
+    });
+
+    it("shows error banner when next page fetch fails", async () => {
+      const manyEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+        id: i + 1,
+        customFoodId: i + 1,
+        foodName: `Food ${i + 1}`,
+        calories: 100,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 3,
+        fiberG: 1,
+        sodiumMg: 50,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: today,
+        time: "12:00:00",
+        fitbitLogId: 1000 + i,
+      }));
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: manyEntries } }),
+        })
+        .mockRejectedValueOnce(new Error("Network error"));
+
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Food 1")).toBeInTheDocument();
+      });
+
+      await act(async () => {
+        triggerIntersection();
+      });
+
+      await waitFor(() => {
+        const alert = screen.getByRole("alert");
+        expect(alert).toHaveTextContent(/failed to load entries/i);
+      });
+    });
+
+    it("shows error banner when Jump to Date fetch fails", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+        })
+        .mockRejectedValueOnce(new Error("Network error"));
+
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const dateInput = screen.getByLabelText(/jump to date/i);
+      fireEvent.change(dateInput, { target: { value: "2026-01-15" } });
+
+      const goButton = screen.getByRole("button", { name: /go/i });
+      fireEvent.click(goButton);
+
+      await waitFor(() => {
+        const alerts = screen.getAllByRole("alert");
+        const fetchAlert = alerts.find((el) => el.textContent?.includes("Failed to load entries"));
+        expect(fetchAlert).toBeTruthy();
+      });
+    });
+
+    it("paginated entries remain visible after successful delete", async () => {
+      // Initial 20 entries so sentinel appears — keep all 20 intact to ensure page 1 is re-fetched after mutate
+      const initialEntries: FoodLogHistoryEntry[] = Array.from({ length: 20 }, (_, i) => ({
+        id: i + 1,
+        customFoodId: i + 1,
+        foodName: `Initial ${i + 1}`,
+        calories: 100,
+        proteinG: 5,
+        carbsG: 10,
+        fatG: 3,
+        fiberG: 1,
+        sodiumMg: 50,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: today,
+        time: "12:00:00",
+        fitbitLogId: 1000 + i,
+      }));
+
+      // Extra entries returned on page 2 via intersection (ids 100-104)
+      const paginatedEntries: FoodLogHistoryEntry[] = Array.from({ length: 5 }, (_, i) => ({
+        id: 100 + i,
+        customFoodId: 100 + i,
+        foodName: `Paginated ${i + 1}`,
+        calories: 200,
+        proteinG: 10,
+        carbsG: 20,
+        fatG: 6,
+        fiberG: 2,
+        sodiumMg: 100,
+        amount: 100,
+        unitId: 147,
+        mealTypeId: 3,
+        date: yesterday,
+        time: "10:00:00",
+        fitbitLogId: 2000 + i,
+      }));
+
+      // Delete a paginated entry (id=100, "Paginated 1") so page 0 stays at 20 entries.
+      // This ensures getKey returns a URL for page 1 after mutate() (since page 0 has PAGE_SIZE entries).
+      const revalidatedPage1 = paginatedEntries.filter((e) => e.id !== 100);
+
+      mockFetch
+        // Call 1: page 0 initial fetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: initialEntries } }),
+        })
+        // Call 2: page 0 re-fetch (revalidateFirstPage: true fires on setSize)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: initialEntries } }),
+        })
+        // Call 3: page 1 via intersection
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: paginatedEntries } }),
+        })
+        // Call 4: DELETE API call (deleting "Paginated 1", id=100)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true }),
+        })
+        // Call 5: page 0 revalidation after mutate() (unchanged — still 20 entries)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: initialEntries } }),
+        })
+        // Call 6: page 1 revalidation after mutate() (page 0 still has 20 entries, so getKey returns a URL)
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { entries: revalidatedPage1 } }),
+        });
+
+      renderFoodHistory();
+
+      // Wait for initial entries
+      await waitFor(() => {
+        expect(screen.getByText("Initial 1")).toBeInTheDocument();
+      });
+
+      // Trigger intersection to load paginated entries
+      await act(async () => {
+        triggerIntersection();
+      });
+
+      // Wait for paginated entries to appear
+      await waitFor(() => {
+        expect(screen.getByText("Paginated 1")).toBeInTheDocument();
+      });
+
+      // Delete "Paginated 1" (id=100) — a paginated entry, not an initial one
+      const deleteButtons = screen.getAllByRole("button", { name: /delete paginated 1/i });
+      fireEvent.click(deleteButtons[0]);
+
+      await waitFor(() => {
+        expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+      });
+
+      const confirmButton = screen.getByRole("button", { name: /confirm/i });
+      fireEvent.click(confirmButton);
+
+      // Wait for delete and revalidation to complete
+      // calls: 1=page0 initial, 2=page0 re-fetch (revalidateFirstPage), 3=page1, 4=DELETE, 5=page0 mutate, 6=page1 mutate
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledTimes(6);
+      });
+
+      // Deleted paginated entry should be gone
+      expect(screen.queryByText("Paginated 1")).not.toBeInTheDocument();
+
+      // CRITICAL: Remaining paginated entries should still be present after revalidation
+      expect(screen.getByText("Paginated 2")).toBeInTheDocument();
+      expect(screen.getByText("Paginated 5")).toBeInTheDocument();
+      // Initial entries should be unaffected
+      expect(screen.getByText("Initial 1")).toBeInTheDocument();
+      expect(screen.getByText("Initial 2")).toBeInTheDocument();
     });
   });
 });

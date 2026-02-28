@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { apiFetcher, invalidateFoodCaches } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,11 +17,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { Trash2, UtensilsCrossed } from "lucide-react";
+import { Trash2, UtensilsCrossed, Loader2 } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogHistoryEntry } from "@/types";
+
+const PAGE_SIZE = 20;
 
 function formatLocalDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -77,118 +79,66 @@ function groupByDate(entries: FoodLogHistoryEntry[]): DateGroup[] {
 }
 
 export function FoodHistory() {
-  const { data: initialData, isLoading, mutate } = useSWR<{ entries: FoodLogHistoryEntry[] }>(
-    "/api/food-history?limit=20",
-    apiFetcher,
-  );
-
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const [entries, setEntries] = useState<FoodLogHistoryEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [endDate, setEndDate] = useState<string | null>(null);
+  const [jumpDate, setJumpDate] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteErrorCode, setDeleteErrorCode] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
-  const [jumpDate, setJumpDate] = useState("");
 
-  // Cleanup on unmount — abort any in-flight fetchEntries request
-  useEffect(() => {
-    return () => {
-      abortControllerRef.current?.abort();
-    };
-  }, []);
-
-  // Seed local entries state from SWR initial data.
-  // After pagination or "Jump to Date", hasPaginated prevents SWR revalidation
-  // from overwriting local state with first-page-only data.
-  const hasPaginated = useRef(false);
-  useEffect(() => {
-    if (initialData?.entries && !hasPaginated.current) {
-      setEntries(initialData.entries);
-      setHasMore(initialData.entries.length >= 20);
-    }
-  }, [initialData]);
-
-  const fetchEntries = useCallback(async (
-    endDate?: string,
-    append = false,
-    cursor?: { lastDate: string; lastTime: string | null; lastId: number },
-  ) => {
-    // Abort any in-flight request before starting a new one
-    abortControllerRef.current?.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
-    const timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 15000);
-
-    if (append) {
-      setLoadingMore(true);
-    } else {
-      setLoading(true);
-    }
-
-    setFetchError(null);
-
-    try {
-      const params = new URLSearchParams();
+  const getKey = useCallback(
+    (pageIndex: number, previousPageData: { entries: FoodLogHistoryEntry[] } | null) => {
+      if (previousPageData && previousPageData.entries.length < PAGE_SIZE) return null;
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
       if (endDate) params.set("endDate", endDate);
-      if (cursor) {
-        params.set("lastDate", cursor.lastDate);
-        if (cursor.lastTime) params.set("lastTime", cursor.lastTime);
-        params.set("lastId", String(cursor.lastId));
+      if (pageIndex > 0 && previousPageData) {
+        const lastEntry = previousPageData.entries[previousPageData.entries.length - 1];
+        params.set("lastDate", lastEntry.date);
+        if (lastEntry.time) params.set("lastTime", lastEntry.time);
+        params.set("lastId", String(lastEntry.id));
       }
-      params.set("limit", "20");
+      return `/api/food-history?${params}`;
+    },
+    [endDate],
+  );
 
-      const response = await fetch(`/api/food-history?${params}`, {
-        method: "GET",
-        signal: controller.signal,
-      });
-      const result = await safeResponseJson(response) as {
-        success?: boolean;
-        data?: { entries: FoodLogHistoryEntry[] };
-      };
+  const {
+    data: pages,
+    setSize,
+    isLoading,
+    isValidating,
+    mutate,
+    error,
+  } = useSWRInfinite<{ entries: FoodLogHistoryEntry[] }>(getKey, apiFetcher, {
+    revalidateFirstPage: true,
+  });
 
-      if (!response.ok || !result.success) {
-        setFetchError("Failed to load entries. Please try again.");
-        return;
-      }
+  const entries = pages?.flatMap((p) => p.entries) ?? [];
+  const hasMore = pages != null && pages.length > 0 && pages[pages.length - 1].entries.length === PAGE_SIZE;
 
-      const newEntries = result.data?.entries ?? [];
-      if (append) {
-        setEntries((prev) => [...prev, ...newEntries]);
-      } else {
-        setEntries(newEntries);
-      }
-      setHasMore(newEntries.length >= 20);
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return; // Intentional cancellation — do not show error
-      }
-      console.error("Failed to fetch food history entries:", error);
-      setFetchError("Failed to load entries. Please try again.");
-    } finally {
-      clearTimeout(timeoutId);
-      if (abortControllerRef.current === controller) {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    }
-  }, []);
+  // Infinite scroll sentinel
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const isValidatingRef = useRef(false);
+  isValidatingRef.current = isValidating;
 
-  const handleLoadMore = () => {
-    if (entries.length === 0) return;
-    hasPaginated.current = true;
-    const oldestEntry = entries[entries.length - 1];
-    fetchEntries(undefined, true, {
-      lastDate: oldestEntry.date,
-      lastTime: oldestEntry.time,
-      lastId: oldestEntry.id,
-    });
+  useEffect(() => {
+    if (!sentinelRef.current || !hasMore) return;
+    const observer = new IntersectionObserver(
+      (intersections) => {
+        if (intersections[0]?.isIntersecting && hasMore && !isValidatingRef.current) {
+          setSize((s) => s + 1);
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, setSize]);
+
+  const handleJumpToDate = () => {
+    if (!jumpDate) return;
+    setEndDate(jumpDate);
   };
 
   const handleDeleteConfirm = async () => {
@@ -215,7 +165,6 @@ export function FoodHistory() {
         setDeleteError(result.error?.message || "Failed to delete entry");
         setDeleteErrorCode(errorCode || null);
 
-        // Handle missing credentials - show specific error
         if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
           setDeleteError("Fitbit is not set up. Please configure your credentials in Settings.");
         }
@@ -224,14 +173,13 @@ export function FoodHistory() {
         return;
       }
 
-      setEntries((prev) => prev.filter((e) => e.id !== id));
-      mutate();
+      await mutate();
       invalidateFoodCaches().catch(() => {});
-    } catch (error) {
-      if (error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) {
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setDeleteError("Request timed out. Please try again.");
       } else {
-        console.error("Failed to delete food history entry:", error);
+        console.error("Failed to delete food history entry:", err);
         setDeleteError("Failed to delete entry");
       }
       vibrateError();
@@ -240,14 +188,7 @@ export function FoodHistory() {
     }
   };
 
-  const handleJumpToDate = () => {
-    if (!jumpDate) return;
-    hasPaginated.current = true;
-    setHasMore(true);
-    fetchEntries(jumpDate);
-  };
-
-  if (isLoading || loading) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-muted-foreground text-center">Loading history...</p>
@@ -260,7 +201,7 @@ export function FoodHistory() {
     );
   }
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && !error) {
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4 text-center">
         <UtensilsCrossed data-testid="empty-state-icon" className="h-12 w-12 text-muted-foreground" />
@@ -301,9 +242,9 @@ export function FoodHistory() {
         </Button>
       </div>
 
-      {fetchError && (
+      {error && (
         <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
-          <p className="text-sm text-destructive">{fetchError}</p>
+          <p className="text-sm text-destructive">Failed to load entries. Please try again.</p>
         </div>
       )}
 
@@ -386,16 +327,15 @@ export function FoodHistory() {
         </div>
       ))}
 
-      {/* Load more */}
+      {/* Infinite scroll sentinel */}
       {hasMore && (
-        <Button
-          variant="outline"
-          className="w-full min-h-[44px]"
-          onClick={handleLoadMore}
-          disabled={loadingMore}
+        <div
+          ref={sentinelRef}
+          data-testid="infinite-scroll-sentinel"
+          className="flex justify-center items-center py-4 min-h-[44px]"
         >
-          {loadingMore ? "Loading..." : "Load More"}
-        </Button>
+          {isValidating && <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />}
+        </div>
       )}
 
       {/* Entry detail dialog */}
