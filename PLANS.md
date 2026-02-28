@@ -261,3 +261,56 @@ Components with 12h time formatting:
 - Backend API changes (not needed — cursor pagination already supported)
 - Other pagination improvements beyond matching quick-select pattern
 - Changing time format in non-user-facing code (e.g., `chat-tools.ts`)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-28
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Fix quick-select tab stale data — Removed `keepPreviousData: true` from `useSWRInfinite`, added tab-switching test (worker-1)
+- Task 2: Create shared formatTime utility — Added `formatTime()` and `formatTimeFromDate()` to `date-utils.ts` with 10 tests (worker-2)
+- Task 3: Replace local formatTime in 4 components — Migrated meal-type-selector, food-detail, food-history, fasting-card to shared 24h utility, updated all test assertions (worker-2)
+- Task 4: Convert food-history to infinite scroll — Replaced `useSWR` + manual state + "Load More" with `useSWRInfinite` + IntersectionObserver sentinel, preserved jump-to-date/grouping/delete (worker-3)
+- Task 5: Integration & Verification — Full test suite (2197 tests), lint, typecheck, build all pass
+
+### Files Modified
+- `src/components/quick-select.tsx` — Removed `keepPreviousData: true`
+- `src/components/__tests__/quick-select.test.tsx` — Added tab-switching test, added `dedupingInterval: 0`
+- `src/lib/date-utils.ts` — Added `formatTime()`, `formatTimeFromDate()`, malformed input guard
+- `src/lib/__tests__/date-utils.test.ts` — Added 10 tests for time formatting functions
+- `src/components/meal-type-selector.tsx` — Replaced local formatTime with shared `formatTimeFromDate`
+- `src/components/food-detail.tsx` — Replaced local formatTime with shared `formatTime`
+- `src/components/food-history.tsx` — Major rewrite: `useSWRInfinite` + IntersectionObserver + jump-to-date reset fix
+- `src/components/fasting-card.tsx` — Replaced local `formatTime12Hour` with shared `formatTime`
+- `src/components/__tests__/meal-type-selector.test.tsx` — Updated 5 assertions to 24h format
+- `src/components/__tests__/food-detail.test.tsx` — Added 24h time display test
+- `src/components/__tests__/food-history.test.tsx` — Rewritten for `useSWRInfinite` + sentinel pattern
+- `src/components/__tests__/fasting-card.test.tsx` — Updated 3 assertions to 24h format
+
+### Linear Updates
+- FOO-690: Todo → In Progress → Review
+- FOO-689: Todo → In Progress → Review
+- FOO-688: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 medium bugs, all fixed before proceeding
+  - `formatTime` guard for malformed strings without colons
+  - `renderQuickSelect()` missing `dedupingInterval: 0` in SWRConfig
+  - `handleJumpToDate` missing `mutate(undefined)` to reset SWR page state
+- verifier: All 2197 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Task 1 (quick-select domain — tab stale data fix)
+- Worker 2: Tasks 2, 3 (utility + component formatting domain — shared formatTime + 4 component migrations)
+- Worker 3: Task 4 (food history domain — infinite scroll rewrite)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merged cleanly (no conflicts)
+- Worker 3: auto-merged cleanly (no conflicts on food-history.tsx despite shared edits with worker-2)
+
+### Continuation Status
+All tasks completed.

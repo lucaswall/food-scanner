@@ -135,6 +135,7 @@ export function addWeeks(dateStr: string, weeks: number): string {
 export function formatTime(time: string | null): string {
   if (!time) return "";
   const parts = time.split(":");
+  if (parts.length < 2) return time;
   return `${parts[0]}:${parts[1]}`;
 }
 

@@ -130,6 +130,7 @@ export function FoodHistory() {
 
   const handleJumpToDate = () => {
     if (!jumpDate) return;
+    mutate(undefined, { revalidate: false });
     setEndDate(jumpDate);
   };
 

@@ -139,7 +139,7 @@ function mockPaginatedResponse(foods: CommonFood[], nextCursor: { score: number;
 
 function renderQuickSelect() {
   return render(
-    <SWRConfig value={{ provider: () => new Map() }}>
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
       <QuickSelect />
     </SWRConfig>
   );
