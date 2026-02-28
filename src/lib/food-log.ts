@@ -159,6 +159,8 @@ interface JoinedRow {
     notes: string | null;
     description: string | null;
     keywords: string[] | null;
+    isFavorite: boolean;
+    shareToken: string | null;
     createdAt: Date;
   };
 }
@@ -181,6 +183,7 @@ function mapRowToCommonFood(row: JoinedRow): CommonFood {
     caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
     fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
     mealTypeId: row.food_log_entries.mealTypeId,
+    isFavorite: row.custom_foods.isFavorite,
   };
 }
 
@@ -616,6 +619,7 @@ export async function searchFoods(
       caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
       fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
       mealTypeId: entryRow.food_log_entries?.mealTypeId ?? 7,
+      isFavorite: row.custom_foods.isFavorite,
     };
   });
   l.debug({ action: "search_foods", keywords, resultCount: results.length }, "food search complete");

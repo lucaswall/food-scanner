@@ -105,6 +105,7 @@ const mockFoods: CommonFood[] = [
     sodiumMg: 450,
     fitbitFoodId: 111,
     mealTypeId: 3,
+    isFavorite: false,
   },
   {
     customFoodId: 2,
@@ -119,6 +120,7 @@ const mockFoods: CommonFood[] = [
     sodiumMg: 80,
     fitbitFoodId: 222,
     mealTypeId: 1,
+    isFavorite: false,
   },
 ];
 
@@ -1020,6 +1022,7 @@ describe("QuickSelect", () => {
         sodiumMg: 350,
         fitbitFoodId: 333,
         mealTypeId: 3,
+        isFavorite: false,
       };
 
       mockFetch
@@ -1103,6 +1106,7 @@ describe("QuickSelect", () => {
         sodiumMg: 150,
         fitbitFoodId: 100,
         mealTypeId: 3,
+        isFavorite: false,
         saturatedFatG: 3.5,
         transFatG: 0.2,
         sugarsG: 5,
@@ -1145,6 +1149,7 @@ describe("QuickSelect", () => {
         sodiumMg: 150,
         fitbitFoodId: 100,
         mealTypeId: 3,
+        isFavorite: false,
       };
 
       let resolveLogFetch: ((value: unknown) => void) | null = null;

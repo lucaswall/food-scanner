@@ -181,6 +181,7 @@ export interface CommonFood {
   caloriesFromFat?: number | null;
   fitbitFoodId: number | null;
   mealTypeId: number;
+  isFavorite: boolean;
 }
 
 export interface CommonFoodsCursor {
