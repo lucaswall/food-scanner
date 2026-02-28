@@ -1,353 +1,348 @@
 # Implementation Plan
 
 **Status:** COMPLETE
+**Branch:** feat/FOO-690-quick-select-stale-data-and-improvements
+**Issues:** FOO-690, FOO-689, FOO-688
 **Created:** 2026-02-28
-**Source:** Inline request: Add ETag support to all GET API routes (v1 external + internal browser-facing). Hash the `data` payload to avoid the timestamp problem. Full HTTP spec compliance for `If-None-Match`. Update API.md for external API changes.
-**Linear Issues:** [FOO-691](https://linear.app/lw-claude/issue/FOO-691/create-etag-utility-module-and-conditionalresponse-function), [FOO-692](https://linear.app/lw-claude/issue/FOO-692/update-v1-api-routes-with-etag-support), [FOO-693](https://linear.app/lw-claude/issue/FOO-693/update-internal-api-routes-with-etag-support), [FOO-694](https://linear.app/lw-claude/issue/FOO-694/update-apimd-with-etag-and-conditional-requests-documentation)
+**Last Updated:** 2026-02-28
 
-## Context Gathered
+## Summary
 
-### Codebase Analysis
-- **`src/lib/api-response.ts`** — `successResponse()` wraps data in `{ success, data, timestamp }`. The `timestamp: Date.now()` changes every request, so ETags must hash only the `data` portion.
-- **`src/lib/__tests__/api-response.test.ts`** — Existing tests for `successResponse` and `errorResponse`.
-- **5 v1 routes** under `src/app/api/v1/` — all GET-only, use `validateApiRequest()` + `successResponse()` + manual `Cache-Control: private, no-cache` header.
-- **13 internal GET routes** under `src/app/api/` (excluding auth, POST-only, and v1) — use `getSession()` + `validateSession()` + `successResponse()` + manual `Cache-Control: private, no-cache`.
-- **`src/app/api/health/route.ts`** — special case: no `request` parameter, no `Cache-Control` header. Needs both added.
-- **`src/app/api/nutrition-summary/route.ts`** — has two success paths (single date and date range), each calling `successResponse()` separately.
-- **`src/lib/swr.ts`** — `apiFetcher` uses plain `fetch()`, browser HTTP cache handles `If-None-Match` transparently. No frontend changes needed.
-- **`API.md`** — documents v1 external API. Needs ETag/conditional request docs.
-- **All v1 route test files** follow same pattern: mock dependencies, test success/error/cache-control/rate-limit.
+Three improvements to food browsing UX: fix a bug where quick-select tabs show stale data after toggling, consolidate duplicated time formatting into a shared 24h utility, and replace the history page's manual "Load More" button with automatic infinite scroll matching the quick-select pattern.
 
-### Test Conventions
-- Route tests in `src/app/api/<route>/__tests__/route.test.ts`
-- Lib tests in `src/lib/__tests__/<module>.test.ts`
-- Mocks use `vi.mock()` with proxy pattern
-- Import route handler via `await import()`
+## Issues
 
-## Original Plan
+### FOO-690: Quick-select tab switching shows stale data after toggling Suggested/Recent
 
-### Task 1: Create ETag utility module and conditionalResponse function
-**Linear Issue:** [FOO-691](https://linear.app/lw-claude/issue/FOO-691/create-etag-utility-module-and-conditionalresponse-function)
+**Priority:** High
+**Labels:** Bug
+**Description:** Switching between Suggested and Recent tabs in quick-select does not update the food list. After toggling tabs, the displayed foods remain stale. Root cause: `useSWRInfinite` is configured with `keepPreviousData: true` (line 87 of `src/components/quick-select.tsx`), which retains the previous tab's data while revalidating. Combined with `revalidateFirstPage: true`, the old data persists visually until revalidation completes — and if the response shape is similar, users see no change.
 
+**Acceptance Criteria:**
+- [ ] Switching from Suggested to Recent shows foods ordered by most recently logged
+- [ ] Switching back to Suggested restores the time-of-day ranked list
+- [ ] Rapid tab toggling does not cause stale or mixed data
+- [ ] Existing infinite scroll continues working after tab switch
+
+### FOO-689: Switch all user-facing times to 24h format and consolidate formatTime()
+
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** All user-facing times display in 12-hour AM/PM format. Should be 24-hour (HH:MM). Additionally, 4 separate components define their own local time formatting functions with duplicated logic.
+
+Components with 12h time formatting:
+- `src/components/meal-type-selector.tsx:22` — `formatTime()` using `toLocaleTimeString()` with `hour12: true`
+- `src/components/food-detail.tsx:26` — `formatTime()` with manual `hour % 12` parsing
+- `src/components/food-history.tsx:43` — `formatTime()` with manual `hour % 12` parsing
+- `src/components/fasting-card.tsx:20` — `formatTime12Hour()` with manual `hours >= 12` parsing
+
+**Acceptance Criteria:**
+- [ ] All 4 components display times in HH:MM 24-hour format (no AM/PM)
+- [ ] New shared `formatTime()` function added to `src/lib/date-utils.ts`
+- [ ] All 4 components import and use the shared utility (remove local functions)
+- [ ] `src/lib/chat-tools.ts` internal formatting unchanged
+- [ ] Unit tests for the new shared `formatTime()` function
+
+### FOO-688: Replace history Load More button with infinite scroll (like quick-select)
+
+**Priority:** Medium
+**Labels:** Improvement
+**Description:** The food history page uses a manual "Load More" button for pagination, while quick-select uses automatic infinite scroll. History should match the quick-select pattern. The API already supports cursor-based pagination — no backend changes needed.
+
+**Acceptance Criteria:**
+- [ ] History entries auto-load when scrolling near the bottom (IntersectionObserver + sentinel pattern)
+- [ ] Switch from `useSWR` to `useSWRInfinite` for page management
+- [ ] Remove "Load More" button, replace with loading spinner sentinel
+- [ ] Jump-to-date picker preserved — selecting a date resets scroll position and loads from that date, then infinite scroll continues loading older entries from there
+- [ ] Existing entry grouping by date with daily calorie totals preserved
+- [ ] Detail modal and delete functionality unaffected
+
+## Prerequisites
+
+- [ ] On `main` branch with clean working tree
+- [ ] `npm install` up to date
+
+## Implementation Tasks
+
+### Task 1: Fix quick-select tab stale data
+
+**Issue:** FOO-690
 **Files:**
-- `src/lib/etag.ts` (new)
-- `src/lib/__tests__/etag.test.ts` (new)
-- `src/lib/api-response.ts` (modify)
-- `src/lib/__tests__/api-response.test.ts` (modify)
+- `src/components/quick-select.tsx` (modify)
+- `src/components/__tests__/quick-select.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Create `src/lib/__tests__/etag.test.ts` with tests for two functions:
+1. **RED** — Add a test to `quick-select.test.tsx` that:
+   - Renders QuickSelect with Suggested tab data
+   - Clicks the "Recent" tab button
+   - Asserts that the food list updates to show recent-tab data (different from suggested)
+   - Currently this test will fail because `keepPreviousData: true` causes stale data to persist
 
-   `generateETag(data: unknown): string`:
-   - Returns a strong ETag string (format: `"<16 hex chars>"`) — quoted, no `W/` prefix
-   - Returns same ETag for same data (deterministic)
-   - Returns different ETag for different data
-   - Handles null, undefined, empty object, empty array
-   - Handles nested objects — same data in same key order produces same ETag
+2. **GREEN** — Fix `quick-select.tsx`:
+   - Remove `keepPreviousData: true` from the `useSWRInfinite` options object (line 87). This is the root cause — it tells SWR to show the old key's data while the new key revalidates, making tab switches appear to do nothing.
+   - Alternatively, if removing `keepPreviousData` causes a flash of empty state during tab switch, consider keeping it but adding an `onTabChange` handler that calls `mutate(undefined, { revalidate: true })` to force-clear cached pages before switching. Test both approaches.
+   - Verify that `getKey` correctly generates different URLs for each tab (it does — line 69-71 already branches on `activeTab`).
 
-   `etagMatches(ifNoneMatch: string | null, etag: string): boolean`:
-   - Returns false when ifNoneMatch is null
-   - Returns true for exact match: `"abc123"` matches `"abc123"`
-   - Returns true for wildcard: `*` matches any ETag
-   - Returns true for multiple values: `"aaa", "bbb", "ccc"` matches `"bbb"`
-   - Handles whitespace around commas: `"aaa" , "bbb"` matches `"bbb"`
-   - Returns false when no values match
-   - Handles weak ETag comparison: `W/"abc"` matches `"abc"` (weak comparison per RFC 9110 §13.1.2)
-   - Handles weak ETag in the stored value: `"abc"` matches against `W/"abc"` in If-None-Match
+3. **REFACTOR** — Ensure no regressions: infinite scroll still works, search still works, loading states are correct.
 
-   Run: `npm test -- etag`
-   Verify: Tests fail (module doesn't exist)
-
-2. **GREEN** — Create `src/lib/etag.ts`:
-   - `generateETag`: Use `crypto.createHash('sha256')` on `JSON.stringify(data)`, truncate hex digest to 16 chars, wrap in double quotes
-   - `etagMatches`: Split `ifNoneMatch` on commas, trim whitespace, strip `W/` prefix from both sides for comparison (weak comparison semantics per RFC 9110 §8.8.3.2 — `If-None-Match` uses weak comparison)
-   - Run: `npm test -- etag`
-   - Verify: All tests pass
-
-3. **RED** — Add tests to `src/lib/__tests__/api-response.test.ts` for new `conditionalResponse` function:
-
-   `conditionalResponse<T>(request: Request, data: T, status?: number): Response`:
-   - Returns 200 with JSON body `{ success: true, data, timestamp }` when no `If-None-Match` header
-   - Sets `ETag` header on 200 responses
-   - Sets `Cache-Control: private, no-cache` on 200 responses
-   - Sets `Content-Type: application/json` on 200 responses
-   - Returns 304 with no body when `If-None-Match` matches the ETag
-   - Sets `ETag` header on 304 responses
-   - Sets `Cache-Control: private, no-cache` on 304 responses
-   - Does NOT set `Content-Type` on 304 responses (no body)
-   - Returns 200 with new ETag when `If-None-Match` does not match
-   - ETag is based on `data` only, not on `timestamp` — same data returns same ETag across calls (use `vi.spyOn(Date, 'now')` to return different values, verify ETag stays the same)
-   - Defaults to status 200, accepts custom status
-   - Run: `npm test -- api-response`
-   - Verify: New tests fail
-
-4. **GREEN** — Add `conditionalResponse` to `src/lib/api-response.ts`:
-   - Import `generateETag` and `etagMatches` from `@/lib/etag`
-   - Build the response using `new Response(JSON.stringify({ success: true, data, timestamp: Date.now() }))` — NOT `Response.json()` — to serialize once for both body and (separately) for the ETag hash
-   - The ETag is computed from `generateETag(data)` (data only, not the full envelope)
-   - Check `request.headers.get("if-none-match")` via `etagMatches()`
-   - If match: return `new Response(null, { status: 304, headers: { ETag, "Cache-Control": "private, no-cache" } })`
-   - If no match: return full 200 response with body, ETag, Cache-Control, Content-Type headers
-   - Keep existing `successResponse` and `errorResponse` unchanged — they're still used by POST handlers and error paths
-   - Run: `npm test -- api-response`
-   - Verify: All tests pass
-
-### Task 2: Update v1 API routes with ETag support
-**Linear Issue:** [FOO-692](https://linear.app/lw-claude/issue/FOO-692/update-v1-api-routes-with-etag-support)
-
-**Files:**
-- `src/app/api/v1/activity-summary/route.ts` (modify)
-- `src/app/api/v1/food-log/route.ts` (modify)
-- `src/app/api/v1/lumen-goals/route.ts` (modify)
-- `src/app/api/v1/nutrition-goals/route.ts` (modify)
-- `src/app/api/v1/nutrition-summary/route.ts` (modify)
-- All corresponding `__tests__/route.test.ts` files (modify)
-
-**TDD Steps:**
-
-1. **RED** — For each v1 route test file, add 2 new tests:
-
-   **"returns ETag header on success response":**
-   - Use existing success mock setup
-   - Assert `response.headers.get("ETag")` matches pattern `/^"[a-f0-9]{16}"$/` (strong ETag, 16 hex chars)
-
-   **"returns 304 when If-None-Match matches":**
-   - First request: get the response and extract the ETag header value
-   - Second request: add `If-None-Match` header with the extracted ETag, same URL and auth
-   - Assert second response has status 304
-   - Assert second response body is empty (null/empty string)
-   - Assert second response has `ETag` header
-   - Assert second response has `Cache-Control: private, no-cache`
-
-   Run: `npm test -- v1`
-   Verify: New tests fail (routes still use `successResponse`)
-
-2. **GREEN** — Update each v1 route handler:
-   - Add import: `conditionalResponse` from `@/lib/api-response` (replace or alongside `successResponse`)
-   - Replace the 3-line pattern:
-     ```
-     const response = successResponse(data);
-     response.headers.set("Cache-Control", "private, no-cache");
-     return response;
-     ```
-     with: `return conditionalResponse(request, data);`
-   - The `request` parameter is already available in all v1 route `GET(request: Request)` signatures
-   - Run: `npm test -- v1`
-   - Verify: All tests pass (existing + new)
-
-3. **Cleanup** — Remove now-redundant `Cache-Control` header assertions from existing tests if they duplicate the new ETag tests. Or keep them — they still assert correct behavior. Implementer's judgment.
+**Run:** `npx vitest run quick-select`
 
 **Notes:**
-- Each v1 route has exactly one `successResponse()` call to replace
-- `successResponse` import can be removed if no longer used in the file (v1 routes are GET-only, no POST handlers in the same file)
+- The `getKey` callback already depends on `activeTab` in its dependency array (line 76), so the key function itself is correct.
+- The issue is purely in how SWR handles the transition between key sets.
+- Reference: SWR `keepPreviousData` docs — it's designed for smooth transitions but breaks when the user expects an immediate visual switch.
 
-### Task 3: Update internal API routes with ETag support
-**Linear Issue:** [FOO-693](https://linear.app/lw-claude/issue/FOO-693/update-internal-api-routes-with-etag-support)
+---
 
-**Files (13 GET route handlers):**
-- `src/app/api/api-keys/route.ts`
-- `src/app/api/claude-usage/route.ts`
-- `src/app/api/common-foods/route.ts`
-- `src/app/api/earliest-entry/route.ts`
-- `src/app/api/fasting/route.ts`
-- `src/app/api/fitbit-credentials/route.ts`
-- `src/app/api/food-history/route.ts`
-- `src/app/api/food-history/[id]/route.ts`
-- `src/app/api/lumen-goals/route.ts`
-- `src/app/api/nutrition-goals/route.ts`
-- `src/app/api/nutrition-summary/route.ts`
-- `src/app/api/search-foods/route.ts`
-- `src/app/api/health/route.ts`
-- All corresponding `__tests__/route.test.ts` files
+### Task 2: Create shared formatTime utility in date-utils
+
+**Issue:** FOO-689
+**Files:**
+- `src/lib/date-utils.ts` (modify)
+- `src/lib/__tests__/date-utils.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** — For each internal route test file, add 2 new tests (same pattern as Task 2):
+1. **RED** — Add tests to `date-utils.test.ts` for a new `formatTime()` function:
+   - `formatTime("14:30")` → `"14:30"` (already 24h, just strips seconds if present)
+   - `formatTime("09:05")` → `"09:05"` (preserves leading zero)
+   - `formatTime("00:00")` → `"00:00"` (midnight)
+   - `formatTime("23:59")` → `"23:59"` (end of day)
+   - `formatTime(null)` → `""` (null input returns empty string)
+   - `formatTime("14:30:00")` → `"14:30"` (strips seconds)
+   - Also test a `formatTimeFromDate(date: Date)` variant that takes a Date object (used by `meal-type-selector.tsx` which formats `new Date()`)
 
-   **"returns ETag header on success response":**
-   - Use existing success mock setup
-   - Assert `response.headers.get("ETag")` matches `/^"[a-f0-9]{16}"$/`
+2. **GREEN** — Add `formatTime(time: string | null): string` and `formatTimeFromDate(date: Date): string` to `src/lib/date-utils.ts`:
+   - `formatTime`: Takes an `HH:MM` or `HH:MM:SS` string, returns `HH:MM` in 24h format. Returns `""` for null.
+   - `formatTimeFromDate`: Takes a Date object, returns `HH:MM` in 24h format using `getHours()` and `getMinutes()` with zero-padding.
 
-   **"returns 304 when If-None-Match matches":**
-   - First call to get ETag, second call with `If-None-Match` → 304
-   - Assert 304 status, empty body, ETag present, Cache-Control present
+3. **REFACTOR** — Export both functions from date-utils.
 
-   Run: `npm test -- <route-name>`
-   Verify: New tests fail
-
-2. **GREEN** — Update each internal route handler:
-   - Import `conditionalResponse` from `@/lib/api-response`
-   - Replace `successResponse(data)` + `Cache-Control` header with `conditionalResponse(request, data)`
-
-   **Special cases:**
-   - **`health/route.ts`:** Currently `GET()` has no `request` parameter. Add it: `GET(request: Request)`. Also currently has no `Cache-Control` header — `conditionalResponse` handles this.
-   - **`nutrition-summary/route.ts`:** Has TWO success paths (single date at ~L43, date range at ~L107). Both `successResponse()` calls must become `conditionalResponse()`.
-   - **Routes with GET + POST** (`lumen-goals`, `fitbit-credentials`): Only update the GET handler. Keep `successResponse` import for the POST handler. Keep `errorResponse` import for error paths.
-   - **Routes with GET + DELETE** (`api-keys/[id]`): This file is DELETE-only, skip it.
-
-   Run: `npm test -- <route-name>`
-   Verify: All tests pass
+**Run:** `npx vitest run date-utils`
 
 **Notes:**
-- Internal routes use `getSession()` + `validateSession()` instead of `validateApiRequest()`, but the `request` parameter is already in the `GET(request: Request)` signature for all routes except `health`
-- The `request` object is already being used to read `searchParams` in most routes, confirming it's in scope
+- The input format is already 24h (the DB stores `HH:MM:SS`, API returns `HH:MM` or `HH:MM:SS`). The function mainly standardizes the format and replaces the 12h conversion logic.
+- Pattern reference: existing functions in `src/lib/date-utils.ts` (e.g., `getTodayDate`, `formatDisplayDate`).
 
-### Task 4: Update API.md documentation
-**Linear Issue:** [FOO-694](https://linear.app/lw-claude/issue/FOO-694/update-apimd-with-etag-and-conditional-requests-documentation)
+---
 
+### Task 3: Replace local formatTime functions in all 4 components
+
+**Issue:** FOO-689
 **Files:**
-- `API.md` (modify)
+- `src/components/meal-type-selector.tsx` (modify)
+- `src/components/food-detail.tsx` (modify)
+- `src/components/food-history.tsx` (modify)
+- `src/components/fasting-card.tsx` (modify)
+- `src/components/__tests__/meal-type-selector.test.tsx` (modify)
+- `src/components/__tests__/food-detail.test.tsx` (modify)
+- `src/components/__tests__/food-history.test.tsx` (modify)
+- `src/components/__tests__/fasting-card.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update existing tests in each component's test file to expect 24h format instead of 12h AM/PM:
+   - `meal-type-selector.test.tsx`: Any assertions checking time display should expect `HH:MM` format (e.g., `"14:30"` instead of `"2:30 PM"`)
+   - `food-detail.test.tsx`: Update assertions for time display (e.g., `"14:30"` instead of `"2:30 PM"`)
+   - `food-history.test.tsx`: Update assertions for time display in entry rows
+   - `fasting-card.test.tsx`: Update assertions for fasting window times (e.g., `"Since 20:30"` instead of `"Since 8:30 PM"`)
+
+2. **GREEN** — In each component:
+   - Delete the local `formatTime()` / `formatTime12Hour()` function
+   - Import `formatTime` (or `formatTimeFromDate` for meal-type-selector) from `@/lib/date-utils`
+   - Replace all call sites to use the imported function
+   - Specific changes per component:
+     - `meal-type-selector.tsx`: Replace local `formatTime(date: Date)` at line 22-28 with imported `formatTimeFromDate`. Update the usage at line 83.
+     - `food-detail.tsx`: Replace local `formatTime(time: string | null)` at line 26-33 with imported `formatTime`. Usage at line 101.
+     - `food-history.tsx`: Replace local `formatTime(time: string | null)` at line 43-50 with imported `formatTime`. Usage at line 363.
+     - `fasting-card.tsx`: Replace local `formatTime12Hour(time24: string)` at line 20-24 with imported `formatTime`. Usages at lines 99, 114, 114.
+
+3. **REFACTOR** — Verify no dead imports remain. Run all 4 component test files.
+
+**Run:** `npx vitest run meal-type-selector food-detail food-history fasting-card`
+
+**Notes:**
+- `fasting-card.tsx` calls its function as `formatTime12Hour(window.lastMealTime)` where `lastMealTime` is always a non-null string. The shared `formatTime` accepts `string | null`, so the call is type-compatible.
+- `meal-type-selector.tsx` uses a Date object input, so it needs `formatTimeFromDate` not `formatTime`.
+
+---
+
+### Task 4: Convert food-history from useSWR to useSWRInfinite
+
+**Issue:** FOO-688
+**Files:**
+- `src/components/food-history.tsx` (modify — major rewrite)
+- `src/components/__tests__/food-history.test.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Update food-history tests to reflect the new infinite scroll architecture:
+   - Remove tests that assert "Load More" button behavior
+   - Add tests for the infinite scroll sentinel element being present when `hasMore` is true
+   - Add test for loading spinner appearing in the sentinel during pagination
+   - Preserve tests for: date grouping, date picker "Jump to date", delete functionality, entry detail dialog, empty state
+
+2. **GREEN** — Rewrite `FoodHistory` component to use `useSWRInfinite`:
+   - Replace `useSWR` import with `useSWRInfinite` from `swr/infinite`
+   - Remove all manual state management: `entries`, `loading`, `loadingMore`, `hasMore`, `hasPaginated` ref, `abortControllerRef`, `fetchEntries` callback
+   - Add a `getKey` callback similar to quick-select's pattern:
+     - Page 0: `/api/food-history?limit=20` (plus `&endDate=...` if jump-to-date is active)
+     - Page N: Use `lastDate`, `lastTime`, `lastId` from the last entry of the previous page as cursor params
+     - Return `null` when previous page returned fewer than 20 entries (no more data)
+   - Use `useSWRInfinite<{ entries: FoodLogHistoryEntry[] }>` — the API returns `{ entries: [...] }` via `conditionalResponse`
+   - Derive `entries` by flatMapping all pages: `pages?.flatMap(p => p.entries) ?? []`
+   - Derive `hasMore` from last page having 20 entries
+   - Add IntersectionObserver on a sentinel `<div>` (follow quick-select pattern at lines 102-118)
+   - Replace "Load More" button with sentinel div + spinner
+   - Jump-to-date: store `endDate` in state, include it in `getKey` base URL. On date change, reset SWR state by calling `mutate(undefined)` and updating `endDate`.
+   - Delete: after successful delete, call the `mutate()` from `useSWRInfinite` to revalidate all pages. Remove `invalidateFoodCaches()` call or keep it for cross-component cache invalidation.
+   - Keep `groupByDate()` and `formatDateHeader()` helper functions (they operate on the derived `entries` array).
+
+3. **REFACTOR** — Clean up removed state variables and ensure the component is simpler than before. The manual `fetchEntries` function with AbortController is no longer needed since SWR handles fetching/cancellation.
+
+**Run:** `npx vitest run food-history`
+
+**Notes:**
+- The API route (`src/app/api/food-history/route.ts`) already supports cursor-based pagination via `lastDate`, `lastTime`, `lastId` query params — no backend changes needed.
+- Reference implementation: `src/components/quick-select.tsx` lines 65-118 for the `useSWRInfinite` + IntersectionObserver pattern.
+- The cursor for food-history is a composite `{lastDate, lastTime, lastId}` (3 separate query params), unlike quick-select which uses a JSON-encoded cursor. Build the cursor from the last entry in each page.
+- `apiFetcher` from `@/lib/swr.ts` already unwraps `result.data`, so `useSWRInfinite` pages will receive `{ entries: [...] }` directly.
+- `SWRConfig` wrapper with `dedupingInterval: 0` may be needed in tests to prevent SWR caching between test cases (follow the pattern in `quick-select.test.tsx`).
+
+---
+
+### Task 5: Integration & Verification
+
+**Issue:** FOO-690, FOO-689, FOO-688
+**Files:** Various files from previous tasks
 
 **Steps:**
 
-1. Add a new section "Conditional Requests (ETags)" after the "Response Format" section (before "Rate Limiting"):
-   - Explain that all GET endpoints return an `ETag` header
-   - Document the `If-None-Match` request header
-   - Explain 304 Not Modified behavior (no body, ETag echoed back)
-   - Explain that `Cache-Control: private, no-cache` means "cache but always revalidate" — ideal for ETag usage
-   - Include example request/response flow (first request → 200 + ETag, subsequent → If-None-Match → 304)
-   - Note: ETag is based on response data content, not timestamp
+1. Run full test suite: `npm test`
+2. Run linter: `npm run lint`
+3. Run type checker: `npm run typecheck`
+4. Build check: `npm run build`
+5. Manual verification steps:
+   - [ ] Quick-select: toggle Suggested/Recent tabs rapidly — data should update immediately
+   - [ ] Quick-select: infinite scroll still loads more foods when scrolling down
+   - [ ] Quick-select: search still works after tab switching
+   - [ ] Food history: scroll to bottom — new entries auto-load
+   - [ ] Food history: use date picker to jump to a past date — entries load from that date, then infinite scroll continues loading older entries
+   - [ ] Food history: delete an entry — list updates correctly
+   - [ ] Food history: tap entry to see detail dialog — still works
+   - [ ] All time displays show 24h format (HH:MM, no AM/PM)
+   - [ ] Meal type selector shows current time in 24h format
+   - [ ] Fasting card shows fasting window times in 24h format
 
-2. Update the "Response Format" section:
-   - Add `ETag` to the list of headers on success responses
-   - Mention 304 as a possible response status
+## Error Handling
 
-3. No changes needed to individual endpoint docs — ETag behavior is uniform across all endpoints
+| Error Scenario | Expected Behavior | Test Coverage |
+|---------------|-------------------|---------------|
+| API returns error during infinite scroll | Error message shown, sentinel stops loading | Unit test |
+| Tab switch during in-flight request | Previous request ignored, new tab data shown | Unit test |
+| Jump-to-date with invalid date | Button disabled when no date selected | Existing test |
+| Delete fails during infinite scroll view | Error banner shown, entries unchanged | Existing test |
+| Null time value in history entry | Empty string displayed (no crash) | Unit test |
 
-## Post-Implementation Checklist
-1. Run `bug-hunter` agent - Review changes for bugs
-2. Run `verifier` agent - Verify all tests pass and zero warnings
+## Risks & Open Questions
+
+- [ ] Removing `keepPreviousData` from quick-select may cause a brief flash of empty state when switching tabs. If this is visually jarring, an alternative approach is to clear the cache explicitly on tab switch while keeping the option. Test both approaches.
+- [ ] The food-history IntersectionObserver approach requires the scroll container to be the viewport (not a nested scrollable div). Verify the history page layout doesn't use a fixed-height container that would prevent the sentinel from intersecting.
+
+## Scope Boundaries
+
+**In Scope:**
+- Fix stale tab data in quick-select (FOO-690)
+- Consolidate time formatting to 24h shared utility (FOO-689)
+- Replace history Load More with infinite scroll (FOO-688)
+
+**Out of Scope:**
+- Backend API changes (not needed — cursor pagination already supported)
+- Other pagination improvements beyond matching quick-select pattern
+- Changing time format in non-user-facing code (e.g., `chat-tools.ts`)
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-02-28
-**Method:** Agent team (2 workers, worktree-isolated)
+**Method:** Agent team (3 workers, worktree-isolated)
 
 ### Tasks Completed This Iteration
-- Task 1: Create ETag utility module and conditionalResponse function (FOO-691) — worker-1
-- Task 2: Update v1 API routes with ETag support (FOO-692) — worker-1
-- Task 3: Update internal API routes with ETag support (FOO-693) — worker-2
-- Task 4: Update API.md documentation (FOO-694) — worker-1
+- Task 1: Fix quick-select tab stale data — Removed `keepPreviousData: true` from `useSWRInfinite`, added tab-switching test (worker-1)
+- Task 2: Create shared formatTime utility — Added `formatTime()` and `formatTimeFromDate()` to `date-utils.ts` with 10 tests (worker-2)
+- Task 3: Replace local formatTime in 4 components — Migrated meal-type-selector, food-detail, food-history, fasting-card to shared 24h utility, updated all test assertions (worker-2)
+- Task 4: Convert food-history to infinite scroll — Replaced `useSWR` + manual state + "Load More" with `useSWRInfinite` + IntersectionObserver sentinel, preserved jump-to-date/grouping/delete (worker-3)
+- Task 5: Integration & Verification — Full test suite (2197 tests), lint, typecheck, build all pass
 
 ### Files Modified
-- `src/lib/etag.ts` (new) — `generateETag` and `etagMatches` functions
-- `src/lib/__tests__/etag.test.ts` (new) — 17 tests
-- `src/lib/api-response.ts` — Added `conditionalResponse` function
-- `src/lib/__tests__/api-response.test.ts` — Added 12 tests for `conditionalResponse`
-- `src/app/api/v1/activity-summary/route.ts` + tests
-- `src/app/api/v1/food-log/route.ts` + tests
-- `src/app/api/v1/lumen-goals/route.ts` + tests
-- `src/app/api/v1/nutrition-goals/route.ts` + tests
-- `src/app/api/v1/nutrition-summary/route.ts` + tests
-- `src/app/api/api-keys/route.ts` + tests
-- `src/app/api/claude-usage/route.ts` + tests
-- `src/app/api/common-foods/route.ts` + tests
-- `src/app/api/earliest-entry/route.ts` + tests
-- `src/app/api/fasting/route.ts` + tests
-- `src/app/api/fitbit-credentials/route.ts` + tests
-- `src/app/api/food-history/route.ts` + tests
-- `src/app/api/food-history/[id]/route.ts` + tests
-- `src/app/api/lumen-goals/route.ts` + tests
-- `src/app/api/nutrition-goals/route.ts` + tests
-- `src/app/api/nutrition-summary/route.ts` + tests
-- `src/app/api/search-foods/route.ts` + tests
-- `API.md` — Added "Conditional Requests (ETags)" section
+- `src/components/quick-select.tsx` — Removed `keepPreviousData: true`
+- `src/components/__tests__/quick-select.test.tsx` — Added tab-switching test, added `dedupingInterval: 0`
+- `src/lib/date-utils.ts` — Added `formatTime()`, `formatTimeFromDate()`, malformed input guard
+- `src/lib/__tests__/date-utils.test.ts` — Added 10 tests for time formatting functions
+- `src/components/meal-type-selector.tsx` — Replaced local formatTime with shared `formatTimeFromDate`
+- `src/components/food-detail.tsx` — Replaced local formatTime with shared `formatTime`
+- `src/components/food-history.tsx` — Major rewrite: `useSWRInfinite` + IntersectionObserver + jump-to-date reset fix
+- `src/components/fasting-card.tsx` — Replaced local `formatTime12Hour` with shared `formatTime`
+- `src/components/__tests__/meal-type-selector.test.tsx` — Updated 5 assertions to 24h format
+- `src/components/__tests__/food-detail.test.tsx` — Added 24h time display test
+- `src/components/__tests__/food-history.test.tsx` — Rewritten for `useSWRInfinite` + sentinel pattern
+- `src/components/__tests__/fasting-card.test.tsx` — Updated 3 assertions to 24h format
 
 ### Linear Updates
-- FOO-691: Todo → In Progress → Review
-- FOO-692: Todo → In Progress → Review
-- FOO-693: Todo → In Progress → Review
-- FOO-694: Todo → In Progress → Review
+- FOO-690: Todo → In Progress → Review
+- FOO-689: Todo → In Progress → Review
+- FOO-688: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 1 LOW bug — health endpoint incorrectly received `Cache-Control: private` (public route). Fixed by reverting health to `successResponse`.
-- verifier: All 2175 tests pass, zero warnings, build clean.
+- bug-hunter: Found 3 medium bugs, all fixed before proceeding
+  - `formatTime` guard for malformed strings without colons
+  - `renderQuickSelect()` missing `dedupingInterval: 0` in SWRConfig
+  - `handleJumpToDate` missing `mutate(undefined)` to reset SWR page state
+- verifier: All 2197 tests pass, zero warnings, build clean
 
 ### Work Partition
-- Worker 1: Tasks 1, 2, 4 (core utility + v1 API + docs)
-- Worker 2: Task 3 (internal API routes)
+- Worker 1: Task 1 (quick-select domain — tab stale data fix)
+- Worker 2: Tasks 2, 3 (utility + component formatting domain — shared formatTime + 4 component migrations)
+- Worker 3: Task 4 (food history domain — infinite scroll rewrite)
 
 ### Merge Summary
 - Worker 1: fast-forward (no conflicts)
-- Worker 2: 2 conflicts in `src/lib/etag.ts` and `src/lib/api-response.ts` (duplicate shared files — resolved by keeping worker-1 canonical version)
+- Worker 2: merged cleanly (no conflicts)
+- Worker 3: auto-merged cleanly (no conflicts on food-history.tsx despite shared edits with worker-2)
 
 ### Review Findings
 
-Summary: 8 issue(s) found, all fixed inline (Team: security, reliability, quality reviewers)
-- FIXED INLINE: 6 issue(s) — verified via TDD + bug-hunter
-- DISCARDED: 4 finding(s) — false positives / not applicable
+Summary: 2 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 2 issue(s) — verified via TDD + bug-hunter
 
-**Issues requiring fix:**
-- [HIGH] SECURITY: Raw API key logged in rate-limit debug messages — all 5 v1 routes pass raw Bearer token as rate-limit key, `checkRateLimit` logs it at debug level (`src/lib/rate-limit.ts:43`). Violates CLAUDE.md "Never log: API keys."
-- [HIGH] BUG: fitbit-credentials route missing try/catch on all 3 handlers — GET (line 23), POST (line 78), PATCH (lines 140/156/161). DB errors produce non-standard responses with no logging. PATCH has partial update risk.
-- [MEDIUM] BUG: food-history/[id] DELETE — `getFoodLogEntry()` call at line 55 is outside try/catch (starts line 60). Unhandled DB errors.
-- [LOW] CONVENTION: Missing structured `action` field in 14 error/warn log statements across 10 route files
-- [LOW] CONVENTION: common-foods `clientDate`/`clientTime` query params passed to DB without format validation (`src/app/api/common-foods/route.ts:51-54`)
-- [LOW] CONVENTION: API.md error response example shows `"details": null` but `errorResponse()` omits the field entirely when not provided
+**Issues fixed inline:**
+- [LOW] BUG: Stray `·` separator when `entry.time` is null (`src/components/food-history.tsx:297`) — added conditional to suppress time prefix when `formatTime()` returns empty string
+- [MEDIUM] TEST: Test doesn't verify time actually changed (`src/components/__tests__/meal-type-selector.test.tsx:161`) — replaced vague regex assertion with exact `(12:00)` → `(12:01)` comparison
 
 **Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: No max length on search query `q` param (`search-foods/route.ts:17`) — HTTP servers/proxies enforce URL length limits (~8KB), Drizzle parameterized queries prevent injection
-- [DISCARDED] EDGE CASE: etag.ts `??` fallback comment suggestion (`src/lib/etag.ts:5`) — style-only, code is correct, zero correctness impact
-- [DISCARDED] EDGE CASE: JSON.stringify key ordering sensitivity (`src/lib/etag.ts`) — design trade-off, tests explicitly document this behavior, all data comes from consistent ORM pipelines
-- [DISCARDED] CONVENTION: `await` on synchronous `conditionalResponse` in tests (`src/lib/__tests__/api-response.test.ts`) — harmless, common test pattern
+- [DISCARDED] ASYNC: `mutate()` not awaited in food-history.tsx:133 — SWR's `mutate(undefined, { revalidate: false })` is a local cache reset with no network call; error handling is meaningless
+- [DISCARDED] CONVENTION: Unused `cleanup` import in quick-select.test.tsx and food-history.test.tsx — false positive; `cleanup` IS explicitly used (quick-select.test.tsx:664, food-history.test.tsx:793/872/953)
 
 ### Linear Updates
-- FOO-691: Review → Merge (ETag utility module)
-- FOO-692: Review → Merge (v1 routes ETag)
-- FOO-693: Review → Merge (internal routes ETag)
-- FOO-694: Review → Merge (API.md docs)
-- FOO-695: Created in Merge (Fix: raw API key in rate-limit logs — fixed inline)
-- FOO-696: Created in Merge (Fix: fitbit-credentials missing try/catch — fixed inline)
-- FOO-697: Created in Merge (Fix: food-history/[id] DELETE DB call outside try/catch — fixed inline)
-- FOO-698: Created in Merge (Fix: missing action field in error logs — fixed inline)
-- FOO-699: Created in Merge (Fix: common-foods clientDate/clientTime validation — fixed inline)
-- FOO-700: Created in Merge (Fix: API.md error response example — fixed inline)
+- FOO-690: Review → Merge
+- FOO-689: Review → Merge
+- FOO-688: Review → Merge
+- FOO-701: Created in Merge (Fix: stray separator when time is null — fixed inline)
+- FOO-702: Created in Merge (Fix: test doesn't verify time changed — fixed inline)
 
 ### Inline Fix Verification
-- Unit tests: 2187 passing (added 11 new tests for fixes)
-- Lint: clean
-- Build: clean
-- Bug-hunter: 1 medium finding (clientTime regex range) — fixed and re-verified
+- Unit tests: all 2198 pass
+- Bug-hunter: no new issues
 
 <!-- REVIEW COMPLETE -->
 
----
-
-## Plan Summary
-
-**Objective:** Add ETag support with full HTTP spec compliance to all GET API routes (v1 external + internal browser-facing)
-
-**Request:** Implement ETags by hashing the data payload (avoiding timestamp in response envelope). Full If-None-Match spec compliance (multiple values, wildcard, weak comparison). Apply to both v1 and internal API routes. Update API.md docs.
-
-**Linear Issues:** FOO-691, FOO-692, FOO-693, FOO-694
-
-**Approach:** Create an ETag utility module (`generateETag`, `etagMatches`) and a `conditionalResponse` function in `api-response.ts` that replaces the existing `successResponse() + Cache-Control` pattern. Apply uniformly to all 18 GET route handlers. Browser clients (SWR) benefit transparently — no frontend code changes needed since `fetch()` handles `If-None-Match` automatically with `Cache-Control: private, no-cache`.
-
-**Scope:**
-- Tasks: 4
-- Files affected: ~41 (2 new, ~39 modified)
-- New tests: yes (2 new test files, ~36 new test cases across existing test files)
-
-**Key Decisions:**
-- ETag hashes only the `data` payload (via `JSON.stringify`), not the full `{ success, data, timestamp }` envelope — avoids timestamp changing the hash every request
-- Strong ETags (not weak) — we control serialization, byte-for-byte reproducibility is guaranteed
-- SHA-256 truncated to 16 hex chars (64 bits of entropy) — collision-free for practical purposes, compact headers
-- `conditionalResponse` replaces the 3-line `successResponse() + headers.set() + return` pattern with a single call
-- `successResponse` and `errorResponse` kept unchanged for POST handlers and error paths
-- No frontend changes needed — browser HTTP cache + SWR work transparently
-
-**Risks/Considerations:**
-- JSON serialization order: `JSON.stringify` preserves insertion order. All data comes from consistent DB query → mapping pipelines, so order is deterministic. No sorted-keys needed.
-- `health` route needs `request` parameter added to its `GET()` signature
-- `nutrition-summary` internal route has two success paths (single date + date range) — both need updating
+### Continuation Status
+All tasks completed.
 
 ---
 
 ## Status: COMPLETE
 
 All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
-- FOO-691 through FOO-694: Original implementation tasks
-- FOO-695 through FOO-700: Review findings fixed inline

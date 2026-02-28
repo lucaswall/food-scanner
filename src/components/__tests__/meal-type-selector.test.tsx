@@ -129,7 +129,7 @@ describe("MealTypeSelector", () => {
 
       expect(screen.getByText(/based on current time/i)).toBeInTheDocument();
       // The time display should be present (format depends on locale)
-      expect(screen.getByText(/[0-9]{1,2}:[0-9]{2}\s?(AM|PM)/i)).toBeInTheDocument();
+      expect(screen.getByText(/[0-9]{2}:[0-9]{2}/)).toBeInTheDocument();
 
       vi.useRealTimers();
     });
@@ -153,7 +153,7 @@ describe("MealTypeSelector", () => {
       render(<MealTypeSelector value={3} onChange={onChange} />);
 
       expect(screen.getByText(/based on current time/i)).toBeInTheDocument();
-      expect(screen.getByText(/[0-9]{1,2}:[0-9]{2}\s?(AM|PM)/i)).toBeInTheDocument();
+      expect(screen.getByText(/[0-9]{2}:[0-9]{2}/)).toBeInTheDocument();
 
       vi.useRealTimers();
     });
@@ -163,28 +163,21 @@ describe("MealTypeSelector", () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date("2026-02-05T12:00:00"));
 
-      const { rerender } = render(
+      render(
         <MealTypeSelector value={3} onChange={onChange} showTimeHint />
       );
 
-      // Get initial time text
-      const timeText1 = screen.getByText(/[0-9]{1,2}:[0-9]{2}\s?(AM|PM)/i);
-      expect(timeText1).toBeInTheDocument();
+      // Verify initial time is 12:00
+      expect(screen.getByText(/\(12:00\)/)).toBeInTheDocument();
 
-      // Simulate time passing - advance timer by 61 seconds to trigger the interval
+      // Advance by 61s — interval fires at 60s, new Date() returns 12:01
       act(() => {
-        vi.setSystemTime(new Date("2026-02-05T12:01:00"));
         vi.advanceTimersByTime(61000);
       });
 
-      // Rerender to pick up new time
-      act(() => {
-        rerender(<MealTypeSelector value={3} onChange={onChange} showTimeHint />);
-      });
-
-      // The component should have rendered with updated time
-      const timeText2 = screen.getByText(/[0-9]{1,2}:[0-9]{2}\s?(AM|PM)/i);
-      expect(timeText2).toBeInTheDocument();
+      // The component should now show the updated time
+      expect(screen.getByText(/\(12:01\)/)).toBeInTheDocument();
+      expect(screen.queryByText(/\(12:00\)/)).not.toBeInTheDocument();
 
       vi.useRealTimers();
     });

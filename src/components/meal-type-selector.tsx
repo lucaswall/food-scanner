@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatTimeFromDate } from "@/lib/date-utils";
 
 interface MealTypeSelectorProps {
   value: number;
@@ -17,14 +18,6 @@ interface MealTypeSelectorProps {
   showTimeHint?: boolean;
   id?: string;
   ariaLabel?: string;
-}
-
-function formatTime(date: Date): string {
-  return date.toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
 }
 
 const MEAL_TYPE_OPTIONS = [
@@ -80,7 +73,7 @@ export function MealTypeSelector({
       </Select>
       {showTimeHint && (
         <p className="text-sm text-muted-foreground">
-          Based on current time ({formatTime(currentTime)})
+          Based on current time ({formatTimeFromDate(currentTime)})
         </p>
       )}
     </div>

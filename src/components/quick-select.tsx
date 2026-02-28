@@ -84,7 +84,6 @@ export function QuickSelect() {
   } = useSWRInfinite<PaginatedFoodsPage>(getKey, apiFetcher, {
     revalidateFirstPage: true,
     revalidateOnFocus: false,
-    keepPreviousData: true,
   });
 
   const { data: searchData, isLoading: searchLoading, error: searchError } = useSWR<{ foods: CommonFood[] }>(

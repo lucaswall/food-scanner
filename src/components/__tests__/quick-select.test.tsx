@@ -139,7 +139,7 @@ function mockPaginatedResponse(foods: CommonFood[], nextCursor: { score: number;
 
 function renderQuickSelect() {
   return render(
-    <SWRConfig value={{ provider: () => new Map() }}>
+    <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
       <QuickSelect />
     </SWRConfig>
   );
@@ -306,6 +306,32 @@ describe("QuickSelect", () => {
 
         // Should have at least one more fetch for revalidation
         expect(fetchCountAfterRevisit).toBeGreaterThan(fetchCountAfterFirstVisit);
+      });
+    });
+
+    it("switching to Recent tab does not show stale Suggested data while loading", async () => {
+      // FOO-690: keepPreviousData: true causes old tab's data to persist during tab switch,
+      // making the switch appear broken. When switching tabs, stale data should be cleared
+      // immediately so the user sees the correct state (loading or new data).
+      const suggestedOnlyFood = { ...mockFoods[0], foodName: "Suggested Only Food", customFoodId: 10 };
+
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse([suggestedOnlyFood])) // Suggested loads immediately
+        .mockImplementationOnce(() => new Promise(() => {})); // Recent fetch never resolves
+
+      renderQuickSelect();
+
+      // Wait for Suggested data to load
+      await waitFor(() => {
+        expect(screen.getByText("Suggested Only Food")).toBeInTheDocument();
+      });
+
+      // Switch to Recent tab
+      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
+
+      // Suggested food should be cleared immediately — keepPreviousData must NOT persist stale data
+      await waitFor(() => {
+        expect(screen.queryByText("Suggested Only Food")).not.toBeInTheDocument();
       });
     });
   });

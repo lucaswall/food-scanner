@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
-import { getTodayDate } from "@/lib/date-utils";
+import { getTodayDate, formatTime } from "@/lib/date-utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { FastingResponse } from "@/types";
 
@@ -17,12 +17,6 @@ function formatDuration(minutes: number): string {
   return `${hours}h ${mins}m`;
 }
 
-function formatTime12Hour(time24: string): string {
-  const [hours, minutes] = time24.split(":").map(Number);
-  const period = hours >= 12 ? "PM" : "AM";
-  const hours12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
-  return `${hours12}:${minutes.toString().padStart(2, "0")} ${period}`;
-}
 
 function calculateLiveDuration(lastMealTime: string, startDate: string): number {
   const startDateTime = new Date(`${startDate}T${lastMealTime}`);
@@ -96,7 +90,7 @@ export function FastingCard({ date }: FastingCardProps) {
         </div>
         <div className="text-2xl font-bold">{formatDuration(liveDuration)}</div>
         <p className="text-sm text-muted-foreground">
-          Since {formatTime12Hour(window.lastMealTime)}
+          Since {formatTime(window.lastMealTime)}
         </p>
       </div>
     );
@@ -111,7 +105,7 @@ export function FastingCard({ date }: FastingCardProps) {
           {formatDuration(window.durationMinutes)}
         </div>
         <p className="text-sm text-muted-foreground">
-          {formatTime12Hour(window.lastMealTime)} → {formatTime12Hour(window.firstMealTime)}
+          {formatTime(window.lastMealTime)} → {formatTime(window.firstMealTime)}
         </p>
       </div>
     );
