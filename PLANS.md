@@ -880,3 +880,81 @@ Add pencil/edit icon button alongside delete on food-history entry cards. Naviga
 - Sharing entire meals or daily logs (individual foods only)
 - Share link expiration or revocation
 - Multi-user admin panel or user management
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-02-28
+**Method:** Agent team (4 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Add isFavorite and shareToken columns (FOO-703, FOO-707) — lead-reserved for drizzle-kit generate
+- Task 2: Toggle favorite API endpoint (FOO-704) — worker-1
+- Task 3: Star UI on quick select cards and food detail (FOO-705) — worker-1
+- Task 4: Pin favorites at top of Suggested tab (FOO-706) — worker-1
+- Task 5: Time selector component (FOO-712) — worker-2
+- Task 6: Time selector integration in chat + analyze (FOO-713, FOO-714) — worker-2
+- Task 7: report_nutrition tool update for time/mealType (FOO-715) — worker-2
+- Task 8: Share API endpoint (FOO-708) — worker-3
+- Task 9: Log-shared page (FOO-709) — worker-3
+- Task 10: Share button on food detail (FOO-710) — worker-3
+- Task 11: OAuth return URL preservation (FOO-711) — worker-3
+- Task 12: editAnalysis() and edit-chat API route (FOO-716) — worker-4
+- Task 13: edit-food API route (FOO-717) — worker-4
+- Task 14: Edit chat UI and history edit button (FOO-718, FOO-719) — worker-4
+
+### Files Modified
+- `src/db/schema.ts` — Added isFavorite boolean and shareToken text columns
+- `drizzle/0014_tan_jasper_sitwell.sql` — Generated migration
+- `src/types/index.ts` — Added customFoodId/isFavorite to FoodLogEntryDetail, time/mealTypeId to FoodAnalysis
+- `src/lib/food-log.ts` — toggleFavorite, setShareToken (atomic), favorites pinning, updateFoodLogEntry, cleanupOrphanCustomFood
+- `src/lib/claude.ts` — editAnalysis streaming generator, time/mealTypeId in report_nutrition tool
+- `src/components/time-selector.tsx` — New TimeSelector component with Now/custom time modes
+- `src/components/food-detail.tsx` — Star favorite toggle + share button
+- `src/components/food-chat.tsx` — Edit mode support, TimeSelector integration, SSE auto-update for time/mealType
+- `src/components/food-history.tsx` — Edit button on history entries
+- `src/components/quick-select.tsx` — Star icons on cards, favorites section header
+- `src/components/food-analyzer.tsx` — TimeSelector in analyze header
+- `src/components/edit-food.tsx` — New edit food wrapper component
+- `src/app/api/custom-foods/[id]/favorite/route.ts` — PATCH toggle favorite
+- `src/app/api/share/route.ts` — POST generate share token
+- `src/app/api/shared-food/[token]/route.ts` — GET shared food data
+- `src/app/api/edit-chat/route.ts` — POST edit analysis SSE stream
+- `src/app/api/edit-food/route.ts` — POST save edited food
+- `src/app/app/log-shared/[token]/` — Page + loading + content component
+- `src/app/app/edit/[id]/` — Page + loading
+- `src/app/api/auth/google/route.ts` — returnTo query param in OAuth state
+- `src/app/api/auth/google/callback/route.ts` — returnTo extraction from OAuth state
+- `middleware.ts` — /app/log-shared public route allowlist
+- `src/app/page.tsx` — Share feature mention in landing page
+
+### Linear Updates
+- FOO-703 through FOO-719: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 7 bugs (3 HIGH, 4 MEDIUM), all fixed before commit
+  - Favorites pagination cursor (fixed: separate favorites from paginated non-favorites)
+  - Share token race condition (fixed: atomic UPDATE WHERE share_token IS NULL)
+  - Edit mode time fallback (fixed: preserve original entry time)
+  - Share route integer validation (fixed: Number.isInteger check)
+  - Log-shared error handling (fixed: added error state and user feedback)
+  - returnTo lost in Fitbit setup flow (noted for follow-up, edge case)
+  - Stale time display in TimeSelector (accepted as cosmetic)
+- verifier: All 2327 tests pass, zero warnings, build clean
+
+### Work Partition
+- Lead: Task 1 (schema + migration — drizzle-kit generate)
+- Worker 1: Tasks 2, 3, 4 (favorites domain — API, UI, pinning)
+- Worker 2: Tasks 5, 6, 7 (time/Claude domain — component, integration, tool schema)
+- Worker 3: Tasks 8, 9, 10, 11 (share domain — API, page, button, OAuth)
+- Worker 4: Tasks 12, 13, 14 (edit domain — analysis, save API, chat UI)
+
+### Merge Summary
+- Worker 1: fast-forward (first merge after lead's foundation)
+- Worker 2: auto-merge, 1 conflict in types/index.ts (resolved)
+- Worker 3: 3 conflicts in food-log.ts, food-detail.tsx, food-detail.test.tsx (resolved — combined star + share features)
+- Worker 4: 3 conflicts in time-selector.tsx (add/add), food-chat.tsx (edit mode + time selector), food-chat.test.tsx (mocks — resolved)
+
+### Continuation Status
+All tasks completed.
