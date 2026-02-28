@@ -1,4 +1,4 @@
-import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc, between } from "drizzle-orm";
+import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc, between, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
 import { computeMatchRatio } from "@/lib/food-matching";
@@ -112,6 +112,22 @@ export async function getCustomFoodById(userId: string, id: number) {
     .where(and(eq(customFoods.id, id), eq(customFoods.userId, userId)));
 
   return rows[0] ?? null;
+}
+
+export async function toggleFavorite(
+  userId: string,
+  customFoodId: number,
+): Promise<{ isFavorite: boolean } | null> {
+  const db = getDb();
+  const rows = await db
+    .update(customFoods)
+    .set({ isFavorite: sql`NOT ${customFoods.isFavorite}` })
+    .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)))
+    .returning({ isFavorite: customFoods.isFavorite });
+
+  const row = rows[0];
+  if (!row) return null;
+  return { isFavorite: row.isFavorite };
 }
 
 function parseTimeToMinutes(time: string | null): number {
@@ -267,6 +283,16 @@ export async function getCommonFoods(
   // Sort by descending total score
   let sorted = [...scoreByFood.values()]
     .sort((a, b) => b.totalScore - a.totalScore);
+
+  // Favorites pinning on page 1: favorites appear before non-favorites, sorted by date desc
+  if (options.cursor === undefined) {
+    const favorites = sorted.filter(item => item.bestRow.custom_foods.isFavorite);
+    const nonFavorites = sorted.filter(item => !item.bestRow.custom_foods.isFavorite);
+    favorites.sort((a, b) =>
+      b.bestRow.food_log_entries.date.localeCompare(a.bestRow.food_log_entries.date),
+    );
+    sorted = [...favorites, ...nonFavorites];
+  }
 
   // Cursor-based pagination: composite cursor {score, id} for stable pagination
   if (options.cursor !== undefined) {
@@ -458,6 +484,7 @@ export async function getFoodLogEntryDetail(
 
   return {
     id: row.food_log_entries.id,
+    customFoodId: row.custom_foods.id,
     foodName: row.custom_foods.foodName,
     description: row.custom_foods.description,
     notes: row.custom_foods.notes,
@@ -478,6 +505,7 @@ export async function getFoodLogEntryDetail(
     time: row.food_log_entries.time,
     fitbitLogId: row.food_log_entries.fitbitLogId,
     confidence: row.custom_foods.confidence,
+    isFavorite: row.custom_foods.isFavorite,
   };
 }
 

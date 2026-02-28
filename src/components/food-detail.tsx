@@ -1,11 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { ArrowLeft, AlertCircle } from "lucide-react";
+import { ArrowLeft, AlertCircle, Star } from "lucide-react";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogEntryDetail } from "@/types";
 import { formatTime } from "@/lib/date-utils";
@@ -30,6 +31,21 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
     `/api/food-history/${entryId}`,
     apiFetcher,
   );
+
+  const [localFavorite, setLocalFavorite] = useState<boolean | undefined>(undefined);
+  const isFavorite = localFavorite ?? data?.isFavorite ?? false;
+
+  const handleToggleFavorite = async () => {
+    if (!data) return;
+    const newValue = !isFavorite;
+    setLocalFavorite(newValue);
+    try {
+      const res = await fetch(`/api/custom-foods/${data.customFoodId}/favorite`, { method: "PATCH" });
+      if (!res.ok) setLocalFavorite(!newValue);
+    } catch {
+      setLocalFavorite(!newValue);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -88,7 +104,20 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
 
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">{data.foodName}</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">{data.foodName}</h1>
+          <button
+            aria-label="Toggle favorite"
+            aria-pressed={isFavorite}
+            onClick={handleToggleFavorite}
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center"
+          >
+            <Star
+              className="h-5 w-5"
+              fill={isFavorite ? "currentColor" : "none"}
+            />
+          </button>
+        </div>
         <p className="text-sm text-muted-foreground mt-1">
           {formatDate(data.date)} · {formatTime(data.time) || "Not specified"} ·{" "}
           {FITBIT_MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"}

@@ -247,6 +247,7 @@ export interface FoodMatch {
 
 export interface FoodLogEntryDetail {
   id: number;
+  customFoodId: number;
   foodName: string;
   description: string | null;
   notes: string | null;
@@ -267,6 +268,7 @@ export interface FoodLogEntryDetail {
   time: string | null;
   fitbitLogId: number | null;
   confidence: string;
+  isFavorite: boolean;
 }
 
 export interface MealEntry {

@@ -109,6 +109,7 @@ const {
   getFoodLogEntryDetail,
   deleteFoodLogEntry,
   updateCustomFoodMetadata,
+  toggleFavorite,
   getEarliestEntryDate,
   getDateRangeNutritionSummary,
 } = await import("@/lib/food-log");
@@ -614,6 +615,7 @@ describe("getCommonFoods", () => {
     fatG?: string;
     fiberG?: string;
     sodiumMg?: string;
+    isFavorite?: boolean;
   }) {
     return {
       food_log_entries: {
@@ -644,6 +646,8 @@ describe("getCommonFoods", () => {
         confidence: "high",
         notes: null,
         keywords: null,
+        isFavorite: overrides.isFavorite ?? false,
+        shareToken: null,
         createdAt: new Date(),
       },
     };
@@ -955,6 +959,82 @@ describe("getCommonFoods", () => {
       const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08", { limit: 3 });
       expect(result.foods).toHaveLength(3);
       expect(result.nextCursor).toBeNull();
+    });
+  });
+
+  describe("favorites pinning (page 1)", () => {
+    it("favorites appear before non-favorites in results", async () => {
+      // Non-favorite has higher score (logged today at exact time)
+      // Favorite has lower score (logged 14 days ago)
+      // But favorites should appear first
+      mockWhere.mockResolvedValue([
+        makeRow({ customFoodId: 1, foodName: "Non-fav High Score", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 2, foodName: "Fav Low Score", time: "12:00:00", date: "2026-01-25", fitbitFoodId: 101, mealTypeId: 3, isFavorite: true }),
+      ]);
+
+      const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
+
+      expect(result.foods[0].foodName).toBe("Fav Low Score");
+      expect(result.foods[0].isFavorite).toBe(true);
+      expect(result.foods[1].foodName).toBe("Non-fav High Score");
+      expect(result.foods[1].isFavorite).toBe(false);
+    });
+
+    it("favorites sorted by most recently logged", async () => {
+      mockWhere.mockResolvedValue([
+        makeRow({ customFoodId: 1, foodName: "Fav Old", time: "12:00:00", date: "2026-01-01", fitbitFoodId: 100, mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 2, foodName: "Fav Recent", time: "12:00:00", date: "2026-02-07", fitbitFoodId: 101, mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 3, foodName: "Non-fav", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 102, mealTypeId: 3, isFavorite: false }),
+      ]);
+
+      const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
+
+      expect(result.foods[0].foodName).toBe("Fav Recent");
+      expect(result.foods[1].foodName).toBe("Fav Old");
+      expect(result.foods[2].foodName).toBe("Non-fav");
+    });
+
+    it("non-favorites section excludes already-shown favorites", async () => {
+      mockWhere.mockResolvedValue([
+        makeRow({ customFoodId: 1, foodName: "Fav Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 2, foodName: "Non-fav Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3, isFavorite: false }),
+      ]);
+
+      const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
+
+      // Only 2 unique foods total - no duplicates
+      expect(result.foods).toHaveLength(2);
+      expect(result.foods.filter(f => f.foodName === "Fav Food")).toHaveLength(1);
+    });
+
+    it("no favorites → results identical to current scoring behavior", async () => {
+      mockWhere.mockResolvedValue([
+        makeRow({ customFoodId: 1, foodName: "High Score", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 2, foodName: "Low Score", time: "12:00:00", date: "2026-01-25", fitbitFoodId: 101, mealTypeId: 3, isFavorite: false }),
+      ]);
+
+      const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08");
+
+      // Without favorites, normal score ordering applies
+      expect(result.foods[0].foodName).toBe("High Score");
+      expect(result.foods[1].foodName).toBe("Low Score");
+    });
+
+    it("favorites only prepended on page 1; subsequent pages use normal score ordering", async () => {
+      // Page 2 (cursor present): favorites follow normal score order, no pinning
+      mockWhere.mockResolvedValue([
+        makeRow({ customFoodId: 1, foodName: "Fav Food", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 2, foodName: "Non-fav Food", time: "11:00:00", date: "2026-02-08", fitbitFoodId: 101, mealTypeId: 3, isFavorite: false }),
+      ]);
+
+      // Pass a cursor to simulate page 2
+      const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08", {
+        cursor: { score: 999, id: 0 }, // high score cursor to include everything
+      });
+
+      // On page 2, results are score-ordered (no pinning)
+      // Fav Food at 12:00:00 (exact match) scores higher than Non-fav at 11:00:00
+      expect(result.foods[0].foodName).toBe("Fav Food");
     });
   });
 });
@@ -1491,6 +1571,8 @@ describe("getFoodLogEntryDetail", () => {
         notes: "With lemon",
         description: "A piece of grilled salmon",
         keywords: null,
+        isFavorite: false,
+        shareToken: null,
         createdAt: new Date(),
       },
     };
@@ -1500,6 +1582,7 @@ describe("getFoodLogEntryDetail", () => {
 
     expect(result).toEqual({
       id: 100,
+      customFoodId: 42,
       foodName: "Grilled Salmon",
       description: "A piece of grilled salmon",
       notes: "With lemon",
@@ -1520,6 +1603,7 @@ describe("getFoodLogEntryDetail", () => {
       time: "12:30:00",
       fitbitLogId: 789,
       confidence: "high",
+      isFavorite: false,
     });
   });
 
@@ -1578,6 +1662,7 @@ describe("getFoodLogEntryDetail", () => {
 const mockUpdate = vi.fn();
 const mockUpdateSet = vi.fn();
 const mockUpdateWhere = vi.fn();
+const mockUpdateReturning = vi.fn();
 
 describe("searchFoods", () => {
   function makeSearchRow(overrides: {
@@ -1889,6 +1974,48 @@ describe("updateCustomFoodMetadata", () => {
     });
 
     expect(mockUpdateWhere).toHaveBeenCalled();
+  });
+});
+
+describe("toggleFavorite", () => {
+  it("flips false → true and returns {isFavorite: true}", async () => {
+    mockUpdateWhere.mockReturnValue({ returning: mockUpdateReturning });
+    mockUpdateReturning.mockResolvedValue([{ isFavorite: true }]);
+
+    const result = await toggleFavorite("user-uuid-123", 42);
+
+    expect(result).toEqual({ isFavorite: true });
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalled();
+    expect(mockUpdateWhere).toHaveBeenCalled();
+    expect(mockUpdateReturning).toHaveBeenCalled();
+  });
+
+  it("flips true → false and returns {isFavorite: false}", async () => {
+    mockUpdateWhere.mockReturnValue({ returning: mockUpdateReturning });
+    mockUpdateReturning.mockResolvedValue([{ isFavorite: false }]);
+
+    const result = await toggleFavorite("user-uuid-123", 42);
+
+    expect(result).toEqual({ isFavorite: false });
+  });
+
+  it("returns null for non-existent ID (no row updated)", async () => {
+    mockUpdateWhere.mockReturnValue({ returning: mockUpdateReturning });
+    mockUpdateReturning.mockResolvedValue([]);
+
+    const result = await toggleFavorite("user-uuid-123", 999);
+
+    expect(result).toBeNull();
+  });
+
+  it("returns null for other user's food (where clause filters by userId)", async () => {
+    mockUpdateWhere.mockReturnValue({ returning: mockUpdateReturning });
+    mockUpdateReturning.mockResolvedValue([]);
+
+    const result = await toggleFavorite("other-user", 42);
+
+    expect(result).toBeNull();
   });
 });
 

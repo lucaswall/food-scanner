@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import { SWRConfig } from "swr";
 import { QuickSelect } from "../quick-select";
 import type { CommonFood, FoodLogResponse } from "@/types";
@@ -1326,6 +1326,162 @@ describe("QuickSelect", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("star icon (favorites) on food cards", () => {
+    const favoriteFood: CommonFood = {
+      customFoodId: 10,
+      foodName: "Favorite Oatmeal",
+      amount: 100,
+      unitId: 147,
+      calories: 300,
+      proteinG: 10,
+      carbsG: 50,
+      fatG: 5,
+      fiberG: 4,
+      sodiumMg: 100,
+      fitbitFoodId: 500,
+      mealTypeId: 1,
+      isFavorite: true,
+    };
+
+    const nonFavoriteFood: CommonFood = {
+      ...mockFoods[0],
+      isFavorite: false,
+    };
+
+    it("renders filled star button for a favorite food", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse([favoriteFood]));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Favorite Oatmeal")).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole("button", { name: /toggle favorite/i })).toBeInTheDocument();
+    });
+
+    it("does not render star button for a non-favorite food", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse([nonFavoriteFood]));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByRole("button", { name: /toggle favorite/i })).not.toBeInTheDocument();
+    });
+
+    it("star tap calls PATCH /api/custom-foods/[id]/favorite", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse([favoriteFood]))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { isFavorite: false } }),
+        });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Favorite Oatmeal")).toBeInTheDocument();
+      });
+
+      const starBtn = screen.getByRole("button", { name: /toggle favorite/i });
+      await act(async () => {
+        fireEvent.click(starBtn);
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/custom-foods/10/favorite",
+        expect.objectContaining({ method: "PATCH" }),
+      );
+    });
+
+    it("star tap does NOT trigger card selection (stopPropagation)", async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockPaginatedResponse([favoriteFood]))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { isFavorite: false } }),
+        });
+
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Favorite Oatmeal")).toBeInTheDocument();
+      });
+
+      const starBtn = screen.getByRole("button", { name: /toggle favorite/i });
+      await act(async () => {
+        fireEvent.click(starBtn);
+      });
+
+      // After clicking star, should NOT have navigated to food detail (selectedFood stays null)
+      expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Favorites section header in Suggested tab", () => {
+    const favoriteFood: CommonFood = {
+      customFoodId: 10,
+      foodName: "Favorite Oatmeal",
+      amount: 100,
+      unitId: 147,
+      calories: 300,
+      proteinG: 10,
+      carbsG: 50,
+      fatG: 5,
+      fiberG: 4,
+      sodiumMg: 100,
+      fitbitFoodId: 500,
+      mealTypeId: 1,
+      isFavorite: true,
+    };
+
+    const nonFavoriteFood: CommonFood = {
+      ...mockFoods[0],
+      isFavorite: false,
+    };
+
+    it("renders Favorites heading when there are favorite foods", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse([favoriteFood, nonFavoriteFood]));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Favorite Oatmeal")).toBeInTheDocument();
+      });
+
+      expect(screen.getByText("Favorites")).toBeInTheDocument();
+    });
+
+    it("does not render Favorites heading when no foods are favorites", async () => {
+      mockFetch.mockResolvedValueOnce(mockPaginatedResponse([nonFavoriteFood]));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByText("Favorites")).not.toBeInTheDocument();
+    });
+
+    it("renders Favorites heading only in Suggested tab, not Recent tab", async () => {
+      // First call returns favorites for Suggested tab
+      mockFetch.mockResolvedValue(mockPaginatedResponse([favoriteFood]));
+      renderQuickSelect();
+
+      await waitFor(() => {
+        expect(screen.getByText("Favorite Oatmeal")).toBeInTheDocument();
+      });
+      expect(screen.getByText("Favorites")).toBeInTheDocument();
+
+      // Switch to Recent tab
+      fireEvent.click(screen.getByRole("button", { name: /recent/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByText("Favorites")).not.toBeInTheDocument();
       });
     });
   });

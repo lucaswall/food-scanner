@@ -11,7 +11,7 @@ import { NutritionFactsCard } from "./nutrition-facts-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Search } from "lucide-react";
+import { ArrowLeft, Search, Star } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
@@ -81,6 +81,7 @@ export function QuickSelect() {
     setSize,
     isLoading: loadingFoods,
     isValidating,
+    mutate,
   } = useSWRInfinite<PaginatedFoodsPage>(getKey, apiFetcher, {
     revalidateFirstPage: true,
     revalidateOnFocus: false,
@@ -121,6 +122,16 @@ export function QuickSelect() {
   const [logging, setLogging] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
+
+  const handleToggleFavorite = async (food: CommonFood, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await fetch(`/api/custom-foods/${food.customFoodId}/favorite`, { method: "PATCH" });
+      mutate();
+    } catch {
+      // no-op: SWR revalidation will correct state
+    }
+  };
 
   const handleSelectFood = (food: CommonFood) => {
     setSelectedFood(food);
@@ -374,28 +385,60 @@ export function QuickSelect() {
         {/* Food cards */}
         {foods.length > 0 && (
           <div className="space-y-3">
-            {foods.map((food) => (
-              <button
-                key={food.customFoodId}
-                onClick={() => handleSelectFood(food)}
-                className="w-full text-left p-4 rounded-lg border bg-card min-h-[44px] active:bg-muted transition-colors"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="font-medium">{food.foodName}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {getUnitLabel(food.unitId, food.amount)}
+            {activeTab === "suggested" && !isSearchActive && foods.some((f) => f.isFavorite) && (
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">
+                Favorites
+              </p>
+            )}
+            {foods.map((food, index) => {
+              const prevFood = foods[index - 1];
+              const showSeparator =
+                activeTab === "suggested" &&
+                !isSearchActive &&
+                prevFood?.isFavorite === true &&
+                food.isFavorite === false &&
+                foods.some((f) => f.isFavorite);
+              return (
+                <div key={food.customFoodId}>
+                  {showSeparator && (
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1 pt-2">
+                      Other
                     </p>
+                  )}
+                  <div className="relative">
+                <button
+                  onClick={() => handleSelectFood(food)}
+                  className="w-full text-left p-4 rounded-lg border bg-card min-h-[44px] active:bg-muted transition-colors"
+                >
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-medium">{food.foodName}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {getUnitLabel(food.unitId, food.amount)}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold">{food.calories} cal</p>
+                      <p className="text-xs text-muted-foreground">
+                        P:{food.proteinG}g C:{food.carbsG}g F:{food.fatG}g
+                      </p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold">{food.calories} cal</p>
-                    <p className="text-xs text-muted-foreground">
-                      P:{food.proteinG}g C:{food.carbsG}g F:{food.fatG}g
-                    </p>
+                </button>
+                {food.isFavorite && (
+                  <button
+                    aria-label="Toggle favorite"
+                    aria-pressed={true}
+                    onClick={(e) => handleToggleFavorite(food, e)}
+                    className="absolute top-1 right-1 min-h-[44px] min-w-[44px] flex items-center justify-center text-amber-500"
+                  >
+                    <Star className="h-5 w-5" fill="currentColor" />
+                  </button>
+                )}
                   </div>
                 </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
 
