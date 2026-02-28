@@ -40,6 +40,30 @@ export interface FoodLogEntryInput {
   fitbitLogId?: number | null;
 }
 
+export interface UpdateFoodLogInput {
+  foodName: string;
+  amount: number;
+  unitId: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sodiumMg: number;
+  saturatedFatG?: number | null;
+  transFatG?: number | null;
+  sugarsG?: number | null;
+  caloriesFromFat?: number | null;
+  confidence: "high" | "medium" | "low";
+  notes: string | null;
+  description?: string | null;
+  keywords?: string[] | null;
+  mealTypeId: number;
+  date: string;
+  time: string;
+  fitbitLogId?: number | null;
+}
+
 export async function insertCustomFood(
   userId: string,
   data: CustomFoodInput,
@@ -510,6 +534,23 @@ export async function getFoodLogEntryDetail(
   };
 }
 
+type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+async function cleanupOrphanCustomFood(tx: DbTx, customFoodId: number): Promise<boolean> {
+  const remainingEntries = await tx
+    .select({ id: foodLogEntries.id })
+    .from(foodLogEntries)
+    .where(eq(foodLogEntries.customFoodId, customFoodId));
+
+  if (remainingEntries.length === 0) {
+    await tx
+      .delete(customFoods)
+      .where(eq(customFoods.id, customFoodId));
+    return true;
+  }
+  return false;
+}
+
 export async function deleteFoodLogEntry(
   userId: string,
   entryId: number,
@@ -533,21 +574,84 @@ export async function deleteFoodLogEntry(
     const row = rows[0];
     if (!row) return null;
 
-    // Check if the custom food is still referenced by other entries
-    const remainingEntries = await tx
-      .select({ id: foodLogEntries.id })
-      .from(foodLogEntries)
-      .where(eq(foodLogEntries.customFoodId, row.customFoodId));
+    const orphanedFoodCleaned = await cleanupOrphanCustomFood(tx, row.customFoodId);
 
-    // If no remaining entries reference this custom food, delete it
-    if (remainingEntries.length === 0) {
-      await tx
-        .delete(customFoods)
-        .where(eq(customFoods.id, row.customFoodId));
-    }
-
-    l.debug({ action: "delete_food_log_entry", entryId, orphanedFoodCleaned: remainingEntries.length === 0 }, "food log entry deleted");
+    l.debug({ action: "delete_food_log_entry", entryId, orphanedFoodCleaned }, "food log entry deleted");
     return { fitbitLogId: row.fitbitLogId };
+  });
+}
+
+export async function updateFoodLogEntry(
+  userId: string,
+  entryId: number,
+  data: UpdateFoodLogInput,
+  log?: Logger,
+): Promise<{ fitbitLogId: number | null; newCustomFoodId: number } | null> {
+  const l = log ?? logger;
+  const db = getDb();
+
+  return db.transaction(async (tx) => {
+    // Fetch current entry to get customFoodId and fitbitLogId
+    const rows = await tx
+      .select({
+        customFoodId: foodLogEntries.customFoodId,
+        fitbitLogId: foodLogEntries.fitbitLogId,
+      })
+      .from(foodLogEntries)
+      .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
+
+    const row = rows[0];
+    if (!row) return null;
+
+    const oldCustomFoodId = row.customFoodId;
+
+    // Insert new custom food with updated values
+    const newFoods = await tx
+      .insert(customFoods)
+      .values({
+        userId,
+        foodName: data.foodName,
+        amount: String(data.amount),
+        unitId: data.unitId,
+        calories: Math.round(data.calories),
+        proteinG: String(data.proteinG),
+        carbsG: String(data.carbsG),
+        fatG: String(data.fatG),
+        fiberG: String(data.fiberG),
+        sodiumMg: String(data.sodiumMg),
+        saturatedFatG: data.saturatedFatG != null ? String(data.saturatedFatG) : null,
+        transFatG: data.transFatG != null ? String(data.transFatG) : null,
+        sugarsG: data.sugarsG != null ? String(data.sugarsG) : null,
+        caloriesFromFat: data.caloriesFromFat != null ? String(data.caloriesFromFat) : null,
+        confidence: data.confidence,
+        notes: data.notes,
+        description: data.description ?? null,
+        keywords: data.keywords ?? null,
+      })
+      .returning({ id: customFoods.id });
+
+    const newFood = newFoods[0];
+    if (!newFood) throw new Error("Failed to insert updated custom food: no row returned");
+
+    // Update the food log entry to point to the new custom food
+    await tx
+      .update(foodLogEntries)
+      .set({
+        customFoodId: newFood.id,
+        amount: String(data.amount),
+        unitId: data.unitId,
+        mealTypeId: data.mealTypeId,
+        date: data.date,
+        time: data.time,
+        ...(data.fitbitLogId !== undefined ? { fitbitLogId: data.fitbitLogId } : {}),
+      })
+      .where(eq(foodLogEntries.id, entryId));
+
+    // Clean up old custom food if no longer referenced
+    await cleanupOrphanCustomFood(tx, oldCustomFoodId);
+
+    l.debug({ action: "update_food_log_entry", entryId, newCustomFoodId: newFood.id }, "food log entry updated");
+    return { fitbitLogId: row.fitbitLogId, newCustomFoodId: newFood.id };
   });
 }
 

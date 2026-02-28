@@ -62,6 +62,10 @@ vi.mock("@/db/index", () => ({
           mockDelete(...args);
           return { where: mockDeleteWhere };
         },
+        update: (...args: unknown[]) => {
+          mockUpdate(...args);
+          return { set: mockUpdateSet };
+        },
       });
     },
   }),
@@ -112,6 +116,7 @@ const {
   getFoodLogEntry,
   getFoodLogEntryDetail,
   deleteFoodLogEntry,
+  updateFoodLogEntry,
   updateCustomFoodMetadata,
   toggleFavorite,
   getEarliestEntryDate,
@@ -2425,5 +2430,120 @@ describe("debug logging", () => {
       expect.objectContaining({ action: "insert_food_log_entry", date: "2026-02-16" }),
       expect.any(String),
     );
+  });
+});
+
+describe("updateFoodLogEntry", () => {
+  const validInput = {
+    foodName: "Empanada de carne actualizada",
+    amount: 130,
+    unitId: 147,
+    calories: 280,
+    proteinG: 10,
+    carbsG: 24,
+    fatG: 16,
+    fiberG: 1.5,
+    sodiumMg: 400,
+    saturatedFatG: null,
+    transFatG: null,
+    sugarsG: null,
+    caloriesFromFat: null,
+    confidence: "high" as const,
+    notes: "Corrected portion size",
+    description: "Smaller Argentine beef empanada",
+    keywords: ["empanada", "carne"],
+    mealTypeId: 5,
+    date: "2026-02-15",
+    time: "20:00:00",
+  };
+
+  beforeEach(() => {
+    mockUpdateWhere.mockResolvedValue(undefined);
+  });
+
+  it("inserts new custom food with correct nutrition values", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check: no remaining entries
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    expect(mockInsert).toHaveBeenCalled();
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-uuid-123",
+        foodName: "Empanada de carne actualizada",
+        amount: "130",
+        unitId: 147,
+        calories: 280,
+        proteinG: "10",
+        carbsG: "24",
+        fatG: "16",
+      })
+    );
+  });
+
+  it("updates food log entry to use new customFoodId, amount, mealTypeId, date, time", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customFoodId: 99,
+        amount: "130",
+        unitId: 147,
+        mealTypeId: 5,
+        date: "2026-02-15",
+        time: "20:00:00",
+      })
+    );
+  });
+
+  it("deletes orphaned old custom food when no other entries reference it", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan: no entries remain
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockDeleteWhere).toHaveBeenCalled();
+  });
+
+  it("does not delete old custom food when other entries still reference it", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([{ id: 55 }]); // still referenced
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it("returns fitbitLogId and newCustomFoodId on success", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    const result = await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    expect(result).toEqual({ fitbitLogId: 789, newCustomFoodId: 99 });
+  });
+
+  it("returns null when entry not found", async () => {
+    mockWhere.mockResolvedValueOnce([]); // no entry found
+
+    const result = await updateFoodLogEntry("user-uuid-123", 999, validInput);
+
+    expect(result).toBeNull();
   });
 });

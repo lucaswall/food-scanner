@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MealTypeSelector } from "@/components/meal-type-selector";
@@ -23,10 +24,12 @@ import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { getTodayDate } from "@/lib/date-utils";
 import { savePendingSubmission } from "@/lib/pending-submission";
+import { invalidateFoodCaches } from "@/lib/swr";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
 import type {
   FoodAnalysis,
   FoodLogResponse,
+  FoodLogEntryDetail,
   ConversationMessage,
   ChatFoodResponse,
 } from "@/types";
@@ -47,8 +50,10 @@ interface FoodChatProps {
   initialMealTypeId?: number;
   title?: string;
   seedMessages?: ConversationMessage[];
-  onClose: () => void;
-  onLogged: (response: FoodLogResponse, analysis: FoodAnalysis, mealTypeId: number) => void;
+  onClose?: () => void;
+  onLogged?: (response: FoodLogResponse, analysis: FoodAnalysis, mealTypeId: number) => void;
+  mode?: "analyze" | "edit";
+  editEntry?: FoodLogEntryDetail;
 }
 
 export function FoodChat({
@@ -59,7 +64,11 @@ export function FoodChat({
   seedMessages,
   onClose,
   onLogged,
+  mode = "analyze",
+  editEntry,
 }: FoodChatProps) {
+  const router = useRouter();
+  const isEditMode = mode === "edit";
   const isSeeded = !!seedMessages && seedMessages.length > 0;
 
   const initialMessages: ConversationMessage[] = seedMessages
@@ -84,8 +93,12 @@ export function FoodChat({
   const [loading, setLoading] = useState(false);
   const [logging, setLogging] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mealTypeId, setMealTypeId] = useState(initialMealTypeId ?? getDefaultMealType());
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
+  const [mealTypeId, setMealTypeId] = useState(
+    isEditMode && editEntry ? editEntry.mealTypeId : (initialMealTypeId ?? getDefaultMealType())
+  );
+  const [selectedTime, setSelectedTime] = useState<string | null>(
+    isEditMode && editEntry?.time ? editEntry.time : null
+  );
   const [pendingImages, setPendingImages] = useState<Blob[]>([]);
   // Track whether initial compressed images have been embedded into a message
   const initialImagesConsumedRef = useRef(false);
@@ -296,6 +309,7 @@ export function FoodChat({
         messages: ConversationMessage[];
         initialAnalysis?: FoodAnalysis;
         clientDate: string;
+        entryId?: number;
       } = {
         messages: apiMessages,
         clientDate: getTodayDate(),
@@ -305,13 +319,18 @@ export function FoodChat({
         requestBody.initialAnalysis = latestAnalysis;
       }
 
+      if (isEditMode && editEntry) {
+        requestBody.entryId = editEntry.id;
+      }
+
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
       // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
       timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 120000);
 
-      const response = await fetch("/api/chat-food", {
+      const chatApiUrl = isEditMode ? "/api/edit-chat" : "/api/chat-food";
+      const response = await fetch(chatApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
@@ -511,7 +530,7 @@ export function FoodChat({
         return;
       }
 
-      onLogged(result.data, analysis, mealTypeId);
+      onLogged?.(result.data, analysis, mealTypeId);
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setError("Request timed out. Please try again.");
@@ -525,42 +544,142 @@ export function FoodChat({
     }
   };
 
+  const handleSave = async () => {
+    if (logging) return;
+    if (!latestAnalysis) {
+      setError("No food analysis available to save.");
+      return;
+    }
+    if (!editEntry) {
+      setError("No entry to edit.");
+      return;
+    }
+
+    const analysis = latestAnalysis;
+    setLogging(true);
+    setError(null);
+
+    try {
+      const { date, time } = getLocalDateTime();
+      const saveBody = {
+        entryId: editEntry.id,
+        ...analysis,
+        mealTypeId,
+        date: editEntry.date,
+        time: selectedTime ?? time,
+      };
+
+      const response = await fetch("/api/edit-food", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(saveBody),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data?: { entryId: number; fitbitLogId: number | null; newCustomFoodId: number };
+        error?: { code: string; message: string };
+      };
+
+      if (!response.ok || !result.success) {
+        setError(result.error?.message || "Failed to save changes");
+        return;
+      }
+
+      await invalidateFoodCaches();
+      router.back();
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setError("Request timed out. Please try again.");
+      } else {
+        setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      }
+    } finally {
+      setLogging(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
-      {/* Hidden file inputs */}
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
-        capture="environment"
-        className="hidden"
-        data-testid="chat-camera-input"
-        onChange={(e) => {
-          handleFileSelected(e.target.files);
-          if (cameraInputRef.current) cameraInputRef.current.value = "";
-        }}
-      />
-      <input
-        ref={galleryInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
-        multiple
-        className="hidden"
-        data-testid="chat-gallery-input"
-        onChange={(e) => {
-          handleFileSelected(e.target.files);
-          if (galleryInputRef.current) galleryInputRef.current.value = "";
-        }}
-      />
+      {/* Hidden file inputs — only in analyze mode */}
+      {!isEditMode && (
+        <>
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
+            capture="environment"
+            className="hidden"
+            data-testid="chat-camera-input"
+            onChange={(e) => {
+              handleFileSelected(e.target.files);
+              if (cameraInputRef.current) cameraInputRef.current.value = "";
+            }}
+          />
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
+            multiple
+            className="hidden"
+            data-testid="chat-gallery-input"
+            onChange={(e) => {
+              handleFileSelected(e.target.files);
+              if (galleryInputRef.current) galleryInputRef.current.value = "";
+            }}
+          />
+        </>
+      )}
 
-      {/* Top header: Conditional layout based on analysis presence */}
+      {/* Top header */}
       <div className="border-b bg-background px-2 py-2 space-y-2">
-        {latestAnalysis ? (
+        {isEditMode && editEntry ? (
+          /* Edit mode header: food name + date context, Save Changes button */
+          <>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.back()}
+                aria-label="Back"
+                className="shrink-0 flex items-center justify-center size-11 rounded-full"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm truncate">{editEntry.foodName}</p>
+                <p className="text-xs text-muted-foreground">{editEntry.date}</p>
+              </div>
+              <Button
+                onClick={handleSave}
+                disabled={logging || !latestAnalysis}
+                className="shrink-0 min-h-[44px]"
+              >
+                {logging ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
+              </Button>
+            </div>
+            <div className="flex items-center gap-2 px-1">
+              <MealTypeSelector
+                value={mealTypeId}
+                onChange={setMealTypeId}
+                showTimeHint={false}
+                ariaLabel="Meal type"
+              />
+              <TimeSelector value={selectedTime} onChange={setSelectedTime} />
+            </div>
+          </>
+        ) : latestAnalysis ? (
           <>
             <div className="flex items-center gap-2">
               <h1 className="sr-only">{title}</h1>
               <button
-                onClick={onClose}
+                onClick={onClose ?? (() => {})}
                 aria-label="Back"
                 className="shrink-0 flex items-center justify-center size-11 rounded-full"
               >
@@ -597,7 +716,7 @@ export function FoodChat({
           /* Simple header: Back button + Title */
           <div className="flex items-center gap-2">
             <button
-              onClick={onClose}
+              onClick={onClose ?? (() => {})}
               aria-label="Back"
               className="shrink-0 flex items-center justify-center size-11 rounded-full"
             >
@@ -765,8 +884,8 @@ export function FoodChat({
           </div>
         )}
 
-        {/* Inline photo menu */}
-        {showPhotoMenu && (
+        {/* Inline photo menu — only in analyze mode */}
+        {!isEditMode && showPhotoMenu && (
           <div ref={photoMenuRef} data-testid="photo-menu" className="flex items-center gap-2 px-3 pt-2">
             <button
               onClick={() => {
@@ -795,21 +914,23 @@ export function FoodChat({
 
         {/* Photo toggle + Text input + Send */}
         <div className="flex items-center gap-1.5 px-2 py-2">
-          <Button
-            ref={plusButtonRef}
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            aria-label="Add photo"
-            disabled={loading || atLimit || compressing}
-            onClick={() => setShowPhotoMenu((prev) => !prev)}
-          >
-            {showPhotoMenu ? (
-              <X className="h-5 w-5" />
-            ) : (
-              <Plus className="h-5 w-5" />
-            )}
-          </Button>
+          {!isEditMode && (
+            <Button
+              ref={plusButtonRef}
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              aria-label="Add photo"
+              disabled={loading || atLimit || compressing}
+              onClick={() => setShowPhotoMenu((prev) => !prev)}
+            >
+              {showPhotoMenu ? (
+                <X className="h-5 w-5" />
+              ) : (
+                <Plus className="h-5 w-5" />
+              )}
+            </Button>
+          )}
 
           <Input
             placeholder="Type a message..."
