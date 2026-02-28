@@ -129,6 +129,25 @@ export function addWeeks(dateStr: string, weeks: number): string {
 }
 
 /**
+ * Format a time string for display in 24h format (HH:MM).
+ * Accepts HH:MM or HH:MM:SS strings. Returns "" for null.
+ */
+export function formatTime(time: string | null): string {
+  if (!time) return "";
+  const parts = time.split(":");
+  return `${parts[0]}:${parts[1]}`;
+}
+
+/**
+ * Format a Date object as HH:MM in 24h format using local time.
+ */
+export function formatTimeFromDate(date: Date): string {
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+/**
  * Validate that a date string is in YYYY-MM-DD format and represents a valid date.
  * Returns false for invalid formats, invalid months/days, or dates that don't exist (e.g., Feb 30).
  */

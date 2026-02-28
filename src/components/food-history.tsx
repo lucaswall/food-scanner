@@ -22,6 +22,7 @@ import { vibrateError } from "@/lib/haptics";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogHistoryEntry } from "@/types";
+import { formatTime } from "@/lib/date-utils";
 
 function formatLocalDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -38,15 +39,6 @@ function formatDateHeader(dateStr: string): string {
   if (dateStr === todayStr) return "Today";
   if (dateStr === yesterdayStr) return "Yesterday";
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function formatTime(time: string | null): string {
-  if (!time) return "";
-  const [h, m] = time.split(":");
-  const hour = parseInt(h, 10);
-  const ampm = hour >= 12 ? "PM" : "AM";
-  const h12 = hour % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
 }
 
 interface DateGroup {

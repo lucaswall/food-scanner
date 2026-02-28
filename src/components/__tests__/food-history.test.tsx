@@ -142,6 +142,20 @@ describe("FoodHistory", () => {
     });
   });
 
+  it("renders entry time in 24h format", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      // time: "12:30:00" should display as "12:30 · Lunch · ..." (no AM/PM)
+      expect(screen.getByText(/12:30 · Lunch/)).toBeInTheDocument();
+    });
+  });
+
   it("shows daily summary with total calories", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

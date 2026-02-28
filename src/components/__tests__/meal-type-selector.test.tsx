@@ -129,7 +129,7 @@ describe("MealTypeSelector", () => {
 
       expect(screen.getByText(/based on current time/i)).toBeInTheDocument();
       // The time display should be present (format depends on locale)
-      expect(screen.getByText(/[0-9]{1,2}:[0-9]{2}\s?(AM|PM)/i)).toBeInTheDocument();
+      expect(screen.getByText(/[0-9]{2}:[0-9]{2}/)).toBeInTheDocument();
 
       vi.useRealTimers();
     });
@@ -153,7 +153,7 @@ describe("MealTypeSelector", () => {
       render(<MealTypeSelector value={3} onChange={onChange} />);
 
       expect(screen.getByText(/based on current time/i)).toBeInTheDocument();
-      expect(screen.getByText(/[0-9]{1,2}:[0-9]{2}\s?(AM|PM)/i)).toBeInTheDocument();
+      expect(screen.getByText(/[0-9]{2}:[0-9]{2}/)).toBeInTheDocument();
 
       vi.useRealTimers();
     });
@@ -168,7 +168,7 @@ describe("MealTypeSelector", () => {
       );
 
       // Get initial time text
-      const timeText1 = screen.getByText(/[0-9]{1,2}:[0-9]{2}\s?(AM|PM)/i);
+      const timeText1 = screen.getByText(/[0-9]{2}:[0-9]{2}/);
       expect(timeText1).toBeInTheDocument();
 
       // Simulate time passing - advance timer by 61 seconds to trigger the interval
@@ -183,7 +183,7 @@ describe("MealTypeSelector", () => {
       });
 
       // The component should have rendered with updated time
-      const timeText2 = screen.getByText(/[0-9]{1,2}:[0-9]{2}\s?(AM|PM)/i);
+      const timeText2 = screen.getByText(/[0-9]{2}:[0-9]{2}/);
       expect(timeText2).toBeInTheDocument();
 
       vi.useRealTimers();

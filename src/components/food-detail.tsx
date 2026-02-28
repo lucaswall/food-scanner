@@ -8,6 +8,7 @@ import { NutritionFactsCard } from "@/components/nutrition-facts-card";
 import { ArrowLeft, AlertCircle } from "lucide-react";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogEntryDetail } from "@/types";
+import { formatTime } from "@/lib/date-utils";
 
 interface FoodDetailProps {
   entryId: string;
@@ -21,15 +22,6 @@ function formatDate(dateStr: string): string {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function formatTime(time: string | null): string {
-  if (!time) return "Not specified";
-  const [h, m] = time.split(":");
-  const hour = parseInt(h, 10);
-  const ampm = hour >= 12 ? "PM" : "AM";
-  const h12 = hour % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
 }
 
 export function FoodDetail({ entryId }: FoodDetailProps) {
@@ -98,7 +90,7 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
       <div>
         <h1 className="text-2xl font-bold">{data.foodName}</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          {formatDate(data.date)} · {formatTime(data.time)} ·{" "}
+          {formatDate(data.date)} · {formatTime(data.time) || "Not specified"} ·{" "}
           {FITBIT_MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"}
         </p>
         <p className="text-sm text-muted-foreground">

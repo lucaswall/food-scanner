@@ -76,8 +76,8 @@ describe("FastingCard", () => {
     // Check duration display (720 minutes = 12 hours)
     expect(screen.getByText("12h 0m")).toBeInTheDocument();
 
-    // Check time range display
-    expect(screen.getByText(/9:00 PM.*9:00 AM/)).toBeInTheDocument();
+    // Check time range display (24h format)
+    expect(screen.getByText(/21:00.*09:00/)).toBeInTheDocument();
   });
 
   it("formats duration correctly for hours and minutes", () => {
@@ -244,12 +244,12 @@ describe("FastingCard", () => {
     expect(screen.getByText(/error/i)).toBeInTheDocument();
   });
 
-  it("formats 12-hour time correctly with AM/PM", () => {
+  it("formats time in 24h format", () => {
     const response: FastingResponse = {
       window: {
         date: "2026-02-12",
-        lastMealTime: "13:30:00", // 1:30 PM
-        firstMealTime: "07:15:00", // 7:15 AM
+        lastMealTime: "13:30:00",
+        firstMealTime: "07:15:00",
         durationMinutes: 1065,
       },
       live: null,
@@ -263,16 +263,16 @@ describe("FastingCard", () => {
 
     render(<FastingCard date="2026-02-12" />);
 
-    // Should display "1:30 PM → 7:15 AM"
-    expect(screen.getByText(/1:30 PM.*7:15 AM/)).toBeInTheDocument();
+    // Should display "13:30 → 07:15" (24h format)
+    expect(screen.getByText(/13:30.*07:15/)).toBeInTheDocument();
   });
 
   it("handles midnight times correctly", () => {
     const response: FastingResponse = {
       window: {
         date: "2026-02-12",
-        lastMealTime: "00:00:00", // 12:00 AM
-        firstMealTime: "12:00:00", // 12:00 PM
+        lastMealTime: "00:00:00",
+        firstMealTime: "12:00:00",
         durationMinutes: 720,
       },
       live: null,
@@ -286,6 +286,6 @@ describe("FastingCard", () => {
 
     render(<FastingCard date="2026-02-12" />);
 
-    expect(screen.getByText(/12:00 AM.*12:00 PM/)).toBeInTheDocument();
+    expect(screen.getByText(/00:00.*12:00/)).toBeInTheDocument();
   });
 });
