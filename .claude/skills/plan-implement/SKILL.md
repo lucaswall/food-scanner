@@ -523,30 +523,33 @@ After documenting results (skip in single-agent fallback mode), the lead MUST cl
 
 ### 1. Remove Worktrees
 
+Run each worktree removal as a **separate Bash call** (no chaining). Pre-shutdown verification already commits any uncommitted changes, so `--force` is unnecessary:
 ```bash
-# Remove each worktree (--force handles any uncommitted leftovers)
-git worktree remove _workers/worker-1 --force
-git worktree remove _workers/worker-2 --force
-# ... repeat for each worker
+git worktree remove _workers/worker-1
 ```
+```bash
+git worktree remove _workers/worker-2
+```
+Repeat for each worker. If a removal fails due to uncommitted changes, commit them first via `git -C _workers/worker-N add -A && git -C _workers/worker-N commit -m "lead: salvage"`, then retry the remove.
 
 ### 2. Remove Worker Directory
 
+Run as **separate Bash calls** (don't chain git and rm commands):
 ```bash
-# Safety net — remove the entire _workers/ directory
 rm -rf _workers/
-
-# Prune stale worktree metadata from .git/worktrees/
+```
+```bash
 git worktree prune
 ```
 
 ### 3. Delete Worker Branches
 
+Run each branch delete as a **separate Bash call**:
 ```bash
-# Worker branches are already merged — safe delete
 git branch -d <FEATURE_BRANCH>-worker-1
+```
+```bash
 git branch -d <FEATURE_BRANCH>-worker-2
-# ... repeat for each worker
 ```
 
 ### 4. Sync Dependencies
@@ -604,17 +607,12 @@ If `TeamCreate` fails or worktree setup fails, implement the plan sequentially a
 
 **Steps:**
 1. Stage modified files: `git status --porcelain=v1`, then `git add <file> ...` — **skip** files matching `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
-2. Create commit (do **not** include `Co-Authored-By` tags):
+2. Create commit with a **simple `-m` string** (do **not** include `Co-Authored-By` tags):
+   ```bash
+   git commit -m "plan: implement iteration N - [brief summary]"
    ```
-   plan: implement iteration N - [brief summary]
-
-   Tasks completed:
-   - Task X: [title]
-   - Task Y: [title]
-
-   Method: agent team (N workers, worktree-isolated)
-   ```
-   (Use "Method: single-agent" in fallback mode)
+   Use "Method: single-agent" in fallback mode. Keep the message on one line — task details are already in PLANS.md.
+   **IMPORTANT:** Do NOT use `git commit -m "$(cat <<'EOF'...)"` or any `$()` subshell — the subshell triggers permission prompts even with `Bash(git *)` in the allow list.
 3. Push to current branch: `git push`
 
 **Branch handling:**

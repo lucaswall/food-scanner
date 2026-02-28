@@ -1,7 +1,8 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getCommonFoods, getRecentFoods } from "@/lib/food-log";
+import { isValidDateFormat } from "@/lib/date-utils";
 
 export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/common-foods");
@@ -43,14 +44,21 @@ export async function GET(request: Request) {
         "recent foods retrieved",
       );
 
-      const response = successResponse({ foods: result.foods, nextCursor: result.nextCursor });
-      response.headers.set("Cache-Control", "private, no-cache");
-      return response;
+      return conditionalResponse(request, { foods: result.foods, nextCursor: result.nextCursor });
     }
 
     // Use client-provided time/date if available, otherwise fall back to server time/date
     const clientTime = url.searchParams.get("clientTime");
     const clientDate = url.searchParams.get("clientDate");
+
+    if (clientDate && !isValidDateFormat(clientDate)) {
+      return errorResponse("VALIDATION_ERROR", "Invalid clientDate format. Use YYYY-MM-DD", 400);
+    }
+
+    if (clientTime && !/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(clientTime)) {
+      return errorResponse("VALIDATION_ERROR", "Invalid clientTime format. Use HH:MM or HH:MM:SS", 400);
+    }
+
     const now = new Date();
     const currentTime = clientTime || now.toTimeString().slice(0, 8);
     const currentDate = clientDate || now.toISOString().slice(0, 10);
@@ -78,9 +86,7 @@ export async function GET(request: Request) {
       "common foods retrieved",
     );
 
-    const response = successResponse({ foods: result.foods, nextCursor: result.nextCursor });
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, { foods: result.foods, nextCursor: result.nextCursor });
   } catch (error) {
     log.error(
       {

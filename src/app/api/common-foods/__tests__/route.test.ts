@@ -334,5 +334,71 @@ describe("GET /api/common-foods", () => {
         expect.anything(),
       );
     });
+
+    it("returns 400 for invalid clientDate format", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+
+      const response = await GET(makeRequest({ clientDate: "not-a-date" }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 for invalid clientTime format", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+
+      const response = await GET(makeRequest({ clientTime: "not-a-time" }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 for out-of-range clientTime values", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+
+      const response = await GET(makeRequest({ clientTime: "25:61" }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("accepts valid clientTime in HH:MM format", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
+
+      const response = await GET(makeRequest({ clientTime: "14:30" }));
+      expect(response.status).toBe(200);
+    });
+
+    it("returns ETag header on success response", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
+
+      const response = await GET(makeRequest());
+
+      expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+    });
+
+    it("returns 304 when If-None-Match matches", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
+
+      const response1 = await GET(makeRequest({ clientDate: "2026-02-28", clientTime: "12:00:00" }));
+      const etag = response1.headers.get("ETag")!;
+
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
+
+      const url = new URL("http://localhost:3000/api/common-foods");
+      url.searchParams.set("clientDate", "2026-02-28");
+      url.searchParams.set("clientTime", "12:00:00");
+      const response2 = await GET(new Request(url.toString(), {
+        headers: { "if-none-match": etag },
+      }));
+
+      expect(response2.status).toBe(304);
+      expect(response2.headers.get("ETag")).toBe(etag);
+      expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
+    });
   });
 });

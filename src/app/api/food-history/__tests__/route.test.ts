@@ -379,6 +379,35 @@ describe("GET /api/food-history", () => {
     }, expect.anything());
   });
 
+  it("returns ETag header on success response", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const request = createRequest("http://localhost:3000/api/food-history");
+    const response = await GET(request);
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const response1 = await GET(createRequest("http://localhost:3000/api/food-history"));
+    const etag = response1.headers.get("ETag")!;
+
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogHistory.mockResolvedValue([]);
+
+    const response2 = await GET(new Request("http://localhost:3000/api/food-history", {
+      headers: { "if-none-match": etag },
+    }));
+
+    expect(response2.status).toBe(304);
+    expect(response2.headers.get("ETag")).toBe(etag);
+    expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+
   it("supports all params together (endDate, cursor, limit)", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogHistory.mockResolvedValue(sampleEntries);

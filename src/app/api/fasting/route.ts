@@ -1,5 +1,5 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
 import { isToday, addDays, isValidDateFormat } from "@/lib/date-utils";
@@ -62,12 +62,10 @@ export async function GET(request: Request) {
         "fasting window retrieved"
       );
 
-      const res = successResponse(response);
-      res.headers.set("Cache-Control", "private, no-cache");
-      return res;
+      return conditionalResponse(request, response);
     } catch (error) {
       log.error(
-        { error: error instanceof Error ? error.message : String(error) },
+        { action: "fasting_window_error", error: error instanceof Error ? error.message : String(error) },
         "fasting window failed"
       );
       return errorResponse("INTERNAL_ERROR", "Failed to retrieve fasting window", 500);
@@ -122,12 +120,10 @@ export async function GET(request: Request) {
       "fasting windows retrieved"
     );
 
-    const res = successResponse({ windows });
-    res.headers.set("Cache-Control", "private, no-cache");
-    return res;
+    return conditionalResponse(request, { windows });
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "fasting_windows_error", error: error instanceof Error ? error.message : String(error) },
       "fasting windows failed"
     );
     return errorResponse("INTERNAL_ERROR", "Failed to retrieve fasting windows", 500);

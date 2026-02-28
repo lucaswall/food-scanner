@@ -6,6 +6,7 @@ vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long"
 const mockValidateApiRequest = vi.fn();
 vi.mock("@/lib/api-auth", () => ({
   validateApiRequest: (...args: unknown[]) => mockValidateApiRequest(...args),
+  hashForRateLimit: (key: string) => `hashed-${key.slice(0, 8)}`,
 }));
 
 vi.mock("@/lib/logger", () => {
@@ -192,9 +193,49 @@ describe("GET /api/v1/nutrition-goals", () => {
     await GET(request);
 
     expect(mockCheckRateLimit).toHaveBeenCalledWith(
-      "v1:nutrition-goals:test-api-key-abc",
+      "v1:nutrition-goals:hashed-test-api",
       30,
       60000
     );
+  });
+
+  it("returns ETag header on success response", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/nutrition-goals",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
+    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+
+    const firstRequest = createRequest(
+      "http://localhost:3000/api/v1/nutrition-goals",
+      { Authorization: "Bearer valid-key" }
+    );
+    const firstResponse = await GET(firstRequest);
+    const etag = firstResponse.headers.get("ETag")!;
+
+    const secondRequest = createRequest(
+      "http://localhost:3000/api/v1/nutrition-goals",
+      { Authorization: "Bearer valid-key", "If-None-Match": etag }
+    );
+    const secondResponse = await GET(secondRequest);
+
+    expect(secondResponse.status).toBe(304);
+    expect(await secondResponse.text()).toBe("");
+    expect(secondResponse.headers.get("ETag")).toBe(etag);
+    expect(secondResponse.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 });

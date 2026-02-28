@@ -1,9 +1,9 @@
 import { getSession, validateSession } from "@/lib/session";
 import { getEarliestEntryDate } from "@/lib/food-log";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   const log = createRequestLogger("GET", "/api/earliest-entry");
   try {
     const session = await getSession();
@@ -23,12 +23,10 @@ export async function GET(): Promise<Response> {
       "earliest entry date retrieved"
     );
 
-    const response = successResponse({ date });
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, { date });
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "earliest_entry_error", error: error instanceof Error ? error.message : String(error) },
       "earliest entry retrieval failed"
     );
     return errorResponse("INTERNAL_ERROR", "Failed to retrieve earliest entry date", 500);

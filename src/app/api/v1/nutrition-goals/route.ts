@@ -1,5 +1,5 @@
-import { validateApiRequest } from "@/lib/api-auth";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { validateApiRequest, hashForRateLimit } from "@/lib/api-auth";
+import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, getFoodGoals } from "@/lib/fitbit";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || "";
 
   const { allowed } = checkRateLimit(
-    `v1:nutrition-goals:${apiKey}`,
+    `v1:nutrition-goals:${hashForRateLimit(apiKey)}`,
     RATE_LIMIT_MAX,
     RATE_LIMIT_WINDOW_MS
   );
@@ -41,12 +41,10 @@ export async function GET(request: Request) {
       "v1 nutrition goals retrieved"
     );
 
-    const response = successResponse(goals);
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, goals);
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "v1_nutrition_goals_error", error: error instanceof Error ? error.message : String(error) },
       "v1 nutrition goals fetch failed"
     );
 

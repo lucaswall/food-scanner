@@ -186,4 +186,33 @@ describe("GET /api/claude-usage", () => {
     expect(data.success).toBe(false);
     expect(data.error.code).toBe("INTERNAL_ERROR");
   });
+
+  it("returns ETag header on success response", async () => {
+    mockGetSession.mockResolvedValue({ userId: "user-123" });
+    mockGetMonthlyUsage.mockResolvedValue([]);
+
+    const request = createRequest("http://localhost:3000/api/claude-usage");
+    const response = await GET(request);
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockGetSession.mockResolvedValue({ userId: "user-123" });
+    mockGetMonthlyUsage.mockResolvedValue([]);
+
+    const response1 = await GET(createRequest("http://localhost:3000/api/claude-usage"));
+    const etag = response1.headers.get("ETag")!;
+
+    mockGetSession.mockResolvedValue({ userId: "user-123" });
+    mockGetMonthlyUsage.mockResolvedValue([]);
+
+    const response2 = await GET(new Request("http://localhost:3000/api/claude-usage", {
+      headers: { "if-none-match": etag },
+    }));
+
+    expect(response2.status).toBe(304);
+    expect(response2.headers.get("ETag")).toBe(etag);
+    expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
 });

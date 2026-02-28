@@ -1,11 +1,11 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { successResponse, errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogEntry, deleteFoodLogEntry, getFoodLogEntryDetail } from "@/lib/food-log";
 import { ensureFreshToken, deleteFoodLog } from "@/lib/fitbit";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const log = createRequestLogger("GET", "/api/food-history/[id]");
@@ -26,9 +26,7 @@ export async function GET(
       return errorResponse("NOT_FOUND", "Food log entry not found", 404);
     }
 
-    const response = successResponse(entry);
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, entry);
   } catch (error) {
     log.error(
       { action: "get_food_entry_detail_error", entryId: id, error: error instanceof Error ? error.message : String(error) },
@@ -54,7 +52,16 @@ export async function DELETE(
     return errorResponse("VALIDATION_ERROR", "Invalid entry ID", 400);
   }
 
-  const entry = await getFoodLogEntry(session!.userId, id);
+  let entry;
+  try {
+    entry = await getFoodLogEntry(session!.userId, id);
+  } catch (error) {
+    log.error(
+      { action: "delete_food_log_lookup_error", entryId: id, error: error instanceof Error ? error.message : String(error) },
+      "failed to look up food log entry",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to look up food log entry", 500);
+  }
   if (!entry) {
     return errorResponse("NOT_FOUND", "Food log entry not found", 404);
   }

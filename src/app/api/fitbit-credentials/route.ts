@@ -1,5 +1,5 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { successResponse, errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import {
   getFitbitCredentials,
@@ -8,7 +8,7 @@ import {
   replaceFitbitClientSecret,
 } from "@/lib/fitbit-credentials";
 
-export async function GET() {
+export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/fitbit-credentials");
   const session = await getSession();
 
@@ -20,20 +20,21 @@ export async function GET() {
     "Fetching Fitbit credentials",
   );
 
-  const credentials = await getFitbitCredentials(session!.userId, log);
+  try {
+    const credentials = await getFitbitCredentials(session!.userId, log);
 
-  const response = !credentials
-    ? successResponse({
-        hasCredentials: false,
-      })
-    : successResponse({
-        hasCredentials: true,
-        clientId: credentials.clientId,
-      });
+    const data = !credentials
+      ? { hasCredentials: false }
+      : { hasCredentials: true, clientId: credentials.clientId };
 
-  // Add Cache-Control header
-  response.headers.set("Cache-Control", "private, no-cache");
-  return response;
+    return conditionalResponse(request, data);
+  } catch (error) {
+    log.error(
+      { action: "get_fitbit_credentials_error", error: error instanceof Error ? error.message : String(error) },
+      "failed to get Fitbit credentials",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to retrieve Fitbit credentials", 500);
+  }
 }
 
 interface PostRequestBody {
@@ -82,11 +83,19 @@ export async function POST(request: Request) {
     "Saving Fitbit credentials",
   );
 
-  await saveFitbitCredentials(session!.userId, body.clientId, body.clientSecret, log);
+  try {
+    await saveFitbitCredentials(session!.userId, body.clientId, body.clientSecret, log);
 
-  return successResponse({
-    message: "Fitbit credentials saved successfully",
-  });
+    return successResponse({
+      message: "Fitbit credentials saved successfully",
+    });
+  } catch (error) {
+    log.error(
+      { action: "save_fitbit_credentials_error", error: error instanceof Error ? error.message : String(error) },
+      "failed to save Fitbit credentials",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to save Fitbit credentials", 500);
+  }
 }
 
 interface PatchRequestBody {
@@ -143,32 +152,40 @@ export async function PATCH(request: Request) {
     );
   }
 
-  // Check if credentials exist before updating
-  const existingCredentials = await getFitbitCredentials(session!.userId, log);
-  if (!existingCredentials) {
-    log.warn(
+  try {
+    // Check if credentials exist before updating
+    const existingCredentials = await getFitbitCredentials(session!.userId, log);
+    if (!existingCredentials) {
+      log.warn(
+        { action: "update_fitbit_credentials", userId: session!.userId },
+        "No existing credentials found",
+      );
+      return errorResponse("NOT_FOUND", "No existing credentials found to update", 404);
+    }
+
+    log.info(
       { action: "update_fitbit_credentials", userId: session!.userId },
-      "No existing credentials found",
+      "Updating Fitbit credentials",
     );
-    return errorResponse("NOT_FOUND", "No existing credentials found to update", 404);
+
+    // Update clientId if provided
+    if (body.clientId !== undefined) {
+      await updateFitbitClientId(session!.userId, body.clientId, log);
+    }
+
+    // Replace clientSecret if provided
+    if (body.clientSecret !== undefined) {
+      await replaceFitbitClientSecret(session!.userId, body.clientSecret, log);
+    }
+
+    return successResponse({
+      message: "Fitbit credentials updated successfully",
+    });
+  } catch (error) {
+    log.error(
+      { action: "update_fitbit_credentials_error", error: error instanceof Error ? error.message : String(error) },
+      "failed to update Fitbit credentials",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to update Fitbit credentials", 500);
   }
-
-  log.info(
-    { action: "update_fitbit_credentials", userId: session!.userId },
-    "Updating Fitbit credentials",
-  );
-
-  // Update clientId if provided
-  if (body.clientId !== undefined) {
-    await updateFitbitClientId(session!.userId, body.clientId, log);
-  }
-
-  // Replace clientSecret if provided
-  if (body.clientSecret !== undefined) {
-    await replaceFitbitClientSecret(session!.userId, body.clientSecret, log);
-  }
-
-  return successResponse({
-    message: "Fitbit credentials updated successfully",
-  });
 }

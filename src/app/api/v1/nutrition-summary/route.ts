@@ -1,5 +1,5 @@
-import { validateApiRequest } from "@/lib/api-auth";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { validateApiRequest, hashForRateLimit } from "@/lib/api-auth";
+import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getDailyNutritionSummary } from "@/lib/food-log";
 import { isValidDateFormat } from "@/lib/date-utils";
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || "";
 
   const { allowed } = checkRateLimit(
-    `v1:nutrition-summary:${apiKey}`,
+    `v1:nutrition-summary:${hashForRateLimit(apiKey)}`,
     RATE_LIMIT_MAX,
     RATE_LIMIT_WINDOW_MS
   );
@@ -59,12 +59,10 @@ export async function GET(request: Request) {
       "v1 nutrition summary retrieved"
     );
 
-    const response = successResponse(summary);
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, summary);
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "v1_nutrition_summary_error", error: error instanceof Error ? error.message : String(error) },
       "v1 nutrition summary failed"
     );
     return errorResponse("INTERNAL_ERROR", "Failed to retrieve nutrition summary", 500);

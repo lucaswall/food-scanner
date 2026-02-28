@@ -11,7 +11,7 @@ vi.mock("@/lib/api-keys", () => ({
   validateApiKey: (...args: unknown[]) => mockValidateApiKey(...args),
 }));
 
-const { validateApiRequest } = await import("@/lib/api-auth");
+const { validateApiRequest, hashForRateLimit } = await import("@/lib/api-auth");
 
 describe("validateApiRequest", () => {
   beforeEach(() => {
@@ -87,5 +87,27 @@ describe("validateApiRequest", () => {
     expect(response.status).toBe(401);
     const data = await response.json();
     expect(data.error.code).toBe("AUTH_MISSING_SESSION");
+  });
+});
+
+describe("hashForRateLimit", () => {
+  it("returns a 16-char hex string", () => {
+    const result = hashForRateLimit("fsk_abc123");
+    expect(result).toMatch(/^[a-f0-9]{16}$/);
+  });
+
+  it("returns the same hash for the same key", () => {
+    expect(hashForRateLimit("fsk_abc123")).toBe(hashForRateLimit("fsk_abc123"));
+  });
+
+  it("returns different hashes for different keys", () => {
+    expect(hashForRateLimit("fsk_abc123")).not.toBe(hashForRateLimit("fsk_xyz789"));
+  });
+
+  it("does not contain the original key", () => {
+    const key = "fsk_abc123";
+    const hash = hashForRateLimit(key);
+    expect(hash).not.toContain(key);
+    expect(hash).not.toContain("abc123");
   });
 });

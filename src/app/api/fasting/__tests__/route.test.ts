@@ -307,6 +307,35 @@ describe("GET /api/fasting", () => {
     expect(data.error.code).toBe("INTERNAL_ERROR");
   });
 
+  it("returns ETag header on success response", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFastingWindow.mockResolvedValue({ date: "2026-02-12", lastMealTime: "20:00:00", firstMealTime: "08:00:00", durationMinutes: 720 });
+
+    const req = createRequest("http://localhost:3000/api/fasting?date=2026-02-12");
+    const res = await GET(req);
+
+    expect(res.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFastingWindow.mockResolvedValue({ date: "2026-02-12", lastMealTime: "20:00:00", firstMealTime: "08:00:00", durationMinutes: 720 });
+
+    const res1 = await GET(createRequest("http://localhost:3000/api/fasting?date=2026-02-12"));
+    const etag = res1.headers.get("ETag")!;
+
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFastingWindow.mockResolvedValue({ date: "2026-02-12", lastMealTime: "20:00:00", firstMealTime: "08:00:00", durationMinutes: 720 });
+
+    const res2 = await GET(new Request("http://localhost:3000/api/fasting?date=2026-02-12", {
+      headers: { "if-none-match": etag },
+    }));
+
+    expect(res2.status).toBe(304);
+    expect(res2.headers.get("ETag")).toBe(etag);
+    expect(res2.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
+
   it("uses clientDate query param instead of server UTC for live mode check (FOO-411)", async () => {
     mockGetSession.mockResolvedValue(validSession);
 

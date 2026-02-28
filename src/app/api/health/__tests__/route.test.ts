@@ -134,4 +134,5 @@ describe("GET /api/health", () => {
     const body = await response.json();
     expect(body.data.commitHash).toBe("");
   });
+
 });
