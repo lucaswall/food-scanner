@@ -1,5 +1,5 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, getFoodGoals } from "@/lib/fitbit";
 import { upsertCalorieGoal } from "@/lib/nutrition-goals";
@@ -40,9 +40,7 @@ export async function GET(request: Request) {
       "nutrition goals retrieved"
     );
 
-    const response = successResponse(goals);
-    response.headers.set("Cache-Control", "private, no-cache");
-    return response;
+    return conditionalResponse(request, goals);
   } catch (error) {
     log.error(
       { error: error instanceof Error ? error.message : String(error) },

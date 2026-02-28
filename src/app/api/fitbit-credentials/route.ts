@@ -1,5 +1,5 @@
 import { getSession, validateSession } from "@/lib/session";
-import { successResponse, errorResponse } from "@/lib/api-response";
+import { successResponse, errorResponse, conditionalResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import {
   getFitbitCredentials,
@@ -8,7 +8,7 @@ import {
   replaceFitbitClientSecret,
 } from "@/lib/fitbit-credentials";
 
-export async function GET() {
+export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/fitbit-credentials");
   const session = await getSession();
 
@@ -22,18 +22,11 @@ export async function GET() {
 
   const credentials = await getFitbitCredentials(session!.userId, log);
 
-  const response = !credentials
-    ? successResponse({
-        hasCredentials: false,
-      })
-    : successResponse({
-        hasCredentials: true,
-        clientId: credentials.clientId,
-      });
+  const data = !credentials
+    ? { hasCredentials: false }
+    : { hasCredentials: true, clientId: credentials.clientId };
 
-  // Add Cache-Control header
-  response.headers.set("Cache-Control", "private, no-cache");
-  return response;
+  return conditionalResponse(request, data);
 }
 
 interface PostRequestBody {

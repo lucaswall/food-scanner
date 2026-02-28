@@ -47,9 +47,11 @@ vi.mock("@/lib/logger", () => {
 
 const mockGetFoodLogEntry = vi.fn();
 const mockDeleteFoodLogEntry = vi.fn();
+const mockGetFoodLogEntryDetail = vi.fn();
 vi.mock("@/lib/food-log", () => ({
   getFoodLogEntry: (...args: unknown[]) => mockGetFoodLogEntry(...args),
   deleteFoodLogEntry: (...args: unknown[]) => mockDeleteFoodLogEntry(...args),
+  getFoodLogEntryDetail: (...args: unknown[]) => mockGetFoodLogEntryDetail(...args),
 }));
 
 const mockEnsureFreshToken = vi.fn();
@@ -59,7 +61,7 @@ vi.mock("@/lib/fitbit", () => ({
   deleteFoodLog: (...args: unknown[]) => mockDeleteFoodLog(...args),
 }));
 
-const { DELETE } = await import("@/app/api/food-history/[id]/route");
+const { DELETE, GET } = await import("@/app/api/food-history/[id]/route");
 
 const validSession: FullSession = {
   sessionId: "test-session",
@@ -322,5 +324,82 @@ describe("DELETE /api/food-history/[id]", () => {
       expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object));
       expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
     });
+  });
+});
+
+describe("GET /api/food-history/[id]", () => {
+  const entryDetail = {
+    id: 42,
+    foodName: "Chicken Breast",
+    calories: 250,
+    proteinG: 30,
+    carbsG: 0,
+    fatG: 5,
+    fiberG: 0,
+    sodiumMg: 100,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns entry detail for valid id", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntryDetail.mockResolvedValue(entryDetail);
+
+    const request = new Request("http://localhost:3000/api/food-history/42");
+    const response = await GET(request, { params: Promise.resolve({ id: "42" }) });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data).toEqual(entryDetail);
+  });
+
+  it("returns 404 when entry not found", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntryDetail.mockResolvedValue(null);
+
+    const request = new Request("http://localhost:3000/api/food-history/99");
+    const response = await GET(request, { params: Promise.resolve({ id: "99" }) });
+
+    expect(response.status).toBe(404);
+    const body = await response.json();
+    expect(body.error.code).toBe("NOT_FOUND");
+  });
+
+  it("returns ETag header on success response", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntryDetail.mockResolvedValue(entryDetail);
+
+    const request = new Request("http://localhost:3000/api/food-history/42");
+    const response = await GET(request, { params: Promise.resolve({ id: "42" }) });
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntryDetail.mockResolvedValue(entryDetail);
+
+    const response1 = await GET(
+      new Request("http://localhost:3000/api/food-history/42"),
+      { params: Promise.resolve({ id: "42" }) },
+    );
+    const etag = response1.headers.get("ETag")!;
+
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntryDetail.mockResolvedValue(entryDetail);
+
+    const response2 = await GET(
+      new Request("http://localhost:3000/api/food-history/42", {
+        headers: { "if-none-match": etag },
+      }),
+      { params: Promise.resolve({ id: "42" }) },
+    );
+
+    expect(response2.status).toBe(304);
+    expect(response2.headers.get("ETag")).toBe(etag);
+    expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 });

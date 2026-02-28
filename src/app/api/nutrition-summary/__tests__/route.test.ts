@@ -563,4 +563,44 @@ describe("GET /api/nutrition-summary", () => {
     expect(data.success).toBe(false);
     expect(data.error.code).toBe("VALIDATION_ERROR");
   });
+
+  it("returns ETag header on success response", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2024-01-15",
+      meals: [],
+      totals: { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sodiumMg: 0, saturatedFatG: 0, transFatG: 0, sugarsG: 0, caloriesFromFat: 0 },
+    });
+
+    const response = await GET(createRequest("http://localhost:3000/api/nutrition-summary?date=2024-01-15"));
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2024-01-15",
+      meals: [],
+      totals: { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sodiumMg: 0, saturatedFatG: 0, transFatG: 0, sugarsG: 0, caloriesFromFat: 0 },
+    });
+
+    const response1 = await GET(createRequest("http://localhost:3000/api/nutrition-summary?date=2024-01-15"));
+    const etag = response1.headers.get("ETag")!;
+
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2024-01-15",
+      meals: [],
+      totals: { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sodiumMg: 0, saturatedFatG: 0, transFatG: 0, sugarsG: 0, caloriesFromFat: 0 },
+    });
+
+    const response2 = await GET(new Request("http://localhost:3000/api/nutrition-summary?date=2024-01-15", {
+      headers: { "if-none-match": etag },
+    }));
+
+    expect(response2.status).toBe(304);
+    expect(response2.headers.get("ETag")).toBe(etag);
+    expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
+  });
 });

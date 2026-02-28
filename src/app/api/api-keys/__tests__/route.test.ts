@@ -182,7 +182,7 @@ describe("GET /api/api-keys", () => {
       },
     ]);
 
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/api-keys"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
@@ -202,7 +202,7 @@ describe("GET /api/api-keys", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockListApiKeys.mockResolvedValue([]);
 
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/api-keys"));
 
     expect(response.status).toBe(200);
     const body = await response.json();
@@ -213,7 +213,7 @@ describe("GET /api/api-keys", () => {
   it("returns 401 when session is missing", async () => {
     mockGetSession.mockResolvedValue(null);
 
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/api-keys"));
 
     expect(response.status).toBe(401);
     const body = await response.json();
@@ -224,10 +224,38 @@ describe("GET /api/api-keys", () => {
     mockGetSession.mockResolvedValue(validSession);
     mockListApiKeys.mockRejectedValue(new Error("Database connection error"));
 
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/api-keys"));
 
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+
+  it("returns ETag header on success response", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockListApiKeys.mockResolvedValue([]);
+
+    const response = await GET(new Request("http://localhost/api/api-keys"));
+
+    expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+  });
+
+  it("returns 304 when If-None-Match matches", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockListApiKeys.mockResolvedValue([]);
+
+    const response1 = await GET(new Request("http://localhost/api/api-keys"));
+    const etag = response1.headers.get("ETag")!;
+
+    mockGetSession.mockResolvedValue(validSession);
+    mockListApiKeys.mockResolvedValue([]);
+
+    const response2 = await GET(new Request("http://localhost/api/api-keys", {
+      headers: { "if-none-match": etag },
+    }));
+
+    expect(response2.status).toBe(304);
+    expect(response2.headers.get("ETag")).toBe(etag);
+    expect(response2.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 });
