@@ -178,6 +178,27 @@ describe("FoodHistory", () => {
     });
   });
 
+  it("renders entry without stray separator when time is null", async () => {
+    const entryWithNullTime: FoodLogHistoryEntry = {
+      ...mockEntries[0],
+      id: 99,
+      time: null,
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { entries: [entryWithNullTime] } }),
+    });
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      // Should show "Lunch · 150g" without leading separator (no " · Lunch")
+      const detail = screen.getByText(/Lunch · 150g/);
+      expect(detail).toBeInTheDocument();
+      expect(detail.textContent).not.toMatch(/^\s*·/);
+    });
+  });
+
   it("shows daily summary with total calories", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

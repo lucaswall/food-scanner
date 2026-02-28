@@ -294,7 +294,7 @@ export function FoodHistory() {
                   <div className="min-w-0">
                     <p className="font-medium">{entry.foodName}</p>
                     <p className="text-xs text-muted-foreground">
-                      {formatTime(entry.time)} · {FITBIT_MEAL_TYPE_LABELS[entry.mealTypeId] ?? "Unknown"} · {getUnitLabel(entry.unitId, entry.amount)}
+                      {formatTime(entry.time) && `${formatTime(entry.time)} · `}{FITBIT_MEAL_TYPE_LABELS[entry.mealTypeId] ?? "Unknown"} · {getUnitLabel(entry.unitId, entry.amount)}
                     </p>
                   </div>
                   <div className="text-right text-sm shrink-0 ml-2">
