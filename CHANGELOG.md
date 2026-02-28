@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-02-28
+
+### Added
+
+- ETag support on all API routes for efficient cache validation
+- Infinite scroll on food history page (replaces "Load More" button)
+- External API reference documentation (API.md)
+
+### Changed
+
+- All times now display in 24-hour format (HH:MM)
+- Consolidated time formatting into a shared utility
+
+### Fixed
+
+- Quick-select tab switching no longer shows stale data when toggling between Suggested and Recent
+
 ## [1.15.3] - 2026-02-21
 
 ### Fixed
@@ -295,7 +312,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.15.3...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.16.0...HEAD
+[1.16.0]: https://github.com/lucaswall/food-scanner/compare/v1.15.3...v1.16.0
 [1.15.3]: https://github.com/lucaswall/food-scanner/compare/v1.15.2...v1.15.3
 [1.15.2]: https://github.com/lucaswall/food-scanner/compare/v1.15.1...v1.15.2
 [1.15.1]: https://github.com/lucaswall/food-scanner/compare/v1.15.0...v1.15.1
