@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { FoodAnalysis } from "@/types";
+import type { FoodAnalysis, FoodLogEntryDetail } from "@/types";
 import type { StreamEvent } from "@/lib/sse";
 import type { Logger } from "@/lib/logger";
 
@@ -1861,6 +1861,207 @@ describe("conversationalRefine", () => {
     const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
     expect(analysisEvent?.analysis).toEqual(validAnalysis);
     expect(mockStream).toHaveBeenCalledTimes(3);
+  });
+});
+
+// =============================================================================
+// editAnalysis — streaming generator
+// =============================================================================
+
+describe("editAnalysis", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  const validEntry: FoodLogEntryDetail = {
+    id: 42,
+    foodName: "Empanada de carne",
+    description: "Standard Argentine beef empanada",
+    notes: "Baked style",
+    calories: 320,
+    proteinG: 12,
+    carbsG: 28,
+    fatG: 18,
+    fiberG: 2,
+    sodiumMg: 450,
+    saturatedFatG: null,
+    transFatG: null,
+    sugarsG: null,
+    caloriesFromFat: null,
+    amount: 150,
+    unitId: 147,
+    mealTypeId: 5,
+    date: "2026-02-15",
+    time: "20:00:00",
+    fitbitLogId: 12345,
+    confidence: "high",
+  };
+
+  it("yields analysis event when Claude calls report_nutrition", async () => {
+    const updatedAnalysis = { ...validAnalysis, calories: 280, amount: 130 };
+    mockStream.mockReturnValueOnce(createMockStream(
+      [
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "I've updated the calorie count to 280" } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_stop" },
+      ],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "end_turn",
+        content: [
+          { type: "text", text: "I've updated the calorie count to 280" },
+          { type: "tool_use", id: "t_rpt", name: "report_nutrition", input: updatedAnalysis },
+        ],
+        usage: { input_tokens: 1800, output_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    const events = await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "It was actually 130g and 280 calories" }],
+        validEntry,
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis).toEqual(updatedAnalysis);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
+
+  it("yields text_delta but no analysis for text-only response", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("What would you like to change about this entry?"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    const events = await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "The calories seem off" }],
+        validEntry,
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    expect(events).toContainEqual({ type: "text_delta", text: "What would you like to change about this entry?" });
+    expect(events.find((e) => e.type === "analysis")).toBeUndefined();
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
+
+  it("uses EDIT_SYSTEM_PROMPT", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis, EDIT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "Test" }],
+        validEntry,
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.system[0].text).toContain(EDIT_SYSTEM_PROMPT);
+  });
+
+  it("includes existing entry context in system prompt (food name, calories)", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "Fix this" }],
+        validEntry,
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    const systemText = call.system[0].text;
+    expect(systemText).toContain(validEntry.foodName);
+    expect(systemText).toContain(String(validEntry.calories));
+  });
+
+  it("includes current date in system prompt", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "Fix this" }],
+        validEntry,
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.system[0].text).toContain("2026-02-15");
+  });
+
+  it("records usage with operation food-edit", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK", { input_tokens: 1800, output_tokens: 400 }));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "Test" }],
+        validEntry,
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    expect(mockRecordUsage).toHaveBeenCalledWith(
+      "user-123",
+      "claude-sonnet-4-6",
+      "food-edit",
+      expect.objectContaining({ inputTokens: 1800, outputTokens: 400 })
+    );
+  });
+
+  it("delegates to runToolLoop when data tools are used", async () => {
+    mockStream.mockReturnValueOnce(
+      makeDataToolStream("search_food_log", { query: "empanada" }, "tool_data")
+    );
+    mockExecuteTool.mockResolvedValueOnce("Found: Empanada — 150g, 320 cal");
+    mockStream.mockReturnValueOnce(makeTextStream("Based on your log, this seems right."));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    const events = await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "Is 320 calories accurate?" }],
+        validEntry,
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    expect(events).toContainEqual({ type: "tool_start", tool: "search_food_log" });
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
+
+  it("does not send image blocks even if ConversationMessage has images", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "Check this", images: ["img_data_123"] }],
+        validEntry,
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    const userMsg = call.messages[0];
+    const imageBlocks = userMsg.content.filter((b: { type: string }) => b.type === "image");
+    expect(imageBlocks).toHaveLength(0);
   });
 });
 

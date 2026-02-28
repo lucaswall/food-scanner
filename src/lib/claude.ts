@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { FoodAnalysis, ConversationMessage } from "@/types";
+import type { FoodAnalysis, ConversationMessage, FoodLogEntryDetail } from "@/types";
 import { getUnitLabel } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
@@ -1484,6 +1484,95 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     l.error(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API conversational refinement error"
+    );
+    throw new ClaudeApiError(
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+export const EDIT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+You are reviewing an existing food log entry and helping the user make corrections or adjustments.
+
+Follow these rules:
+- Review the existing entry details provided in the context below
+- When the user describes a correction (different portion, wrong food, different ingredients), call report_nutrition with the corrected values
+- Combine all changes into a SINGLE report_nutrition call
+- Be concise and focused — this is an edit session, not a new analysis
+- CRITICAL: Changes are ONLY applied when you call report_nutrition. Never say the entry "is updated" without calling report_nutrition.
+- ${REPORT_NUTRITION_UI_CARD_NOTE}
+- ${THINKING_INSTRUCTION}
+
+Web search guidelines:
+- Use web search to look up accurate nutrition info for specific restaurants or branded products when the user wants to change to a different specific food.
+- For general corrections (different portion size, simple adjustments), use your training data.`;
+
+/**
+ * Edit an existing food log entry via conversational AI. Returns a streaming generator of StreamEvent.
+ *
+ * Yields:
+ * - text_delta: as Claude emits text
+ * - analysis: if report_nutrition is called with corrected values
+ * - tool_start: if data/search tools are invoked
+ * - usage: after each API call
+ * - done: when the conversation turn is complete
+ */
+export async function* editAnalysis(
+  messages: ConversationMessage[],
+  entry: FoodLogEntryDetail,
+  userId: string,
+  currentDate: string,
+  signal?: AbortSignal,
+  log?: Logger,
+): AsyncGenerator<StreamEvent> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  try {
+    l.info({ messageCount: messages.length }, "calling Claude API for food edit");
+
+    // Convert messages to Anthropic format — no images in edit mode
+    let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => ({
+      role: msg.role,
+      content: [{ type: "text" as const, text: msg.content }],
+    }));
+
+    // Build system prompt with EDIT_SYSTEM_PROMPT + entry context + date
+    const amountLabel = getUnitLabel(entry.unitId, entry.amount);
+    let systemPrompt = EDIT_SYSTEM_PROMPT;
+    systemPrompt += `\n\nToday's date is: ${currentDate}`;
+    systemPrompt += `\n\nExisting food log entry being edited:
+- Food: ${entry.foodName}
+- Amount: ${amountLabel}
+- Calories: ${entry.calories}
+- Protein: ${entry.proteinG}g, Carbs: ${entry.carbsG}g, Fat: ${entry.fatG}g
+- Fiber: ${entry.fiberG}g, Sodium: ${entry.sodiumMg}mg
+- Date: ${entry.date}${entry.time ? `, Time: ${entry.time}` : ""}
+- Confidence: ${entry.confidence}${entry.notes ? `\n- Notes: ${entry.notes}` : ""}
+
+Help the user make corrections. Call report_nutrition with the corrected values.`;
+
+    // Truncate conversation if needed
+    anthropicMessages = truncateConversation(anthropicMessages, 150000, l);
+
+    const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
+
+    yield* runToolLoop(anthropicMessages, userId, currentDate, {
+      systemPrompt,
+      tools: allTools,
+      operation: "food-edit",
+      signal,
+      log: l,
+    });
+
+    l.info({ action: "edit_analysis_done", durationMs: elapsed() }, "food edit analysis completed");
+  } catch (error) {
+    if (error instanceof ClaudeApiError) {
+      throw error;
+    }
+    l.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Claude API edit analysis error"
     );
     throw new ClaudeApiError(
       `API request failed: ${error instanceof Error ? error.message : String(error)}`
