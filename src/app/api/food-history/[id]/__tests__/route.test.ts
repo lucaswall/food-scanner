@@ -150,6 +150,18 @@ describe("DELETE /api/food-history/[id]", () => {
     expect(body.error.message).toContain("not found");
   });
 
+  it("returns 500 when getFoodLogEntry throws", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+
+    const request = createRequest();
+    const response = await DELETE(request, { params: Promise.resolve({ id: "42" }) });
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+  });
+
   it("deletes from Fitbit and local DB when fitbitLogId exists", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntry.mockResolvedValue(sampleEntry);

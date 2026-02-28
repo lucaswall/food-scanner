@@ -6,6 +6,7 @@ vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long"
 const mockValidateApiRequest = vi.fn();
 vi.mock("@/lib/api-auth", () => ({
   validateApiRequest: (...args: unknown[]) => mockValidateApiRequest(...args),
+  hashForRateLimit: (key: string) => `hashed-${key.slice(0, 8)}`,
 }));
 
 vi.mock("@/lib/logger", () => {
@@ -326,7 +327,7 @@ describe("GET /api/v1/food-log", () => {
     await GET(request);
 
     expect(mockCheckRateLimit).toHaveBeenCalledWith(
-      "v1:food-log:test-api-key-123",
+      "v1:food-log:hashed-test-api",
       60,
       60000
     );

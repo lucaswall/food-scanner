@@ -52,7 +52,16 @@ export async function DELETE(
     return errorResponse("VALIDATION_ERROR", "Invalid entry ID", 400);
   }
 
-  const entry = await getFoodLogEntry(session!.userId, id);
+  let entry;
+  try {
+    entry = await getFoodLogEntry(session!.userId, id);
+  } catch (error) {
+    log.error(
+      { action: "delete_food_log_lookup_error", entryId: id, error: error instanceof Error ? error.message : String(error) },
+      "failed to look up food log entry",
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to look up food log entry", 500);
+  }
   if (!entry) {
     return errorResponse("NOT_FOUND", "Food log entry not found", 404);
   }

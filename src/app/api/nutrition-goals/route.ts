@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       const todayDate = clientDate || getTodayDate();
       upsertCalorieGoal(session!.userId, todayDate, goals.calories, log).catch((error) => {
         log.warn(
-          { error: error instanceof Error ? error.message : String(error), userId: session!.userId },
+          { action: "capture_calorie_goal_error", error: error instanceof Error ? error.message : String(error), userId: session!.userId },
           "failed to capture calorie goal"
         );
       });
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
     return conditionalResponse(request, goals);
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "nutrition_goals_error", error: error instanceof Error ? error.message : String(error) },
       "nutrition goals fetch failed"
     );
 

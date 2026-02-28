@@ -1,4 +1,4 @@
-import { validateApiRequest } from "@/lib/api-auth";
+import { validateApiRequest, hashForRateLimit } from "@/lib/api-auth";
 import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, getActivitySummary } from "@/lib/fitbit";
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || "";
 
   const { allowed } = checkRateLimit(
-    `v1:activity-summary:${apiKey}`,
+    `v1:activity-summary:${hashForRateLimit(apiKey)}`,
     RATE_LIMIT_MAX,
     RATE_LIMIT_WINDOW_MS
   );
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
     return conditionalResponse(request, activitySummary);
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error), date },
+      { action: "v1_activity_summary_error", error: error instanceof Error ? error.message : String(error), date },
       "v1 activity summary fetch failed"
     );
 

@@ -335,6 +335,41 @@ describe("GET /api/common-foods", () => {
       );
     });
 
+    it("returns 400 for invalid clientDate format", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+
+      const response = await GET(makeRequest({ clientDate: "not-a-date" }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 for invalid clientTime format", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+
+      const response = await GET(makeRequest({ clientTime: "not-a-time" }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("returns 400 for out-of-range clientTime values", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+
+      const response = await GET(makeRequest({ clientTime: "25:61" }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error.code).toBe("VALIDATION_ERROR");
+    });
+
+    it("accepts valid clientTime in HH:MM format", async () => {
+      mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
+      mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });
+
+      const response = await GET(makeRequest({ clientTime: "14:30" }));
+      expect(response.status).toBe(200);
+    });
+
     it("returns ETag header on success response", async () => {
       mockGetSession.mockResolvedValue({ sessionId: "test-session", userId: "user-uuid-123", fitbitConnected: true });
       mockGetCommonFoods.mockResolvedValue({ foods: [], nextCursor: null });

@@ -107,6 +107,23 @@ describe("GET /api/fitbit-credentials", () => {
     expect(body.data.clientId).toBeUndefined();
   });
 
+  it("returns 500 when getFitbitCredentials throws", async () => {
+    mockGetSession.mockResolvedValue({
+      sessionId: "test-session",
+      userId: "user-uuid-123",
+      expiresAt: Date.now() + 86400000,
+      fitbitConnected: true,
+      destroy: vi.fn(),
+    });
+    mockGetFitbitCredentials.mockRejectedValue(new Error("DB connection failed"));
+
+    const response = await GET(new Request("http://localhost/api/fitbit-credentials"));
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+
   it("returns 401 when no session", async () => {
     mockGetSession.mockResolvedValue(null);
 
@@ -303,6 +320,29 @@ describe("POST /api/fitbit-credentials", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 500 when saveFitbitCredentials throws", async () => {
+    mockGetSession.mockResolvedValue({
+      sessionId: "test-session",
+      userId: "user-uuid-123",
+      expiresAt: Date.now() + 86400000,
+      fitbitConnected: true,
+      destroy: vi.fn(),
+    });
+    mockSaveFitbitCredentials.mockRejectedValue(new Error("DB write failed"));
+
+    const request = new Request("http://localhost:3000/api/fitbit-credentials", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId: "id", clientSecret: "secret" }),
+    });
+
+    const response = await POST(request);
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
   });
 
   it("returns 401 when no session", async () => {
@@ -527,6 +567,30 @@ describe("PATCH /api/fitbit-credentials", () => {
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body.error.code).toBe("AUTH_MISSING_SESSION");
+  });
+
+  it("returns 500 when updateFitbitClientId throws", async () => {
+    mockGetSession.mockResolvedValue({
+      sessionId: "test-session",
+      userId: "user-uuid-123",
+      expiresAt: Date.now() + 86400000,
+      fitbitConnected: true,
+      destroy: vi.fn(),
+    });
+    mockGetFitbitCredentials.mockResolvedValue({ clientId: "old", clientSecret: "old" });
+    mockUpdateFitbitClientId.mockRejectedValue(new Error("DB update failed"));
+
+    const request = new Request("http://localhost:3000/api/fitbit-credentials", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientId: "new-id" }),
+    });
+
+    const response = await PATCH(request);
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
   });
 
   it("returns 400 for empty clientId", async () => {

@@ -43,7 +43,7 @@ export async function GET(request: Request) {
       return conditionalResponse(request, summary);
     } catch (error) {
       log.error(
-        { error: error instanceof Error ? error.message : String(error) },
+        { action: "nutrition_summary_error", error: error instanceof Error ? error.message : String(error) },
         "nutrition summary failed"
       );
       return errorResponse("INTERNAL_ERROR", "Failed to retrieve nutrition summary", 500);
@@ -105,7 +105,7 @@ export async function GET(request: Request) {
       return conditionalResponse(request, { days });
     } catch (error) {
       log.error(
-        { error: error instanceof Error ? error.message : String(error) },
+        { action: "nutrition_summary_range_error", error: error instanceof Error ? error.message : String(error) },
         "nutrition summary range failed"
       );
       return errorResponse("INTERNAL_ERROR", "Failed to retrieve nutrition summary", 500);

@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { errorResponse } from "@/lib/api-response";
 import { validateApiKey } from "@/lib/api-keys";
 import { logger } from "@/lib/logger";
@@ -27,4 +28,9 @@ export async function validateApiRequest(
   }
 
   return { userId: result.userId };
+}
+
+/** Hash an API key for use as a rate-limit store key (avoids logging raw keys). */
+export function hashForRateLimit(apiKey: string): string {
+  return createHash("sha256").update(apiKey).digest("hex").slice(0, 16);
 }

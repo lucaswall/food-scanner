@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     return conditionalResponse(request, { months: usage });
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "claude_usage_error", error: error instanceof Error ? error.message : String(error) },
       "claude usage retrieval failed"
     );
     return errorResponse("INTERNAL_ERROR", "Failed to retrieve usage data", 500);

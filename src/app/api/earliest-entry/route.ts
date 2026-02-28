@@ -26,7 +26,7 @@ export async function GET(request: Request): Promise<Response> {
     return conditionalResponse(request, { date });
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "earliest_entry_error", error: error instanceof Error ? error.message : String(error) },
       "earliest entry retrieval failed"
     );
     return errorResponse("INTERNAL_ERROR", "Failed to retrieve earliest entry date", 500);

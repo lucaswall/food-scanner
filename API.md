@@ -47,12 +47,13 @@ All responses use a standard envelope:
   "success": false,
   "error": {
     "code": "VALIDATION_ERROR",
-    "message": "Missing required parameter: date",
-    "details": null
+    "message": "Missing required parameter: date"
   },
   "timestamp": 1709000000000
 }
 ```
+
+The `details` field is only present when additional context is available (e.g., validation details). It is omitted from the response when not applicable.
 
 All success responses include the following headers:
 

@@ -65,7 +65,7 @@ export async function GET(request: Request) {
       return conditionalResponse(request, response);
     } catch (error) {
       log.error(
-        { error: error instanceof Error ? error.message : String(error) },
+        { action: "fasting_window_error", error: error instanceof Error ? error.message : String(error) },
         "fasting window failed"
       );
       return errorResponse("INTERNAL_ERROR", "Failed to retrieve fasting window", 500);
@@ -123,7 +123,7 @@ export async function GET(request: Request) {
     return conditionalResponse(request, { windows });
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "fasting_windows_error", error: error instanceof Error ? error.message : String(error) },
       "fasting windows failed"
     );
     return errorResponse("INTERNAL_ERROR", "Failed to retrieve fasting windows", 500);

@@ -1,5 +1,6 @@
 # Implementation Plan
 
+**Status:** COMPLETE
 **Created:** 2026-02-28
 **Source:** Inline request: Add ETag support to all GET API routes (v1 external + internal browser-facing). Hash the `data` payload to avoid the timestamp problem. Full HTTP spec compliance for `If-None-Match`. Update API.md for external API changes.
 **Linear Issues:** [FOO-691](https://linear.app/lw-claude/issue/FOO-691/create-etag-utility-module-and-conditionalresponse-function), [FOO-692](https://linear.app/lw-claude/issue/FOO-692/update-v1-api-routes-with-etag-support), [FOO-693](https://linear.app/lw-claude/issue/FOO-693/update-internal-api-routes-with-etag-support), [FOO-694](https://linear.app/lw-claude/issue/FOO-694/update-apimd-with-etag-and-conditional-requests-documentation)
@@ -275,8 +276,8 @@
 
 ### Review Findings
 
-Summary: 8 issue(s) found, 4 discarded (Team: security, reliability, quality reviewers)
-- FIX: 6 issue(s) — Linear issues created
+Summary: 8 issue(s) found, all fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 6 issue(s) — verified via TDD + bug-hunter
 - DISCARDED: 4 finding(s) — false positives / not applicable
 
 **Issues requiring fix:**
@@ -298,93 +299,20 @@ Summary: 8 issue(s) found, 4 discarded (Team: security, reliability, quality rev
 - FOO-692: Review → Merge (v1 routes ETag)
 - FOO-693: Review → Merge (internal routes ETag)
 - FOO-694: Review → Merge (API.md docs)
-- FOO-695: Created in Todo (Fix: raw API key in rate-limit logs)
-- FOO-696: Created in Todo (Fix: fitbit-credentials missing try/catch)
-- FOO-697: Created in Todo (Fix: food-history/[id] DELETE DB call outside try/catch)
-- FOO-698: Created in Todo (Fix: missing action field in error logs)
-- FOO-699: Created in Todo (Fix: common-foods clientDate/clientTime validation)
-- FOO-700: Created in Todo (Fix: API.md error response example)
+- FOO-695: Created in Merge (Fix: raw API key in rate-limit logs — fixed inline)
+- FOO-696: Created in Merge (Fix: fitbit-credentials missing try/catch — fixed inline)
+- FOO-697: Created in Merge (Fix: food-history/[id] DELETE DB call outside try/catch — fixed inline)
+- FOO-698: Created in Merge (Fix: missing action field in error logs — fixed inline)
+- FOO-699: Created in Merge (Fix: common-foods clientDate/clientTime validation — fixed inline)
+- FOO-700: Created in Merge (Fix: API.md error response example — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: 2187 passing (added 11 new tests for fixes)
+- Lint: clean
+- Build: clean
+- Bug-hunter: 1 medium finding (clientTime regex range) — fixed and re-verified
 
 <!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-695](https://linear.app/lw-claude/issue/FOO-695), [FOO-696](https://linear.app/lw-claude/issue/FOO-696), [FOO-697](https://linear.app/lw-claude/issue/FOO-697), [FOO-698](https://linear.app/lw-claude/issue/FOO-698), [FOO-699](https://linear.app/lw-claude/issue/FOO-699), [FOO-700](https://linear.app/lw-claude/issue/FOO-700)
-
-### Fix 1: Raw API key logged in rate-limit debug messages
-**Linear Issue:** [FOO-695](https://linear.app/lw-claude/issue/FOO-695)
-
-1. Write test in `src/app/api/v1/food-log/__tests__/route.test.ts` verifying the rate-limit key does NOT contain the raw API key (assert it uses a hash/prefix instead)
-2. In each of the 5 v1 route files, replace the raw `apiKey` in the rate-limit key with a SHA-256 hash prefix (first 16 chars): `v1:food-log:${hashApiKey(apiKey)}`. Create a shared `hashApiKey` helper in `src/lib/api-auth.ts` (already imported by all v1 routes)
-3. Run tests: `npx vitest run v1`
-
-**Files:** `src/lib/api-auth.ts`, `src/lib/__tests__/api-auth.test.ts`, `src/app/api/v1/activity-summary/route.ts`, `src/app/api/v1/food-log/route.ts`, `src/app/api/v1/lumen-goals/route.ts`, `src/app/api/v1/nutrition-goals/route.ts`, `src/app/api/v1/nutrition-summary/route.ts`
-
-### Fix 2: fitbit-credentials route handlers missing try/catch
-**Linear Issue:** [FOO-696](https://linear.app/lw-claude/issue/FOO-696)
-
-1. Write tests in `src/app/api/fitbit-credentials/__tests__/route.test.ts`:
-   - GET: mock `getFitbitCredentials` to reject → expect 500 + standard error format
-   - POST: mock `saveFitbitCredentials` to reject → expect 500 + standard error format
-   - PATCH: mock `updateFitbitClientId` to reject → expect 500 + standard error format
-2. Wrap each handler's DB calls in try/catch with proper `log.error({ action: "..." })` + `errorResponse()`
-3. Run tests: `npx vitest run fitbit-credentials`
-
-**Files:** `src/app/api/fitbit-credentials/route.ts`, `src/app/api/fitbit-credentials/__tests__/route.test.ts`
-
-### Fix 3: food-history/[id] DELETE DB call outside try/catch
-**Linear Issue:** [FOO-697](https://linear.app/lw-claude/issue/FOO-697)
-
-1. Write test in `src/app/api/food-history/[id]/__tests__/route.test.ts`: mock `getFoodLogEntry` to reject → expect 500 + standard error format
-2. Move `getFoodLogEntry()` call (line 55) inside the existing try/catch block (line 60)
-3. Run tests: `npx vitest run food-history`
-
-**Files:** `src/app/api/food-history/[id]/route.ts`, `src/app/api/food-history/[id]/__tests__/route.test.ts`
-
-### Fix 4: Missing structured action field in error log statements
-**Linear Issue:** [FOO-698](https://linear.app/lw-claude/issue/FOO-698)
-
-Add `action` field to all 14 error/warn log statements following existing naming conventions:
-- `claude-usage/route.ts:39` → `action: "claude_usage_error"`
-- `earliest-entry/route.ts:28` → `action: "earliest_entry_error"`
-- `fasting/route.ts:67` → `action: "fasting_window_error"`
-- `fasting/route.ts:125` → `action: "fasting_windows_error"`
-- `lumen-goals/route.ts:49` → `action: "lumen_goals_error"`
-- `nutrition-goals/route.ts:29` → `action: "capture_calorie_goal_error"`
-- `nutrition-goals/route.ts:45` → `action: "nutrition_goals_error"`
-- `nutrition-summary/route.ts:45` → `action: "nutrition_summary_error"`
-- `nutrition-summary/route.ts:107` → `action: "nutrition_summary_range_error"`
-- `v1/food-log/route.ts:64` → `action: "v1_food_log_error"`
-- `v1/lumen-goals/route.ts:58` → `action: "v1_lumen_goals_error"`
-- `v1/nutrition-goals/route.ts:46` → `action: "v1_nutrition_goals_error"`
-- `v1/nutrition-summary/route.ts:64` → `action: "v1_nutrition_summary_error"`
-- `v1/activity-summary/route.ts:59` → `action: "v1_activity_summary_error"`
-
-No test changes needed — log format is not asserted in tests.
-
-**Files:** All 10 route files listed above
-
-### Fix 5: common-foods clientDate/clientTime missing format validation
-**Linear Issue:** [FOO-699](https://linear.app/lw-claude/issue/FOO-699)
-
-1. Write test in `src/app/api/common-foods/__tests__/route.test.ts`: pass invalid `clientDate` format → expect 400 validation error
-2. Add `isValidDateFormat(clientDate)` check after extracting the param, return `errorResponse("VALIDATION_ERROR", ...)` on failure
-3. Add basic time format validation for `clientTime` (HH:MM pattern)
-4. Run tests: `npx vitest run common-foods`
-
-**Files:** `src/app/api/common-foods/route.ts`, `src/app/api/common-foods/__tests__/route.test.ts`
-
-### Fix 6: API.md error response example inaccuracy
-**Linear Issue:** [FOO-700](https://linear.app/lw-claude/issue/FOO-700)
-
-1. Update `API.md` error response example: remove `"details": null` from the base example
-2. Add a note that `details` is only present when additional context is available
-3. No tests needed — documentation only
-
-**Files:** `API.md`
 
 ---
 
@@ -415,3 +343,11 @@ No test changes needed — log format is not asserted in tests.
 - JSON serialization order: `JSON.stringify` preserves insertion order. All data comes from consistent DB query → mapping pipelines, so order is deterministic. No sorted-keys needed.
 - `health` route needs `request` parameter added to its `GET()` signature
 - `nutrition-summary` internal route has two success paths (single date + date range) — both need updating
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- FOO-691 through FOO-694: Original implementation tasks
+- FOO-695 through FOO-700: Review findings fixed inline

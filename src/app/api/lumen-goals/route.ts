@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     return conditionalResponse(request, { goals });
   } catch (error) {
     log.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "lumen_goals_error", error: error instanceof Error ? error.message : String(error) },
       "lumen goals retrieval failed"
     );
     return errorResponse("INTERNAL_ERROR", "Failed to retrieve Lumen goals", 500);

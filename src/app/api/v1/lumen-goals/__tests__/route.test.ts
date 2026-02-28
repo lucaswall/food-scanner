@@ -6,6 +6,7 @@ vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long"
 const mockValidateApiRequest = vi.fn();
 vi.mock("@/lib/api-auth", () => ({
   validateApiRequest: (...args: unknown[]) => mockValidateApiRequest(...args),
+  hashForRateLimit: (key: string) => `hashed-${key.slice(0, 8)}`,
 }));
 
 vi.mock("@/lib/logger", () => {
@@ -179,7 +180,7 @@ describe("GET /api/v1/lumen-goals", () => {
     await GET(request);
 
     expect(mockCheckRateLimit).toHaveBeenCalledWith(
-      "v1:lumen-goals:test-api-key-789",
+      "v1:lumen-goals:hashed-test-api",
       60,
       60000
     );
