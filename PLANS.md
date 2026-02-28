@@ -1,315 +1,249 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-686-dashboard-layout-cleanup
-**Issues:** FOO-686, FOO-685, FOO-684
-**Created:** 2026-02-20
-**Last Updated:** 2026-02-20
+**Created:** 2026-02-28
+**Source:** Inline request: Add ETag support to all GET API routes (v1 external + internal browser-facing). Hash the `data` payload to avoid the timestamp problem. Full HTTP spec compliance for `If-None-Match`. Update API.md for external API changes.
+**Linear Issues:** [FOO-691](https://linear.app/lw-claude/issue/FOO-691/create-etag-utility-module-and-conditionalresponse-function), [FOO-692](https://linear.app/lw-claude/issue/FOO-692/update-v1-api-routes-with-etag-support), [FOO-693](https://linear.app/lw-claude/issue/FOO-693/update-internal-api-routes-with-etag-support), [FOO-694](https://linear.app/lw-claude/issue/FOO-694/update-apimd-with-etag-and-conditional-requests-documentation)
 
-## Summary
+## Context Gathered
 
-Restructure the dashboard layout to improve mobile UX: move the Lumen CTA banner from the page bottom to immediately after macro bars, move settings access from the header gear icon into the dashboard body as a button, and remove the "Food Scanner" title to reclaim vertical space.
+### Codebase Analysis
+- **`src/lib/api-response.ts`** — `successResponse()` wraps data in `{ success, data, timestamp }`. The `timestamp: Date.now()` changes every request, so ETags must hash only the `data` portion.
+- **`src/lib/__tests__/api-response.test.ts`** — Existing tests for `successResponse` and `errorResponse`.
+- **5 v1 routes** under `src/app/api/v1/` — all GET-only, use `validateApiRequest()` + `successResponse()` + manual `Cache-Control: private, no-cache` header.
+- **13 internal GET routes** under `src/app/api/` (excluding auth, POST-only, and v1) — use `getSession()` + `validateSession()` + `successResponse()` + manual `Cache-Control: private, no-cache`.
+- **`src/app/api/health/route.ts`** — special case: no `request` parameter, no `Cache-Control` header. Needs both added.
+- **`src/app/api/nutrition-summary/route.ts`** — has two success paths (single date and date range), each calling `successResponse()` separately.
+- **`src/lib/swr.ts`** — `apiFetcher` uses plain `fetch()`, browser HTTP cache handles `If-None-Match` transparently. No frontend changes needed.
+- **`API.md`** — documents v1 external API. Needs ETag/conditional request docs.
+- **All v1 route test files** follow same pattern: mock dependencies, test success/error/cache-control/rate-limit.
 
-## Issues
+### Test Conventions
+- Route tests in `src/app/api/<route>/__tests__/route.test.ts`
+- Lib tests in `src/lib/__tests__/<module>.test.ts`
+- Mocks use `vi.mock()` with proxy pattern
+- Import route handler via `await import()`
 
-### FOO-686: Lumen goals CTA banner lost at bottom of dashboard — move below macro bars
+## Original Plan
 
-**Priority:** High
-**Labels:** Bug
-**Description:** The "Set today's macro goals — Upload Lumen screenshot" blue banner is rendered in `page.tsx` after `DashboardShell`, placing it below all DailyDashboard content (calorie ring, macro bars, fasting card, meal breakdown, "Update Lumen goals" button). When the user has no goals set, this is the most important action on the screen but is completely lost.
+### Task 1: Create ETag utility module and conditionalResponse function
+**Linear Issue:** [FOO-691](https://linear.app/lw-claude/issue/FOO-691/create-etag-utility-module-and-conditionalresponse-function)
 
-**Acceptance Criteria:**
-- [ ] LumenBanner renders immediately after MacroBars in the DailyDashboard (before FastingCard)
-- [ ] LumenBanner only shows when viewing today's date (not past dates)
-- [ ] LumenBanner still hides itself when goals exist for today
-- [ ] LumenBanner no longer renders outside DashboardShell in page.tsx
-- [ ] Weekly view does not show LumenBanner (it's daily-specific)
-
-### FOO-685: Move settings access from header gear to button below "Update Lumen goals"
-
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** The gear icon in the top-right header is small and easy to miss. With the title being removed (FOO-684), the gear icon loses its anchor. Settings should be a full-width button placed below "Update Lumen goals" in the DailyDashboard body.
-
-**Acceptance Criteria:**
-- [ ] Settings gear icon removed from the dashboard header
-- [ ] A settings button (navigating to /settings) appears below "Update Lumen goals" in DailyDashboard
-- [ ] Settings button meets 44px touch target minimum
-- [ ] HeaderActions component deleted (no longer used anywhere)
-
-### FOO-684: Remove "Food Scanner" title from dashboard header
-
-**Priority:** Low
-**Labels:** Improvement
-**Description:** The "Food Scanner" `<h1>` in the dashboard header takes up vertical space without adding value. The user already knows what app they're in.
-
-**Acceptance Criteria:**
-- [ ] "Food Scanner" heading removed from the dashboard page
-- [ ] Header flex wrapper removed from page.tsx (becomes empty after FOO-685)
-
-## Prerequisites
-
-- [ ] On `main` branch with clean working tree
-- [ ] All existing tests pass
-
-## Implementation Tasks
-
-### Task 1: Move LumenBanner from page.tsx into DailyDashboard after MacroBars
-
-**Issue:** FOO-686
 **Files:**
-- `src/components/daily-dashboard.tsx` (modify)
-- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
-- `src/app/app/page.tsx` (modify)
-- `src/app/app/__tests__/page.test.tsx` (modify)
+- `src/lib/etag.ts` (new)
+- `src/lib/__tests__/etag.test.ts` (new)
+- `src/lib/api-response.ts` (modify)
+- `src/lib/__tests__/api-response.test.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update `daily-dashboard.test.tsx`:
-   - Add a test: "renders LumenBanner after MacroBars when viewing today and no goals exist". Mock LumenBanner as a div with `data-testid="lumen-banner"`. Assert it appears in the rendered output when lumenGoals data returns `{ goals: null }` and selectedDate equals today.
-   - Add a test: "does not render LumenBanner when viewing a past date". Navigate to previous day via DateNavigator, assert LumenBanner is not in the document.
-   - Add a test: "does not render LumenBanner when lumen goals exist for today". Mock lumenGoals with valid goals, assert LumenBanner is not in the document.
-   - Run: `npm test -- daily-dashboard`
-   - Verify: Tests fail (LumenBanner not rendered yet)
+1. **RED** — Create `src/lib/__tests__/etag.test.ts` with tests for two functions:
 
-2. **GREEN** — Update `daily-dashboard.tsx`:
-   - Import `LumenBanner` from `@/components/lumen-banner`
-   - Import `getTodayDate` (already imported) — use it to check `selectedDate === getTodayDate()`
-   - After `MacroBars` and before `FastingCard`, conditionally render `<LumenBanner />` when `selectedDate === getTodayDate()` AND `lumenGoals` data has loaded AND `!lumenGoals?.goals`
-   - The LumenBanner component already handles its own loading/error/hide states internally, but we add the date guard and goals guard at the parent level to avoid showing it on past dates or when goals exist
-   - Run: `npm test -- daily-dashboard`
-   - Verify: New tests pass
+   `generateETag(data: unknown): string`:
+   - Returns a strong ETag string (format: `"<16 hex chars>"`) — quoted, no `W/` prefix
+   - Returns same ETag for same data (deterministic)
+   - Returns different ETag for different data
+   - Handles null, undefined, empty object, empty array
+   - Handles nested objects — same data in same key order produces same ETag
 
-3. **RED** — Update `page.test.tsx`:
-   - Remove the `vi.mock("@/components/lumen-banner"...)` mock
-   - Remove the test "renders LumenBanner component after DashboardShell"
-   - Run: `npm test -- app/__tests__/page`
-   - Verify: Tests pass (mock removal is the change; if any test still references lumen-banner, it will fail)
+   `etagMatches(ifNoneMatch: string | null, etag: string): boolean`:
+   - Returns false when ifNoneMatch is null
+   - Returns true for exact match: `"abc123"` matches `"abc123"`
+   - Returns true for wildcard: `*` matches any ETag
+   - Returns true for multiple values: `"aaa", "bbb", "ccc"` matches `"bbb"`
+   - Handles whitespace around commas: `"aaa" , "bbb"` matches `"bbb"`
+   - Returns false when no values match
+   - Handles weak ETag comparison: `W/"abc"` matches `"abc"` (weak comparison per RFC 9110 §13.1.2)
+   - Handles weak ETag in the stored value: `"abc"` matches against `W/"abc"` in If-None-Match
 
-4. **GREEN** — Update `page.tsx`:
-   - Remove the `import { LumenBanner } from "@/components/lumen-banner"` line
-   - Remove `<LumenBanner />` from the JSX
-   - Run: `npm test -- app/__tests__/page`
-   - Verify: All page tests pass
+   Run: `npm test -- etag`
+   Verify: Tests fail (module doesn't exist)
 
-**Notes:**
-- LumenBanner uses `getTodayDate()` internally for its SWR key. DailyDashboard also fetches lumenGoals with `selectedDate`. SWR deduplicates by key, so when viewing today both will share the same cache entry.
-- The condition at the parent level (`selectedDate === getTodayDate() && !lumenGoals?.goals`) prevents rendering LumenBanner on past dates. LumenBanner's internal `data?.goals` check provides defense-in-depth.
-- When `lumenGoals` is still loading (undefined), don't render LumenBanner — avoid a flash. Once data arrives and goals are null, show it.
-
-### Task 2: Remove "Food Scanner" title and header wrapper from dashboard
-
-**Issue:** FOO-684, FOO-685
-**Files:**
-- `src/app/app/page.tsx` (modify)
-- `src/app/app/__tests__/page.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Update `page.test.tsx`:
-   - Remove the test "renders 'Food Scanner' heading"
-   - Remove the test "renders HeaderActions component"
-   - Remove the `vi.mock("@/components/header-actions"...)` mock
-   - Add a test: "does not render a heading element" — assert `screen.queryByRole("heading")` returns null
-   - Run: `npm test -- app/__tests__/page`
-   - Verify: New test fails (heading still exists)
-
-2. **GREEN** — Update `page.tsx`:
-   - Remove `import { HeaderActions } from "@/components/header-actions"`
-   - Remove the entire `<div className="flex items-center justify-between">` block (contains `<h1>` and `<HeaderActions />`)
-   - Run: `npm test -- app/__tests__/page`
+2. **GREEN** — Create `src/lib/etag.ts`:
+   - `generateETag`: Use `crypto.createHash('sha256')` on `JSON.stringify(data)`, truncate hex digest to 16 chars, wrap in double quotes
+   - `etagMatches`: Split `ifNoneMatch` on commas, trim whitespace, strip `W/` prefix from both sides for comparison (weak comparison semantics per RFC 9110 §8.8.3.2 — `If-None-Match` uses weak comparison)
+   - Run: `npm test -- etag`
    - Verify: All tests pass
 
-**Notes:**
-- After this task, the page structure becomes: `SkipLink` → `main` → `FitbitStatusBanner` → `DashboardShell` → `DashboardPrefetch`
-- The `SkipLink` still targets `#main-content` which remains on the `<main>` element
+3. **RED** — Add tests to `src/lib/__tests__/api-response.test.ts` for new `conditionalResponse` function:
 
-### Task 3: Add Settings button to DailyDashboard
+   `conditionalResponse<T>(request: Request, data: T, status?: number): Response`:
+   - Returns 200 with JSON body `{ success: true, data, timestamp }` when no `If-None-Match` header
+   - Sets `ETag` header on 200 responses
+   - Sets `Cache-Control: private, no-cache` on 200 responses
+   - Sets `Content-Type: application/json` on 200 responses
+   - Returns 304 with no body when `If-None-Match` matches the ETag
+   - Sets `ETag` header on 304 responses
+   - Sets `Cache-Control: private, no-cache` on 304 responses
+   - Does NOT set `Content-Type` on 304 responses (no body)
+   - Returns 200 with new ETag when `If-None-Match` does not match
+   - ETag is based on `data` only, not on `timestamp` — same data returns same ETag across calls (use `vi.spyOn(Date, 'now')` to return different values, verify ETag stays the same)
+   - Defaults to status 200, accepts custom status
+   - Run: `npm test -- api-response`
+   - Verify: New tests fail
 
-**Issue:** FOO-685
+4. **GREEN** — Add `conditionalResponse` to `src/lib/api-response.ts`:
+   - Import `generateETag` and `etagMatches` from `@/lib/etag`
+   - Build the response using `new Response(JSON.stringify({ success: true, data, timestamp: Date.now() }))` — NOT `Response.json()` — to serialize once for both body and (separately) for the ETag hash
+   - The ETag is computed from `generateETag(data)` (data only, not the full envelope)
+   - Check `request.headers.get("if-none-match")` via `etagMatches()`
+   - If match: return `new Response(null, { status: 304, headers: { ETag, "Cache-Control": "private, no-cache" } })`
+   - If no match: return full 200 response with body, ETag, Cache-Control, Content-Type headers
+   - Keep existing `successResponse` and `errorResponse` unchanged — they're still used by POST handlers and error paths
+   - Run: `npm test -- api-response`
+   - Verify: All tests pass
+
+### Task 2: Update v1 API routes with ETag support
+**Linear Issue:** [FOO-692](https://linear.app/lw-claude/issue/FOO-692/update-v1-api-routes-with-etag-support)
+
 **Files:**
-- `src/components/daily-dashboard.tsx` (modify)
-- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
+- `src/app/api/v1/activity-summary/route.ts` (modify)
+- `src/app/api/v1/food-log/route.ts` (modify)
+- `src/app/api/v1/lumen-goals/route.ts` (modify)
+- `src/app/api/v1/nutrition-goals/route.ts` (modify)
+- `src/app/api/v1/nutrition-summary/route.ts` (modify)
+- All corresponding `__tests__/route.test.ts` files (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update `daily-dashboard.test.tsx`:
-   - Add a test: "renders a Settings link below 'Update Lumen goals' button". Assert `screen.getByRole("link", { name: /settings/i })` exists with `href="/settings"`.
-   - Add a test: "Settings link meets 44px touch target". Assert the link has `min-h-[44px]` class.
-   - Add a test: "Settings link is full-width". Assert the link has `w-full` class.
-   - Run: `npm test -- daily-dashboard`
-   - Verify: Tests fail (no Settings link yet)
+1. **RED** — For each v1 route test file, add 2 new tests:
 
-2. **GREEN** — Update `daily-dashboard.tsx`:
-   - Import `Settings` icon from `lucide-react`
-   - Import `Link` from `next/link` (already imported)
-   - After the "Update Lumen goals" `<div className="flex flex-col gap-2">` block, add a new `Link` to `/settings` styled as a secondary button (use Button component with `asChild` or style a Link directly matching the existing button pattern)
-   - The link should be full-width, have `min-h-[44px]`, use the Settings icon, and read "Settings"
-   - Run: `npm test -- daily-dashboard`
-   - Verify: Tests pass
+   **"returns ETag header on success response":**
+   - Use existing success mock setup
+   - Assert `response.headers.get("ETag")` matches pattern `/^"[a-f0-9]{16}"$/` (strong ETag, 16 hex chars)
 
-**Notes:**
-- Use `variant="ghost"` or `variant="outline"` to visually differentiate from the "Update Lumen goals" secondary button
-- Reference the existing "Update Lumen goals" Button pattern for styling consistency
-- The Settings icon is already used in `header-actions.tsx` — same import from lucide-react
+   **"returns 304 when If-None-Match matches":**
+   - First request: get the response and extract the ETag header value
+   - Second request: add `If-None-Match` header with the extracted ETag, same URL and auth
+   - Assert second response has status 304
+   - Assert second response body is empty (null/empty string)
+   - Assert second response has `ETag` header
+   - Assert second response has `Cache-Control: private, no-cache`
 
-### Task 4: Delete unused HeaderActions component
+   Run: `npm test -- v1`
+   Verify: New tests fail (routes still use `successResponse`)
 
-**Issue:** FOO-685
-**Files:**
-- `src/components/header-actions.tsx` (delete)
-- `src/components/__tests__/header-actions.test.tsx` (delete)
+2. **GREEN** — Update each v1 route handler:
+   - Add import: `conditionalResponse` from `@/lib/api-response` (replace or alongside `successResponse`)
+   - Replace the 3-line pattern:
+     ```
+     const response = successResponse(data);
+     response.headers.set("Cache-Control", "private, no-cache");
+     return response;
+     ```
+     with: `return conditionalResponse(request, data);`
+   - The `request` parameter is already available in all v1 route `GET(request: Request)` signatures
+   - Run: `npm test -- v1`
+   - Verify: All tests pass (existing + new)
 
-**Steps:**
-
-1. Delete `src/components/header-actions.tsx`
-2. Delete `src/components/__tests__/header-actions.test.tsx`
-3. Run: `npm test` — verify no test failures from missing imports
-4. Run: `npm run typecheck` — verify no type errors from missing component
+3. **Cleanup** — Remove now-redundant `Cache-Control` header assertions from existing tests if they duplicate the new ETag tests. Or keep them — they still assert correct behavior. Implementer's judgment.
 
 **Notes:**
-- HeaderActions was only imported in `page.tsx` (removed in Task 2) and its own test file
-- No other components import or reference it
+- Each v1 route has exactly one `successResponse()` call to replace
+- `successResponse` import can be removed if no longer used in the file (v1 routes are GET-only, no POST handlers in the same file)
 
-### Task 5: Integration & Verification
+### Task 3: Update internal API routes with ETag support
+**Linear Issue:** [FOO-693](https://linear.app/lw-claude/issue/FOO-693/update-internal-api-routes-with-etag-support)
 
-**Issue:** FOO-686, FOO-685, FOO-684
+**Files (13 GET route handlers):**
+- `src/app/api/api-keys/route.ts`
+- `src/app/api/claude-usage/route.ts`
+- `src/app/api/common-foods/route.ts`
+- `src/app/api/earliest-entry/route.ts`
+- `src/app/api/fasting/route.ts`
+- `src/app/api/fitbit-credentials/route.ts`
+- `src/app/api/food-history/route.ts`
+- `src/app/api/food-history/[id]/route.ts`
+- `src/app/api/lumen-goals/route.ts`
+- `src/app/api/nutrition-goals/route.ts`
+- `src/app/api/nutrition-summary/route.ts`
+- `src/app/api/search-foods/route.ts`
+- `src/app/api/health/route.ts`
+- All corresponding `__tests__/route.test.ts` files
+
+**TDD Steps:**
+
+1. **RED** — For each internal route test file, add 2 new tests (same pattern as Task 2):
+
+   **"returns ETag header on success response":**
+   - Use existing success mock setup
+   - Assert `response.headers.get("ETag")` matches `/^"[a-f0-9]{16}"$/`
+
+   **"returns 304 when If-None-Match matches":**
+   - First call to get ETag, second call with `If-None-Match` → 304
+   - Assert 304 status, empty body, ETag present, Cache-Control present
+
+   Run: `npm test -- <route-name>`
+   Verify: New tests fail
+
+2. **GREEN** — Update each internal route handler:
+   - Import `conditionalResponse` from `@/lib/api-response`
+   - Replace `successResponse(data)` + `Cache-Control` header with `conditionalResponse(request, data)`
+
+   **Special cases:**
+   - **`health/route.ts`:** Currently `GET()` has no `request` parameter. Add it: `GET(request: Request)`. Also currently has no `Cache-Control` header — `conditionalResponse` handles this.
+   - **`nutrition-summary/route.ts`:** Has TWO success paths (single date at ~L43, date range at ~L107). Both `successResponse()` calls must become `conditionalResponse()`.
+   - **Routes with GET + POST** (`lumen-goals`, `fitbit-credentials`): Only update the GET handler. Keep `successResponse` import for the POST handler. Keep `errorResponse` import for error paths.
+   - **Routes with GET + DELETE** (`api-keys/[id]`): This file is DELETE-only, skip it.
+
+   Run: `npm test -- <route-name>`
+   Verify: All tests pass
+
+**Notes:**
+- Internal routes use `getSession()` + `validateSession()` instead of `validateApiRequest()`, but the `request` parameter is already in the `GET(request: Request)` signature for all routes except `health`
+- The `request` object is already being used to read `searchParams` in most routes, confirming it's in scope
+
+### Task 4: Update API.md documentation
+**Linear Issue:** [FOO-694](https://linear.app/lw-claude/issue/FOO-694/update-apimd-with-etag-and-conditional-requests-documentation)
+
 **Files:**
-- Various files from previous tasks
+- `API.md` (modify)
 
 **Steps:**
 
-1. Run full test suite: `npm test`
-2. Run linter: `npm run lint`
-3. Run type checker: `npm run typecheck`
-4. Build check: `npm run build`
-5. Manual verification:
-   - [ ] Dashboard loads without "Food Scanner" title
-   - [ ] No gear icon in header
-   - [ ] LumenBanner appears after macro bars (when no goals set)
-   - [ ] LumenBanner disappears when navigating to a past date
-   - [ ] "Update Lumen goals" button still works
-   - [ ] Settings button appears below "Update Lumen goals"
-   - [ ] Settings button navigates to /settings
-   - [ ] Weekly view does not show LumenBanner
+1. Add a new section "Conditional Requests (ETags)" after the "Response Format" section (before "Rate Limiting"):
+   - Explain that all GET endpoints return an `ETag` header
+   - Document the `If-None-Match` request header
+   - Explain 304 Not Modified behavior (no body, ETag echoed back)
+   - Explain that `Cache-Control: private, no-cache` means "cache but always revalidate" — ideal for ETag usage
+   - Include example request/response flow (first request → 200 + ETag, subsequent → If-None-Match → 304)
+   - Note: ETag is based on response data content, not timestamp
 
-## MCP Usage During Implementation
+2. Update the "Response Format" section:
+   - Add `ETag` to the list of headers on success responses
+   - Mention 304 as a possible response status
 
-| MCP Server | Tool | Purpose |
-|------------|------|---------|
-| Linear | `update_issue` | Move issues to "In Progress" when starting, "Done" when complete |
+3. No changes needed to individual endpoint docs — ETag behavior is uniform across all endpoints
 
-## Error Handling
-
-| Error Scenario | Expected Behavior | Test Coverage |
-|---------------|-------------------|---------------|
-| LumenBanner SWR error on past date | Banner not shown (date guard) | Unit test (Task 1) |
-| LumenBanner SWR error on today | Banner shows upload prompt (existing behavior) | Existing unit test |
-| Settings link click | Navigates to /settings | Unit test (Task 3) |
-
-## Risks & Open Questions
-
-- [ ] LumenBanner renders inside DailyDashboard but not WeeklyDashboard — acceptable since it's about "today's" goals which is daily-view-specific
-- [ ] The LumenBanner in `page.tsx` was visible on both Daily and Weekly views. Moving it inside DailyDashboard means weekly users won't see it. This is the intended behavior per the issue description.
-
-## Scope Boundaries
-
-**In Scope:**
-- Moving LumenBanner rendering position
-- Removing dashboard title
-- Relocating settings access from header to dashboard body
-- Deleting unused HeaderActions component
-
-**Out of Scope:**
-- Changes to WeeklyDashboard layout
-- Changes to LumenBanner internal logic (upload flow, styling)
-- Changes to the /settings page itself
-- Changes to BottomNav or other navigation elements
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent - Review changes for bugs
+2. Run `verifier` agent - Verify all tests pass and zero warnings
 
 ---
 
-## Iteration 1
+## Plan Summary
 
-**Implemented:** 2026-02-20
-**Method:** Single-agent (2 independent units, effort score 6 — worker overhead exceeds implementation time)
+**Objective:** Add ETag support with full HTTP spec compliance to all GET API routes (v1 external + internal browser-facing)
 
-### Tasks Completed This Iteration
-- Task 1: Move LumenBanner from page.tsx into DailyDashboard after MacroBars (FOO-686)
-- Task 2: Remove "Food Scanner" title and header wrapper from dashboard (FOO-684, FOO-685)
-- Task 3: Add Settings button to DailyDashboard (FOO-685)
-- Task 4: Delete unused HeaderActions component (FOO-685)
-- Task 5: Integration & Verification (FOO-686, FOO-685, FOO-684)
+**Request:** Implement ETags by hashing the data payload (avoiding timestamp in response envelope). Full If-None-Match spec compliance (multiple values, wildcard, weak comparison). Apply to both v1 and internal API routes. Update API.md docs.
 
-### Files Modified
-- `src/components/daily-dashboard.tsx` — Added LumenBanner conditional rendering after MacroBars, added Settings link
-- `src/components/__tests__/daily-dashboard.test.tsx` — Added LumenBanner placement tests (3) and Settings button tests (3), added LumenBanner mock
-- `src/app/app/page.tsx` — Removed h1 heading, HeaderActions import, LumenBanner import, header flex wrapper
-- `src/app/app/__tests__/page.test.tsx` — Removed heading/HeaderActions/LumenBanner tests and mocks, added "no heading" test
-- `src/components/header-actions.tsx` — Deleted (no longer used)
-- `src/components/__tests__/header-actions.test.tsx` — Deleted (component removed)
-- `src/components/bottom-nav.tsx` — Removed unused TAB_PATHS import (lint fix)
+**Linear Issues:** FOO-691, FOO-692, FOO-693, FOO-694
 
-### Linear Updates
-- FOO-686: Todo → In Progress → Review
-- FOO-685: Todo → In Progress → Review
-- FOO-684: Todo → In Progress → Review
+**Approach:** Create an ETag utility module (`generateETag`, `etagMatches`) and a `conditionalResponse` function in `api-response.ts` that replaces the existing `successResponse() + Cache-Control` pattern. Apply uniformly to all 18 GET route handlers. Browser clients (SWR) benefit transparently — no frontend code changes needed since `fetch()` handles `If-None-Match` automatically with `Cache-Control: private, no-cache`.
 
-### Pre-commit Verification
-- bug-hunter: Found 2 real bugs (missing earliest-entry mock in Settings tests, stale blank line), fixed before proceeding. 1 false positive (SWR deduplication concern — by design per plan notes).
-- verifier: All 2105 tests pass, zero lint warnings, clean typecheck, clean build.
+**Scope:**
+- Tasks: 4
+- Files affected: ~41 (2 new, ~39 modified)
+- New tests: yes (2 new test files, ~36 new test cases across existing test files)
 
-### Continuation Status
-All tasks completed.
+**Key Decisions:**
+- ETag hashes only the `data` payload (via `JSON.stringify`), not the full `{ success, data, timestamp }` envelope — avoids timestamp changing the hash every request
+- Strong ETags (not weak) — we control serialization, byte-for-byte reproducibility is guaranteed
+- SHA-256 truncated to 16 hex chars (64 bits of entropy) — collision-free for practical purposes, compact headers
+- `conditionalResponse` replaces the 3-line `successResponse() + headers.set() + return` pattern with a single call
+- `successResponse` and `errorResponse` kept unchanged for POST handlers and error paths
+- No frontend changes needed — browser HTTP cache + SWR work transparently
 
-### Review Findings
-
-Files reviewed: 7 (5 modified, 2 deleted)
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Discarded findings (not bugs):**
-- [DISCARDED] [low] CONVENTION: Test name "renders LumenBanner after MacroBars when viewing today and no goals exist" (`src/components/__tests__/daily-dashboard.test.tsx:1586`) claims positional ordering but only asserts element existence via `toBeInTheDocument()`. Style-only — the test correctly verifies the banner renders under the right conditions, and DOM ordering is structurally enforced by JSX.
-
-### Linear Updates
-- FOO-686: Review → Merge
-- FOO-685: Review → Merge
-- FOO-684: Review → Merge
-
-### E2E Test Results
-- 112 passed, 5 failed (all same root cause: removed heading)
-- FOO-687 created in Todo for E2E fix
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** E2E test failures from Iteration 1 review
-**Linear Issues:** [FOO-687](https://linear.app/lw-claude/issue/FOO-687/fix-e2e-tests-assert-removed-food-scanner-heading)
-
-### Fix 1: Update E2E tests that assert removed "Food Scanner" heading
-**Linear Issue:** [FOO-687](https://linear.app/lw-claude/issue/FOO-687/fix-e2e-tests-assert-removed-food-scanner-heading)
-
-**Files:**
-- `e2e/tests/auth-fixture.spec.ts` (modify)
-- `e2e/tests/auth.spec.ts` (modify)
-- `e2e/tests/dashboard.spec.ts` (modify)
-
-**Steps:**
-
-1. In `e2e/tests/auth-fixture.spec.ts:13`, replace `getByRole('heading', { name: 'Food Scanner' })` with an assertion for a visible element that confirms dashboard loaded (e.g., bottom nav `getByRole('navigation', { name: 'Main navigation' })` or the Daily/Weekly tabs).
-
-2. In `e2e/tests/auth.spec.ts:39`, same replacement — assert dashboard loaded via a non-heading element.
-
-3. In `e2e/tests/dashboard.spec.ts:14,43,55`, replace all 3 heading assertions with the same alternative element check.
-
-4. Run `npm run e2e` to verify all 117 tests pass.
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge. E2E test fixes applied inline.
+**Risks/Considerations:**
+- JSON serialization order: `JSON.stringify` preserves insertion order. All data comes from consistent DB query → mapping pipelines, so order is deterministic. No sorted-keys needed.
+- `health` route needs `request` parameter added to its `GET()` signature
+- `nutrition-summary` internal route has two success paths (single date + date range) — both need updating
