@@ -71,6 +71,10 @@ vi.mock("@/db/schema", async (importOriginal) => {
   return importOriginal();
 });
 
+vi.mock("nanoid", () => ({
+  nanoid: vi.fn(() => "mock-token-12"),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockValues.mockReturnValue({ returning: mockReturning });
@@ -111,6 +115,8 @@ const {
   updateCustomFoodMetadata,
   getEarliestEntryDate,
   getDateRangeNutritionSummary,
+  setShareToken,
+  getCustomFoodByShareToken,
 } = await import("@/lib/food-log");
 
 const { logger } = await import("@/lib/logger");
@@ -2136,6 +2142,126 @@ describe("getDateRangeNutritionSummary", () => {
     ]);
 
     expect(mockGetLumenGoalsByDateRange).toHaveBeenCalledWith("user-123", "2026-02-08", "2026-02-09");
+  });
+});
+
+describe("setShareToken", () => {
+  const mockFood = {
+    id: 42,
+    userId: "user-uuid-123",
+    foodName: "Grilled Chicken",
+    amount: "150",
+    unitId: 147,
+    calories: 250,
+    proteinG: "30",
+    carbsG: "5",
+    fatG: "10",
+    fiberG: "2",
+    sodiumMg: "400",
+    saturatedFatG: null,
+    transFatG: null,
+    sugarsG: null,
+    caloriesFromFat: null,
+    fitbitFoodId: 123,
+    confidence: "high",
+    notes: null,
+    description: null,
+    keywords: null,
+    isFavorite: false,
+    shareToken: null,
+    createdAt: new Date(),
+  };
+
+  it("generates and returns token for food without one", async () => {
+    mockWhere.mockResolvedValueOnce([{ ...mockFood, shareToken: null }]);
+    mockUpdateWhere.mockResolvedValue(undefined);
+
+    const token = await setShareToken("user-uuid-123", 42);
+
+    expect(token).toBe("mock-token-12");
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith(expect.objectContaining({ shareToken: "mock-token-12" }));
+  });
+
+  it("returns existing token for food that already has one (idempotent)", async () => {
+    mockWhere.mockResolvedValueOnce([{ ...mockFood, shareToken: "existing-token" }]);
+
+    const token = await setShareToken("user-uuid-123", 42);
+
+    expect(token).toBe("existing-token");
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns null for non-existent food", async () => {
+    mockWhere.mockResolvedValueOnce([]);
+
+    const token = await setShareToken("user-uuid-123", 999);
+
+    expect(token).toBeNull();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("returns null for other user's food", async () => {
+    mockWhere.mockResolvedValueOnce([]);
+
+    const token = await setShareToken("other-user", 42);
+
+    expect(token).toBeNull();
+  });
+});
+
+describe("getCustomFoodByShareToken", () => {
+  const mockFood = {
+    id: 42,
+    userId: "user-uuid-123",
+    foodName: "Grilled Chicken",
+    amount: "150",
+    unitId: 147,
+    calories: 250,
+    proteinG: "30",
+    carbsG: "5",
+    fatG: "10",
+    fiberG: "2",
+    sodiumMg: "400",
+    saturatedFatG: null,
+    transFatG: null,
+    sugarsG: null,
+    caloriesFromFat: null,
+    fitbitFoodId: 123,
+    confidence: "high",
+    notes: null,
+    description: null,
+    keywords: null,
+    isFavorite: false,
+    shareToken: "valid-token-12",
+    createdAt: new Date(),
+  };
+
+  it("finds food regardless of owner (cross-user)", async () => {
+    mockWhere.mockResolvedValueOnce([mockFood]);
+
+    const result = await getCustomFoodByShareToken("valid-token-12");
+
+    expect(result).not.toBeNull();
+    expect(result!.foodName).toBe("Grilled Chicken");
+    expect(result!.calories).toBe(250);
+  });
+
+  it("returns null for invalid token", async () => {
+    mockWhere.mockResolvedValueOnce([]);
+
+    const result = await getCustomFoodByShareToken("invalid-token");
+
+    expect(result).toBeNull();
+  });
+
+  it("does NOT filter by userId (cross-user access)", async () => {
+    mockWhere.mockResolvedValueOnce([{ ...mockFood, userId: "other-user-id" }]);
+
+    const result = await getCustomFoodByShareToken("valid-token-12");
+
+    // Should return food even if it belongs to a different user
+    expect(result).not.toBeNull();
   });
 });
 

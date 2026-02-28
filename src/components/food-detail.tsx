@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { ArrowLeft, AlertCircle } from "lucide-react";
+import { ArrowLeft, AlertCircle, Share2 } from "lucide-react";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogEntryDetail } from "@/types";
 import { formatTime } from "@/lib/date-utils";
@@ -26,10 +27,42 @@ function formatDate(dateStr: string): string {
 
 export function FoodDetail({ entryId }: FoodDetailProps) {
   const router = useRouter();
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const { data, error, isLoading, mutate } = useSWR<FoodLogEntryDetail>(
     `/api/food-history/${entryId}`,
     apiFetcher,
   );
+
+  async function handleShare() {
+    if (!data || isSharing) return;
+    setIsSharing(true);
+    try {
+      const response = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customFoodId: data.id }),
+      });
+      if (!response.ok) return;
+      const result = await response.json();
+      const shareUrl: string = result.data.shareUrl;
+      const foodName: string = data.foodName;
+
+      if (navigator.share) {
+        try {
+          await navigator.share({ url: shareUrl, title: foodName });
+        } catch (err) {
+          if (err instanceof Error && err.name === "AbortError") return;
+        }
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -88,7 +121,22 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
 
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">{data.foodName}</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">{data.foodName}</h1>
+          <Button
+            onClick={handleShare}
+            variant="ghost"
+            size="icon"
+            className="min-h-[44px] min-w-[44px]"
+            aria-label="Share"
+            disabled={isSharing}
+          >
+            <Share2 className="h-5 w-5" />
+          </Button>
+        </div>
+        {shareCopied && (
+          <p className="text-xs text-green-600 mt-1">Link copied to clipboard!</p>
+        )}
         <p className="text-sm text-muted-foreground mt-1">
           {formatDate(data.date)} · {formatTime(data.time) || "Not specified"} ·{" "}
           {FITBIT_MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"}

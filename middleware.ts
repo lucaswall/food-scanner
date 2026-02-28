@@ -22,12 +22,16 @@ export function middleware(request: NextRequest) {
       );
     }
 
-    // Page routes redirect to landing
+    // Page routes redirect to landing (include returnTo for deep links, not for /app root)
     logger.warn(
       { path: pathname, action: "redirect", reason: "missing_session" },
       "unauthenticated page request",
     );
-    return NextResponse.redirect(new URL("/", request.url));
+    const redirectUrl = new URL("/", request.url);
+    if (pathname !== "/app") {
+      redirectUrl.searchParams.set("returnTo", pathname);
+    }
+    return NextResponse.redirect(redirectUrl);
   }
 
   logger.debug({ path: pathname, action: "allowed" }, "authenticated request");

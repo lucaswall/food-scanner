@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FoodDetail } from "../food-detail";
 import type { FoodLogEntryDetail } from "@/types";
 
@@ -130,6 +130,73 @@ describe("FoodDetail !data guard", () => {
 
     const { container } = render(<FoodDetail entryId="1" />);
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("FoodDetail share button", () => {
+  beforeEach(() => {
+    mockUseSWR.mockReturnValue({
+      data: mockEntry,
+      error: undefined,
+      isLoading: false,
+      mutate: mockMutate,
+    });
+  });
+
+  it("renders a share button", () => {
+    render(<FoodDetail entryId="1" />);
+    expect(screen.getByRole("button", { name: /share/i })).toBeInTheDocument();
+  });
+
+  it("calls POST /api/share with correct customFoodId on click", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { shareUrl: "http://localhost/app/log-shared/tok", shareToken: "tok" } }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+    // No navigator.share — clipboard path
+    Object.defineProperty(navigator, "share", { value: undefined, configurable: true, writable: true });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+      writable: true,
+    });
+
+    render(<FoodDetail entryId="1" />);
+    fireEvent.click(screen.getByRole("button", { name: /share/i }));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/share",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ customFoodId: mockEntry.id }),
+        }),
+      );
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("shows copied confirmation after sharing via clipboard", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { shareUrl: "http://localhost/app/log-shared/tok", shareToken: "tok" } }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+    Object.defineProperty(navigator, "share", { value: undefined, configurable: true, writable: true });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockResolvedValue(undefined) },
+      configurable: true,
+      writable: true,
+    });
+
+    render(<FoodDetail entryId="1" />);
+    fireEvent.click(screen.getByRole("button", { name: /share/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/copied/i)).toBeInTheDocument();
+    });
+    vi.unstubAllGlobals();
   });
 });
 
