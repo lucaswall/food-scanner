@@ -17,7 +17,11 @@ export async function POST(request: Request) {
     return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests", 429);
   }
 
-  const state = crypto.randomUUID();
+  const nonce = crypto.randomUUID();
+  const returnToParam = new URL(request.url).searchParams.get("returnTo");
+  const returnTo = returnToParam && returnToParam.startsWith("/") && !returnToParam.startsWith("//") ? returnToParam : null;
+  const state = returnTo ? JSON.stringify({ nonce, returnTo }) : nonce;
+
   const redirectUri = buildUrl("/api/auth/google/callback");
   const authUrl = buildGoogleAuthUrl(state, redirectUri);
 

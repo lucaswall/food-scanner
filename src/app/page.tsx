@@ -3,12 +3,20 @@ import { getSession } from "@/lib/session";
 import { Button } from "@/components/ui/button";
 import { SkipLink } from "@/components/skip-link";
 
-export default async function Home() {
+interface HomeProps {
+  searchParams: Promise<{ returnTo?: string }>;
+}
+
+export default async function Home({ searchParams }: HomeProps) {
   const session = await getSession();
 
   if (session) {
     redirect("/app");
   }
+
+  const { returnTo } = await searchParams;
+  const validReturnTo = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : null;
+  const loginAction = validReturnTo ? `/api/auth/google?returnTo=${encodeURIComponent(validReturnTo)}` : "/api/auth/google";
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
@@ -26,7 +34,7 @@ export default async function Home() {
             Take a photo of your meal, let AI analyze the nutrition, and log it
             directly to Fitbit.
           </p>
-          <form action="/api/auth/google" method="POST" className="w-full">
+          <form action={loginAction} method="POST" className="w-full">
             <Button type="submit" className="w-full" size="lg">
               Login with Google
             </Button>

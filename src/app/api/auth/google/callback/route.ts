@@ -41,6 +41,17 @@ export async function GET(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid OAuth state", 400);
   }
 
+  // Extract returnTo from JSON state if present
+  let returnTo: string | null = null;
+  try {
+    const parsed = JSON.parse(state) as Record<string, unknown>;
+    if (typeof parsed.returnTo === "string" && parsed.returnTo.startsWith("/") && !parsed.returnTo.startsWith("//")) {
+      returnTo = parsed.returnTo;
+    }
+  } catch {
+    // Plain string state — no returnTo
+  }
+
   // Consume OAuth state immediately after validation
   delete rawSession.oauthState;
   await rawSession.save();
@@ -88,7 +99,7 @@ export async function GET(request: Request) {
   // 3. If neither exist → /app/setup-fitbit
   const fitbitTokens = await getFitbitTokens(user.id, log);
   if (fitbitTokens) {
-    return Response.redirect(buildUrl("/app"), 302);
+    return Response.redirect(buildUrl(returnTo ?? "/app"), 302);
   }
   const hasCredentials = await hasFitbitCredentials(user.id, log);
   const redirectTo = hasCredentials ? "/api/auth/fitbit" : "/app/setup-fitbit";

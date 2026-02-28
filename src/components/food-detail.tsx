@@ -6,7 +6,7 @@ import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { ArrowLeft, AlertCircle, Star } from "lucide-react";
+import { ArrowLeft, AlertCircle, Star, Share2 } from "lucide-react";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogEntryDetail } from "@/types";
 import { formatTime } from "@/lib/date-utils";
@@ -27,6 +27,8 @@ function formatDate(dateStr: string): string {
 
 export function FoodDetail({ entryId }: FoodDetailProps) {
   const router = useRouter();
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const { data, error, isLoading, mutate } = useSWR<FoodLogEntryDetail>(
     `/api/food-history/${entryId}`,
     apiFetcher,
@@ -46,6 +48,36 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
       setLocalFavorite(!newValue);
     }
   };
+
+  async function handleShare() {
+    if (!data || isSharing) return;
+    setIsSharing(true);
+    try {
+      const response = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customFoodId: data.customFoodId }),
+      });
+      if (!response.ok) return;
+      const result = await response.json();
+      const shareUrl: string = result.data.shareUrl;
+      const foodName: string = data.foodName;
+
+      if (navigator.share) {
+        try {
+          await navigator.share({ url: shareUrl, title: foodName });
+        } catch (err) {
+          if (err instanceof Error && err.name === "AbortError") return;
+        }
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -104,20 +136,35 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
 
       {/* Header */}
       <div>
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold">{data.foodName}</h1>
-          <button
-            aria-label="Toggle favorite"
-            aria-pressed={isFavorite}
-            onClick={handleToggleFavorite}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center"
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold">{data.foodName}</h1>
+            <button
+              aria-label="Toggle favorite"
+              aria-pressed={isFavorite}
+              onClick={handleToggleFavorite}
+              className="min-h-[44px] min-w-[44px] flex items-center justify-center"
+            >
+              <Star
+                className="h-5 w-5"
+                fill={isFavorite ? "currentColor" : "none"}
+              />
+            </button>
+          </div>
+          <Button
+            onClick={handleShare}
+            variant="ghost"
+            size="icon"
+            className="min-h-[44px] min-w-[44px]"
+            aria-label="Share"
+            disabled={isSharing}
           >
-            <Star
-              className="h-5 w-5"
-              fill={isFavorite ? "currentColor" : "none"}
-            />
-          </button>
+            <Share2 className="h-5 w-5" />
+          </Button>
         </div>
+        {shareCopied && (
+          <p className="text-xs text-green-600 mt-1">Link copied to clipboard!</p>
+        )}
         <p className="text-sm text-muted-foreground mt-1">
           {formatDate(data.date)} · {formatTime(data.time) || "Not specified"} ·{" "}
           {FITBIT_MEAL_TYPE_LABELS[data.mealTypeId] ?? "Unknown"}

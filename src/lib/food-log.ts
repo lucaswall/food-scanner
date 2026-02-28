@@ -1,4 +1,5 @@
 import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc, between, sql } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
 import { computeMatchRatio } from "@/lib/food-matching";
@@ -859,6 +860,42 @@ export async function getDailyNutritionSummary(
       caloriesFromFat: totalCaloriesFromFat,
     },
   };
+}
+
+export async function setShareToken(
+  userId: string,
+  customFoodId: number,
+): Promise<string | null> {
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(customFoods)
+    .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
+
+  const food = rows[0];
+  if (!food) return null;
+
+  if (food.shareToken) return food.shareToken;
+
+  const token = nanoid(12);
+  await db
+    .update(customFoods)
+    .set({ shareToken: token })
+    .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
+
+  return token;
+}
+
+export async function getCustomFoodByShareToken(shareToken: string) {
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(customFoods)
+    .where(eq(customFoods.shareToken, shareToken));
+
+  return rows[0] ?? null;
 }
 
 export async function getDateRangeNutritionSummary(
