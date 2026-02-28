@@ -4,11 +4,13 @@
 
 | Feature | Summary |
 |---------|---------|
-| [Smart Multi-Item Splitting](#multi-item-splitting) | Split complex meals into reusable food library entries |
+| [Smart Multi-Item Splitting](#smart-multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Conversational Food Editing](#conversational-food-editing) | Edit logged entries via chat — adjust portions, split shared meals, fix mistakes |
-| [Offline Queue with Background Sync](#offline-queue) | Queue meals offline, analyze and log when back online |
+| [Offline Queue with Background Sync](#offline-queue-with-background-sync) | Queue meals offline, analyze and log when back online |
 | [Nutritional Label Library](#nutritional-label-library) | Store scanned label data for instant reuse by keyword |
-| [Food Log Push Notifications](#food-log-push-notifications) | Notify the HealthHelper Android app in real time when food is logged |
+| [Food Log Push Notifications](#food-log-push-notifications) | Push nutrition data directly to Health Connect via a thin Android wrapper |
+| [Favorite Foods](#favorite-foods) | Star foods to pin them at the top of quick select |
+| [Share Food Log](#share-food-log) | Share a link so someone eating the same meal can log it instantly |
 
 
 ---
@@ -267,83 +269,210 @@ Store nutritional label data extracted from photos as reusable entries in the da
 
 ---
 
-## Google Health Connect Integration
+## Food Log Push Notifications
 
 ### Problem
 
-Fitbit does not sync nutrition data to Health Connect — it only syncs activity data (steps, distance, exercise, calories burned). Food log entries pushed to Fitbit via the Food Scanner never reach Health Connect, so users who rely on Health Connect as their central health dashboard have no visibility into their nutritional intake.
+The HealthHelper Android app syncs food log data from Food Scanner via periodic WorkManager polling (15–120 minute interval). After logging a meal in Food Scanner, the data doesn't reach Health Connect until the next scheduled sync — up to two hours later. There's no real-time feedback that the log was picked up.
+
+### Prerequisites
+
+- HealthHelper Android app (already built — Kotlin, Jetpack Compose, Health Connect SDK, WorkManager periodic sync via `GET /api/v1/food-log`)
 
 ### Goal
 
-Push nutrition data directly to Google Health Connect so it appears alongside activity data from other apps, giving users a complete health picture in one place.
+Send a push notification to HealthHelper the moment food is logged in Food Scanner, triggering an immediate Health Connect sync so nutrition data appears within seconds.
 
 ### Design
 
-#### Integration Path
+#### Notification Flow
 
-Health Connect has no REST API — it is an Android-only on-device SDK. The app needs a thin Android component to bridge server-side food log data into Health Connect's `NutritionRecord` entries.
+1. User logs food in Food Scanner (PWA or API).
+2. `POST /api/log-food` completes successfully (Fitbit + DB).
+3. Food Scanner sends an FCM push to the registered device token.
+4. HealthHelper receives the push — either in foreground or background.
+5. HealthHelper enqueues a one-shot `SyncWorker` that calls `SyncNutritionUseCase` immediately.
+6. Health Connect gets the new `NutritionRecord` within seconds.
 
-#### What Gets Pushed
+#### Notification Content
 
-Each `food_log_entry` maps to one Health Connect `NutritionRecord`:
+The push is a **data-only message** (no visible notification) — the goal is to trigger a sync, not to show a banner. HealthHelper already handles the sync and can optionally show a local notification after a successful write.
 
-| Food Scanner Field | HC NutritionRecord Field | Notes |
-|---|---|---|
-| `foodName` | `name` | Direct |
-| `calories` | `energy` (kcal) | Direct |
-| `proteinG` | `protein` (g) | Direct |
-| `carbsG` | `totalCarbohydrate` (g) | Direct |
-| `fatG` | `totalFat` (g) | Direct |
-| `fiberG` | `dietaryFiber` (g) | Direct |
-| `sodiumMg` | `sodium` (g) | Convert mg → g |
-| `saturatedFatG` | `saturatedFat` (g) | Direct, nullable |
-| `transFatG` | `transFat` (g) | Direct, nullable |
-| `sugarsG` | `sugar` (g) | Direct, nullable |
-| `caloriesFromFat` | `energyFromFat` (kcal) | Direct, nullable |
-| `date` + `time` | `startTime` / `endTime` | Use same time for both |
-| `mealTypeId` | `mealType` | See mapping below |
+Payload:
 
-#### Meal Type Mapping
+```json
+{
+  "data": {
+    "type": "food_logged",
+    "date": "2026-02-28",
+    "entryId": "123"
+  }
+}
+```
 
-| Food Scanner | Health Connect |
-|---|---|
-| 1 (Breakfast) | `MEAL_TYPE_BREAKFAST` (1) |
-| 2 (Morning Snack) | `MEAL_TYPE_SNACK` (4) |
-| 3 (Lunch) | `MEAL_TYPE_LUNCH` (2) |
-| 4 (Afternoon Snack) | `MEAL_TYPE_SNACK` (4) |
-| 5 (Dinner) | `MEAL_TYPE_DINNER` (3) |
-| 7 (Anytime) | `MEAL_TYPE_UNKNOWN` (0) |
+The `date` field lets HealthHelper sync only the affected day instead of the full backfill window.
 
-#### Sync Trigger
+#### Fallback
 
-Options to evaluate:
-- **Push notification** from server after each food log → Android app writes to HC.
-- **Polling** — Android app periodically checks a server API for new entries.
-- **Manual sync** — user taps "Sync to Health Connect" in the PWA, which triggers the Android companion.
+The periodic WorkManager sync remains as a fallback. Push notifications are best-effort — if FCM delivery fails (device offline, token expired), the next scheduled sync picks up the entry. No data is lost.
+
+#### Device Registration
+
+1. HealthHelper requests `POST_NOTIFICATIONS` permission (Android 13+) and registers with FCM.
+2. `FirebaseMessagingService.onNewToken()` fires with a device token.
+3. HealthHelper sends the token to Food Scanner via a new `POST /api/v1/devices` endpoint (Bearer API key auth).
+4. Food Scanner stores the token in a new `device_tokens` table.
+5. On token rotation (app update, FCM refresh), HealthHelper re-registers automatically.
 
 ### Architecture
 
-- **Android companion app:** Minimal app (Kotlin, Jetpack Health Connect SDK) that authenticates with the Food Scanner API (using existing API key system) and writes `NutritionRecord` entries.
-- **Server API endpoint:** New `GET /api/v1/food-log` endpoint returning food log entries with full nutrition data, filterable by date range and a `since` cursor for incremental sync.
-- **Deduplication:** Each `food_log_entry.id` stored as Health Connect `Metadata.clientRecordId` to prevent duplicate writes. Edits and deletes propagated via the same mechanism.
-- **No read-back:** The app only writes to Health Connect, never reads from it. This keeps permissions minimal.
+#### Food Scanner (Server Side)
+
+- **`firebase-admin` SDK:** Initialize once in `src/lib/firebase.ts` with service account credentials from env vars (`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`).
+- **New DB table:** `device_tokens` — `id`, `userId`, `token` (text, unique), `platform` (text, default `'android'`), `createdAt`, `updatedAt`. One user can have multiple device tokens (phone + tablet).
+- **New API route:** `POST /api/v1/devices` — registers or updates a device token. Bearer API key auth (same as other v1 routes). Upserts on token value.
+- **New API route:** `DELETE /api/v1/devices/:token` — removes a token (device unregistered or user logs out of HealthHelper).
+- **Notification dispatch:** New `sendFoodLoggedNotification(userId, entryId, date)` in `src/lib/notifications.ts`. Fetches all device tokens for the user, sends FCM data messages. Handles `messaging/registration-token-not-registered` errors by deleting stale tokens.
+- **Trigger point:** Called at the end of `POST /api/log-food` after successful Fitbit log + DB write. Fire-and-forget — notification failure never blocks the API response.
+
+#### HealthHelper (Android Side)
+
+- **Firebase SDK:** Add `com.google.firebase:firebase-messaging` dependency. Register `FoodScannerMessagingService` in manifest.
+- **Token management:** `onNewToken()` → POST to `POST /api/v1/devices` with the stored API key.
+- **Message handling:** `onMessageReceived()` → extract `type`, `date`, `entryId` from data payload → enqueue a one-shot `SyncWorker` constrained to `NetworkType.CONNECTED`, targeting only the specified date.
+- **Permissions:** Add `POST_NOTIFICATIONS` (API 33+) to manifest. Request at runtime during onboarding or settings.
 
 ### Edge Cases
 
-- User deletes a food log entry in Food Scanner → Android app deletes the corresponding HC record by `clientRecordId`.
-- User edits a food log entry → Android app updates the HC record.
-- Health Connect not installed on device → Android app prompts user to install it.
-- User has no API key → Android app guides them to generate one in the web app settings.
-- Multiple Android devices → Each device syncs independently; `clientRecordId` deduplication prevents duplicates.
+- Device token expires or rotates → `onNewToken()` re-registers automatically. Server-side, `NotRegistered` errors trigger token cleanup.
+- Multiple devices registered → FCM message sent to all tokens. Each device syncs independently; Health Connect `clientRecordId` deduplication prevents duplicate records.
+- App force-stopped or device rebooted → FCM high-priority data messages wake the app. If delivery still fails, periodic sync is the safety net.
+- `firebase-admin` and Next.js Edge Runtime are incompatible → all API routes in `src/app/api/` use the Node.js runtime by default, so no issue.
+- Food Scanner deployed without Firebase credentials → notification dispatch silently skips (log a warning). All other functionality unaffected.
+- HealthHelper not installed or no token registered → no tokens in DB, nothing to send. No error.
+- Dry-run mode (`FITBIT_DRY_RUN=true`) → still send notifications so staging can test the full flow.
 
 ### Implementation Order
 
-1. Server API endpoint for food log export (`GET /api/v1/food-log` with date range and cursor)
-2. Android companion app skeleton (auth with API key, Health Connect permissions)
-3. `NutritionRecord` write logic with field mapping
-4. Incremental sync with `clientRecordId` deduplication
-5. Delete/update propagation
-6. Play Store listing
+1. Firebase project setup + service account credentials in env vars
+2. `device_tokens` DB table (Drizzle schema + migration)
+3. `POST /api/v1/devices` and `DELETE /api/v1/devices/:token` endpoints
+4. `src/lib/notifications.ts` — FCM dispatch with stale token cleanup
+5. Integrate notification dispatch into `POST /api/log-food` (fire-and-forget)
+6. HealthHelper: Firebase SDK + `FoodScannerMessagingService` + token registration
+7. HealthHelper: one-shot `SyncWorker` triggered by push data message
+
+---
+
+## Favorite Foods
+
+### Problem
+
+Quick select shows foods ordered by recency. Foods the user eats regularly (daily coffee, go-to lunch) sit mixed in with one-off meals. There's no way to pin frequently-used foods to the top for faster access.
+
+### Goal
+
+Let users star foods as favorites so they always appear first in quick select, reducing the scroll/search needed for everyday meals.
+
+### Design
+
+#### Starring
+
+- Each food entry card (quick select list, food detail screen) shows a star icon.
+- Tap to toggle favorite on/off. Instant — no confirmation needed.
+- Star state is stored per `custom_food`, not per `food_log_entry`. Starring any entry for a given food stars the food itself.
+
+#### Quick Select Ordering
+
+- **Favorites section** appears at the top of quick select, separated by a subtle header ("Favorites").
+- Within favorites, order by most recently logged (same as the rest of the list).
+- Below favorites, the normal recency-ordered list continues as today, excluding already-shown favorites.
+- If the user has no favorites, quick select looks exactly like it does now.
+
+#### UI
+
+- Star icon: outline when unfavorited, filled when favorited. Positioned on the right side of food cards.
+- Food detail screen: star in the header area next to the food name.
+- Quick select: favorites section with a thin divider/label, then "Recent" section below.
+
+### Architecture
+
+- **Schema change:** Add `isFavorite` boolean column (default `false`) to `custom_foods` table.
+- **API:** Existing food detail or a new `PATCH /api/custom-foods/:id/favorite` toggle endpoint.
+- **Quick select query:** Modify the query to `ORDER BY isFavorite DESC, lastLoggedAt DESC` (or equivalent two-section fetch).
+
+### Edge Cases
+
+- User stars a food that was only logged once long ago → it stays at the top of favorites regardless of age.
+- User unfavorites all foods → favorites section disappears, quick select returns to pure recency.
+- Food is deleted → favorite status goes with it, no cleanup needed.
+
+### Implementation Order
+
+1. `isFavorite` column on `custom_foods` + migration
+2. Toggle favorite API endpoint
+3. Star UI on food cards (quick select + food detail)
+4. Quick select favorites section with ordering logic
+
+---
+
+## Share Food Log
+
+### Problem
+
+When two people eat the same meal together, both need to log it. The second person has to scan, describe, and confirm the same food from scratch — even though the first person already went through the full analysis process and has exact nutrition data in the database.
+
+### Goal
+
+Let a user share a food log entry via a link. The recipient opens the link, sees the full food details (name, nutrition, photo), and can log it to their own Fitbit account in one tap — no scanning or AI analysis needed.
+
+### Design
+
+#### Sharing Flow (Sender)
+
+- On any logged food entry (today screen, history, food detail), an action button: "Share".
+- Tap generates a shareable link and opens the native share sheet (or copies to clipboard as fallback).
+- The link is a unique URL like `food.lucaswall.me/share/:token`.
+- No configuration — sharing is always the full entry as-is.
+
+#### Receiving Flow (Recipient)
+
+- Recipient opens the link in their browser.
+- **Landing page** shows: food name, photo (if available), full nutrition breakdown (calories, protein, carbs, fat, fiber, sodium), and meal type.
+- **If logged in:** A "Log This Food" button appears. Tapping it logs the food to their Fitbit account using their own credentials. Meal type defaults to the original but can be changed. Date defaults to today.
+- **If not logged in:** Prompt to log in first (Google OAuth), then redirect back to the share page.
+- After logging, confirmation screen: "Logged! [food name] — [calories] cal".
+
+#### Link Behavior
+
+- Links are **permanent** — they don't expire. The data is a snapshot at share time, not a live reference.
+- Each share creates a new token. Sharing the same food twice creates two different links.
+- Links are **public** — anyone with the link can view the food details. Logging requires authentication and an active Fitbit connection.
+
+### Architecture
+
+- **New DB table:** `shared_foods` — stores a unique token, the snapshot of food data (name, nutrition, description, meal type), optional photo URL, creator user ID, and created timestamp.
+- **Share API:** `POST /api/share` — accepts a `foodLogEntryId`, snapshots the food data from the related `custom_food` and `food_log_entry`, generates a token, stores it in `shared_foods`, returns the share URL.
+- **Share page:** `src/app/share/[token]/page.tsx` — public server component that fetches the `shared_foods` row and renders the food details. No auth required to view.
+- **Log from share API:** `POST /api/share/:token/log` — authenticated endpoint. Creates a new `custom_food` (copy of the shared data) for the recipient, logs it to their Fitbit via `findOrCreateFood()` + `logFood()`, creates a `food_log_entry` for the recipient.
+- **Photo handling:** The share snapshot stores the photo URL (not the photo itself). If the original photo is deleted or unavailable, the share page shows the food without a photo.
+
+### Edge Cases
+
+- Recipient is the same user who shared → works fine, logs a duplicate entry (user might want this for a different meal time).
+- Recipient has no Fitbit connection → show the food details but disable the log button with a message to set up Fitbit first.
+- Shared food's photo URL becomes unavailable → render the page without a photo, nutrition data is still complete.
+- Recipient wants to adjust the portion → not supported in v1. They can log as-is and use conversational editing (if available) to adjust after.
+- Multiple people log from the same link → each gets their own independent `custom_food` and `food_log_entry`.
+
+### Implementation Order
+
+1. `shared_foods` DB table + migration
+2. `POST /api/share` endpoint (snapshot + token generation)
+3. Share page (`/share/[token]`) — public, view-only
+4. `POST /api/share/:token/log` endpoint (copy + log to recipient's Fitbit)
+5. Share button UI on food entry cards and food detail screen
+6. Post-log confirmation screen
 
 ---
 
