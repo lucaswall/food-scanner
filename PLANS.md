@@ -958,3 +958,69 @@ Add pencil/edit icon button alongside delete on food-history entry cards. Naviga
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 8 issue(s) found across 3 domains (Team: security, reliability, quality reviewers)
+- FIX: 5 issue(s) — Linear issues created in Todo
+- DISCARDED: 3 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [HIGH] BUG: `updateFoodLogEntry()` creates new custom_food without copying `fitbitFoodId`, `isFavorite`, `shareToken` from old record — food disappears from Quick Select, favorite status lost, shared links break (`src/lib/food-log.ts:624-646`) — [FOO-720](https://linear.app/lw-claude/issue/FOO-720)
+- [MEDIUM] BUG: Pagination cursor null when favorites fill all slots — non-favorites permanently inaccessible when user has ≥10 favorites (`src/lib/food-log.ts:331-344`) — [FOO-721](https://linear.app/lw-claude/issue/FOO-721)
+- [MEDIUM] ERROR: `handleShare` silently swallows API errors and clipboard exceptions — no user feedback on failure (`src/components/food-detail.tsx:55-80`) — [FOO-722](https://linear.app/lw-claude/issue/FOO-722)
+- [MEDIUM] SECURITY: Share token logged in API routes violating CLAUDE.md "never log access tokens" policy (`src/app/api/share/route.ts:37`, `src/app/api/shared-food/[token]/route.ts:20,24`) — [FOO-723](https://linear.app/lw-claude/issue/FOO-723)
+- [MEDIUM] BUG: UTC date used instead of local date in log-shared page — wrong date for users near midnight in non-UTC timezones (`src/app/app/log-shared/[token]/log-shared-content.tsx:101`) — [FOO-724](https://linear.app/lw-claude/issue/FOO-724)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: Missing userId guard on UPDATE in `updateFoodLogEntry` transaction — not exploitable; preceding SELECT within same `db.transaction()` already verifies ownership. Code is correct.
+- [DISCARDED] TYPE: Double cast `as unknown as FoodAnalysis` in `edit-food/route.ts:109` — defensible pattern; `isValidFoodAnalysis()` runtime validation occurs immediately before the cast.
+- [DISCARDED] TYPE: Confidence type assertion in `log-shared-content.tsx:122` — DB only stores valid confidence values from validated Claude analysis. Invalid values impossible in practice.
+
+### Linear Updates
+- FOO-703 through FOO-719: Review → Merge (original tasks completed)
+- FOO-720: Created in Todo (Fix: updateFoodLogEntry loses metadata)
+- FOO-721: Created in Todo (Fix: pagination when favorites ≥ limit)
+- FOO-722: Created in Todo (Fix: handleShare error swallowing)
+- FOO-723: Created in Todo (Fix: share token logging)
+- FOO-724: Created in Todo (Fix: UTC date in log-shared)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-720](https://linear.app/lw-claude/issue/FOO-720), [FOO-721](https://linear.app/lw-claude/issue/FOO-721), [FOO-722](https://linear.app/lw-claude/issue/FOO-722), [FOO-723](https://linear.app/lw-claude/issue/FOO-723), [FOO-724](https://linear.app/lw-claude/issue/FOO-724)
+
+### Fix 1: updateFoodLogEntry loses fitbitFoodId, isFavorite, shareToken
+**Linear Issue:** [FOO-720](https://linear.app/lw-claude/issue/FOO-720)
+
+1. Write test in `src/lib/__tests__/food-log.test.ts` verifying that after `updateFoodLogEntry`, the new custom food preserves `fitbitFoodId`, `isFavorite`, and `shareToken` from the old record
+2. In `updateFoodLogEntry()` (`src/lib/food-log.ts:610-670`), fetch the old custom food's `fitbitFoodId`, `isFavorite`, `shareToken` before creating the new row
+3. Include those values in the `.insert(customFoods).values({...})` call at line 624
+
+### Fix 2: Pagination inaccessible when favorites fill all slots
+**Linear Issue:** [FOO-721](https://linear.app/lw-claude/issue/FOO-721)
+
+1. Write test in `src/lib/__tests__/food-log.test.ts` for `getCommonFoods` when `favorites.length >= limit` — verify `nextCursor` is non-null when non-favorites exist
+2. In `getCommonFoods()` (`src/lib/food-log.ts:331-344`), when `remainingSlots === 0` and `hasMore`, use the first non-favorite as the cursor anchor instead of returning `null`
+
+### Fix 3: handleShare silent error swallowing
+**Linear Issue:** [FOO-722](https://linear.app/lw-claude/issue/FOO-722)
+
+1. Write test in `src/components/__tests__/food-detail.test.tsx` for share API failure — verify error feedback is shown
+2. In `handleShare()` (`src/components/food-detail.tsx:55-80`): add error state + user feedback for `!response.ok`, wrap clipboard in try/catch with fallback
+
+### Fix 4: Share token logged in API routes
+**Linear Issue:** [FOO-723](https://linear.app/lw-claude/issue/FOO-723)
+
+1. Write test in `src/app/api/share/__tests__/route.test.ts` verifying log output does NOT contain the token value
+2. Remove `token` from log objects in `src/app/api/share/route.ts:37` and `src/app/api/shared-food/[token]/route.ts:20,24`
+
+### Fix 5: UTC date in log-shared page
+**Linear Issue:** [FOO-724](https://linear.app/lw-claude/issue/FOO-724)
+
+1. Write test in `src/app/app/log-shared/[token]/__tests__/log-shared-content.test.tsx` verifying local date is used
+2. In `log-shared-content.tsx:100-102`, replace `new Date().toISOString().slice(0, 10)` with `getLocalDateTime()` from `@/lib/meal-type`
