@@ -1,221 +1,820 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Branch:** feat/FOO-690-quick-select-stale-data-and-improvements
-**Issues:** FOO-690, FOO-689, FOO-688
+**Status:** IN_PROGRESS
+**Branch:** feat/FOO-703-favorites-sharing-time-editing
+**Issues:** FOO-703, FOO-704, FOO-705, FOO-706, FOO-707, FOO-708, FOO-709, FOO-710, FOO-711, FOO-712, FOO-713, FOO-714, FOO-715, FOO-716, FOO-717, FOO-718, FOO-719
 **Created:** 2026-02-28
 **Last Updated:** 2026-02-28
 
 ## Summary
 
-Three improvements to food browsing UX: fix a bug where quick-select tabs show stale data after toggling, consolidate duplicated time formatting into a shared 24h utility, and replace the history page's manual "Load More" button with automatic infinite scroll matching the quick-select pattern.
+Four interconnected features that enhance the food logging experience:
+
+1. **Favorite Foods** (FOO-703–706): Star/unstar custom foods, pin favorites at top of quick select's Suggested tab
+2. **Share Food Log** (FOO-707–711): Generate shareable links for food entries, allow other users to view and log shared foods
+3. **Time Selector** (FOO-712–715): Let users specify when they ate (instead of always using current time), with Claude able to suggest time/meal type via tool output
+4. **Conversational Food Editing** (FOO-716–719): Edit already-logged food entries via a conversational chat interface with Fitbit delete-and-relog
 
 ## Issues
 
-### FOO-690: Quick-select tab switching shows stale data after toggling Suggested/Recent
+### FOO-703: Add isFavorite column to custom_foods table
 
-**Priority:** High
-**Labels:** Bug
-**Description:** Switching between Suggested and Recent tabs in quick-select does not update the food list. After toggling tabs, the displayed foods remain stale. Root cause: `useSWRInfinite` is configured with `keepPreviousData: true` (line 87 of `src/components/quick-select.tsx`), which retains the previous tab's data while revalidating. Combined with `revalidateFirstPage: true`, the old data persists visually until revalidation completes — and if the response shape is similar, users see no change.
+**Priority:** Medium | **Labels:** Feature
 
-**Acceptance Criteria:**
-- [ ] Switching from Suggested to Recent shows foods ordered by most recently logged
-- [ ] Switching back to Suggested restores the time-of-day ranked list
-- [ ] Rapid tab toggling does not cause stale or mixed data
-- [ ] Existing infinite scroll continues working after tab switch
-
-### FOO-689: Switch all user-facing times to 24h format and consolidate formatTime()
-
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** All user-facing times display in 12-hour AM/PM format. Should be 24-hour (HH:MM). Additionally, 4 separate components define their own local time formatting functions with duplicated logic.
-
-Components with 12h time formatting:
-- `src/components/meal-type-selector.tsx:22` — `formatTime()` using `toLocaleTimeString()` with `hour12: true`
-- `src/components/food-detail.tsx:26` — `formatTime()` with manual `hour % 12` parsing
-- `src/components/food-history.tsx:43` — `formatTime()` with manual `hour % 12` parsing
-- `src/components/fasting-card.tsx:20` — `formatTime12Hour()` with manual `hours >= 12` parsing
+Add `isFavorite` boolean column (default false, NOT NULL) to `custom_foods`. Foundation for the entire Favorite Foods feature.
 
 **Acceptance Criteria:**
-- [ ] All 4 components display times in HH:MM 24-hour format (no AM/PM)
-- [ ] New shared `formatTime()` function added to `src/lib/date-utils.ts`
-- [ ] All 4 components import and use the shared utility (remove local functions)
-- [ ] `src/lib/chat-tools.ts` internal formatting unchanged
-- [ ] Unit tests for the new shared `formatTime()` function
+- [ ] `isFavorite` column exists on `custom_foods` with default `false`
+- [ ] Migration generated via `drizzle-kit generate`
+- [ ] `CommonFood` type in `src/types/index.ts` includes `isFavorite: boolean`
 
-### FOO-688: Replace history Load More button with infinite scroll (like quick-select)
+### FOO-704: Toggle favorite API endpoint for custom foods
 
-**Priority:** Medium
-**Labels:** Improvement
-**Description:** The food history page uses a manual "Load More" button for pagination, while quick-select uses automatic infinite scroll. History should match the quick-select pattern. The API already supports cursor-based pagination — no backend changes needed.
+**Priority:** Medium | **Labels:** Feature
+
+New `PATCH /api/custom-foods/[id]/favorite` to toggle `isFavorite` on a custom food.
 
 **Acceptance Criteria:**
-- [ ] History entries auto-load when scrolling near the bottom (IntersectionObserver + sentinel pattern)
-- [ ] Switch from `useSWR` to `useSWRInfinite` for page management
-- [ ] Remove "Load More" button, replace with loading spinner sentinel
-- [ ] Jump-to-date picker preserved — selecting a date resets scroll position and loads from that date, then infinite scroll continues loading older entries from there
-- [ ] Existing entry grouping by date with daily calorie totals preserved
-- [ ] Detail modal and delete functionality unaffected
+- [ ] Endpoint toggles `isFavorite` and returns new state
+- [ ] Session auth via `getSession()` + `validateSession()`
+- [ ] 404 for non-existent or other-user foods
+- [ ] `Cache-Control: private, no-cache` header
+
+### FOO-705: Star UI on quick select cards and food detail screen
+
+**Priority:** Medium | **Labels:** Feature
+
+Show filled star on favorite foods in quick-select cards (display-only, no outline on non-favorites). Toggleable star on food-detail screen (both states visible).
+
+**Acceptance Criteria:**
+- [ ] Quick-select cards: filled star on favorites only (no empty star on non-favorites)
+- [ ] Star tap target independent from card selection (`stopPropagation`), 44px
+- [ ] Food detail: always show star (filled/outline), toggleable
+- [ ] Optimistic update: toggle immediately, revalidate on response, revert on failure
+
+### FOO-706: Pin favorite foods at top of Suggested tab in quick select
+
+**Priority:** Medium | **Labels:** Feature
+
+Partition Suggested tab: favorites first (ordered by most recently logged), then normal scored list excluding already-shown favorites. Only affects Suggested tab — Recent and search unchanged.
+
+**Acceptance Criteria:**
+- [ ] Favorites appear first in Suggested tab (page 1)
+- [ ] "Favorites" section header/divider when favorites exist
+- [ ] No header/change when user has no favorites
+- [ ] `isFavorite` field included in `CommonFood` API response
+- [ ] Within favorites section, ordered by most recently logged
+
+### FOO-707: Add share_token column to custom_foods table
+
+**Priority:** Medium | **Labels:** Feature
+
+Add nullable `shareToken` text column with unique index to `custom_foods`. Generated lazily via `nanoid(12)` only when a food is first shared.
+
+**Acceptance Criteria:**
+- [ ] `shareToken` column exists (nullable, unique, indexed)
+- [ ] Migration generated via `drizzle-kit generate`
+- [ ] `nanoid` installed as dependency
+
+### FOO-708: Share API endpoint to generate share token and URL
+
+**Priority:** Medium | **Labels:** Feature
+
+New `POST /api/share` accepting `customFoodId`. Generates token on first share, returns existing token on subsequent shares. Returns full share URL.
+
+**Acceptance Criteria:**
+- [ ] Generates `nanoid(12)` token on first share
+- [ ] Returns existing token if food already has one
+- [ ] Returns `{shareUrl, shareToken}` — full URL including host
+- [ ] Session auth, validates food ownership
+- [ ] 404 for non-existent or other-user foods
+
+### FOO-709: Log-shared page to view and log a shared food
+
+**Priority:** Medium | **Labels:** Feature
+
+New route `/app/log-shared/[token]` — looks up `custom_food` by `share_token` (cross-user read), shows nutrition + MealTypeSelector + "Log to Fitbit" button. On confirm, creates a NEW `custom_food` owned by the current user (duplicates nutrition data), then uses the standard `findOrCreateFood()` + `logFood()` Fitbit flow.
+
+**Acceptance Criteria:**
+- [ ] Displays shared food name and `NutritionFactsCard`
+- [ ] `MealTypeSelector` + "Log to Fitbit" button
+- [ ] Creates new `custom_food` for current user (never references sharer's row)
+- [ ] 404 for invalid tokens
+- [ ] `loading.tsx` with skeleton
+- [ ] Post-log: shows `FoodLogConfirmation`
+
+### FOO-710: Share button on food detail screen
+
+**Priority:** Medium | **Labels:** Feature
+
+Share icon (lucide `Share2`) on food-detail screen next to food title, right-justified. Calls `POST /api/share`, then uses `navigator.share()` with clipboard fallback.
+
+**Acceptance Criteria:**
+- [ ] Share icon on food title line, right-justified
+- [ ] Calls `POST /api/share` on tap
+- [ ] Uses `navigator.share()` if available, `navigator.clipboard.writeText()` fallback
+- [ ] Silently handles `AbortError` from share sheet cancellation
+- [ ] Toast confirmation on clipboard copy
+- [ ] 44px touch target, brief loading state
+
+### FOO-711: Preserve return URL through OAuth login flow
+
+**Priority:** Medium | **Labels:** Improvement
+
+When middleware redirects unauthenticated users to `/`, preserve the original URL as `returnTo`. Pass through OAuth state parameter. Redirect to `returnTo` after successful auth.
+
+**Acceptance Criteria:**
+- [ ] Middleware adds `?returnTo={originalPath}` when redirecting from protected routes
+- [ ] `returnTo` passed through Google OAuth `state` parameter
+- [ ] Callback redirects to `returnTo` after auth (instead of hardcoded `/app`)
+- [ ] Validates `returnTo` is relative path starting with `/` (open redirect prevention)
+- [ ] Falls back to `/app` if no `returnTo` or invalid value
+
+### FOO-712: Time selector component for food logging
+
+**Priority:** Medium | **Labels:** Feature
+
+New reusable `TimeSelector` component. Default "Now" (resolved at log time, not render time). Toggle to time picker for specific HH:mm. Similar pattern to `MealTypeSelector`.
+
+**Acceptance Criteria:**
+- [ ] Default "Now" state — resolved by caller at log time via `getLocalDateTime()`
+- [ ] Toggle to native `<input type="time">` or equivalent (mobile-friendly)
+- [ ] Returns `null` (now) or `HH:mm` string
+- [ ] 24-hour format (matches app preference)
+- [ ] 44px touch targets, mobile-first
+- [ ] Controlled component interface: `{ value: string | null; onChange: (time: string | null) => void }`
+
+### FOO-713: Add time selector to chat log bar (second row)
+
+**Priority:** Medium | **Labels:** Feature
+
+Add `TimeSelector` to `food-chat.tsx` header as a second row below existing controls. Only appears when `latestAnalysis` exists.
+
+**Acceptance Criteria:**
+- [ ] TimeSelector in second row below `[← Back] [MealType ▼] [Log to Fitbit]`
+- [ ] Only visible when `latestAnalysis` is truthy
+- [ ] Time value wired into `handleLog()` body
+- [ ] Container uses existing `space-y-2` for row stacking
+
+### FOO-714: Add time selector to short-path analyze screen
+
+**Priority:** Medium | **Labels:** Feature
+
+Add `TimeSelector` to `food-analyzer.tsx` below `MealTypeSelector` in the metadata area.
+
+**Acceptance Criteria:**
+- [ ] TimeSelector below MealTypeSelector in analyze results UI
+- [ ] Time value wired into log-food call
+- [ ] Defaults to "Now"
+
+### FOO-715: Add time and mealType fields to report_nutrition tool
+
+**Priority:** Medium | **Labels:** Feature
+
+Add optional `time` (HH:mm string) and `meal_type_id` (1–7) fields to `REPORT_NUTRITION_TOOL` schema. When Claude sets these, the UI auto-updates `TimeSelector`/`MealTypeSelector`. Both fields are suggestions — UI pickers remain manually adjustable.
+
+**Acceptance Criteria:**
+- [ ] Optional `time` field in tool schema (`["string", "null"]`)
+- [ ] Optional `meal_type_id` field in tool schema (`["number", "null"]`)
+- [ ] `FoodAnalysis` type updated with `time?: string | null` and `mealTypeId?: number | null`
+- [ ] `validateFoodAnalysis()` validates: HH:mm format, meal_type_id 1–7
+- [ ] food-chat SSE handler auto-updates TimeSelector/MealTypeSelector from analysis event
+- [ ] System prompts instruct Claude to set these when user mentions time/meal context
+- [ ] UI pickers remain manually adjustable after auto-update
+
+### FOO-716: editAnalysis() function for conversational food editing
+
+**Priority:** Medium | **Labels:** Feature
+
+New async generator in `claude.ts` for editing logged entries. Different system prompt than `conversationalRefine()`. Text-only (no photos). Claude summarizes existing entry first, processes cumulative corrections, shows deltas.
+
+**Acceptance Criteria:**
+- [ ] `editAnalysis()` generator accepts original entry context (nutrition, food name, description, notes)
+- [ ] Edit-specific `EDIT_SYSTEM_PROMPT` with rules for corrections, cumulative changes, delta display
+- [ ] Claude's first message summarizes existing entry
+- [ ] Uses same `report_nutrition` tool (with time/mealType fields)
+- [ ] Reuses `runToolLoop()` for multi-turn processing
+- [ ] New `POST /api/edit-chat` route for SSE streaming
+- [ ] Same SSE event types as `conversationalRefine()`
+
+### FOO-717: POST /api/edit-food endpoint with Fitbit replace and compensation
+
+**Priority:** Medium | **Labels:** Feature
+
+Replace endpoint: delete old Fitbit log, create new `custom_food` (never mutate existing — may be referenced by other entries), create new Fitbit food + log, update `food_log_entry` to point to new data, orphan-clean old `custom_food` if unreferenced.
+
+**Acceptance Criteria:**
+- [ ] Accepts `foodLogEntryId` + updated `FoodAnalysis` + optional `time`/`mealTypeId`
+- [ ] Deletes old Fitbit log (`deleteFoodLog`)
+- [ ] Creates new `custom_food` (immutability — never mutate existing row)
+- [ ] Creates new Fitbit food + logs at original date (`findOrCreateFood` + `logFood`)
+- [ ] Updates `food_log_entry`: new `customFoodId`, new `fitbitLogId`, updated time/mealTypeId
+- [ ] Orphan-cleans old `custom_food` if no entries reference it
+- [ ] Compensation: if new Fitbit log fails after old deleted → re-log original; if DB fails after Fitbit → delete new Fitbit log
+- [ ] Handles dry-run (skip Fitbit ops)
+- [ ] Handles entries without `fitbitLogId` (skip Fitbit delete)
+- [ ] Session auth with `requireFitbit`
+
+### FOO-718: Edit chat view component (FoodChat in edit mode)
+
+**Priority:** Medium | **Labels:** Feature
+
+Add edit mode to `FoodChat` via mode prop. Differences from analyze mode: context header (food name + date), "Save Changes" button, no photo upload, pre-populated TimeSelector + MealTypeSelector from original entry.
+
+**Acceptance Criteria:**
+- [ ] Mode prop: `"analyze" | "edit"` (default "analyze")
+- [ ] `editEntry: FoodLogEntryDetail` prop (required when mode = "edit")
+- [ ] Context header with food name and date in edit mode
+- [ ] "Save Changes" button calls `POST /api/edit-food` (replaces "Log to Fitbit")
+- [ ] No photo upload controls in edit mode
+- [ ] Pre-populated TimeSelector and MealTypeSelector from original entry
+- [ ] Claude auto-updates to time/mealType via `report_nutrition` reflected in pickers
+- [ ] Post-save: navigate back, invalidate SWR caches
+
+### FOO-719: Edit button on history list entries
+
+**Priority:** Medium | **Labels:** Feature
+
+Add pencil/edit icon button alongside delete on food-history entry cards. Navigates to edit chat view.
+
+**Acceptance Criteria:**
+- [ ] Pencil icon (lucide `Pencil`) next to trash icon on each entry card
+- [ ] 44px touch target
+- [ ] Navigates to edit view with entry ID (e.g., `/app/edit/[id]`)
+- [ ] Edit view fetches `FoodLogEntryDetail` from existing `GET /api/food-history/[id]`
 
 ## Prerequisites
 
-- [ ] On `main` branch with clean working tree
-- [ ] `npm install` up to date
+- [ ] Working development environment (`npm run dev`)
+- [ ] PostgreSQL running with latest migrations
+- [ ] Fitbit credentials configured (for integration testing)
 
 ## Implementation Tasks
 
-### Task 1: Fix quick-select tab stale data
+### Task 1: Schema changes — isFavorite and shareToken columns
 
-**Issue:** FOO-690
+**Issues:** FOO-703, FOO-707
+**Files:**
+- `src/db/schema.ts` (modify)
+- `src/types/index.ts` (modify)
+- `drizzle/` (generated migration — lead only via `npx drizzle-kit generate`)
+- `package.json` (add `nanoid` dependency)
+
+**TDD Steps:**
+
+1. **RED** — Add test asserting `CommonFood` includes `isFavorite` boolean field. TypeScript compilation should fail since the field doesn't exist yet.
+   - Run: `npm test -- food-log`
+
+2. **GREEN** — Update schema and types:
+   - Add `isFavorite` boolean column to `customFoods` table in schema — default false, NOT NULL
+   - Add `shareToken` text column to `customFoods` — nullable, no default
+   - Add unique index on `shareToken` (where not null)
+   - Update `CommonFood` interface to include `isFavorite: boolean`
+   - Install `nanoid` package
+   - Run `npx drizzle-kit generate` to produce the migration
+   - Run: `npm test -- food-log`
+
+3. **REFACTOR** — Verify migration SQL looks correct
+
+**Notes:**
+- Both columns on same table → one migration
+- `isFavorite` default false → no backfill needed, safe for existing rows
+- `shareToken` nullable → no backfill needed
+- **Migration note:** New columns with safe defaults/nullable — no production data migration needed
+- Reference: existing column definitions in `src/db/schema.ts`
+
+---
+
+### Task 2: Toggle favorite API endpoint
+
+**Issues:** FOO-704
+**Depends on:** Task 1
+**Files:**
+- `src/lib/food-log.ts` (modify — add `toggleFavorite`)
+- `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/app/api/custom-foods/[id]/favorite/route.ts` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write tests for `toggleFavorite(userId, customFoodId)`:
+   - Flips false → true, returns `{isFavorite: true}`
+   - Flips true → false, returns `{isFavorite: false}`
+   - Returns null for non-existent ID
+   - Returns null for other user's food
+   - Run: `npm test -- food-log`
+
+2. **GREEN** — Implement `toggleFavorite` in food-log.ts:
+   - UPDATE `custom_foods` SET `is_favorite = NOT is_favorite` WHERE `id = ? AND user_id = ?`, RETURNING `is_favorite`
+   - Return `{isFavorite}` or null if no row updated
+
+3. **RED** — Write route handler tests:
+   - PATCH returns 200 with `{isFavorite: true/false}`
+   - PATCH with invalid ID returns 404
+   - PATCH without auth returns 401
+
+4. **GREEN** — Implement PATCH handler:
+   - Session auth: `getSession()` + `validateSession()`
+   - Parse ID from dynamic route params
+   - Call `toggleFavorite`, return standardized API response
+   - Set `Cache-Control: private, no-cache`
+   - Reference pattern: `src/app/api/food-history/[id]/route.ts`
+
+---
+
+### Task 3: Star UI on quick-select cards and food detail
+
+**Issues:** FOO-705
+**Depends on:** Task 2
 **Files:**
 - `src/components/quick-select.tsx` (modify)
-- `src/components/__tests__/quick-select.test.tsx` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add a test to `quick-select.test.tsx` that:
-   - Renders QuickSelect with Suggested tab data
-   - Clicks the "Recent" tab button
-   - Asserts that the food list updates to show recent-tab data (different from suggested)
-   - Currently this test will fail because `keepPreviousData: true` causes stale data to persist
-
-2. **GREEN** — Fix `quick-select.tsx`:
-   - Remove `keepPreviousData: true` from the `useSWRInfinite` options object (line 87). This is the root cause — it tells SWR to show the old key's data while the new key revalidates, making tab switches appear to do nothing.
-   - Alternatively, if removing `keepPreviousData` causes a flash of empty state during tab switch, consider keeping it but adding an `onTabChange` handler that calls `mutate(undefined, { revalidate: true })` to force-clear cached pages before switching. Test both approaches.
-   - Verify that `getKey` correctly generates different URLs for each tab (it does — line 69-71 already branches on `activeTab`).
-
-3. **REFACTOR** — Ensure no regressions: infinite scroll still works, search still works, loading states are correct.
-
-**Run:** `npx vitest run quick-select`
-
-**Notes:**
-- The `getKey` callback already depends on `activeTab` in its dependency array (line 76), so the key function itself is correct.
-- The issue is purely in how SWR handles the transition between key sets.
-- Reference: SWR `keepPreviousData` docs — it's designed for smooth transitions but breaks when the user expects an immediate visual switch.
-
----
-
-### Task 2: Create shared formatTime utility in date-utils
-
-**Issue:** FOO-689
-**Files:**
-- `src/lib/date-utils.ts` (modify)
-- `src/lib/__tests__/date-utils.test.ts` (modify)
-
-**TDD Steps:**
-
-1. **RED** — Add tests to `date-utils.test.ts` for a new `formatTime()` function:
-   - `formatTime("14:30")` → `"14:30"` (already 24h, just strips seconds if present)
-   - `formatTime("09:05")` → `"09:05"` (preserves leading zero)
-   - `formatTime("00:00")` → `"00:00"` (midnight)
-   - `formatTime("23:59")` → `"23:59"` (end of day)
-   - `formatTime(null)` → `""` (null input returns empty string)
-   - `formatTime("14:30:00")` → `"14:30"` (strips seconds)
-   - Also test a `formatTimeFromDate(date: Date)` variant that takes a Date object (used by `meal-type-selector.tsx` which formats `new Date()`)
-
-2. **GREEN** — Add `formatTime(time: string | null): string` and `formatTimeFromDate(date: Date): string` to `src/lib/date-utils.ts`:
-   - `formatTime`: Takes an `HH:MM` or `HH:MM:SS` string, returns `HH:MM` in 24h format. Returns `""` for null.
-   - `formatTimeFromDate`: Takes a Date object, returns `HH:MM` in 24h format using `getHours()` and `getMinutes()` with zero-padding.
-
-3. **REFACTOR** — Export both functions from date-utils.
-
-**Run:** `npx vitest run date-utils`
-
-**Notes:**
-- The input format is already 24h (the DB stores `HH:MM:SS`, API returns `HH:MM` or `HH:MM:SS`). The function mainly standardizes the format and replaces the 12h conversion logic.
-- Pattern reference: existing functions in `src/lib/date-utils.ts` (e.g., `getTodayDate`, `formatDisplayDate`).
-
----
-
-### Task 3: Replace local formatTime functions in all 4 components
-
-**Issue:** FOO-689
-**Files:**
-- `src/components/meal-type-selector.tsx` (modify)
 - `src/components/food-detail.tsx` (modify)
-- `src/components/food-history.tsx` (modify)
-- `src/components/fasting-card.tsx` (modify)
-- `src/components/__tests__/meal-type-selector.test.tsx` (modify)
-- `src/components/__tests__/food-detail.test.tsx` (modify)
-- `src/components/__tests__/food-history.test.tsx` (modify)
-- `src/components/__tests__/fasting-card.test.tsx` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update existing tests in each component's test file to expect 24h format instead of 12h AM/PM:
-   - `meal-type-selector.test.tsx`: Any assertions checking time display should expect `HH:MM` format (e.g., `"14:30"` instead of `"2:30 PM"`)
-   - `food-detail.test.tsx`: Update assertions for time display (e.g., `"14:30"` instead of `"2:30 PM"`)
-   - `food-history.test.tsx`: Update assertions for time display in entry rows
-   - `fasting-card.test.tsx`: Update assertions for fasting window times (e.g., `"Since 20:30"` instead of `"Since 8:30 PM"`)
+1. **RED** — Write quick-select tests:
+   - Card renders filled star icon when `isFavorite` is true
+   - Card does NOT render star when `isFavorite` is false
+   - Star tap calls PATCH `/api/custom-foods/[id]/favorite`
+   - Star tap does NOT trigger card selection (stopPropagation)
+   - Run: `npm test -- quick-select`
 
-2. **GREEN** — In each component:
-   - Delete the local `formatTime()` / `formatTime12Hour()` function
-   - Import `formatTime` (or `formatTimeFromDate` for meal-type-selector) from `@/lib/date-utils`
-   - Replace all call sites to use the imported function
-   - Specific changes per component:
-     - `meal-type-selector.tsx`: Replace local `formatTime(date: Date)` at line 22-28 with imported `formatTimeFromDate`. Update the usage at line 83.
-     - `food-detail.tsx`: Replace local `formatTime(time: string | null)` at line 26-33 with imported `formatTime`. Usage at line 101.
-     - `food-history.tsx`: Replace local `formatTime(time: string | null)` at line 43-50 with imported `formatTime`. Usage at line 363.
-     - `fasting-card.tsx`: Replace local `formatTime12Hour(time24: string)` at line 20-24 with imported `formatTime`. Usages at lines 99, 114, 114.
+2. **GREEN** — Add star to quick-select cards:
+   - Lucide `Star` icon with `fill="currentColor"` on favorites only
+   - Separate button with `onClick` + `stopPropagation` preventing card selection
+   - Optimistic SWR update: mutate cache immediately, revalidate on response, revert on failure
+   - 44px touch target
 
-3. **REFACTOR** — Verify no dead imports remain. Run all 4 component test files.
+3. **RED** — Write food-detail tests:
+   - Always renders star icon (filled when favorite, outline when not)
+   - Tap toggles favorite state
+   - Run: `npm test -- food-detail`
 
-**Run:** `npx vitest run meal-type-selector food-detail food-history fasting-card`
-
-**Notes:**
-- `fasting-card.tsx` calls its function as `formatTime12Hour(window.lastMealTime)` where `lastMealTime` is always a non-null string. The shared `formatTime` accepts `string | null`, so the call is type-compatible.
-- `meal-type-selector.tsx` uses a Date object input, so it needs `formatTimeFromDate` not `formatTime`.
+4. **GREEN** — Add toggleable star to food-detail:
+   - Lucide `Star` icon next to food name (filled = `fill="currentColor"`, outline = no fill)
+   - Toggle calls PATCH API, optimistic update, SWR cache invalidation for quick-select data
+   - Reference: icon button pattern from food-history delete button
 
 ---
 
-### Task 4: Convert food-history from useSWR to useSWRInfinite
+### Task 4: Pin favorites at top of Suggested tab
 
-**Issue:** FOO-688
+**Issues:** FOO-706
+**Depends on:** Task 1
 **Files:**
-- `src/components/food-history.tsx` (modify — major rewrite)
-- `src/components/__tests__/food-history.test.tsx` (modify)
+- `src/lib/food-log.ts` (modify — `getCommonFoods`)
+- `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/components/quick-select.tsx` (modify)
+- `src/app/api/common-foods/route.ts` (modify)
 
 **TDD Steps:**
 
-1. **RED** — Update food-history tests to reflect the new infinite scroll architecture:
-   - Remove tests that assert "Load More" button behavior
-   - Add tests for the infinite scroll sentinel element being present when `hasMore` is true
-   - Add test for loading spinner appearing in the sentinel during pagination
-   - Preserve tests for: date grouping, date picker "Jump to date", delete functionality, entry detail dialog, empty state
+1. **RED** — Write tests for `getCommonFoods` with favorites:
+   - Favorites appear before non-favorites in results
+   - Favorites sorted by most recently logged
+   - Non-favorites section excludes already-shown favorites
+   - No favorites → results identical to current behavior
+   - Run: `npm test -- food-log`
 
-2. **GREEN** — Rewrite `FoodHistory` component to use `useSWRInfinite`:
-   - Replace `useSWR` import with `useSWRInfinite` from `swr/infinite`
-   - Remove all manual state management: `entries`, `loading`, `loadingMore`, `hasMore`, `hasPaginated` ref, `abortControllerRef`, `fetchEntries` callback
-   - Add a `getKey` callback similar to quick-select's pattern:
-     - Page 0: `/api/food-history?limit=20` (plus `&endDate=...` if jump-to-date is active)
-     - Page N: Use `lastDate`, `lastTime`, `lastId` from the last entry of the previous page as cursor params
-     - Return `null` when previous page returned fewer than 20 entries (no more data)
-   - Use `useSWRInfinite<{ entries: FoodLogHistoryEntry[] }>` — the API returns `{ entries: [...] }` via `conditionalResponse`
-   - Derive `entries` by flatMapping all pages: `pages?.flatMap(p => p.entries) ?? []`
-   - Derive `hasMore` from last page having 20 entries
-   - Add IntersectionObserver on a sentinel `<div>` (follow quick-select pattern at lines 102-118)
-   - Replace "Load More" button with sentinel div + spinner
-   - Jump-to-date: store `endDate` in state, include it in `getKey` base URL. On date change, reset SWR state by calling `mutate(undefined)` and updating `endDate`.
-   - Delete: after successful delete, call the `mutate()` from `useSWRInfinite` to revalidate all pages. Remove `invalidateFoodCaches()` call or keep it for cross-component cache invalidation.
-   - Keep `groupByDate()` and `formatDateHeader()` helper functions (they operate on the derived `entries` array).
+2. **GREEN** — Update `getCommonFoods`:
+   - After scoring, partition into favorites and non-favorites
+   - Favorites: sort by most recently logged (recency sort)
+   - Non-favorites: existing Gaussian-scored order, excluding favorites
+   - Ensure `isFavorite` is in the SELECT for `CommonFood` response
+   - Favorites only prepended on page 1; subsequent pages are normal scored results
 
-3. **REFACTOR** — Clean up removed state variables and ensure the component is simpler than before. The manual `fetchEntries` function with AbortController is no longer needed since SWR handles fetching/cancellation.
+3. **RED** — Write UI tests for favorites section header:
+   - "Favorites" divider/header appears when favorites present
+   - No header when no favorites
+   - Run: `npm test -- quick-select`
 
-**Run:** `npx vitest run food-history`
+4. **GREEN** — Update Suggested tab in quick-select:
+   - Subtle section header "Favorites" above favorites group (page 1 only)
+   - No visual change when user has zero favorites
 
 **Notes:**
-- The API route (`src/app/api/food-history/route.ts`) already supports cursor-based pagination via `lastDate`, `lastTime`, `lastId` query params — no backend changes needed.
-- Reference implementation: `src/components/quick-select.tsx` lines 65-118 for the `useSWRInfinite` + IntersectionObserver pattern.
-- The cursor for food-history is a composite `{lastDate, lastTime, lastId}` (3 separate query params), unlike quick-select which uses a JSON-encoded cursor. Build the cursor from the last entry in each page.
-- `apiFetcher` from `@/lib/swr.ts` already unwraps `result.data`, so `useSWRInfinite` pages will receive `{ entries: [...] }` directly.
-- `SWRConfig` wrapper with `dedupingInterval: 0` may be needed in tests to prevent SWR caching between test cases (follow the pattern in `quick-select.test.tsx`).
+- Only affects Suggested tab — Recent tab and search results unchanged
+- Reference: `getCommonFoods()` Gaussian time kernel + recency decay in `src/lib/food-log.ts`
+- Pagination cursor may need adjustment for page 1 prepend
 
 ---
 
-### Task 5: Integration & Verification
+### Task 5: TimeSelector component
 
-**Issue:** FOO-690, FOO-689, FOO-688
-**Files:** Various files from previous tasks
+**Issues:** FOO-712
+**Files:**
+- `src/components/time-selector.tsx` (create)
+- `src/components/__tests__/time-selector.test.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write component tests:
+   - Renders "Now" button/chip by default
+   - Tapping "Now" opens time picker input
+   - Selecting a time calls `onChange` with HH:mm string
+   - Switching back to "Now" calls `onChange` with `null`
+   - Displays passed value correctly in 24h format
+   - Run: `npm test -- time-selector`
+
+2. **GREEN** — Create `TimeSelector` component:
+   - Controlled interface: `{ value: string | null; onChange: (time: string | null) => void }`
+   - Default "Now" state as chip/button (shows current time as reference text)
+   - Tap → reveals native `<input type="time">` (best mobile UX)
+   - "Now" option to reset back to null
+   - Use `formatTimeFromDate()` from `src/lib/date-utils.ts` for display
+   - 24h format, 44px touch targets
+
+3. **REFACTOR** — Match visual style with `MealTypeSelector`
+
+**Notes:**
+- Pattern reference: `src/components/meal-type-selector.tsx`
+- `null` = "now" — caller resolves at log time via `getLocalDateTime()`
+- Must work well on mobile — `<input type="time">` triggers native time picker on iOS/Android
+
+---
+
+### Task 6: TimeSelector integration in chat and analyze screen
+
+**Issues:** FOO-713, FOO-714
+**Depends on:** Task 5
+**Files:**
+- `src/components/food-chat.tsx` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write food-chat test:
+   - TimeSelector appears in header when `latestAnalysis` exists
+   - Time value passed to log-food API call in `handleLog()`
+   - Default value is `null` (Now)
+   - Run: `npm test -- food-chat`
+
+2. **GREEN** — Add TimeSelector to food-chat header:
+   - New `selectedTime` state (default `null`)
+   - Second row below `[← Back] [MealType ▼] [Log to Fitbit]`, visible when `latestAnalysis` exists
+   - Container already has `space-y-2` for stacking
+   - In `handleLog()`: if `selectedTime` is null, use `getLocalDateTime().time`; else use `selectedTime`
+   - Reference: lines 544-577 in food-chat.tsx for the header area, lines 439-461 for `handleLog`
+
+3. **RED** — Write food-analyzer test:
+   - TimeSelector appears alongside MealTypeSelector in analyze results
+   - Time value passed to log-food API call
+   - Run: `npm test -- food-analyzer`
+
+4. **GREEN** — Add TimeSelector to food-analyzer:
+   - New `selectedTime` state (default `null`)
+   - Place below MealTypeSelector in logging controls area
+   - Wire into log-food call same as chat
+
+**Notes:**
+- Both screens currently call `getLocalDateTime()` for time — TimeSelector overrides when non-null
+- Reference: how `MealTypeSelector` is already wired in both components
+
+---
+
+### Task 7: Add time and mealType fields to report_nutrition tool
+
+**Issues:** FOO-715
+**Files:**
+- `src/lib/claude.ts` (modify — tool schema, system prompts, `validateFoodAnalysis`)
+- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/types/index.ts` (modify — `FoodAnalysis`)
+- `src/components/food-chat.tsx` (modify — SSE handler)
+
+**TDD Steps:**
+
+1. **RED** — Write validation tests:
+   - `validateFoodAnalysis` accepts `time` as valid HH:mm string (e.g., "08:30")
+   - Accepts `meal_type_id` as integer 1–7
+   - Accepts `null` for both fields
+   - Rejects invalid time format (e.g., "25:00", "abc")
+   - Rejects `meal_type_id` outside 1–7
+   - Omitted fields → `undefined` (backwards compatible)
+   - Run: `npm test -- claude`
+
+2. **GREEN** — Update tool schema and validation:
+   - Add `time` to `REPORT_NUTRITION_TOOL.input_schema.properties`: `{ type: ["string", "null"], description: "Meal time in HH:mm format. Only set when user explicitly mentions time." }`
+   - Add `meal_type_id`: `{ type: ["number", "null"], description: "Fitbit meal type 1-7. Only set when user mentions meal context." }`
+   - Do NOT add to `required` array (optional fields)
+   - Update `FoodAnalysis` in types: add `time?: string | null` and `mealTypeId?: number | null`
+   - Update `validateFoodAnalysis()`: validate HH:mm regex, validate meal_type_id range
+   - Update `CHAT_SYSTEM_PROMPT` to instruct Claude when to set these fields
+
+3. **RED** — Write food-chat SSE auto-update test:
+   - When analysis event includes `time`, `selectedTime` state updates
+   - When analysis event includes `mealTypeId`, `selectedMealType` state updates
+   - Manual picker changes still work after auto-update
+   - Run: `npm test -- food-chat`
+
+4. **GREEN** — Wire auto-update in food-chat SSE handler:
+   - In the `analysis` event handler, check for `analysis.time` and `analysis.mealTypeId`
+   - If present, update `selectedTime` / `selectedMealType` state
+   - Pickers remain editable — Claude values are suggestions, not locks
+
+**Notes:**
+- Both fields optional — Claude only sets them on explicit user mention
+- `time` uses HH:mm to match `TimeSelector` interface
+- `meal_type_id` maps to `FitbitMealType` enum (1=Breakfast through 7=Anytime)
+- This task modifies food-chat.tsx — coordinate with Task 6 (also modifies food-chat header area)
+
+---
+
+### Task 8: Share API endpoint
+
+**Issues:** FOO-708
+**Depends on:** Task 1
+**Files:**
+- `src/lib/food-log.ts` (modify — add `setShareToken`, `getCustomFoodByShareToken`)
+- `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/app/api/share/route.ts` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write DB function tests:
+   - `setShareToken(userId, customFoodId)` generates and returns token for food without one
+   - Returns existing token for food that already has one (idempotent)
+   - Returns null for non-existent food
+   - Returns null for other user's food
+   - `getCustomFoodByShareToken(shareToken)` finds food regardless of owner (cross-user)
+   - Returns null for invalid token
+   - Run: `npm test -- food-log`
+
+2. **GREEN** — Implement DB functions:
+   - `setShareToken`: check existing → if none, generate `nanoid(12)` and UPDATE → return token
+   - `getCustomFoodByShareToken`: SELECT from `custom_foods` WHERE `share_token = ?` — NO `userId` filter (intentional cross-user read)
+   - Returns full nutrition data needed for the shared food page
+
+3. **RED** — Write route handler tests:
+   - POST returns `{shareUrl, shareToken}` for valid `customFoodId`
+   - POST with invalid ID returns 404
+   - POST without auth returns 401
+
+4. **GREEN** — Implement `POST /api/share`:
+   - Session auth, parse `customFoodId` from body
+   - Call `setShareToken`, construct full URL from request host
+   - Return `{shareUrl: "https://{host}/app/log-shared/{token}", shareToken}`
+   - Reference: `src/app/api/log-food/route.ts` for handler pattern
+
+**Notes:**
+- `nanoid(12)` = 72 bits entropy, URL-friendly
+- Cross-user read is intentional — first cross-user data access in the app
+- Same food always produces same share link (idempotent token)
+
+---
+
+### Task 9: Share button on food detail
+
+**Issues:** FOO-710
+**Depends on:** Task 8
+**Files:**
+- `src/components/food-detail.tsx` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write component tests:
+   - Share icon renders next to food title
+   - Tap calls `POST /api/share` with correct `customFoodId`
+   - Shows share URL after successful API call
+   - Run: `npm test -- food-detail`
+
+2. **GREEN** — Add share button:
+   - Lucide `Share2` icon, right-justified on food title line (flexbox: title left, share right)
+   - On tap: call `POST /api/share`, then `navigator.share({ url, title: foodName })` if available
+   - Fallback: `navigator.clipboard.writeText(url)` + toast confirmation
+   - Silently handle `AbortError` from share sheet cancellation (not an error)
+   - Brief loading state while API generates token
+   - 44px touch target
+
+**Notes:**
+- food-detail.tsx also modified by Task 3 (star icon) — star goes near title left, share icon right-justified. No conflict.
+- Reference: FOO-710 for layout details
+
+---
+
+### Task 10: Log-shared page
+
+**Issues:** FOO-709
+**Depends on:** Task 8
+**Files:**
+- `src/app/api/shared-food/[token]/route.ts` (create — GET endpoint)
+- `src/app/app/log-shared/[token]/page.tsx` (create)
+- `src/app/app/log-shared/[token]/loading.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write GET API tests:
+   - Returns food nutrition data for valid token
+   - Returns 404 for invalid token
+   - Requires auth (401 without session)
+   - Run: `npm test -- shared-food`
+
+2. **GREEN** — Implement `GET /api/shared-food/[token]`:
+   - Session auth (user must be logged in, but food belongs to any user)
+   - Call `getCustomFoodByShareToken(token)`
+   - Return nutrition data matching `NutritionFactsCard` props
+   - Reference: `GET /api/food-history/[id]` for detail endpoint pattern
+
+3. **GREEN** — Create log-shared page:
+   - Client component fetches via `useSWR` on `/api/shared-food/[token]`
+   - Shows: food name, `NutritionFactsCard`, `MealTypeSelector`, "Log to Fitbit" button
+   - Log action: call `POST /api/log-food` with full nutrition data (creates new `custom_food` for current user — NOT a reuse, since the shared food belongs to another user)
+   - On success: show `FoodLogConfirmation`
+   - Create `loading.tsx` with skeleton matching layout
+
+4. **REFACTOR** — Error states match app patterns (404, loading, retry)
+
+**Notes:**
+- Logged food creates a NEW `custom_food` owned by the current user — never references sharer's row
+- Similar to quick-select confirmation screen flow
+- Reference: `src/app/app/food-detail/[id]/page.tsx` for dynamic route pattern
+
+---
+
+### Task 11: Preserve return URL through OAuth login flow
+
+**Issues:** FOO-711
+**Files:**
+- `middleware.ts` (modify)
+- `src/app/api/auth/google/route.ts` (modify)
+- `src/app/api/auth/google/callback/route.ts` (modify)
+
+**TDD Steps:**
+
+1. **RED** — Write middleware test:
+   - Unauthenticated request to `/app/log-shared/abc` redirects with `?returnTo=/app/log-shared/abc`
+   - Unauthenticated request to `/app` redirects without `returnTo` (default destination)
+   - Run: `npm test -- middleware`
+
+2. **GREEN** — Update middleware:
+   - When redirecting unauthenticated user from protected route to `/`, include `?returnTo={originalPath}` if path is not `/app`
+
+3. **RED** — Write OAuth flow tests:
+   - `POST /api/auth/google` reads `returnTo` and includes in OAuth state
+   - Callback extracts `returnTo` from state and redirects there
+   - Callback validates `returnTo` starts with `/` (relative path only)
+   - Callback rejects absolute URLs / external domains
+   - Run: `npm test -- auth`
+
+4. **GREEN** — Update OAuth flow:
+   - In `POST /api/auth/google`: read `returnTo` from request, include in OAuth `state` parameter (JSON-encode alongside existing state data like CSRF)
+   - In `GET /api/auth/google/callback`: extract `returnTo` from state, validate it's a relative path starting with `/`, redirect there. If invalid/missing, fall back to `/app`.
+   - Landing page must forward `returnTo` query param to OAuth initiation
+
+**Notes:**
+- **Security:** Open redirect prevention is critical — only allow paths starting with `/`, reject any absolute URLs or `//`-prefixed paths
+- Reference: existing OAuth state parameter usage in Google auth routes
+
+---
+
+### Task 12: editAnalysis() function and edit-chat API route
+
+**Issues:** FOO-716
+**Depends on:** Task 7 (report_nutrition tool has time/mealType fields)
+**Files:**
+- `src/lib/claude.ts` (modify — add `editAnalysis`, `EDIT_SYSTEM_PROMPT`)
+- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/app/api/edit-chat/route.ts` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write `editAnalysis` generator tests:
+   - Yields initial assistant message summarizing existing entry
+   - Processes user correction and yields updated analysis via report_nutrition
+   - Uses same report_nutrition tool (with time/mealType fields from Task 7)
+   - Run: `npm test -- claude`
+
+2. **GREEN** — Implement `editAnalysis`:
+   - New `EDIT_SYSTEM_PROMPT` extending base prompt with edit-specific instructions: understand original entry context, process corrections (portion changes, additions, removals), show deltas (what changed + new totals), handle cumulative corrections
+   - `editAnalysis(params)` async generator — takes `FoodLogEntryDetail`, conversation messages, `clientDate`
+   - Inject original entry data as context (food name, nutrition, description, notes)
+   - Claude's first assistant message summarizes existing entry
+   - Reuse `runToolLoop()` for multi-turn processing (same as `conversationalRefine`)
+   - Text-only: no image handling needed
+   - Same SSE event types: `text_delta`, `analysis`, `tool_start`, `usage`, `done`
+   - Reference: `conversationalRefine()` in claude.ts for generator pattern
+
+3. **RED** — Write edit-chat route tests:
+   - POST with `editEntryId` + messages returns SSE stream
+   - Requires auth, validates entry ownership
+   - 404 for invalid entry ID
+
+4. **GREEN** — Implement `POST /api/edit-chat`:
+   - Session auth, validate request body (entry ID + messages)
+   - Fetch `FoodLogEntryDetail` for the entry (verify user ownership)
+   - Call `editAnalysis()` with entry context + messages
+   - Stream SSE events back to client
+   - Reference: `src/app/api/chat-food/route.ts` for SSE streaming pattern
+
+**Notes:**
+- Consider whether extending `POST /api/chat-food` with an `editEntryId` param is cleaner than a new route — evaluate at implementation time
+- No photo/image support in edit mode
+
+---
+
+### Task 13: Edit food API endpoint
+
+**Issues:** FOO-717
+**Files:**
+- `src/lib/food-log.ts` (modify — add `updateFoodLogEntry`, extract orphan cleanup)
+- `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/app/api/edit-food/route.ts` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write DB operation tests:
+   - `updateFoodLogEntry` creates new custom_food and updates entry's `customFoodId`
+   - Updates `time`/`mealTypeId` when provided
+   - Orphan cleanup deletes old custom_food when no entries reference it
+   - Orphan cleanup preserves old custom_food when other entries still reference it
+   - Run: `npm test -- food-log`
+
+2. **GREEN** — Implement DB operations:
+   - Extract orphan cleanup logic from `deleteFoodLogEntry()` into shared `cleanupOrphanCustomFood(customFoodId)` function (reuse in both delete and edit flows)
+   - `updateFoodLogEntry(userId, entryId, data)`: in a transaction — insert new custom_food → update food_log_entry → cleanup orphan
+
+3. **RED** — Write route handler tests:
+   - POST replaces entry (new custom_food + Fitbit relog + entry update)
+   - Handles dry-run mode (skips Fitbit operations)
+   - Handles entries without `fitbitLogId` (skips Fitbit delete, still creates new Fitbit food)
+   - Compensation: if new Fitbit log fails, no DB changes made
+   - Requires auth with Fitbit connected
+
+4. **GREEN** — Implement `POST /api/edit-food`:
+   - Session auth with `requireFitbit`
+   - Validate: `foodLogEntryId`, `FoodAnalysis` fields, optional `time`/`mealTypeId`
+   - Orchestration sequence:
+     1. Look up existing entry → get `fitbitLogId`, `customFoodId`
+     2. If not dry-run and has `fitbitLogId`: delete old Fitbit log
+     3. Create new `custom_food` via `insertCustomFood`
+     4. If not dry-run: `findOrCreateFood` on Fitbit + `logFood` at original date
+     5. Update `food_log_entry`: new customFoodId, new fitbitLogId, updated time/mealTypeId
+     6. Orphan-clean old custom_food
+   - Compensation: if step 4 fails after step 2 succeeded → attempt re-log of original. If step 5 fails after step 4 → delete new Fitbit log
+   - Reference: `src/app/api/log-food/route.ts` for Fitbit interaction + compensation pattern
+   - Reference: `DELETE /api/food-history/[id]` for orphan cleanup
+
+**Notes:**
+- Custom food immutability is critical: a `custom_food` may be referenced by multiple `food_log_entries` (via quick-select reuse). Never mutate — always create new.
+- The compensation logic is the most complex part — test thoroughly
+
+---
+
+### Task 14: Edit chat view and history edit button
+
+**Issues:** FOO-718, FOO-719
+**Depends on:** Tasks 5 (TimeSelector), 12 (editAnalysis), 13 (edit-food API)
+**Files:**
+- `src/components/food-chat.tsx` (modify — add edit mode)
+- `src/components/food-history.tsx` (modify — add edit button)
+- `src/app/app/edit/[id]/page.tsx` (create)
+- `src/app/app/edit/[id]/loading.tsx` (create)
+
+**TDD Steps:**
+
+1. **RED** — Write FoodChat edit mode tests:
+   - Renders context header with food name and date in edit mode
+   - Shows "Save Changes" button instead of "Log to Fitbit"
+   - No photo upload controls in edit mode
+   - Pre-populates TimeSelector and MealTypeSelector from `editEntry` data
+   - Save calls `POST /api/edit-food` with correct data
+   - Run: `npm test -- food-chat`
+
+2. **GREEN** — Add edit mode to FoodChat:
+   - New props: `mode: "analyze" | "edit"` (default "analyze"), `editEntry?: FoodLogEntryDetail`
+   - Conditional rendering based on mode:
+     - Edit: context header (food name + date), "Save Changes" button, hidden photo inputs, pre-populated pickers
+     - Analyze: existing behavior unchanged
+   - Save handler: call `POST /api/edit-food` with entry ID + latest analysis + current mealTypeId/time
+   - Chat API: POST to `/api/edit-chat` instead of `/api/chat-food` when in edit mode
+   - Post-save: `router.back()`, invalidate SWR caches
+
+3. **RED** — Write food-history edit button tests:
+   - Each entry card shows pencil/edit icon
+   - Tap navigates to edit route
+   - Run: `npm test -- food-history`
+
+4. **GREEN** — Add edit button to history:
+   - Lucide `Pencil` icon alongside existing trash icon in entry card action area
+   - 44px touch target
+   - On tap: navigate to `/app/edit/[entryId]`
+
+5. **GREEN** — Create edit page route:
+   - `/app/edit/[id]` — fetch `FoodLogEntryDetail` via `useSWR`, render `FoodChat` in edit mode
+   - `loading.tsx` with skeleton
+   - Error handling for invalid/not-found entries
+   - Back navigation on cancel or post-save
+
+**Notes:**
+- food-chat.tsx is the most heavily modified file (Tasks 6, 7, 14) — changes are in different areas: Task 6 (TimeSelector in header), Task 7 (SSE auto-update), Task 14 (mode prop + conditional rendering)
+- Reference: `src/app/app/food-detail/[id]/page.tsx` for dynamic route pattern
+- Post-save: `router.back()` returns to history (same as food-detail back button)
+
+---
+
+### Task 15: Integration and verification
+
+**Issues:** All
+**Depends on:** All previous tasks
+**Files:** Various
 
 **Steps:**
 
@@ -223,126 +822,61 @@ Components with 12h time formatting:
 2. Run linter: `npm run lint`
 3. Run type checker: `npm run typecheck`
 4. Build check: `npm run build`
-5. Manual verification steps:
-   - [ ] Quick-select: toggle Suggested/Recent tabs rapidly — data should update immediately
-   - [ ] Quick-select: infinite scroll still loads more foods when scrolling down
-   - [ ] Quick-select: search still works after tab switching
-   - [ ] Food history: scroll to bottom — new entries auto-load
-   - [ ] Food history: use date picker to jump to a past date — entries load from that date, then infinite scroll continues loading older entries
-   - [ ] Food history: delete an entry — list updates correctly
-   - [ ] Food history: tap entry to see detail dialog — still works
-   - [ ] All time displays show 24h format (HH:MM, no AM/PM)
-   - [ ] Meal type selector shows current time in 24h format
-   - [ ] Fasting card shows fasting window times in 24h format
+5. Manual verification:
+   - [ ] Star a food from food detail, verify it appears pinned in Suggested tab
+   - [ ] Unstar from quick-select card, verify it moves back to scored position
+   - [ ] Share a food, open URL in incognito, log in, verify shared food page loads
+   - [ ] Log shared food, verify new custom_food created for current user
+   - [ ] Select a non-Now time, log food, verify Fitbit entry has correct timestamp
+   - [ ] In chat, say "I had this for breakfast at 8am", verify TimeSelector and MealTypeSelector auto-update
+   - [ ] From history, tap edit on an entry, make a correction ("I only ate half"), save, verify Fitbit entry replaced
+   - [ ] Verify edit preserves original date, updates time/mealType if changed
+   - [ ] Test OAuth return URL: open share link while logged out, complete login, land on share page
+
+## MCP Usage During Implementation
+
+| MCP Server | Tool | Purpose |
+|------------|------|---------|
+| Linear | `save_issue` | Move issues to "In Progress" at start, "Done" on completion |
+| Linear | `create_comment` | Add progress notes if needed |
 
 ## Error Handling
 
 | Error Scenario | Expected Behavior | Test Coverage |
 |---------------|-------------------|---------------|
-| API returns error during infinite scroll | Error message shown, sentinel stops loading | Unit test |
-| Tab switch during in-flight request | Previous request ignored, new tab data shown | Unit test |
-| Jump-to-date with invalid date | Button disabled when no date selected | Existing test |
-| Delete fails during infinite scroll view | Error banner shown, entries unchanged | Existing test |
-| Null time value in history entry | Empty string displayed (no crash) | Unit test |
+| Toggle favorite on non-existent food | 404 response | Unit test |
+| Share non-existent food | 404 response | Unit test |
+| Invalid share token | 404 page with helpful message | Unit test + UI |
+| Edit food with expired Fitbit token | Token refresh via `ensureFreshToken`, retry | Integration test |
+| Fitbit re-log fails during edit | Compensation: attempt re-log of original | Unit test |
+| DB update fails after Fitbit edit | Compensation: delete new Fitbit log | Unit test |
+| Invalid returnTo URL (external domain) | Fall back to /app | Unit test |
+| Time format validation failure | Rejected by `validateFoodAnalysis` | Unit test |
+| Share sheet canceled by user | Silently handle `AbortError` | Component test |
+| Edit entry with no fitbitLogId (dry-run) | Skip Fitbit ops, update DB only | Unit test |
 
 ## Risks & Open Questions
 
-- [ ] Removing `keepPreviousData` from quick-select may cause a brief flash of empty state when switching tabs. If this is visually jarring, an alternative approach is to clear the cache explicitly on tab switch while keeping the option. Test both approaches.
-- [ ] The food-history IntersectionObserver approach requires the scroll container to be the viewport (not a nested scrollable div). Verify the history page layout doesn't use a fixed-height container that would prevent the sentinel from intersecting.
+- [ ] **Pagination with favorites:** Prepending favorites to page 1 of Suggested tab may cause edge cases with cursor-based pagination if a food is favorited/unfavorited between page loads. The cursor is composite `{lastDate, lastTime, lastId}` — favorites on page 1 may shift cursor boundaries.
+- [ ] **Edit compensation complexity:** The delete-then-relog pattern has a failure window. If old Fitbit entry is deleted but new creation fails, the entry exists in DB but not on Fitbit. Compensation should attempt to re-log original data.
+- [ ] **Cross-user share security:** Log-shared page introduces first cross-user data read. Ensure only nutrition data is exposed via share_token — no user identity, email, or private metadata. The `getCustomFoodByShareToken` function should return only nutrition-relevant fields.
+- [ ] **OAuth state parameter size:** Adding `returnTo` to OAuth state increases its size. Google OAuth state param has no strict limit but keep it reasonable. Long return URLs are unlikely in practice.
+- [ ] **food-chat.tsx complexity:** Modified by Tasks 6, 7, and 14. These touch different areas (header, SSE handler, mode logic) but merge conflicts are possible if implemented by separate workers. Sequence carefully or assign to same worker.
 
 ## Scope Boundaries
 
 **In Scope:**
-- Fix stale tab data in quick-select (FOO-690)
-- Consolidate time formatting to 24h shared utility (FOO-689)
-- Replace history Load More with infinite scroll (FOO-688)
+- Favorite foods: schema, API, UI, pinning logic in Suggested tab
+- Share food log: schema, API, share page, share button, OAuth return URL preservation
+- Time selector: component, integration in chat + analyze, report_nutrition tool update
+- Food editing: editAnalysis backend, edit-food API, edit chat UI, history edit button
 
 **Out of Scope:**
-- Backend API changes (not needed — cursor pagination already supported)
-- Other pagination improvements beyond matching quick-select pattern
-- Changing time format in non-user-facing code (e.g., `chat-tools.ts`)
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-02-28
-**Method:** Agent team (3 workers, worktree-isolated)
-
-### Tasks Completed This Iteration
-- Task 1: Fix quick-select tab stale data — Removed `keepPreviousData: true` from `useSWRInfinite`, added tab-switching test (worker-1)
-- Task 2: Create shared formatTime utility — Added `formatTime()` and `formatTimeFromDate()` to `date-utils.ts` with 10 tests (worker-2)
-- Task 3: Replace local formatTime in 4 components — Migrated meal-type-selector, food-detail, food-history, fasting-card to shared 24h utility, updated all test assertions (worker-2)
-- Task 4: Convert food-history to infinite scroll — Replaced `useSWR` + manual state + "Load More" with `useSWRInfinite` + IntersectionObserver sentinel, preserved jump-to-date/grouping/delete (worker-3)
-- Task 5: Integration & Verification — Full test suite (2197 tests), lint, typecheck, build all pass
-
-### Files Modified
-- `src/components/quick-select.tsx` — Removed `keepPreviousData: true`
-- `src/components/__tests__/quick-select.test.tsx` — Added tab-switching test, added `dedupingInterval: 0`
-- `src/lib/date-utils.ts` — Added `formatTime()`, `formatTimeFromDate()`, malformed input guard
-- `src/lib/__tests__/date-utils.test.ts` — Added 10 tests for time formatting functions
-- `src/components/meal-type-selector.tsx` — Replaced local formatTime with shared `formatTimeFromDate`
-- `src/components/food-detail.tsx` — Replaced local formatTime with shared `formatTime`
-- `src/components/food-history.tsx` — Major rewrite: `useSWRInfinite` + IntersectionObserver + jump-to-date reset fix
-- `src/components/fasting-card.tsx` — Replaced local `formatTime12Hour` with shared `formatTime`
-- `src/components/__tests__/meal-type-selector.test.tsx` — Updated 5 assertions to 24h format
-- `src/components/__tests__/food-detail.test.tsx` — Added 24h time display test
-- `src/components/__tests__/food-history.test.tsx` — Rewritten for `useSWRInfinite` + sentinel pattern
-- `src/components/__tests__/fasting-card.test.tsx` — Updated 3 assertions to 24h format
-
-### Linear Updates
-- FOO-690: Todo → In Progress → Review
-- FOO-689: Todo → In Progress → Review
-- FOO-688: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 3 medium bugs, all fixed before proceeding
-  - `formatTime` guard for malformed strings without colons
-  - `renderQuickSelect()` missing `dedupingInterval: 0` in SWRConfig
-  - `handleJumpToDate` missing `mutate(undefined)` to reset SWR page state
-- verifier: All 2197 tests pass, zero warnings, build clean
-
-### Work Partition
-- Worker 1: Task 1 (quick-select domain — tab stale data fix)
-- Worker 2: Tasks 2, 3 (utility + component formatting domain — shared formatTime + 4 component migrations)
-- Worker 3: Task 4 (food history domain — infinite scroll rewrite)
-
-### Merge Summary
-- Worker 1: fast-forward (no conflicts)
-- Worker 2: merged cleanly (no conflicts)
-- Worker 3: auto-merged cleanly (no conflicts on food-history.tsx despite shared edits with worker-2)
-
-### Review Findings
-
-Summary: 2 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
-- FIXED INLINE: 2 issue(s) — verified via TDD + bug-hunter
-
-**Issues fixed inline:**
-- [LOW] BUG: Stray `·` separator when `entry.time` is null (`src/components/food-history.tsx:297`) — added conditional to suppress time prefix when `formatTime()` returns empty string
-- [MEDIUM] TEST: Test doesn't verify time actually changed (`src/components/__tests__/meal-type-selector.test.tsx:161`) — replaced vague regex assertion with exact `(12:00)` → `(12:01)` comparison
-
-**Discarded findings (not bugs):**
-- [DISCARDED] ASYNC: `mutate()` not awaited in food-history.tsx:133 — SWR's `mutate(undefined, { revalidate: false })` is a local cache reset with no network call; error handling is meaningless
-- [DISCARDED] CONVENTION: Unused `cleanup` import in quick-select.test.tsx and food-history.test.tsx — false positive; `cleanup` IS explicitly used (quick-select.test.tsx:664, food-history.test.tsx:793/872/953)
-
-### Linear Updates
-- FOO-690: Review → Merge
-- FOO-689: Review → Merge
-- FOO-688: Review → Merge
-- FOO-701: Created in Merge (Fix: stray separator when time is null — fixed inline)
-- FOO-702: Created in Merge (Fix: test doesn't verify time changed — fixed inline)
-
-### Inline Fix Verification
-- Unit tests: all 2198 pass
-- Bug-hunter: no new issues
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-All tasks completed.
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Push notifications for shared foods
+- Sharing via other channels (email, social media, QR code)
+- Multi-food or batch editing
+- Time selector for quick-select (continues using current time)
+- Editing food photos (edit is text-only)
+- Sharing entire meals or daily logs (individual foods only)
+- Share link expiration or revocation
+- Multi-user admin panel or user management
