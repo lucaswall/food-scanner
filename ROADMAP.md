@@ -269,83 +269,98 @@ Store nutritional label data extracted from photos as reusable entries in the da
 
 ---
 
-## Google Health Connect Integration
+## Food Log Push Notifications
 
 ### Problem
 
-Fitbit does not sync nutrition data to Health Connect — it only syncs activity data (steps, distance, exercise, calories burned). Food log entries pushed to Fitbit via the Food Scanner never reach Health Connect, so users who rely on Health Connect as their central health dashboard have no visibility into their nutritional intake.
+The HealthHelper Android app syncs food log data from Food Scanner via periodic WorkManager polling (15–120 minute interval). After logging a meal in Food Scanner, the data doesn't reach Health Connect until the next scheduled sync — up to two hours later. There's no real-time feedback that the log was picked up.
+
+### Prerequisites
+
+- HealthHelper Android app (already built — Kotlin, Jetpack Compose, Health Connect SDK, WorkManager periodic sync via `GET /api/v1/food-log`)
 
 ### Goal
 
-Push nutrition data directly to Google Health Connect so it appears alongside activity data from other apps, giving users a complete health picture in one place.
+Send a push notification to HealthHelper the moment food is logged in Food Scanner, triggering an immediate Health Connect sync so nutrition data appears within seconds.
 
 ### Design
 
-#### Integration Path
+#### Notification Flow
 
-Health Connect has no REST API — it is an Android-only on-device SDK. The app needs a thin Android component to bridge server-side food log data into Health Connect's `NutritionRecord` entries.
+1. User logs food in Food Scanner (PWA or API).
+2. `POST /api/log-food` completes successfully (Fitbit + DB).
+3. Food Scanner sends an FCM push to the registered device token.
+4. HealthHelper receives the push — either in foreground or background.
+5. HealthHelper enqueues a one-shot `SyncWorker` that calls `SyncNutritionUseCase` immediately.
+6. Health Connect gets the new `NutritionRecord` within seconds.
 
-#### What Gets Pushed
+#### Notification Content
 
-Each `food_log_entry` maps to one Health Connect `NutritionRecord`:
+The push is a **data-only message** (no visible notification) — the goal is to trigger a sync, not to show a banner. HealthHelper already handles the sync and can optionally show a local notification after a successful write.
 
-| Food Scanner Field | HC NutritionRecord Field | Notes |
-|---|---|---|
-| `foodName` | `name` | Direct |
-| `calories` | `energy` (kcal) | Direct |
-| `proteinG` | `protein` (g) | Direct |
-| `carbsG` | `totalCarbohydrate` (g) | Direct |
-| `fatG` | `totalFat` (g) | Direct |
-| `fiberG` | `dietaryFiber` (g) | Direct |
-| `sodiumMg` | `sodium` (g) | Convert mg → g |
-| `saturatedFatG` | `saturatedFat` (g) | Direct, nullable |
-| `transFatG` | `transFat` (g) | Direct, nullable |
-| `sugarsG` | `sugar` (g) | Direct, nullable |
-| `caloriesFromFat` | `energyFromFat` (kcal) | Direct, nullable |
-| `date` + `time` | `startTime` / `endTime` | Use same time for both |
-| `mealTypeId` | `mealType` | See mapping below |
+Payload:
 
-#### Meal Type Mapping
+```json
+{
+  "data": {
+    "type": "food_logged",
+    "date": "2026-02-28",
+    "entryId": "123"
+  }
+}
+```
 
-| Food Scanner | Health Connect |
-|---|---|
-| 1 (Breakfast) | `MEAL_TYPE_BREAKFAST` (1) |
-| 2 (Morning Snack) | `MEAL_TYPE_SNACK` (4) |
-| 3 (Lunch) | `MEAL_TYPE_LUNCH` (2) |
-| 4 (Afternoon Snack) | `MEAL_TYPE_SNACK` (4) |
-| 5 (Dinner) | `MEAL_TYPE_DINNER` (3) |
-| 7 (Anytime) | `MEAL_TYPE_UNKNOWN` (0) |
+The `date` field lets HealthHelper sync only the affected day instead of the full backfill window.
 
-#### Sync Trigger
+#### Fallback
 
-Options to evaluate:
-- **Push notification** from server after each food log → Android app writes to HC.
-- **Polling** — Android app periodically checks a server API for new entries.
-- **Manual sync** — user taps "Sync to Health Connect" in the PWA, which triggers the Android companion.
+The periodic WorkManager sync remains as a fallback. Push notifications are best-effort — if FCM delivery fails (device offline, token expired), the next scheduled sync picks up the entry. No data is lost.
+
+#### Device Registration
+
+1. HealthHelper requests `POST_NOTIFICATIONS` permission (Android 13+) and registers with FCM.
+2. `FirebaseMessagingService.onNewToken()` fires with a device token.
+3. HealthHelper sends the token to Food Scanner via a new `POST /api/v1/devices` endpoint (Bearer API key auth).
+4. Food Scanner stores the token in a new `device_tokens` table.
+5. On token rotation (app update, FCM refresh), HealthHelper re-registers automatically.
 
 ### Architecture
 
-- **Android companion app:** Minimal app (Kotlin, Jetpack Health Connect SDK) that authenticates with the Food Scanner API (using existing API key system) and writes `NutritionRecord` entries.
-- **Server API endpoint:** New `GET /api/v1/food-log` endpoint returning food log entries with full nutrition data, filterable by date range and a `since` cursor for incremental sync.
-- **Deduplication:** Each `food_log_entry.id` stored as Health Connect `Metadata.clientRecordId` to prevent duplicate writes. Edits and deletes propagated via the same mechanism.
-- **No read-back:** The app only writes to Health Connect, never reads from it. This keeps permissions minimal.
+#### Food Scanner (Server Side)
+
+- **`firebase-admin` SDK:** Initialize once in `src/lib/firebase.ts` with service account credentials from env vars (`FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`).
+- **New DB table:** `device_tokens` — `id`, `userId`, `token` (text, unique), `platform` (text, default `'android'`), `createdAt`, `updatedAt`. One user can have multiple device tokens (phone + tablet).
+- **New API route:** `POST /api/v1/devices` — registers or updates a device token. Bearer API key auth (same as other v1 routes). Upserts on token value.
+- **New API route:** `DELETE /api/v1/devices/:token` — removes a token (device unregistered or user logs out of HealthHelper).
+- **Notification dispatch:** New `sendFoodLoggedNotification(userId, entryId, date)` in `src/lib/notifications.ts`. Fetches all device tokens for the user, sends FCM data messages. Handles `messaging/registration-token-not-registered` errors by deleting stale tokens.
+- **Trigger point:** Called at the end of `POST /api/log-food` after successful Fitbit log + DB write. Fire-and-forget — notification failure never blocks the API response.
+
+#### HealthHelper (Android Side)
+
+- **Firebase SDK:** Add `com.google.firebase:firebase-messaging` dependency. Register `FoodScannerMessagingService` in manifest.
+- **Token management:** `onNewToken()` → POST to `POST /api/v1/devices` with the stored API key.
+- **Message handling:** `onMessageReceived()` → extract `type`, `date`, `entryId` from data payload → enqueue a one-shot `SyncWorker` constrained to `NetworkType.CONNECTED`, targeting only the specified date.
+- **Permissions:** Add `POST_NOTIFICATIONS` (API 33+) to manifest. Request at runtime during onboarding or settings.
 
 ### Edge Cases
 
-- User deletes a food log entry in Food Scanner → Android app deletes the corresponding HC record by `clientRecordId`.
-- User edits a food log entry → Android app updates the HC record.
-- Health Connect not installed on device → Android app prompts user to install it.
-- User has no API key → Android app guides them to generate one in the web app settings.
-- Multiple Android devices → Each device syncs independently; `clientRecordId` deduplication prevents duplicates.
+- Device token expires or rotates → `onNewToken()` re-registers automatically. Server-side, `NotRegistered` errors trigger token cleanup.
+- Multiple devices registered → FCM message sent to all tokens. Each device syncs independently; Health Connect `clientRecordId` deduplication prevents duplicate records.
+- App force-stopped or device rebooted → FCM high-priority data messages wake the app. If delivery still fails, periodic sync is the safety net.
+- `firebase-admin` and Next.js Edge Runtime are incompatible → all API routes in `src/app/api/` use the Node.js runtime by default, so no issue.
+- Food Scanner deployed without Firebase credentials → notification dispatch silently skips (log a warning). All other functionality unaffected.
+- HealthHelper not installed or no token registered → no tokens in DB, nothing to send. No error.
+- Dry-run mode (`FITBIT_DRY_RUN=true`) → still send notifications so staging can test the full flow.
 
 ### Implementation Order
 
-1. Server API endpoint for food log export (`GET /api/v1/food-log` with date range and cursor)
-2. Android companion app skeleton (auth with API key, Health Connect permissions)
-3. `NutritionRecord` write logic with field mapping
-4. Incremental sync with `clientRecordId` deduplication
-5. Delete/update propagation
-6. Play Store listing
+1. Firebase project setup + service account credentials in env vars
+2. `device_tokens` DB table (Drizzle schema + migration)
+3. `POST /api/v1/devices` and `DELETE /api/v1/devices/:token` endpoints
+4. `src/lib/notifications.ts` — FCM dispatch with stale token cleanup
+5. Integrate notification dispatch into `POST /api/log-food` (fire-and-forget)
+6. HealthHelper: Firebase SDK + `FoodScannerMessagingService` + token registration
+7. HealthHelper: one-shot `SyncWorker` triggered by push data message
 
 ---
 
