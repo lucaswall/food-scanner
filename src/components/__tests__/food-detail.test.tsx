@@ -89,6 +89,12 @@ describe("FoodDetail successful render", () => {
     expect(screen.getByText(/Sunday, February 15, 2026/)).toBeInTheDocument();
   });
 
+  it("renders time in 24h format", () => {
+    render(<FoodDetail entryId="1" />);
+    // time: "12:30:00" should display as "12:30" (no AM/PM)
+    expect(screen.getByText(/· 12:30 ·/)).toBeInTheDocument();
+  });
+
   it("renders description section", () => {
     render(<FoodDetail entryId="1" />);
     expect(screen.getByText("Description")).toBeInTheDocument();

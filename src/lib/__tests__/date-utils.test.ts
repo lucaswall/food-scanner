@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getTodayDate, formatDisplayDate, addDays, isToday, getWeekBounds, formatWeekRange, addWeeks, isValidDateFormat } from "@/lib/date-utils";
+import { getTodayDate, formatDisplayDate, addDays, isToday, getWeekBounds, formatWeekRange, addWeeks, isValidDateFormat, formatTime, formatTimeFromDate } from "@/lib/date-utils";
 
 describe("getTodayDate", () => {
   it("returns today's date in YYYY-MM-DD format", () => {
@@ -278,5 +278,53 @@ describe("isValidDateFormat", () => {
   it("returns false for day 0", () => {
     const result = isValidDateFormat("2026-02-00");
     expect(result).toBe(false);
+  });
+});
+
+describe("formatTime", () => {
+  it("returns HH:MM unchanged for already-24h time", () => {
+    expect(formatTime("14:30")).toBe("14:30");
+  });
+
+  it("preserves leading zero on hour", () => {
+    expect(formatTime("09:05")).toBe("09:05");
+  });
+
+  it("handles midnight", () => {
+    expect(formatTime("00:00")).toBe("00:00");
+  });
+
+  it("handles end of day", () => {
+    expect(formatTime("23:59")).toBe("23:59");
+  });
+
+  it("returns empty string for null", () => {
+    expect(formatTime(null)).toBe("");
+  });
+
+  it("strips seconds from HH:MM:SS", () => {
+    expect(formatTime("14:30:00")).toBe("14:30");
+  });
+});
+
+describe("formatTimeFromDate", () => {
+  it("returns HH:MM in 24h format from a Date object", () => {
+    const date = new Date(2026, 1, 5, 14, 30, 0); // Feb 5, 2026 14:30:00 local
+    expect(formatTimeFromDate(date)).toBe("14:30");
+  });
+
+  it("pads hours and minutes with leading zeros", () => {
+    const date = new Date(2026, 1, 5, 8, 5, 0); // Feb 5, 2026 08:05:00 local
+    expect(formatTimeFromDate(date)).toBe("08:05");
+  });
+
+  it("handles midnight (00:00)", () => {
+    const date = new Date(2026, 1, 5, 0, 0, 0); // Feb 5, 2026 00:00:00 local
+    expect(formatTimeFromDate(date)).toBe("00:00");
+  });
+
+  it("handles end of day (23:59)", () => {
+    const date = new Date(2026, 1, 5, 23, 59, 0); // Feb 5, 2026 23:59:00 local
+    expect(formatTimeFromDate(date)).toBe("23:59");
   });
 });
