@@ -1480,6 +1480,100 @@ describe("runToolLoop", () => {
     expect(mockStream).toHaveBeenCalledTimes(3);
     expect(events[events.length - 1]).toEqual({ type: "done" });
   });
+
+  it("handles max_tokens stop_reason gracefully with partial analysis", async () => {
+    // Claude returns max_tokens with a report_nutrition tool_use in the response
+    mockStream.mockReturnValueOnce(createMockStream(
+      [
+        { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: {} } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_stop" },
+      ],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "max_tokens",
+        content: [{ type: "tool_use", id: "tool_rpt", name: "report_nutrition", input: validAnalysis }],
+        usage: { input_tokens: 1500, output_tokens: 1024, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop(
+        [{ role: "user", content: "What's this food?" }],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // Should yield usage, analysis from partial response, and done
+    const analysisEvent = events.find((e) => e.type === "analysis");
+    expect(analysisEvent).toBeDefined();
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
+
+  it("handles max_tokens stop_reason gracefully without analysis", async () => {
+    // Claude returns max_tokens with only text (no report_nutrition)
+    mockStream.mockReturnValueOnce(createMockStream(
+      [
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Partial response..." } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_stop" },
+      ],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "max_tokens",
+        content: [{ type: "text", text: "Partial response..." }],
+        usage: { input_tokens: 1500, output_tokens: 1024, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop(
+        [{ role: "user", content: "What's this food?" }],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // Should complete with done even without analysis
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+    const analysisEvent = events.find((e) => e.type === "analysis");
+    expect(analysisEvent).toBeUndefined();
+  });
+
+  it("handles refusal stop_reason gracefully", async () => {
+    mockStream.mockReturnValueOnce(createMockStream(
+      [
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "I cannot help with that." } },
+        { type: "content_block_stop", index: 0 },
+        { type: "message_stop" },
+      ],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "refusal",
+        content: [{ type: "text", text: "I cannot help with that." }],
+        usage: { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop(
+        [{ role: "user", content: "Something inappropriate" }],
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    // Should complete with done, no analysis
+    expect(events[events.length - 1]).toEqual({ type: "done" });
+    const analysisEvent = events.find((e) => e.type === "analysis");
+    expect(analysisEvent).toBeUndefined();
+  });
 });
 
 // =============================================================================

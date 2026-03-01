@@ -695,7 +695,7 @@ async function executeDataTools(
         };
       } catch (error) {
         l.warn(
-          { tool: toolUse.name, error: error instanceof Error ? error.message : String(error) },
+          { action: "tool_execution_error", tool: toolUse.name, error: error instanceof Error ? error.message : String(error) },
           "tool execution error"
         );
         return {
@@ -775,7 +775,7 @@ export async function* runToolLoop(
       iteration++;
 
       l.info(
-        { iteration, messageCount: conversationMessages.length },
+        { action: "claude_api_call", iteration, messageCount: conversationMessages.length },
         "calling Claude API in tool loop"
       );
       l.debug(
@@ -861,7 +861,7 @@ export async function* runToolLoop(
           yield { type: "analysis", analysis };
         }
 
-        l.info({ iteration, hasAnalysis: !!analysis, exitReason: "end_turn", durationMs: loopElapsed() }, "tool loop completed");
+        l.info({ action: "tool_loop_completed", iteration, hasAnalysis: !!analysis, exitReason: "end_turn", durationMs: loopElapsed() }, "tool loop completed");
         yield { type: "done" };
         return;
       }
@@ -973,7 +973,7 @@ export async function* runToolLoop(
       if (response.stop_reason === "pause_turn") {
         // Code execution or web search dynamic filtering paused a long-running turn.
         // Send the response back as-is so Claude can continue (merges if last is already assistant).
-        l.info({ iteration }, "pause_turn received, continuing Claude's turn");
+        l.info({ action: "pause_turn", iteration }, "pause_turn received, continuing Claude's turn");
         appendAssistantContent(conversationMessages, response.content);
         continue;
       }
@@ -1009,7 +1009,7 @@ export async function* runToolLoop(
     }
 
     // Exceeded max iterations
-    l.warn({ iteration, durationMs: loopElapsed() }, "tool loop exceeded maximum iterations");
+    l.warn({ action: "tool_loop_max_iterations", iteration, durationMs: loopElapsed() }, "tool loop exceeded maximum iterations");
 
     if (pendingAnalysis) {
       // We have a usable analysis despite exceeding iterations — yield it and finish
@@ -1025,7 +1025,7 @@ export async function* runToolLoop(
     }
 
     l.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "tool_loop_error", error: error instanceof Error ? error.message : String(error) },
       "Claude API tool loop error"
     );
     throw new ClaudeApiError(

@@ -728,7 +728,7 @@ export async function updateFoodLogEntry(
         time: data.time,
         ...(data.fitbitLogId !== undefined ? { fitbitLogId: data.fitbitLogId } : {}),
       })
-      .where(eq(foodLogEntries.id, entryId));
+      .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
 
     // Clean up old custom food if no longer referenced
     await cleanupOrphanCustomFood(tx, oldCustomFoodId);

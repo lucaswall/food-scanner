@@ -170,7 +170,10 @@ export function DailyDashboard() {
     const newValue = !currentValue;
     setLocalFavorites((prev) => new Map(prev).set(entry.customFoodId, newValue));
     try {
-      const res = await fetch(`/api/custom-foods/${entry.customFoodId}/favorite`, { method: "PATCH" });
+      const res = await fetch(`/api/custom-foods/${entry.customFoodId}/favorite`, {
+        method: "PATCH",
+        signal: AbortSignal.timeout(10000),
+      });
       if (!res.ok) setLocalFavorites((prev) => new Map(prev).set(entry.customFoodId, currentValue));
     } catch {
       setLocalFavorites((prev) => new Map(prev).set(entry.customFoodId, currentValue));
@@ -186,6 +189,7 @@ export function DailyDashboard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customFoodId: entry.customFoodId }),
+        signal: AbortSignal.timeout(10000),
       });
       if (!response.ok) {
         setShareError("Failed to share. Please try again.");
@@ -208,6 +212,12 @@ export function DailyDashboard() {
         await navigator.clipboard.writeText(shareUrl);
         setShareCopied(true);
         setTimeout(() => setShareCopied(false), 2000);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setShareError("Request timed out. Please try again.");
+      } else {
+        setShareError("Failed to share. Please try again.");
       }
     } finally {
       setIsSharing(false);

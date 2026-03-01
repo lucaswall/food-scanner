@@ -97,10 +97,9 @@ describe("useDeleteFoodEntry", () => {
 
     it("sets deletingId during the request and clears after", async () => {
       let resolveFetch!: (value: unknown) => void;
-      const fetchPromise = new Promise((resolve) => {
+      mockFetch.mockReturnValue(new Promise((resolve) => {
         resolveFetch = resolve;
-      });
-      mockFetch.mockReturnValue(fetchPromise);
+      }));
 
       const { result } = renderHook(() => useDeleteFoodEntry({ onSuccess }));
 
@@ -108,22 +107,27 @@ describe("useDeleteFoodEntry", () => {
         result.current.handleDeleteRequest(99);
       });
 
-      // Start confirm but don't await yet
-      const confirmPromise = act(async () => {
-        await result.current.handleDeleteConfirm();
+      // Start confirm without awaiting — synchronous state updates (setDeletingId)
+      // are flushed by act() before the async fetch suspends
+      let confirmPromise!: Promise<void>;
+      act(() => {
+        confirmPromise = result.current.handleDeleteConfirm();
       });
 
-      // After fetch starts, deletingId should be set
-      // We give the act time to set the state before fetch resolves
-      resolveFetch({
-        ok: true,
-        json: async () => ({ success: true }),
-        text: async () => JSON.stringify({ success: true }),
+      // Intermediate state: deletingId should be 99 while fetch is pending
+      expect(result.current.deletingId).toBe(99);
+
+      // Resolve the fetch and await completion
+      await act(async () => {
+        resolveFetch({
+          ok: true,
+          json: async () => ({ success: true }),
+          text: async () => JSON.stringify({ success: true }),
+        });
+        await confirmPromise;
       });
 
-      await confirmPromise;
-
-      // After completing, deletingId should be null
+      // After completing, deletingId should be cleared
       expect(result.current.deletingId).toBeNull();
     });
 

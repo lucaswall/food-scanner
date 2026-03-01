@@ -2611,6 +2611,22 @@ describe("updateFoodLogEntry", () => {
     // Use nthCalledWith(1) to verify it's the FIRST updateSet call (before entry update).
     expect(mockUpdateSet).toHaveBeenNthCalledWith(1, { shareToken: null });
   });
+
+  it("includes userId in UPDATE WHERE clause for defense-in-depth", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    // The entry UPDATE's WHERE should use and() with both id and userId.
+    // Drizzle's and() produces a SQL with 3 queryChunks: "(", inner SQL, ")".
+    // A bare eq() produces 5 queryChunks. This distinguishes and(eq, eq) from eq.
+    const updateWhereArg = mockUpdateWhere.mock.calls[0][0];
+    expect(updateWhereArg.queryChunks).toHaveLength(3);
+  });
 });
 
 describe("updateFoodLogEntryMetadata", () => {

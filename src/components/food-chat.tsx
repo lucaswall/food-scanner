@@ -145,6 +145,7 @@ export function FoodChat({
   const plusButtonRef = useRef<HTMLButtonElement>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const timeoutFiredRef = useRef(false);
 
   const latestAnalysis = messages.slice().reverse().find((msg) => msg.analysis)?.analysis;
   // True when Claude identified an existing entry to edit via editingEntryId (chat-initiated edit).
@@ -287,42 +288,42 @@ export function FoodChat({
     }
     imageBlobsForThisTurn.push(...userAddedImages);
 
-    // Convert to base64 and embed in the user message
-    let messageImages: string[] | undefined;
-    if (imageBlobsForThisTurn.length > 0) {
-      messageImages = await blobsToBase64(imageBlobsForThisTurn);
-    }
-    // Mark initial images as consumed only after successful conversion
-    if (consumedInitialImages) {
-      initialImagesConsumedRef.current = true;
-    }
-
-    const userMessage: ConversationMessage = {
-      role: "user",
-      content: input.trim(),
-      ...(messageImages ? { images: messageImages } : {}),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setPendingImages([]);
-    setShowPhotoMenu(false);
-    setLoading(true);
-    setError(null);
-
-    const revertOnError = (errorMessage: string) => {
-      setMessages((prev) => prev.slice(0, messageCountBeforeSend));
-      setInput(userMessage.content);
-      setPendingImages(userAddedImages);
-      if (consumedInitialImages) {
-        initialImagesConsumedRef.current = false;
-      }
-      setError(errorMessage);
-    };
-
+    const userContent = input.trim();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     try {
+      // Convert to base64 inside try — FileReader can reject
+      let messageImages: string[] | undefined;
+      if (imageBlobsForThisTurn.length > 0) {
+        messageImages = await blobsToBase64(imageBlobsForThisTurn);
+      }
+      // Mark initial images as consumed only after successful conversion
+      if (consumedInitialImages) {
+        initialImagesConsumedRef.current = true;
+      }
+
+      const userMessage: ConversationMessage = {
+        role: "user",
+        content: userContent,
+        ...(messageImages ? { images: messageImages } : {}),
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+      setPendingImages([]);
+      setShowPhotoMenu(false);
+      setLoading(true);
+      setError(null);
+
+      const revertOnError = (errorMessage: string) => {
+        setMessages((prev) => prev.slice(0, messageCountBeforeSend));
+        setInput(userContent);
+        setPendingImages(userAddedImages);
+        if (consumedInitialImages) {
+          initialImagesConsumedRef.current = false;
+        }
+        setError(errorMessage);
+      };
       const allMessages = [...messages, userMessage];
       // When seeded, send all messages (they're all "real" conversation turns)
       // When not seeded, skip the initial auto-generated assistant greeting
@@ -359,7 +360,11 @@ export function FoodChat({
       abortControllerRef.current = controller;
 
       // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
-      timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 120000);
+      timeoutFiredRef.current = false;
+      timeoutId = setTimeout(() => {
+        timeoutFiredRef.current = true;
+        controller.abort(new DOMException("signal timed out", "TimeoutError"));
+      }, 120000);
 
       const chatApiUrl = isEditMode ? "/api/edit-chat" : "/api/chat-food";
       const response = await fetch(chatApiUrl, {
@@ -472,18 +477,21 @@ export function FoodChat({
         setMessages((prev) => [...prev, assistantMessage]);
       }
     } catch (err) {
-      // If aborted by unmount, silently exit — component is gone
-      if (err instanceof DOMException && err.name === "AbortError") {
+      // If aborted by unmount (not timeout), silently exit — component is gone
+      if (err instanceof DOMException && err.name === "AbortError" && !timeoutFiredRef.current) {
         return;
       }
       setMessages((prev) => prev.slice(0, messageCountBeforeSend));
-      setInput(userMessage.content);
+      setInput(userContent);
       setPendingImages(userAddedImages);
       if (consumedInitialImages) {
         initialImagesConsumedRef.current = false;
       }
-      if (err instanceof DOMException && err.name === "TimeoutError") {
+      if (timeoutFiredRef.current || (err instanceof DOMException && err.name === "TimeoutError")) {
         setError("Request timed out. Please try again.");
+      } else if (err instanceof Error && err.message === "Failed to read image") {
+        // Client-side FileReader failure — user-recoverable, not a server error
+        setError(err.message);
       } else {
         Sentry.captureException(err);
         setError(
