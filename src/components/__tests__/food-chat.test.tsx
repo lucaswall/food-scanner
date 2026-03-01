@@ -1121,6 +1121,101 @@ describe("FoodChat", () => {
     expect(screen.queryByTestId("photo-menu")).not.toBeInTheDocument();
   });
 
+  it("shows timeout error for mid-stream SSE timeout abort", async () => {
+    // Spy on setTimeout to capture and manually invoke the 120s timeout callback
+    const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+
+    let rejectRead!: (err: Error) => void;
+    let readCallCount = 0;
+    const mockReader = {
+      read: vi.fn().mockImplementation(() => {
+        readCallCount++;
+        if (readCallCount === 1) {
+          const encoder = new TextEncoder();
+          const data = `data: ${JSON.stringify({ type: "text_delta", text: "Partial " })}\n\n`;
+          return Promise.resolve({ done: false, value: encoder.encode(data) });
+        }
+        // Second read: hang until we manually reject it
+        return new Promise((_resolve, reject) => {
+          rejectRead = reject;
+        });
+      }),
+      cancel: vi.fn().mockResolvedValue(undefined),
+      releaseLock: vi.fn(),
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      headers: new Headers({ "Content-Type": "text/event-stream" }),
+      body: { getReader: () => mockReader },
+    });
+
+    render(<FoodChat {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "Test message" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    // Wait for reader to be set up (first read resolves, second hangs)
+    await waitFor(() => {
+      expect(readCallCount).toBe(2);
+    });
+
+    // Find and invoke the 120s timeout callback manually —
+    // this sets timeoutFiredRef.current = true and calls controller.abort()
+    const timeoutCall = setTimeoutSpy.mock.calls.find(
+      (call) => call[1] === 120000
+    );
+    expect(timeoutCall).toBeDefined();
+    const timeoutCallback = timeoutCall![0] as () => void;
+    timeoutCallback();
+
+    // Reject the hanging read() with AbortError (as browsers do when aborted)
+    await act(async () => {
+      rejectRead(new DOMException("The operation was aborted.", "AbortError"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+    });
+
+    // User input should be restored
+    const inputAfter = screen.getByPlaceholderText(/type a message/i) as HTMLInputElement;
+    expect(inputAfter.value).toBe("Test message");
+
+    setTimeoutSpy.mockRestore();
+  });
+
+  it("shows error when blobsToBase64 fails during image conversion", async () => {
+    // Temporarily override FileReader to fire onerror
+    const OriginalFileReader = global.FileReader;
+    global.FileReader = class FailingFileReader {
+      result: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL() {
+        this.onerror?.();
+      }
+    } as unknown as typeof FileReader;
+
+    try {
+      render(<FoodChat {...defaultProps} />);
+
+      const input = screen.getByPlaceholderText(/type a message/i);
+      fireEvent.change(input, { target: { value: "Test with images" } });
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/failed to read image/i)).toBeInTheDocument();
+      });
+
+      // Sentry should NOT capture client-side FileReader failures
+      expect(mockCaptureExceptionChat).not.toHaveBeenCalled();
+    } finally {
+      global.FileReader = OriginalFileReader;
+    }
+  });
+
   it("shows timeout error for chat API timeout", async () => {
     mockFetch.mockRejectedValueOnce(
       new DOMException("signal timed out", "TimeoutError")
@@ -2570,6 +2665,97 @@ describe("FoodChat edit mode", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/credentials in Settings/i)).toBeInTheDocument();
+    });
+  });
+});
+
+// FOO-750: editingEntryId from chat — button text and save routing
+describe("FOO-750: editingEntryId in analyze mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockReset();
+  });
+
+  it("shows 'Save Changes' button when SSE analysis has editingEntryId", async () => {
+    const analysisWithEditId: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99 };
+    mockFetch.mockResolvedValueOnce(
+      makeSSEFetchResponse([
+        { type: "analysis", analysis: analysisWithEditId },
+        { type: "done" },
+      ])
+    );
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+  });
+
+  it("shows 'Log to Fitbit' button when analysis has no editingEntryId", async () => {
+    const analysisNoEdit: FoodAnalysis = { ...mockAnalysis };
+    mockFetch.mockResolvedValueOnce(
+      makeSSEFetchResponse([
+        { type: "analysis", analysis: analysisNoEdit },
+        { type: "done" },
+      ])
+    );
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "what did I eat?" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /save changes/i })).not.toBeInTheDocument();
+  });
+
+  it("clicking 'Save Changes' when editingEntryId is set POSTs to /api/edit-food with entryId", async () => {
+    const analysisWithEditId: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99 };
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "analysis", analysis: analysisWithEditId },
+          { type: "done" },
+        ])
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+      });
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      const editFoodCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/edit-food"
+      );
+      expect(editFoodCall).toBeDefined();
+      const body = JSON.parse(editFoodCall![1].body);
+      expect(body.entryId).toBe(99);
+      expect(body.food_name).toBe(mockAnalysis.food_name);
     });
   });
 });

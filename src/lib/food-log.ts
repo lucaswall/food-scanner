@@ -597,7 +597,7 @@ export async function updateFoodLogEntryMetadata(
 
 type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
-async function cleanupOrphanCustomFood(tx: DbTx, customFoodId: number): Promise<boolean> {
+async function cleanupOrphanCustomFood(tx: DbTx, customFoodId: number, userId: string): Promise<boolean> {
   const remainingEntries = await tx
     .select({ id: foodLogEntries.id })
     .from(foodLogEntries)
@@ -606,7 +606,7 @@ async function cleanupOrphanCustomFood(tx: DbTx, customFoodId: number): Promise<
   if (remainingEntries.length === 0) {
     await tx
       .delete(customFoods)
-      .where(eq(customFoods.id, customFoodId));
+      .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
     return true;
   }
   return false;
@@ -635,7 +635,7 @@ export async function deleteFoodLogEntry(
     const row = rows[0];
     if (!row) return null;
 
-    const orphanedFoodCleaned = await cleanupOrphanCustomFood(tx, row.customFoodId);
+    const orphanedFoodCleaned = await cleanupOrphanCustomFood(tx, row.customFoodId, userId);
 
     l.debug({ action: "delete_food_log_entry", entryId, orphanedFoodCleaned }, "food log entry deleted");
     return { fitbitLogId: row.fitbitLogId };
@@ -674,7 +674,7 @@ export async function updateFoodLogEntry(
         shareToken: customFoods.shareToken,
       })
       .from(customFoods)
-      .where(eq(customFoods.id, oldCustomFoodId));
+      .where(and(eq(customFoods.id, oldCustomFoodId), eq(customFoods.userId, userId)));
     const oldFood = oldFoodRows[0];
 
     // Clear shareToken on old food before inserting new one to avoid unique constraint violation
@@ -682,7 +682,7 @@ export async function updateFoodLogEntry(
       await tx
         .update(customFoods)
         .set({ shareToken: null })
-        .where(eq(customFoods.id, oldCustomFoodId));
+        .where(and(eq(customFoods.id, oldCustomFoodId), eq(customFoods.userId, userId)));
     }
 
     // Insert new custom food with updated values, preserving metadata from old record
@@ -728,10 +728,10 @@ export async function updateFoodLogEntry(
         time: data.time,
         ...(data.fitbitLogId !== undefined ? { fitbitLogId: data.fitbitLogId } : {}),
       })
-      .where(eq(foodLogEntries.id, entryId));
+      .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
 
     // Clean up old custom food if no longer referenced
-    await cleanupOrphanCustomFood(tx, oldCustomFoodId);
+    await cleanupOrphanCustomFood(tx, oldCustomFoodId, userId);
 
     l.debug({ action: "update_food_log_entry", entryId, newCustomFoodId: newFood.id }, "food log entry updated");
     return { fitbitLogId: row.fitbitLogId, newCustomFoodId: newFood.id };
@@ -987,6 +987,10 @@ export async function getDailyNutritionSummary(
         transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
         sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
         caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
+        amount: Number(row.food_log_entries.amount),
+        unitId: row.food_log_entries.unitId,
+        isFavorite: row.custom_foods.isFavorite,
+        fitbitLogId: row.food_log_entries.fitbitLogId,
       });
 
       mealCalories += calories;

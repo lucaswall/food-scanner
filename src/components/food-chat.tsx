@@ -145,8 +145,11 @@ export function FoodChat({
   const plusButtonRef = useRef<HTMLButtonElement>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const timeoutFiredRef = useRef(false);
 
   const latestAnalysis = messages.slice().reverse().find((msg) => msg.analysis)?.analysis;
+  // True when Claude identified an existing entry to edit via editingEntryId (chat-initiated edit).
+  const isEditingExisting = !isEditMode && latestAnalysis?.editingEntryId != null;
 
   // Count user-initiated chat messages for limit tracking
   // In seeded mode, ALL messages are sent to server (no offset needed)
@@ -285,42 +288,42 @@ export function FoodChat({
     }
     imageBlobsForThisTurn.push(...userAddedImages);
 
-    // Convert to base64 and embed in the user message
-    let messageImages: string[] | undefined;
-    if (imageBlobsForThisTurn.length > 0) {
-      messageImages = await blobsToBase64(imageBlobsForThisTurn);
-    }
-    // Mark initial images as consumed only after successful conversion
-    if (consumedInitialImages) {
-      initialImagesConsumedRef.current = true;
-    }
-
-    const userMessage: ConversationMessage = {
-      role: "user",
-      content: input.trim(),
-      ...(messageImages ? { images: messageImages } : {}),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setPendingImages([]);
-    setShowPhotoMenu(false);
-    setLoading(true);
-    setError(null);
-
-    const revertOnError = (errorMessage: string) => {
-      setMessages((prev) => prev.slice(0, messageCountBeforeSend));
-      setInput(userMessage.content);
-      setPendingImages(userAddedImages);
-      if (consumedInitialImages) {
-        initialImagesConsumedRef.current = false;
-      }
-      setError(errorMessage);
-    };
-
+    const userContent = input.trim();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     try {
+      // Convert to base64 inside try — FileReader can reject
+      let messageImages: string[] | undefined;
+      if (imageBlobsForThisTurn.length > 0) {
+        messageImages = await blobsToBase64(imageBlobsForThisTurn);
+      }
+      // Mark initial images as consumed only after successful conversion
+      if (consumedInitialImages) {
+        initialImagesConsumedRef.current = true;
+      }
+
+      const userMessage: ConversationMessage = {
+        role: "user",
+        content: userContent,
+        ...(messageImages ? { images: messageImages } : {}),
+      };
+
+      setMessages((prev) => [...prev, userMessage]);
+      setInput("");
+      setPendingImages([]);
+      setShowPhotoMenu(false);
+      setLoading(true);
+      setError(null);
+
+      const revertOnError = (errorMessage: string) => {
+        setMessages((prev) => prev.slice(0, messageCountBeforeSend));
+        setInput(userContent);
+        setPendingImages(userAddedImages);
+        if (consumedInitialImages) {
+          initialImagesConsumedRef.current = false;
+        }
+        setError(errorMessage);
+      };
       const allMessages = [...messages, userMessage];
       // When seeded, send all messages (they're all "real" conversation turns)
       // When not seeded, skip the initial auto-generated assistant greeting
@@ -357,7 +360,11 @@ export function FoodChat({
       abortControllerRef.current = controller;
 
       // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
-      timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 120000);
+      timeoutFiredRef.current = false;
+      timeoutId = setTimeout(() => {
+        timeoutFiredRef.current = true;
+        controller.abort(new DOMException("signal timed out", "TimeoutError"));
+      }, 120000);
 
       const chatApiUrl = isEditMode ? "/api/edit-chat" : "/api/chat-food";
       const response = await fetch(chatApiUrl, {
@@ -470,18 +477,21 @@ export function FoodChat({
         setMessages((prev) => [...prev, assistantMessage]);
       }
     } catch (err) {
-      // If aborted by unmount, silently exit — component is gone
-      if (err instanceof DOMException && err.name === "AbortError") {
+      // If aborted by unmount (not timeout), silently exit — component is gone
+      if (err instanceof DOMException && err.name === "AbortError" && !timeoutFiredRef.current) {
         return;
       }
       setMessages((prev) => prev.slice(0, messageCountBeforeSend));
-      setInput(userMessage.content);
+      setInput(userContent);
       setPendingImages(userAddedImages);
       if (consumedInitialImages) {
         initialImagesConsumedRef.current = false;
       }
-      if (err instanceof DOMException && err.name === "TimeoutError") {
+      if (timeoutFiredRef.current || (err instanceof DOMException && err.name === "TimeoutError")) {
         setError("Request timed out. Please try again.");
+      } else if (err instanceof Error && err.message === "Failed to read image") {
+        // Client-side FileReader failure — user-recoverable, not a server error
+        setError(err.message);
       } else {
         Sentry.captureException(err);
         setError(
@@ -651,6 +661,80 @@ export function FoodChat({
     }
   };
 
+  const handleSaveExisting = async () => {
+    if (logging) return;
+    if (!latestAnalysis) {
+      setError("No food analysis available to save.");
+      return;
+    }
+    const entryId = latestAnalysis.editingEntryId;
+    if (!entryId) {
+      setError("No entry to edit.");
+      return;
+    }
+
+    const analysis = latestAnalysis;
+    setLogging(true);
+    setError(null);
+
+    try {
+      const { date, time } = getLocalDateTime();
+      const saveBody = {
+        entryId,
+        ...analysis,
+        editingEntryId: undefined,
+        mealTypeId,
+        date,
+        time: selectedTime ?? time,
+      };
+
+      const response = await fetch("/api/edit-food", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(saveBody),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data?: FoodLogResponse;
+        error?: { code: string; message: string };
+      };
+
+      if (!response.ok || !result.success || !result.data) {
+        const errorCode = result.error?.code;
+        if (errorCode === "FITBIT_TOKEN_INVALID") {
+          savePendingSubmission({
+            analysis: analysis,
+            mealTypeId,
+            foodName: analysis.food_name,
+            date,
+            time: saveBody.time,
+          });
+          window.location.href = "/api/auth/fitbit";
+          return;
+        }
+        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+          setError("Fitbit is not set up. Please configure your credentials in Settings.");
+          return;
+        }
+        setError(result.error?.message || "Failed to save changes");
+        return;
+      }
+
+      onLogged?.(result.data, analysis, mealTypeId);
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setError("Request timed out. Please try again.");
+      } else {
+        Sentry.captureException(err);
+        setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      }
+    } finally {
+      setLogging(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Hidden file inputs */}
@@ -694,17 +778,17 @@ export function FoodChat({
             <>
               <span className="flex-1" />
               <Button
-                onClick={isEditMode ? handleSave : handleLog}
+                onClick={isEditMode ? handleSave : isEditingExisting ? handleSaveExisting : handleLog}
                 disabled={logging}
                 className="shrink-0 min-h-[44px]"
               >
                 {logging ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    {isEditMode ? "Saving..." : "Logging..."}
+                    {isEditMode || isEditingExisting ? "Saving..." : "Logging..."}
                   </>
                 ) : (
-                  isEditMode ? "Save Changes" : "Log to Fitbit"
+                  isEditMode || isEditingExisting ? "Save Changes" : "Log to Fitbit"
                 )}
               </Button>
             </>

@@ -91,6 +91,10 @@ describe("GET /api/nutrition-summary", () => {
               transFatG: 0,
               sugarsG: 1,
               caloriesFromFat: 27,
+              amount: 1,
+              unitId: 304,
+              isFavorite: false,
+              fitbitLogId: null,
             },
           ],
           subtotal: {
@@ -157,6 +161,10 @@ describe("GET /api/nutrition-summary", () => {
               transFatG: 0,
               sugarsG: 1,
               caloriesFromFat: 27,
+              amount: 1,
+              unitId: 304,
+              isFavorite: false,
+              fitbitLogId: null,
             },
           ],
           subtotal: {
@@ -190,6 +198,10 @@ describe("GET /api/nutrition-summary", () => {
               transFatG: 0,
               sugarsG: 4,
               caloriesFromFat: 162,
+              amount: 1,
+              unitId: 304,
+              isFavorite: false,
+              fitbitLogId: null,
             },
           ],
           subtotal: {
@@ -332,6 +344,10 @@ describe("GET /api/nutrition-summary", () => {
               transFatG: 0,
               sugarsG: 12,
               caloriesFromFat: 22,
+              amount: 1,
+              unitId: 304,
+              isFavorite: false,
+              fitbitLogId: null,
             },
           ],
           subtotal: {

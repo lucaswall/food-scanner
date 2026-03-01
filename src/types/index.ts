@@ -71,6 +71,8 @@ export interface FoodAnalysis {
   description: string;
   keywords: string[];
   sourceCustomFoodId?: number;
+  /** Entry ID from search_food_log results when the user asks to edit an existing entry. */
+  editingEntryId?: number;
   /** Meal time suggested by Claude in HH:mm format. Only set when user explicitly mentions time. */
   time?: string | null;
   /** Fitbit meal type ID (1-7, no 6) suggested by Claude. Only set when user mentions meal context. */
@@ -293,6 +295,10 @@ export interface MealEntry {
   transFatG: number | null;
   sugarsG: number | null;
   caloriesFromFat: number | null;
+  amount: number;
+  unitId: number;
+  isFavorite: boolean;
+  fitbitLogId: number | null;
 }
 
 export interface MealGroup {

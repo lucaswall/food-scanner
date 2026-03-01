@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import useSWR, { useSWRConfig } from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { getTodayDate } from "@/lib/date-utils";
@@ -11,10 +12,22 @@ import { MacroBars } from "@/components/macro-bars";
 import { MealBreakdown } from "@/components/meal-breakdown";
 import { FastingCard } from "@/components/fasting-card";
 import { LumenBanner } from "@/components/lumen-banner";
+import { FoodEntryDetailSheet } from "@/components/food-entry-detail-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { RefreshCw, Loader2, ScanEye, ListChecks, Settings } from "lucide-react";
-import type { NutritionSummary, NutritionGoals, LumenGoalsResponse } from "@/types";
+import type { NutritionSummary, NutritionGoals, LumenGoalsResponse, MealEntry, FoodLogHistoryEntry } from "@/types";
+import { useDeleteFoodEntry } from "@/hooks/use-delete-food-entry";
 
 function DashboardSkeleton() {
   return (
@@ -48,12 +61,20 @@ function DashboardSkeleton() {
 }
 
 export function DailyDashboard() {
+  const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingLumen, setIsUploadingLumen] = useState(false);
   const [lumenUploadError, setLumenUploadError] = useState<string | null>(null);
   const { mutate: globalMutate } = useSWRConfig();
   const lastActiveRef = useRef({ date: getTodayDate(), timestamp: Date.now() });
+
+  // Entry detail sheet state
+  const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
+  const [localFavorites, setLocalFavorites] = useState<Map<number, boolean>>(new Map());
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   // Auto-reset to today when tab becomes visible after date change or 1hr+ idle
   useEffect(() => {
@@ -114,6 +135,94 @@ export function DailyDashboard() {
     data: lumenGoals,
     mutate: mutateLumenGoals,
   } = useSWR<LumenGoalsResponse>(`/api/lumen-goals?date=${selectedDate}`, apiFetcher);
+
+  const {
+    deleteTargetId,
+    deletingId,
+    deleteError,
+    deleteErrorCode,
+    handleDeleteRequest,
+    handleDeleteConfirm,
+    handleDeleteCancel,
+    clearError,
+  } = useDeleteFoodEntry({ onSuccess: () => mutateSummary() });
+
+  useEffect(() => { clearError(); }, [selectedDate, clearError]);
+
+  const handleEntryClick = (entry: MealEntry, mealTypeId: number) => {
+    setSelectedEntry({
+      ...entry,
+      mealTypeId,
+      date: selectedDate,
+      saturatedFatG: entry.saturatedFatG ?? undefined,
+      transFatG: entry.transFatG ?? undefined,
+      sugarsG: entry.sugarsG ?? undefined,
+      caloriesFromFat: entry.caloriesFromFat ?? undefined,
+    });
+  };
+
+  const handleEdit = (entry: MealEntry) => {
+    router.push(`/app/edit/${entry.id}`);
+  };
+
+  const handleToggleFavorite = async (entry: FoodLogHistoryEntry) => {
+    const currentValue = localFavorites.get(entry.customFoodId) ?? entry.isFavorite;
+    const newValue = !currentValue;
+    setLocalFavorites((prev) => new Map(prev).set(entry.customFoodId, newValue));
+    try {
+      const res = await fetch(`/api/custom-foods/${entry.customFoodId}/favorite`, {
+        method: "PATCH",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) setLocalFavorites((prev) => new Map(prev).set(entry.customFoodId, currentValue));
+    } catch {
+      setLocalFavorites((prev) => new Map(prev).set(entry.customFoodId, currentValue));
+    }
+  };
+
+  const handleShare = async (entry: FoodLogHistoryEntry) => {
+    if (isSharing) return;
+    setIsSharing(true);
+    setShareError(null);
+    try {
+      const response = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customFoodId: entry.customFoodId }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) {
+        setShareError("Failed to share. Please try again.");
+        return;
+      }
+      const result = await response.json();
+      const shareUrl: string | undefined = result?.data?.shareUrl;
+      if (typeof shareUrl !== "string") {
+        setShareError("Failed to share. Please try again.");
+        return;
+      }
+      if (navigator.share) {
+        try {
+          await navigator.share({ url: shareUrl, title: entry.foodName });
+        } catch (err) {
+          if (err instanceof Error && err.name === "AbortError") return;
+          setShareError("Failed to share. Please try again.");
+        }
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setShareError("Request timed out. Please try again.");
+      } else {
+        setShareError("Failed to share. Please try again.");
+      }
+    } finally {
+      setIsSharing(false);
+    }
+  };
 
   const handleUpdateLumenGoals = () => {
     fileInputRef.current?.click();
@@ -261,6 +370,29 @@ export function DailyDashboard() {
       {/* Fasting Card */}
       <FastingCard date={selectedDate} />
 
+      {/* Delete error */}
+      {deleteError && (
+        <div role="alert" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+          <p className="text-sm text-destructive">{deleteError}</p>
+          {deleteErrorCode === "FITBIT_TOKEN_INVALID" && (
+            <a
+              href="/api/auth/fitbit"
+              className="text-sm text-destructive underline mt-2 inline-block font-medium"
+            >
+              Reconnect Fitbit
+            </a>
+          )}
+          {(deleteErrorCode === "FITBIT_CREDENTIALS_MISSING" || deleteErrorCode === "FITBIT_NOT_CONNECTED") && (
+            <a
+              href="/settings"
+              className="text-sm text-destructive underline mt-2 inline-block font-medium"
+            >
+              Go to Settings
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Empty state or Meal Breakdown */}
       {showEmptyState ? (
         <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
@@ -283,7 +415,13 @@ export function DailyDashboard() {
           </div>
         </div>
       ) : (
-        <MealBreakdown meals={meals} />
+        <MealBreakdown
+          meals={meals}
+          onEdit={handleEdit}
+          onDelete={handleDeleteRequest}
+          onEntryClick={handleEntryClick}
+          deletingId={deletingId}
+        />
       )}
 
       {/* Update Lumen goals button */}
@@ -322,6 +460,42 @@ export function DailyDashboard() {
         style={{ display: "none" }}
         onChange={handleLumenFileChange}
       />
+
+      {/* Entry detail sheet */}
+      <FoodEntryDetailSheet
+        entry={selectedEntry}
+        open={!!selectedEntry}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedEntry(null);
+            setIsSharing(false);
+            setShareCopied(false);
+            setShareError(null);
+          }
+        }}
+        onToggleFavorite={handleToggleFavorite}
+        localFavorites={localFavorites}
+        onShare={handleShare}
+        isSharing={isSharing}
+        shareCopied={shareCopied}
+        shareError={shareError}
+      />
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteTargetId !== null} onOpenChange={(open) => { if (!open) handleDeleteCancel(); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. The entry will be removed from your food log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm}>Confirm</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

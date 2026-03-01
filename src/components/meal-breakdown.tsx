@@ -1,19 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { ChevronDown } from "lucide-react";
-import type { MealGroup } from "@/types";
+import type { MealGroup, MealEntry } from "@/types";
 import { FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { FoodEntryCard } from "@/components/food-entry-card";
 
 interface MealBreakdownProps {
   meals: MealGroup[];
+  onEdit?: (entry: MealEntry) => void;
+  onDelete?: (id: number) => void;
+  onEntryClick?: (entry: MealEntry, mealTypeId: number) => void;
+  deletingId?: number | null;
 }
 
 // Define meal type order: Breakfast → Morning Snack → Lunch → Afternoon Snack → Dinner → Anytime
 const MEAL_ORDER = [1, 2, 3, 4, 5, 7];
 
-export function MealBreakdown({ meals }: MealBreakdownProps) {
+export function MealBreakdown({ meals, onEdit, onDelete, onEntryClick, deletingId }: MealBreakdownProps) {
   const [expandedMealIds, setExpandedMealIds] = useState<Set<number>>(
     new Set()
   );
@@ -76,25 +80,24 @@ export function MealBreakdown({ meals }: MealBreakdownProps) {
 
             {/* Entries (collapsible) */}
             {isExpanded && (
-              <div className="border-t bg-muted/20">
+              <div className="border-t bg-muted/20 p-2 flex flex-col gap-2">
                 {meal.entries.map((entry) => (
-                  <Link
+                  <FoodEntryCard
                     key={entry.id}
-                    href={`/app/food-detail/${entry.id}`}
-                    className="flex items-center justify-between p-4 border-b last:border-b-0 hover:bg-muted/50 transition-colors cursor-pointer"
-                  >
-                    <div className="flex flex-col gap-1">
-                      <span className="text-sm font-medium">
-                        {entry.foodName}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {entry.time ?? ""}
-                      </span>
-                    </div>
-                    <span className="text-sm text-muted-foreground tabular-nums">
-                      {entry.calories} cal
-                    </span>
-                  </Link>
+                    foodName={entry.foodName}
+                    calories={entry.calories}
+                    proteinG={entry.proteinG}
+                    carbsG={entry.carbsG}
+                    fatG={entry.fatG}
+                    unitId={entry.unitId}
+                    amount={entry.amount}
+                    time={entry.time}
+                    actions="edit-delete"
+                    onClick={() => onEntryClick?.(entry, meal.mealTypeId)}
+                    onEdit={() => onEdit?.(entry)}
+                    onDelete={() => onDelete?.(entry.id)}
+                    isDeleting={deletingId === entry.id}
+                  />
                 ))}
               </div>
             )}

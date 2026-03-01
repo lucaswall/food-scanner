@@ -72,6 +72,7 @@ Follow these rules:
 - Never ask which meal type before calling report_nutrition. Only set meal_type_id when the user explicitly mentions the meal context (e.g., "for breakfast", "at lunch"). Otherwise leave it null — the user can adjust in the app UI.
 - Only set the time field when the user explicitly mentions a time (e.g., "I had this at 8:30", "breakfast was at 7am"). Do NOT guess or infer the time. Leave it null when the user doesn't specify.
 - When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values (half portion, different ingredients, different amount), set source_custom_food_id to null.
+- editing_entry_id rules: Set editing_entry_id to the entry's [id:N] from search_food_log results when the user explicitly asks to modify an existing entry (e.g., "edit that", "change the chicken to 200g", "update my lunch", "fix the calories for that entry"). Leave editing_entry_id null when: (a) describing new food, (b) uploading new photos, (c) saying "log the same thing" or "I had that again" (create-intent). Key distinction: "log the same thing" = new entry (editing_entry_id null), "change what I had for lunch" = edit existing (set ID). When editing, set editing_entry_id to the entry ID AND set source_custom_food_id to null.
 - ${THINKING_INSTRUCTION}
 
 Web search guidelines:
@@ -90,7 +91,7 @@ export const WEB_SEARCH_TOOL = {
 export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   name: "report_nutrition",
   description:
-    "Report the nutritional analysis of the food shown in the images",
+    "Report the nutritional analysis of food for creating a new log entry or editing an existing one. Set editing_entry_id to the existing entry ID when editing, or null when creating new food.",
   strict: true,
   input_schema: {
     type: "object" as const,
@@ -148,6 +149,10 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
         type: ["number", "null"],
         description: "ID of an existing custom food from search_food_log results. Set to the [id:N] value when reusing a food exactly as-is (same portion, same nutrition). Set to null when creating new food or when modifying nutrition values (e.g. half portion, different ingredients).",
       },
+      editing_entry_id: {
+        type: ["number", "null"],
+        description: "Set to the entry ID from search_food_log results when the user asks to edit an existing entry (e.g. 'edit that', 'change the chicken to 200g', 'update my lunch'). Set to null when creating new food. This tool can be used for both creating new entries and editing existing ones.",
+      },
       time: {
         type: ["string", "null"],
         description: "Meal time in HH:mm format (24h). Only set when the user explicitly mentions a time (e.g., 'I had this at 8:30', 'breakfast was at 7am'). Set to null otherwise — never guess the time.",
@@ -176,6 +181,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       "keywords",
       "description",
       "source_custom_food_id",
+      "editing_entry_id",
       "time",
       "meal_type_id",
     ],
@@ -417,6 +423,18 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     ? rawSourceId
     : undefined;
 
+  // Validate editing_entry_id: positive integer or null/undefined/0 → omit
+  const rawEditingEntryId = data.editing_entry_id;
+  if (rawEditingEntryId !== undefined && rawEditingEntryId !== null && typeof rawEditingEntryId !== "number") {
+    throw new ClaudeApiError("Invalid food analysis: editing_entry_id must be a number or null");
+  }
+  if (typeof rawEditingEntryId === "number" && rawEditingEntryId < 0) {
+    throw new ClaudeApiError("Invalid food analysis: editing_entry_id must not be negative");
+  }
+  const editingEntryId = typeof rawEditingEntryId === "number" && rawEditingEntryId > 0
+    ? rawEditingEntryId
+    : undefined;
+
   // Validate optional time field: null/undefined (absent) or valid HH:mm string
   const rawTime = data.time;
   let validatedTime: string | null | undefined;
@@ -476,6 +494,10 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
 
   if (sourceCustomFoodId !== undefined) {
     result.sourceCustomFoodId = sourceCustomFoodId;
+  }
+
+  if (editingEntryId !== undefined) {
+    result.editingEntryId = editingEntryId;
   }
 
   if (validatedTime !== undefined) {
@@ -673,7 +695,7 @@ async function executeDataTools(
         };
       } catch (error) {
         l.warn(
-          { tool: toolUse.name, error: error instanceof Error ? error.message : String(error) },
+          { action: "tool_execution_error", tool: toolUse.name, error: error instanceof Error ? error.message : String(error) },
           "tool execution error"
         );
         return {
@@ -753,7 +775,7 @@ export async function* runToolLoop(
       iteration++;
 
       l.info(
-        { iteration, messageCount: conversationMessages.length },
+        { action: "claude_api_call", iteration, messageCount: conversationMessages.length },
         "calling Claude API in tool loop"
       );
       l.debug(
@@ -839,7 +861,7 @@ export async function* runToolLoop(
           yield { type: "analysis", analysis };
         }
 
-        l.info({ iteration, hasAnalysis: !!analysis, exitReason: "end_turn", durationMs: loopElapsed() }, "tool loop completed");
+        l.info({ action: "tool_loop_completed", iteration, hasAnalysis: !!analysis, exitReason: "end_turn", durationMs: loopElapsed() }, "tool loop completed");
         yield { type: "done" };
         return;
       }
@@ -951,7 +973,7 @@ export async function* runToolLoop(
       if (response.stop_reason === "pause_turn") {
         // Code execution or web search dynamic filtering paused a long-running turn.
         // Send the response back as-is so Claude can continue (merges if last is already assistant).
-        l.info({ iteration }, "pause_turn received, continuing Claude's turn");
+        l.info({ action: "pause_turn", iteration }, "pause_turn received, continuing Claude's turn");
         appendAssistantContent(conversationMessages, response.content);
         continue;
       }
@@ -987,7 +1009,7 @@ export async function* runToolLoop(
     }
 
     // Exceeded max iterations
-    l.warn({ iteration, durationMs: loopElapsed() }, "tool loop exceeded maximum iterations");
+    l.warn({ action: "tool_loop_max_iterations", iteration, durationMs: loopElapsed() }, "tool loop exceeded maximum iterations");
 
     if (pendingAnalysis) {
       // We have a usable analysis despite exceeding iterations — yield it and finish
@@ -1003,7 +1025,7 @@ export async function* runToolLoop(
     }
 
     l.error(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "tool_loop_error", error: error instanceof Error ? error.message : String(error) },
       "Claude API tool loop error"
     );
     throw new ClaudeApiError(

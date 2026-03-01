@@ -122,6 +122,7 @@ const {
   toggleFavorite,
   getEarliestEntryDate,
   getDateRangeNutritionSummary,
+  getDailyNutritionSummary,
   setShareToken,
   getCustomFoodByShareToken,
 } = await import("@/lib/food-log");
@@ -1557,6 +1558,19 @@ describe("deleteFoodLogEntry", () => {
     expect(mockDelete).toHaveBeenCalledTimes(1);
   });
 
+  it("includes userId in orphan cleanup DELETE WHERE clause for defense-in-depth", async () => {
+    mockDeleteReturning.mockResolvedValueOnce([{ fitbitLogId: 789, customFoodId: 10 }]);
+    // orphan check: no remaining entries → triggers delete
+    mockWhere.mockResolvedValueOnce([]);
+
+    await deleteFoodLogEntry("user-uuid-123", 5);
+
+    // Second mockDeleteWhere call is the orphan cleanup DELETE on custom_foods.
+    // and() produces 3 queryChunks vs bare eq() which produces 5.
+    const orphanDeleteWhereArg = mockDeleteWhere.mock.calls[1][0];
+    expect(orphanDeleteWhereArg.queryChunks).toHaveLength(3);
+  });
+
   it("returns same shape { fitbitLogId } as before", async () => {
     mockDeleteReturning.mockResolvedValueOnce([{ fitbitLogId: 789, customFoodId: 10 }]);
     mockWhere.mockResolvedValueOnce([{ id: 99 }]);
@@ -2610,6 +2624,55 @@ describe("updateFoodLogEntry", () => {
     // Use nthCalledWith(1) to verify it's the FIRST updateSet call (before entry update).
     expect(mockUpdateSet).toHaveBeenNthCalledWith(1, { shareToken: null });
   });
+
+  it("includes userId in UPDATE WHERE clause for defense-in-depth", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    // The entry UPDATE's WHERE should use and() with both id and userId.
+    // Drizzle's and() produces a SQL with 3 queryChunks: "(", inner SQL, ")".
+    // A bare eq() produces 5 queryChunks. This distinguishes and(eq, eq) from eq.
+    const updateWhereArg = mockUpdateWhere.mock.calls[0][0];
+    expect(updateWhereArg.queryChunks).toHaveLength(3);
+  });
+
+  it("includes userId in metadata SELECT and shareToken UPDATE WHERE clauses for defense-in-depth", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // entry select
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: "tok" }]); // old food metadata
+    mockUpdateWhere.mockResolvedValueOnce(undefined); // shareToken clear
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
+    mockUpdateWhere.mockResolvedValueOnce(undefined); // entry update
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    // Second mockWhere call is the metadata SELECT on custom_foods — should use and()
+    const metadataSelectWhereArg = mockWhere.mock.calls[1][0];
+    expect(metadataSelectWhereArg.queryChunks).toHaveLength(3);
+
+    // First mockUpdateWhere call is the shareToken UPDATE on custom_foods — should use and()
+    const shareTokenUpdateWhereArg = mockUpdateWhere.mock.calls[0][0];
+    expect(shareTokenUpdateWhereArg.queryChunks).toHaveLength(3);
+  });
+
+  it("includes userId in orphan cleanup DELETE WHERE clause for defense-in-depth", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // entry select
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]); // old food metadata
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
+    mockUpdateWhere.mockResolvedValueOnce(undefined); // entry update
+    mockWhere.mockResolvedValueOnce([]); // orphan check: no remaining → triggers delete
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    // The orphan DELETE on custom_foods should use and() with both id and userId
+    const orphanDeleteWhereArg = mockDeleteWhere.mock.calls[0][0];
+    expect(orphanDeleteWhereArg.queryChunks).toHaveLength(3);
+  });
 });
 
 describe("updateFoodLogEntryMetadata", () => {
@@ -2657,5 +2720,128 @@ describe("updateFoodLogEntryMetadata", () => {
     });
 
     expect(mockInsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("getDailyNutritionSummary", () => {
+  beforeEach(() => {
+    // Only override orderBy — outer beforeEach already sets up the mock chain
+    mockOrderBy.mockImplementation(() => Promise.resolve([]));
+  });
+
+  function makeNutritionRow(overrides: {
+    entryId?: number;
+    customFoodId?: number;
+    foodName?: string;
+    mealTypeId?: number;
+    time?: string | null;
+    amount?: string;
+    unitId?: number;
+    fitbitLogId?: number | null;
+    isFavorite?: boolean;
+    calories?: number;
+    proteinG?: string;
+    carbsG?: string;
+    fatG?: string;
+    fiberG?: string;
+    sodiumMg?: string;
+    saturatedFatG?: string | null;
+    transFatG?: string | null;
+    sugarsG?: string | null;
+    caloriesFromFat?: string | null;
+  } = {}) {
+    return {
+      food_log_entries: {
+        id: overrides.entryId ?? 1,
+        userId: "user-uuid-123",
+        customFoodId: overrides.customFoodId ?? 10,
+        mealTypeId: overrides.mealTypeId ?? 1,
+        amount: overrides.amount ?? "200",
+        unitId: overrides.unitId ?? 147,
+        date: "2026-03-01",
+        time: overrides.time ?? "08:00:00",
+        fitbitLogId: overrides.fitbitLogId !== undefined ? overrides.fitbitLogId : 999,
+        loggedAt: new Date(),
+      },
+      custom_foods: {
+        id: overrides.customFoodId ?? 10,
+        userId: "user-uuid-123",
+        foodName: overrides.foodName ?? "Test Food",
+        amount: overrides.amount ?? "200",
+        unitId: overrides.unitId ?? 147,
+        calories: overrides.calories ?? 300,
+        proteinG: overrides.proteinG ?? "20",
+        carbsG: overrides.carbsG ?? "30",
+        fatG: overrides.fatG ?? "10",
+        fiberG: overrides.fiberG ?? "5",
+        sodiumMg: overrides.sodiumMg ?? "200",
+        saturatedFatG: overrides.saturatedFatG ?? null,
+        transFatG: overrides.transFatG ?? null,
+        sugarsG: overrides.sugarsG ?? null,
+        caloriesFromFat: overrides.caloriesFromFat ?? null,
+        fitbitFoodId: 555,
+        confidence: "high",
+        notes: null,
+        description: null,
+        keywords: null,
+        isFavorite: overrides.isFavorite ?? false,
+        shareToken: null,
+        createdAt: new Date(),
+      },
+    };
+  }
+
+  it("MealEntry includes amount field from food_log_entries", async () => {
+    const row = makeNutritionRow({ amount: "250", unitId: 147 });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].amount).toBe(250);
+  });
+
+  it("MealEntry includes unitId field from food_log_entries", async () => {
+    const row = makeNutritionRow({ amount: "1", unitId: 304 });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].unitId).toBe(304);
+  });
+
+  it("MealEntry includes isFavorite field from custom_foods", async () => {
+    const row = makeNutritionRow({ isFavorite: true });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].isFavorite).toBe(true);
+  });
+
+  it("MealEntry includes fitbitLogId field from food_log_entries", async () => {
+    const row = makeNutritionRow({ fitbitLogId: 12345 });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].fitbitLogId).toBe(12345);
+  });
+
+  it("MealEntry fitbitLogId is null when not set", async () => {
+    const row = makeNutritionRow({ fitbitLogId: null });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].fitbitLogId).toBeNull();
+  });
+
+  it("MealEntry isFavorite is false when not a favorite", async () => {
+    const row = makeNutritionRow({ isFavorite: false });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].isFavorite).toBe(false);
   });
 });

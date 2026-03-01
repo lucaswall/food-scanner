@@ -54,6 +54,52 @@ vi.mock("@/components/lumen-banner", () => ({
   LumenBanner: () => <div data-testid="lumen-banner">LumenBanner</div>,
 }));
 
+// Mock FoodEntryCard for isolation
+vi.mock("@/components/food-entry-card", () => ({
+  FoodEntryCard: ({
+    foodName,
+    calories,
+    time,
+    onClick,
+    onEdit,
+    onDelete,
+    isDeleting,
+  }: {
+    foodName: string;
+    calories: number;
+    time?: string | null;
+    onClick?: () => void;
+    onEdit?: () => void;
+    onDelete?: () => void;
+    isDeleting?: boolean;
+  }) => (
+    <div>
+      <button type="button" onClick={onClick}>{foodName}</button>
+      {time && <span>{time}</span>}
+      <span>{calories} cal</span>
+      <button aria-label={`Edit ${foodName}`} onClick={onEdit}>Edit</button>
+      <button aria-label={`Delete ${foodName}`} onClick={onDelete} disabled={isDeleting}>Delete</button>
+    </div>
+  ),
+}));
+
+// Mock FoodEntryDetailSheet for isolation
+vi.mock("@/components/food-entry-detail-sheet", () => ({
+  FoodEntryDetailSheet: ({ entry, open, onOpenChange }: { entry: { foodName: string } | null; open: boolean; onOpenChange: (open: boolean) => void }) =>
+    open && entry ? (
+      <div data-testid="food-entry-detail-sheet">
+        <p>{entry.foodName}</p>
+        <button onClick={() => onOpenChange(false)}>Close</button>
+      </div>
+    ) : null,
+}));
+
+// Mock next/navigation for router
+const mockPush = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockPush }),
+}));
+
 // Mock ResizeObserver for UI components
 beforeAll(() => {
   global.ResizeObserver = class ResizeObserver {
@@ -98,6 +144,7 @@ const mockSummary = {
       entries: [
         {
           id: 1,
+          customFoodId: 1,
           foodName: "Oatmeal",
           time: "08:00",
           calories: 300,
@@ -110,9 +157,14 @@ const mockSummary = {
           transFatG: 0,
           sugarsG: 5,
           caloriesFromFat: 72,
+          amount: 1,
+          unitId: 304,
+          isFavorite: false,
+          fitbitLogId: null,
         },
         {
           id: 2,
+          customFoodId: 2,
           foodName: "Banana",
           time: "08:15",
           calories: 150,
@@ -125,6 +177,10 @@ const mockSummary = {
           transFatG: 0,
           sugarsG: 5,
           caloriesFromFat: 63,
+          amount: 1,
+          unitId: 304,
+          isFavorite: false,
+          fitbitLogId: null,
         },
       ],
     },
@@ -145,6 +201,7 @@ const mockSummary = {
       entries: [
         {
           id: 3,
+          customFoodId: 3,
           foodName: "Chicken Salad",
           time: "12:30",
           calories: 750,
@@ -157,6 +214,10 @@ const mockSummary = {
           transFatG: 0,
           sugarsG: 10,
           caloriesFromFat: 315,
+          amount: 1,
+          unitId: 304,
+          isFavorite: false,
+          fitbitLogId: null,
         },
       ],
     },
@@ -1816,6 +1877,138 @@ describe("DailyDashboard", () => {
       await waitFor(() => {
         const settingsLink = screen.getByRole("link", { name: /settings/i });
         expect(settingsLink).toHaveClass("w-full");
+      });
+    });
+  });
+
+  describe("entry interactions (FOO-749)", () => {
+    function setupWithEntries(deleteResponse?: { ok: boolean; error?: { code: string; message: string } }) {
+      mockFetch.mockImplementation((url: string, options?: RequestInit) => {
+        if (options?.method === "DELETE") {
+          if (deleteResponse && !deleteResponse.ok) {
+            const body = JSON.stringify({ success: false, error: deleteResponse.error });
+            return Promise.resolve({
+              ok: false,
+              text: () => Promise.resolve(body),
+              json: () => Promise.resolve({ success: false, error: deleteResponse.error }),
+            });
+          }
+          const body = JSON.stringify({ success: true });
+          return Promise.resolve({
+            ok: true,
+            text: () => Promise.resolve(body),
+            json: () => Promise.resolve({ success: true }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/lumen-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { goals: null } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL: " + url));
+      });
+    }
+
+    it("clicking entry card body opens FoodEntryDetailSheet", async () => {
+      const user = userEvent.setup();
+      setupWithEntries();
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByText("Breakfast")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId("meal-header-1"));
+      await user.click(screen.getByText("Oatmeal"));
+
+      expect(screen.getByTestId("food-entry-detail-sheet")).toBeInTheDocument();
+    });
+
+    it("clicking edit button navigates to /app/edit/{id}", async () => {
+      const user = userEvent.setup();
+      setupWithEntries();
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByText("Breakfast")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId("meal-header-1"));
+      await user.click(screen.getByLabelText("Edit Oatmeal"));
+
+      expect(mockPush).toHaveBeenCalledWith("/app/edit/1");
+    });
+
+    it("clicking delete button shows confirmation dialog", async () => {
+      const user = userEvent.setup();
+      setupWithEntries();
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByText("Breakfast")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId("meal-header-1"));
+      await user.click(screen.getByLabelText("Delete Oatmeal"));
+
+      expect(screen.getByText(/delete this entry/i)).toBeInTheDocument();
+    });
+
+    it("confirming delete calls DELETE API", async () => {
+      const user = userEvent.setup();
+      setupWithEntries();
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByText("Breakfast")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId("meal-header-1"));
+      await user.click(screen.getByLabelText("Delete Oatmeal"));
+      await user.click(screen.getByRole("button", { name: /confirm/i }));
+
+      await waitFor(() => {
+        const deleteCall = mockFetch.mock.calls.find(
+          (call) => typeof call[0] === "string" && call[0].includes("/api/food-history/1") && call[1]?.method === "DELETE"
+        );
+        expect(deleteCall).toBeDefined();
+      });
+    });
+
+    it("shows delete error when delete API fails", async () => {
+      const user = userEvent.setup();
+      setupWithEntries({ ok: false, error: { code: "INTERNAL_ERROR", message: "Server error" } });
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByText("Breakfast")).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByTestId("meal-header-1"));
+      await user.click(screen.getByLabelText("Delete Oatmeal"));
+      await user.click(screen.getByRole("button", { name: /confirm/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/server error/i)).toBeInTheDocument();
       });
     });
   });

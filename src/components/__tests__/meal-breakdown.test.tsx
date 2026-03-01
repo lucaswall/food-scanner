@@ -1,7 +1,36 @@
-import { describe, it, expect, afterEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MealBreakdown } from "../meal-breakdown";
+
+// Mock FoodEntryCard to render minimal structure for testing
+vi.mock("@/components/food-entry-card", () => ({
+  FoodEntryCard: ({
+    foodName,
+    calories,
+    time,
+    onClick,
+    onEdit,
+    onDelete,
+    isDeleting,
+  }: {
+    foodName: string;
+    calories: number;
+    time?: string | null;
+    onClick?: () => void;
+    onEdit?: () => void;
+    onDelete?: () => void;
+    isDeleting?: boolean;
+  }) => (
+    <div>
+      <button type="button" onClick={onClick}>{foodName}</button>
+      {time && <span>{time}</span>}
+      <span>{calories} cal</span>
+      <button aria-label={`Edit ${foodName}`} onClick={onEdit}>Edit</button>
+      <button aria-label={`Delete ${foodName}`} onClick={onDelete} disabled={isDeleting}>Delete</button>
+    </div>
+  ),
+}));
 
 // Mock ResizeObserver for any UI components that might need it
 beforeAll(() => {
@@ -28,6 +57,7 @@ const mockMeals = [
         time: "08:00",
         calories: 300,
         proteinG: 10, carbsG: 50, fatG: 8, fiberG: 4, sodiumMg: 100, saturatedFatG: 1, transFatG: 0, sugarsG: 5, caloriesFromFat: 72,
+        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
       },
       {
         id: 2,
@@ -36,6 +66,7 @@ const mockMeals = [
         time: "08:15",
         calories: 150,
         proteinG: 20, carbsG: 30, fatG: 7, fiberG: 1, sodiumMg: 200, saturatedFatG: 1, transFatG: 0, sugarsG: 5, caloriesFromFat: 63,
+        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
       },
     ],
   },
@@ -50,6 +81,7 @@ const mockMeals = [
         time: "12:30",
         calories: 650,
         proteinG: 55, carbsG: 120, fatG: 35, fiberG: 5, sodiumMg: 500, saturatedFatG: 3, transFatG: 0, sugarsG: 10, caloriesFromFat: 315,
+        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
       },
     ],
   },
@@ -169,6 +201,7 @@ describe("MealBreakdown", () => {
       id, customFoodId: id, foodName: name, time, calories: cal,
       proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
       saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
+      amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
     });
     const sub = (cal: number) => ({
       calories: cal, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
@@ -195,6 +228,7 @@ describe("MealBreakdown", () => {
       id, customFoodId: id, foodName: name, time, calories: cal,
       proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
       saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
+      amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
     });
     const sub = (cal: number) => ({
       calories: cal, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
@@ -214,5 +248,53 @@ describe("MealBreakdown", () => {
     expect(headers[0]).toHaveAttribute("data-testid", "meal-header-1");
     expect(headers[1]).toHaveAttribute("data-testid", "meal-header-3");
     expect(headers[2]).toHaveAttribute("data-testid", "meal-header-5");
+  });
+
+  it("renders FoodEntryCard for each entry, not plain Link elements", async () => {
+    const user = userEvent.setup();
+    render(<MealBreakdown meals={mockMeals} />);
+
+    await user.click(screen.getByTestId("meal-header-1"));
+
+    // FoodEntryCard renders buttons, not Link elements
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.getByText("Oatmeal")).toBeInTheDocument();
+    expect(screen.getByText("Banana")).toBeInTheDocument();
+  });
+
+  it("calls onEdit with the entry when edit button is clicked", async () => {
+    const user = userEvent.setup();
+    const onEdit = vi.fn();
+    render(<MealBreakdown meals={mockMeals} onEdit={onEdit} />);
+
+    await user.click(screen.getByTestId("meal-header-1"));
+    await user.click(screen.getByLabelText("Edit Oatmeal"));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 1, foodName: "Oatmeal" }));
+  });
+
+  it("calls onDelete with entry.id when delete button is clicked", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn();
+    render(<MealBreakdown meals={mockMeals} onDelete={onDelete} />);
+
+    await user.click(screen.getByTestId("meal-header-1"));
+    await user.click(screen.getByLabelText("Delete Oatmeal"));
+
+    expect(onDelete).toHaveBeenCalledWith(1);
+  });
+
+  it("calls onEntryClick with the entry and mealTypeId when card body is clicked", async () => {
+    const user = userEvent.setup();
+    const onEntryClick = vi.fn();
+    render(<MealBreakdown meals={mockMeals} onEntryClick={onEntryClick} />);
+
+    await user.click(screen.getByTestId("meal-header-1"));
+    await user.click(screen.getByText("Oatmeal"));
+
+    expect(onEntryClick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 1, foodName: "Oatmeal" }),
+      1
+    );
   });
 });
