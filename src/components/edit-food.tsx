@@ -1,0 +1,52 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import useSWR from "swr";
+import { apiFetcher } from "@/lib/swr";
+import { Button } from "@/components/ui/button";
+import { FoodChat } from "@/components/food-chat";
+import { AlertCircle, ArrowLeft } from "lucide-react";
+import type { FoodLogEntryDetail } from "@/types";
+
+interface EditFoodProps {
+  entryId: string;
+}
+
+export function EditFood({ entryId }: EditFoodProps) {
+  const router = useRouter();
+  const { data, error, isLoading } = useSWR<FoodLogEntryDetail>(
+    `/api/food-history/${entryId}`,
+    apiFetcher,
+  );
+
+  if (isLoading) {
+    return (
+      <div className="max-w-md mx-auto p-4">
+        <p className="text-center text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="max-w-md mx-auto p-4 space-y-6">
+        <Button
+          onClick={() => router.back()}
+          variant="ghost"
+          className="min-h-[44px]"
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back
+        </Button>
+        <div className="flex flex-col items-center gap-4 p-6 bg-destructive/10 border border-destructive/20 rounded-lg text-center">
+          <AlertCircle className="h-10 w-10 text-destructive" />
+          <p className="text-sm text-destructive">
+            Something went wrong loading this food entry.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return <FoodChat mode="edit" editEntry={data} />;
+}

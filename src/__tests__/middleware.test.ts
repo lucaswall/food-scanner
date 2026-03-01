@@ -51,10 +51,13 @@ describe("middleware", () => {
     expect(response.headers.get("location")).toBe("http://localhost:3000/");
   });
 
-  it("redirects /settings to / without session cookie", () => {
+  it("redirects /settings to / with returnTo when unauthenticated", () => {
     const response = middleware(makeRequest("/settings"));
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe("http://localhost:3000/");
+    const location = response.headers.get("location")!;
+    const url = new URL(location);
+    expect(url.pathname).toBe("/");
+    expect(url.searchParams.get("returnTo")).toBe("/settings");
   });
 
   it("returns 401 JSON for /api/log-food without session cookie", async () => {
@@ -129,5 +132,29 @@ describe("middleware", () => {
     const response = middleware(req);
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost:3000/");
+  });
+
+  it("includes returnTo for /app/log-shared/abc when unauthenticated", () => {
+    const response = middleware(makeRequest("/app/log-shared/abc"));
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location")!;
+    expect(location).toContain("returnTo=");
+    const url = new URL(location);
+    expect(url.searchParams.get("returnTo")).toBe("/app/log-shared/abc");
+  });
+
+  it("does NOT include returnTo for /app (default destination)", () => {
+    const response = middleware(makeRequest("/app"));
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location")!;
+    expect(location).not.toContain("returnTo");
+  });
+
+  it("includes returnTo for nested /app routes like /app/history", () => {
+    const response = middleware(makeRequest("/app/history"));
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location")!;
+    const url = new URL(location);
+    expect(url.searchParams.get("returnTo")).toBe("/app/history");
   });
 });

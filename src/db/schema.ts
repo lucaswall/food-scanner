@@ -7,6 +7,7 @@ import {
   numeric,
   integer,
   bigint,
+  boolean,
   date,
   time,
   unique,
@@ -67,6 +68,8 @@ export const customFoods = pgTable("custom_foods", {
   notes: text("notes"),
   description: text("description"),
   keywords: text("keywords").array(),
+  isFavorite: boolean("is_favorite").default(false).notNull(),
+  shareToken: text("share_token").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

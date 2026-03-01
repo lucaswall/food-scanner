@@ -33,6 +33,14 @@ vi.mock("@/lib/swr", async () => {
   };
 });
 
+const { mockRouterPush } = vi.hoisted(() => ({
+  mockRouterPush: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockRouterPush, back: vi.fn() }),
+}));
+
 // Mock IntersectionObserver
 const mockObserve = vi.fn();
 const mockDisconnect = vi.fn();
@@ -1540,6 +1548,53 @@ describe("FoodHistory", () => {
       // Initial entries should be unaffected
       expect(screen.getByText("Initial 1")).toBeInTheDocument();
       expect(screen.getByText("Initial 2")).toBeInTheDocument();
+    });
+  });
+
+  describe("edit button", () => {
+    beforeEach(() => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+      });
+    });
+
+    it("shows an edit button for each entry", async () => {
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      // Should have one edit button per entry
+      const editButtons = screen.getAllByRole("button", { name: /edit/i });
+      expect(editButtons).toHaveLength(mockEntries.length);
+    });
+
+    it("edit button navigates to /app/edit/[id]", async () => {
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+      });
+
+      const editButton = screen.getByRole("button", { name: /edit empanada de carne/i });
+      fireEvent.click(editButton);
+
+      expect(mockRouterPush).toHaveBeenCalledWith("/app/edit/1");
+    });
+
+    it("edit buttons use correct entry id for navigation", async () => {
+      renderFoodHistory();
+
+      await waitFor(() => {
+        expect(screen.getByText("Milanesa con pure")).toBeInTheDocument();
+      });
+
+      const editButton = screen.getByRole("button", { name: /edit milanesa con pure/i });
+      fireEvent.click(editButton);
+
+      expect(mockRouterPush).toHaveBeenCalledWith("/app/edit/3");
     });
   });
 });

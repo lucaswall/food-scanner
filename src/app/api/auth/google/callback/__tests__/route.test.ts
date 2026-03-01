@@ -336,6 +336,31 @@ describe("GET /api/auth/google/callback", () => {
     );
   });
 
+  it("redirects to returnTo when JSON state contains returnTo and user has Fitbit tokens", async () => {
+    const jsonState = JSON.stringify({ nonce: "abc-nonce", returnTo: "/app/log-shared/tok123" });
+    mockRawSession.oauthState = jsonState;
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User" });
+    mockGetFitbitTokens.mockResolvedValue({ accessToken: "existing" });
+
+    const response = await GET(makeCallbackRequest("valid-code", jsonState));
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/log-shared/tok123");
+  });
+
+  it("uses normal /app redirect when JSON state has returnTo but user is in Fitbit setup flow", async () => {
+    const jsonState = JSON.stringify({ nonce: "abc-nonce", returnTo: "/app/log-shared/tok123" });
+    mockRawSession.oauthState = jsonState;
+    mockExchangeGoogleCode.mockResolvedValue({ access_token: "google-token" });
+    mockGetGoogleProfile.mockResolvedValue({ email: "test@example.com", name: "Test User" });
+    mockGetFitbitTokens.mockResolvedValue(null);
+    mockHasFitbitCredentials.mockResolvedValue(false);
+
+    const response = await GET(makeCallbackRequest("valid-code", jsonState));
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://localhost:3000/app/setup-fitbit");
+  });
+
   it("returns 429 when rate limit exceeded", async () => {
     mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
 

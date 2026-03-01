@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { FoodAnalysis, ConversationMessage } from "@/types";
+import type { FoodAnalysis, ConversationMessage, FoodLogEntryDetail } from "@/types";
 import { getUnitLabel } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
@@ -65,7 +65,8 @@ Follow these rules:
 - ${REPORT_NUTRITION_UI_CARD_NOTE}
 - When the user references food from their history or from a displayed list and wants to log it (e.g., "comí eso", "registra eso", "quiero lo mismo", "comí dos", naming a food from search results, responding with a food name when asked "¿Querés registrar algo?"), call report_nutrition immediately. Do not ask for unnecessary confirmation — the user's intent to log is clear whenever they reference a specific food in a context where logging intent is established.
 - Never ask "should I log/register this?" — always call report_nutrition and let the user confirm via the UI button.
-- Never ask which meal type before calling report_nutrition. The meal type is not a parameter of report_nutrition — meal assignment is handled by the user in the app UI after logging.
+- Never ask which meal type before calling report_nutrition. Only set meal_type_id when the user explicitly mentions the meal context (e.g., "for breakfast", "at lunch"). Otherwise leave it null — the user can adjust in the app UI.
+- Only set the time field when the user explicitly mentions a time (e.g., "I had this at 8:30", "breakfast was at 7am"). Do NOT guess or infer the time. Leave it null when the user doesn't specify.
 - When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values (half portion, different ingredients, different amount), set source_custom_food_id to null.
 - ${THINKING_INSTRUCTION}
 
@@ -142,6 +143,14 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       source_custom_food_id: {
         type: ["number", "null"],
         description: "ID of an existing custom food from search_food_log results. Set to the [id:N] value when reusing a food exactly as-is (same portion, same nutrition). Set to null when creating new food or when modifying nutrition values (e.g. half portion, different ingredients).",
+      },
+      time: {
+        type: ["string", "null"],
+        description: "Meal time in HH:mm format (24h). Only set when the user explicitly mentions a time (e.g., 'I had this at 8:30', 'breakfast was at 7am'). Set to null otherwise — never guess the time.",
+      },
+      meal_type_id: {
+        type: ["number", "null"],
+        description: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Only set when the user mentions the meal context (e.g., 'for breakfast', 'lunch'). Set to null otherwise — never guess the meal type.",
       },
     },
     required: [
@@ -402,6 +411,43 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     ? rawSourceId
     : undefined;
 
+  // Validate optional time field: null/undefined (absent) or valid HH:mm string
+  const rawTime = data.time;
+  let validatedTime: string | null | undefined;
+  if (rawTime === undefined) {
+    validatedTime = undefined;
+  } else if (rawTime === null) {
+    validatedTime = null;
+  } else if (typeof rawTime === "string") {
+    if (!/^\d{2}:\d{2}$/.test(rawTime)) {
+      throw new ClaudeApiError("Invalid food analysis: time must be in HH:mm format");
+    }
+    const [hh, mm] = rawTime.split(":").map(Number);
+    if (hh < 0 || hh > 23 || mm < 0 || mm > 59) {
+      throw new ClaudeApiError("Invalid food analysis: time has invalid hour or minute value");
+    }
+    validatedTime = rawTime;
+  } else {
+    throw new ClaudeApiError("Invalid food analysis: time must be a string in HH:mm format or null");
+  }
+
+  // Validate optional meal_type_id field: null/undefined or one of valid Fitbit meal types
+  const VALID_MEAL_TYPE_IDS = new Set([1, 2, 3, 4, 5, 7]);
+  const rawMealTypeId = data.meal_type_id;
+  let validatedMealTypeId: number | null | undefined;
+  if (rawMealTypeId === undefined) {
+    validatedMealTypeId = undefined;
+  } else if (rawMealTypeId === null) {
+    validatedMealTypeId = null;
+  } else if (typeof rawMealTypeId === "number") {
+    if (!VALID_MEAL_TYPE_IDS.has(rawMealTypeId)) {
+      throw new ClaudeApiError("Invalid food analysis: meal_type_id must be 1, 2, 3, 4, 5, or 7");
+    }
+    validatedMealTypeId = rawMealTypeId;
+  } else {
+    throw new ClaudeApiError("Invalid food analysis: meal_type_id must be a number or null");
+  }
+
   const result: FoodAnalysis = {
     food_name: data.food_name as string,
     amount: data.amount as number,
@@ -424,6 +470,14 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
 
   if (sourceCustomFoodId !== undefined) {
     result.sourceCustomFoodId = sourceCustomFoodId;
+  }
+
+  if (validatedTime !== undefined) {
+    result.time = validatedTime;
+  }
+
+  if (validatedMealTypeId !== undefined) {
+    result.mealTypeId = validatedMealTypeId;
   }
 
   return result;
@@ -1484,6 +1538,95 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     l.error(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API conversational refinement error"
+    );
+    throw new ClaudeApiError(
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+export const EDIT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+You are reviewing an existing food log entry and helping the user make corrections or adjustments.
+
+Follow these rules:
+- Review the existing entry details provided in the context below
+- When the user describes a correction (different portion, wrong food, different ingredients), call report_nutrition with the corrected values
+- Combine all changes into a SINGLE report_nutrition call
+- Be concise and focused — this is an edit session, not a new analysis
+- CRITICAL: Changes are ONLY applied when you call report_nutrition. Never say the entry "is updated" without calling report_nutrition.
+- ${REPORT_NUTRITION_UI_CARD_NOTE}
+- ${THINKING_INSTRUCTION}
+
+Web search guidelines:
+- Use web search to look up accurate nutrition info for specific restaurants or branded products when the user wants to change to a different specific food.
+- For general corrections (different portion size, simple adjustments), use your training data.`;
+
+/**
+ * Edit an existing food log entry via conversational AI. Returns a streaming generator of StreamEvent.
+ *
+ * Yields:
+ * - text_delta: as Claude emits text
+ * - analysis: if report_nutrition is called with corrected values
+ * - tool_start: if data/search tools are invoked
+ * - usage: after each API call
+ * - done: when the conversation turn is complete
+ */
+export async function* editAnalysis(
+  messages: ConversationMessage[],
+  entry: FoodLogEntryDetail,
+  userId: string,
+  currentDate: string,
+  signal?: AbortSignal,
+  log?: Logger,
+): AsyncGenerator<StreamEvent> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  try {
+    l.info({ messageCount: messages.length }, "calling Claude API for food edit");
+
+    // Convert messages to Anthropic format — no images in edit mode
+    let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => ({
+      role: msg.role,
+      content: [{ type: "text" as const, text: msg.content }],
+    }));
+
+    // Build system prompt with EDIT_SYSTEM_PROMPT + entry context + date
+    const amountLabel = getUnitLabel(entry.unitId, entry.amount);
+    let systemPrompt = EDIT_SYSTEM_PROMPT;
+    systemPrompt += `\n\nToday's date is: ${currentDate}`;
+    systemPrompt += `\n\nExisting food log entry being edited:
+- Food: ${entry.foodName}
+- Amount: ${amountLabel}
+- Calories: ${entry.calories}
+- Protein: ${entry.proteinG}g, Carbs: ${entry.carbsG}g, Fat: ${entry.fatG}g
+- Fiber: ${entry.fiberG}g, Sodium: ${entry.sodiumMg}mg
+- Date: ${entry.date}${entry.time ? `, Time: ${entry.time}` : ""}
+- Confidence: ${entry.confidence}${entry.notes ? `\n- Notes: ${entry.notes}` : ""}
+
+Help the user make corrections. Call report_nutrition with the corrected values.`;
+
+    // Truncate conversation if needed
+    anthropicMessages = truncateConversation(anthropicMessages, 150000, l);
+
+    const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
+
+    yield* runToolLoop(anthropicMessages, userId, currentDate, {
+      systemPrompt,
+      tools: allTools,
+      operation: "food-edit",
+      signal,
+      log: l,
+    });
+
+    l.info({ action: "edit_analysis_done", durationMs: elapsed() }, "food edit analysis completed");
+  } catch (error) {
+    if (error instanceof ClaudeApiError) {
+      throw error;
+    }
+    l.error(
+      { error: error instanceof Error ? error.message : String(error) },
+      "Claude API edit analysis error"
     );
     throw new ClaudeApiError(
       `API request failed: ${error instanceof Error ? error.message : String(error)}`

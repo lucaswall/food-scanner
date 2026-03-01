@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import useSWRInfinite from "swr/infinite";
 import { apiFetcher, invalidateFoodCaches } from "@/lib/swr";
@@ -17,7 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { Trash2, UtensilsCrossed, Loader2 } from "lucide-react";
+import { Trash2, Pencil, UtensilsCrossed, Loader2 } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
@@ -71,6 +72,7 @@ function groupByDate(entries: FoodLogHistoryEntry[]): DateGroup[] {
 }
 
 export function FoodHistory() {
+  const router = useRouter();
   const [endDate, setEndDate] = useState<string | null>(null);
   const [jumpDate, setJumpDate] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -305,6 +307,15 @@ export function FoodHistory() {
                   </div>
                 </div>
               </button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="min-h-[44px] min-w-[44px] shrink-0 mr-1"
+                onClick={() => router.push(`/app/edit/${entry.id}`)}
+                aria-label={`Edit ${entry.foodName}`}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"

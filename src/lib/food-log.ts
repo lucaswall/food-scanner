@@ -1,4 +1,5 @@
-import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc, between } from "drizzle-orm";
+import { eq, and, or, isNotNull, isNull, gte, lte, lt, gt, desc, asc, between, sql } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
 import { computeMatchRatio } from "@/lib/food-matching";
@@ -34,6 +35,30 @@ export interface FoodLogEntryInput {
   mealTypeId: number;
   amount: number;
   unitId: number;
+  date: string;
+  time: string;
+  fitbitLogId?: number | null;
+}
+
+export interface UpdateFoodLogInput {
+  foodName: string;
+  amount: number;
+  unitId: number;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sodiumMg: number;
+  saturatedFatG?: number | null;
+  transFatG?: number | null;
+  sugarsG?: number | null;
+  caloriesFromFat?: number | null;
+  confidence: "high" | "medium" | "low";
+  notes: string | null;
+  description?: string | null;
+  keywords?: string[] | null;
+  mealTypeId: number;
   date: string;
   time: string;
   fitbitLogId?: number | null;
@@ -114,6 +139,22 @@ export async function getCustomFoodById(userId: string, id: number) {
   return rows[0] ?? null;
 }
 
+export async function toggleFavorite(
+  userId: string,
+  customFoodId: number,
+): Promise<{ isFavorite: boolean } | null> {
+  const db = getDb();
+  const rows = await db
+    .update(customFoods)
+    .set({ isFavorite: sql`NOT ${customFoods.isFavorite}` })
+    .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)))
+    .returning({ isFavorite: customFoods.isFavorite });
+
+  const row = rows[0];
+  if (!row) return null;
+  return { isFavorite: row.isFavorite };
+}
+
 function parseTimeToMinutes(time: string | null): number {
   if (!time) return 0;
   const parts = time.split(":");
@@ -159,6 +200,8 @@ interface JoinedRow {
     notes: string | null;
     description: string | null;
     keywords: string[] | null;
+    isFavorite: boolean;
+    shareToken: string | null;
     createdAt: Date;
   };
 }
@@ -181,6 +224,7 @@ function mapRowToCommonFood(row: JoinedRow): CommonFood {
     caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
     fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
     mealTypeId: row.food_log_entries.mealTypeId,
+    isFavorite: row.custom_foods.isFavorite,
   };
 }
 
@@ -262,22 +306,61 @@ export async function getCommonFoods(
   }
 
   // Sort by descending total score
-  let sorted = [...scoreByFood.values()]
+  const allSorted = [...scoreByFood.values()]
     .sort((a, b) => b.totalScore - a.totalScore);
 
-  // Cursor-based pagination: composite cursor {score, id} for stable pagination
+  // Separate favorites from non-favorites — favorites are pinned on page 1 only,
+  // and the cursor system only paginates over non-favorites to avoid duplicates
+  const favorites = allSorted.filter(item => item.bestRow.custom_foods.isFavorite);
+  const nonFavorites = allSorted.filter(item => !item.bestRow.custom_foods.isFavorite);
+
+  // Cursor-based pagination over non-favorites only
+  let paginatedNonFavorites = nonFavorites;
   if (options.cursor !== undefined) {
     const { score: cursorScore, id: cursorId } = options.cursor;
-    sorted = sorted.filter((item) => {
+    paginatedNonFavorites = nonFavorites.filter((item) => {
       const foodId = item.bestRow.custom_foods.id;
       return item.totalScore < cursorScore ||
         (item.totalScore === cursorScore && foodId > cursorId);
     });
   }
 
-  // Fetch limit + 1 to detect if more items exist
-  const hasMore = sorted.length > limit;
-  const page = sorted.slice(0, limit);
+  // Page 1: favorites (sorted by date desc) + fill remaining slots with scored non-favorites
+  // Page 2+: only non-favorites (cursor already filtered above)
+  let page: typeof allSorted;
+  if (options.cursor === undefined) {
+    favorites.sort((a, b) =>
+      b.bestRow.food_log_entries.date.localeCompare(a.bestRow.food_log_entries.date),
+    );
+    const remainingSlots = Math.max(0, limit - favorites.length);
+    const hasMore = paginatedNonFavorites.length > remainingSlots;
+    page = [...favorites, ...paginatedNonFavorites.slice(0, remainingSlots)];
+    let nextCursor: CommonFoodsCursor | null = null;
+    if (hasMore) {
+      // Use the last non-favorite shown on this page as cursor anchor,
+      // or the first non-favorite if favorites filled all slots (remainingSlots === 0).
+      // When remainingSlots === 0, no non-favorites were shown on page 1, so the cursor
+      // must include ALL non-favorites on page 2. We use score+1 with id=0 as a sentinel
+      // that passes the filter `score < cursorScore || (score === cursorScore && id > 0)`.
+      // +1 safely exceeds any single non-favorite's totalScore (sentinel always passes `< cursorScore`).
+      // id: 0 is safe because PostgreSQL serial PKs start at 1, so no real food has id 0.
+      const cursorItem = remainingSlots > 0
+        ? paginatedNonFavorites[remainingSlots - 1]
+        : paginatedNonFavorites[0];
+      if (cursorItem) {
+        nextCursor = remainingSlots > 0
+          ? { score: cursorItem.totalScore, id: cursorItem.bestRow.custom_foods.id }
+          : { score: cursorItem.totalScore + 1, id: 0 };
+      }
+    }
+    const foods: CommonFood[] = page.map(({ bestRow }) => mapRowToCommonFood(bestRow));
+    l.debug({ action: "get_common_foods", resultCount: foods.length, hasMore }, "common foods retrieved");
+    return { foods, nextCursor };
+  }
+
+  // Page 2+: only non-favorites
+  const hasMore = paginatedNonFavorites.length > limit;
+  page = paginatedNonFavorites.slice(0, limit);
 
   const foods: CommonFood[] = page.map(({ bestRow }) => mapRowToCommonFood(bestRow));
 
@@ -455,6 +538,7 @@ export async function getFoodLogEntryDetail(
 
   return {
     id: row.food_log_entries.id,
+    customFoodId: row.custom_foods.id,
     foodName: row.custom_foods.foodName,
     description: row.custom_foods.description,
     notes: row.custom_foods.notes,
@@ -475,7 +559,25 @@ export async function getFoodLogEntryDetail(
     time: row.food_log_entries.time,
     fitbitLogId: row.food_log_entries.fitbitLogId,
     confidence: row.custom_foods.confidence,
+    isFavorite: row.custom_foods.isFavorite,
   };
+}
+
+type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+async function cleanupOrphanCustomFood(tx: DbTx, customFoodId: number): Promise<boolean> {
+  const remainingEntries = await tx
+    .select({ id: foodLogEntries.id })
+    .from(foodLogEntries)
+    .where(eq(foodLogEntries.customFoodId, customFoodId));
+
+  if (remainingEntries.length === 0) {
+    await tx
+      .delete(customFoods)
+      .where(eq(customFoods.id, customFoodId));
+    return true;
+  }
+  return false;
 }
 
 export async function deleteFoodLogEntry(
@@ -501,21 +603,106 @@ export async function deleteFoodLogEntry(
     const row = rows[0];
     if (!row) return null;
 
-    // Check if the custom food is still referenced by other entries
-    const remainingEntries = await tx
-      .select({ id: foodLogEntries.id })
-      .from(foodLogEntries)
-      .where(eq(foodLogEntries.customFoodId, row.customFoodId));
+    const orphanedFoodCleaned = await cleanupOrphanCustomFood(tx, row.customFoodId);
 
-    // If no remaining entries reference this custom food, delete it
-    if (remainingEntries.length === 0) {
+    l.debug({ action: "delete_food_log_entry", entryId, orphanedFoodCleaned }, "food log entry deleted");
+    return { fitbitLogId: row.fitbitLogId };
+  });
+}
+
+export async function updateFoodLogEntry(
+  userId: string,
+  entryId: number,
+  data: UpdateFoodLogInput,
+  log?: Logger,
+): Promise<{ fitbitLogId: number | null; newCustomFoodId: number } | null> {
+  const l = log ?? logger;
+  const db = getDb();
+
+  return db.transaction(async (tx) => {
+    // Fetch current entry to get customFoodId and fitbitLogId
+    const rows = await tx
+      .select({
+        customFoodId: foodLogEntries.customFoodId,
+        fitbitLogId: foodLogEntries.fitbitLogId,
+      })
+      .from(foodLogEntries)
+      .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
+
+    const row = rows[0];
+    if (!row) return null;
+
+    const oldCustomFoodId = row.customFoodId;
+
+    // Fetch metadata from old custom food to preserve during replacement
+    const oldFoodRows = await tx
+      .select({
+        fitbitFoodId: customFoods.fitbitFoodId,
+        isFavorite: customFoods.isFavorite,
+        shareToken: customFoods.shareToken,
+      })
+      .from(customFoods)
+      .where(eq(customFoods.id, oldCustomFoodId));
+    const oldFood = oldFoodRows[0];
+
+    // Clear shareToken on old food before inserting new one to avoid unique constraint violation
+    if (oldFood?.shareToken) {
       await tx
-        .delete(customFoods)
-        .where(eq(customFoods.id, row.customFoodId));
+        .update(customFoods)
+        .set({ shareToken: null })
+        .where(eq(customFoods.id, oldCustomFoodId));
     }
 
-    l.debug({ action: "delete_food_log_entry", entryId, orphanedFoodCleaned: remainingEntries.length === 0 }, "food log entry deleted");
-    return { fitbitLogId: row.fitbitLogId };
+    // Insert new custom food with updated values, preserving metadata from old record
+    const newFoods = await tx
+      .insert(customFoods)
+      .values({
+        userId,
+        foodName: data.foodName,
+        amount: String(data.amount),
+        unitId: data.unitId,
+        calories: Math.round(data.calories),
+        proteinG: String(data.proteinG),
+        carbsG: String(data.carbsG),
+        fatG: String(data.fatG),
+        fiberG: String(data.fiberG),
+        sodiumMg: String(data.sodiumMg),
+        saturatedFatG: data.saturatedFatG != null ? String(data.saturatedFatG) : null,
+        transFatG: data.transFatG != null ? String(data.transFatG) : null,
+        sugarsG: data.sugarsG != null ? String(data.sugarsG) : null,
+        caloriesFromFat: data.caloriesFromFat != null ? String(data.caloriesFromFat) : null,
+        confidence: data.confidence,
+        notes: data.notes,
+        description: data.description ?? null,
+        keywords: data.keywords ?? null,
+        fitbitFoodId: oldFood?.fitbitFoodId ?? null,
+        isFavorite: oldFood?.isFavorite ?? false,
+        shareToken: oldFood?.shareToken ?? null,
+      })
+      .returning({ id: customFoods.id });
+
+    const newFood = newFoods[0];
+    if (!newFood) throw new Error("Failed to insert updated custom food: no row returned");
+
+    // Update the food log entry to point to the new custom food
+    await tx
+      .update(foodLogEntries)
+      .set({
+        customFoodId: newFood.id,
+        amount: String(data.amount),
+        unitId: data.unitId,
+        mealTypeId: data.mealTypeId,
+        date: data.date,
+        time: data.time,
+        ...(data.fitbitLogId !== undefined ? { fitbitLogId: data.fitbitLogId } : {}),
+      })
+      .where(eq(foodLogEntries.id, entryId));
+
+    // Clean up old custom food if no longer referenced
+    await cleanupOrphanCustomFood(tx, oldCustomFoodId);
+
+    l.debug({ action: "update_food_log_entry", entryId, newCustomFoodId: newFood.id }, "food log entry updated");
+    return { fitbitLogId: row.fitbitLogId, newCustomFoodId: newFood.id };
   });
 }
 
@@ -616,6 +803,7 @@ export async function searchFoods(
       caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
       fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
       mealTypeId: entryRow.food_log_entries?.mealTypeId ?? 7,
+      isFavorite: row.custom_foods.isFavorite,
     };
   });
   l.debug({ action: "search_foods", keywords, resultCount: results.length }, "food search complete");
@@ -827,6 +1015,54 @@ export async function getDailyNutritionSummary(
       caloriesFromFat: totalCaloriesFromFat,
     },
   };
+}
+
+export async function setShareToken(
+  userId: string,
+  customFoodId: number,
+): Promise<string | null> {
+  const db = getDb();
+
+  // Check if food exists and already has a token
+  const rows = await db
+    .select()
+    .from(customFoods)
+    .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
+
+  const food = rows[0];
+  if (!food) return null;
+
+  if (food.shareToken) return food.shareToken;
+
+  // Atomic: only set token if still null (prevents race condition)
+  const token = nanoid(12);
+  await db
+    .update(customFoods)
+    .set({ shareToken: token })
+    .where(and(
+      eq(customFoods.id, customFoodId),
+      eq(customFoods.userId, userId),
+      isNull(customFoods.shareToken),
+    ));
+
+  // Re-read to get the winner's token (handles concurrent race)
+  const refetch = await db
+    .select({ shareToken: customFoods.shareToken })
+    .from(customFoods)
+    .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
+
+  return refetch[0]?.shareToken ?? null;
+}
+
+export async function getCustomFoodByShareToken(shareToken: string) {
+  const db = getDb();
+
+  const rows = await db
+    .select()
+    .from(customFoods)
+    .where(eq(customFoods.shareToken, shareToken));
+
+  return rows[0] ?? null;
 }
 
 export async function getDateRangeNutritionSummary(

@@ -109,4 +109,35 @@ describe("POST /api/auth/google", () => {
     const body = await response.json();
     expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
   });
+
+  it("encodes returnTo in OAuth state when provided", async () => {
+    const req = new Request("http://localhost:3000/api/auth/google?returnTo=/app/log-shared/abc", {
+      method: "POST",
+      headers: { "x-forwarded-for": "1.2.3.4" },
+    });
+    await POST(req);
+
+    const storedState = mockRawSession.oauthState as string;
+    expect(() => JSON.parse(storedState)).not.toThrow();
+    const stateData = JSON.parse(storedState);
+    expect(stateData.returnTo).toBe("/app/log-shared/abc");
+  });
+
+  it("does not include returnTo in state when not provided", async () => {
+    const response = await POST(makeRequest());
+
+    const storedState = mockRawSession.oauthState as string;
+    // State may or may not be JSON - if JSON, returnTo should not be set
+    let stateData: unknown;
+    try {
+      stateData = JSON.parse(storedState);
+    } catch {
+      // Plain string is fine too
+      stateData = null;
+    }
+    if (stateData && typeof stateData === "object") {
+      expect((stateData as Record<string, unknown>).returnTo).toBeFalsy();
+    }
+    expect(response.status).toBe(302);
+  });
 });

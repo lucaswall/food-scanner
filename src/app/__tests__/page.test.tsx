@@ -24,13 +24,13 @@ const { default: Home } = await import("@/app/page");
 
 describe("Landing page", () => {
   it("renders app name 'Food Scanner'", async () => {
-    const jsx = await Home();
+    const jsx = await Home({ searchParams: Promise.resolve({}) });
     render(jsx);
     expect(screen.getByText("Food Scanner")).toBeInTheDocument();
   });
 
   it("renders 'Login with Google' button", async () => {
-    const jsx = await Home();
+    const jsx = await Home({ searchParams: Promise.resolve({}) });
     render(jsx);
     expect(
       screen.getByRole("button", { name: /login with google/i }),
@@ -38,7 +38,7 @@ describe("Landing page", () => {
   });
 
   it("renders SkipLink pointing to #main-content", async () => {
-    const jsx = await Home();
+    const jsx = await Home({ searchParams: Promise.resolve({}) });
     render(jsx);
     const skipLink = screen.getByText("Skip to main content");
     expect(skipLink).toBeInTheDocument();
@@ -46,7 +46,7 @@ describe("Landing page", () => {
   });
 
   it("has id='main-content' on main element", async () => {
-    const jsx = await Home();
+    const jsx = await Home({ searchParams: Promise.resolve({}) });
     render(jsx);
     const main = screen.getByRole("main");
     expect(main).toHaveAttribute("id", "main-content");
