@@ -1316,11 +1316,13 @@ export async function* conversationalRefine(
         );
       }
 
-      // Add the text content
-      content.push({
-        type: "text" as const,
-        text: msg.content,
-      });
+      // Add the text content (skip empty strings — tool_use-only assistant turns have no text)
+      if (msg.content) {
+        content.push({
+          type: "text" as const,
+          text: msg.content,
+        });
+      }
 
       // Append structured analysis summary for assistant messages with analysis
       if (msg.role === "assistant" && msg.analysis) {
