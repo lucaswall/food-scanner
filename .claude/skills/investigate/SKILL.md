@@ -1,8 +1,8 @@
 ---
 name: investigate
-description: Read-only investigation that reports findings WITHOUT creating plans or modifying code. Use when user says "investigate", "check why", "look into", "diagnose", or wants to understand a problem before deciding on action. Accesses Railway logs and codebase.
+description: Read-only investigation that reports findings WITHOUT creating plans or modifying code. Use when user says "investigate", "check why", "look into", "diagnose", or wants to understand a problem before deciding on action. Accesses Sentry errors, Railway logs, and codebase.
 argument-hint: <what to investigate>
-allowed-tools: Read, Glob, Grep, Task, Bash, mcp__Railway__check-railway-status, mcp__Railway__get-logs, mcp__Railway__list-deployments, mcp__Railway__list-projects, mcp__Railway__list-services, mcp__Railway__list-variables
+allowed-tools: Read, Glob, Grep, Task, Bash, mcp__Railway__check-railway-status, mcp__Railway__get-logs, mcp__Railway__list-deployments, mcp__Railway__list-projects, mcp__Railway__list-services, mcp__Railway__list-variables, mcp__sentry__search_issues, mcp__sentry__get_issue_details, mcp__sentry__search_events, mcp__sentry__search_issue_events, mcp__sentry__get_trace_details, mcp__sentry__get_issue_tag_values, mcp__sentry__analyze_issue_with_seer
 disable-model-invocation: true
 ---
 
@@ -12,9 +12,61 @@ Investigate issues and report findings. Does NOT create plans or modify code.
 
 - Investigate reported issues (API errors, wrong data, unexpected behavior)
 - Debug deployment or runtime issues using Railway logs
+- Query Sentry for errors, traces, performance data, and AI/LLM usage
 - Analyze codebase to understand behavior
 - Examine configuration and environment issues
 - **Report findings only** - user decides next steps
+
+## Sentry
+
+This project uses Sentry (`@sentry/nextjs`) for error tracking, session replay, performance tracing, and AI monitoring.
+
+**Organization:** `lucas-wall` | **Project:** `food-scanner` | **Region URL:** `https://us.sentry.io`
+
+Always pass these to Sentry MCP tools:
+- `organizationSlug: "lucas-wall"`
+- `projectSlugOrId: "food-scanner"` (for `search_issues`) or `projectSlug: "food-scanner"` (for `search_events`, `search_issue_events`)
+- `regionUrl: "https://us.sentry.io"`
+
+**Sentry environments** map to Railway:
+| Sentry `environment` | Railway | URL |
+|---|---|---|
+| `production` | production | `food.lucaswall.me` |
+| `staging` | staging | `food-test.lucaswall.me` |
+| `development` | local | `localhost:3000` |
+
+### Which Sentry tool to use
+
+| Goal | Tool | Example |
+|------|------|---------|
+| List matching issues | `search_issues` | "unresolved errors in production" |
+| Issue details + stacktrace | `get_issue_details` | Pass issue ID like `FOOD-SCANNER-1` |
+| Count errors or search events | `search_events` | "how many errors today", "database errors from last hour" |
+| Filter events within one issue | `search_issue_events` | "events from last hour" on issue X |
+| View a trace | `get_trace_details` | Pass 32-char hex trace ID |
+| Tag distribution for an issue | `get_issue_tag_values` | tagKey: "environment", "url", "browser" |
+| AI root cause analysis | `analyze_issue_with_seer` | Deep analysis with code fix suggestions |
+
+### Sentry investigation patterns
+
+**Error investigation:**
+1. `search_issues` — find matching issues by description or symptoms
+2. `get_issue_details` — get stacktrace, affected users, frequency
+3. `get_issue_tag_values` — check environment/release/url distribution
+4. `search_issue_events` — filter to specific timeframe or environment
+5. `analyze_issue_with_seer` — get AI root cause analysis with code fixes
+
+**Performance investigation:**
+1. `search_events` — query spans: "slow API requests", "p95 response time"
+2. `get_trace_details` — inspect a specific trace for bottlenecks
+
+**Claude API investigation:**
+1. `search_events` — query AI spans: "anthropic API calls", "token usage by model", "slow Claude responses"
+2. `get_trace_details` — trace a full request through Claude tool_use loops
+
+**Trend investigation:**
+1. `search_events` — "count of errors today vs yesterday", "error rate this week"
+2. `search_issues` — "new issues in the last 24 hours"
 
 ## Railway Environments
 
@@ -39,25 +91,9 @@ $ARGUMENTS should describe what to investigate:
 - What happened vs what was expected
 - Error messages or unexpected values
 - Which environment (production or staging) — if not specified, ask
+- Sentry issue ID or URL if the user provides one
 - Deployment ID if it's a deployment issue
 - Any context that helps narrow the scope
-
-## Context Gathering
-
-**IMPORTANT: Do NOT hardcode MCP names or folder paths.** Always read CLAUDE.md to discover:
-
-1. **Available MCP servers** - Look for "MCP SERVERS" section to find:
-   - Deployment MCPs for logs and service status (Railway)
-   - Any other configured MCPs
-
-2. **Project structure** - Look for "STRUCTURE" or "FOLDER STRUCTURE" sections to understand:
-   - Where source code and documents are stored
-   - Naming conventions and organization
-
-3. **Domain concepts** - Look for sections describing:
-   - Data schemas and formats
-   - Business rules and validation
-   - API endpoints and their behavior
 
 ## Investigation Workflow
 
@@ -67,14 +103,22 @@ Based on $ARGUMENTS, determine what you're investigating:
 
 | Category | Indicators | Primary Tools |
 |----------|-----------|---------------|
-| **API** | Wrong response, missing data, error codes | Codebase, Railway logs |
-| **Deployment** | Service down, build failures, runtime errors | Railway MCP |
-| **Data** | Wrong values, missing records, unexpected state | Codebase, Database queries |
-| **Performance** | Slow responses, timeouts, resource issues | Railway logs, Codebase |
-| **Auth** | Login failures, permission errors, token issues | Codebase, Railway logs |
+| **Error** | Exception, crash, 500, unhandled error | Sentry issues/events, Railway logs, Codebase |
+| **API** | Wrong response, missing data, error codes | Sentry traces, Codebase, Railway logs |
+| **Deployment** | Service down, build failures, runtime errors | Railway MCP, Sentry events |
+| **Performance** | Slow responses, timeouts, resource issues | Sentry spans/traces, Railway logs |
+| **Data** | Wrong values, missing records, unexpected state | Codebase, Sentry events |
+| **Auth** | Login failures, permission errors, token issues | Sentry issues, Codebase, Railway logs |
+| **AI/Claude** | Bad analysis, high latency, token waste | Sentry AI spans, Codebase |
 | **General** | Unknown cause, need exploration | All available tools |
 
 ### Step 2: Gather Evidence
+
+**Start with Sentry** for most investigations — it provides the richest context (stacktraces, traces, frequency, affected environments):
+1. `search_issues` to find related errors
+2. `get_issue_details` for stacktrace and metadata
+3. `search_events` for counts, trends, or individual events
+4. `get_trace_details` to trace a request through the system
 
 **For Codebase Analysis:**
 - Use Grep/Glob for specific searches
@@ -90,16 +134,15 @@ Based on $ARGUMENTS, determine what you're investigating:
 6. Search logs for errors using filters (e.g., `@level:error`)
 
 **For API Issues:**
+- Check Sentry for related errors and traces first
 - Trace the request flow through the codebase
 - Check route handlers, middleware, and data access layers
 - Look for error handling gaps
-- Check environment variable usage
 
-**For Data Issues:**
-- Examine data models and schemas
-- Check validation logic
-- Trace data flow from input to storage
-- Look for transformation errors
+**For Claude/AI Issues:**
+- `search_events` to find AI spans (Anthropic calls)
+- Check token usage, latency, model info
+- Cross-reference with codebase prompts and tool definitions
 
 ### Step 3: Form Conclusions
 
@@ -124,12 +167,13 @@ Write findings to the conversation (NOT to a file):
 
 ### Context
 - **MCPs used:** [list MCPs accessed]
+- **Sentry issues reviewed:** [issue IDs if applicable]
 - **Railway environment queried:** [production | staging | N/A]
 - **Files examined:** [list key files checked]
 - **Logs reviewed:** [deployment IDs, time ranges if applicable]
 
 ### Evidence
-[What you found - be specific with data points, log excerpts, file contents]
+[What you found - be specific with data points, log excerpts, stacktraces, file contents]
 
 ### Findings
 
@@ -159,6 +203,7 @@ When investigating deployment issues (via Railway MCP):
 | $ARGUMENTS is vague | Ask for more specific details |
 | CLAUDE.md doesn't exist | Continue with codebase-only investigation |
 | MCP not available | Skip that MCP, note in report what couldn't be checked |
+| Sentry has no matching issues | Note in report — may be a new/unreported issue |
 | File/resource not found | Document in report (may be relevant) |
 | Cannot reproduce issue | Document steps taken, request more context |
 | Logs unavailable | Note in report, suggest alternative approaches |
@@ -167,10 +212,11 @@ When investigating deployment issues (via Railway MCP):
 
 - **Report only** - Do NOT modify source code or files
 - **No plans** - Do NOT write PLANS.md or fix plans
-- **Discover MCPs** - Read CLAUDE.md to find available tools
+- **Start with Sentry** - For error/performance investigations, check Sentry before Railway logs
 - **Explicit environment** - ALWAYS pass the `environment` parameter to Railway MCP tools; never rely on CLI defaults
+- **Sentry constants** - ALWAYS pass `organizationSlug: "lucas-wall"` and `regionUrl: "https://us.sentry.io"` to Sentry tools
 - **Be thorough** - Check multiple sources before concluding
-- **Be specific** - Include exact values, line numbers, timestamps
+- **Be specific** - Include exact values, line numbers, timestamps, Sentry issue IDs
 - **Be honest** - If uncertain, say so; if nothing wrong, say so
 
 ## What NOT to Do
