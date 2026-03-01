@@ -172,7 +172,7 @@ async function executeSearchFoodLog(
       lines.push(`\n${mealLabel}:`);
       for (const entry of meal.entries) {
         const timeStr = entry.time ? ` at ${formatTime(entry.time)}` : "";
-        lines.push(`  • [id:${entry.customFoodId}] ${entry.foodName}${timeStr} — ${entry.calories} cal, P:${entry.proteinG}g C:${entry.carbsG}g F:${entry.fatG}g`);
+        lines.push(`  • [id:${entry.customFoodId}] [entry:${entry.id}] ${entry.foodName}${timeStr} — ${entry.calories} cal, P:${entry.proteinG}g C:${entry.carbsG}g F:${entry.fatG}g`);
       }
     }
 
@@ -197,7 +197,7 @@ async function executeSearchFoodLog(
       const amountLabel = getUnitLabel(entry.unitId, entry.amount);
       const mealLabel = FITBIT_MEAL_TYPE_LABELS[entry.mealTypeId] || "Unknown";
       const timeStr = entry.time ? ` at ${formatTime(entry.time)}` : "";
-      return `• [id:${entry.customFoodId}] ${entry.date} — ${entry.foodName} (${mealLabel}${timeStr}) — ${amountLabel}, ${entry.calories} cal, P:${entry.proteinG}g C:${entry.carbsG}g F:${entry.fatG}g`;
+      return `• [id:${entry.customFoodId}] [entry:${entry.id}] ${entry.date} — ${entry.foodName} (${mealLabel}${timeStr}) — ${amountLabel}, ${entry.calories} cal, P:${entry.proteinG}g C:${entry.carbsG}g F:${entry.fatG}g`;
     });
 
     return `Found ${truncated.length} entries between ${from_date} and ${to_date}:\n${lines.join("\n")}`;

@@ -3114,6 +3114,22 @@ describe("CHAT_SYSTEM_PROMPT — editing_entry_id field", () => {
     const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
     expect(CHAT_SYSTEM_PROMPT).toContain("editing_entry_id");
   });
+
+  it("CHAT_SYSTEM_PROMPT references [entry:N] for editing_entry_id", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toContain("[entry:N]");
+  });
+
+  it("CHAT_SYSTEM_PROMPT still references [id:N] for source_custom_food_id", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toContain("[id:N]");
+  });
+
+  it("REPORT_NUTRITION_TOOL editing_entry_id description references [entry:N]", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const props = REPORT_NUTRITION_TOOL.input_schema.properties as Record<string, { description?: string }>;
+    expect(props.editing_entry_id.description).toContain("[entry:N]");
+  });
 });
 
 // =============================================================================

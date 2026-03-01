@@ -96,3 +96,30 @@ Both `source_custom_food_id` and `editing_entry_id` reference the same `[id:N]` 
 - Keyword search intentionally does NOT get `[entry:N]` — it returns aggregated food definitions, not specific log entries. To edit, the user must reference a date-specific entry.
 - No DB migration needed — the data model is correct; only the tool output format and prompt need updating.
 - E2E test `e2e/tests/edit-food.spec.ts` may need updating if it tests the chat edit flow end-to-end.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-01
+**Method:** Single-agent (2 tasks, 2 units, effort score 2)
+
+### Tasks Completed This Iteration
+- Step 1: Add `[entry:N]` marker to date-based search results — Added `[entry:${entry.id}]` to Case 2 (date search) and Case 3 (date range search) in `chat-tools.ts`
+- Step 2: Update system prompt and tool descriptions — Changed `editing_entry_id` references from `[id:N]` to `[entry:N]` in `CHAT_SYSTEM_PROMPT` and `REPORT_NUTRITION_TOOL`
+
+### Files Modified
+- `src/lib/chat-tools.ts` — Added `[entry:N]` marker to date search (line 175) and date range search (line 200)
+- `src/lib/claude.ts` — Updated `editing_entry_id` rule in system prompt (line 75) and tool description (line 154) to reference `[entry:N]`
+- `src/lib/__tests__/chat-tools.test.ts` — Added 3 tests: date search `[entry:N]`, date range `[entry:N]`, keyword search no `[entry:N]`
+- `src/lib/__tests__/claude.test.ts` — Added 3 tests: prompt references `[entry:N]`, prompt still references `[id:N]`, tool description references `[entry:N]`
+
+### Linear Updates
+- FOO-768: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 2467 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.
