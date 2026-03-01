@@ -18,11 +18,11 @@ export default async function EditFoodPage({
   const { id } = await params;
 
   return (
-    <div className="min-h-screen px-4 py-6">
-      <SkipLink />
-      <main id="main-content" className="mx-auto w-full max-w-md">
+    <main id="main-content" className="contents">
+      <div className="flex flex-col h-[calc(100dvh-5rem)]">
+        <SkipLink />
         <EditFood entryId={id} />
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
