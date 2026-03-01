@@ -2,7 +2,7 @@
 
 **Created:** 2026-03-01
 **Source:** Inline request: Unify the conversational food editor with the analyze chat screen — same header, same footer, same photo support, same greeting, same confirmation screen. The only difference is the log button does an "edit" (delete and re-add).
-**Linear Issues:** [FOO-726](https://linear.app/lw-claude/issue/FOO-726), [FOO-727](https://linear.app/lw-claude/issue/FOO-727), [FOO-728](https://linear.app/lw-claude/issue/FOO-728), [FOO-729](https://linear.app/lw-claude/issue/FOO-729)
+**Linear Issues:** [FOO-726](https://linear.app/lw-claude/issue/FOO-726), [FOO-727](https://linear.app/lw-claude/issue/FOO-727), [FOO-728](https://linear.app/lw-claude/issue/FOO-728), [FOO-729](https://linear.app/lw-claude/issue/FOO-729), [FOO-730](https://linear.app/lw-claude/issue/FOO-730)
 
 ## Context Gathered
 
@@ -15,6 +15,7 @@
 - `src/components/edit-food.tsx` — Wrapper that loads entry and renders FoodChat in edit mode
 - `src/components/food-analyzer.tsx` — Analyze page, renders FoodChat as overlay when chat is open
 - `src/components/food-log-confirmation.tsx` — Success screen after logging (only used in analyze flow)
+- `src/components/food-entry-card.tsx` — Shared card for food history and quick-select entries
 - `src/app/api/edit-chat/route.ts` — SSE chat endpoint for editing (no image support)
 - `src/app/api/edit-food/route.ts` — Save edited entry (delete + re-add Fitbit log)
 - `src/app/api/chat-food/route.ts` — SSE chat endpoint for analyze (has image support)
@@ -120,6 +121,21 @@
    - When `logResponse` is set, render `<FoodLogConfirmation response={logResponse} foodName={...} analysis={loggedAnalysis} mealTypeId={loggedMealTypeId} isEdit />`
 7. Run verifier (expect pass)
 
+### Task 5: Stack edit and delete buttons vertically in FoodEntryCard
+**Linear Issue:** [FOO-730](https://linear.app/lw-claude/issue/FOO-730)
+
+1. Write/update tests in `src/components/__tests__/food-history.test.tsx` or relevant test file:
+   - Verify both edit and delete buttons still render with correct aria-labels
+   - Verify click handlers still fire correctly
+2. Run verifier (expect pass — layout change only, existing tests should still pass)
+3. Update `src/components/food-entry-card.tsx`:
+   - Wrap the edit-delete buttons (lines 85-107) in a `flex flex-col` container
+   - Current: edit and delete are inline siblings in the horizontal `flex items-center` parent
+   - After: a single `flex flex-col shrink-0` wrapper contains both buttons stacked vertically
+   - Keep the same 44x44 touch targets on each button
+   - This frees horizontal space for the three text lines (food name, metadata, macros)
+4. Run verifier (expect pass)
+
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent - Review changes for bugs
 2. Run `verifier` agent - Verify all tests pass and zero warnings
@@ -132,13 +148,13 @@
 
 **Request:** Make the conversational editor use the same screen as the analyze chat — same header, footer, photo support, greeting, and confirmation screen. Only difference: the log button does an edit (delete + re-add).
 
-**Linear Issues:** FOO-726, FOO-727, FOO-728, FOO-729
+**Linear Issues:** FOO-726, FOO-727, FOO-728, FOO-729, FOO-730
 
-**Approach:** Remove all `isEditMode` special-casing in FoodChat's header and footer. Add an initial greeting with the existing entry's nutrition data. Enable photos in edit-chat API and Claude lib. Show FoodLogConfirmation after edit success by having EditFood manage the logged state (same pattern as FoodAnalyzer).
+**Approach:** Remove all `isEditMode` special-casing in FoodChat's header and footer. Add an initial greeting with the existing entry's nutrition data. Enable photos in edit-chat API and Claude lib. Show FoodLogConfirmation after edit success by having EditFood manage the logged state (same pattern as FoodAnalyzer). Stack edit/delete buttons vertically in FoodEntryCard for more text space.
 
 **Scope:**
-- Tasks: 4
-- Files affected: ~10
+- Tasks: 5
+- Files affected: ~11
 - New tests: yes
 
 **Key Decisions:**
