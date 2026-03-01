@@ -1,15 +1,6 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { TimeSelector } from "../time-selector";
-
-// Mock formatTimeFromDate to return a predictable time
-vi.mock("@/lib/date-utils", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/date-utils")>();
-  return {
-    ...actual,
-    formatTimeFromDate: () => "09:30",
-  };
-});
 
 beforeAll(() => {
   global.ResizeObserver = class ResizeObserver {
@@ -19,56 +10,111 @@ beforeAll(() => {
   };
 });
 
+afterEach(() => {
+  document.body.innerHTML = "";
+});
+
 describe("TimeSelector", () => {
-  it("renders Now button by default when value is null", () => {
+  it("renders a combobox trigger", () => {
     render(<TimeSelector value={null} onChange={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /now/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toBeInTheDocument();
   });
 
-  it("shows current time as reference text in Now chip", () => {
+  it("displays 'Now' in trigger when value is null", () => {
     render(<TimeSelector value={null} onChange={vi.fn()} />);
-    expect(screen.getByText("09:30")).toBeInTheDocument();
+    expect(screen.getByText("Now")).toBeInTheDocument();
   });
 
-  it("does not show time input before Now is tapped", () => {
-    render(<TimeSelector value={null} onChange={vi.fn()} />);
-    expect(screen.queryByLabelText(/meal time/i)).not.toBeInTheDocument();
+  it("displays selected time in trigger when value is set", () => {
+    render(<TimeSelector value="14:30" onChange={vi.fn()} />);
+    expect(screen.getByText("14:30")).toBeInTheDocument();
   });
 
-  it("tapping Now opens time picker input", () => {
+  it("does not show time input when value is null", () => {
     render(<TimeSelector value={null} onChange={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /now/i }));
-    expect(screen.getByLabelText(/meal time/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Meal time")).not.toBeInTheDocument();
   });
 
-  it("selecting a time calls onChange with HH:mm string", () => {
+  it("shows time input when value is set", () => {
+    render(<TimeSelector value="14:30" onChange={vi.fn()} />);
+    expect(screen.getByLabelText("Meal time")).toBeInTheDocument();
+    expect(screen.getByLabelText("Meal time")).toHaveValue("14:30");
+  });
+
+  it("calls onChange with time string when time input changes", () => {
     const onChange = vi.fn();
-    render(<TimeSelector value={null} onChange={onChange} />);
-    fireEvent.click(screen.getByRole("button", { name: /now/i }));
-    fireEvent.change(screen.getByLabelText(/meal time/i), { target: { value: "09:30" } });
-    expect(onChange).toHaveBeenCalledWith("09:30");
+    render(<TimeSelector value="14:30" onChange={onChange} />);
+    fireEvent.change(screen.getByLabelText("Meal time"), {
+      target: { value: "09:00" },
+    });
+    expect(onChange).toHaveBeenCalledWith("09:00");
   });
 
-  it("switching back to Now calls onChange with null", () => {
+  it("calls onChange with null when time input is cleared", () => {
     const onChange = vi.fn();
-    render(<TimeSelector value="09:30" onChange={onChange} />);
-    fireEvent.click(screen.getByRole("button", { name: /now/i }));
+    render(<TimeSelector value="14:30" onChange={onChange} />);
+    fireEvent.change(screen.getByLabelText("Meal time"), {
+      target: { value: "" },
+    });
     expect(onChange).toHaveBeenCalledWith(null);
   });
 
-  it("displays passed value correctly in input (24h format)", () => {
-    render(<TimeSelector value="14:30" onChange={vi.fn()} />);
-    expect(screen.getByLabelText(/meal time/i)).toHaveValue("14:30");
+  it("respects disabled state on combobox", () => {
+    render(<TimeSelector value={null} onChange={vi.fn()} disabled />);
+    expect(screen.getByRole("combobox")).toBeDisabled();
   });
 
-  it("hides current time hint when custom time is selected", () => {
-    render(<TimeSelector value="14:30" onChange={vi.fn()} />);
-    // "09:30" is our mocked "current time" - should not appear as hint text
-    expect(screen.queryByText("09:30")).not.toBeInTheDocument();
+  it("respects disabled state on time input", () => {
+    render(<TimeSelector value="14:30" onChange={vi.fn()} disabled />);
+    expect(screen.getByLabelText("Meal time")).toBeDisabled();
   });
 
-  it("shows time input immediately when value is non-null", () => {
-    render(<TimeSelector value="08:00" onChange={vi.fn()} />);
-    expect(screen.getByLabelText(/meal time/i)).toBeInTheDocument();
+  it("updates trigger text when value changes from null to time", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <TimeSelector value={null} onChange={onChange} />
+    );
+    expect(screen.getByText("Now")).toBeInTheDocument();
+
+    rerender(<TimeSelector value="08:00" onChange={onChange} />);
+    expect(screen.getByText("08:00")).toBeInTheDocument();
+  });
+
+  it("updates trigger text when value changes from time to null", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <TimeSelector value="08:00" onChange={onChange} />
+    );
+    expect(screen.getByText("08:00")).toBeInTheDocument();
+
+    rerender(<TimeSelector value={null} onChange={onChange} />);
+    expect(screen.getByText("Now")).toBeInTheDocument();
+  });
+
+  it("hides time input when value is externally reset to null", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <TimeSelector value="14:30" onChange={onChange} />
+    );
+    expect(screen.getByLabelText("Meal time")).toBeInTheDocument();
+
+    rerender(<TimeSelector value={null} onChange={onChange} />);
+    expect(screen.queryByLabelText("Meal time")).not.toBeInTheDocument();
+  });
+
+  it("has correct aria-label when value is null", () => {
+    render(<TimeSelector value={null} onChange={vi.fn()} />);
+    expect(screen.getByRole("combobox")).toHaveAttribute(
+      "aria-label",
+      "Meal time: Now"
+    );
+  });
+
+  it("has correct aria-label when value is set", () => {
+    render(<TimeSelector value="14:30" onChange={vi.fn()} />);
+    expect(screen.getByRole("combobox")).toHaveAttribute(
+      "aria-label",
+      "Meal time: 14:30"
+    );
   });
 });

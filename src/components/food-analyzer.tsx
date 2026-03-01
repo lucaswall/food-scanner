@@ -693,7 +693,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           </div>
 
           {/* Time selector */}
-          <div className="space-y-1">
+          <div className="space-y-2">
             <Label>Meal Time</Label>
             <TimeSelector value={selectedTime} onChange={setSelectedTime} />
           </div>

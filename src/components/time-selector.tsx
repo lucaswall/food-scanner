@@ -1,7 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { formatTimeFromDate } from "@/lib/date-utils";
+import { useEffect, useState } from "react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select";
 
 interface TimeSelectorProps {
   value: string | null;
@@ -10,45 +15,55 @@ interface TimeSelectorProps {
 }
 
 export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
-  const [expanded, setExpanded] = useState(false);
-  const showPicker = expanded || value !== null;
+  const [showTimeInput, setShowTimeInput] = useState(false);
 
-  const handleNowClick = () => {
-    if (disabled) return;
-    if (value !== null) {
+  useEffect(() => {
+    if (value === null) setShowTimeInput(false);
+  }, [value]);
+
+  const selectValue = value !== null || showTimeInput ? "select-time" : "now";
+
+  const handleValueChange = (val: string) => {
+    if (val === "now") {
       onChange(null);
-      setExpanded(false);
+      setShowTimeInput(false);
     } else {
-      setExpanded(!expanded);
+      setShowTimeInput(true);
     }
   };
 
   return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={handleNowClick}
+    <div className="space-y-2">
+      <Select
+        value={selectValue}
+        onValueChange={handleValueChange}
         disabled={disabled}
-        aria-label="Now"
-        className={`inline-flex items-center gap-1.5 px-3 rounded-full text-sm min-h-[44px] transition-colors ${
-          value === null
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted text-muted-foreground hover:bg-muted/80"
-        }`}
       >
-        Now
-        {value === null && (
-          <span className="text-xs opacity-75">{formatTimeFromDate(new Date())}</span>
-        )}
-      </button>
-      {showPicker && (
+        <SelectTrigger
+          className="w-full min-h-[44px]"
+          aria-label={value !== null ? `Meal time: ${value}` : "Meal time: Now"}
+        >
+          <span data-slot="select-value">
+            {value !== null ? value : "Now"}
+          </span>
+        </SelectTrigger>
+        <SelectContent className="z-[70]">
+          <SelectItem value="now" className="min-h-[44px]">
+            Now
+          </SelectItem>
+          <SelectItem value="select-time" className="min-h-[44px]">
+            Select time
+          </SelectItem>
+        </SelectContent>
+      </Select>
+      {(showTimeInput || value !== null) && (
         <input
           type="time"
           aria-label="Meal time"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value || null)}
           disabled={disabled}
-          className="min-h-[44px] rounded-md border border-input bg-background px-2 text-sm"
+          className="w-full min-h-[44px] rounded-md border border-input bg-background px-3 text-sm"
         />
       )}
     </div>
