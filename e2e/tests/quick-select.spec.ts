@@ -156,4 +156,73 @@ test.describe('Quick Select Page', () => {
 
     expect(hasSuccessMessage + hasConfirmation > 0 || redirectedToHistory).toBe(true);
   });
+
+  test('captures search results screenshot', async ({ page }) => {
+    await page.goto('/app/quick-select');
+    await page.waitForLoadState('networkidle');
+
+    // Wait for foods to load
+    await expect(page.getByText('Grilled Chicken Breast').first()).toBeVisible({ timeout: 10000 });
+
+    // Find the search input and type a query
+    const searchInput = page.getByPlaceholder(/search|find/i);
+    await searchInput.fill('chicken');
+
+    // Wait for debounce and filtered results
+    await page.waitForTimeout(500);
+
+    // Verify filtered results appear
+    await expect(page.getByText('Grilled Chicken Breast').first()).toBeVisible();
+
+    // Screenshot: search results filtered to "chicken"
+    await captureScreenshots(page, 'quick-select-search');
+  });
+
+  test('captures food detail and log confirmation screenshots', async ({ page }) => {
+    await page.goto('/app/quick-select');
+    await page.waitForLoadState('networkidle');
+
+    // Wait for foods to load
+    await expect(page.getByText('Grilled Chicken Breast').first()).toBeVisible({ timeout: 10000 });
+
+    // Click on the food item to show detail view
+    await page.getByText('Grilled Chicken Breast').first().click();
+    await page.waitForTimeout(500);
+
+    // Verify nutrition info and meal type selector are visible
+    await expect(page.getByText('Meal Type')).toBeVisible();
+
+    // Screenshot: food detail card before logging
+    await captureScreenshots(page, 'quick-select-food-detail');
+
+    // Mock log-food to capture confirmation
+    await page.route('**/api/log-food', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: { success: true, reusedFood: true, foodLogId: 77777 },
+        }),
+      });
+    });
+
+    // Click Log to Fitbit
+    const logButton = page.getByRole('button', { name: /Log to Fitbit/i });
+    await expect(logButton).toBeVisible({ timeout: 5000 });
+    await logButton.click();
+
+    // Wait for confirmation to appear
+    await page.waitForTimeout(2000);
+
+    // Check for any confirmation state (logged successfully text or food logged heading)
+    const hasConfirmation = await page
+      .locator('text=/logged successfully|Food Logged/i')
+      .count();
+
+    if (hasConfirmation > 0) {
+      // Screenshot: confirmation screen
+      await captureScreenshots(page, 'quick-select-confirmation');
+    }
+  });
 });

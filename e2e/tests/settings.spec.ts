@@ -242,4 +242,116 @@ test.describe('Settings Page', () => {
     const hasCost = await usageSection.locator('text=/\\$0\\.0/').count();
     expect(hasCost).toBeGreaterThan(0);
   });
+
+  test('captures API key creation flow screenshot', async ({ page }) => {
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+
+    // Scroll to the API Keys section
+    const apiKeysHeading = page.getByRole('heading', { name: 'API Keys' });
+    await apiKeysHeading.scrollIntoViewIfNeeded();
+    await expect(apiKeysHeading).toBeVisible({ timeout: 10000 });
+
+    // Click "Generate API Key" to open creation form
+    const generateButton = page.getByRole('button', { name: 'Generate API Key' });
+    await expect(generateButton).toBeVisible({ timeout: 10000 });
+    await generateButton.click();
+
+    // Verify the key name input appears
+    const nameInput = page.getByLabel('Key Name');
+    await expect(nameInput).toBeVisible({ timeout: 5000 });
+
+    // Fill in a key name for the screenshot
+    await nameInput.fill('Screenshot Test Key');
+
+    // Screenshot: API key creation form
+    await captureScreenshots(page, 'settings-api-key-create');
+
+    // Clean up: click Create to create the key (so we can test revocation dialog next)
+    await page.getByRole('button', { name: 'Create' }).click();
+
+    // Wait for the "API Key Created" dialog to appear
+    const createdDialog = page.getByRole('dialog');
+    await expect(createdDialog).toBeVisible({ timeout: 5000 });
+    await expect(createdDialog.getByRole('heading', { name: 'API Key Created' })).toBeVisible();
+
+    // Screenshot: API key created dialog showing the key value
+    await captureScreenshots(page, 'settings-api-key-created');
+
+    // Close the dialog
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(createdDialog).not.toBeVisible();
+  });
+
+  test('captures API key revoke confirmation dialog screenshot', async ({ page }) => {
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+
+    // Scroll to API Keys section
+    const apiKeysHeading = page.getByRole('heading', { name: 'API Keys' });
+    await apiKeysHeading.scrollIntoViewIfNeeded();
+    await expect(apiKeysHeading).toBeVisible({ timeout: 10000 });
+
+    // Ensure there is at least one API key to revoke
+    // The previous test may have created "Screenshot Test Key" — look for it
+    // or any key with a Revoke button
+    const revokeButton = page.getByRole('button', { name: 'Revoke' }).first();
+    const hasRevokeButton = await revokeButton.isVisible().catch(() => false);
+
+    if (!hasRevokeButton) {
+      // Create a key first if none exists
+      await page.getByRole('button', { name: 'Generate API Key' }).click();
+      const nameInput = page.getByLabel('Key Name');
+      await expect(nameInput).toBeVisible({ timeout: 5000 });
+      await nameInput.fill('Temp Revoke Key');
+      await page.getByRole('button', { name: 'Create' }).click();
+
+      // Close the created key dialog
+      await page.getByRole('button', { name: 'Done' }).click();
+    }
+
+    // Click the Revoke button on the first key
+    await revokeButton.click();
+
+    // Wait for the revoke confirmation dialog to appear
+    const revokeDialog = page.getByRole('dialog');
+    await expect(revokeDialog).toBeVisible({ timeout: 5000 });
+    await expect(revokeDialog.getByRole('heading', { name: 'Revoke API Key' })).toBeVisible();
+
+    // Screenshot: revoke confirmation dialog
+    await captureScreenshots(page, 'settings-api-key-revoke-dialog');
+
+    // Confirm revocation to clean up
+    await revokeDialog.getByRole('button', { name: 'Confirm' }).click();
+    await expect(revokeDialog).not.toBeVisible();
+  });
+
+  test('captures Fitbit Client ID inline edit mode screenshot', async ({ page }) => {
+    await page.goto('/settings');
+    await page.waitForLoadState('networkidle');
+
+    // Scroll to Fitbit App Credentials section
+    const fitbitHeading = page.getByRole('heading', { name: 'Fitbit App Credentials' });
+    await fitbitHeading.scrollIntoViewIfNeeded();
+    await expect(fitbitHeading).toBeVisible({ timeout: 10000 });
+
+    // Click "Edit" to enable Client ID editing
+    // The button is conditionally rendered after SWR fetches credentials
+    const editButton = page.getByRole('button', { name: 'Edit' });
+    await expect(editButton).toBeVisible({ timeout: 10000 });
+    await editButton.click();
+
+    // Verify inline edit mode: Client ID input is now visible
+    const clientIdInput = page.getByLabel('Client ID');
+    await expect(clientIdInput).toBeVisible({ timeout: 5000 });
+
+    // Screenshot: Fitbit Client ID edit mode
+    await captureScreenshots(page, 'settings-fitbit-client-id-edit');
+
+    // Restore: click Cancel or Save to exit edit mode without permanent change
+    const cancelButton = page.getByRole('button', { name: /Cancel/i });
+    if (await cancelButton.isVisible()) {
+      await cancelButton.click();
+    }
+  });
 });
