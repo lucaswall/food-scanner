@@ -92,6 +92,7 @@ const existingEntry: FoodLogEntryDetail = {
   date: "2026-02-15",
   time: "20:00:00",
   fitbitLogId: 12345,
+  fitbitFoodId: null,
   confidence: "high",
   isFavorite: false,
 };

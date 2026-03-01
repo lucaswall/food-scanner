@@ -35,6 +35,8 @@ const THINKING_INSTRUCTION = `Before calling any tool, emit a brief natural-lang
 
 const REPORT_NUTRITION_UI_CARD_NOTE = `Calling report_nutrition surfaces a UI card with nutrition details and a "Log to Fitbit" button — it does NOT log food directly. The user must tap "Log to Fitbit" to actually commit the food log. Text confirmation before calling report_nutrition is never necessary — the user confirms via the UI button.`;
 
+const REPORT_NUTRITION_EDIT_UI_CARD_NOTE = `Calling report_nutrition surfaces a UI card with updated nutrition details and a "Save Changes" button — it does NOT save the changes directly. The user must tap "Save Changes" to actually commit the updated entry. Text confirmation before calling report_nutrition is never necessary — the user confirms via the UI button.`;
+
 export const CHAT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
 
 You are a friendly nutrition advisor having a conversational interaction with the user. You have access to their food log, nutrition summaries, goals, and fasting data through the available tools.
@@ -858,7 +860,7 @@ export async function* runToolLoop(
         }
 
         // Separate report_nutrition from data tools
-        const reportNutritionBlock = allToolUseBlocks.find(
+        const reportNutritionBlocks = allToolUseBlocks.filter(
           (block) => block.name === "report_nutrition"
         );
         const dataToolBlocks = allToolUseBlocks.filter(
@@ -870,12 +872,12 @@ export async function* runToolLoop(
           yield { type: "tool_start", tool: tool.name };
         }
 
-        // If report_nutrition is present, validate and store as pending analysis
-        if (reportNutritionBlock) {
+        // If report_nutrition is present, validate first block and store as pending analysis
+        if (reportNutritionBlocks.length > 0) {
           try {
-            pendingAnalysis = validateFoodAnalysis(reportNutritionBlock.input);
+            pendingAnalysis = validateFoodAnalysis(reportNutritionBlocks[0].input);
             l.info(
-              { foodName: pendingAnalysis.food_name },
+              { foodName: pendingAnalysis.food_name, blockCount: reportNutritionBlocks.length },
               "captured report_nutrition from tool loop"
             );
           } catch (error) {
@@ -908,11 +910,11 @@ export async function* runToolLoop(
           is_error?: true;
         }> = [];
 
-        // Add synthetic result for report_nutrition so Claude doesn't think it failed
-        if (reportNutritionBlock) {
+        // Add synthetic result for each report_nutrition block so Claude doesn't think they failed
+        for (const block of reportNutritionBlocks) {
           toolResults.push({
             type: "tool_result" as const,
-            tool_use_id: reportNutritionBlock.id,
+            tool_use_id: block.id,
             content: "Nutrition analysis recorded.",
           });
         }
@@ -1272,6 +1274,51 @@ export async function* analyzeFood(
 }
 
 /**
+ * Converts ConversationMessage[] to Anthropic.MessageParam[] with:
+ * - Image blocks before text for user messages with images
+ * - [Current values: ...] analysis injection for assistant messages with analysis
+ */
+export function convertMessages(messages: ConversationMessage[]): Anthropic.MessageParam[] {
+  return messages.map((msg) => {
+    const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
+
+    // Attach per-message images (images before text is Anthropic best practice)
+    if (msg.role === "user" && msg.images && msg.images.length > 0) {
+      content.push(
+        ...msg.images.map((base64) => ({
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: "image/jpeg" as const,
+            data: base64,
+          },
+        }))
+      );
+    }
+
+    // Add the text content (skip empty strings — tool_use-only assistant turns have no text)
+    if (msg.content) {
+      content.push({ type: "text" as const, text: msg.content });
+    }
+
+    // Append structured analysis summary for assistant messages with analysis
+    if (msg.role === "assistant" && msg.analysis) {
+      const a = msg.analysis;
+      const amtLabel = getUnitLabel(a.unit_id, a.amount);
+      let summary = `[Current values: food_name=${a.food_name}, amount=${amtLabel}, calories=${a.calories}, protein_g=${a.protein_g}, carbs_g=${a.carbs_g}, fat_g=${a.fat_g}, fiber_g=${a.fiber_g}, sodium_mg=${a.sodium_mg}`;
+      if (a.saturated_fat_g != null) summary += `, saturated_fat_g=${a.saturated_fat_g}`;
+      if (a.trans_fat_g != null) summary += `, trans_fat_g=${a.trans_fat_g}`;
+      if (a.sugars_g != null) summary += `, sugars_g=${a.sugars_g}`;
+      if (a.calories_from_fat != null) summary += `, calories_from_fat=${a.calories_from_fat}`;
+      summary += `, confidence=${a.confidence}]`;
+      content.push({ type: "text" as const, text: summary });
+    }
+
+    return { role: msg.role, content };
+  });
+}
+
+/**
  * Conversational food refinement. Returns a streaming generator of StreamEvent.
  *
  * Yields:
@@ -1299,53 +1346,7 @@ export async function* conversationalRefine(
     );
 
     // Convert ConversationMessage[] to Anthropic SDK message format
-    let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => {
-      const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
-
-      // Attach per-message images (images before text is Anthropic best practice)
-      if (msg.role === "user" && msg.images && msg.images.length > 0) {
-        content.push(
-          ...msg.images.map((base64) => ({
-            type: "image" as const,
-            source: {
-              type: "base64" as const,
-              media_type: "image/jpeg" as const,
-              data: base64,
-            },
-          }))
-        );
-      }
-
-      // Add the text content (skip empty strings — tool_use-only assistant turns have no text)
-      if (msg.content) {
-        content.push({
-          type: "text" as const,
-          text: msg.content,
-        });
-      }
-
-      // Append structured analysis summary for assistant messages with analysis
-      if (msg.role === "assistant" && msg.analysis) {
-        const a = msg.analysis;
-        const amtLabel = getUnitLabel(a.unit_id, a.amount);
-        let summary = `[Current values: food_name=${a.food_name}, amount=${amtLabel}, calories=${a.calories}, protein_g=${a.protein_g}, carbs_g=${a.carbs_g}, fat_g=${a.fat_g}, fiber_g=${a.fiber_g}, sodium_mg=${a.sodium_mg}`;
-        // Include Tier 1 nutrients only if present
-        if (a.saturated_fat_g != null) summary += `, saturated_fat_g=${a.saturated_fat_g}`;
-        if (a.trans_fat_g != null) summary += `, trans_fat_g=${a.trans_fat_g}`;
-        if (a.sugars_g != null) summary += `, sugars_g=${a.sugars_g}`;
-        if (a.calories_from_fat != null) summary += `, calories_from_fat=${a.calories_from_fat}`;
-        summary += `, confidence=${a.confidence}]`;
-        content.push({
-          type: "text" as const,
-          text: summary,
-        });
-      }
-
-      return {
-        role: msg.role,
-        content,
-      };
-    });
+    let anthropicMessages: Anthropic.MessageParam[] = convertMessages(messages);
 
     // Truncate conversation if needed (150K tokens threshold)
     const preCount = anthropicMessages.length;
@@ -1559,7 +1560,8 @@ Follow these rules:
 - Combine all changes into a SINGLE report_nutrition call
 - Be concise and focused — this is an edit session, not a new analysis
 - CRITICAL: Changes are ONLY applied when you call report_nutrition. Never say the entry "is updated" without calling report_nutrition.
-- ${REPORT_NUTRITION_UI_CARD_NOTE}
+- ${REPORT_NUTRITION_EDIT_UI_CARD_NOTE}
+- You have access to data tools (search_food_log, get_nutrition_summary, get_fasting_info) to look up food history and context when needed.
 - ${THINKING_INSTRUCTION}
 
 Web search guidelines:
@@ -1583,51 +1585,49 @@ export async function* editAnalysis(
   currentDate: string,
   signal?: AbortSignal,
   log?: Logger,
+  initialAnalysis?: FoodAnalysis,
 ): AsyncGenerator<StreamEvent> {
   const l = log ?? logger;
   const elapsed = startTimer();
   try {
     l.info({ messageCount: messages.length }, "calling Claude API for food edit");
 
-    // Convert messages to Anthropic format with image support
-    let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => {
-      const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
-
-      // Attach per-message images (images before text is Anthropic best practice)
-      if (msg.role === "user" && msg.images && msg.images.length > 0) {
-        content.push(
-          ...msg.images.map((base64) => ({
-            type: "image" as const,
-            source: {
-              type: "base64" as const,
-              media_type: "image/jpeg" as const,
-              data: base64,
-            },
-          }))
-        );
-      }
-
-      if (msg.content) {
-        content.push({ type: "text" as const, text: msg.content });
-      }
-
-      return { role: msg.role, content };
-    });
+    // Convert messages to Anthropic format with image support and analysis injection
+    let anthropicMessages: Anthropic.MessageParam[] = convertMessages(messages);
 
     // Build system prompt with EDIT_SYSTEM_PROMPT + entry context + date
     const amountLabel = getUnitLabel(entry.unitId, entry.amount);
     let systemPrompt = EDIT_SYSTEM_PROMPT;
     systemPrompt += `\n\nToday's date is: ${currentDate}`;
+    const tier1Lines: string[] = [];
+    if (entry.saturatedFatG != null) tier1Lines.push(`- Saturated Fat: ${entry.saturatedFatG}g`);
+    if (entry.transFatG != null) tier1Lines.push(`- Trans Fat: ${entry.transFatG}g`);
+    if (entry.sugarsG != null) tier1Lines.push(`- Sugars: ${entry.sugarsG}g`);
+    if (entry.caloriesFromFat != null) tier1Lines.push(`- Calories from Fat: ${entry.caloriesFromFat}`);
+
     systemPrompt += `\n\nExisting food log entry being edited:
 - Food: ${entry.foodName}
 - Amount: ${amountLabel}
 - Calories: ${entry.calories}
 - Protein: ${entry.proteinG}g, Carbs: ${entry.carbsG}g, Fat: ${entry.fatG}g
-- Fiber: ${entry.fiberG}g, Sodium: ${entry.sodiumMg}mg
+- Fiber: ${entry.fiberG}g, Sodium: ${entry.sodiumMg}mg${tier1Lines.length > 0 ? `\n${tier1Lines.join("\n")}` : ""}
 - Date: ${entry.date}${entry.time ? `, Time: ${entry.time}` : ""}
 - Confidence: ${entry.confidence}${entry.notes ? `\n- Notes: ${entry.notes}` : ""}
 
 Help the user make corrections. Call report_nutrition with the corrected values.`;
+
+    if (initialAnalysis) {
+      const initAmtLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
+      systemPrompt += `\n\nThe current analysis being refined is:
+- Food: ${initialAnalysis.food_name}
+- Amount: ${initAmtLabel}
+- Calories: ${initialAnalysis.calories}
+- Protein: ${initialAnalysis.protein_g}g, Carbs: ${initialAnalysis.carbs_g}g, Fat: ${initialAnalysis.fat_g}g
+- Fiber: ${initialAnalysis.fiber_g}g, Sodium: ${initialAnalysis.sodium_mg}mg
+- Confidence: ${initialAnalysis.confidence}
+- Notes: ${initialAnalysis.notes}
+Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
+    }
 
     // Truncate conversation if needed
     anthropicMessages = truncateConversation(anthropicMessages, 150000, l);

@@ -1377,6 +1377,67 @@ describe("runToolLoop", () => {
     expect(events[events.length - 1]).toEqual({ type: "done" });
   });
 
+  it("multiple report_nutrition blocks: all blocks get tool_result responses (FOO-738)", async () => {
+    const secondAnalysis = { ...validAnalysis, calories: 400, food_name: "Second Food" };
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "tool_rpt_2", name: "report_nutrition", input: secondAnalysis },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockStream.mockReturnValueOnce(makeTextStream("Here's the analysis."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    await collectEvents(
+      runToolLoop([{ role: "user", content: "Analyze" }], "user-123", "2026-02-15")
+    );
+
+    // Second API call: messages = user, assistant(2 tool_use), user(tool_results)
+    const secondCall = mockStream.mock.calls[1][0];
+    const toolResultMsg = secondCall.messages[2];
+    const toolResults = toolResultMsg.content;
+    // Both report_nutrition blocks must have tool_result entries
+    const rptResult1 = toolResults.find((r: { type: string; tool_use_id: string }) => r.tool_use_id === "tool_rpt_1");
+    const rptResult2 = toolResults.find((r: { type: string; tool_use_id: string }) => r.tool_use_id === "tool_rpt_2");
+    expect(rptResult1).toBeDefined();
+    expect(rptResult2).toBeDefined();
+    expect(rptResult1?.type).toBe("tool_result");
+    expect(rptResult2?.type).toBe("tool_result");
+  });
+
+  it("multiple report_nutrition blocks: captures analysis from first block (FOO-738)", async () => {
+    const secondAnalysis = { ...validAnalysis, calories: 400, food_name: "Second Food" };
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "tool_rpt_1", name: "report_nutrition", input: validAnalysis },
+          { type: "tool_use", id: "tool_rpt_2", name: "report_nutrition", input: secondAnalysis },
+        ],
+        usage: { input_tokens: 1500, output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+    mockStream.mockReturnValueOnce(makeTextStream("Done."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop([{ role: "user", content: "Analyze" }], "user-123", "2026-02-15")
+    );
+
+    // Analysis should come from FIRST report_nutrition block only
+    const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
+    expect(analysisEvent?.analysis.food_name).toBe(validAnalysis.food_name);
+    expect(analysisEvent?.analysis.calories).toBe(validAnalysis.calories);
+  });
+
   it("pause_turn: merges assistant content when continuing after internal pause_turn (FOO-654)", async () => {
     // Stream 1: pause_turn (server-side web search in runToolLoop)
     mockStream.mockReturnValueOnce(createMockStream(
@@ -1894,6 +1955,7 @@ describe("editAnalysis", () => {
     date: "2026-02-15",
     time: "20:00:00",
     fitbitLogId: 12345,
+    fitbitFoodId: null,
     confidence: "high",
     isFavorite: false,
   };
@@ -2045,6 +2107,123 @@ describe("editAnalysis", () => {
     expect(events).toContainEqual({ type: "tool_start", tool: "search_food_log" });
     expect(mockExecuteTool).toHaveBeenCalledTimes(1);
     expect(events[events.length - 1]).toEqual({ type: "done" });
+  });
+
+  it("edit system prompt includes Tier 1 nutrients when present in entry (FOO-732)", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const entryWithTier1 = {
+      ...validEntry,
+      saturatedFatG: 5.5,
+      transFatG: 0.2,
+      sugarsG: 3.0,
+      caloriesFromFat: 162,
+    };
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis([{ role: "user", content: "Fix this" }], entryWithTier1, "user-123", "2026-02-15")
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    const systemText = call.system[0].text;
+    expect(systemText).toContain("5.5");
+    expect(systemText).toContain("0.2");
+    expect(systemText).toContain("3");
+    expect(systemText).toContain("162");
+  });
+
+  it("edit system prompt does not include Tier 1 nutrients when null (FOO-732)", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis([{ role: "user", content: "Fix this" }], validEntry, "user-123", "2026-02-15")
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    const systemText = call.system[0].text;
+    expect(systemText).not.toContain("Saturated Fat");
+    expect(systemText).not.toContain("Trans Fat");
+    expect(systemText).not.toContain("Sugars:");
+  });
+
+  it("edit system prompt says 'Save Changes' not 'Log to Fitbit' (FOO-737)", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis([{ role: "user", content: "Fix this" }], validEntry, "user-123", "2026-02-15")
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    const systemText = call.system[0].text;
+    expect(systemText).toContain("Save Changes");
+    expect(systemText).not.toContain("Log to Fitbit");
+  });
+
+  it("edit system prompt mentions data tools (FOO-736)", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis([{ role: "user", content: "Fix this" }], validEntry, "user-123", "2026-02-15")
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    const systemText = call.system[0].text;
+    expect(systemText).toMatch(/search_food_log|data tools/i);
+  });
+
+  it("injects [Current values:] summary into assistant messages with analysis (FOO-731)", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis(
+        [
+          { role: "user", content: "Change the portion" },
+          { role: "assistant", content: "Updated to 200g", analysis: validAnalysis },
+          { role: "user", content: "Actually make it 250g" },
+        ],
+        validEntry,
+        "user-123",
+        "2026-02-15"
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    // Second message should be assistant message with [Current values: ...] appended
+    const assistantMsg = call.messages[1];
+    expect(assistantMsg.role).toBe("assistant");
+    const summaryBlock = assistantMsg.content.find((b: { type: string; text?: string }) =>
+      b.type === "text" && b.text?.includes("[Current values:")
+    );
+    expect(summaryBlock).toBeDefined();
+    expect(summaryBlock?.text).toContain(validAnalysis.food_name);
+    expect(summaryBlock?.text).toContain(String(validAnalysis.calories));
+  });
+
+  it("accepts optional initialAnalysis parameter and includes it in system prompt (FOO-731)", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("OK"));
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(
+      editAnalysis(
+        [{ role: "user", content: "Fix this" }],
+        validEntry,
+        "user-123",
+        "2026-02-15",
+        undefined,
+        undefined,
+        validAnalysis
+      )
+    );
+
+    const call = mockStream.mock.calls[0][0];
+    const systemText = call.system[0].text;
+    expect(systemText).toContain(validAnalysis.food_name);
+    expect(systemText).toContain("baseline");
   });
 
   it("sends image blocks when ConversationMessage has images", async () => {
@@ -2783,5 +2962,92 @@ describe("validateFoodAnalysis — time and mealTypeId fields", () => {
   it("rejects meal_type_id = 6 (not a valid Fitbit meal type)", async () => {
     const { validateFoodAnalysis } = await import("@/lib/claude");
     expect(() => validateFoodAnalysis({ ...validAnalysis, meal_type_id: 6 })).toThrow();
+  });
+});
+
+// =============================================================================
+// convertMessages — shared message conversion helper (FOO-740)
+// =============================================================================
+
+describe("convertMessages", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("converts text-only ConversationMessages to Anthropic MessageParams", async () => {
+    const { convertMessages } = await import("@/lib/claude");
+    const messages = [
+      { role: "user" as const, content: "Hello" },
+      { role: "assistant" as const, content: "Hi there" },
+    ];
+    const result = convertMessages(messages);
+    expect(result).toHaveLength(2);
+    expect(result[0].role).toBe("user");
+    expect((result[0].content as Array<{ type: string; text?: string }>)).toContainEqual({ type: "text", text: "Hello" });
+    expect(result[1].role).toBe("assistant");
+    expect((result[1].content as Array<{ type: string; text?: string }>)).toContainEqual({ type: "text", text: "Hi there" });
+  });
+
+  it("attaches images before text for user messages with images", async () => {
+    const { convertMessages } = await import("@/lib/claude");
+    const messages = [
+      { role: "user" as const, content: "Here's the photo", images: ["img_data_1"] },
+    ];
+    const result = convertMessages(messages);
+    const content = result[0].content as Array<{ type: string; source?: { data: string } }>;
+    expect(content[0].type).toBe("image");
+    expect(content[0].source?.data).toBe("img_data_1");
+    expect(content[1].type).toBe("text");
+  });
+
+  it("injects [Current values:] summary for assistant messages with analysis", async () => {
+    const { convertMessages } = await import("@/lib/claude");
+    const messages = [
+      { role: "assistant" as const, content: "Got it", analysis: validAnalysis },
+    ];
+    const result = convertMessages(messages);
+    const content = result[0].content as Array<{ type: string; text?: string }>;
+    const summaryBlock = content.find(b => b.type === "text" && b.text?.includes("[Current values:"));
+    expect(summaryBlock).toBeDefined();
+    expect(summaryBlock?.text).toContain(validAnalysis.food_name);
+    expect(summaryBlock?.text).toContain(String(validAnalysis.calories));
+  });
+
+  it("includes Tier 1 nutrients in [Current values:] when present", async () => {
+    const { convertMessages } = await import("@/lib/claude");
+    const analysisWithTier1 = {
+      ...validAnalysis,
+      saturated_fat_g: 5.5,
+      trans_fat_g: 0.2,
+      sugars_g: 3.0,
+      calories_from_fat: 162,
+    };
+    const messages = [
+      { role: "assistant" as const, content: "Got it", analysis: analysisWithTier1 },
+    ];
+    const result = convertMessages(messages);
+    const content = result[0].content as Array<{ type: string; text?: string }>;
+    const summaryBlock = content.find(b => b.type === "text" && b.text?.includes("[Current values:"));
+    expect(summaryBlock?.text).toContain("saturated_fat_g=5.5");
+    expect(summaryBlock?.text).toContain("trans_fat_g=0.2");
+    expect(summaryBlock?.text).toContain("sugars_g=3");
+    expect(summaryBlock?.text).toContain("calories_from_fat=162");
+  });
+
+  it("does not add image blocks for assistant messages", async () => {
+    const { convertMessages } = await import("@/lib/claude");
+    const messages = [
+      { role: "assistant" as const, content: "Got it", analysis: validAnalysis },
+    ];
+    const result = convertMessages(messages);
+    const content = result[0].content as Array<{ type: string }>;
+    expect(content.every(b => b.type === "text")).toBe(true);
+  });
+
+  it("produces empty content array for message with no text and no images", async () => {
+    const { convertMessages } = await import("@/lib/claude");
+    const messages = [
+      { role: "user" as const, content: "" },
+    ];
+    const result = convertMessages(messages);
+    expect(result[0].content).toHaveLength(0);
   });
 });

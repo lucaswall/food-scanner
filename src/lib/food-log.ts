@@ -559,9 +559,39 @@ export async function getFoodLogEntryDetail(
     date: row.food_log_entries.date,
     time: row.food_log_entries.time,
     fitbitLogId: row.food_log_entries.fitbitLogId,
+    fitbitFoodId: row.custom_foods.fitbitFoodId,
     confidence: row.custom_foods.confidence,
     isFavorite: row.custom_foods.isFavorite,
   };
+}
+
+export interface FoodLogEntryMetadataUpdate {
+  mealTypeId: number;
+  date: string;
+  time: string;
+  fitbitLogId: number | null;
+}
+
+export async function updateFoodLogEntryMetadata(
+  userId: string,
+  entryId: number,
+  updates: FoodLogEntryMetadataUpdate,
+  log?: Logger,
+): Promise<void> {
+  const l = log ?? logger;
+  const db = getDb();
+
+  await db
+    .update(foodLogEntries)
+    .set({
+      mealTypeId: updates.mealTypeId,
+      date: updates.date,
+      time: updates.time,
+      fitbitLogId: updates.fitbitLogId,
+    })
+    .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
+
+  l.debug({ action: "update_food_log_entry_metadata", entryId }, "food log entry metadata updated");
 }
 
 type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];

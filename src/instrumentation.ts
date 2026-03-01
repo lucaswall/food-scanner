@@ -12,13 +12,12 @@ export async function register() {
             : "production",
       release: process.env.COMMIT_SHA || undefined,
       tracesSampleRate: 1.0,
-      sendDefaultPii: true,
       enableLogs: true,
       integrations: [
         Sentry.pinoIntegration({
           log: { levels: ["warn", "error", "fatal"] },
+          error: { levels: ["error", "fatal"] },
         }),
-        Sentry.anthropicAIIntegration(),
       ],
     });
   }

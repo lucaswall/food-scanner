@@ -110,6 +110,14 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ back: mockRouterBack, push: vi.fn() }),
 }));
 
+const { mockCaptureExceptionChat } = vi.hoisted(() => ({
+  mockCaptureExceptionChat: vi.fn(),
+}));
+
+vi.mock("@sentry/nextjs", () => ({
+  captureException: mockCaptureExceptionChat,
+}));
+
 // Mock TimeSelector
 vi.mock("../time-selector", () => ({
   TimeSelector: ({
@@ -912,11 +920,11 @@ describe("FoodChat", () => {
     expect(plusButton).toBeDisabled();
   });
 
-  it("chat input has maxLength of 500", () => {
+  it("chat input has maxLength of 2000 (FOO-734)", () => {
     render(<FoodChat {...defaultProps} />);
 
     const input = screen.getByPlaceholderText(/type a message/i) as HTMLInputElement;
-    expect(input.maxLength).toBe(500);
+    expect(input.maxLength).toBe(2000);
   });
 
   it("chat input has aria-label Message (FOO-605)", () => {
@@ -2323,6 +2331,7 @@ const mockEditEntry: FoodLogEntryDetail = {
   date: "2026-02-15",
   time: "20:00:00",
   fitbitLogId: 12345,
+  fitbitFoodId: null,
   confidence: "high",
   isFavorite: false,
 };
@@ -2492,5 +2501,146 @@ describe("FoodChat edit mode", () => {
         5, // mealTypeId from editEntry
       );
     });
+  });
+
+  // FOO-733: handleSave Fitbit error handling
+  it("handleSave: saves pending and redirects on FITBIT_TOKEN_INVALID", async () => {
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: { ...originalLocation, href: "" },
+    });
+
+    const { savePendingSubmission } = await import("@/lib/pending-submission");
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      text: () => Promise.resolve(JSON.stringify({
+        success: false,
+        error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
+      })),
+    });
+
+    render(<FoodChat {...editModeProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(savePendingSubmission).toHaveBeenCalled();
+      expect(window.location.href).toBe("/api/auth/fitbit");
+    });
+
+    Object.defineProperty(window, "location", {
+      writable: true,
+      value: originalLocation,
+    });
+  });
+
+  it("handleSave: shows specific error for FITBIT_CREDENTIALS_MISSING", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      text: () => Promise.resolve(JSON.stringify({
+        success: false,
+        error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Credentials not found" },
+      })),
+    });
+
+    render(<FoodChat {...editModeProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/credentials in Settings/i)).toBeInTheDocument();
+    });
+  });
+
+  it("handleSave: shows specific error for FITBIT_NOT_CONNECTED", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      text: () => Promise.resolve(JSON.stringify({
+        success: false,
+        error: { code: "FITBIT_NOT_CONNECTED", message: "Not connected" },
+      })),
+    });
+
+    render(<FoodChat {...editModeProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/credentials in Settings/i)).toBeInTheDocument();
+    });
+  });
+});
+
+// FOO-743: Client-side Sentry error reporting
+describe("FOO-743: Sentry.captureException in FoodChat", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockReset();
+  });
+
+  it("calls captureException for unexpected handleSend error", async () => {
+    mockFetch.mockRejectedValueOnce(new Error("Send network error"));
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/send network error/i)).toBeInTheDocument();
+    });
+
+    expect(mockCaptureExceptionChat).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Send network error" })
+    );
+  });
+
+  it("does NOT call captureException for TimeoutError in handleSend", async () => {
+    mockFetch.mockRejectedValueOnce(
+      new DOMException("signal timed out", "TimeoutError")
+    );
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "Test" } });
+    fireEvent.click(screen.getByRole("button", { name: /send/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+    });
+
+    expect(mockCaptureExceptionChat).not.toHaveBeenCalled();
+  });
+
+  it("calls captureException for unexpected handleLog error", async () => {
+    mockFetch.mockRejectedValueOnce(new Error("Log network error"));
+
+    render(<FoodChat {...defaultProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/log network error/i)).toBeInTheDocument();
+    });
+
+    expect(mockCaptureExceptionChat).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Log network error" })
+    );
+  });
+
+  it("does NOT call captureException for TimeoutError in handleLog", async () => {
+    mockFetch.mockRejectedValueOnce(
+      new DOMException("signal timed out", "TimeoutError")
+    );
+
+    render(<FoodChat {...defaultProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+    });
+
+    expect(mockCaptureExceptionChat).not.toHaveBeenCalled();
   });
 });

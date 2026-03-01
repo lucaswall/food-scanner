@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { PhotoCapture } from "./photo-capture";
 import { DescriptionInput } from "./description-input";
 import { AnalysisResult } from "./analysis-result";
@@ -286,6 +287,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           }
         }
       } finally {
+        await reader.cancel().catch(() => {});
         reader.releaseLock();
       }
     } catch (err) {
@@ -304,6 +306,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         vibrateError();
         return;
       }
+      Sentry.captureException(err);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
     } finally {

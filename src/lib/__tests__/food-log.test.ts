@@ -117,6 +117,7 @@ const {
   getFoodLogEntryDetail,
   deleteFoodLogEntry,
   updateFoodLogEntry,
+  updateFoodLogEntryMetadata,
   updateCustomFoodMetadata,
   toggleFavorite,
   getEarliestEntryDate,
@@ -1634,6 +1635,7 @@ describe("getFoodLogEntryDetail", () => {
       date: "2026-02-08",
       time: "12:30:00",
       fitbitLogId: 789,
+      fitbitFoodId: 100,
       confidence: "high",
       isFavorite: false,
     });
@@ -2606,5 +2608,53 @@ describe("updateFoodLogEntry", () => {
     // otherwise the UNIQUE constraint on share_token causes a PostgreSQL error.
     // Use nthCalledWith(1) to verify it's the FIRST updateSet call (before entry update).
     expect(mockUpdateSet).toHaveBeenNthCalledWith(1, { shareToken: null });
+  });
+});
+
+describe("updateFoodLogEntryMetadata", () => {
+  beforeEach(() => {
+    mockUpdateWhere.mockResolvedValue(undefined);
+  });
+
+  it("updates mealTypeId, date, time, fitbitLogId on food_log_entries", async () => {
+    await updateFoodLogEntryMetadata("user-uuid-123", 42, {
+      mealTypeId: 3,
+      date: "2026-02-20",
+      time: "12:30:00",
+      fitbitLogId: 99999,
+    });
+
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith({
+      mealTypeId: 3,
+      date: "2026-02-20",
+      time: "12:30:00",
+      fitbitLogId: 99999,
+    });
+    expect(mockUpdateWhere).toHaveBeenCalled();
+  });
+
+  it("accepts null fitbitLogId", async () => {
+    await updateFoodLogEntryMetadata("user-uuid-123", 42, {
+      mealTypeId: 5,
+      date: "2026-02-20",
+      time: "20:00:00",
+      fitbitLogId: null,
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ fitbitLogId: null }),
+    );
+  });
+
+  it("does not create a new custom_foods record", async () => {
+    await updateFoodLogEntryMetadata("user-uuid-123", 42, {
+      mealTypeId: 3,
+      date: "2026-02-20",
+      time: "12:30:00",
+      fitbitLogId: 99999,
+    });
+
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 });

@@ -2,9 +2,9 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood, deleteFoodLog } from "@/lib/fitbit";
-import { getFoodLogEntryDetail, updateFoodLogEntry } from "@/lib/food-log";
+import { getFoodLogEntryDetail, updateFoodLogEntry, updateFoodLogEntryMetadata } from "@/lib/food-log";
 import { isValidDateFormat } from "@/lib/date-utils";
-import type { FoodAnalysis } from "@/types";
+import type { FoodAnalysis, FoodLogEntryDetail } from "@/types";
 import { FitbitMealType } from "@/types";
 
 const VALID_MEAL_TYPE_IDS = [
@@ -75,6 +75,24 @@ function isValidFoodAnalysis(req: Record<string, unknown>): boolean {
   return true;
 }
 
+export function isNutritionUnchanged(analysis: FoodAnalysis, entry: FoodLogEntryDetail): boolean {
+  return (
+    analysis.food_name === entry.foodName &&
+    analysis.amount === entry.amount &&
+    analysis.unit_id === entry.unitId &&
+    Math.round(analysis.calories) === entry.calories &&
+    analysis.protein_g === entry.proteinG &&
+    analysis.carbs_g === entry.carbsG &&
+    analysis.fat_g === entry.fatG &&
+    analysis.fiber_g === entry.fiberG &&
+    analysis.sodium_mg === entry.sodiumMg &&
+    (analysis.saturated_fat_g ?? null) === (entry.saturatedFatG ?? null) &&
+    (analysis.trans_fat_g ?? null) === (entry.transFatG ?? null) &&
+    (analysis.sugars_g ?? null) === (entry.sugarsG ?? null) &&
+    (analysis.calories_from_fat ?? null) === (entry.caloriesFromFat ?? null)
+  );
+}
+
 export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/edit-food");
   const session = await getSession();
@@ -142,6 +160,66 @@ export async function POST(request: Request) {
 
   const isDryRun = process.env.FITBIT_DRY_RUN === "true";
   const calories = Math.round(analysis.calories);
+
+  // Fast path: nutrition unchanged — skip findOrCreateFood, only update metadata
+  if (isNutritionUnchanged(analysis, entry)) {
+    let fastPathFitbitLogId: number | null = entry.fitbitLogId;
+
+    if (!isDryRun && entry.fitbitFoodId !== null) {
+      const accessToken = await ensureFreshToken(session!.userId, log);
+
+      // Delete old Fitbit log if exists
+      if (entry.fitbitLogId) {
+        try {
+          await deleteFoodLog(accessToken, entry.fitbitLogId, log);
+        } catch (deleteErr) {
+          const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
+          log.error({ action: "edit_food_fast_path_delete_failed", error: errMsg }, "failed to delete old Fitbit log");
+          return errorResponse("FITBIT_API_ERROR", "Failed to delete old Fitbit log", 500);
+        }
+      }
+
+      // Re-log with existing fitbitFoodId
+      try {
+        const logResult = await logFood(accessToken, entry.fitbitFoodId, mealTypeId, analysis.amount, analysis.unit_id, date, time, log);
+        fastPathFitbitLogId = logResult.foodLog.logId;
+      } catch (logErr) {
+        const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
+        log.error({ action: "edit_food_fast_path_relog_failed", error: errMsg }, "fast path re-log failed, attempting compensation");
+
+        // Compensation: re-log with same fitbitFoodId
+        if (entry.fitbitLogId) {
+          try {
+            const freshToken = await ensureFreshToken(session!.userId, log);
+            await logFood(freshToken, entry.fitbitFoodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
+            log.info({ action: "edit_food_fast_path_compensation_success" }, "fast path compensation succeeded");
+          } catch (compensationErr) {
+            log.error(
+              { action: "edit_food_fast_path_compensation_failed", error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
+              "CRITICAL: fast path compensation failed after Fitbit log deleted"
+            );
+          }
+        }
+
+        return errorResponse("FITBIT_API_ERROR", "Failed to update food in Fitbit", 500);
+      }
+    }
+
+    await updateFoodLogEntryMetadata(session!.userId, entryId, { mealTypeId, date, time, fitbitLogId: fastPathFitbitLogId }, log);
+
+    log.info(
+      { action: "edit_food_fast_path_success", entryId, dryRun: isDryRun || undefined },
+      isDryRun ? "food edit metadata saved in dry-run mode (fast path)" : "food edit metadata saved via fast path"
+    );
+
+    return successResponse({
+      fitbitFoodId: entry.fitbitFoodId ?? undefined,
+      fitbitLogId: fastPathFitbitLogId ?? undefined,
+      foodLogId: entryId,
+      reusedFood: true,
+      ...(isDryRun && { dryRun: true }),
+    });
+  }
 
   let newFitbitLogId: number | undefined;
   let fitbitFoodId: number | undefined;
