@@ -6,6 +6,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 
 interface TimeSelectorProps {
@@ -43,9 +44,9 @@ export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
           className="w-full min-h-[44px]"
           aria-label={value !== null ? `Meal time: ${value}` : "Meal time: Now"}
         >
-          <span data-slot="select-value">
+          <SelectValue>
             {value !== null ? value : "Now"}
-          </span>
+          </SelectValue>
         </SelectTrigger>
         <SelectContent className="z-[70]">
           <SelectItem value="now" className="min-h-[44px]">
