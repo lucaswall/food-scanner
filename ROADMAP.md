@@ -9,6 +9,7 @@
 | [Nutritional Label Library](#nutritional-label-library) | Store scanned label data for instant reuse by keyword |
 | [Food Log Push Notifications](#food-log-push-notifications) | Push nutrition data directly to Health Connect via a thin Android wrapper |
 | [Quick Capture Session](#quick-capture-session) | Snap photos and notes quickly at meals, process everything later at home |
+| [AI-Driven Staging QA](#ai-driven-staging-qa) | Automated functional QA against staging using Playwright MCP or Claude Chrome |
 
 
 ---
@@ -395,6 +396,96 @@ Claude's API supports up to 20 images per message. A restaurant session could ex
 6. Processing UI: single conversation with all captures, chat refinement
 7. Batch logging (Log All → multiple entries at once, session deleted on success)
 8. Image budget management for large sessions
+
+---
+
+## AI-Driven Staging QA
+
+### Problem
+
+After merging changes to main, manual testing on the staging site is required to verify that everything works end-to-end. This involves navigating screens, logging food, opening chats, editing entries, deleting — repeating the same flows every time. The existing E2E tests use mocked API responses and never hit the real AI, real Fitbit dry-run, or real data flows. The gap between "tests pass" and "the app actually works" can only be closed by a human clicking through staging.
+
+### Goal
+
+Automate functional QA against the live staging environment so that after merging to main, an AI-driven process navigates the real app, performs real operations, and reports what works and what doesn't.
+
+### Design
+
+#### Two Complementary Approaches
+
+**Option A — Playwright MCP skill (primary).** A Claude Code skill (`staging-qa`) that uses Microsoft's Playwright MCP server to drive a headless browser against `food-test.lucaswall.me`. The skill runs a defined set of test scenarios against the real app with real AI analysis, real Fitbit dry-run logging, and real data. It produces a pass/fail report with details on any failures.
+
+**Option B — Claude Code `/chrome` interactive QA.** Use Claude Code's Chrome integration (`--chrome` or `/chrome`) to connect to a real Chrome window with the user's authenticated session. The user triggers it, Claude navigates and tests, but the user can intervene (handle CAPTCHAs, inspect visual issues, override decisions). Better for exploratory testing and visual verification. Lower setup cost, but requires the user to be present.
+
+**When to use which:**
+- **Option A** for repeatable post-merge sanity checks — the routine "did we break anything?" verification.
+- **Option B** for exploratory testing of new features — when visual correctness and UX flow matter more than pass/fail.
+
+#### Test Scenarios
+
+The skill maintains a checklist of core flows to verify:
+
+1. **Dashboard loads** — nutrition summary renders, date navigation works, daily/weekly tabs switch.
+2. **Analyze food** — submit a text description, receive real AI analysis via SSE, see nutrition results.
+3. **Chat refinement** — open a chat from an analysis result, send a message, get a real AI response.
+4. **Log to Fitbit** — log an analyzed food entry (dry-run on staging), verify it appears in history.
+5. **History** — browse entries, open detail view, verify nutrition data matches what was logged.
+6. **Edit entry** — open edit mode on a logged entry, refine via chat, save changes.
+7. **Delete entry** — delete a test entry, verify it disappears from history.
+8. **Quick select** — browse custom foods, select one, log it.
+9. **Settings** — verify settings page loads, Fitbit credentials display, API key management works.
+
+Each scenario reports: pass, fail (with error details), or skip (if a prerequisite scenario failed).
+
+#### Execution Model
+
+- **Triggered manually** via `/staging-qa` after merging to main.
+- **Advisory, not blocking** — the report is informational. It does not gate deployments.
+- **Cleans up after itself** — deletes any test entries it created during the run.
+- **Authenticates via test-login** — staging has `ENABLE_TEST_AUTH=true`, so the skill uses the same test auth bypass as E2E tests.
+
+#### Reporting
+
+The skill outputs a markdown summary:
+
+> **Staging QA Report — 2026-03-01**
+> - Dashboard: PASS
+> - Analyze food: PASS
+> - Chat refinement: PASS
+> - Log to Fitbit: PASS
+> - History: PASS
+> - Edit entry: FAIL — save returned 500, response: "..."
+> - Delete entry: SKIP (edit failed)
+> - Quick select: PASS
+> - Settings: PASS
+>
+> **7/9 passed, 1 failed, 1 skipped**
+
+### Architecture
+
+- **Playwright MCP server:** Microsoft's `@playwright/mcp` package, configured in `.claude/settings.json` as an MCP server. Uses accessibility tree snapshots (not screenshots) — fast, token-efficient, and compatible with shadcn/ui (no Shadow DOM).
+- **Skill definition:** `.claude/skills/staging-qa/SKILL.md` — a Claude Code skill that connects to the Playwright MCP, navigates staging, and runs scenarios sequentially.
+- **Authentication:** `POST /api/auth/test-login` on staging (same as E2E global setup). The Playwright MCP browser session stores the iron-session cookie.
+- **Chrome integration:** No additional setup — Claude Code's `--chrome` flag connects to any running Chrome instance. User authenticates manually (Google OAuth), then Claude navigates.
+- **No CI integration** — this runs locally in the developer's Claude Code session, not in GitHub Actions. CI integration is a future enhancement.
+
+### Edge Cases
+
+- **Staging is down or deploying** — the skill detects connection failures and reports "staging unreachable" instead of running scenarios.
+- **Real AI responses vary** — the skill checks for structural correctness (nutrition data present, reasonable calorie range) rather than exact values.
+- **Test data accumulates** — the skill creates entries with a recognizable prefix (e.g., "[QA Test]") and deletes them at the end. If the skill crashes mid-run, leftover entries are harmless and identifiable.
+- **Fitbit dry-run mode** — staging runs with `FITBIT_DRY_RUN=true`, so logging doesn't hit the real Fitbit API. The skill verifies the log-to-Fitbit flow succeeds without checking Fitbit itself.
+- **SSE streaming timeouts** — real AI analysis takes 5–15 seconds. The skill waits with appropriate timeouts (30s) rather than the millisecond mocks in E2E tests.
+- **Chrome session expires** — for Option B, if the session expires mid-testing, Claude pauses and asks the user to re-authenticate.
+
+### Implementation Order
+
+1. Add Playwright MCP server to Claude Code configuration
+2. Build `staging-qa` skill with scenario runner framework
+3. Implement core scenarios (dashboard, analyze, log, history)
+4. Add chat refinement, edit, delete, quick-select, settings scenarios
+5. Add cleanup logic (delete test entries after run)
+6. Document `/chrome` workflow for interactive exploratory QA
 
 ---
 
