@@ -205,6 +205,44 @@ describe("FoodDetail share button", () => {
     });
     vi.unstubAllGlobals();
   });
+
+  it("shows error feedback when share API returns non-ok response", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    render(<FoodDetail entryId="1" />);
+    fireEvent.click(screen.getByRole("button", { name: /share/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to share/i)).toBeInTheDocument();
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("shows error feedback when clipboard write fails", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, data: { shareUrl: "http://localhost/app/log-shared/tok", shareToken: "tok" } }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+    Object.defineProperty(navigator, "share", { value: undefined, configurable: true, writable: true });
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn().mockRejectedValue(new Error("Clipboard permission denied")) },
+      configurable: true,
+      writable: true,
+    });
+
+    render(<FoodDetail entryId="1" />);
+    fireEvent.click(screen.getByRole("button", { name: /share/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to copy/i)).toBeInTheDocument();
+    });
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("FoodDetail error state", () => {

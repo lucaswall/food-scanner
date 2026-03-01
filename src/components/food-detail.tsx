@@ -29,6 +29,7 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
   const router = useRouter();
   const [isSharing, setIsSharing] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
   const { data, error, isLoading, mutate } = useSWR<FoodLogEntryDetail>(
     `/api/food-history/${entryId}`,
     apiFetcher,
@@ -52,13 +53,17 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
   async function handleShare() {
     if (!data || isSharing) return;
     setIsSharing(true);
+    setShareError(null);
     try {
       const response = await fetch("/api/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customFoodId: data.customFoodId }),
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        setShareError("Failed to share. Please try again.");
+        return;
+      }
       const result = await response.json();
       const shareUrl: string = result.data.shareUrl;
       const foodName: string = data.foodName;
@@ -68,11 +73,16 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
           await navigator.share({ url: shareUrl, title: foodName });
         } catch (err) {
           if (err instanceof Error && err.name === "AbortError") return;
+          setShareError("Failed to share. Please try again.");
         }
       } else {
-        await navigator.clipboard.writeText(shareUrl);
-        setShareCopied(true);
-        setTimeout(() => setShareCopied(false), 2000);
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          setShareCopied(true);
+          setTimeout(() => setShareCopied(false), 2000);
+        } catch {
+          setShareError("Failed to copy link. Please try again.");
+        }
       }
     } finally {
       setIsSharing(false);
@@ -164,6 +174,9 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
         </div>
         {shareCopied && (
           <p className="text-xs text-green-600 mt-1">Link copied to clipboard!</p>
+        )}
+        {shareError && (
+          <p className="text-xs text-destructive mt-1">{shareError}</p>
         )}
         <p className="text-sm text-muted-foreground mt-1">
           {formatDate(data.date)} · {formatTime(data.time) || "Not specified"} ·{" "}

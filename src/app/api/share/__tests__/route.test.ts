@@ -18,19 +18,18 @@ vi.mock("@/lib/food-log", () => ({
   setShareToken: (...args: unknown[]) => mockSetShareToken(...args),
 }));
 
-vi.mock("@/lib/logger", () => {
-  const mockLogger = {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    child: vi.fn(),
-  };
-  return {
-    logger: mockLogger,
-    createRequestLogger: vi.fn(() => mockLogger),
-  };
-});
+const mockLogger = {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  child: vi.fn(),
+};
+
+vi.mock("@/lib/logger", () => ({
+  logger: mockLogger,
+  createRequestLogger: vi.fn(() => mockLogger),
+}));
 
 const { POST } = await import("@/app/api/share/route");
 
@@ -107,5 +106,17 @@ describe("POST /api/share", () => {
     await POST(makeRequest({ customFoodId: 42 }));
 
     expect(mockSetShareToken).toHaveBeenCalledWith("user-uuid-123", 42);
+  });
+
+  it("does not log the share token value", async () => {
+    mockSetShareToken.mockResolvedValue("secret-token-value");
+
+    await POST(makeRequest({ customFoodId: 42 }));
+
+    // Check all logger calls don't contain the token
+    for (const call of [...mockLogger.info.mock.calls, ...mockLogger.warn.mock.calls, ...mockLogger.error.mock.calls]) {
+      const logObj = JSON.stringify(call);
+      expect(logObj).not.toContain("secret-token-value");
+    }
   });
 });

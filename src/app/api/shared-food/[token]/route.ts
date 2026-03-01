@@ -17,11 +17,11 @@ export async function GET(
 
   const food = await getCustomFoodByShareToken(token);
   if (!food) {
-    log.warn({ action: "shared_food_not_found", token }, "shared food not found");
+    log.warn({ action: "shared_food_not_found" }, "shared food not found");
     return errorResponse("NOT_FOUND", "Shared food not found", 404);
   }
 
-  log.info({ action: "shared_food_fetched", token, foodId: food.id }, "shared food fetched");
+  log.info({ action: "shared_food_fetched", foodId: food.id }, "shared food fetched");
 
   return successResponse({
     id: food.id,

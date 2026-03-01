@@ -335,10 +335,23 @@ export async function getCommonFoods(
     const remainingSlots = Math.max(0, limit - favorites.length);
     const hasMore = paginatedNonFavorites.length > remainingSlots;
     page = [...favorites, ...paginatedNonFavorites.slice(0, remainingSlots)];
-    const lastNonFav = remainingSlots > 0 ? paginatedNonFavorites[remainingSlots - 1] : null;
-    const nextCursor: CommonFoodsCursor | null = hasMore && lastNonFav
-      ? { score: lastNonFav.totalScore, id: lastNonFav.bestRow.custom_foods.id }
-      : null;
+    let nextCursor: CommonFoodsCursor | null = null;
+    if (hasMore) {
+      // Use the last non-favorite shown on this page as cursor anchor,
+      // or the first non-favorite if favorites filled all slots (remainingSlots === 0).
+      // When remainingSlots === 0, no non-favorites were shown on page 1, so the cursor
+      // must include ALL non-favorites on page 2. We use score+1 with id=0 as a sentinel
+      // that passes the filter `score < cursorScore || (score === cursorScore && id > 0)`.
+      // Invariant: all totalScores are in (0, ~1.3] per entry, so +1 safely exceeds all items.
+      const cursorItem = remainingSlots > 0
+        ? paginatedNonFavorites[remainingSlots - 1]
+        : paginatedNonFavorites[0];
+      if (cursorItem) {
+        nextCursor = remainingSlots > 0
+          ? { score: cursorItem.totalScore, id: cursorItem.bestRow.custom_foods.id }
+          : { score: cursorItem.totalScore + 1, id: 0 };
+      }
+    }
     const foods: CommonFood[] = page.map(({ bestRow }) => mapRowToCommonFood(bestRow));
     l.debug({ action: "get_common_foods", resultCount: foods.length, hasMore }, "common foods retrieved");
     return { foods, nextCursor };
@@ -620,7 +633,18 @@ export async function updateFoodLogEntry(
 
     const oldCustomFoodId = row.customFoodId;
 
-    // Insert new custom food with updated values
+    // Fetch metadata from old custom food to preserve during replacement
+    const oldFoodRows = await tx
+      .select({
+        fitbitFoodId: customFoods.fitbitFoodId,
+        isFavorite: customFoods.isFavorite,
+        shareToken: customFoods.shareToken,
+      })
+      .from(customFoods)
+      .where(eq(customFoods.id, oldCustomFoodId));
+    const oldFood = oldFoodRows[0];
+
+    // Insert new custom food with updated values, preserving metadata from old record
     const newFoods = await tx
       .insert(customFoods)
       .values({
@@ -642,6 +666,9 @@ export async function updateFoodLogEntry(
         notes: data.notes,
         description: data.description ?? null,
         keywords: data.keywords ?? null,
+        fitbitFoodId: oldFood?.fitbitFoodId ?? null,
+        isFavorite: oldFood?.isFavorite ?? false,
+        shareToken: oldFood?.shareToken ?? null,
       })
       .returning({ id: customFoods.id });
 

@@ -1024,3 +1024,42 @@ Summary: 8 issue(s) found across 3 domains (Team: security, reliability, quality
 
 1. Write test in `src/app/app/log-shared/[token]/__tests__/log-shared-content.test.tsx` verifying local date is used
 2. In `log-shared-content.tsx:100-102`, replace `new Date().toISOString().slice(0, 10)` with `getLocalDateTime()` from `@/lib/meal-type`
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-02-28
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Fix 1: updateFoodLogEntry preserves fitbitFoodId, isFavorite, shareToken from old custom food (FOO-720)
+- Fix 2: Pagination cursor non-null when favorites fill all slots (FOO-721)
+- Fix 3: handleShare shows error feedback on API failure and clipboard errors (FOO-722)
+- Fix 4: Share token removed from all API route log objects (FOO-723)
+- Fix 5: log-shared page uses getLocalDateTime() instead of UTC date (FOO-724)
+
+### Files Modified
+- `src/lib/food-log.ts` — Fetch old custom food metadata before insert in updateFoodLogEntry; fix pagination cursor when favorites fill all slots
+- `src/lib/__tests__/food-log.test.ts` — Tests for metadata preservation and pagination fix
+- `src/components/food-detail.tsx` — Share error state, error feedback for API/clipboard/navigator.share failures
+- `src/components/__tests__/food-detail.test.tsx` — Tests for share error scenarios
+- `src/app/api/share/route.ts` — Remove token from log objects
+- `src/app/api/share/__tests__/route.test.ts` — Test verifying token not logged
+- `src/app/api/shared-food/[token]/route.ts` — Remove token from log objects
+- `src/app/api/shared-food/[token]/__tests__/route.test.ts` — Test verifying token not logged
+- `src/app/app/log-shared/[token]/log-shared-content.tsx` — Use getLocalDateTime() instead of toISOString()
+- `src/app/app/log-shared/[token]/__tests__/log-shared-content.test.tsx` — New test file for date handling
+
+### Linear Updates
+- FOO-720 through FOO-724: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs (2 MEDIUM, 1 LOW), all fixed before commit
+  - Non-AbortError from navigator.share silently swallowed (fixed: added setShareError)
+  - Cursor sentinel invariant undocumented (fixed: added comment documenting score range invariant)
+  - Token-logging tests missing error-level log coverage (fixed: added mockLogger.error to assertions)
+- verifier: All 2334 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

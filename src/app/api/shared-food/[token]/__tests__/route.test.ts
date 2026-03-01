@@ -17,19 +17,18 @@ vi.mock("@/lib/food-log", () => ({
   getCustomFoodByShareToken: (...args: unknown[]) => mockGetCustomFoodByShareToken(...args),
 }));
 
-vi.mock("@/lib/logger", () => {
-  const mockLogger = {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-    child: vi.fn(),
-  };
-  return {
-    logger: mockLogger,
-    createRequestLogger: vi.fn(() => mockLogger),
-  };
-});
+const mockLogger = {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  child: vi.fn(),
+};
+
+vi.mock("@/lib/logger", () => ({
+  logger: mockLogger,
+  createRequestLogger: vi.fn(() => mockLogger),
+}));
 
 const { GET } = await import("@/app/api/shared-food/[token]/route");
 
@@ -130,5 +129,16 @@ describe("GET /api/shared-food/[token]", () => {
     // proteinG is stored as "30" string but should be returned as number
     expect(typeof body.data.proteinG).toBe("number");
     expect(body.data.proteinG).toBe(30);
+  });
+
+  it("does not log the share token value", async () => {
+    mockGetCustomFoodByShareToken.mockResolvedValue(mockFood);
+
+    await GET(makeRequest("secret-token-val"), makeParams("secret-token-val"));
+
+    for (const call of [...mockLogger.info.mock.calls, ...mockLogger.warn.mock.calls, ...mockLogger.error.mock.calls]) {
+      const logObj = JSON.stringify(call);
+      expect(logObj).not.toContain("secret-token-val");
+    }
   });
 });

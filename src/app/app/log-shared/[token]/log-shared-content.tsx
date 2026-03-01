@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
 import { FitbitMealType } from "@/types";
 import type { FoodLogResponse } from "@/types";
-import { formatTimeFromDate } from "@/lib/date-utils";
+import { getLocalDateTime } from "@/lib/meal-type";
 
 interface SharedFood {
   id: number;
@@ -97,9 +97,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
     setIsLogging(true);
     setLogError(null);
 
-    const now = new Date();
-    const date = now.toISOString().slice(0, 10);
-    const time = formatTimeFromDate(now);
+    const { date, time } = getLocalDateTime();
 
     try {
       const response = await fetch("/api/log-food", {

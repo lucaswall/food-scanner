@@ -1047,6 +1047,27 @@ describe("getCommonFoods", () => {
       expect(result.foods.length).toBe(1);
       expect(result.foods[0].foodName).toBe("Non-fav Food");
     });
+
+    it("returns nextCursor when favorites fill all slots but non-favorites exist", async () => {
+      // 3 favorites + 2 non-favorites, limit 3 → remainingSlots = 0
+      // nextCursor must not be null so client can fetch non-favorites on page 2
+      const rows = [
+        makeRow({ customFoodId: 1, foodName: "Fav 1", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 100, mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 2, foodName: "Fav 2", time: "12:00:00", date: "2026-02-07", fitbitFoodId: 101, mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 3, foodName: "Fav 3", time: "12:00:00", date: "2026-02-06", fitbitFoodId: 102, mealTypeId: 3, isFavorite: true }),
+        makeRow({ customFoodId: 4, foodName: "Non-fav 1", time: "12:00:00", date: "2026-02-08", fitbitFoodId: 103, mealTypeId: 3, isFavorite: false }),
+        makeRow({ customFoodId: 5, foodName: "Non-fav 2", time: "12:00:00", date: "2026-02-07", fitbitFoodId: 104, mealTypeId: 3, isFavorite: false }),
+      ];
+      mockWhere.mockResolvedValue(rows);
+
+      const result = await getCommonFoods("user-uuid-123", "12:00:00", "2026-02-08", { limit: 3 });
+
+      // Page 1 has 3 favorites only
+      expect(result.foods).toHaveLength(3);
+      expect(result.foods.every(f => f.isFavorite)).toBe(true);
+      // nextCursor must be non-null so non-favorites are accessible
+      expect(result.nextCursor).not.toBeNull();
+    });
   });
 });
 
@@ -2465,6 +2486,7 @@ describe("updateFoodLogEntry", () => {
 
   it("inserts new custom food with correct nutrition values", async () => {
     mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
     mockReturning.mockResolvedValueOnce([{ id: 99 }]);
     mockUpdateWhere.mockResolvedValueOnce(undefined);
     mockWhere.mockResolvedValueOnce([]); // orphan check: no remaining entries
@@ -2488,6 +2510,7 @@ describe("updateFoodLogEntry", () => {
 
   it("updates food log entry to use new customFoodId, amount, mealTypeId, date, time", async () => {
     mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
     mockReturning.mockResolvedValueOnce([{ id: 99 }]);
     mockUpdateWhere.mockResolvedValueOnce(undefined);
     mockWhere.mockResolvedValueOnce([]); // orphan check
@@ -2509,6 +2532,7 @@ describe("updateFoodLogEntry", () => {
 
   it("deletes orphaned old custom food when no other entries reference it", async () => {
     mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
     mockReturning.mockResolvedValueOnce([{ id: 99 }]);
     mockUpdateWhere.mockResolvedValueOnce(undefined);
     mockWhere.mockResolvedValueOnce([]); // orphan: no entries remain
@@ -2521,6 +2545,7 @@ describe("updateFoodLogEntry", () => {
 
   it("does not delete old custom food when other entries still reference it", async () => {
     mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
     mockReturning.mockResolvedValueOnce([{ id: 99 }]);
     mockUpdateWhere.mockResolvedValueOnce(undefined);
     mockWhere.mockResolvedValueOnce([{ id: 55 }]); // still referenced
@@ -2532,6 +2557,7 @@ describe("updateFoodLogEntry", () => {
 
   it("returns fitbitLogId and newCustomFoodId on success", async () => {
     mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food
     mockReturning.mockResolvedValueOnce([{ id: 99 }]);
     mockUpdateWhere.mockResolvedValueOnce(undefined);
     mockWhere.mockResolvedValueOnce([]); // orphan check
@@ -2547,5 +2573,23 @@ describe("updateFoodLogEntry", () => {
     const result = await updateFoodLogEntry("user-uuid-123", 999, validInput);
 
     expect(result).toBeNull();
+  });
+
+  it("preserves fitbitFoodId, isFavorite, and shareToken from old custom food", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // entry select
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: true, shareToken: "abc123" }]); // old custom food
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
+    mockUpdateWhere.mockResolvedValueOnce(undefined); // update entry
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fitbitFoodId: 555,
+        isFavorite: true,
+        shareToken: "abc123",
+      })
+    );
   });
 });

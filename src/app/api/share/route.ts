@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   }
 
   const shareUrl = buildUrl(`/app/log-shared/${token}`);
-  log.info({ action: "share_food_success", customFoodId, token }, "share token generated");
+  log.info({ action: "share_food_success", customFoodId }, "share token generated");
 
   return successResponse({ shareUrl, shareToken: token });
 }
