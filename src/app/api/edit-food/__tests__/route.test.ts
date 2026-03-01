@@ -101,6 +101,7 @@ const existingEntry: FoodLogEntryDetail = {
   fitbitFoodId: 5555,
   confidence: "high",
   isFavorite: false,
+  keywords: ["empanada", "carne"],
 };
 
 const validBody = {

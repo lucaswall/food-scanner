@@ -1958,6 +1958,7 @@ describe("editAnalysis", () => {
     fitbitFoodId: null,
     confidence: "high",
     isFavorite: false,
+    keywords: ["empanada", "carne"],
   };
 
   it("yields analysis event when Claude calls report_nutrition", async () => {

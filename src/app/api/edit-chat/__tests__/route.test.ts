@@ -95,6 +95,7 @@ const existingEntry: FoodLogEntryDetail = {
   fitbitFoodId: null,
   confidence: "high",
   isFavorite: false,
+  keywords: ["empanada", "carne"],
 };
 
 function createMockRequest(body: unknown): Request {

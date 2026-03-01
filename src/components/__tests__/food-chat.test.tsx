@@ -2334,6 +2334,7 @@ const mockEditEntry: FoodLogEntryDetail = {
   fitbitFoodId: null,
   confidence: "high",
   isFavorite: false,
+  keywords: ["empanada", "carne"],
 };
 
 const editModeProps = {

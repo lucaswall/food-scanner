@@ -53,6 +53,7 @@ const mockEntry: FoodLogEntryDetail = {
   fitbitFoodId: null,
   confidence: "high",
   isFavorite: false,
+  keywords: ["empanada", "carne"],
 };
 
 beforeEach(() => {
