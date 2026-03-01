@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import * as Sentry from "@sentry/nextjs";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -482,6 +483,7 @@ export function FoodChat({
       if (err instanceof DOMException && err.name === "TimeoutError") {
         setError("Request timed out. Please try again.");
       } else {
+        Sentry.captureException(err);
         setError(
           err instanceof Error ? err.message : "An unexpected error occurred"
         );
@@ -564,6 +566,7 @@ export function FoodChat({
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setError("Request timed out. Please try again.");
       } else {
+        Sentry.captureException(err);
         setError(
           err instanceof Error ? err.message : "An unexpected error occurred"
         );
@@ -612,6 +615,25 @@ export function FoodChat({
       };
 
       if (!response.ok || !result.success || !result.data) {
+        const errorCode = result.error?.code;
+
+        if (errorCode === "FITBIT_TOKEN_INVALID") {
+          savePendingSubmission({
+            analysis: analysis,
+            mealTypeId,
+            foodName: analysis.food_name,
+            date: editEntry.date,
+            time: saveBody.time,
+          });
+          window.location.href = "/api/auth/fitbit";
+          return;
+        }
+
+        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+          setError("Fitbit is not set up. Please configure your credentials in Settings.");
+          return;
+        }
+
         setError(result.error?.message || "Failed to save changes");
         return;
       }
@@ -621,6 +643,7 @@ export function FoodChat({
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setError("Request timed out. Please try again.");
       } else {
+        Sentry.captureException(err);
         setError(err instanceof Error ? err.message : "An unexpected error occurred");
       }
     } finally {
@@ -906,7 +929,7 @@ export function FoodChat({
               }
             }}
             disabled={loading || atLimit}
-            maxLength={500}
+            maxLength={2000}
             className="flex-1 rounded-full"
           />
 

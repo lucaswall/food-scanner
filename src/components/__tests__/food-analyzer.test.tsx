@@ -203,6 +203,14 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }));
 
+const { mockCaptureException: mockCaptureExceptionAnalyzer } = vi.hoisted(() => ({
+  mockCaptureException: vi.fn(),
+}));
+
+vi.mock("@sentry/nextjs", () => ({
+  captureException: mockCaptureExceptionAnalyzer,
+}));
+
 vi.mock("../food-log-confirmation", () => ({
   FoodLogConfirmation: ({
     response,
@@ -357,6 +365,7 @@ function makeSseAnalyzeResponse(events: StreamEvent[]) {
       }
       return Promise.resolve({ done: true, value: undefined });
     },
+    cancel: () => Promise.resolve(),
     releaseLock: () => {},
   };
   return {
@@ -389,6 +398,7 @@ function makeControllableSseResponse() {
       }
       return new Promise((resolve) => waiters.push(resolve));
     },
+    cancel: () => Promise.resolve(),
     releaseLock: () => {},
   };
   const response = {
@@ -3720,6 +3730,62 @@ describe("FoodAnalyzer", () => {
       );
       const body = JSON.parse((logCall![1] as { body: string }).body);
       expect(body.time).toMatch(/^\d{2}:\d{2}$/);
+    });
+  });
+
+  // FOO-743: Client-side Sentry error reporting
+  describe("FOO-743: Sentry.captureException in analyze catch block", () => {
+    it("calls captureException for unexpected fetch error", async () => {
+      mockFetch.mockRejectedValueOnce(new Error("Network failure"));
+
+      render(<FoodAnalyzer />);
+      fireEvent.change(screen.getByTestId("description-input"), {
+        target: { value: "test food" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/network failure/i)).toBeInTheDocument();
+      });
+
+      expect(mockCaptureExceptionAnalyzer).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Network failure" })
+      );
+    });
+
+    it("does NOT call captureException for AbortError", async () => {
+      const abortError = new Error("The operation was aborted.");
+      abortError.name = "AbortError";
+      mockFetch.mockRejectedValueOnce(abortError);
+
+      render(<FoodAnalyzer />);
+      fireEvent.change(screen.getByTestId("description-input"), {
+        target: { value: "test food" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      expect(mockCaptureExceptionAnalyzer).not.toHaveBeenCalled();
+    });
+
+    it("does NOT call captureException for TimeoutError", async () => {
+      const timeoutError = new DOMException("signal timed out", "TimeoutError");
+      mockFetch.mockRejectedValueOnce(timeoutError);
+
+      render(<FoodAnalyzer />);
+      fireEvent.change(screen.getByTestId("description-input"), {
+        target: { value: "test food" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/analysis timed out/i)).toBeInTheDocument();
+      });
+
+      expect(mockCaptureExceptionAnalyzer).not.toHaveBeenCalled();
     });
   });
 });
