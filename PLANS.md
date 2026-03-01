@@ -2,7 +2,7 @@
 
 **Issue:** FOO-768
 **Date:** 2026-03-01
-**Status:** Planning
+**Status:** COMPLETE
 **Branch:** fix/FOO-768-chat-edit-wrong-id
 
 ## Investigation
@@ -121,5 +121,29 @@ Both `source_custom_food_id` and `editing_entry_id` reference the same `[id:N]` 
 - bug-hunter: Passed — no bugs found
 - verifier: All 2467 tests pass, zero warnings, build clean
 
+### Review Findings
+
+Files reviewed: 4
+Reviewer: single-agent (≤4 files)
+Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+
+No issues found — all implementations are correct and follow project conventions.
+
+- `src/lib/chat-tools.ts`: `[entry:N]` marker correctly exposes `food_log_entries.id` in date and date-range searches; keyword search correctly omits it
+- `src/lib/claude.ts`: System prompt and tool description properly distinguish `[entry:N]` (entry ID for editing) from `[id:N]` (food definition ID for reuse)
+- Edit-food API validated: `getFoodLogEntryDetail(userId, entryId)` scopes lookup to authenticated user — no IDOR risk
+- Tests verify marker separation with distinct IDs (customFoodId=7, id=42), keyword exclusion, and prompt/tool description content
+
+### Linear Updates
+- FOO-768: Review → Merge
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
 All tasks completed.
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
