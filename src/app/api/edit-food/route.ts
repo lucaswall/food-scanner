@@ -279,7 +279,7 @@ export async function POST(request: Request) {
             confidence: entry.confidence as "high" | "medium" | "low",
             notes: entry.notes ?? "",
             description: entry.description ?? "",
-            keywords: [],
+            keywords: entry.keywords,
           }, log);
           await logFood(freshToken, origCreate.foodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
           log.info({ action: "edit_food_compensation_success" }, "original Fitbit log restored");

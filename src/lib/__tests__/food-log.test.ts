@@ -1638,6 +1638,7 @@ describe("getFoodLogEntryDetail", () => {
       fitbitFoodId: 100,
       confidence: "high",
       isFavorite: false,
+      keywords: [],
     });
   });
 

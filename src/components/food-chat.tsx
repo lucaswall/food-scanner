@@ -62,7 +62,7 @@ function entryDetailToAnalysis(entry: FoodLogEntryDetail): FoodAnalysis {
     confidence: entry.confidence as "high" | "medium" | "low",
     notes: entry.notes ?? "",
     description: entry.description ?? "",
-    keywords: [],
+    keywords: entry.keywords,
   };
 }
 

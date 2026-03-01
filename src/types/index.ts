@@ -275,6 +275,7 @@ export interface FoodLogEntryDetail {
   fitbitFoodId: number | null;
   confidence: string;
   isFavorite: boolean;
+  keywords: string[];
 }
 
 export interface MealEntry {

@@ -562,6 +562,7 @@ export async function getFoodLogEntryDetail(
     fitbitFoodId: row.custom_foods.fitbitFoodId,
     confidence: row.custom_foods.confidence,
     isFavorite: row.custom_foods.isFavorite,
+    keywords: row.custom_foods.keywords ?? [],
   };
 }
 
