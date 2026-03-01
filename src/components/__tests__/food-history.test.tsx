@@ -41,6 +41,14 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockRouterPush, back: vi.fn() }),
 }));
 
+const { mockCaptureExceptionHistory } = vi.hoisted(() => ({
+  mockCaptureExceptionHistory: vi.fn(),
+}));
+
+vi.mock("@sentry/nextjs", () => ({
+  captureException: mockCaptureExceptionHistory,
+}));
+
 // Mock IntersectionObserver
 const mockObserve = vi.fn();
 const mockDisconnect = vi.fn();
@@ -1614,5 +1622,72 @@ describe("FoodHistory", () => {
 
       expect(mockRouterPush).toHaveBeenCalledWith("/app/edit/3");
     });
+  });
+});
+
+// FOO-743: Client-side Sentry error reporting
+describe("FOO-743: Sentry.captureException in FoodHistory", () => {
+  it("calls captureException for unexpected delete error", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+      })
+      .mockRejectedValueOnce(new Error("Delete network error"));
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+    fireEvent.click(deleteButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to delete/i)).toBeInTheDocument();
+    });
+
+    expect(mockCaptureExceptionHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Delete network error" })
+    );
+  });
+
+  it("does NOT call captureException for TimeoutError in delete", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
+      })
+      .mockRejectedValueOnce(
+        new DOMException("signal timed out", "TimeoutError")
+      );
+
+    renderFoodHistory();
+
+    await waitFor(() => {
+      expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
+    });
+
+    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+    fireEvent.click(deleteButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/request timed out/i)).toBeInTheDocument();
+    });
+
+    expect(mockCaptureExceptionHistory).not.toHaveBeenCalled();
   });
 });

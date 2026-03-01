@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import * as Sentry from "@sentry/nextjs";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import useSWRInfinite from "swr/infinite";
@@ -177,6 +178,7 @@ export function FoodHistory() {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setDeleteError("Request timed out. Please try again.");
       } else {
+        Sentry.captureException(err);
         console.error("Failed to delete food history entry:", err);
         setDeleteError("Failed to delete entry");
       }
