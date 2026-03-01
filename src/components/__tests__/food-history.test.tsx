@@ -695,7 +695,7 @@ describe("FoodHistory", () => {
     expect(headings).toHaveLength(2);
   });
 
-  it("food name element has truncate class to prevent overflow", async () => {
+  it("food name element does not truncate (3-row layout gives full width)", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
@@ -708,7 +708,7 @@ describe("FoodHistory", () => {
     });
 
     const foodNameEl = screen.getByText("Empanada de carne");
-    expect(foodNameEl).toHaveClass("truncate");
+    expect(foodNameEl).not.toHaveClass("truncate");
   });
 
   it("date header shows calories on header line and macros as separate line with · separators", async () => {

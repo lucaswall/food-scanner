@@ -18,12 +18,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { Trash2, Pencil, UtensilsCrossed, Loader2, Star, Share2 } from "lucide-react";
+import { UtensilsCrossed, Loader2, Star, Share2 } from "lucide-react";
+import { FoodEntryCard } from "@/components/food-entry-card";
 import { vibrateError } from "@/lib/haptics";
 import { safeResponseJson } from "@/lib/safe-json";
-import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import type { FoodLogHistoryEntry } from "@/types";
-import { formatTime } from "@/lib/date-utils";
 
 const PAGE_SIZE = 20;
 
@@ -335,51 +334,23 @@ export function FoodHistory() {
 
           {/* Entries */}
           {group.entries.map((entry) => (
-            <div
+            <FoodEntryCard
               key={entry.id}
-              className="flex items-center gap-3 rounded-lg border bg-card"
-            >
-              <button
-                type="button"
-                className="flex-1 min-w-0 p-3 text-left"
-                onClick={() => setSelectedEntry(entry)}
-                aria-label={`${entry.foodName}, ${entry.calories} calories`}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{entry.foodName}</p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {formatTime(entry.time) && `${formatTime(entry.time)} · `}{FITBIT_MEAL_TYPE_LABELS[entry.mealTypeId] ?? "Unknown"} · {getUnitLabel(entry.unitId, entry.amount)}
-                    </p>
-                  </div>
-                  <div className="text-right text-sm shrink-0 ml-2">
-                    <p className="font-bold">{entry.calories} cal</p>
-                    <p className="text-xs text-muted-foreground">
-                      P:{entry.proteinG}g C:{entry.carbsG}g F:{entry.fatG}g
-                    </p>
-                  </div>
-                </div>
-              </button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="min-h-[44px] min-w-[44px] shrink-0 mr-1"
-                onClick={() => router.push(`/app/edit/${entry.id}`)}
-                aria-label={`Edit ${entry.foodName}`}
-              >
-                <Pencil className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="min-h-[44px] min-w-[44px] shrink-0 text-destructive hover:text-destructive mr-3"
-                onClick={() => setDeleteTargetId(entry.id)}
-                disabled={deletingId === entry.id}
-                aria-label={`Delete ${entry.foodName}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
+              foodName={entry.foodName}
+              calories={entry.calories}
+              proteinG={entry.proteinG}
+              carbsG={entry.carbsG}
+              fatG={entry.fatG}
+              unitId={entry.unitId}
+              amount={entry.amount}
+              time={entry.time}
+              mealTypeId={entry.mealTypeId}
+              onClick={() => setSelectedEntry(entry)}
+              actions="edit-delete"
+              onEdit={() => router.push(`/app/edit/${entry.id}`)}
+              onDelete={() => setDeleteTargetId(entry.id)}
+              isDeleting={deletingId === entry.id}
+            />
           ))}
         </div>
       ))}

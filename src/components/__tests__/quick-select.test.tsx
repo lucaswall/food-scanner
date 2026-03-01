@@ -1363,7 +1363,7 @@ describe("QuickSelect", () => {
       expect(screen.getByRole("button", { name: /toggle favorite/i })).toBeInTheDocument();
     });
 
-    it("does not render star button for a non-favorite food", async () => {
+    it("renders outline star button for a non-favorite food", async () => {
       mockFetch.mockResolvedValueOnce(mockPaginatedResponse([nonFavoriteFood]));
       renderQuickSelect();
 
@@ -1371,7 +1371,9 @@ describe("QuickSelect", () => {
         expect(screen.getByText("Empanada de carne")).toBeInTheDocument();
       });
 
-      expect(screen.queryByRole("button", { name: /toggle favorite/i })).not.toBeInTheDocument();
+      const starBtn = screen.getByRole("button", { name: /toggle favorite/i });
+      expect(starBtn).toBeInTheDocument();
+      expect(starBtn).toHaveAttribute("aria-pressed", "false");
     });
 
     it("star tap calls PATCH /api/custom-foods/[id]/favorite", async () => {

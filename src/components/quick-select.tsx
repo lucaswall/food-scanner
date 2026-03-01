@@ -11,11 +11,11 @@ import { NutritionFactsCard } from "./nutrition-facts-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Search, Star } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
+import { FoodEntryCard } from "@/components/food-entry-card";
 import { vibrateError } from "@/lib/haptics";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
-import { getUnitLabel } from "@/types";
 import { useDebounce } from "@/hooks/use-debounce";
 import type { CommonFood, FoodAnalysis, FoodLogResponse } from "@/types";
 
@@ -405,37 +405,19 @@ export function QuickSelect() {
                       Other
                     </p>
                   )}
-                  <div className="relative">
-                <button
-                  onClick={() => handleSelectFood(food)}
-                  className="w-full text-left p-4 rounded-lg border bg-card min-h-[44px] active:bg-muted transition-colors"
-                >
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="font-medium">{food.foodName}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {getUnitLabel(food.unitId, food.amount)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold">{food.calories} cal</p>
-                      <p className="text-xs text-muted-foreground">
-                        P:{food.proteinG}g C:{food.carbsG}g F:{food.fatG}g
-                      </p>
-                    </div>
-                  </div>
-                </button>
-                {food.isFavorite && (
-                  <button
-                    aria-label="Toggle favorite"
-                    aria-pressed={true}
-                    onClick={(e) => handleToggleFavorite(food, e)}
-                    className="absolute top-1 right-1 min-h-[44px] min-w-[44px] flex items-center justify-center text-amber-500"
-                  >
-                    <Star className="h-5 w-5" fill="currentColor" />
-                  </button>
-                )}
-                  </div>
+                  <FoodEntryCard
+                    foodName={food.foodName}
+                    calories={food.calories}
+                    proteinG={food.proteinG}
+                    carbsG={food.carbsG}
+                    fatG={food.fatG}
+                    unitId={food.unitId}
+                    amount={food.amount}
+                    onClick={() => handleSelectFood(food)}
+                    actions="favorite"
+                    isFavorite={food.isFavorite}
+                    onToggleFavorite={(e) => handleToggleFavorite(food, e)}
+                  />
                 </div>
               );
             })}
