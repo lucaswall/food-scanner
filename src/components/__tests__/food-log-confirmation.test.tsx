@@ -352,6 +352,46 @@ describe("FoodLogConfirmation", () => {
     });
   });
 
+  // FOO-729: isEdit mode
+  describe("isEdit mode", () => {
+    it("shows 'updated successfully' when isEdit is true", () => {
+      render(
+        <FoodLogConfirmation
+          response={mockResponse}
+          foodName="Empanada de carne"
+          isEdit
+        />
+      );
+
+      expect(screen.getByText(/empanada de carne updated successfully/i)).toBeInTheDocument();
+    });
+
+    it("shows 'Updated in your Fitbit library' subtitle when isEdit and not dryRun", () => {
+      render(
+        <FoodLogConfirmation
+          response={mockResponse}
+          foodName="Empanada de carne"
+          isEdit
+        />
+      );
+
+      expect(screen.getByText(/updated in your fitbit library/i)).toBeInTheDocument();
+    });
+
+    it("shows dryRun message even when isEdit is true", () => {
+      const dryRunResponse = { ...mockResponse, dryRun: true };
+      render(
+        <FoodLogConfirmation
+          response={dryRunResponse}
+          foodName="Empanada de carne"
+          isEdit
+        />
+      );
+
+      expect(screen.getByText(/saved locally \(fitbit api skipped\)/i)).toBeInTheDocument();
+    });
+  });
+
   // FOO-665: dryRun mode
   describe("dryRun mode", () => {
     it("shows 'Saved locally (Fitbit API skipped)' when dryRun is true", () => {

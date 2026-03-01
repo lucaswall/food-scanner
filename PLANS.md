@@ -142,6 +142,48 @@
 
 ---
 
+## Iteration 1
+
+**Implemented:** 2026-03-01
+**Method:** Single-agent (fly solo)
+
+### Tasks Completed This Iteration
+- Task 1: Unify FoodChat header (FOO-726) — Replaced 3-branch header with 2-branch (has-analysis vs no-analysis), unified back button and action button logic
+- Task 2: Add edit-mode greeting with initial analysis (FOO-727) — Added `entryDetailToAnalysis` helper, edit mode greeting with MiniNutritionCard on first message
+- Task 3: Enable photo support in edit mode (FOO-728) — Removed `!isEditMode` guards on file inputs, photo menu, + button; added image validation to edit-chat API; updated editAnalysis in claude.ts to handle images
+- Task 4: Show FoodLogConfirmation after edit (FOO-729) — Added `isEdit` prop to FoodLogConfirmation, changed edit-food API to return FoodLogResponse shape, EditFood now manages confirmation state
+- Task 5: Stack edit/delete buttons vertically (FOO-730) — Wrapped buttons in `flex flex-col` container in FoodEntryCard
+
+### Files Modified
+- `src/components/food-chat.tsx` — Unified header, edit greeting, photo support, handleSave calls onLogged
+- `src/components/food-log-confirmation.tsx` — Added `isEdit` prop for "updated" wording
+- `src/components/edit-food.tsx` — Manages confirmation state with FoodLogConfirmation
+- `src/components/food-entry-card.tsx` — Stacked edit/delete buttons vertically
+- `src/app/api/edit-chat/route.ts` — Added per-message image validation
+- `src/app/api/edit-food/route.ts` — Returns FoodLogResponse shape
+- `src/lib/claude.ts` — editAnalysis now supports images (same pattern as conversationalRefine)
+- `src/components/__tests__/food-chat.test.tsx` — Updated edit mode tests
+- `src/components/__tests__/food-log-confirmation.test.tsx` — Added isEdit tests
+- `src/app/api/edit-food/__tests__/route.test.ts` — Updated response shape assertions
+- `src/app/api/edit-chat/__tests__/route.test.ts` — New file with image validation tests
+- `src/lib/__tests__/claude.test.ts` — Updated editAnalysis image test
+
+### Linear Updates
+- FOO-726: Todo → In Progress → Review
+- FOO-727: Todo → In Progress → Review
+- FOO-728: Todo → In Progress → Review
+- FOO-729: Todo → In Progress → Review
+- FOO-730: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 HIGH (1 already fixed — dead import removed; 1 pre-existing base64 regex pattern), 2 MEDIUM (correct behavior / pre-existing type issue)
+- verifier: All 2346 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.
+
+---
+
 ## Plan Summary
 
 **Objective:** Unify the food edit chat with the analyze chat for a consistent user experience

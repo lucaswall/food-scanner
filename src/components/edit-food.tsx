@@ -1,12 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { FoodChat } from "@/components/food-chat";
+import { FoodLogConfirmation } from "@/components/food-log-confirmation";
 import { AlertCircle, ArrowLeft } from "lucide-react";
-import type { FoodLogEntryDetail } from "@/types";
+import type { FoodAnalysis, FoodLogEntryDetail, FoodLogResponse } from "@/types";
 
 interface EditFoodProps {
   entryId: string;
@@ -18,6 +20,10 @@ export function EditFood({ entryId }: EditFoodProps) {
     `/api/food-history/${entryId}`,
     apiFetcher,
   );
+
+  const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
+  const [loggedAnalysis, setLoggedAnalysis] = useState<FoodAnalysis | undefined>();
+  const [loggedMealTypeId, setLoggedMealTypeId] = useState<number | undefined>();
 
   if (isLoading) {
     return (
@@ -48,5 +54,29 @@ export function EditFood({ entryId }: EditFoodProps) {
     );
   }
 
-  return <FoodChat mode="edit" editEntry={data} />;
+  if (logResponse) {
+    return (
+      <div className="space-y-6">
+        <FoodLogConfirmation
+          response={logResponse}
+          foodName={loggedAnalysis?.food_name ?? data.foodName}
+          analysis={loggedAnalysis}
+          mealTypeId={loggedMealTypeId}
+          isEdit
+        />
+      </div>
+    );
+  }
+
+  return (
+    <FoodChat
+      mode="edit"
+      editEntry={data}
+      onLogged={(response, analysis, mealTypeId) => {
+        setLoggedAnalysis(analysis);
+        setLoggedMealTypeId(mealTypeId);
+        setLogResponse(response);
+      }}
+    />
+  );
 }
