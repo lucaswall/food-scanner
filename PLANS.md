@@ -734,3 +734,97 @@ Three independent workstreams from the backlog:
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 15 findings evaluated, 8 issues requiring fix, 2 discarded (Team: security, reliability, quality reviewers)
+- FIX: 8 issue(s) — Linear issues created (FOO-758 through FOO-764)
+- DISCARDED: 2 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: Mid-stream SSE timeout silently leaves bad UI state — `reader.read()` abort may not propagate timeout reason in older browsers, catch treats it as unmount (`src/components/food-chat.tsx:476`) (FOO-759)
+- [MEDIUM] ASYNC: `blobsToBase64` called outside try/catch — FileReader rejection is unhandled (`src/components/food-chat.tsx:293`) (FOO-760)
+- [MEDIUM] TEST: No test coverage for `runToolLoop` with `max_tokens` or `refusal` stop reasons (`src/lib/__tests__/claude.test.ts`) (FOO-763)
+- [LOW] SECURITY: Missing userId in UPDATE WHERE clause — defense-in-depth violation (`src/lib/food-log.ts:731`) (FOO-758)
+- [LOW] TIMEOUT: `handleShare` and `handleToggleFavorite` fetch calls missing timeout in both `daily-dashboard.tsx` and `food-history.tsx` (FOO-761)
+- [LOW] CONVENTION: Missing structured `action:` field on 6 log statements in `src/lib/claude.ts` (FOO-762)
+- [LOW] TEST: Misleading test description — claims to verify intermediate `deletingId` state but never observes it (`src/hooks/__tests__/use-delete-food-entry.test.ts:98`) (FOO-764)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] RESOURCE: `setTimeout` for `shareCopied` not cleaned up on unmount (`daily-dashboard.tsx:210`, `food-history.tsx:190`) — React 18+ handles state updates on unmounted components gracefully; 2-second timer too short for practical impact; no state corruption
+- [DISCARDED] TYPE: Unchecked `confidence` cast in `food-chat.tsx:62` — confidence values are validated at write time by `validateFoodAnalysis`; the DB only contains valid `"high" | "medium" | "low"` values
+
+### Linear Updates
+- FOO-750: Review → Merge
+- FOO-751: Review → Merge
+- FOO-748: Review → Merge
+- FOO-749: Review → Merge
+- FOO-752: Review → Merge
+- FOO-753: Review → Merge
+- FOO-754: Review → Merge
+- FOO-755: Review → Merge
+- FOO-756: Review → Merge
+- FOO-757: Review → Merge
+- FOO-758: Created in Todo (Fix: missing userId in UPDATE WHERE)
+- FOO-759: Created in Todo (Fix: mid-stream SSE timeout bad UI state)
+- FOO-760: Created in Todo (Fix: blobsToBase64 outside try/catch)
+- FOO-761: Created in Todo (Fix: missing fetch timeouts)
+- FOO-762: Created in Todo (Fix: missing action fields in logs)
+- FOO-763: Created in Todo (Fix: missing test coverage for stop reasons)
+- FOO-764: Created in Todo (Fix: misleading test description)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-758](https://linear.app/lw-claude/issue/FOO-758), [FOO-759](https://linear.app/lw-claude/issue/FOO-759), [FOO-760](https://linear.app/lw-claude/issue/FOO-760), [FOO-761](https://linear.app/lw-claude/issue/FOO-761), [FOO-762](https://linear.app/lw-claude/issue/FOO-762), [FOO-763](https://linear.app/lw-claude/issue/FOO-763), [FOO-764](https://linear.app/lw-claude/issue/FOO-764)
+
+### Fix 1: Missing userId in UPDATE WHERE clause
+**Linear Issue:** [FOO-758](https://linear.app/lw-claude/issue/FOO-758)
+
+1. Write test in `src/lib/__tests__/food-log.test.ts` that verifies `updateFoodLogEntry` includes userId in the UPDATE WHERE clause
+2. Add `eq(foodLogEntries.userId, userId)` to the `.where()` at `src/lib/food-log.ts:731`, wrapping with `and()`
+
+### Fix 2: Mid-stream SSE timeout leaves bad UI state
+**Linear Issue:** [FOO-759](https://linear.app/lw-claude/issue/FOO-759)
+
+1. Write test in `src/components/__tests__/food-chat.test.tsx` that simulates a mid-stream timeout abort and verifies: error message shown, user input restored, dangling assistant message removed
+2. Add `timeoutFiredRef = useRef(false)` in FoodChat. Set to `true` in the timeout callback. In the `AbortError` catch at line 476, check `timeoutFiredRef.current` — if true, fall through to the error handling path (lines 479–492) instead of silently returning
+
+### Fix 3: blobsToBase64 outside try/catch
+**Linear Issue:** [FOO-760](https://linear.app/lw-claude/issue/FOO-760)
+
+1. Write test in `src/components/__tests__/food-chat.test.tsx` that mocks `blobsToBase64` to reject and verifies error is shown to user
+2. Move the `blobsToBase64` call (line 293) inside the existing try block at line 325, or wrap in its own try/catch with `setError()` and `Sentry.captureException()`
+
+### Fix 4: Missing fetch timeouts on share and favorite
+**Linear Issue:** [FOO-761](https://linear.app/lw-claude/issue/FOO-761)
+
+1. Add `signal: AbortSignal.timeout(10000)` to `handleShare` fetch in both `src/components/daily-dashboard.tsx:185` and `src/components/food-history.tsx:165`
+2. Add `signal: AbortSignal.timeout(10000)` to `handleToggleFavorite` fetch in both `src/components/daily-dashboard.tsx:173` and `src/components/food-history.tsx:153`
+3. Add timeout error handling in both catch blocks
+
+### Fix 5: Missing action fields in log statements
+**Linear Issue:** [FOO-762](https://linear.app/lw-claude/issue/FOO-762)
+
+1. Add `action:` field to each of the 6 log statements in `src/lib/claude.ts`:
+   - Line 697: `action: "tool_execution_error"`
+   - Line 777: `action: "claude_api_call"`
+   - Line 864: `action: "tool_loop_completed"`
+   - Line 976: `action: "pause_turn"`
+   - Line 1012: `action: "tool_loop_max_iterations"`
+   - Line 1027: `action: "tool_loop_error"`
+
+### Fix 6: Missing test coverage for max_tokens/refusal stop reasons
+**Linear Issue:** [FOO-763](https://linear.app/lw-claude/issue/FOO-763)
+
+1. Add test in `src/lib/__tests__/claude.test.ts`: mock Claude API returning `stop_reason: "max_tokens"` → verify `runToolLoop` returns graceful fallback (partial analysis or error message)
+2. Add test: mock Claude API returning `stop_reason: "refusal"` → verify graceful fallback behavior
+
+### Fix 7: Misleading test description
+**Linear Issue:** [FOO-764](https://linear.app/lw-claude/issue/FOO-764)
+
+1. Fix test at `src/hooks/__tests__/use-delete-food-entry.test.ts:98-128` to observe intermediate `deletingId` state: call `handleDeleteConfirm()`, then assert `deletingId` equals the target ID BEFORE resolving the fetch mock, then resolve and assert it clears
