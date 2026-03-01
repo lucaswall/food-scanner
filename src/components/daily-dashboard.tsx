@@ -144,10 +144,21 @@ export function DailyDashboard() {
     handleDeleteRequest,
     handleDeleteConfirm,
     handleDeleteCancel,
+    clearError,
   } = useDeleteFoodEntry({ onSuccess: () => mutateSummary() });
 
+  useEffect(() => { clearError(); }, [selectedDate, clearError]);
+
   const handleEntryClick = (entry: MealEntry, mealTypeId: number) => {
-    setSelectedEntry({ ...entry, mealTypeId, date: selectedDate });
+    setSelectedEntry({
+      ...entry,
+      mealTypeId,
+      date: selectedDate,
+      saturatedFatG: entry.saturatedFatG ?? undefined,
+      transFatG: entry.transFatG ?? undefined,
+      sugarsG: entry.sugarsG ?? undefined,
+      caloriesFromFat: entry.caloriesFromFat ?? undefined,
+    });
   };
 
   const handleEdit = (entry: MealEntry) => {

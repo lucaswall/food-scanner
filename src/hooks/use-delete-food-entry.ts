@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import * as Sentry from "@sentry/nextjs";
 import { invalidateFoodCaches } from "@/lib/swr";
 import { vibrateError } from "@/lib/haptics";
@@ -18,6 +18,7 @@ interface UseDeleteFoodEntryReturn {
   handleDeleteRequest: (id: number) => void;
   handleDeleteConfirm: () => Promise<void>;
   handleDeleteCancel: () => void;
+  clearError: () => void;
 }
 
 export function useDeleteFoodEntry({ onSuccess }: UseDeleteFoodEntryOptions): UseDeleteFoodEntryReturn {
@@ -25,18 +26,27 @@ export function useDeleteFoodEntry({ onSuccess }: UseDeleteFoodEntryOptions): Us
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteErrorCode, setDeleteErrorCode] = useState<string | null>(null);
+  const deleteTargetIdRef = useRef<number | null>(null);
 
-  const handleDeleteRequest = (id: number) => {
+  const handleDeleteRequest = useCallback((id: number) => {
+    deleteTargetIdRef.current = id;
     setDeleteTargetId(id);
-  };
+  }, []);
 
-  const handleDeleteCancel = () => {
+  const handleDeleteCancel = useCallback(() => {
+    deleteTargetIdRef.current = null;
     setDeleteTargetId(null);
-  };
+  }, []);
 
-  const handleDeleteConfirm = async () => {
-    if (deleteTargetId === null) return;
-    const id = deleteTargetId;
+  const clearError = useCallback(() => {
+    setDeleteError(null);
+    setDeleteErrorCode(null);
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    const id = deleteTargetIdRef.current;
+    if (id === null) return;
+    deleteTargetIdRef.current = null;
     setDeleteTargetId(null);
 
     setDeletingId(id);
@@ -80,7 +90,7 @@ export function useDeleteFoodEntry({ onSuccess }: UseDeleteFoodEntryOptions): Us
     } finally {
       setDeletingId(null);
     }
-  };
+  }, [onSuccess]);
 
   return {
     deleteTargetId,
@@ -90,5 +100,6 @@ export function useDeleteFoodEntry({ onSuccess }: UseDeleteFoodEntryOptions): Us
     handleDeleteRequest,
     handleDeleteConfirm,
     handleDeleteCancel,
+    clearError,
   };
 }

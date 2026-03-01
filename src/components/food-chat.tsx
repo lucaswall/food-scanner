@@ -674,6 +674,7 @@ export function FoodChat({
       const saveBody = {
         entryId,
         ...analysis,
+        editingEntryId: undefined,
         mealTypeId,
         date,
         time: selectedTime ?? time,

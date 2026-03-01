@@ -652,3 +652,85 @@ Three independent workstreams from the backlog:
 - Refactoring PhotoCapture component
 - Service worker or offline support
 - Performance optimizations
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-01
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Add editingEntryId to FoodAnalysis type and report_nutrition tool schema (worker-1)
+- Task 2: Update FoodChat to handle editingEntryId from regular chat (worker-1)
+- Task 3: Update CHAT_SYSTEM_PROMPT with edit vs create instructions (worker-1)
+- Task 4: Handle date resolution for chat-initiated edits (worker-1)
+- Task 6: Extract useDeleteFoodEntry hook (worker-2)
+- Task 7: Extract FoodEntryDetailSheet component (worker-2)
+- Task 8: Refactor FoodHistory to use extracted pieces (worker-2)
+- Task 9: Extend MealEntry type and nutrition-summary query (worker-2)
+- Task 10: Update MealBreakdown and DailyDashboard with FoodEntryCard and interactions (worker-2)
+- Task 11: Add E2E tests for Edit Food page (worker-3)
+- Task 12: Add E2E tests for Log Shared Food page (worker-3)
+- Task 13: Add E2E tests for photo capture flow (worker-3)
+- Task 14: Add missing dialog and modal E2E screenshots (worker-3)
+- Task 15: Add missing empty state and guard E2E screenshots (worker-3)
+- Task 16: Add missing settings page state screenshots (worker-3)
+
+### Files Modified
+- `src/types/index.ts` — Added editingEntryId to FoodAnalysis, extended MealEntry with amount/unitId/isFavorite/fitbitLogId
+- `src/lib/claude.ts` — editing_entry_id tool schema, validateFoodAnalysis logic, CHAT_SYSTEM_PROMPT update
+- `src/components/food-chat.tsx` — isEditingExisting derived state, handleSaveExisting handler
+- `src/lib/__tests__/claude.test.ts` — 7 new tests for editingEntryId validation and prompt
+- `src/components/__tests__/food-chat.test.tsx` — 3 new tests for editingEntryId button behavior
+- `src/hooks/use-delete-food-entry.ts` — New hook with useCallback/useRef for stale-closure safety
+- `src/hooks/__tests__/use-delete-food-entry.test.ts` — 10 tests for delete hook
+- `src/components/food-entry-detail-sheet.tsx` — New extracted component
+- `src/components/__tests__/food-entry-detail-sheet.test.tsx` — Tests for detail sheet
+- `src/components/food-history.tsx` — Refactored to use extracted hook and sheet
+- `src/lib/food-log.ts` — Updated MealEntry construction with new fields
+- `src/lib/__tests__/food-log.test.ts` — Tests for new MealEntry fields
+- `src/components/meal-breakdown.tsx` — Replaced Link with FoodEntryCard
+- `src/components/__tests__/meal-breakdown.test.tsx` — Tests for new MealBreakdown interactions
+- `src/components/daily-dashboard.tsx` — Wired up entry interactions, delete, detail sheet
+- `src/components/__tests__/daily-dashboard.test.tsx` — Tests for dashboard interactions
+- `e2e/tests/edit-food.spec.ts` — New: 4 tests for edit page
+- `e2e/tests/log-shared.spec.ts` — New: 4 tests for log-shared page
+- `e2e/tests/analyze-photos.spec.ts` — New: 5 tests for photo capture flow
+- `e2e/tests/history.spec.ts` — Extended: 2 tests for detail sheet and delete dialog
+- `e2e/tests/quick-select.spec.ts` — Extended: 2 tests for search results and confirmation
+- `e2e/tests/empty-states.spec.ts` — Extended: 4 tests for empty states and guards
+- `e2e/tests/settings.spec.ts` — Extended: 3 tests for API key and Fitbit edit flows
+
+### Linear Updates
+- FOO-750: Todo → In Progress → Review
+- FOO-751: Todo → In Progress → Review
+- FOO-748: Todo → In Progress → Review
+- FOO-749: Todo → In Progress → Review
+- FOO-752: Todo → In Progress → Review
+- FOO-753: Todo → In Progress → Review
+- FOO-754: Todo → In Progress → Review
+- FOO-755: Todo → In Progress → Review
+- FOO-756: Todo → In Progress → Review
+- FOO-757: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (2 HIGH, 2 MEDIUM), all fixed before commit
+  - HIGH: editingEntryId leaking into /api/edit-food body — fixed with undefined spread
+  - HIGH: Stale closure in handleDeleteConfirm — fixed with useCallback + useRef
+  - MEDIUM: null vs undefined micro-nutrients in dashboard entry click — fixed with ?? undefined normalization
+  - MEDIUM: deleteError persisting across date changes — fixed with clearError + useEffect
+- verifier: All 2453 tests pass, zero lint warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1–4 (Chat Edit — types, claude.ts, food-chat.tsx)
+- Worker 2: Tasks 6–10 (Dashboard — hooks, components, food-log.ts)
+- Worker 3: Tasks 11–16 (E2E Tests — spec files)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: auto-merge, 1 file auto-resolved (src/types/index.ts)
+- Worker 3: auto-merge (no conflicts)
+
+### Continuation Status
+All tasks completed.
