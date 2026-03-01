@@ -2967,6 +2967,62 @@ describe("validateFoodAnalysis — time and mealTypeId fields", () => {
 });
 
 // =============================================================================
+// validateFoodAnalysis — editingEntryId field (FOO-750)
+// =============================================================================
+
+describe("validateFoodAnalysis — editingEntryId field", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("sets editingEntryId when editing_entry_id is a positive integer", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, editing_entry_id: 42 });
+    expect(result.editingEntryId).toBe(42);
+  });
+
+  it("omits editingEntryId when editing_entry_id is null", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, editing_entry_id: null });
+    expect(result.editingEntryId).toBeUndefined();
+  });
+
+  it("omits editingEntryId when editing_entry_id is 0 (not a valid entry ID)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, editing_entry_id: 0 });
+    expect(result.editingEntryId).toBeUndefined();
+  });
+
+  it("omits editingEntryId when editing_entry_id is absent", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis });
+    expect(result.editingEntryId).toBeUndefined();
+  });
+
+  it("throws ClaudeApiError when editing_entry_id is negative", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, editing_entry_id: -5 })).toThrow();
+  });
+
+  it("throws ClaudeApiError when editing_entry_id is a string", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, editing_entry_id: "abc" })).toThrow();
+  });
+});
+
+// =============================================================================
+// CHAT_SYSTEM_PROMPT — editing_entry_id reference (FOO-751)
+// =============================================================================
+
+describe("CHAT_SYSTEM_PROMPT — editing_entry_id field", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("CHAT_SYSTEM_PROMPT contains editing_entry_id", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toContain("editing_entry_id");
+  });
+});
+
+// =============================================================================
 // convertMessages — shared message conversion helper (FOO-740)
 // =============================================================================
 

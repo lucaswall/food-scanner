@@ -2574,6 +2574,97 @@ describe("FoodChat edit mode", () => {
   });
 });
 
+// FOO-750: editingEntryId from chat — button text and save routing
+describe("FOO-750: editingEntryId in analyze mode", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockReset();
+  });
+
+  it("shows 'Save Changes' button when SSE analysis has editingEntryId", async () => {
+    const analysisWithEditId: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99 };
+    mockFetch.mockResolvedValueOnce(
+      makeSSEFetchResponse([
+        { type: "analysis", analysis: analysisWithEditId },
+        { type: "done" },
+      ])
+    );
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
+  });
+
+  it("shows 'Log to Fitbit' button when analysis has no editingEntryId", async () => {
+    const analysisNoEdit: FoodAnalysis = { ...mockAnalysis };
+    mockFetch.mockResolvedValueOnce(
+      makeSSEFetchResponse([
+        { type: "analysis", analysis: analysisNoEdit },
+        { type: "done" },
+      ])
+    );
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "what did I eat?" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /save changes/i })).not.toBeInTheDocument();
+  });
+
+  it("clicking 'Save Changes' when editingEntryId is set POSTs to /api/edit-food with entryId", async () => {
+    const analysisWithEditId: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99 };
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "analysis", analysis: analysisWithEditId },
+          { type: "done" },
+        ])
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () =>
+          Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+      });
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      const editFoodCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/edit-food"
+      );
+      expect(editFoodCall).toBeDefined();
+      const body = JSON.parse(editFoodCall![1].body);
+      expect(body.entryId).toBe(99);
+      expect(body.food_name).toBe(mockAnalysis.food_name);
+    });
+  });
+});
+
 // FOO-743: Client-side Sentry error reporting
 describe("FOO-743: Sentry.captureException in FoodChat", () => {
   beforeEach(() => {

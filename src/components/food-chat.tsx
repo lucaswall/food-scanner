@@ -147,6 +147,8 @@ export function FoodChat({
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const latestAnalysis = messages.slice().reverse().find((msg) => msg.analysis)?.analysis;
+  // True when Claude identified an existing entry to edit via editingEntryId (chat-initiated edit).
+  const isEditingExisting = !isEditMode && latestAnalysis?.editingEntryId != null;
 
   // Count user-initiated chat messages for limit tracking
   // In seeded mode, ALL messages are sent to server (no offset needed)
@@ -651,6 +653,79 @@ export function FoodChat({
     }
   };
 
+  const handleSaveExisting = async () => {
+    if (logging) return;
+    if (!latestAnalysis) {
+      setError("No food analysis available to save.");
+      return;
+    }
+    const entryId = latestAnalysis.editingEntryId;
+    if (!entryId) {
+      setError("No entry to edit.");
+      return;
+    }
+
+    const analysis = latestAnalysis;
+    setLogging(true);
+    setError(null);
+
+    try {
+      const { date, time } = getLocalDateTime();
+      const saveBody = {
+        entryId,
+        ...analysis,
+        mealTypeId,
+        date,
+        time: selectedTime ?? time,
+      };
+
+      const response = await fetch("/api/edit-food", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(saveBody),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data?: FoodLogResponse;
+        error?: { code: string; message: string };
+      };
+
+      if (!response.ok || !result.success || !result.data) {
+        const errorCode = result.error?.code;
+        if (errorCode === "FITBIT_TOKEN_INVALID") {
+          savePendingSubmission({
+            analysis: analysis,
+            mealTypeId,
+            foodName: analysis.food_name,
+            date,
+            time: saveBody.time,
+          });
+          window.location.href = "/api/auth/fitbit";
+          return;
+        }
+        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
+          setError("Fitbit is not set up. Please configure your credentials in Settings.");
+          return;
+        }
+        setError(result.error?.message || "Failed to save changes");
+        return;
+      }
+
+      onLogged?.(result.data, analysis, mealTypeId);
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setError("Request timed out. Please try again.");
+      } else {
+        Sentry.captureException(err);
+        setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      }
+    } finally {
+      setLogging(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Hidden file inputs */}
@@ -694,17 +769,17 @@ export function FoodChat({
             <>
               <span className="flex-1" />
               <Button
-                onClick={isEditMode ? handleSave : handleLog}
+                onClick={isEditMode ? handleSave : isEditingExisting ? handleSaveExisting : handleLog}
                 disabled={logging}
                 className="shrink-0 min-h-[44px]"
               >
                 {logging ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    {isEditMode ? "Saving..." : "Logging..."}
+                    {isEditMode || isEditingExisting ? "Saving..." : "Logging..."}
                   </>
                 ) : (
-                  isEditMode ? "Save Changes" : "Log to Fitbit"
+                  isEditMode || isEditingExisting ? "Save Changes" : "Log to Fitbit"
                 )}
               </Button>
             </>
