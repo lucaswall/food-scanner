@@ -190,4 +190,51 @@ test.describe('History Page', () => {
     // Skip Broccoli/Dinner assertion — may be deleted by food-detail delete test
     await expect(page.getByText('Lunch').first()).toBeVisible();
   });
+
+  test('captures entry detail dialog with NutritionFactsCard screenshot', async ({ page }) => {
+    await page.goto('/app/history');
+    await page.waitForLoadState('networkidle');
+
+    // Wait for entries to load
+    await expect(page.getByText('Grilled Chicken Breast').first()).toBeVisible({ timeout: 10000 });
+
+    // Click on the Grilled Chicken Breast entry to open detail dialog
+    await page.getByRole('button', { name: /Grilled Chicken Breast, \d+ calories/ }).click();
+
+    // Wait for dialog to open
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+
+    // Verify NutritionFactsCard is visible in the dialog
+    await expect(dialog.getByRole('heading', { name: 'Nutrition Facts' })).toBeVisible();
+
+    // Screenshot: entry detail sheet with NutritionFactsCard
+    await captureScreenshots(page, 'history-entry-detail-dialog');
+  });
+
+  test('captures delete confirmation dialog screenshot', async ({ page }) => {
+    await page.goto('/app/history');
+    await page.waitForLoadState('networkidle');
+
+    // Wait for entries to load
+    await expect(page.getByText('Grilled Chicken Breast').first()).toBeVisible({ timeout: 10000 });
+
+    // Click the delete button for Grilled Chicken Breast
+    const deleteButton = page.getByRole('button', { name: 'Delete Grilled Chicken Breast' });
+    await expect(deleteButton).toBeVisible({ timeout: 10000 });
+    await deleteButton.click();
+
+    // Wait for confirmation dialog to appear
+    const confirmDialog = page.getByRole('alertdialog');
+    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
+
+    // Screenshot: delete confirmation dialog
+    await captureScreenshots(page, 'history-delete-dialog');
+
+    // Dismiss dialog (click Cancel to avoid actually deleting)
+    const cancelButton = page.getByRole('button', { name: /Cancel/i });
+    if (await cancelButton.isVisible()) {
+      await cancelButton.click();
+    }
+  });
 });
