@@ -242,13 +242,15 @@ describe("POST /api/edit-food", () => {
     );
   });
 
-  it("returns success response with fitbitLogId and entryId", async () => {
+  it("returns FoodLogResponse shape with fitbitFoodId, fitbitLogId, foodLogId", async () => {
     const response = await POST(createMockRequest(validBody));
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
+    expect(body.data.fitbitFoodId).toBe(9000);
     expect(body.data.fitbitLogId).toBe(99999);
-    expect(body.data.entryId).toBe(42);
+    expect(body.data.foodLogId).toBe(42);
+    expect(body.data.reusedFood).toBe(false);
   });
 
   it("compensates by re-logging original when new Fitbit log fails", async () => {

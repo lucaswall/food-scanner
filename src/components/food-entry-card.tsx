@@ -83,11 +83,11 @@ export function FoodEntryCard({
       )}
 
       {actions === "edit-delete" && (
-        <>
+        <div className="flex flex-col shrink-0">
           <Button
             variant="ghost"
             size="icon"
-            className="min-h-[44px] min-w-[44px] shrink-0"
+            className="min-h-[44px] min-w-[44px]"
             onClick={onEdit}
             aria-label={`Edit ${foodName}`}
           >
@@ -96,14 +96,14 @@ export function FoodEntryCard({
           <Button
             variant="ghost"
             size="icon"
-            className="min-h-[44px] min-w-[44px] shrink-0 text-destructive hover:text-destructive mr-1"
+            className="min-h-[44px] min-w-[44px] text-destructive hover:text-destructive"
             onClick={onDelete}
             disabled={isDeleting}
             aria-label={`Delete ${foodName}`}
           >
             <Trash2 className="h-4 w-4" />
           </Button>
-        </>
+        </div>
       )}
     </div>
   );

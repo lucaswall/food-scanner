@@ -1589,11 +1589,30 @@ export async function* editAnalysis(
   try {
     l.info({ messageCount: messages.length }, "calling Claude API for food edit");
 
-    // Convert messages to Anthropic format — no images in edit mode
-    let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => ({
-      role: msg.role,
-      content: [{ type: "text" as const, text: msg.content }],
-    }));
+    // Convert messages to Anthropic format with image support
+    let anthropicMessages: Anthropic.MessageParam[] = messages.map((msg) => {
+      const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
+
+      // Attach per-message images (images before text is Anthropic best practice)
+      if (msg.role === "user" && msg.images && msg.images.length > 0) {
+        content.push(
+          ...msg.images.map((base64) => ({
+            type: "image" as const,
+            source: {
+              type: "base64" as const,
+              media_type: "image/jpeg" as const,
+              data: base64,
+            },
+          }))
+        );
+      }
+
+      if (msg.content) {
+        content.push({ type: "text" as const, text: msg.content });
+      }
+
+      return { role: msg.role, content };
+    });
 
     // Build system prompt with EDIT_SYSTEM_PROMPT + entry context + date
     const amountLabel = getUnitLabel(entry.unitId, entry.amount);

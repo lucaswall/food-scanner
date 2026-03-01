@@ -144,6 +144,7 @@ export async function POST(request: Request) {
   const calories = Math.round(analysis.calories);
 
   let newFitbitLogId: number | undefined;
+  let fitbitFoodId: number | undefined;
 
   if (!isDryRun) {
     const accessToken = await ensureFreshToken(session!.userId, log);
@@ -163,6 +164,7 @@ export async function POST(request: Request) {
     // Create new Fitbit food + log
     try {
       const createResult = await findOrCreateFood(accessToken, { ...analysis, calories }, log);
+      fitbitFoodId = createResult.foodId;
       const logResult = await logFood(
         accessToken,
         createResult.foodId,
@@ -256,9 +258,10 @@ export async function POST(request: Request) {
     );
 
     return successResponse({
-      entryId,
-      fitbitLogId: result.fitbitLogId,
-      newCustomFoodId: result.newCustomFoodId,
+      fitbitFoodId: fitbitFoodId ?? undefined,
+      fitbitLogId: result.fitbitLogId ?? undefined,
+      foodLogId: entryId,
+      reusedFood: false,
       ...(isDryRun && { dryRun: true }),
     });
   } catch (dbErr) {

@@ -2340,23 +2340,28 @@ const editModeProps = {
 };
 
 describe("FoodChat edit mode", () => {
-  it("renders context header with food name and date in edit mode", () => {
+  it("shows greeting with food name and calories in edit mode", () => {
     render(<FoodChat {...editModeProps} />);
-    expect(screen.getByText(/empanada de carne/i)).toBeInTheDocument();
-    expect(screen.getByText(/2026-02-15/)).toBeInTheDocument();
+    expect(screen.getByText(/you logged empanada de carne \(320 cal\)/i)).toBeInTheDocument();
   });
 
-  it('shows "Save Changes" button instead of "Log to Fitbit"', () => {
+  it("shows MiniNutritionCard in edit mode greeting", () => {
     render(<FoodChat {...editModeProps} />);
+    // MiniNutritionCard renders a button with aria-label for the food name
+    expect(screen.getByRole("button", { name: /view full nutrition details for empanada de carne/i })).toBeInTheDocument();
+  });
+
+  it("shows unified header with Save Changes when edit mode has greeting analysis", () => {
+    render(<FoodChat {...editModeProps} />);
+    // Greeting sets latestAnalysis, so analysis header should show
     expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
   });
 
-  it("does not render photo upload controls in edit mode", () => {
+  it("renders photo upload controls in edit mode", () => {
     render(<FoodChat {...editModeProps} />);
-    expect(screen.queryByRole("button", { name: /add photo/i })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("chat-camera-input")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("chat-gallery-input")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /add photo/i })).toBeInTheDocument();
+    expect(screen.getByTestId("chat-camera-input")).toBeInTheDocument();
+    expect(screen.getByTestId("chat-gallery-input")).toBeInTheDocument();
   });
 
   it("pre-populates MealTypeSelector from editEntry.mealTypeId", () => {
@@ -2455,14 +2460,15 @@ describe("FoodChat edit mode", () => {
     expect(saveBody.calories).toBe(160);
   });
 
-  it("calls router.back() after successful save", async () => {
+  it("calls onLogged after successful save with FoodLogResponse", async () => {
+    const onLogged = vi.fn();
     // Get an analysis first
     mockFetch.mockResolvedValueOnce(makeSSEFetchResponse([
       { type: "analysis", analysis: { ...mockAnalysis, calories: 160 } },
       { type: "done" },
     ]));
 
-    render(<FoodChat {...editModeProps} />);
+    render(<FoodChat {...editModeProps} onLogged={onLogged} />);
 
     const input = screen.getByPlaceholderText(/type a message/i);
     fireEvent.change(input, { target: { value: "I only ate half" } });
@@ -2473,18 +2479,23 @@ describe("FoodChat edit mode", () => {
       expect(screen.getByRole("button", { name: /save changes/i })).not.toBeDisabled();
     });
 
+    const saveResponse = { fitbitFoodId: 9000, fitbitLogId: 99999, foodLogId: 42, reusedFood: false };
     mockFetch.mockResolvedValueOnce({
       ok: true,
       text: () => Promise.resolve(JSON.stringify({
         success: true,
-        data: { entryId: 42, fitbitLogId: 99999, newCustomFoodId: 200 },
+        data: saveResponse,
       })),
     });
 
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
     await waitFor(() => {
-      expect(mockRouterBack).toHaveBeenCalled();
+      expect(onLogged).toHaveBeenCalledWith(
+        saveResponse,
+        expect.objectContaining({ calories: 160 }),
+        5, // mealTypeId from editEntry
+      );
     });
   });
 });

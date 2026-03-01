@@ -14,6 +14,7 @@ interface FoodLogConfirmationProps {
   foodName: string;
   analysis?: FoodAnalysis;
   mealTypeId?: number;
+  isEdit?: boolean;
 }
 
 export function FoodLogConfirmation({
@@ -21,6 +22,7 @@ export function FoodLogConfirmation({
   foodName,
   analysis,
   mealTypeId,
+  isEdit,
 }: FoodLogConfirmationProps) {
   const router = useRouter();
   // Trigger haptic feedback and invalidate caches on mount
@@ -48,14 +50,16 @@ export function FoodLogConfirmation({
 
       <div className="space-y-2">
         <h3 className="text-lg font-semibold">
-          {foodName} logged successfully!
+          {foodName} {isEdit ? "updated" : "logged"} successfully!
         </h3>
         <p className="text-sm text-muted-foreground">
           {response.dryRun
             ? "Saved locally (Fitbit API skipped)"
-            : response.reusedFood
-              ? "Reused existing food from your Fitbit library"
-              : "Created new food in your Fitbit library"}
+            : isEdit
+              ? "Updated in your Fitbit library"
+              : response.reusedFood
+                ? "Reused existing food from your Fitbit library"
+                : "Created new food in your Fitbit library"}
         </p>
       </div>
 

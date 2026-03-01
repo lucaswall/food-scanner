@@ -6,6 +6,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { isValidDateFormat, getTodayDate } from "@/lib/date-utils";
 import { createSSEResponse } from "@/lib/sse";
 import { getFoodLogEntryDetail } from "@/lib/food-log";
+import { MAX_IMAGES, MAX_IMAGE_SIZE } from "@/lib/image-validation";
 import type { ConversationMessage } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
@@ -55,6 +56,8 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", `messages array exceeds maximum of ${MAX_MESSAGES}`, 400);
   }
 
+  let totalImageCount = 0;
+
   for (let i = 0; i < data.messages.length; i++) {
     const msg = data.messages[i];
     if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
@@ -70,6 +73,38 @@ export async function POST(request: Request) {
     if (message.content.length > 2000) {
       return errorResponse("VALIDATION_ERROR", `messages[${i}].content exceeds maximum length of 2000 characters`, 400);
     }
+
+    // Validate per-message images (only valid on user messages)
+    if (message.images !== undefined) {
+      if (message.role !== "user") {
+        return errorResponse("VALIDATION_ERROR", `messages[${i}].images is only valid on user messages`, 400);
+      }
+      if (!Array.isArray(message.images)) {
+        return errorResponse("VALIDATION_ERROR", `messages[${i}].images must be an array`, 400);
+      }
+      for (let j = 0; j < message.images.length; j++) {
+        if (typeof message.images[j] !== "string") {
+          return errorResponse("VALIDATION_ERROR", `messages[${i}].images[${j}] must be a base64 string`, 400);
+        }
+        const imageStr = message.images[j] as string;
+        if (imageStr.length === 0) {
+          return errorResponse("VALIDATION_ERROR", `messages[${i}].images[${j}] must not be empty`, 400);
+        }
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(imageStr)) {
+          return errorResponse("VALIDATION_ERROR", `messages[${i}].images[${j}] is not valid base64`, 400);
+        }
+        const decodedSize = Math.floor((imageStr.length * 3) / 4) -
+          (imageStr.endsWith("==") ? 2 : imageStr.endsWith("=") ? 1 : 0);
+        if (decodedSize > MAX_IMAGE_SIZE) {
+          return errorResponse("VALIDATION_ERROR", `messages[${i}].images[${j}] exceeds maximum size of 10MB`, 400);
+        }
+      }
+      totalImageCount += message.images.length;
+    }
+  }
+
+  if (totalImageCount > MAX_IMAGES) {
+    return errorResponse("VALIDATION_ERROR", `total images across messages exceeds maximum of ${MAX_IMAGES}`, 400);
   }
 
   const messages = data.messages as ConversationMessage[];

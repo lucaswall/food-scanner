@@ -2047,7 +2047,7 @@ describe("editAnalysis", () => {
     expect(events[events.length - 1]).toEqual({ type: "done" });
   });
 
-  it("does not send image blocks even if ConversationMessage has images", async () => {
+  it("sends image blocks when ConversationMessage has images", async () => {
     mockStream.mockReturnValueOnce(makeTextStream("OK"));
 
     const { editAnalysis } = await import("@/lib/claude");
@@ -2063,7 +2063,11 @@ describe("editAnalysis", () => {
     const call = mockStream.mock.calls[0][0];
     const userMsg = call.messages[0];
     const imageBlocks = userMsg.content.filter((b: { type: string }) => b.type === "image");
-    expect(imageBlocks).toHaveLength(0);
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0]).toEqual({
+      type: "image",
+      source: { type: "base64", media_type: "image/jpeg", data: "img_data_123" },
+    });
   });
 });
 

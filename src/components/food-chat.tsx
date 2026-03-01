@@ -24,7 +24,6 @@ import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { getTodayDate } from "@/lib/date-utils";
 import { savePendingSubmission } from "@/lib/pending-submission";
-import { invalidateFoodCaches } from "@/lib/swr";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
 import type {
   FoodAnalysis,
@@ -43,6 +42,28 @@ const ChatMarkdown = dynamic(
 );
 
 const MAX_MESSAGES = 30;
+
+function entryDetailToAnalysis(entry: FoodLogEntryDetail): FoodAnalysis {
+  return {
+    food_name: entry.foodName,
+    amount: entry.amount,
+    unit_id: entry.unitId,
+    calories: entry.calories,
+    protein_g: entry.proteinG,
+    carbs_g: entry.carbsG,
+    fat_g: entry.fatG,
+    fiber_g: entry.fiberG,
+    sodium_mg: entry.sodiumMg,
+    saturated_fat_g: entry.saturatedFatG ?? null,
+    trans_fat_g: entry.transFatG ?? null,
+    sugars_g: entry.sugarsG ?? null,
+    calories_from_fat: entry.caloriesFromFat ?? null,
+    confidence: entry.confidence as "high" | "medium" | "low",
+    notes: entry.notes ?? "",
+    description: entry.description ?? "",
+    keywords: [],
+  };
+}
 
 interface FoodChatProps {
   initialAnalysis?: FoodAnalysis;
@@ -71,19 +92,27 @@ export function FoodChat({
   const isEditMode = mode === "edit";
   const isSeeded = !!seedMessages && seedMessages.length > 0;
 
+  const editAnalysisGreeting = isEditMode && editEntry ? entryDetailToAnalysis(editEntry) : undefined;
+
   const initialMessages: ConversationMessage[] = seedMessages
     ? seedMessages
     : [
-        initialAnalysis
+        editAnalysisGreeting
           ? {
               role: "assistant",
-              content: `I analyzed your food as ${initialAnalysis.food_name} (${initialAnalysis.calories} cal). Anything you'd like to correct?`,
-              analysis: initialAnalysis,
+              content: `You logged ${editEntry!.foodName} (${editEntry!.calories} cal). What would you like to change?`,
+              analysis: editAnalysisGreeting,
             }
-          : {
-              role: "assistant",
-              content: "Hi! Ask me anything about your nutrition, or describe a meal to log it.",
-            },
+          : initialAnalysis
+            ? {
+                role: "assistant",
+                content: `I analyzed your food as ${initialAnalysis.food_name} (${initialAnalysis.calories} cal). Anything you'd like to correct?`,
+                analysis: initialAnalysis,
+              }
+            : {
+                role: "assistant",
+                content: "Hi! Ask me anything about your nutrition, or describe a meal to log it.",
+              },
       ];
 
   const [messages, setMessages] = useState<ConversationMessage[]>(
@@ -578,17 +607,16 @@ export function FoodChat({
 
       const result = (await safeResponseJson(response)) as {
         success: boolean;
-        data?: { entryId: number; fitbitLogId: number | null; newCustomFoodId: number };
+        data?: FoodLogResponse;
         error?: { code: string; message: string };
       };
 
-      if (!response.ok || !result.success) {
+      if (!response.ok || !result.success || !result.data) {
         setError(result.error?.message || "Failed to save changes");
         return;
       }
 
-      await invalidateFoodCaches();
-      router.back();
+      onLogged?.(result.data, analysis, mealTypeId);
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setError("Request timed out. Please try again.");
@@ -602,84 +630,40 @@ export function FoodChat({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Hidden file inputs — only in analyze mode */}
-      {!isEditMode && (
-        <>
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
-            capture="environment"
-            className="hidden"
-            data-testid="chat-camera-input"
-            onChange={(e) => {
-              handleFileSelected(e.target.files);
-              if (cameraInputRef.current) cameraInputRef.current.value = "";
-            }}
-          />
-          <input
-            ref={galleryInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
-            multiple
-            className="hidden"
-            data-testid="chat-gallery-input"
-            onChange={(e) => {
-              handleFileSelected(e.target.files);
-              if (galleryInputRef.current) galleryInputRef.current.value = "";
-            }}
-          />
-        </>
-      )}
+      {/* Hidden file inputs */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
+        capture="environment"
+        className="hidden"
+        data-testid="chat-camera-input"
+        onChange={(e) => {
+          handleFileSelected(e.target.files);
+          if (cameraInputRef.current) cameraInputRef.current.value = "";
+        }}
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif,.heic,.heif"
+        multiple
+        className="hidden"
+        data-testid="chat-gallery-input"
+        onChange={(e) => {
+          handleFileSelected(e.target.files);
+          if (galleryInputRef.current) galleryInputRef.current.value = "";
+        }}
+      />
 
       {/* Top header */}
       <div className="border-b bg-background px-2 py-2 space-y-2">
-        {isEditMode && editEntry ? (
-          /* Edit mode header: food name + date context, Save Changes button */
+        {latestAnalysis ? (
           <>
             <div className="flex items-center gap-2">
+              <h1 className="sr-only">{isEditMode ? "Edit Food" : title}</h1>
               <button
-                onClick={() => router.back()}
-                aria-label="Back"
-                className="shrink-0 flex items-center justify-center size-11 rounded-full"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate">{editEntry.foodName}</p>
-                <p className="text-xs text-muted-foreground">{editEntry.date}</p>
-              </div>
-              <Button
-                onClick={handleSave}
-                disabled={logging || !latestAnalysis}
-                className="shrink-0 min-h-[44px]"
-              >
-                {logging ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    Saving...
-                  </>
-                ) : (
-                  "Save Changes"
-                )}
-              </Button>
-            </div>
-            <div className="flex items-center gap-2 px-1">
-              <MealTypeSelector
-                value={mealTypeId}
-                onChange={setMealTypeId}
-                showTimeHint={false}
-                ariaLabel="Meal type"
-              />
-              <TimeSelector value={selectedTime} onChange={setSelectedTime} />
-            </div>
-          </>
-        ) : latestAnalysis ? (
-          <>
-            <div className="flex items-center gap-2">
-              <h1 className="sr-only">{title}</h1>
-              <button
-                onClick={onClose ?? (() => {})}
+                onClick={isEditMode ? () => router.back() : (onClose ?? (() => {}))}
                 aria-label="Back"
                 className="shrink-0 flex items-center justify-center size-11 rounded-full"
               >
@@ -694,17 +678,17 @@ export function FoodChat({
                 />
               </div>
               <Button
-                onClick={handleLog}
+                onClick={isEditMode ? handleSave : handleLog}
                 disabled={logging}
                 className="shrink-0 min-h-[44px]"
               >
                 {logging ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    Logging...
+                    {isEditMode ? "Saving..." : "Logging..."}
                   </>
                 ) : (
-                  "Log to Fitbit"
+                  isEditMode ? "Save Changes" : "Log to Fitbit"
                 )}
               </Button>
             </div>
@@ -716,13 +700,13 @@ export function FoodChat({
           /* Simple header: Back button + Title */
           <div className="flex items-center gap-2">
             <button
-              onClick={onClose ?? (() => {})}
+              onClick={isEditMode ? () => router.back() : (onClose ?? (() => {}))}
               aria-label="Back"
               className="shrink-0 flex items-center justify-center size-11 rounded-full"
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
-            <h1 className="text-lg font-semibold">{title}</h1>
+            <h1 className="text-lg font-semibold">{isEditMode ? "Edit Food" : title}</h1>
           </div>
         )}
       </div>
@@ -778,7 +762,7 @@ export function FoodChat({
                   ) : (
                     <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                   )}
-                  {msg.role === "assistant" && msg.analysis && idx > 0 && (
+                  {msg.role === "assistant" && msg.analysis && (idx > 0 || isEditMode) && (
                     <div className="mt-2">
                       <MiniNutritionCard
                         analysis={msg.analysis}
@@ -884,8 +868,8 @@ export function FoodChat({
           </div>
         )}
 
-        {/* Inline photo menu — only in analyze mode */}
-        {!isEditMode && showPhotoMenu && (
+        {/* Inline photo menu */}
+        {showPhotoMenu && (
           <div ref={photoMenuRef} data-testid="photo-menu" className="flex items-center gap-2 px-3 pt-2">
             <button
               onClick={() => {
@@ -914,23 +898,21 @@ export function FoodChat({
 
         {/* Photo toggle + Text input + Send */}
         <div className="flex items-center gap-1.5 px-2 py-2">
-          {!isEditMode && (
-            <Button
-              ref={plusButtonRef}
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-              aria-label="Add photo"
-              disabled={loading || atLimit || compressing}
-              onClick={() => setShowPhotoMenu((prev) => !prev)}
-            >
-              {showPhotoMenu ? (
-                <X className="h-5 w-5" />
-              ) : (
-                <Plus className="h-5 w-5" />
-              )}
-            </Button>
-          )}
+          <Button
+            ref={plusButtonRef}
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            aria-label="Add photo"
+            disabled={loading || atLimit || compressing}
+            onClick={() => setShowPhotoMenu((prev) => !prev)}
+          >
+            {showPhotoMenu ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <Plus className="h-5 w-5" />
+            )}
+          </Button>
 
           <Input
             placeholder="Type a message..."
