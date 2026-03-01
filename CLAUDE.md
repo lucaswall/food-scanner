@@ -8,7 +8,7 @@ Delete unused code immediately. No deprecation warnings needed.
 
 ## TECH STACK
 
-Next.js 16+ (App Router), TypeScript (strict), Tailwind CSS + shadcn/ui, Vitest + Testing Library, PostgreSQL + Drizzle ORM, iron-session (cookie transport) + PostgreSQL (session data), Google OAuth 2.0 + Fitbit OAuth 2.0, Anthropic Claude API (tool_use), pino logging, Railway deployment.
+Next.js 16+ (App Router), TypeScript (strict), Tailwind CSS + shadcn/ui, Vitest + Testing Library, PostgreSQL + Drizzle ORM, iron-session (cookie transport) + PostgreSQL (session data), Google OAuth 2.0 + Fitbit OAuth 2.0, Anthropic Claude API (tool_use), pino logging, Sentry (error tracking, session replay, AI monitoring), Railway deployment.
 
 ---
 
@@ -111,6 +111,7 @@ Do NOT flag these in code reviews:
   - `src/app/api/v1/*` external API routes: `validateApiRequest()` from `@/lib/api-auth` (Bearer API key)
   - `src/app/api/auth/*` routes: own OAuth/session management logic (includes test-login when `ENABLE_TEST_AUTH=true`)
   - `src/app/api/health` route: public, no auth
+  - `/monitoring` route: Sentry tunnel (public, proxies client events to Sentry)
 
 ---
 
