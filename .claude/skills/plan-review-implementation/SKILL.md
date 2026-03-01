@@ -127,10 +127,14 @@ While waiting for reviewer messages:
 1. Reviewer messages are **automatically delivered** — do NOT poll or manually check inbox
 2. Teammates go idle after each turn — this is normal, not an error. They're done when they send their findings message.
 3. Track progress via `TaskList`
-4. Acknowledge receipt as each reviewer reports
-5. Wait until ALL 3 reviewers have reported before proceeding to merge
+4. When a reviewer sends their findings:
+   a. Acknowledge receipt and record findings
+   b. Mark their TaskList task as completed via `TaskUpdate`
+   c. **Immediately send shutdown request** via `SendMessage` with `type: "shutdown_request"` — do not wait for other reviewers to finish
+5. When the **last reviewer confirms shutdown**, call `TeamDelete` immediately — the team is no longer needed. Deleting it now prevents bug-hunter/verifier/pr-creator subagents from accidentally joining as team members.
+6. Wait until ALL 3 reviewers have reported before proceeding to merge findings
 
-**If a reviewer gets stuck or stops without reporting:** Send them a message asking for their findings. If they don't respond, note that domain as "incomplete".
+**If a reviewer gets stuck or stops without reporting:** Send them a message asking for their findings. If they don't respond, send shutdown request and note that domain as "incomplete".
 
 ## Merge & Evaluate Findings
 
@@ -329,10 +333,9 @@ No issues found - all implementations are correct and follow project conventions
 
 ## Shutdown Team
 
-After documenting findings for the current batch of iterations:
-1. Send shutdown requests to all 3 reviewers using `SendMessage` with `type: "shutdown_request"`
-2. Wait for shutdown confirmations
-3. Use `TeamDelete` to remove team resources
+Reviewers should already be shut down individually during the Coordination phase (each shut down as they reported findings), and `TeamDelete` should already be called.
+
+**If any reviewer was NOT shut down during coordination** (e.g., went idle without reporting), send shutdown request now. Call `TeamDelete` after the last confirmation if not already called.
 
 ## After ALL Iterations Reviewed
 
