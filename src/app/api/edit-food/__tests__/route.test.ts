@@ -58,12 +58,14 @@ vi.mock("@/lib/fitbit", () => ({
 
 const mockGetFoodLogEntryDetail = vi.fn();
 const mockUpdateFoodLogEntry = vi.fn();
+const mockUpdateFoodLogEntryMetadata = vi.fn();
 vi.mock("@/lib/food-log", () => ({
   getFoodLogEntryDetail: (...args: unknown[]) => mockGetFoodLogEntryDetail(...args),
   updateFoodLogEntry: (...args: unknown[]) => mockUpdateFoodLogEntry(...args),
+  updateFoodLogEntryMetadata: (...args: unknown[]) => mockUpdateFoodLogEntryMetadata(...args),
 }));
 
-const { POST } = await import("@/app/api/edit-food/route");
+const { POST, isNutritionUnchanged } = await import("@/app/api/edit-food/route");
 
 const validSession: FullSession = {
   sessionId: "test-session",
@@ -96,6 +98,7 @@ const existingEntry: FoodLogEntryDetail = {
   date: "2026-02-15",
   time: "20:00:00",
   fitbitLogId: 12345,
+  fitbitFoodId: 5555,
   confidence: "high",
   isFavorite: false,
 };
@@ -139,6 +142,7 @@ beforeEach(() => {
   mockFindOrCreateFood.mockResolvedValue({ foodId: 9000, reused: false });
   mockLogFood.mockResolvedValue({ foodLog: { logId: 99999 } });
   mockUpdateFoodLogEntry.mockResolvedValue({ fitbitLogId: 99999, newCustomFoodId: 200 });
+  mockUpdateFoodLogEntryMetadata.mockResolvedValue(undefined);
   vi.stubEnv("FITBIT_DRY_RUN", "false");
 });
 
@@ -268,5 +272,238 @@ describe("POST /api/edit-food", () => {
     expect(response.status).toBe(500);
     // Compensation: delete new Fitbit log
     expect(mockDeleteFoodLog).toHaveBeenCalledWith("access-token-abc", 99999, expect.anything());
+  });
+});
+
+// Body that matches existingEntry nutrition exactly (triggers fast path)
+const unchangedNutritionBody = {
+  entryId: 42,
+  food_name: "Empanada de carne",
+  amount: 150,
+  unit_id: 147,
+  calories: 320,
+  protein_g: 12,
+  carbs_g: 28,
+  fat_g: 18,
+  fiber_g: 2,
+  sodium_mg: 450,
+  saturated_fat_g: null,
+  trans_fat_g: null,
+  sugars_g: null,
+  calories_from_fat: null,
+  confidence: "high" as const,
+  notes: "Baked style",
+  description: "Standard Argentine beef empanada",
+  keywords: [],
+  mealTypeId: 3, // changed from 5 → metadata-only change
+  date: "2026-02-16",
+  time: "12:00:00",
+};
+
+describe("isNutritionUnchanged helper", () => {
+  it("returns true when all nutrition fields match", () => {
+    const analysis = {
+      food_name: "Empanada de carne",
+      amount: 150,
+      unit_id: 147,
+      calories: 320,
+      protein_g: 12,
+      carbs_g: 28,
+      fat_g: 18,
+      fiber_g: 2,
+      sodium_mg: 450,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      sugars_g: null,
+      calories_from_fat: null,
+      confidence: "high" as const,
+      notes: "",
+      description: "",
+      keywords: [],
+    };
+    expect(isNutritionUnchanged(analysis, existingEntry)).toBe(true);
+  });
+
+  it("returns false when food_name differs", () => {
+    const analysis = {
+      food_name: "Different food",
+      amount: 150,
+      unit_id: 147,
+      calories: 320,
+      protein_g: 12,
+      carbs_g: 28,
+      fat_g: 18,
+      fiber_g: 2,
+      sodium_mg: 450,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      sugars_g: null,
+      calories_from_fat: null,
+      confidence: "high" as const,
+      notes: "",
+      description: "",
+      keywords: [],
+    };
+    expect(isNutritionUnchanged(analysis, existingEntry)).toBe(false);
+  });
+
+  it("returns false when calories differ", () => {
+    const analysis = {
+      food_name: "Empanada de carne",
+      amount: 150,
+      unit_id: 147,
+      calories: 300, // different
+      protein_g: 12,
+      carbs_g: 28,
+      fat_g: 18,
+      fiber_g: 2,
+      sodium_mg: 450,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      sugars_g: null,
+      calories_from_fat: null,
+      confidence: "high" as const,
+      notes: "",
+      description: "",
+      keywords: [],
+    };
+    expect(isNutritionUnchanged(analysis, existingEntry)).toBe(false);
+  });
+
+  it("returns false when amount differs", () => {
+    const analysis = {
+      food_name: "Empanada de carne",
+      amount: 200, // different
+      unit_id: 147,
+      calories: 320,
+      protein_g: 12,
+      carbs_g: 28,
+      fat_g: 18,
+      fiber_g: 2,
+      sodium_mg: 450,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      sugars_g: null,
+      calories_from_fat: null,
+      confidence: "high" as const,
+      notes: "",
+      description: "",
+      keywords: [],
+    };
+    expect(isNutritionUnchanged(analysis, existingEntry)).toBe(false);
+  });
+
+  it("returns false when optional field changes from null to number", () => {
+    const analysis = {
+      food_name: "Empanada de carne",
+      amount: 150,
+      unit_id: 147,
+      calories: 320,
+      protein_g: 12,
+      carbs_g: 28,
+      fat_g: 18,
+      fiber_g: 2,
+      sodium_mg: 450,
+      saturated_fat_g: 5, // was null, now set
+      trans_fat_g: null,
+      sugars_g: null,
+      calories_from_fat: null,
+      confidence: "high" as const,
+      notes: "",
+      description: "",
+      keywords: [],
+    };
+    expect(isNutritionUnchanged(analysis, existingEntry)).toBe(false);
+  });
+});
+
+describe("POST /api/edit-food (fast path)", () => {
+  it("skips findOrCreateFood when nutrition is unchanged and fitbitFoodId exists", async () => {
+    const response = await POST(createMockRequest(unchangedNutritionBody));
+    expect(response.status).toBe(200);
+    expect(mockFindOrCreateFood).not.toHaveBeenCalled();
+    expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalled();
+    expect(mockUpdateFoodLogEntry).not.toHaveBeenCalled();
+  });
+
+  it("fast path: deletes old Fitbit log and re-logs with same fitbitFoodId", async () => {
+    await POST(createMockRequest(unchangedNutritionBody));
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("access-token-abc", 12345, expect.anything());
+    expect(mockLogFood).toHaveBeenCalledWith(
+      "access-token-abc",
+      5555, // existing fitbitFoodId
+      3,    // new mealTypeId
+      150,
+      147,
+      "2026-02-16",
+      "12:00:00",
+      expect.anything(),
+    );
+  });
+
+  it("fast path: returns reusedFood=true and correct shape", async () => {
+    const response = await POST(createMockRequest(unchangedNutritionBody));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.fitbitFoodId).toBe(5555);
+    expect(body.data.fitbitLogId).toBe(99999);
+    expect(body.data.foodLogId).toBe(42);
+    expect(body.data.reusedFood).toBe(true);
+  });
+
+  it("fast path: skips Fitbit ops when fitbitFoodId is null", async () => {
+    mockGetFoodLogEntryDetail.mockResolvedValue({ ...existingEntry, fitbitFoodId: null });
+    const response = await POST(createMockRequest(unchangedNutritionBody));
+    expect(response.status).toBe(200);
+    expect(mockDeleteFoodLog).not.toHaveBeenCalled();
+    expect(mockLogFood).not.toHaveBeenCalled();
+    expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalled();
+    expect(mockFindOrCreateFood).not.toHaveBeenCalled();
+  });
+
+  it("fast path: calls updateFoodLogEntryMetadata with correct args", async () => {
+    await POST(createMockRequest(unchangedNutritionBody));
+    expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalledWith(
+      "user-uuid-123",
+      42,
+      expect.objectContaining({
+        mealTypeId: 3,
+        date: "2026-02-16",
+        time: "12:00:00",
+        fitbitLogId: 99999,
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("fast path: compensates by re-logging original when logFood fails", async () => {
+    mockLogFood.mockRejectedValueOnce(new Error("Fitbit API error"));
+    const response = await POST(createMockRequest(unchangedNutritionBody));
+    expect(response.status).toBe(500);
+    expect(mockUpdateFoodLogEntryMetadata).not.toHaveBeenCalled();
+    // Compensation: re-log with same fitbitFoodId
+    expect(mockLogFood).toHaveBeenCalledTimes(2);
+    expect(mockLogFood).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      5555, // same fitbitFoodId used for compensation
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it("fast path dry-run: skips all Fitbit ops but updates DB metadata", async () => {
+    vi.stubEnv("FITBIT_DRY_RUN", "true");
+    const response = await POST(createMockRequest(unchangedNutritionBody));
+    expect(response.status).toBe(200);
+    expect(mockDeleteFoodLog).not.toHaveBeenCalled();
+    expect(mockLogFood).not.toHaveBeenCalled();
+    expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalled();
+    expect(mockFindOrCreateFood).not.toHaveBeenCalled();
   });
 });

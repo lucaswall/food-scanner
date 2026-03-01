@@ -272,6 +272,7 @@ export interface FoodLogEntryDetail {
   date: string;
   time: string | null;
   fitbitLogId: number | null;
+  fitbitFoodId: number | null;
   confidence: string;
   isFavorite: boolean;
 }
