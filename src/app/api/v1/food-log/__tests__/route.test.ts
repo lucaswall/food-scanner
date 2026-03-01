@@ -63,6 +63,10 @@ describe("GET /api/v1/food-log", () => {
               transFatG: 0,
               sugarsG: 1,
               caloriesFromFat: 27,
+              amount: 1,
+              unitId: 304,
+              isFavorite: false,
+              fitbitLogId: null,
             },
             {
               id: 2,
@@ -79,6 +83,10 @@ describe("GET /api/v1/food-log", () => {
               transFatG: 0,
               sugarsG: 14,
               caloriesFromFat: 0,
+              amount: 1,
+              unitId: 304,
+              isFavorite: false,
+              fitbitLogId: null,
             },
           ],
           subtotal: {
@@ -112,6 +120,10 @@ describe("GET /api/v1/food-log", () => {
               transFatG: 0,
               sugarsG: 4,
               caloriesFromFat: 162,
+              amount: 1,
+              unitId: 304,
+              isFavorite: false,
+              fitbitLogId: null,
             },
           ],
           subtotal: {

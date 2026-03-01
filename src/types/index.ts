@@ -293,6 +293,10 @@ export interface MealEntry {
   transFatG: number | null;
   sugarsG: number | null;
   caloriesFromFat: number | null;
+  amount: number;
+  unitId: number;
+  isFavorite: boolean;
+  fitbitLogId: number | null;
 }
 
 export interface MealGroup {

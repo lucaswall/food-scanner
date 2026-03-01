@@ -987,6 +987,10 @@ export async function getDailyNutritionSummary(
         transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
         sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
         caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
+        amount: Number(row.food_log_entries.amount),
+        unitId: row.food_log_entries.unitId,
+        isFavorite: row.custom_foods.isFavorite,
+        fitbitLogId: row.food_log_entries.fitbitLogId,
       });
 
       mealCalories += calories;

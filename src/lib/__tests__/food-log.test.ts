@@ -122,6 +122,7 @@ const {
   toggleFavorite,
   getEarliestEntryDate,
   getDateRangeNutritionSummary,
+  getDailyNutritionSummary,
   setShareToken,
   getCustomFoodByShareToken,
 } = await import("@/lib/food-log");
@@ -2657,5 +2658,128 @@ describe("updateFoodLogEntryMetadata", () => {
     });
 
     expect(mockInsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("getDailyNutritionSummary", () => {
+  beforeEach(() => {
+    // Only override orderBy — outer beforeEach already sets up the mock chain
+    mockOrderBy.mockImplementation(() => Promise.resolve([]));
+  });
+
+  function makeNutritionRow(overrides: {
+    entryId?: number;
+    customFoodId?: number;
+    foodName?: string;
+    mealTypeId?: number;
+    time?: string | null;
+    amount?: string;
+    unitId?: number;
+    fitbitLogId?: number | null;
+    isFavorite?: boolean;
+    calories?: number;
+    proteinG?: string;
+    carbsG?: string;
+    fatG?: string;
+    fiberG?: string;
+    sodiumMg?: string;
+    saturatedFatG?: string | null;
+    transFatG?: string | null;
+    sugarsG?: string | null;
+    caloriesFromFat?: string | null;
+  } = {}) {
+    return {
+      food_log_entries: {
+        id: overrides.entryId ?? 1,
+        userId: "user-uuid-123",
+        customFoodId: overrides.customFoodId ?? 10,
+        mealTypeId: overrides.mealTypeId ?? 1,
+        amount: overrides.amount ?? "200",
+        unitId: overrides.unitId ?? 147,
+        date: "2026-03-01",
+        time: overrides.time ?? "08:00:00",
+        fitbitLogId: overrides.fitbitLogId !== undefined ? overrides.fitbitLogId : 999,
+        loggedAt: new Date(),
+      },
+      custom_foods: {
+        id: overrides.customFoodId ?? 10,
+        userId: "user-uuid-123",
+        foodName: overrides.foodName ?? "Test Food",
+        amount: overrides.amount ?? "200",
+        unitId: overrides.unitId ?? 147,
+        calories: overrides.calories ?? 300,
+        proteinG: overrides.proteinG ?? "20",
+        carbsG: overrides.carbsG ?? "30",
+        fatG: overrides.fatG ?? "10",
+        fiberG: overrides.fiberG ?? "5",
+        sodiumMg: overrides.sodiumMg ?? "200",
+        saturatedFatG: overrides.saturatedFatG ?? null,
+        transFatG: overrides.transFatG ?? null,
+        sugarsG: overrides.sugarsG ?? null,
+        caloriesFromFat: overrides.caloriesFromFat ?? null,
+        fitbitFoodId: 555,
+        confidence: "high",
+        notes: null,
+        description: null,
+        keywords: null,
+        isFavorite: overrides.isFavorite ?? false,
+        shareToken: null,
+        createdAt: new Date(),
+      },
+    };
+  }
+
+  it("MealEntry includes amount field from food_log_entries", async () => {
+    const row = makeNutritionRow({ amount: "250", unitId: 147 });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].amount).toBe(250);
+  });
+
+  it("MealEntry includes unitId field from food_log_entries", async () => {
+    const row = makeNutritionRow({ amount: "1", unitId: 304 });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].unitId).toBe(304);
+  });
+
+  it("MealEntry includes isFavorite field from custom_foods", async () => {
+    const row = makeNutritionRow({ isFavorite: true });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].isFavorite).toBe(true);
+  });
+
+  it("MealEntry includes fitbitLogId field from food_log_entries", async () => {
+    const row = makeNutritionRow({ fitbitLogId: 12345 });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].fitbitLogId).toBe(12345);
+  });
+
+  it("MealEntry fitbitLogId is null when not set", async () => {
+    const row = makeNutritionRow({ fitbitLogId: null });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].fitbitLogId).toBeNull();
+  });
+
+  it("MealEntry isFavorite is false when not a favorite", async () => {
+    const row = makeNutritionRow({ isFavorite: false });
+    mockOrderBy.mockResolvedValue([row]);
+
+    const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
+
+    expect(result.meals[0].entries[0].isFavorite).toBe(false);
   });
 });

@@ -1,13 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import * as Sentry from "@sentry/nextjs";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import useSWRInfinite from "swr/infinite";
-import { apiFetcher, invalidateFoodCaches } from "@/lib/swr";
+import { apiFetcher } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,11 +16,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { UtensilsCrossed, Loader2, Star, Share2 } from "lucide-react";
+import { UtensilsCrossed, Loader2 } from "lucide-react";
 import { FoodEntryCard } from "@/components/food-entry-card";
-import { vibrateError } from "@/lib/haptics";
-import { safeResponseJson } from "@/lib/safe-json";
+import { FoodEntryDetailSheet } from "@/components/food-entry-detail-sheet";
+import { useDeleteFoodEntry } from "@/hooks/use-delete-food-entry";
 import type { FoodLogHistoryEntry } from "@/types";
 
 const PAGE_SIZE = 20;
@@ -75,10 +72,6 @@ export function FoodHistory() {
   const router = useRouter();
   const [endDate, setEndDate] = useState<string | null>(null);
   const [jumpDate, setJumpDate] = useState("");
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deleteErrorCode, setDeleteErrorCode] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
   const [localFavorites, setLocalFavorites] = useState<Map<number, boolean>>(new Map());
   const [isSharing, setIsSharing] = useState(false);
@@ -112,6 +105,18 @@ export function FoodHistory() {
     revalidateFirstPage: true,
   });
 
+  const {
+    deleteTargetId,
+    deletingId,
+    deleteError,
+    deleteErrorCode,
+    handleDeleteRequest,
+    handleDeleteConfirm,
+    handleDeleteCancel,
+  } = useDeleteFoodEntry({
+    onSuccess: () => mutate(),
+  });
+
   const entries = pages?.flatMap((p) => p.entries) ?? [];
   const hasMore = pages != null && pages.length > 0 && pages[pages.length - 1].entries.length === PAGE_SIZE;
 
@@ -138,54 +143,6 @@ export function FoodHistory() {
     if (!jumpDate) return;
     mutate(undefined, { revalidate: false });
     setEndDate(jumpDate);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (deleteTargetId === null) return;
-    const id = deleteTargetId;
-    setDeleteTargetId(null);
-
-    setDeletingId(id);
-    setDeleteError(null);
-    setDeleteErrorCode(null);
-
-    try {
-      const response = await fetch(`/api/food-history/${id}`, {
-        method: "DELETE",
-        signal: AbortSignal.timeout(15000),
-      });
-      const result = await safeResponseJson(response) as {
-        success?: boolean;
-        error?: { code?: string; message?: string };
-      };
-
-      if (!response.ok || !result.success) {
-        const errorCode = result.error?.code;
-        setDeleteError(result.error?.message || "Failed to delete entry");
-        setDeleteErrorCode(errorCode || null);
-
-        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-          setDeleteError("Fitbit is not set up. Please configure your credentials in Settings.");
-        }
-
-        vibrateError();
-        return;
-      }
-
-      await mutate();
-      invalidateFoodCaches().catch(() => {});
-    } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setDeleteError("Request timed out. Please try again.");
-      } else {
-        Sentry.captureException(err);
-        console.error("Failed to delete food history entry:", err);
-        setDeleteError("Failed to delete entry");
-      }
-      vibrateError();
-    } finally {
-      setDeletingId(null);
-    }
   };
 
   const handleToggleFavorite = async (entry: FoodLogHistoryEntry) => {
@@ -350,7 +307,7 @@ export function FoodHistory() {
               onClick={() => setSelectedEntry(entry)}
               actions="edit-delete"
               onEdit={() => router.push(`/app/edit/${entry.id}`)}
-              onDelete={() => setDeleteTargetId(entry.id)}
+              onDelete={() => handleDeleteRequest(entry.id)}
               isDeleting={deletingId === entry.id}
             />
           ))}
@@ -368,74 +325,28 @@ export function FoodHistory() {
         </div>
       )}
 
-      {/* Entry detail dialog */}
-      <Dialog open={!!selectedEntry} onOpenChange={(open) => { if (!open) { setSelectedEntry(null); setIsSharing(false); setShareCopied(false); setShareError(null); } }}>
-        <DialogContent variant="bottom-sheet" aria-describedby={undefined}>
-          <DialogHeader>
-            <DialogTitle className="sr-only">{selectedEntry?.foodName}</DialogTitle>
-          </DialogHeader>
-          {selectedEntry && (
-            <>
-              <NutritionFactsCard
-                foodName={selectedEntry.foodName}
-                calories={selectedEntry.calories}
-                proteinG={selectedEntry.proteinG}
-                carbsG={selectedEntry.carbsG}
-                fatG={selectedEntry.fatG}
-                fiberG={selectedEntry.fiberG}
-                sodiumMg={selectedEntry.sodiumMg}
-                unitId={selectedEntry.unitId}
-                amount={selectedEntry.amount}
-                mealTypeId={selectedEntry.mealTypeId}
-                saturatedFatG={selectedEntry.saturatedFatG}
-                transFatG={selectedEntry.transFatG}
-                sugarsG={selectedEntry.sugarsG}
-                caloriesFromFat={selectedEntry.caloriesFromFat}
-              />
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  <button
-                    aria-label="Toggle favorite"
-                    aria-pressed={localFavorites.get(selectedEntry.customFoodId) ?? selectedEntry.isFavorite}
-                    onClick={() => handleToggleFavorite(selectedEntry)}
-                    className="min-h-[44px] min-w-[44px] flex items-center justify-center"
-                  >
-                    <Star
-                      className="h-5 w-5"
-                      fill={(localFavorites.get(selectedEntry.customFoodId) ?? selectedEntry.isFavorite) ? "currentColor" : "none"}
-                    />
-                  </button>
-                  <Button
-                    onClick={() => handleShare(selectedEntry)}
-                    variant="ghost"
-                    size="icon"
-                    className="min-h-[44px] min-w-[44px]"
-                    aria-label="Share"
-                    disabled={isSharing}
-                  >
-                    <Share2 className="h-5 w-5" />
-                  </Button>
-                  {shareCopied && (
-                    <span className="text-xs text-green-600">Link copied!</span>
-                  )}
-                  {shareError && (
-                    <span className="text-xs text-destructive">{shareError}</span>
-                  )}
-                </div>
-                <Link
-                  href={`/app/food-detail/${selectedEntry.id}`}
-                  className="text-sm text-primary hover:underline min-h-[44px] flex items-center justify-center"
-                >
-                  View Full Details
-                </Link>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Entry detail sheet */}
+      <FoodEntryDetailSheet
+        entry={selectedEntry}
+        open={!!selectedEntry}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedEntry(null);
+            setIsSharing(false);
+            setShareCopied(false);
+            setShareError(null);
+          }
+        }}
+        onToggleFavorite={handleToggleFavorite}
+        localFavorites={localFavorites}
+        onShare={handleShare}
+        isSharing={isSharing}
+        shareCopied={shareCopied}
+        shareError={shareError}
+      />
 
       {/* Delete confirmation dialog */}
-      <AlertDialog open={deleteTargetId !== null} onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}>
+      <AlertDialog open={deleteTargetId !== null} onOpenChange={(open) => { if (!open) handleDeleteCancel(); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
