@@ -8,6 +8,7 @@
 | [Offline Queue with Background Sync](#offline-queue-with-background-sync) | Queue meals offline, analyze and log when back online |
 | [Nutritional Label Library](#nutritional-label-library) | Store scanned label data for instant reuse by keyword |
 | [Food Log Push Notifications](#food-log-push-notifications) | Push nutrition data directly to Health Connect via a thin Android wrapper |
+| [Quick Capture Session](#quick-capture-session) | Snap photos and notes quickly at meals, process everything later at home |
 
 
 ---
@@ -280,6 +281,120 @@ The periodic WorkManager sync remains as a fallback. Push notifications are best
 5. Integrate notification dispatch into `POST /api/log-food` (fire-and-forget)
 6. HealthHelper: Firebase SDK + `FoodScannerMessagingService` + token registration
 7. HealthHelper: one-shot `SyncWorker` triggered by push data message
+
+---
+
+## Quick Capture Session
+
+### Problem
+
+Logging food at a restaurant requires the full analyze→refine→confirm→log cycle for each item. A multi-course meal means pulling out the phone, waiting for AI analysis, reviewing results, and confirming — multiple times, while people are talking and food is getting cold. The current flow demands attention at precisely the moment you don't want to give it.
+
+### Goal
+
+Let the user quickly snap photos and jot notes during a meal with minimal friction, then process everything into proper food log entries in a single conversation later when they have time.
+
+### Design
+
+#### Quick Capture Flow (at the restaurant)
+
+1. Tap "Start Session" on the dashboard to create a new session.
+2. Session view opens: a scrollable list of captures with a prominent "Add Capture" button.
+3. Tap Add → camera opens → snap photo(s) → optionally type a short note (e.g., "shared appetizer, had about half") → tap Save.
+4. Capture is persisted immediately. Timestamp recorded automatically.
+5. Back to session view. Repeat throughout the meal.
+
+**Each capture should take under 10 seconds.** No AI processing, no analysis, no Fitbit interaction. Just persist the raw data.
+
+A capture consists of:
+- 1–9 images (same constraints as current analyze flow)
+- Optional text note (max 2000 chars, same as current description)
+- Auto-recorded timestamp
+- Sequential order within the session
+
+The session view shows a compact list: thumbnail of first image, note preview (truncated), and time. User can delete accidental captures from the list.
+
+#### Session Lifecycle
+
+- **Active:** User explicitly taps "Start Session". If one is already active, the app navigates to it. Only one active session at a time. Captures can be added. Session persists across app close, navigation, and device restarts.
+- **Processing:** User taps "Process Session" to begin. No more captures can be added. A single Claude conversation analyzes everything. User refines and logs entries.
+- **Deleted:** Once processing completes ("Log All") or the user aborts the session, the session and all its captures are permanently deleted. Only the resulting food log entries persist — editable with existing tools like any other meal. No session history, no archival.
+
+#### Active Session Banner
+
+When a session is active, a persistent banner appears on the dashboard: *"Capture session in progress — N captures"*. Tapping the banner opens the session view to continue capturing or close the session. This is the primary way to resume an active session — no separate navigation entry needed.
+
+#### Processing Flow (at home)
+
+Processing treats the entire session as a **single unit**. All captures are evidence in one meal story — not independent items to analyze separately. A menu photo gives dish names to all plate photos. A note saying "shared this" informs portion estimation. Processing them as a whole lets Claude make connections a per-capture approach would miss.
+
+1. User taps "Process Session" from the session view.
+2. The session view shows all captures chronologically — full images, notes, and timestamps. User can delete unwanted captures before proceeding.
+3. Tapping "Analyze All" sends **every image and note** to Claude in a single conversation, organized by capture (with timestamps).
+4. Claude proposes a **complete set of food log entries** for the session:
+
+   > *"I see 8 captures from 8:30 PM to 10:15 PM. From the menu and plate photos, here's what I'd log:*
+   > 1. *Bruschetta (shared, half portion) — 180 cal — 8:45 PM — Dinner*
+   > 2. *Grilled salmon with vegetables — 620 cal — 9:10 PM — Dinner*
+   > 3. *Tiramisu — 340 cal — 9:50 PM — Dinner*
+   >
+   > *The menu helped me identify the salmon dish. Want me to adjust anything?"*
+
+5. User refines via chat: "the bruschetta was split three ways", "we also had bread from the basket, no photo", "the salmon was actually the fish of the day, about 400g". Claude updates the proposed entries.
+6. When satisfied, a **"Log All" button** creates every entry at once — each with its own timestamp and meal type (derived from capture times). The session and all its captures are then deleted. Only the food log entries remain.
+
+#### Image Budget Management
+
+Claude's API supports up to 20 images per message. A restaurant session could exceed this. Strategy:
+
+- **Under 20 total images:** Send all images inline in the first message, grouped by capture with timestamps and notes as text.
+- **Over 20 total images:** Prioritize plate/food photos (higher analysis value). Menu photos are summarized as text if Claude already identified all dishes from the plates. If not, the most information-dense menu images are kept. User sees which images are included in the analysis and can swap them before sending.
+- **Per-capture image limit stays at 9.** Most captures will be 1–3 images. A session of 8 captures with 2 images each = 16 images, well within budget.
+
+#### Entry Points
+
+- **Dashboard:** "Start Session" button, distinct from existing "Analyze Food". When active, replaced by the banner.
+- **Existing analyze flow:** Unchanged. Quick capture is for deferred multi-item meals; analyze is for immediate single-item logging.
+
+### Architecture
+
+- **New DB tables:**
+  - `capture_sessions` — `id`, `userId`, `status` (active/processing), `createdAt`.
+  - `session_captures` — `id`, `sessionId`, `images` (JSONB array of base64 + mime type), `note` (text, nullable), `capturedAt`, `order` (integer).
+- **Image storage:** Same base64 format the analyze API already uses. Images compressed client-side before upload (reuse existing `compressImage()`). Stored in the DB as JSONB — simple, no external storage dependency. For v1, storage growth is acceptable given single-user scale.
+- **API routes:**
+  - `POST /api/capture-sessions` — create new session (fails if one already active).
+  - `GET /api/capture-sessions/active` — get active session with all captures.
+  - `POST /api/capture-sessions/:id/captures` — add a capture (images + note).
+  - `DELETE /api/capture-sessions/:id/captures/:captureId` — remove a capture.
+  - `PATCH /api/capture-sessions/:id` — transition status (active → processing).
+  - `DELETE /api/capture-sessions/:id` — abort/delete session and all captures.
+- **Processing API:** New `/api/process-session` endpoint (or adapt existing `/api/analyze-food`). Accepts a session ID, loads all captures, builds a structured prompt with all images/notes/timestamps, streams Claude's response. The conversation continues via the existing `/api/chat-food` endpoint for refinements.
+- **Batch logging:** New `/api/log-session` endpoint (or extend `/api/log-food`) that accepts multiple `FoodAnalysis` entries with individual timestamps and meal types. Creates all `custom_food` + `food_log_entry` + Fitbit records atomically. On success, deletes the session and all captures. Rolls back food entries if any Fitbit call fails.
+- **New Claude tool:** `report_session_nutrition` — returns an array of food entries (each with name, nutrition, time, meal type) instead of a single entry. The chat UI renders all proposed entries in a reviewable list. Replaces `report_nutrition` during session processing only.
+- **No archival or cleanup needed.** Sessions are deleted after logging or abort. The only persistent data is the food log entries themselves.
+
+### Edge Cases
+
+- **App closed mid-capture (photo taken, save not tapped):** The photo is lost — only saved captures persist. The save action must be obvious and fast to minimize this window.
+- **Session left active for days:** No auto-expiry. The dashboard banner remains visible, making it impossible to forget.
+- **Processing interrupted (app closed mid-conversation):** The session stays in "processing" status with all captures intact. Reopening starts a fresh analysis conversation — the chat is not persisted, but the raw evidence (images + notes) is still in the DB. No data lost.
+- **"Log All" partially fails:** If some Fitbit entries succeed and others fail, roll back everything. The session stays in processing state so the user can retry. Atomic all-or-nothing.
+- **More than 20 images across all captures:** Image budget management selects the most valuable images. User can override the selection before analysis.
+- **Capture while offline:** The app is online-only (no service worker). Capture fails if there's no connectivity. The [Offline Queue](#offline-queue-with-background-sync) feature would complement this if implemented later.
+- **Empty session:** User starts a session but adds zero captures, then tries to process. Disable the "Process Session" button — nothing to analyze.
+- **Abort confirmation:** Deleting an active session with captures requires confirmation — the images and notes are gone forever.
+
+### Implementation Order
+
+1. DB schema: `capture_sessions` and `session_captures` tables
+2. API routes for session CRUD and capture management
+3. Quick capture UI: session view, camera integration, capture list
+4. Dashboard banner for active session
+5. `report_session_nutrition` Claude tool and session processing API
+6. Processing UI: single conversation with all captures, chat refinement
+7. Batch logging (Log All → multiple entries at once, session deleted on success)
+8. Image budget management for large sessions
 
 ---
 
