@@ -657,26 +657,19 @@ export function FoodChat({
       />
 
       {/* Top header */}
-      <div className="border-b bg-background px-2 py-2 space-y-2">
-        {latestAnalysis ? (
-          <>
-            <div className="flex items-center gap-2">
-              <h1 className="sr-only">{isEditMode ? "Edit Food" : title}</h1>
-              <button
-                onClick={isEditMode ? () => router.back() : (onClose ?? (() => {}))}
-                aria-label="Back"
-                className="shrink-0 flex items-center justify-center size-11 rounded-full"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
-              <div className="flex-1 min-w-0">
-                <MealTypeSelector
-                  value={mealTypeId}
-                  onChange={setMealTypeId}
-                  showTimeHint={false}
-                  ariaLabel="Meal type"
-                />
-              </div>
+      <div className="border-b bg-background px-2 py-2">
+        <div className="flex items-center gap-2">
+          <h1 className="sr-only">{isEditMode ? "Edit Food" : title}</h1>
+          <button
+            onClick={isEditMode ? () => router.back() : (onClose ?? (() => {}))}
+            aria-label="Back"
+            className="shrink-0 flex items-center justify-center size-11 rounded-full"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+          {latestAnalysis ? (
+            <>
+              <span className="flex-1" />
               <Button
                 onClick={isEditMode ? handleSave : handleLog}
                 disabled={logging}
@@ -691,24 +684,11 @@ export function FoodChat({
                   isEditMode ? "Save Changes" : "Log to Fitbit"
                 )}
               </Button>
-            </div>
-            <div className="flex items-center gap-2 pl-1">
-              <TimeSelector value={selectedTime} onChange={setSelectedTime} />
-            </div>
-          </>
-        ) : (
-          /* Simple header: Back button + Title */
-          <div className="flex items-center gap-2">
-            <button
-              onClick={isEditMode ? () => router.back() : (onClose ?? (() => {}))}
-              aria-label="Back"
-              className="shrink-0 flex items-center justify-center size-11 rounded-full"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <h1 className="text-lg font-semibold">{isEditMode ? "Edit Food" : title}</h1>
-          </div>
-        )}
+            </>
+          ) : (
+            <span className="text-lg font-semibold" aria-hidden="true">{isEditMode ? "Edit Food" : title}</span>
+          )}
+        </div>
       </div>
 
       {/* Messages — scrollable area */}
@@ -944,6 +924,23 @@ export function FoodChat({
             )}
           </Button>
         </div>
+
+        {/* Meal type and time selectors */}
+        {latestAnalysis && (
+          <div className="flex items-center gap-2 px-2 pb-2">
+            <div className="flex-1 min-w-0">
+              <MealTypeSelector
+                value={mealTypeId}
+                onChange={setMealTypeId}
+                showTimeHint={false}
+                ariaLabel="Meal type"
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <TimeSelector value={selectedTime} onChange={setSelectedTime} />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

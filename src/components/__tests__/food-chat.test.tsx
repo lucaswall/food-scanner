@@ -1196,29 +1196,24 @@ describe("FoodChat", () => {
     });
   });
 
-  it("header has single-row layout: Back, MealTypeSelector, Log button", () => {
+  it("header has Back and Log button; MealType and Time are below input", () => {
     render(<FoodChat {...defaultProps} />);
 
     const backButton = screen.getByRole("button", { name: /back/i });
     const logButton = screen.getByRole("button", { name: /log to fitbit/i });
     const mealTypeSelector = screen.getByTestId("meal-type-selector");
 
-    // All three controls should share the same parent flex row
-    const row = backButton.parentElement;
-    expect(row).toContainElement(logButton);
-    expect(row).toContainElement(mealTypeSelector);
+    // Back and Log button share the same header row
+    const headerRow = backButton.parentElement;
+    expect(headerRow).toContainElement(logButton);
 
-    // The row should be a flex container (not space-y-2 / two rows)
-    expect(row?.className).toMatch(/flex/);
-    expect(row?.className).not.toMatch(/space-y/);
+    // MealTypeSelector is NOT in the header row — it's below the input
+    expect(headerRow).not.toContainElement(mealTypeSelector);
 
-    // MealTypeSelector should be between back and log in DOM order
-    const children = Array.from(row!.children);
-    const backIdx = children.indexOf(backButton);
-    const selectorIdx = children.findIndex(el => el.contains(mealTypeSelector) || el === mealTypeSelector);
-    const logIdx = children.indexOf(logButton);
-    expect(backIdx).toBeLessThan(selectorIdx);
-    expect(selectorIdx).toBeLessThan(logIdx);
+    // MealTypeSelector and TimeSelector should be in the bottom input area
+    const mealTypeRow = mealTypeSelector.closest(".flex.items-center.gap-2");
+    expect(mealTypeRow).toBeInTheDocument();
+    expect(mealTypeRow).not.toBe(headerRow);
   });
 
   // FOO-519: Free-form chat mode tests (no initial analysis)
@@ -1246,8 +1241,8 @@ describe("FoodChat", () => {
         />
       );
 
-      // Should show title
-      expect(screen.getByText("Chat")).toBeInTheDocument();
+      // Should show title (h1 is sr-only, visible span is aria-hidden)
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Chat");
 
       // Should NOT show Log to Fitbit button or MealTypeSelector
       expect(screen.queryByRole("button", { name: /log to fitbit/i })).not.toBeInTheDocument();
