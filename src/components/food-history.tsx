@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { NutritionFactsCard } from "@/components/nutrition-facts-card";
-import { Trash2, Pencil, UtensilsCrossed, Loader2 } from "lucide-react";
+import { Trash2, Pencil, UtensilsCrossed, Loader2, Star, Share2 } from "lucide-react";
 import { vibrateError } from "@/lib/haptics";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
@@ -80,6 +80,10 @@ export function FoodHistory() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<FoodLogHistoryEntry | null>(null);
+  const [localFavorites, setLocalFavorites] = useState<Map<number, boolean>>(new Map());
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   const getKey = useCallback(
     (pageIndex: number, previousPageData: { entries: FoodLogHistoryEntry[] } | null) => {
@@ -180,6 +184,55 @@ export function FoodHistory() {
       vibrateError();
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleToggleFavorite = async (entry: FoodLogHistoryEntry) => {
+    const currentValue = localFavorites.get(entry.customFoodId) ?? entry.isFavorite;
+    const newValue = !currentValue;
+    setLocalFavorites((prev) => new Map(prev).set(entry.customFoodId, newValue));
+    try {
+      const res = await fetch(`/api/custom-foods/${entry.customFoodId}/favorite`, { method: "PATCH" });
+      if (!res.ok) setLocalFavorites((prev) => new Map(prev).set(entry.customFoodId, currentValue));
+    } catch {
+      setLocalFavorites((prev) => new Map(prev).set(entry.customFoodId, currentValue));
+    }
+  };
+
+  const handleShare = async (entry: FoodLogHistoryEntry) => {
+    if (isSharing) return;
+    setIsSharing(true);
+    setShareError(null);
+    try {
+      const response = await fetch("/api/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customFoodId: entry.customFoodId }),
+      });
+      if (!response.ok) {
+        setShareError("Failed to share. Please try again.");
+        return;
+      }
+      const result = await response.json();
+      const shareUrl: string | undefined = result?.data?.shareUrl;
+      if (typeof shareUrl !== "string") {
+        setShareError("Failed to share. Please try again.");
+        return;
+      }
+      if (navigator.share) {
+        try {
+          await navigator.share({ url: shareUrl, title: entry.foodName });
+        } catch (err) {
+          if (err instanceof Error && err.name === "AbortError") return;
+          setShareError("Failed to share. Please try again.");
+        }
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
+    } finally {
+      setIsSharing(false);
     }
   };
 
@@ -294,8 +347,8 @@ export function FoodHistory() {
               >
                 <div className="flex justify-between items-start">
                   <div className="min-w-0">
-                    <p className="font-medium">{entry.foodName}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="font-medium truncate">{entry.foodName}</p>
+                    <p className="text-xs text-muted-foreground truncate">
                       {formatTime(entry.time) && `${formatTime(entry.time)} · `}{FITBIT_MEAL_TYPE_LABELS[entry.mealTypeId] ?? "Unknown"} · {getUnitLabel(entry.unitId, entry.amount)}
                     </p>
                   </div>
@@ -343,7 +396,7 @@ export function FoodHistory() {
       )}
 
       {/* Entry detail dialog */}
-      <Dialog open={!!selectedEntry} onOpenChange={(open) => { if (!open) setSelectedEntry(null); }}>
+      <Dialog open={!!selectedEntry} onOpenChange={(open) => { if (!open) { setSelectedEntry(null); setIsSharing(false); setShareCopied(false); setShareError(null); } }}>
         <DialogContent variant="bottom-sheet" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle className="sr-only">{selectedEntry?.foodName}</DialogTitle>
@@ -366,12 +419,43 @@ export function FoodHistory() {
                 sugarsG={selectedEntry.sugarsG}
                 caloriesFromFat={selectedEntry.caloriesFromFat}
               />
-              <Link
-                href={`/app/food-detail/${selectedEntry.id}`}
-                className="block w-full text-center text-sm text-primary hover:underline min-h-[44px] flex items-center justify-center"
-              >
-                View Full Details
-              </Link>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  <button
+                    aria-label="Toggle favorite"
+                    aria-pressed={localFavorites.get(selectedEntry.customFoodId) ?? selectedEntry.isFavorite}
+                    onClick={() => handleToggleFavorite(selectedEntry)}
+                    className="min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  >
+                    <Star
+                      className="h-5 w-5"
+                      fill={(localFavorites.get(selectedEntry.customFoodId) ?? selectedEntry.isFavorite) ? "currentColor" : "none"}
+                    />
+                  </button>
+                  <Button
+                    onClick={() => handleShare(selectedEntry)}
+                    variant="ghost"
+                    size="icon"
+                    className="min-h-[44px] min-w-[44px]"
+                    aria-label="Share"
+                    disabled={isSharing}
+                  >
+                    <Share2 className="h-5 w-5" />
+                  </Button>
+                  {shareCopied && (
+                    <span className="text-xs text-green-600">Link copied!</span>
+                  )}
+                  {shareError && (
+                    <span className="text-xs text-destructive">{shareError}</span>
+                  )}
+                </div>
+                <Link
+                  href={`/app/food-detail/${selectedEntry.id}`}
+                  className="text-sm text-primary hover:underline min-h-[44px] flex items-center justify-center"
+                >
+                  View Full Details
+                </Link>
+              </div>
             </>
           )}
         </DialogContent>

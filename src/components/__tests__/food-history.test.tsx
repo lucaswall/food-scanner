@@ -71,6 +71,7 @@ const mockEntries: FoodLogHistoryEntry[] = [
     date: today,
     time: "12:30:00",
     fitbitLogId: 111,
+    isFavorite: false,
   },
   {
     id: 2,
@@ -88,6 +89,7 @@ const mockEntries: FoodLogHistoryEntry[] = [
     date: today,
     time: "08:00:00",
     fitbitLogId: 222,
+    isFavorite: false,
   },
   {
     id: 3,
@@ -105,6 +107,7 @@ const mockEntries: FoodLogHistoryEntry[] = [
     date: yesterday,
     time: "20:00:00",
     fitbitLogId: 333,
+    isFavorite: false,
   },
 ];
 
@@ -494,6 +497,7 @@ describe("FoodHistory", () => {
         date: "2026-02-06",
         time: "23:00:00",
         fitbitLogId: 999,
+        isFavorite: false,
       },
       {
         id: 2,
@@ -511,6 +515,7 @@ describe("FoodHistory", () => {
         date: "2026-02-05",
         time: "20:00:00",
         fitbitLogId: 998,
+        isFavorite: false,
       },
     ];
 
@@ -690,7 +695,7 @@ describe("FoodHistory", () => {
     expect(headings).toHaveLength(2);
   });
 
-  it("food name element does not have truncate class (allows wrapping)", async () => {
+  it("food name element has truncate class to prevent overflow", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ success: true, data: { entries: mockEntries } }),
@@ -703,7 +708,7 @@ describe("FoodHistory", () => {
     });
 
     const foodNameEl = screen.getByText("Empanada de carne");
-    expect(foodNameEl).not.toHaveClass("truncate");
+    expect(foodNameEl).toHaveClass("truncate");
   });
 
   it("date header shows calories on header line and macros as separate line with · separators", async () => {
@@ -741,6 +746,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "12:00:00",
         fitbitLogId: 111,
+        isFavorite: false,
       },
       {
         id: 2,
@@ -758,6 +764,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "08:00:00",
         fitbitLogId: 222,
+        isFavorite: false,
       },
     ];
 
@@ -832,6 +839,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "12:00:00",
         fitbitLogId: 1000,
+        isFavorite: false,
       },
     ];
 
@@ -852,6 +860,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "08:00:00",
         fitbitLogId: 2000,
+        isFavorite: false,
       },
     ];
 
@@ -912,6 +921,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "12:00:00",
         fitbitLogId: 1000,
+        isFavorite: false,
       },
     ];
 
@@ -932,6 +942,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "08:00:00",
         fitbitLogId: 2000,
+        isFavorite: false,
       },
     ];
 
@@ -1182,6 +1193,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "12:00:00",
         fitbitLogId: 1000 + i,
+        isFavorite: false,
       }));
 
       mockFetch.mockResolvedValueOnce({
@@ -1230,6 +1242,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "12:00:00",
         fitbitLogId: 1000 + i,
+        isFavorite: false,
       }));
 
       mockFetch.mockResolvedValueOnce({
@@ -1264,6 +1277,7 @@ describe("FoodHistory", () => {
         date: i < 10 ? today : yesterday,
         time: "12:00:00",
         fitbitLogId: 1000 + i,
+        isFavorite: false,
       }));
 
       mockFetch
@@ -1323,6 +1337,7 @@ describe("FoodHistory", () => {
         date: today,
         time: null,
         fitbitLogId: 1000 + i,
+        isFavorite: false,
       }));
 
       mockFetch
@@ -1378,6 +1393,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "12:00:00",
         fitbitLogId: 1000 + i,
+        isFavorite: false,
       }));
 
       mockFetch
@@ -1448,6 +1464,7 @@ describe("FoodHistory", () => {
         date: today,
         time: "12:00:00",
         fitbitLogId: 1000 + i,
+        isFavorite: false,
       }));
 
       // Extra entries returned on page 2 via intersection (ids 100-104)
@@ -1467,6 +1484,7 @@ describe("FoodHistory", () => {
         date: yesterday,
         time: "10:00:00",
         fitbitLogId: 2000 + i,
+        isFavorite: false,
       }));
 
       // Delete a paginated entry (id=100, "Paginated 1") so page 0 stays at 20 entries.

@@ -229,6 +229,7 @@ export interface FoodLogHistoryEntry {
   date: string;
   time: string | null;
   fitbitLogId: number | null;
+  isFavorite: boolean;
 }
 
 export interface FoodMatch {

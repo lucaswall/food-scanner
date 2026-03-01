@@ -65,6 +65,7 @@ const sampleEntries: FoodLogHistoryEntry[] = [
     date: "2026-02-06",
     time: "12:30:00",
     fitbitLogId: 123,
+    isFavorite: false,
   },
   {
     id: 2,
@@ -82,6 +83,7 @@ const sampleEntries: FoodLogHistoryEntry[] = [
     date: "2026-02-05",
     time: "12:00:00",
     fitbitLogId: 456,
+    isFavorite: false,
   },
 ];
 

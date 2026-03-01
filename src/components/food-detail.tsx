@@ -146,21 +146,19 @@ export function FoodDetail({ entryId }: FoodDetailProps) {
 
       {/* Header */}
       <div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold">{data.foodName}</h1>
-            <button
-              aria-label="Toggle favorite"
-              aria-pressed={isFavorite}
-              onClick={handleToggleFavorite}
-              className="min-h-[44px] min-w-[44px] flex items-center justify-center"
-            >
-              <Star
-                className="h-5 w-5"
-                fill={isFavorite ? "currentColor" : "none"}
-              />
-            </button>
-          </div>
+        <h1 className="text-2xl font-bold line-clamp-2">{data.foodName}</h1>
+        <div className="flex items-center gap-1 mt-1">
+          <button
+            aria-label="Toggle favorite"
+            aria-pressed={isFavorite}
+            onClick={handleToggleFavorite}
+            className="min-h-[44px] min-w-[44px] flex items-center justify-center"
+          >
+            <Star
+              className="h-5 w-5"
+              fill={isFavorite ? "currentColor" : "none"}
+            />
+          </button>
           <Button
             onClick={handleShare}
             variant="ghost"

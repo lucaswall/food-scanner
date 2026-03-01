@@ -507,6 +507,7 @@ export async function getFoodLogHistory(
     date: row.food_log_entries.date,
     time: row.food_log_entries.time,
     fitbitLogId: row.food_log_entries.fitbitLogId,
+    isFavorite: row.custom_foods.isFavorite,
   }));
   l.debug({ action: "get_food_log_history", startDate: options.startDate, endDate: options.endDate, entryCount: result.length }, "food log history retrieved");
   return result;
