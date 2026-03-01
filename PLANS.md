@@ -556,3 +556,84 @@ Fix critical bugs (runToolLoop crash, edit context loss), harden Sentry observab
 - Sentry session replay configuration changes
 - Client-side Sentry `sendDefaultPii` changes (client init at `instrumentation-client.ts` doesn't have `sendDefaultPii`)
 - Production data migration — no schema changes in this plan
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-01
+**Method:** Agent team (4 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Fix runToolLoop multiple report_nutrition crash — changed .find() to .filter(), all blocks get tool_result responses (worker-1)
+- Task 2: Fix editAnalysis context loss — added [Current values:] injection + initialAnalysis parameter (worker-1)
+- Task 3: Fix edit mode system prompt issues — Tier 1 nutrients, "Save Changes" note, data tools mention (worker-1)
+- Task 4: Enable pino error reporting to Sentry Issues — added error levels config (worker-2)
+- Task 5: Fix Sentry PII exposure — removed sendDefaultPii + anthropicAIIntegration (worker-2)
+- Task 6: Add Sentry user context — new SentryUserContext component in app layout (worker-2)
+- Task 7: Add client-side Sentry error reporting — captureException in food-analyzer, food-chat, food-history (worker-3)
+- Task 8: Add handleSave Fitbit error handling — FITBIT_TOKEN_INVALID + credentials errors (worker-3)
+- Task 9: Fix reader.cancel() in food-analyzer — added cancel before releaseLock (worker-3)
+- Task 10: Fix chat input maxLength — changed 500 to 2000 (worker-3)
+- Task 11: Optimize edit-food route for metadata-only edits — fast path with existing fitbitFoodId (worker-4)
+- Task 12: Unify chat functions — extracted convertMessages(), validateChatMessages(), simplified routes (worker-1)
+
+### Files Modified
+- `src/lib/claude.ts` — runToolLoop multi-report fix, editAnalysis context + Tier 1 nutrients, edit prompt constants, convertMessages() extraction
+- `src/lib/message-validation.ts` — new shared message validation module
+- `src/lib/food-log.ts` — added updateFoodLogEntryMetadata(), fitbitFoodId in getFoodLogEntryDetail()
+- `src/types/index.ts` — added fitbitFoodId to FoodLogEntryDetail
+- `src/app/api/chat-food/route.ts` — replaced inline validation with validateChatMessages()
+- `src/app/api/edit-chat/route.ts` — replaced inline validation, added initialAnalysis extraction
+- `src/app/api/edit-food/route.ts` — added isNutritionUnchanged() + metadata-only fast path
+- `src/instrumentation.ts` — pino error levels, removed sendDefaultPii + anthropicAIIntegration
+- `src/components/sentry-user-context.tsx` — new Sentry user context component
+- `src/app/app/layout.tsx` — async layout with session + SentryUserContext
+- `src/components/food-analyzer.tsx` — Sentry.captureException + reader.cancel()
+- `src/components/food-chat.tsx` — Sentry.captureException + handleSave Fitbit errors + maxLength fix
+- `src/components/food-history.tsx` — Sentry.captureException for delete errors
+- `src/lib/__tests__/claude.test.ts` — ~30 new tests for Tasks 1-3, 12
+- `src/lib/__tests__/message-validation.test.ts` — 18 new tests
+- `src/lib/__tests__/food-log.test.ts` — tests for updateFoodLogEntryMetadata
+- `src/app/api/edit-food/__tests__/route.test.ts` — fast path tests
+- `src/components/__tests__/sentry-user-context.test.tsx` — 3 new tests
+- `src/components/__tests__/food-analyzer.test.tsx` — Sentry reporting tests
+- `src/components/__tests__/food-chat.test.tsx` — Sentry + Fitbit error tests
+- `src/components/__tests__/food-history.test.tsx` — Sentry reporting tests
+
+### Linear Updates
+- FOO-738: Todo → In Progress → Review
+- FOO-731: Todo → In Progress → Review
+- FOO-732: Todo → In Progress → Review
+- FOO-737: Todo → In Progress → Review
+- FOO-736: Todo → In Progress → Review
+- FOO-742: Todo → In Progress → Review
+- FOO-745: Todo → In Progress → Review
+- FOO-746: Todo → In Progress → Review
+- FOO-747: Todo → In Progress → Review
+- FOO-744: Todo → In Progress → Review
+- FOO-743: Todo → In Progress → Review
+- FOO-733: Todo → In Progress → Review
+- FOO-735: Todo → In Progress → Review
+- FOO-734: Todo → In Progress → Review
+- FOO-741: Todo → In Progress → Review
+- FOO-740: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 medium bug (getUserById unguarded in layout), fixed before proceeding
+- verifier: All 2408 tests pass, zero warnings, clean build
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3, 12 (Claude/Chat Core — claude.ts refactor chain)
+- Worker 2: Tasks 4, 5, 6 (Sentry Infrastructure — instrumentation + user context)
+- Worker 3: Tasks 7, 8, 9, 10 (Client Component Fixes — Sentry calls + bug fixes)
+- Worker 4: Task 11 (Edit Optimization — metadata-only edit fast path)
+
+### Merge Summary
+- Worker 4: fast-forward (no conflicts)
+- Worker 1: auto-merged (claude.test.ts auto-resolved)
+- Worker 2: auto-merged (no conflicts)
+- Worker 3: auto-merged (food-chat.test.tsx auto-resolved)
+
+### Continuation Status
+All tasks completed.

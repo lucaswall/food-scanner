@@ -9,7 +9,14 @@ import { getUserById } from "@/lib/users";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
-  const user = session ? await getUserById(session.userId) : null;
+  let user: Awaited<ReturnType<typeof getUserById>> = null;
+  if (session) {
+    try {
+      user = await getUserById(session.userId);
+    } catch {
+      // Non-fatal: Sentry context will use session.userId only
+    }
+  }
 
   return (
     <AppRefreshGuard>
