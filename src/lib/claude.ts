@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import * as Sentry from "@sentry/nextjs";
 import type { FoodAnalysis, ConversationMessage, FoodLogEntryDetail } from "@/types";
 import { getUnitLabel } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
@@ -14,11 +15,12 @@ let _client: Anthropic | null = null;
 
 function getClient(): Anthropic {
   if (!_client) {
-    _client = new Anthropic({
+    const client = new Anthropic({
       apiKey: getRequiredEnv("ANTHROPIC_API_KEY"),
       timeout: 60000, // 60 second timeout — accommodates web search latency
       maxRetries: 2,
     });
+    _client = Sentry.instrumentAnthropicAiClient(client);
   }
   return _client;
 }

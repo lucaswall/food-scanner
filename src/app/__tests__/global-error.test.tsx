@@ -1,5 +1,12 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+
+vi.mock("@sentry/nextjs", () => ({
+  captureException: vi.fn(),
+}));
+
+import * as Sentry from "@sentry/nextjs";
 import GlobalError from "../global-error";
 
 describe("GlobalError", () => {
@@ -12,38 +19,25 @@ describe("GlobalError", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it("always logs error details to console regardless of environment", () => {
-    vi.stubEnv("NODE_ENV", "production");
-
+  it("captures exception with Sentry", () => {
     render(<GlobalError error={mockError} reset={mockReset} />);
 
-    expect(console.error).toHaveBeenCalledWith(
-      "Global error:",
-      expect.objectContaining({ message: "Test error message", digest: "abc123" })
-    );
+    expect(Sentry.captureException).toHaveBeenCalledWith(mockError);
   });
 
-  it("logs error details to console in development", () => {
-    vi.stubEnv("NODE_ENV", "development");
-
+  it("renders error message and try again button", () => {
     render(<GlobalError error={mockError} reset={mockReset} />);
 
-    expect(console.error).toHaveBeenCalledWith(
-      "Global error:",
-      expect.objectContaining({ message: "Test error message" })
-    );
+    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 
-  it("does not include stack trace in production logs", () => {
-    vi.stubEnv("NODE_ENV", "production");
-
+  it("calls reset when try again button is clicked", async () => {
+    const user = userEvent.setup();
     render(<GlobalError error={mockError} reset={mockReset} />);
 
-    const loggedObject = (console.error as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    expect(loggedObject).not.toHaveProperty("stack");
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(mockReset).toHaveBeenCalledOnce();
   });
 });

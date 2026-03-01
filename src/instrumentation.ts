@@ -1,4 +1,35 @@
+import * as Sentry from "@sentry/nextjs";
+
 export async function register() {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    Sentry.init({
+      dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+      environment:
+        process.env.NODE_ENV === "development"
+          ? "development"
+          : process.env.APP_URL?.includes("food-test")
+            ? "staging"
+            : "production",
+      release: process.env.COMMIT_SHA || undefined,
+      tracesSampleRate: 1.0,
+      sendDefaultPii: true,
+      enableLogs: true,
+      integrations: [
+        Sentry.pinoIntegration({
+          log: { levels: ["warn", "error", "fatal"] },
+        }),
+        Sentry.anthropicAIIntegration(),
+      ],
+    });
+  }
+
+  if (process.env.NEXT_RUNTIME === "edge") {
+    Sentry.init({
+      dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+      tracesSampleRate: 1.0,
+    });
+  }
+
   const { validateRequiredEnvVars } = await import("@/lib/env");
   validateRequiredEnvVars();
 
@@ -31,6 +62,7 @@ export async function register() {
       shuttingDown = true;
       logger.info({ action: "server_shutdown", signal }, "graceful shutdown initiated");
       try {
+        await Sentry.flush(2000);
         const { closeDb } = await import("@/db/index");
         await closeDb();
       } catch (error) {
@@ -48,3 +80,5 @@ export async function register() {
     proc.on("SIGINT", () => shutdown("SIGINT"));
   }
 }
+
+export const onRequestError = Sentry.captureRequestError;
