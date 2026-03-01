@@ -342,7 +342,8 @@ export async function getCommonFoods(
       // When remainingSlots === 0, no non-favorites were shown on page 1, so the cursor
       // must include ALL non-favorites on page 2. We use score+1 with id=0 as a sentinel
       // that passes the filter `score < cursorScore || (score === cursorScore && id > 0)`.
-      // Invariant: all totalScores are in (0, ~1.3] per entry, so +1 safely exceeds all items.
+      // +1 safely exceeds any single non-favorite's totalScore (sentinel always passes `< cursorScore`).
+      // id: 0 is safe because PostgreSQL serial PKs start at 1, so no real food has id 0.
       const cursorItem = remainingSlots > 0
         ? paginatedNonFavorites[remainingSlots - 1]
         : paginatedNonFavorites[0];
@@ -643,6 +644,14 @@ export async function updateFoodLogEntry(
       .from(customFoods)
       .where(eq(customFoods.id, oldCustomFoodId));
     const oldFood = oldFoodRows[0];
+
+    // Clear shareToken on old food before inserting new one to avoid unique constraint violation
+    if (oldFood?.shareToken) {
+      await tx
+        .update(customFoods)
+        .set({ shareToken: null })
+        .where(eq(customFoods.id, oldCustomFoodId));
+    }
 
     // Insert new custom food with updated values, preserving metadata from old record
     const newFoods = await tx

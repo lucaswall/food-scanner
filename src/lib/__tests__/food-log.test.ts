@@ -2578,6 +2578,7 @@ describe("updateFoodLogEntry", () => {
   it("preserves fitbitFoodId, isFavorite, and shareToken from old custom food", async () => {
     mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // entry select
     mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: true, shareToken: "abc123" }]); // old custom food
+    mockUpdateWhere.mockResolvedValueOnce(undefined); // shareToken clear UPDATE
     mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
     mockUpdateWhere.mockResolvedValueOnce(undefined); // update entry
     mockWhere.mockResolvedValueOnce([]); // orphan check
@@ -2591,5 +2592,19 @@ describe("updateFoodLogEntry", () => {
         shareToken: "abc123",
       })
     );
+  });
+
+  it("clears shareToken on old custom food before inserting new one to avoid unique constraint violation", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // entry select
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: true, shareToken: "shared-tok" }]); // old custom food
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    // The old food's shareToken must be cleared before the new food is inserted,
+    // otherwise the UNIQUE constraint on share_token causes a PostgreSQL error.
+    // Use nthCalledWith(1) to verify it's the FIRST updateSet call (before entry update).
+    expect(mockUpdateSet).toHaveBeenNthCalledWith(1, { shareToken: null });
   });
 });
