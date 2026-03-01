@@ -1558,6 +1558,19 @@ describe("deleteFoodLogEntry", () => {
     expect(mockDelete).toHaveBeenCalledTimes(1);
   });
 
+  it("includes userId in orphan cleanup DELETE WHERE clause for defense-in-depth", async () => {
+    mockDeleteReturning.mockResolvedValueOnce([{ fitbitLogId: 789, customFoodId: 10 }]);
+    // orphan check: no remaining entries → triggers delete
+    mockWhere.mockResolvedValueOnce([]);
+
+    await deleteFoodLogEntry("user-uuid-123", 5);
+
+    // Second mockDeleteWhere call is the orphan cleanup DELETE on custom_foods.
+    // and() produces 3 queryChunks vs bare eq() which produces 5.
+    const orphanDeleteWhereArg = mockDeleteWhere.mock.calls[1][0];
+    expect(orphanDeleteWhereArg.queryChunks).toHaveLength(3);
+  });
+
   it("returns same shape { fitbitLogId } as before", async () => {
     mockDeleteReturning.mockResolvedValueOnce([{ fitbitLogId: 789, customFoodId: 10 }]);
     mockWhere.mockResolvedValueOnce([{ id: 99 }]);
@@ -2626,6 +2639,39 @@ describe("updateFoodLogEntry", () => {
     // A bare eq() produces 5 queryChunks. This distinguishes and(eq, eq) from eq.
     const updateWhereArg = mockUpdateWhere.mock.calls[0][0];
     expect(updateWhereArg.queryChunks).toHaveLength(3);
+  });
+
+  it("includes userId in metadata SELECT and shareToken UPDATE WHERE clauses for defense-in-depth", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // entry select
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: "tok" }]); // old food metadata
+    mockUpdateWhere.mockResolvedValueOnce(undefined); // shareToken clear
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
+    mockUpdateWhere.mockResolvedValueOnce(undefined); // entry update
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    // Second mockWhere call is the metadata SELECT on custom_foods — should use and()
+    const metadataSelectWhereArg = mockWhere.mock.calls[1][0];
+    expect(metadataSelectWhereArg.queryChunks).toHaveLength(3);
+
+    // First mockUpdateWhere call is the shareToken UPDATE on custom_foods — should use and()
+    const shareTokenUpdateWhereArg = mockUpdateWhere.mock.calls[0][0];
+    expect(shareTokenUpdateWhereArg.queryChunks).toHaveLength(3);
+  });
+
+  it("includes userId in orphan cleanup DELETE WHERE clause for defense-in-depth", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // entry select
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]); // old food metadata
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]); // insert returning
+    mockUpdateWhere.mockResolvedValueOnce(undefined); // entry update
+    mockWhere.mockResolvedValueOnce([]); // orphan check: no remaining → triggers delete
+
+    await updateFoodLogEntry("user-uuid-123", 5, validInput);
+
+    // The orphan DELETE on custom_foods should use and() with both id and userId
+    const orphanDeleteWhereArg = mockDeleteWhere.mock.calls[0][0];
+    expect(orphanDeleteWhereArg.queryChunks).toHaveLength(3);
   });
 });
 

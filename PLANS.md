@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Branch:** feat/FOO-750-chat-edit-and-backlog-batch
 **Issues:** FOO-750, FOO-751, FOO-748, FOO-749, FOO-752, FOO-753, FOO-754, FOO-755, FOO-756, FOO-757
 **Created:** 2026-03-01
@@ -903,51 +903,34 @@ Summary: 10 findings evaluated, 3 issues requiring fix (Team: security, reliabil
 - FOO-762: Review → Merge
 - FOO-763: Review → Merge
 - FOO-764: Review → Merge
-- FOO-765: Created in Todo (Fix: IDOR defense-in-depth gaps in food-log.ts)
-- FOO-766: Created in Todo (Fix: 24 failing new E2E tests)
-- FOO-767: Created in Todo (Fix: 6 failing dashboard/analyze E2E tests)
+- FOO-765: Created in Todo → fixed inline → Merge (IDOR defense-in-depth gaps)
+- FOO-766: Created in Todo → Canceled (verifier false alarm — E2E tests all pass)
+- FOO-767: Created in Todo → Canceled (verifier false alarm — E2E tests all pass)
 
 ### E2E Test Results
-- 28 passed, 30 failed out of 58 total
-- All 24 new E2E tests from Iteration 1 (Tasks 11-16) failing — tests written but not validated
-- 6 pre-existing tests in dashboard.spec.ts (3) and analyze.spec.ts (3) also failing
+- Initial verifier report was incorrect (ran in team context with bad build)
+- Local E2E run: 140/141 passed, 1 failed (`edit-food.spec.ts:77` — "logged successfully" should be "updated successfully")
+- Fixed: `edit-food.spec.ts:124` regex updated to match actual confirmation text
+- Final E2E run: 141/141 passed
+
+### Inline Fixes Applied
+- IDOR: Added `userId` to `cleanupOrphanCustomFood` DELETE WHERE, `updateFoodLogEntry` metadata SELECT WHERE, `updateFoodLogEntry` shareToken UPDATE WHERE
+- E2E: Fixed confirmation text regex in `edit-food.spec.ts` ("logged" → "updated" for edit flow)
+- 4 new defense-in-depth tests added to `food-log.test.ts`
+
+### Inline Fix Verification
+- Unit tests: 2462 passed
+- E2E tests: 141 passed
+- Lint: zero warnings
+- Typecheck: clean
 
 <!-- REVIEW COMPLETE -->
 
 ### Continuation Status
-All tasks completed. Fix Plan created for IDOR gaps + E2E failures.
+All tasks completed. All bugs fixed inline.
 
 ---
 
-## Fix Plan
+## Status: COMPLETE
 
-**Source:** Review findings from Iteration 2 + E2E test failures
-**Linear Issues:** [FOO-765](https://linear.app/lw-claude/issue/FOO-765), [FOO-766](https://linear.app/lw-claude/issue/FOO-766), [FOO-767](https://linear.app/lw-claude/issue/FOO-767)
-
-### Fix 1: IDOR defense-in-depth gaps in food-log.ts
-**Linear Issue:** [FOO-765](https://linear.app/lw-claude/issue/FOO-765)
-
-1. Write test in `src/lib/__tests__/food-log.test.ts` that verifies `cleanupOrphanCustomFood` includes userId in the DELETE WHERE clause
-2. Add `eq(customFoods.userId, userId)` to the DELETE at `src/lib/food-log.ts:600-613`, wrapping with `and()`
-3. Write test that verifies `updateFoodLogEntry` shareToken UPDATE includes userId in WHERE clause
-4. Add `eq(customFoods.userId, userId)` to the UPDATE at `src/lib/food-log.ts:681-685`
-5. Write test that verifies `updateFoodLogEntry` metadata SELECT includes userId filter
-6. Add `eq(customFoods.userId, userId)` to the SELECT at `src/lib/food-log.ts:670-677`
-
-### Fix 2: 24 failing new E2E tests
-**Linear Issue:** [FOO-766](https://linear.app/lw-claude/issue/FOO-766)
-
-1. Run each failing spec file individually to identify specific selector/logic mismatches
-2. Fix `e2e/tests/edit-food.spec.ts` — update selectors to match actual edit page structure
-3. Fix `e2e/tests/log-shared.spec.ts` — update selectors and route handling
-4. Fix `e2e/tests/analyze-photos.spec.ts` — update photo capture flow selectors
-5. Fix `e2e/tests/history.spec.ts` — update detail sheet and delete dialog selectors
-6. Fix `e2e/tests/quick-select.spec.ts` — update search results and confirmation selectors
-7. Fix `e2e/tests/empty-states.spec.ts` — update empty state selectors and data seeding
-8. Fix `e2e/tests/settings.spec.ts` — update API key and Fitbit edit selectors
-
-### Fix 3: 6 failing dashboard and analyze E2E tests
-**Linear Issue:** [FOO-767](https://linear.app/lw-claude/issue/FOO-767)
-
-1. Fix `e2e/tests/dashboard.spec.ts` — update selectors from old `<Link>` structure to new `<FoodEntryCard>` markup
-2. Investigate `e2e/tests/analyze.spec.ts` — determine if failures are from Iteration 1 changes or pre-existing, then fix
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.

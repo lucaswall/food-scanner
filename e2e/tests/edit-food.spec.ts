@@ -121,7 +121,7 @@ test.describe.serial('Edit Food Page', () => {
     await page.getByRole('button', { name: 'Save Changes' }).click();
 
     // Wait for confirmation screen
-    await expect(page.getByText(/logged successfully/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/updated successfully/i)).toBeVisible({ timeout: 10000 });
 
     // Screenshot: confirmation screen after save
     await captureScreenshots(page, 'edit-food-confirmation');
