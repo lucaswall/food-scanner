@@ -176,6 +176,8 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       "keywords",
       "description",
       "source_custom_food_id",
+      "time",
+      "meal_type_id",
     ],
   },
 };
@@ -1310,6 +1312,8 @@ export function convertMessages(messages: ConversationMessage[]): Anthropic.Mess
       if (a.trans_fat_g != null) summary += `, trans_fat_g=${a.trans_fat_g}`;
       if (a.sugars_g != null) summary += `, sugars_g=${a.sugars_g}`;
       if (a.calories_from_fat != null) summary += `, calories_from_fat=${a.calories_from_fat}`;
+      if (a.mealTypeId != null) summary += `, meal_type_id=${a.mealTypeId}`;
+      if (a.time != null) summary += `, time=${a.time}`;
       summary += `, confidence=${a.confidence}]`;
       content.push({ type: "text" as const, text: summary });
     }
@@ -1367,12 +1371,16 @@ export async function* conversationalRefine(
     }
     if (initialAnalysis) {
       const amountLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
+      const mealTypeLabel = initialAnalysis.mealTypeId != null ? `${initialAnalysis.mealTypeId}` : "null (not set)";
+      const timeLabel = initialAnalysis.time != null ? initialAnalysis.time : "null (not set)";
       systemPrompt += `\n\nThe initial analysis of this meal is:
 - Food: ${initialAnalysis.food_name}
 - Amount: ${amountLabel}
 - Calories: ${initialAnalysis.calories}
 - Protein: ${initialAnalysis.protein_g}g, Carbs: ${initialAnalysis.carbs_g}g, Fat: ${initialAnalysis.fat_g}g
 - Fiber: ${initialAnalysis.fiber_g}g, Sodium: ${initialAnalysis.sodium_mg}mg
+- Meal type: ${mealTypeLabel}
+- Time: ${timeLabel}
 - Confidence: ${initialAnalysis.confidence}
 - Notes: ${initialAnalysis.notes}
 Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
@@ -1618,12 +1626,16 @@ Help the user make corrections. Call report_nutrition with the corrected values.
 
     if (initialAnalysis) {
       const initAmtLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);
+      const editMealTypeLabel = initialAnalysis.mealTypeId != null ? `${initialAnalysis.mealTypeId}` : "null (not set)";
+      const editTimeLabel = initialAnalysis.time != null ? initialAnalysis.time : "null (not set)";
       systemPrompt += `\n\nThe current analysis being refined is:
 - Food: ${initialAnalysis.food_name}
 - Amount: ${initAmtLabel}
 - Calories: ${initialAnalysis.calories}
 - Protein: ${initialAnalysis.protein_g}g, Carbs: ${initialAnalysis.carbs_g}g, Fat: ${initialAnalysis.fat_g}g
 - Fiber: ${initialAnalysis.fiber_g}g, Sodium: ${initialAnalysis.sodium_mg}mg
+- Meal type: ${editMealTypeLabel}
+- Time: ${editTimeLabel}
 - Confidence: ${initialAnalysis.confidence}
 - Notes: ${initialAnalysis.notes}
 Use this as the baseline. When the user makes corrections, call report_nutrition with the updated values.`;
