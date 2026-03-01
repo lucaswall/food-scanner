@@ -15,9 +15,9 @@ afterEach(() => {
 });
 
 describe("TimeSelector", () => {
-  it("renders a combobox trigger", () => {
+  it("renders a trigger button", () => {
     render(<TimeSelector value={null} onChange={vi.fn()} />);
-    expect(screen.getByRole("combobox")).toBeInTheDocument();
+    expect(screen.getByRole("button")).toBeInTheDocument();
   });
 
   it("displays 'Now' in trigger when value is null", () => {
@@ -30,43 +30,25 @@ describe("TimeSelector", () => {
     expect(screen.getByText("14:30")).toBeInTheDocument();
   });
 
-  it("does not show time input when value is null", () => {
-    render(<TimeSelector value={null} onChange={vi.fn()} />);
-    expect(screen.queryByLabelText("Meal time")).not.toBeInTheDocument();
-  });
-
-  it("shows time input when value is set", () => {
-    render(<TimeSelector value="14:30" onChange={vi.fn()} />);
-    expect(screen.getByLabelText("Meal time")).toBeInTheDocument();
-    expect(screen.getByLabelText("Meal time")).toHaveValue("14:30");
-  });
-
-  it("calls onChange with time string when time input changes", () => {
-    const onChange = vi.fn();
-    render(<TimeSelector value="14:30" onChange={onChange} />);
-    fireEvent.change(screen.getByLabelText("Meal time"), {
-      target: { value: "09:00" },
-    });
-    expect(onChange).toHaveBeenCalledWith("09:00");
-  });
-
-  it("calls onChange with null when time input is cleared", () => {
-    const onChange = vi.fn();
-    render(<TimeSelector value="14:30" onChange={onChange} />);
-    fireEvent.change(screen.getByLabelText("Meal time"), {
-      target: { value: "" },
-    });
-    expect(onChange).toHaveBeenCalledWith(null);
-  });
-
-  it("respects disabled state on combobox", () => {
+  it("respects disabled state", () => {
     render(<TimeSelector value={null} onChange={vi.fn()} disabled />);
-    expect(screen.getByRole("combobox")).toBeDisabled();
+    expect(screen.getByRole("button")).toBeDisabled();
   });
 
-  it("respects disabled state on time input", () => {
-    render(<TimeSelector value="14:30" onChange={vi.fn()} disabled />);
-    expect(screen.getByLabelText("Meal time")).toBeDisabled();
+  it("has correct aria-label when value is null", () => {
+    render(<TimeSelector value={null} onChange={vi.fn()} />);
+    expect(screen.getByRole("button")).toHaveAttribute(
+      "aria-label",
+      "Meal time: Now"
+    );
+  });
+
+  it("has correct aria-label when value is set", () => {
+    render(<TimeSelector value="14:30" onChange={vi.fn()} />);
+    expect(screen.getByRole("button")).toHaveAttribute(
+      "aria-label",
+      "Meal time: 14:30"
+    );
   });
 
   it("updates trigger text when value changes from null to time", () => {
@@ -91,30 +73,24 @@ describe("TimeSelector", () => {
     expect(screen.getByText("Now")).toBeInTheDocument();
   });
 
-  it("hides time input when value is externally reset to null", () => {
-    const onChange = vi.fn();
-    const { rerender } = render(
-      <TimeSelector value="14:30" onChange={onChange} />
-    );
-    expect(screen.getByLabelText("Meal time")).toBeInTheDocument();
-
-    rerender(<TimeSelector value={null} onChange={onChange} />);
-    expect(screen.queryByLabelText("Meal time")).not.toBeInTheDocument();
-  });
-
-  it("has correct aria-label when value is null", () => {
+  it("has a hidden time input for native picker", () => {
     render(<TimeSelector value={null} onChange={vi.fn()} />);
-    expect(screen.getByRole("combobox")).toHaveAttribute(
-      "aria-label",
-      "Meal time: Now"
-    );
+    const input = document.querySelector("input[type='time']");
+    expect(input).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("has correct aria-label when value is set", () => {
+  it("calls onChange when hidden time input changes", () => {
+    const onChange = vi.fn();
+    render(<TimeSelector value={null} onChange={onChange} />);
+    const input = document.querySelector("input[type='time']") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "09:30" } });
+    expect(onChange).toHaveBeenCalledWith("09:30");
+  });
+
+  it("sets hidden time input value from prop", () => {
     render(<TimeSelector value="14:30" onChange={vi.fn()} />);
-    expect(screen.getByRole("combobox")).toHaveAttribute(
-      "aria-label",
-      "Meal time: 14:30"
-    );
+    const input = document.querySelector("input[type='time']") as HTMLInputElement;
+    expect(input.value).toBe("14:30");
   });
 });

@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useRef } from "react";
+import { ChevronDownIcon, Clock, Check } from "lucide-react";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface TimeSelectorProps {
   value: string | null;
@@ -16,57 +16,52 @@ interface TimeSelectorProps {
 }
 
 export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
-  const [showTimeInput, setShowTimeInput] = useState(false);
-
-  useEffect(() => {
-    if (value === null) setShowTimeInput(false);
-  }, [value]);
-
-  const selectValue = value !== null || showTimeInput ? "select-time" : "now";
-
-  const handleValueChange = (val: string) => {
-    if (val === "now") {
-      onChange(null);
-      setShowTimeInput(false);
-    } else {
-      setShowTimeInput(true);
-    }
-  };
+  const timeInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="space-y-2">
-      <Select
-        value={selectValue}
-        onValueChange={handleValueChange}
-        disabled={disabled}
-      >
-        <SelectTrigger
-          className="w-full min-h-[44px]"
+    <div>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          disabled={disabled}
+          className="border-input data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 flex w-full items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 min-h-[44px]"
           aria-label={value !== null ? `Meal time: ${value}` : "Meal time: Now"}
         >
-          <SelectValue>
+          <span className="flex items-center gap-2">
+            <Clock className="size-4 text-muted-foreground" />
             {value !== null ? value : "Now"}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent className="z-[70]">
-          <SelectItem value="now" className="min-h-[44px]">
-            Now
-          </SelectItem>
-          <SelectItem value="select-time" className="min-h-[44px]">
-            Select time
-          </SelectItem>
-        </SelectContent>
-      </Select>
-      {(showTimeInput || value !== null) && (
-        <input
-          type="time"
-          aria-label="Meal time"
-          value={value ?? ""}
-          onChange={(e) => onChange(e.target.value || null)}
-          disabled={disabled}
-          className="w-full min-h-[44px] rounded-md border border-input bg-background px-3 text-sm"
-        />
-      )}
+          </span>
+          <ChevronDownIcon className="size-4 opacity-50" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent className="z-[70]" align="start">
+          <DropdownMenuItem
+            className="min-h-[44px]"
+            onSelect={() => onChange(null)}
+          >
+            {value === null && <Check className="size-4" />}
+            <span className={value === null ? "" : "pl-6"}>Now</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="min-h-[44px]"
+            onSelect={() => {
+              setTimeout(() => timeInputRef.current?.showPicker(), 0);
+            }}
+          >
+            {value !== null && <Check className="size-4" />}
+            <span className={value !== null ? "" : "pl-6"}>
+              {value !== null ? `Change time (${value})` : "Custom time"}
+            </span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <input
+        ref={timeInputRef}
+        type="time"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+      />
     </div>
   );
 }
