@@ -276,9 +276,75 @@ describe("executeTool - search_food_log", () => {
 
     expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
     expect(result).toContain("[id:10]");
+    expect(result).toContain("[entry:1]");
     expect(result).toContain("Breakfast");
     expect(result).toContain("Café con leche");
     expect(result).toContain("100 cal");
+  });
+
+  it("date search includes [entry:N] marker with food_log_entries.id", async () => {
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-02-15",
+      meals: [
+        {
+          mealTypeId: 3,
+          entries: [
+            {
+              id: 42,
+              customFoodId: 7,
+              foodName: "Empanada de carne",
+              time: "13:00:00",
+              calories: 300,
+              proteinG: 15,
+              carbsG: 25,
+              fatG: 15,
+              fiberG: 2,
+              sodiumMg: 400,
+              saturatedFatG: null,
+              transFatG: null,
+              sugarsG: null,
+              caloriesFromFat: null,
+            },
+          ],
+          subtotal: {
+            calories: 300,
+            proteinG: 15,
+            carbsG: 25,
+            fatG: 15,
+            fiberG: 2,
+            sodiumMg: 400,
+            saturatedFatG: 0,
+            transFatG: 0,
+            sugarsG: 0,
+            caloriesFromFat: 0,
+          },
+        },
+      ],
+      totals: {
+        calories: 300,
+        proteinG: 15,
+        carbsG: 25,
+        fatG: 15,
+        fiberG: 2,
+        sodiumMg: 400,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+    });
+
+    const result = await executeTool(
+      "search_food_log",
+      { date: "2026-02-15" },
+      "user-123",
+      "2026-02-15"
+    );
+
+    // [id:N] is customFoodId, [entry:N] is food_log_entries.id — must be different values
+    expect(result).toContain("[id:7]");
+    expect(result).toContain("[entry:42]");
+    expect(result).not.toContain("[entry:7]");
   });
 
   it("executes date search with meal_type filter", async () => {
@@ -417,8 +483,42 @@ describe("executeTool - search_food_log", () => {
       limit: 100,
     }, expect.anything());
     expect(result).toContain("[id:5]");
+    expect(result).toContain("[entry:1]");
     expect(result).toContain("Pizza");
     expect(result).toContain("2026-02-15");
+  });
+
+  it("keyword search does NOT include [entry:N] marker", async () => {
+    mockSearchFoods.mockResolvedValue([
+      {
+        customFoodId: 3,
+        foodName: "Milanesa",
+        amount: 200,
+        unitId: 147,
+        calories: 400,
+        proteinG: 30,
+        carbsG: 20,
+        fatG: 22,
+        fiberG: 1,
+        sodiumMg: 500,
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        fitbitFoodId: 999,
+        mealTypeId: 5,
+      },
+    ]);
+
+    const result = await executeTool(
+      "search_food_log",
+      { keywords: ["milanesa"] },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toContain("[id:3]");
+    expect(result).not.toMatch(/\[entry:\d+\]/);
   });
 
   it("respects user-specified limit for date range output", async () => {

@@ -72,7 +72,7 @@ Follow these rules:
 - Never ask which meal type before calling report_nutrition. Only set meal_type_id when the user explicitly mentions the meal context (e.g., "for breakfast", "at lunch"). Otherwise leave it null — the user can adjust in the app UI.
 - Only set the time field when the user explicitly mentions a time (e.g., "I had this at 8:30", "breakfast was at 7am"). Do NOT guess or infer the time. Leave it null when the user doesn't specify.
 - When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values (half portion, different ingredients, different amount), set source_custom_food_id to null.
-- editing_entry_id rules: Set editing_entry_id to the entry's [id:N] from search_food_log results when the user explicitly asks to modify an existing entry (e.g., "edit that", "change the chicken to 200g", "update my lunch", "fix the calories for that entry"). Leave editing_entry_id null when: (a) describing new food, (b) uploading new photos, (c) saying "log the same thing" or "I had that again" (create-intent). Key distinction: "log the same thing" = new entry (editing_entry_id null), "change what I had for lunch" = edit existing (set ID). When editing, set editing_entry_id to the entry ID AND set source_custom_food_id to null.
+- editing_entry_id rules: Set editing_entry_id to the [entry:N] value from search_food_log results when the user explicitly asks to modify an existing entry (e.g., "edit that", "change the chicken to 200g", "update my lunch", "fix the calories for that entry"). Note: [entry:N] is the food log entry ID (different from [id:N] which is the food definition ID). Leave editing_entry_id null when: (a) describing new food, (b) uploading new photos, (c) saying "log the same thing" or "I had that again" (create-intent). Key distinction: "log the same thing" = new entry (editing_entry_id null), "change what I had for lunch" = edit existing (set ID). When editing, set editing_entry_id to the entry ID AND set source_custom_food_id to null.
 - ${THINKING_INSTRUCTION}
 
 Web search guidelines:
@@ -151,7 +151,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       },
       editing_entry_id: {
         type: ["number", "null"],
-        description: "Set to the entry ID from search_food_log results when the user asks to edit an existing entry (e.g. 'edit that', 'change the chicken to 200g', 'update my lunch'). Set to null when creating new food. This tool can be used for both creating new entries and editing existing ones.",
+        description: "Set to the [entry:N] value from search_food_log results when the user asks to edit an existing entry (e.g. 'edit that', 'change the chicken to 200g', 'update my lunch'). Note: [entry:N] is the food log entry ID, different from [id:N] which is the food definition ID. Set to null when creating new food.",
       },
       time: {
         type: ["string", "null"],
