@@ -3194,6 +3194,17 @@ describe("convertMessages — date in Current values", () => {
     expect(summaryBlock?.text).toContain("date=2026-02-20");
   });
 
+  it("includes mealTypeId in [Current values] when analysis has mealTypeId set", async () => {
+    const { convertMessages } = await import("@/lib/claude");
+    const messages = [
+      { role: "assistant" as const, content: "Here it is", analysis: { ...validAnalysis, mealTypeId: 4 } },
+    ];
+    const result = convertMessages(messages);
+    const content = result[0].content as Array<{ type: string; text?: string }>;
+    const summaryBlock = content.find(b => b.type === "text" && b.text?.includes("[Current values:"));
+    expect(summaryBlock?.text).toContain("meal_type_id=4");
+  });
+
   it("does not include date in [Current values] when analysis has no date", async () => {
     const { convertMessages } = await import("@/lib/claude");
     const messages = [
