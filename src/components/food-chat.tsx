@@ -517,18 +517,20 @@ export function FoodChat({
 
     try {
       const localDateTime = getLocalDateTime();
+      const logDate = analysis.date ?? localDateTime.date;
       const logTime = selectedTime ?? localDateTime.time;
+      const { date: _analysisDate, ...analysisRest } = analysis;
       const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
         ? {
             reuseCustomFoodId: analysis.sourceCustomFoodId,
             mealTypeId,
-            date: localDateTime.date,
+            date: logDate,
             time: logTime,
           }
         : {
-            ...analysis,
+            ...analysisRest,
             mealTypeId,
-            date: localDateTime.date,
+            date: logDate,
             time: logTime,
           };
 
@@ -554,7 +556,7 @@ export function FoodChat({
             analysis: analysis,
             mealTypeId,
             foodName: analysis.food_name,
-            date: localDateTime.date,
+            date: logDate,
             time: logTime,
           });
           window.location.href = "/api/auth/fitbit";
@@ -678,14 +680,17 @@ export function FoodChat({
     setError(null);
 
     try {
-      const { date, time } = getLocalDateTime();
+      const fallback = getLocalDateTime();
+      const date = analysis.date ?? fallback.date;
+      const time = selectedTime ?? analysis.time ?? fallback.time;
+      const { date: _analysisDate, time: _analysisTime, ...analysisRest } = analysis;
       const saveBody = {
         entryId,
-        ...analysis,
+        ...analysisRest,
         editingEntryId: undefined,
         mealTypeId,
         date,
-        time: selectedTime ?? time,
+        time,
       };
 
       const response = await fetch("/api/edit-food", {

@@ -2760,6 +2760,212 @@ describe("FOO-750: editingEntryId in analyze mode", () => {
   });
 });
 
+// FOO-769: handleSaveExisting and handleLog use analysis date/time
+describe("FOO-769: date/time preservation from analysis", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockReset();
+  });
+
+  it("handleSaveExisting sends analysis date instead of today when analysis has date", async () => {
+    const analysisWithDate: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99, date: "2026-02-20", time: "16:58" };
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "analysis", analysis: analysisWithDate },
+          { type: "done" },
+        ])
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+      });
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      const editFoodCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/edit-food"
+      );
+      expect(editFoodCall).toBeDefined();
+      const body = JSON.parse(editFoodCall![1].body);
+      expect(body.date).toBe("2026-02-20");
+    });
+  });
+
+  it("handleSaveExisting falls back to today when analysis has no date", async () => {
+    const analysisNoDate: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99 };
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "analysis", analysis: analysisNoDate },
+          { type: "done" },
+        ])
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+      });
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      const editFoodCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/edit-food"
+      );
+      expect(editFoodCall).toBeDefined();
+      const body = JSON.parse(editFoodCall![1].body);
+      // Should be today's date in YYYY-MM-DD format
+      expect(body.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+
+  it("handleSaveExisting sends analysis time (synced via SSE to selectedTime)", async () => {
+    const analysisWithTime: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99, time: "16:58" };
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "analysis", analysis: analysisWithTime },
+          { type: "done" },
+        ])
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+      });
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      const editFoodCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/edit-food"
+      );
+      expect(editFoodCall).toBeDefined();
+      const body = JSON.parse(editFoodCall![1].body);
+      expect(body.time).toBe("16:58");
+    });
+  });
+
+  it("handleLog sends analysis date when analysis includes a date", async () => {
+    const analysisWithDate: FoodAnalysis = { ...mockAnalysis, date: "2026-02-20" };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+    });
+
+    render(
+      <FoodChat
+        initialAnalysis={analysisWithDate}
+        compressedImages={[]}
+        initialMealTypeId={3}
+        onClose={vi.fn()}
+        onLogged={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      const logFoodCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      expect(logFoodCall).toBeDefined();
+      const body = JSON.parse(logFoodCall![1].body);
+      expect(body.date).toBe("2026-02-20");
+    });
+  });
+
+  it("handleSaveExisting sends mealTypeId from SSE analysis in edit-food body", async () => {
+    const analysisWithMealType: FoodAnalysis = { ...mockAnalysis, editingEntryId: 99, mealTypeId: 4, date: "2026-02-20" };
+    mockFetch
+      .mockResolvedValueOnce(
+        makeSSEFetchResponse([
+          { type: "analysis", analysis: analysisWithMealType },
+          { type: "done" },
+        ])
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+      });
+
+    render(<FoodChat {...sseProps} />);
+    const input = screen.getByPlaceholderText(/type a message/i);
+    fireEvent.change(input, { target: { value: "edit that" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /send/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await waitFor(() => {
+      const editFoodCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/edit-food"
+      );
+      expect(editFoodCall).toBeDefined();
+      const body = JSON.parse(editFoodCall![1].body);
+      expect(body.mealTypeId).toBe(4);
+    });
+  });
+
+  it("handleLog falls back to today when analysis has no date", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({ success: true, data: mockLogResponse })),
+    });
+
+    render(<FoodChat {...defaultProps} />);
+    fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+    await waitFor(() => {
+      const logFoodCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => call[0] === "/api/log-food"
+      );
+      expect(logFoodCall).toBeDefined();
+      const body = JSON.parse(logFoodCall![1].body);
+      // Should be today's date
+      expect(body.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+  });
+});
+
 // FOO-743: Client-side Sentry error reporting
 describe("FOO-743: Sentry.captureException in FoodChat", () => {
   beforeEach(() => {
