@@ -73,6 +73,8 @@ export interface FoodAnalysis {
   sourceCustomFoodId?: number;
   /** Entry ID from search_food_log results when the user asks to edit an existing entry. */
   editingEntryId?: number;
+  /** Date in YYYY-MM-DD format. For edits: original entry date. For new entries: explicit user date or undefined (today). */
+  date?: string | null;
   /** Meal time suggested by Claude in HH:mm format. Only set when user explicitly mentions time. */
   time?: string | null;
   /** Fitbit meal type ID (1-7, no 6) suggested by Claude. Only set when user mentions meal context. */

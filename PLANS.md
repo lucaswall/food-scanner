@@ -2,7 +2,7 @@
 
 **Issue:** FOO-769
 **Date:** 2026-03-02
-**Status:** Planning
+**Status:** Implementation Complete
 **Branch:** fix/FOO-769-chat-edit-date-preservation
 
 ## Investigation
@@ -140,3 +140,34 @@ For both the `handleSaveEdit` path (line 596-662):
 - No DB migration needed — this is a prompt/UI-only change.
 - The `date` field in `FoodAnalysis` enables a secondary use case: users can say "log this for yesterday" or "move this to the 21st" in the regular chat, which was previously impossible.
 - The `search_food_log` output already includes the date (e.g., "Food log for 2026-02-20:" at line 179 and entry dates at line 200), so Claude has the information — it just needs the prompt permission and tool field to report it back.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-02
+**Method:** Single-agent (5 tasks, 6 effort points across 2 units — worker overhead not justified)
+
+### Tasks Completed This Iteration
+- Step 1: Add `date` field to `FoodAnalysis` type — added optional `date?: string | null` to interface
+- Step 2: Add `date` to `report_nutrition` tool schema + validate in `validateFoodAnalysis` + include in `convertMessages` summary
+- Step 3: Update system prompt with edit-aware exceptions for date/time/mealType preservation
+- Step 4: Use analysis date/time in `handleSaveExisting` and `handleLog` with proper fallback chains
+- Step 5: Full verification — all tests pass, lint clean, build successful
+
+### Files Modified
+- `src/types/index.ts` — Added `date` field to `FoodAnalysis` interface
+- `src/lib/claude.ts` — Added `date` to tool schema, validation, system prompt edit exceptions, `convertMessages` summary; imported `isValidDateFormat`
+- `src/components/food-chat.tsx` — `handleLog` and `handleSaveExisting` use `analysis.date ?? fallback.date` instead of always `getLocalDateTime().date`; destructured analysis to prevent spread override fragility
+- `src/lib/__tests__/claude.test.ts` — 13 new tests: date validation (8), tool schema (2), convertMessages (2), prompt rules (3)
+- `src/components/__tests__/food-chat.test.tsx` — 5 new tests: date/time preservation in handleSaveExisting (3), handleLog (2)
+
+### Linear Updates
+- FOO-769: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 medium + 1 low issues, fixed both medium (spread override fragility, test description accuracy) before proceeding
+- verifier: All 2487 tests pass, zero warnings, build successful
+
+### Continuation Status
+All tasks completed.

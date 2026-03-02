@@ -3104,6 +3104,132 @@ describe("validateFoodAnalysis — editingEntryId field", () => {
 });
 
 // =============================================================================
+// validateFoodAnalysis — date field (FOO-769)
+// =============================================================================
+
+describe("validateFoodAnalysis — date field", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("accepts valid YYYY-MM-DD date string and includes it in result", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, date: "2026-02-20" });
+    expect(result.date).toBe("2026-02-20");
+  });
+
+  it("accepts null date and includes null in result", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, date: null });
+    expect(result.date).toBeNull();
+  });
+
+  it("omits date from result when undefined/missing", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis });
+    expect(result).not.toHaveProperty("date");
+  });
+
+  it("rejects invalid date format (MM-DD)", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, date: "02-20" })).toThrow();
+  });
+
+  it("rejects slash-separated date", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, date: "2026/02/20" })).toThrow();
+  });
+
+  it("rejects non-string non-null date", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, date: 12345 })).toThrow();
+  });
+
+  it("rejects date with invalid month", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, date: "2026-13-01" })).toThrow();
+  });
+
+  it("rejects date with invalid day", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    expect(() => validateFoodAnalysis({ ...validAnalysis, date: "2026-02-30" })).toThrow();
+  });
+});
+
+// =============================================================================
+// REPORT_NUTRITION_TOOL — date property (FOO-769)
+// =============================================================================
+
+describe("REPORT_NUTRITION_TOOL — date property", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("schema includes date property with type [string, null]", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    const props = REPORT_NUTRITION_TOOL.input_schema.properties as Record<string, { type?: unknown }>;
+    expect(props.date).toBeDefined();
+    expect(props.date.type).toEqual(["string", "null"]);
+  });
+
+  it("date is in required fields", async () => {
+    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
+    expect(REPORT_NUTRITION_TOOL.input_schema.required).toContain("date");
+  });
+});
+
+// =============================================================================
+// convertMessages — date in Current values (FOO-769)
+// =============================================================================
+
+describe("convertMessages — date in Current values", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("includes date in [Current values] when analysis has date set", async () => {
+    const { convertMessages } = await import("@/lib/claude");
+    const messages = [
+      { role: "assistant" as const, content: "Here it is", analysis: { ...validAnalysis, date: "2026-02-20" } },
+    ];
+    const result = convertMessages(messages);
+    const content = result[0].content as Array<{ type: string; text?: string }>;
+    const summaryBlock = content.find(b => b.type === "text" && b.text?.includes("[Current values:"));
+    expect(summaryBlock?.text).toContain("date=2026-02-20");
+  });
+
+  it("does not include date in [Current values] when analysis has no date", async () => {
+    const { convertMessages } = await import("@/lib/claude");
+    const messages = [
+      { role: "assistant" as const, content: "Here it is", analysis: validAnalysis },
+    ];
+    const result = convertMessages(messages);
+    const content = result[0].content as Array<{ type: string; text?: string }>;
+    const summaryBlock = content.find(b => b.type === "text" && b.text?.includes("[Current values:"));
+    expect(summaryBlock?.text).not.toContain("date=");
+  });
+});
+
+// =============================================================================
+// CHAT_SYSTEM_PROMPT — edit-aware date/time/mealType rules (FOO-769)
+// =============================================================================
+
+describe("CHAT_SYSTEM_PROMPT — edit-aware date/time/mealType rules", () => {
+  afterEach(() => { vi.resetModules(); });
+
+  it("contains edit exception for meal_type_id mentioning editing_entry_id", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/editing.entry.id.*meal.type|meal.type.*editing.entry.id|edit.*preserv.*meal/i);
+  });
+
+  it("contains edit exception for time mentioning editing_entry_id", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/editing.entry.id.*time|time.*editing.entry.id|edit.*preserv.*time/i);
+  });
+
+  it("contains date field rules mentioning editing preservation", async () => {
+    const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/date.*edit|edit.*date/i);
+  });
+});
+
+// =============================================================================
 // CHAT_SYSTEM_PROMPT — editing_entry_id reference (FOO-751)
 // =============================================================================
 

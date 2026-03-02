@@ -5,6 +5,7 @@ import { getUnitLabel } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
+import { isValidDateFormat } from "@/lib/date-utils";
 import { recordUsage } from "@/lib/claude-usage";
 import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } from "@/lib/chat-tools";
 import type { StreamEvent } from "@/lib/sse";
@@ -69,8 +70,9 @@ Follow these rules:
 - ${REPORT_NUTRITION_UI_CARD_NOTE}
 - When the user references food from their history or from a displayed list and wants to log it (e.g., "comí eso", "registra eso", "quiero lo mismo", "comí dos", naming a food from search results, responding with a food name when asked "¿Querés registrar algo?"), call report_nutrition immediately. Do not ask for unnecessary confirmation — the user's intent to log is clear whenever they reference a specific food in a context where logging intent is established.
 - Never ask "should I log/register this?" — always call report_nutrition and let the user confirm via the UI button.
-- Never ask which meal type before calling report_nutrition. Only set meal_type_id when the user explicitly mentions the meal context (e.g., "for breakfast", "at lunch"). Otherwise leave it null — the user can adjust in the app UI.
-- Only set the time field when the user explicitly mentions a time (e.g., "I had this at 8:30", "breakfast was at 7am"). Do NOT guess or infer the time. Leave it null when the user doesn't specify.
+- Never ask which meal type before calling report_nutrition. Only set meal_type_id when the user explicitly mentions the meal context (e.g., "for breakfast", "at lunch"). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original meal_type_id from the search_food_log results unless the user explicitly asks to change it. Otherwise leave it null — the user can adjust in the app UI.
+- Only set the time field when the user explicitly mentions a time (e.g., "I had this at 8:30", "breakfast was at 7am"). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original time from the search_food_log results unless the user explicitly asks to change it. Do NOT guess or infer the time. Leave it null when the user doesn't specify.
+- Only set the date field when the user explicitly mentions a date (e.g., "log this for yesterday", "move this to the 21st"). When editing an existing entry (editing_entry_id is set), always set date to the original entry's date from the search_food_log results unless the user asks to change it. Leave null for new entries — the app uses today's date by default.
 - When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values (half portion, different ingredients, different amount), set source_custom_food_id to null.
 - editing_entry_id rules: Set editing_entry_id to the [entry:N] value from search_food_log results when the user explicitly asks to modify an existing entry (e.g., "edit that", "change the chicken to 200g", "update my lunch", "fix the calories for that entry"). Note: [entry:N] is the food log entry ID (different from [id:N] which is the food definition ID). Leave editing_entry_id null when: (a) describing new food, (b) uploading new photos, (c) saying "log the same thing" or "I had that again" (create-intent). Key distinction: "log the same thing" = new entry (editing_entry_id null), "change what I had for lunch" = edit existing (set ID). When editing, set editing_entry_id to the entry ID AND set source_custom_food_id to null.
 - ${THINKING_INSTRUCTION}
@@ -153,6 +155,10 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
         type: ["number", "null"],
         description: "Set to the [entry:N] value from search_food_log results when the user asks to edit an existing entry (e.g. 'edit that', 'change the chicken to 200g', 'update my lunch'). Note: [entry:N] is the food log entry ID, different from [id:N] which is the food definition ID. Set to null when creating new food.",
       },
+      date: {
+        type: ["string", "null"],
+        description: "Date in YYYY-MM-DD format. When editing an existing entry (editing_entry_id is set), always set to the original entry's date from search_food_log results unless the user asks to change it. For new entries, only set when the user explicitly mentions a date (e.g., 'log this for yesterday', 'move this to the 21st'). Set to null otherwise — the app uses today's date by default.",
+      },
       time: {
         type: ["string", "null"],
         description: "Meal time in HH:mm format (24h). Only set when the user explicitly mentions a time (e.g., 'I had this at 8:30', 'breakfast was at 7am'). Set to null otherwise — never guess the time.",
@@ -182,6 +188,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       "description",
       "source_custom_food_id",
       "editing_entry_id",
+      "date",
       "time",
       "meal_type_id",
     ],
@@ -455,6 +462,22 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     throw new ClaudeApiError("Invalid food analysis: time must be a string in HH:mm format or null");
   }
 
+  // Validate optional date field: null/undefined (absent) or valid YYYY-MM-DD string
+  const rawDate = data.date;
+  let validatedDate: string | null | undefined;
+  if (rawDate === undefined) {
+    validatedDate = undefined;
+  } else if (rawDate === null) {
+    validatedDate = null;
+  } else if (typeof rawDate === "string") {
+    if (!isValidDateFormat(rawDate)) {
+      throw new ClaudeApiError("Invalid food analysis: date must be in YYYY-MM-DD format with valid month/day");
+    }
+    validatedDate = rawDate;
+  } else {
+    throw new ClaudeApiError("Invalid food analysis: date must be a string in YYYY-MM-DD format or null");
+  }
+
   // Validate optional meal_type_id field: null/undefined or one of valid Fitbit meal types
   const VALID_MEAL_TYPE_IDS = new Set([1, 2, 3, 4, 5, 7]);
   const rawMealTypeId = data.meal_type_id;
@@ -498,6 +521,10 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
 
   if (editingEntryId !== undefined) {
     result.editingEntryId = editingEntryId;
+  }
+
+  if (validatedDate !== undefined) {
+    result.date = validatedDate;
   }
 
   if (validatedTime !== undefined) {
@@ -1334,6 +1361,7 @@ export function convertMessages(messages: ConversationMessage[]): Anthropic.Mess
       if (a.trans_fat_g != null) summary += `, trans_fat_g=${a.trans_fat_g}`;
       if (a.sugars_g != null) summary += `, sugars_g=${a.sugars_g}`;
       if (a.calories_from_fat != null) summary += `, calories_from_fat=${a.calories_from_fat}`;
+      if (a.date != null) summary += `, date=${a.date}`;
       if (a.mealTypeId != null) summary += `, meal_type_id=${a.mealTypeId}`;
       if (a.time != null) summary += `, time=${a.time}`;
       summary += `, confidence=${a.confidence}]`;
