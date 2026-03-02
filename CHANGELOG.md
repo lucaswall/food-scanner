@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-03-01
+
+### Added
+
+- Edit existing food entries directly from the chat — tap any entry on the dashboard to open and refine it
+- Mark foods as favorites for quick access
+- Share food entries as links that others can view and log
+- Time selector for choosing meal times
+- Tap food entries on the dashboard to see full nutrition details
+
+### Changed
+
+- Meal type and time selectors now appear below the chat input
+
+### Fixed
+
+- Editing past-date entries via chat no longer moves them to today's date
+- Chat correctly identifies which entry to edit when multiple entries exist
+- AI refinement no longer fails on certain response formats
+
 ## [1.16.0] - 2026-02-28
 
 ### Added
@@ -312,7 +332,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.16.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.0...HEAD
+[1.17.0]: https://github.com/lucaswall/food-scanner/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/lucaswall/food-scanner/compare/v1.15.3...v1.16.0
 [1.15.3]: https://github.com/lucaswall/food-scanner/compare/v1.15.2...v1.15.3
 [1.15.2]: https://github.com/lucaswall/food-scanner/compare/v1.15.1...v1.15.2
