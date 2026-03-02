@@ -519,7 +519,6 @@ export function FoodChat({
       const localDateTime = getLocalDateTime();
       const logDate = analysis.date ?? localDateTime.date;
       const logTime = selectedTime ?? localDateTime.time;
-      const { date: _analysisDate, ...analysisRest } = analysis;
       const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
         ? {
             reuseCustomFoodId: analysis.sourceCustomFoodId,
@@ -528,7 +527,7 @@ export function FoodChat({
             time: logTime,
           }
         : {
-            ...analysisRest,
+            ...analysis,
             mealTypeId,
             date: logDate,
             time: logTime,
@@ -683,10 +682,9 @@ export function FoodChat({
       const fallback = getLocalDateTime();
       const date = analysis.date ?? fallback.date;
       const time = selectedTime ?? analysis.time ?? fallback.time;
-      const { date: _analysisDate, time: _analysisTime, ...analysisRest } = analysis;
       const saveBody = {
         entryId,
-        ...analysisRest,
+        ...analysis,
         editingEntryId: undefined,
         mealTypeId,
         date,
