@@ -19,21 +19,11 @@ Investigate issues and report findings. Does NOT create plans or modify code.
 
 ## Sentry
 
-This project uses Sentry (`@sentry/nextjs`) for error tracking, session replay, performance tracing, and AI monitoring.
+Read CLAUDE.md SENTRY section for organization, project, and region URL. Always pass these to Sentry MCP tools:
+- `organizationSlug` / `projectSlugOrId` / `projectSlug` — from CLAUDE.md SENTRY table
+- `regionUrl` — from CLAUDE.md SENTRY table
 
-**Organization:** `lucas-wall` | **Project:** `food-scanner` | **Region URL:** `https://us.sentry.io`
-
-Always pass these to Sentry MCP tools:
-- `organizationSlug: "lucas-wall"`
-- `projectSlugOrId: "food-scanner"` (for `search_issues`) or `projectSlug: "food-scanner"` (for `search_events`, `search_issue_events`)
-- `regionUrl: "https://us.sentry.io"`
-
-**Sentry environments** map to Railway:
-| Sentry `environment` | Railway | URL |
-|---|---|---|
-| `production` | production | `food.lucaswall.me` |
-| `staging` | staging | `food-test.lucaswall.me` |
-| `development` | local | `localhost:3000` |
+Environment mappings are also in CLAUDE.md SENTRY section.
 
 ### Which Sentry tool to use
 

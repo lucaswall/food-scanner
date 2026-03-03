@@ -167,6 +167,7 @@ Do NOT flag these in code reviews:
 | **frontend-review** | Opus (lead) / Sonnet (reviewers) | "review frontend" | Agent team frontend review → Linear Backlog issues |
 | **deep-review** | Opus | "deep review X", "analyse this screen" | Focused cross-domain analysis of a single screen/feature |
 | **pull-from-roadmap** | Opus | "pull from roadmap", "analyze this feature" | Deep research + discussion of roadmap item or new idea → cleanup |
+| **push-to-roadmap** | Opus | "push to roadmap", "add to roadmap", "roadmap this idea" | Deep research + discussion of a new idea → writes complete feature spec to ROADMAP.md |
 | **tools-improve** | Opus | Before modifying skills/agents/CLAUDE.md | Best practices for Claude Code extensibility |
 | **push-to-production** | Opus | "push to production", "release" | Backup DB, migrate, merge `main` → `release` |
 
@@ -185,6 +186,24 @@ Do NOT flag these in code reviews:
 - **States:** Backlog → Todo → In Progress → Review → Merge → Done → Released
 - **Labels:** Security, Bug, Performance, Convention, Technical Debt, Feature, Improvement
 - **CRITICAL:** Skills using Linear tools (`mcp__linear__*`) MUST verify MCP is connected first via `mcp__linear__list_teams`. If unavailable, **STOP** and tell the user to run `/mcp`.
+
+---
+
+## SENTRY
+
+| Field | Value |
+|-------|-------|
+| Organization | lucas-wall |
+| Project | food-scanner |
+| Region URL | https://us.sentry.io |
+
+**Environments:**
+
+| Sentry | Railway | URL |
+|---|---|---|
+| `production` | production | `food.lucaswall.me` |
+| `staging` | staging | `food-test.lucaswall.me` |
+| `development` | local | `localhost:3000` |
 
 ---
 

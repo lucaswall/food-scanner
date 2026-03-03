@@ -1,7 +1,7 @@
 ---
 name: push-to-production
 description: Promote main to release with production DB backup and migration handling. Use when user says "push to production", "release", "deploy to production", or "promote to release". Backs up production DB, assesses MIGRATIONS.md, writes migration code if needed, and merges main to release.
-allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Task, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__update_issue, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Task, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__update_issue, mcp__linear__list_issue_statuses, mcp__Railway__get-logs, mcp__Railway__list-deployments
 argument-hint: [version]
 disable-model-invocation: true
 ---
@@ -12,7 +12,9 @@ Promote `main` to `release` with automated backup, migration assessment, and mer
 
 ### 1.1 Verify Linear MCP
 
-**ALWAYS call `mcp__linear__list_teams` directly.** Do NOT try to determine MCP availability by inspecting the tool list, checking settings, or reasoning about it — you MUST actually invoke the tool and check the result. If the call fails or returns an error, **STOP** and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
+**ALWAYS call `mcp__linear__list_teams` directly.** Do NOT try to determine MCP availability by inspecting the tool list, checking settings, or reasoning about it — you MUST actually invoke the tool and check the result. If the call fails or returns an error, **warn** but do not stop — Linear state transitions are cosmetic, the release can proceed without them.
+
+Extract the team name from the response (there should only be one team in most cases).
 
 ### 1.2 Git State
 
@@ -66,7 +68,13 @@ All four must match. If any fails, **STOP**: "Drizzle migration internals have c
 
 This verification is safe because we deploy the same `node_modules` — the code we check here is the code that will run in production.
 
-### 1.5 Build & Tests
+### 1.5 Check for Pending PLANS.md
+
+Read `PLANS.md` from project root (if it exists). If it contains incomplete tasks (tasks not marked as done), **STOP**: "There are incomplete tasks in PLANS.md. Finish implementation first or clear the plan before releasing."
+
+If PLANS.md doesn't exist or has no incomplete tasks, continue.
+
+### 1.6 Build & Tests
 
 Run the `verifier` agent (full mode) to confirm unit tests, lint, and build pass:
 
@@ -76,7 +84,7 @@ Use Task tool with subagent_type "verifier"
 
 If verifier reports failures, **STOP**. Do not proceed with a broken build.
 
-### 1.6 E2E Tests
+### 1.7 E2E Tests
 
 Run the `verifier` agent in E2E mode to confirm end-to-end tests pass:
 
@@ -88,17 +96,16 @@ Docker/OrbStack is already verified in Phase 1.3, so prerequisites are met.
 
 If E2E tests fail, **STOP**. Do not proceed — E2E failures indicate integration issues that must be fixed before release.
 
-### 1.7 Release Branch Exists
+### 1.8 Release Branch Exists
 
 ```bash
 git rev-parse --verify origin/release
 ```
 
-If `release` branch doesn't exist, **STOP** and tell the user to create it.
-
-### 1.8 Check for Pending PLANS.md
-
-Read `PLANS.md` from project root (if it exists). If it contains incomplete tasks (tasks not marked as done), **STOP**: "There are incomplete tasks in PLANS.md. Finish implementation first or clear the plan before releasing."
+If `release` branch doesn't exist, **STOP** and tell the user to create it:
+```
+git checkout -b release && git push -u origin release && git checkout main
+```
 
 ### 1.9 Diff Assessment
 
@@ -114,6 +121,8 @@ If there are no commits to promote, **STOP**: "Nothing to promote. `main` and `r
 Show the user the commit list and file diff summary.
 
 **First release (no prior tags):** If `git describe --tags` fails, this is the first tagged release. Use the full commit history and treat the current `package.json` version as the starting version.
+
+**IMPORTANT:** Wait for the user to acknowledge the diff summary before proceeding to Phase 2.
 
 ## Phase 2: Assess Migrations
 
@@ -282,21 +291,27 @@ mkdir -p _migrations
 
 ### 4.2 Get Production Database URL
 
+Read CLAUDE.md to discover the deployment platform and service name. For Railway:
+
 ```bash
-railway run -e production -s food-scanner printenv DATABASE_PUBLIC_URL
+railway run -e production -s <service-name> printenv DATABASE_PUBLIC_URL
 ```
 
-If the command fails or returns empty, **STOP**: "Cannot connect to production database. Check Railway configuration and DATABASE_PUBLIC_URL variable."
+Adjust command based on deployment platform discovered from CLAUDE.md.
+
+If the command fails or returns empty, **STOP**: "Cannot connect to production database. Check deployment configuration and database URL variable."
 
 ### 4.3 Stop Production Service (if migration needed)
 
 If migration SQL was written in Phase 3, stop the production app service **before** taking the backup. This ensures the backup captures every last write — no data can be lost between backup and migration.
 
+Consult CLAUDE.md for the deployment platform and stop command. For Railway:
+
 ```bash
-railway down -y -e production -s food-scanner
+railway down -y -e production -s <service-name>
 ```
 
-If the command fails, **STOP**: "Cannot stop production service. Check Railway CLI configuration."
+If the command fails, **STOP**: "Cannot stop production service. Check deployment configuration."
 
 **Note:** `railway down` removes the most recent deployment — the app stops serving requests. The database is a separate Railway service and continues running. No data is lost — sessions, tokens, and food logs are all in PostgreSQL. Pushing to `release` later creates a new deployment that brings the service back.
 
@@ -370,7 +385,7 @@ Log potential production data migrations here during development. These notes ar
 
 **Determine version** (follows [Semantic Versioning 2.0.0](https://semver.org/)):
 
-1. Read `CHANGELOG.md` and extract the current version from the first `## [x.y.z]` header
+1. Read `CHANGELOG.md` and extract the current version from the first `## [x.y.z]` header. If `CHANGELOG.md` doesn't exist, this is the first release — create it fresh.
 2. If `<arguments>` contains a version (e.g., `2.0.0`):
    - Validate it's valid semver (X.Y.Z)
    - Validate it's strictly higher than current version
@@ -407,6 +422,7 @@ See [references/changelog-guidelines.md](references/changelog-guidelines.md) for
    - New version link: compare previous version tag to new version tag
    - Format: `[Unreleased]: https://github.com/lucaswall/food-scanner/compare/vNEW...HEAD`
    - Format: `[NEW]: https://github.com/lucaswall/food-scanner/compare/vOLD...vNEW`
+   - **First release:** Use `[NEW]: https://github.com/lucaswall/food-scanner/commits/vNEW` (no previous tag to compare against)
 
 **Update package.json:**
 
@@ -456,19 +472,19 @@ Create a GitHub Release from the tag pushed in Phase 5.6. The release notes come
 First, write the release notes to a temporary file to avoid multi-line Bash command issues:
 
 ```
-Use the Write tool to create _migrations/release-notes.md with the extracted changelog content
+Use the Write tool to create release-notes.md with the extracted changelog content
 ```
 
 Then create the release using `--notes-file` (avoids multi-line `--notes` strings that break Bash permission patterns):
 
 ```bash
-gh release create "v<version>" --title "v<version>" --notes-file _migrations/release-notes.md --verify-tag
+gh release create "v<version>" --title "v<version>" --notes-file release-notes.md --verify-tag
 ```
 
 Clean up the temp file after:
 
 ```bash
-rm -f _migrations/release-notes.md
+rm -f release-notes.md
 ```
 
 **Flags reference:**
@@ -481,30 +497,65 @@ rm -f _migrations/release-notes.md
 **Error handling:** If `gh release create` fails, **do NOT stop the release**. Log a warning in the Phase 6 report:
 ```
 **Warning:** GitHub Release creation failed: [error message]. Create manually with:
-gh release create "v<version>" --title "v<version>" --notes-file _migrations/release-notes.md --verify-tag
+gh release create "v<version>" --title "v<version>" --notes-file release-notes.md --verify-tag
 ```
 
 The git tag and deploy already succeeded — the GitHub Release is cosmetic and can be created manually later.
 
+### 5.8 Verify Railway Deployment (if Railway MCP is available)
+
+If the Railway MCP is available (`mcp__Railway__list-deployments` and `mcp__Railway__get-logs`), check deployment logs to confirm the release deployed successfully to production.
+
+If the Railway MCP tools are not accessible, skip this step silently and note "Railway MCP not available — verify deployment manually at https://railway.app" in the Phase 6 report.
+
+If available:
+1. Wait briefly (30 seconds) for the deploy to initialize
+2. List recent production deployments to find the one triggered by the push to `release`:
+   ```
+   Use mcp__Railway__list-deployments with environment: "production"
+   ```
+3. Fetch production logs and look for:
+   - Successful build completion
+   - Next.js server startup confirmation
+   - No crash loops or error patterns
+   ```
+   Use mcp__Railway__get-logs with environment: "production"
+   ```
+
+If the deployment appears to have failed:
+- Show the user the relevant log lines
+- **Do NOT stop** — the git tag and GitHub Release already succeeded. The deployment issue needs separate investigation.
+- Note the failure in the Phase 6 report
+
+**Always specify `environment: "production"`** — the Railway MCP defaults to staging.
+
 ## Phase 6: Post-Release
 
-### 6.1 Move Done Issues to Released
+### 6.1 Move Issues to Released
 
-Transition all Linear issues in "Done" to "Released" now that the code is live in production.
+Transition all Linear issues in "Done" or "Merge" to "Released" now that the code is live in production.
 
-1. Query all issues in Done state:
+1. Look up the Released state UUID using `mcp__linear__list_issue_statuses` with team "Food Scanner". Find the status with `name: "Released"` (or similar — check what states exist in the team).
+
+2. Query issues stuck in "Merge" state (PR was merged but Linear automation didn't fire):
+   ```
+   mcp__linear__list_issues with team: "Food Scanner", state: "Merge"
+   ```
+
+3. Query all issues in "Done" state:
    ```
    mcp__linear__list_issues with team: "Food Scanner", state: "Done"
    ```
 
-2. For each issue found, transition to Released using the **state UUID** (both Done and Released are `type: completed` — passing by name could silently no-op):
+4. For each issue found (from both queries), transition to Released using the **state UUID** (both Done and Released are `type: completed` — passing by name could silently no-op):
    ```
-   mcp__linear__update_issue with id: <issue-id>, state: "38b7cf14-436a-4c01-9f23-7ffdc42b2009"
+   mcp__linear__update_issue with id: <issue-id>, state: "<released-state-uuid>"
    ```
+   **Batch efficiently:** Call up to 10 `update_issue` calls in parallel. If there are more than 30 issues, update the first 30 and note the remainder in the report for manual transition.
 
-3. Collect the list of moved issues (identifier + title) for the report.
+5. Collect the list of moved issues (identifier + title) for the report.
 
-If no issues are in Done, that's fine — skip silently.
+If no issues are in Done or Merge, that's fine — skip silently.
 
 If the Linear MCP is unavailable (tools fail), **do not STOP** — log a warning in the report and continue. The release itself succeeded; issue state is cosmetic.
 
@@ -520,6 +571,7 @@ If the Linear MCP is unavailable (tools fail), **do not STOP** — log a warning
 **Migration:** [Applied successfully | No migration needed]
 **Data operations:** [Applied successfully (list queries) | None]
 **GitHub Release:** [Created | Failed (see warning above)]
+**Deployment:** [Verified — Next.js server started successfully | Failed — see below | Railway MCP not available — verify manually at https://railway.app]
 
 ### Issues Released
 [List of FOO-xxx: title moved from Done/Merge → Released, or "None"]
@@ -583,4 +635,5 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 - **Never hardcode user data in SQL** — Derive from existing DB content (SELECT DISTINCT, JOINs), never hardcode emails, names, or personal data
 - **Semantic Versioning 2.0.0** — Version bumps follow semver rules: MAJOR for breaking changes, MINOR for new features, PATCH for bug fixes. Every release gets a CHANGELOG.md entry and matching package.json version
 - **Never defer SQL to the user** — All data operations from MIGRATIONS.md must be executed by this skill as part of the release. Never tell the user to run SQL manually post-deploy.
+- **Linear is cosmetic** — Issue state transitions are nice-to-have. Never block a release because Linear MCP is down.
 - **Stop on any failure** — Better to abort than corrupt production

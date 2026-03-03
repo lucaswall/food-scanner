@@ -52,7 +52,7 @@ Use Task with `subagent_type=general-purpose` and `model=opus`. Search the web f
 ### Research Stream 3: Project Context
 
 Use Task with `subagent_type=Explore` or direct tool calls. Check project state:
-- **Linear issues** — Query existing Backlog/Todo/In Progress issues for related or overlapping work
+- **Linear issues** — Query existing Backlog/Todo/In Progress issues for related or overlapping work (if Linear MCP available)
 - **ROADMAP.md dependencies** — Does this feature depend on or block other roadmap items?
 - **Recent changes** — Any recent commits or PRs that affect this area?
 
@@ -111,7 +111,7 @@ When the user decides on an action:
 ### If adding to backlog:
 
 1. Verify Linear MCP: call `mcp__linear__list_teams`. If unavailable, STOP: "Linear MCP not connected. Run `/mcp` to reconnect."
-2. Create Backlog issues following the add-to-backlog patterns (problem-focused descriptions, proper labels and priority)
+2. Create Backlog issues in the discovered team following the add-to-backlog patterns (problem-focused descriptions, proper labels and priority)
 3. After creation, ask: **"Remove this feature from ROADMAP.md?"**
 4. If confirmed → run roadmap cleanup procedure
 

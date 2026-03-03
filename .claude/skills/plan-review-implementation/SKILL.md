@@ -206,9 +206,9 @@ Announce: "N fix(es), all S-size — fixing inline." or "N fix(es) including M/L
 1. For each S-size fix, apply TDD:
    - Write failing test → run (`npx vitest run "pattern"`) → implement fix → run → verify pass
 2. Run full test suite: `npm test`
-3. Run bug-hunter:
+3. Run bug-hunter (as a standalone subagent, NOT a teammate -- do NOT pass `team_name`):
    ```
-   Task tool with subagent_type "bug-hunter"
+   Agent tool with subagent_type "bug-hunter"
    ```
 4. **If clean:** Proceed to Document Findings with "fixed inline" format
 5. **If bug-hunter finds new issues in the fixes:** Abandon inline approach — create Fix Plan as normal. Document the original findings plus new ones from bug-hunter.
@@ -370,7 +370,7 @@ If there were no findings at all (clean review), a brief "No issues found" summa
 - **If all tasks complete and no fix plans needed** (includes iterations where all bugs were fixed inline) → Run E2E tests, update header status, append final status, then create PR:
   1. **Run E2E tests** using the verifier agent in E2E mode:
      ```
-     Use Task tool with subagent_type "verifier" with prompt "e2e"
+     Use Agent tool with subagent_type "verifier" with prompt "e2e"
      ```
      If E2E tests fail, do NOT mark complete — create new Linear issues in Todo for the failures (same as review findings), add a Fix Plan, commit/push, and inform user to run `/plan-implement`.
   2. **Update the header** on line 3: change `**Status:** IN_PROGRESS` to `**Status:** COMPLETE`
@@ -450,13 +450,13 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
 
 ### For Incomplete Plans
 1. Stage modified files: `git status --porcelain=v1`, then `git add <file> ...` — **skip** `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
-2. Commit (no `Co-Authored-By` tags): `plan: review iteration N - [issues found | no issues]`
+2. Commit with simple `-m` flag (no heredoc, no `$()`, no `Co-Authored-By` tags): `git commit -m "plan: review iteration N - [issues found | no issues]"`
 3. `git push`
 4. Inform user to run `/plan-implement`
 
 ### For Complete Plans
 1. Stage modified files: `git status --porcelain=v1`, then `git add <file> ...` — **skip** `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
-2. Commit (no `Co-Authored-By` tags): `plan: mark [plan-name] complete`
+2. Commit with simple `-m` flag (no heredoc, no `$()`, no `Co-Authored-By` tags): `git commit -m "plan: mark [plan-name] complete"`
 3. `git push`
 4. **Collect ALL Linear issue identifiers** managed during this session:
    - Original plan issues (from PLANS.md header)
@@ -485,10 +485,12 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
 - **Lead handles all Linear/git writes** — Reviewers NEVER create issues or modify PLANS.md
 - **No co-author attribution** — Commit messages must NOT include `Co-Authored-By` tags
 - **Never stage sensitive files** — Skip `.env*`, `*.key`, `*.pem`, `credentials*`, `secrets*`
-- **Check MIGRATIONS.md** — If implementation changed DB schema, column names, session/token formats, or env vars, verify that `MIGRATIONS.md` has a corresponding note. If missing, add it as a finding and create a Fix Plan task. The lead should append the missing note to `MIGRATIONS.md` before committing.
+- **Check MIGRATIONS.md** — If implementation changed DB schema, column names, session/token formats, or env vars, verify that `MIGRATIONS.md` has a corresponding note AND that the code includes migration logic (detection of old format + automatic migration) where applicable. If migration logic is missing, add it as a FIX finding -- breaking changes to persistent data without migration paths are bugs in production.
 - **Every finding is FIX or DISCARD** — No "document only" category. Real bugs at any severity get Linear issues + Fix Plan. Non-bugs get discarded with reasoning.
 - **Never discard real bugs** — Pre-existing, low-severity, or "already handled" are NOT valid reasons to discard. Only discard findings that are genuinely not bugs (false positive, impossible, style-only). When in doubt, FIX.
 - **Always report findings to user** — PLANS.md is overwritten by the next plan. The user must see all findings (fixed and discarded) directly in the conversation output before the skill terminates.
 - **Inline fix threshold: ≤3 S-size fixes** — When all FIX findings are S-size (surgical, single-line or few-line) and count ≤3, fix them inline with TDD instead of creating a Fix Plan. Abandon inline approach if tests fail or bug-hunter finds new issues.
 - **Inline fixes still get Linear issues** — Create issues in "Merge" state for traceability. Never skip the audit trail.
 - **Review scope assessment** — ≤4 changed files → single-agent review. 5+ files → 3 reviewers. Always use team for security-sensitive changes regardless of file count.
+- **Only reviewers are teammates** — Bug-hunter, verifier, and pr-creator are standalone subagents spawned via `Agent` tool WITHOUT `team_name`. Only the 3 domain reviewers are team members.
+- **Shut down reviewers immediately** — Send shutdown request to each reviewer as soon as they report findings. Call `TeamDelete` as soon as the last reviewer is shut down. Do NOT keep teammates alive during merge/evaluate/document phases.

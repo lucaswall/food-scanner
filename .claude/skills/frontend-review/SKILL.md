@@ -15,14 +15,18 @@ Review all frontend elements using an agent team with domain-specialized reviewe
 ## Pre-flight
 
 1. **Verify Linear MCP** — Call `mcp__linear__list_teams`. If unavailable, STOP and tell the user: "Linear MCP is not connected. Run `/mcp` to reconnect, then re-run this skill."
-2. **Read CLAUDE.md** — Load project standards, tech stack, and conventions
-3. **Generate fresh screenshots** — Run E2E tests to produce up-to-date screenshots:
+2. **Discover project info from CLAUDE.md** — Read the LINEAR INTEGRATION section to find:
+   - Team name (e.g., "ProjectName")
+   - Issue prefix (e.g., PROJ-xxx)
+   - If LINEAR INTEGRATION section not found, call `mcp__linear__list_teams` to discover the team
+3. **Read CLAUDE.md** — Load project standards, tech stack, and conventions
+4. **Generate fresh screenshots** — Run E2E tests to produce up-to-date screenshots:
    ```
    Use Task tool with subagent_type "verifier" with prompt "e2e"
    ```
    - If E2E tests pass: screenshots are now available at `e2e/screenshots/*.png`
    - If E2E tests fail: warn the user, skip the visual-qa-reviewer (spawn only 3 code reviewers), note in the report that visual QA was skipped
-4. **Discover frontend files** — Use Glob to find all frontend-related files:
+5. **Discover frontend file patterns from CLAUDE.md** — Look for the STRUCTURE section to find frontend file patterns. Common patterns include:
    - `src/app/**/page.tsx` — Pages
    - `src/app/**/layout.tsx` — Layouts
    - `src/components/**/*.tsx` — Components
@@ -30,11 +34,13 @@ Review all frontend elements using an agent team with domain-specialized reviewe
    - `src/app/globals.css` — Styles
    - `public/manifest.json` — PWA manifest
    - `middleware.ts` — Middleware
-5. **Discover screenshots** — Use Glob to find `e2e/screenshots/*.png`. Build the screenshot list for the visual-qa-reviewer.
-6. **Determine review scope:**
+   - If STRUCTURE section not found, use common Next.js/React conventions
+6. **Discover frontend files** — Use Glob to find all frontend-related files using the patterns discovered in step 4
+7. **Discover screenshots** — Use Glob to find `e2e/screenshots/*.png`. Build the screenshot list for the visual-qa-reviewer.
+8. **Determine review scope:**
    - If `$ARGUMENTS` specifies an area → scope files and screenshots to that area only
    - If no arguments → review all frontend files and all screenshots
-7. **Build the file list** — Create the exact list of files each code reviewer will examine, and the screenshot list for the visual-qa-reviewer
+9. **Build the file list** — Create the exact list of files each code reviewer will examine, and the screenshot list for the visual-qa-reviewer
 
 ## Team Setup
 
@@ -103,7 +109,7 @@ Once all reviewer findings are collected:
 After merging and deduplicating, create a Linear issue for each finding using `mcp__linear__create_issue`:
 
 ```
-team: "Food Scanner"
+team: [discovered team name]
 state: "Backlog"
 title: "[Brief description of the issue]"
 description: (see Issue Description Format below)
