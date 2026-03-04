@@ -247,3 +247,101 @@
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 6 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 6 issue(s) — Linear issues created in Todo
+- DISCARDED: 5 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [HIGH] BUG: Edit-food fast path discards metadata changes — notes, description, keywords, confidence silently lost when nutrition unchanged (`src/app/api/edit-food/route.ts:77-93,164-207`) — FOO-789
+- [MEDIUM] BUG: Stale fitbitFoodId in custom_foods after nutrition edit — new Fitbit food ID from findOrCreateFood never stored in DB (`src/lib/food-log.ts:778`) — FOO-790
+- [MEDIUM] BUG: updateFoodLogEntry returns stale fitbitLogId from pre-update fetch — API response contains wrong value (`src/lib/food-log.ts:805`) — FOO-791
+- [MEDIUM] BUG: analyzeFood missing explicit refusal stop_reason handling — falls through to text-only path yielding empty message, no warn log (`src/lib/claude.ts:1191+`) — FOO-792
+- [LOW] CONVENTION: Missing action field on unexpected stop_reason log in runToolLoop — missed by Task 6 (`src/lib/claude.ts:1047-1050`) — FOO-793
+- [LOW] CONVENTION: Missing action fields (6 log statements) and durationMs for Claude API call in lumen.ts (`src/lib/lumen.ts:112,150,158,171,184,222`) — FOO-794
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: LumenParseError wraps raw API error message (`src/lib/lumen.ts:188-190`) — route handler controls client-facing messages via `errorResponse()`; the error message is never exposed to the client
+- [DISCARDED] SECURITY: executeTool logs full params at debug level (`src/lib/chat-tools.ts:357`) — debug-level logging of non-sensitive query parameters (dates, keywords, limits) is appropriate; disabled in production
+- [DISCARDED] RESOURCE: AbortSignal not passed to executeDataTools (`src/lib/claude.ts:1003`) — individual Drizzle DB queries complete in milliseconds and cannot be cancelled mid-flight; signal IS checked at loop boundary
+- [DISCARDED] EDGE CASE: limit: 0 returns no results (`src/lib/chat-tools.ts:136`) — returning 0 results when 0 requested is technically correct behavior; Claude would never send 0 given schema description says "default 10"
+- [DISCARDED] CONVENTION: Duplicated isValidTimeFormat and VALID_MEAL_TYPE_IDS between edit-food and log-food routes — style-only duplication with zero correctness impact
+
+### Linear Updates
+- FOO-781: Review → Merge (original task)
+- FOO-782: Review → Merge (original task)
+- FOO-783: Review → Merge (original task)
+- FOO-784: Review → Merge (original task)
+- FOO-785: Review → Merge (original task)
+- FOO-786: Review → Merge (original task)
+- FOO-787: Review → Merge (original task)
+- FOO-789: Created in Todo (Fix: edit-food fast path metadata loss)
+- FOO-790: Created in Todo (Fix: stale fitbitFoodId after edit)
+- FOO-791: Created in Todo (Fix: stale fitbitLogId return)
+- FOO-792: Created in Todo (Fix: refusal stop_reason handling)
+- FOO-793: Created in Todo (Fix: missing action field)
+- FOO-794: Created in Todo (Fix: lumen.ts logging conventions)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-789](https://linear.app/lw-claude/issue/FOO-789/edit-food-fast-path-discards-metadata-changes-notes-description), [FOO-790](https://linear.app/lw-claude/issue/FOO-790/stale-fitbitfoodid-in-custom-foods-after-nutrition-edit), [FOO-791](https://linear.app/lw-claude/issue/FOO-791/updatefoodlogentry-returns-stale-fitbitlogid-from-pre-update-fetch), [FOO-792](https://linear.app/lw-claude/issue/FOO-792/analyzefood-missing-explicit-refusal-stop-reason-handling), [FOO-793](https://linear.app/lw-claude/issue/FOO-793/missing-action-field-on-unexpected-stop-reason-log-in-runtoolloop), [FOO-794](https://linear.app/lw-claude/issue/FOO-794/missing-action-fields-and-durationms-on-log-statements-in-luments)
+
+### Fix 1: Edit-food fast path discards metadata changes
+**Linear Issue:** [FOO-789](https://linear.app/lw-claude/issue/FOO-789/edit-food-fast-path-discards-metadata-changes-notes-description)
+
+1. Write test in `src/app/api/edit-food/__tests__/route.test.ts`: POST an edit where nutrition is unchanged but `notes`, `description`, `keywords`, or `confidence` differ. Assert the custom_foods row is updated with the new metadata values.
+2. Run `npx vitest run "edit-food"` — expect fail.
+3. In `src/app/api/edit-food/route.ts`, after `updateFoodLogEntryMetadata` in the fast path (around line 207), add a call to update the custom_foods metadata (notes, description, keywords, confidence) when they differ from the existing entry. This may require adding a new function `updateCustomFoodMetadata` in `food-log.ts` or extending the existing one to handle these fields.
+4. Run `npx vitest run "edit-food"` — expect pass.
+
+### Fix 2: Stale fitbitFoodId in custom_foods after nutrition edit
+**Linear Issue:** [FOO-790](https://linear.app/lw-claude/issue/FOO-790/stale-fitbitfoodid-in-custom-foods-after-nutrition-edit)
+
+1. Write test in `src/lib/__tests__/food-log.test.ts`: call `updateFoodLogEntry` with a `fitbitFoodId` in the data. Assert the new custom_foods row stores the provided fitbitFoodId, not the old one.
+2. Run `npx vitest run "food-log.test"` — expect fail.
+3. In `src/lib/food-log.ts:778`, change `fitbitFoodId: oldFood?.fitbitFoodId ?? null` to use `data.fitbitFoodId` when provided: `fitbitFoodId: data.fitbitFoodId ?? oldFood?.fitbitFoodId ?? null`.
+4. In `src/app/api/edit-food/route.ts`, pass `fitbitFoodId` to the `updateFoodLogEntry` data object (around line 302-324).
+5. Run `npx vitest run "food-log.test"` and `npx vitest run "edit-food"` — expect pass.
+
+### Fix 3: updateFoodLogEntry returns stale fitbitLogId
+**Linear Issue:** [FOO-791](https://linear.app/lw-claude/issue/FOO-791/updatefoodlogentry-returns-stale-fitbitlogid-from-pre-update-fetch)
+
+1. Write test in `src/lib/__tests__/food-log.test.ts`: call `updateFoodLogEntry` with a new `fitbitLogId`. Assert the returned `fitbitLogId` matches the new value, not the old one.
+2. Run `npx vitest run "food-log.test"` — expect fail.
+3. In `src/lib/food-log.ts:805`, change `fitbitLogId: row.fitbitLogId` to `fitbitLogId: data.fitbitLogId ?? row.fitbitLogId` so the return reflects the updated value.
+4. Run `npx vitest run "food-log.test"` — expect pass.
+
+### Fix 4: analyzeFood missing refusal stop_reason handling
+**Linear Issue:** [FOO-792](https://linear.app/lw-claude/issue/FOO-792/analyzefood-missing-explicit-refusal-stop-reason-handling)
+
+1. Write test in `src/lib/__tests__/claude.test.ts`: mock `analyzeFood` initial API call returning `stop_reason: "refusal"`. Assert the generator yields `{ type: "error", message: "..." }` with a meaningful refusal message.
+2. Run `npx vitest run "claude.test"` — expect fail.
+3. In `src/lib/claude.ts`, after the `model_context_window_exceeded` check (line 1189), add an explicit check for `response.stop_reason === "refusal"`. Log with `{ action: "analyze_food_refusal" }` at warn level. Throw `ClaudeApiError` with a user-friendly message about content being flagged.
+4. Apply same pattern in `conversationalRefine` and `editAnalysis` initial response checks.
+5. Run `npx vitest run "claude.test"` — expect pass.
+
+### Fix 5: Missing action field on unexpected stop_reason log
+**Linear Issue:** [FOO-793](https://linear.app/lw-claude/issue/FOO-793/missing-action-field-on-unexpected-stop-reason-log-in-runtoolloop)
+
+1. No test needed — mechanical logging fix.
+2. In `src/lib/claude.ts:1047-1050`, add `action: "tool_loop_unexpected_stop_reason"` to the warn log object.
+
+### Fix 6: Missing action fields and durationMs in lumen.ts
+**Linear Issue:** [FOO-794](https://linear.app/lw-claude/issue/FOO-794/missing-action-fields-and-durationms-on-log-statements-in-luments)
+
+1. No test needed — mechanical logging fix.
+2. In `src/lib/lumen.ts`, add `action` field to all 6 log statements:
+   - Line 112: `{ action: "parse_lumen_start", imageCount: 1 }`
+   - Line 150: `{ action: "parse_lumen_no_tool_use" }`
+   - Line 158: `{ action: "parse_lumen_success" }`
+   - Line 171: `{ action: "parse_lumen_usage_record_failed" }`
+   - Line 184: `{ action: "parse_lumen_error" }`
+   - Line 222: `{ action: "upsert_lumen_goals_success" }`
+3. Import `startTimer` from `@/lib/utils`, call `const elapsed = startTimer()` before the Claude API call, add `durationMs: elapsed()` to the success/error log statements.
