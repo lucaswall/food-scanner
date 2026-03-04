@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import * as Sentry from "@sentry/nextjs";
 import type { ImageInput } from "@/lib/claude";
 import type { LumenGoals } from "@/types";
-import { logger } from "@/lib/logger";
+import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { getDb } from "@/db/index";
@@ -33,8 +33,10 @@ Also extract the day type (e.g., "High Carb", "Low Carb", "Moderate").`;
 const REPORT_LUMEN_GOALS_TOOL: Anthropic.Tool = {
   name: "report_lumen_goals",
   description: "Report the macro nutrient targets from the Lumen app screenshot",
+  strict: true,
   input_schema: {
     type: "object" as const,
+    additionalProperties: false as const,
     properties: {
       day_type: {
         type: "string",
@@ -106,8 +108,9 @@ export async function parseLumenScreenshot(
   log?: Logger,
 ): Promise<LumenGoalsParsed> {
   const l = log ?? logger;
+  const elapsed = startTimer();
   try {
-    l.info({ imageCount: 1 }, "calling Claude API for Lumen screenshot parsing");
+    l.info({ action: "parse_lumen_start", imageCount: 1 }, "calling Claude API for Lumen screenshot parsing");
 
     const response = await getClient().messages.create({
       model: "claude-haiku-4-5-20251001",
@@ -146,7 +149,7 @@ export async function parseLumenScreenshot(
 
     if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
       l.warn(
-        { contentTypes: response.content.map((b) => b.type) },
+        { action: "parse_lumen_no_tool_use", contentTypes: response.content.map((b) => b.type), durationMs: elapsed() },
         "no tool_use block in Lumen parsing response"
       );
       throw new LumenParseError("No tool_use block in response");
@@ -154,7 +157,7 @@ export async function parseLumenScreenshot(
 
     const goals = validateLumenGoals(toolUseBlock.input);
     l.info(
-      { dayType: goals.dayType, proteinGoal: goals.proteinGoal },
+      { action: "parse_lumen_success", dayType: goals.dayType, proteinGoal: goals.proteinGoal, durationMs: elapsed() },
       "Lumen goals parsed successfully"
     );
 
@@ -167,7 +170,7 @@ export async function parseLumenScreenshot(
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       }).catch((error) => {
         l.warn(
-          { error: error instanceof Error ? error.message : String(error), userId },
+          { action: "parse_lumen_usage_record_failed", error: error instanceof Error ? error.message : String(error), userId },
           "failed to record API usage"
         );
       });
@@ -180,7 +183,7 @@ export async function parseLumenScreenshot(
     }
 
     l.warn(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "parse_lumen_error", error: error instanceof Error ? error.message : String(error), durationMs: elapsed() },
       "Lumen parsing API error"
     );
     throw new LumenParseError(
@@ -217,7 +220,7 @@ export async function upsertLumenGoals(
       },
     });
 
-  l.info({ userId, date, dayType: data.dayType }, "Lumen goals upserted");
+  l.info({ action: "upsert_lumen_goals_success", userId, date, dayType: data.dayType }, "Lumen goals upserted");
 }
 
 export async function getLumenGoalsByDate(

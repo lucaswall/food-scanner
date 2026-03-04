@@ -667,6 +667,10 @@ export function truncateConversation(
 
   // Keep first user message + last 4 messages
   if (messages.length <= 5) {
+    l.warn(
+      { action: "truncate_skip_short", estimatedTokens, maxTokens, messageCount: messages.length },
+      "conversation over token limit but too short to truncate"
+    );
     return messages;
   }
 
@@ -880,7 +884,7 @@ export async function* runToolLoop(
           cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
         }).catch((error) => {
           l.warn(
-            { error: error instanceof Error ? error.message : String(error), userId },
+            { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
             "failed to record API usage"
           );
         });
@@ -898,7 +902,7 @@ export async function* runToolLoop(
             analysis = validateFoodAnalysis(reportNutritionBlock.input);
           } catch (error) {
             l.warn(
-              { error: error instanceof Error ? error.message : String(error) },
+              { action: "report_nutrition_validation_error", error: error instanceof Error ? error.message : String(error) },
               "invalid report_nutrition in end_turn, ignoring"
             );
           }
@@ -953,12 +957,12 @@ export async function* runToolLoop(
           try {
             pendingAnalysis = validateFoodAnalysis(reportNutritionBlocks[0].input);
             l.info(
-              { foodName: pendingAnalysis.food_name, blockCount: reportNutritionBlocks.length },
+              { action: "report_nutrition_captured", foodName: pendingAnalysis.food_name, blockCount: reportNutritionBlocks.length },
               "captured report_nutrition from tool loop"
             );
           } catch (error) {
             l.warn(
-              { error: error instanceof Error ? error.message : String(error) },
+              { action: "report_nutrition_validation_error", error: error instanceof Error ? error.message : String(error) },
               "invalid report_nutrition in tool loop, ignoring"
             );
           }
@@ -1030,9 +1034,18 @@ export async function* runToolLoop(
         continue;
       }
 
+      if ((response.stop_reason as string) === "model_context_window_exceeded") {
+        l.warn(
+          { action: "context_window_exceeded", iteration },
+          "model_context_window_exceeded — conversation too long"
+        );
+        yield { type: "error", message: "The conversation is too long. Please start a new analysis." };
+        return;
+      }
+
       // Handle other stop reasons gracefully (refusal, max_tokens, etc.)
       l.warn(
-        { stop_reason: response.stop_reason, iteration },
+        { action: "tool_loop_unexpected_stop_reason", stop_reason: response.stop_reason, iteration },
         "unexpected stop_reason, returning partial response"
       );
 
@@ -1107,7 +1120,7 @@ export async function* analyzeFood(
   const elapsed = startTimer();
   try {
     l.info(
-      { imageCount: images.length, hasDescription: !!description },
+      { action: "analyze_food_start", imageCount: images.length, hasDescription: !!description },
       "calling Claude API for food analysis"
     );
 
@@ -1167,6 +1180,22 @@ export async function* analyzeFood(
       "Claude API response content"
     );
 
+    if ((response.stop_reason as string) === "model_context_window_exceeded") {
+      l.warn(
+        { action: "analyze_food_context_window_exceeded" },
+        "model_context_window_exceeded on initial analyzeFood call"
+      );
+      throw new ClaudeApiError("The conversation is too long to analyze. Please start a new session.");
+    }
+
+    if (response.stop_reason === "refusal") {
+      l.warn(
+        { action: "analyze_food_refusal" },
+        "Claude refused to analyze the food content"
+      );
+      throw new ClaudeApiError("The request was flagged by our safety systems and cannot be processed.");
+    }
+
     // Check if report_nutrition was called directly (fast path)
     const reportNutritionBlock = response.content.find(
       (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_nutrition"
@@ -1182,14 +1211,14 @@ export async function* analyzeFood(
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       }).catch((error) => {
         l.warn(
-          { error: error instanceof Error ? error.message : String(error), userId },
+          { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
           "failed to record API usage"
         );
       });
 
       const analysis = validateFoodAnalysis(reportNutritionBlock.input);
       l.info(
-        { foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
+        { action: "analyze_food_fast_path", foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
         "food analysis completed (fast path)"
       );
       yield {
@@ -1214,7 +1243,7 @@ export async function* analyzeFood(
     if (dataToolUseBlocks.length > 0 || response.stop_reason === "pause_turn") {
       // Slow path: data tools were used or server-side tools paused the turn
       l.info(
-        { dataToolCount: dataToolUseBlocks.length, stopReason: response.stop_reason },
+        { action: "analyze_food_tool_loop", dataToolCount: dataToolUseBlocks.length, stopReason: response.stop_reason },
         "running tool loop for data tools in food analysis"
       );
 
@@ -1251,7 +1280,7 @@ export async function* analyzeFood(
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       }).catch((error) => {
         l.warn(
-          { error: error instanceof Error ? error.message : String(error), userId },
+          { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
           "failed to record API usage"
         );
       });
@@ -1312,7 +1341,7 @@ export async function* analyzeFood(
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
     }).catch((error) => {
       l.warn(
-        { error: error instanceof Error ? error.message : String(error), userId },
+        { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
         "failed to record API usage"
       );
     });
@@ -1341,7 +1370,7 @@ export async function* analyzeFood(
     }
 
     l.warn(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "analyze_food_error", error: error instanceof Error ? error.message : String(error) },
       "Claude API error"
     );
     throw new ClaudeApiError(
@@ -1422,7 +1451,7 @@ export async function* conversationalRefine(
   try {
     const totalImages = messages.reduce((sum, m) => sum + (m.images?.length ?? 0), 0);
     l.info(
-      { messageCount: messages.length, imageCount: totalImages },
+      { action: "refine_food_start", messageCount: messages.length, imageCount: totalImages },
       "calling Claude API for conversational refinement"
     );
 
@@ -1494,6 +1523,22 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       "Claude API chat response content"
     );
 
+    if ((response.stop_reason as string) === "model_context_window_exceeded") {
+      l.warn(
+        { action: "conversational_refine_context_window_exceeded" },
+        "model_context_window_exceeded on initial conversationalRefine call"
+      );
+      throw new ClaudeApiError("The conversation is too long to continue. Please start a new session.");
+    }
+
+    if (response.stop_reason === "refusal") {
+      l.warn(
+        { action: "conversational_refine_refusal" },
+        "Claude refused the conversational refinement request"
+      );
+      throw new ClaudeApiError("The request was flagged by our safety systems and cannot be processed.");
+    }
+
     // Check if Claude used any data tools (not report_nutrition)
     const dataToolUseBlocks = response.content.filter(
       (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name !== "report_nutrition"
@@ -1502,7 +1547,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     // If data tools were used or server-side tools paused the turn, run the tool loop
     if ((dataToolUseBlocks.length > 0 || response.stop_reason === "pause_turn") && userId && currentDate) {
       l.info(
-        { dataToolCount: dataToolUseBlocks.length, stopReason: response.stop_reason },
+        { action: "refine_food_tool_loop", dataToolCount: dataToolUseBlocks.length, stopReason: response.stop_reason },
         "running tool loop for data tools in conversational refinement"
       );
 
@@ -1540,7 +1585,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
           cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
         }).catch((error) => {
           l.warn(
-            { error: error instanceof Error ? error.message : String(error), userId },
+            { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
             "failed to record API usage"
           );
         });
@@ -1569,7 +1614,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       return;
     } else if (dataToolUseBlocks.length > 0) {
       l.warn(
-        { toolNames: dataToolUseBlocks.map((b) => b.name) },
+        { action: "refine_food_tool_calls_skipped", toolNames: dataToolUseBlocks.map((b) => b.name) },
         "data tool calls skipped: userId or currentDate missing from conversationalRefine"
       );
     }
@@ -1599,7 +1644,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       }).catch((error) => {
         l.warn(
-          { error: error instanceof Error ? error.message : String(error), userId },
+          { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
           "failed to record API usage"
         );
       });
@@ -1676,7 +1721,7 @@ export async function* editAnalysis(
   const l = log ?? logger;
   const elapsed = startTimer();
   try {
-    l.info({ messageCount: messages.length }, "calling Claude API for food edit");
+    l.info({ action: "edit_analysis_start", messageCount: messages.length }, "calling Claude API for food edit");
 
     // Convert messages to Anthropic format with image support and analysis injection
     let anthropicMessages: Anthropic.MessageParam[] = convertMessages(messages);
@@ -1738,7 +1783,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       throw error;
     }
     l.warn(
-      { error: error instanceof Error ? error.message : String(error) },
+      { action: "edit_analysis_error", error: error instanceof Error ? error.message : String(error) },
       "Claude API edit analysis error"
     );
     throw new ClaudeApiError(

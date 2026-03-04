@@ -59,10 +59,12 @@ vi.mock("@/lib/fitbit", () => ({
 const mockGetFoodLogEntryDetail = vi.fn();
 const mockUpdateFoodLogEntry = vi.fn();
 const mockUpdateFoodLogEntryMetadata = vi.fn();
+const mockUpdateCustomFoodMetadata = vi.fn();
 vi.mock("@/lib/food-log", () => ({
   getFoodLogEntryDetail: (...args: unknown[]) => mockGetFoodLogEntryDetail(...args),
   updateFoodLogEntry: (...args: unknown[]) => mockUpdateFoodLogEntry(...args),
   updateFoodLogEntryMetadata: (...args: unknown[]) => mockUpdateFoodLogEntryMetadata(...args),
+  updateCustomFoodMetadata: (...args: unknown[]) => mockUpdateCustomFoodMetadata(...args),
 }));
 
 const { POST, isNutritionUnchanged } = await import("@/app/api/edit-food/route");
@@ -144,6 +146,7 @@ beforeEach(() => {
   mockLogFood.mockResolvedValue({ foodLog: { logId: 99999 } });
   mockUpdateFoodLogEntry.mockResolvedValue({ fitbitLogId: 99999, newCustomFoodId: 200 });
   mockUpdateFoodLogEntryMetadata.mockResolvedValue(undefined);
+  mockUpdateCustomFoodMetadata.mockResolvedValue(undefined);
   vi.stubEnv("FITBIT_DRY_RUN", "false");
 });
 
@@ -199,6 +202,22 @@ describe("POST /api/edit-food", () => {
 
   it("returns 400 for invalid date format", async () => {
     const response = await POST(createMockRequest({ ...validBody, date: "not-a-date" }));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when keywords field is missing", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { keywords, ...bodyWithoutKeywords } = validBody;
+    const response = await POST(createMockRequest(bodyWithoutKeywords));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when keywords is empty array", async () => {
+    const response = await POST(createMockRequest({ ...validBody, keywords: [] }));
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
@@ -295,7 +314,7 @@ const unchangedNutritionBody = {
   confidence: "high" as const,
   notes: "Baked style",
   description: "Standard Argentine beef empanada",
-  keywords: [],
+  keywords: ["empanada", "carne"],
   mealTypeId: 3, // changed from 5 → metadata-only change
   date: "2026-02-16",
   time: "12:00:00",
@@ -482,8 +501,7 @@ describe("POST /api/edit-food (fast path)", () => {
     mockLogFood.mockRejectedValueOnce(new Error("Fitbit API error"));
     const response = await POST(createMockRequest(unchangedNutritionBody));
     expect(response.status).toBe(500);
-    expect(mockUpdateFoodLogEntryMetadata).not.toHaveBeenCalled();
-    // Compensation: re-log with same fitbitFoodId
+    // Compensation: re-log with same fitbitFoodId, then update DB with compensation logId
     expect(mockLogFood).toHaveBeenCalledTimes(2);
     expect(mockLogFood).toHaveBeenNthCalledWith(
       2,
@@ -496,6 +514,13 @@ describe("POST /api/edit-food (fast path)", () => {
       expect.anything(),
       expect.anything(),
     );
+    // Fix 4: compensation logFood result used to update DB fitbitLogId
+    expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalledWith(
+      "user-uuid-123",
+      42,
+      expect.objectContaining({ fitbitLogId: 99999 }),
+      expect.anything(),
+    );
   });
 
   it("fast path dry-run: skips all Fitbit ops but updates DB metadata", async () => {
@@ -506,5 +531,66 @@ describe("POST /api/edit-food (fast path)", () => {
     expect(mockLogFood).not.toHaveBeenCalled();
     expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalled();
     expect(mockFindOrCreateFood).not.toHaveBeenCalled();
+  });
+
+  it("fast path: updates custom_foods metadata when notes/description/keywords/confidence differ", async () => {
+    const metadataChangedBody = {
+      ...unchangedNutritionBody,
+      notes: "Updated notes",
+      description: "Updated description",
+      keywords: ["empanada", "carne", "horneada"],
+      confidence: "medium" as const,
+    };
+    const response = await POST(createMockRequest(metadataChangedBody));
+    expect(response.status).toBe(200);
+    expect(mockUpdateCustomFoodMetadata).toHaveBeenCalledWith(
+      "user-uuid-123",
+      100, // existingEntry.customFoodId
+      {
+        notes: "Updated notes",
+        description: "Updated description",
+        keywords: ["empanada", "carne", "horneada"],
+        confidence: "medium",
+      },
+      expect.anything(),
+    );
+  });
+
+  it("fast path: skips custom_foods metadata update when metadata is unchanged", async () => {
+    const response = await POST(createMockRequest(unchangedNutritionBody));
+    expect(response.status).toBe(200);
+    expect(mockUpdateCustomFoodMetadata).not.toHaveBeenCalled();
+  });
+
+  // Fix 1 (FOO-795): Fast path DB updates missing try-catch/compensation
+  it("fast path: returns error and attempts Fitbit compensation when updateFoodLogEntryMetadata fails after Fitbit ops", async () => {
+    mockUpdateFoodLogEntryMetadata.mockRejectedValueOnce(new Error("DB error"));
+    const response = await POST(createMockRequest(unchangedNutritionBody));
+    expect(response.status).toBe(500);
+    // Compensation: re-log original food to Fitbit (logFood called: 1st for initial re-log, 2nd for compensation)
+    expect(mockLogFood).toHaveBeenCalledTimes(2);
+  });
+
+  // Fix 4 (FOO-798): Compensation logic doesn't capture new fitbitLogId
+  it("fast path: compensation updates DB fitbitLogId with logId returned from compensation re-log", async () => {
+    // Initial re-log succeeds (99999), DB fails, compensation re-log returns 77777
+    mockLogFood
+      .mockResolvedValueOnce({ foodLog: { logId: 99999 } })
+      .mockResolvedValueOnce({ foodLog: { logId: 77777 } });
+    mockUpdateFoodLogEntryMetadata
+      .mockRejectedValueOnce(new Error("DB error")) // initial DB update fails
+      .mockResolvedValueOnce(undefined); // compensation DB update succeeds
+
+    const response = await POST(createMockRequest(unchangedNutritionBody));
+    expect(response.status).toBe(500);
+    // Compensation should call updateFoodLogEntryMetadata again with the new fitbitLogId
+    expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalledTimes(2);
+    expect(mockUpdateFoodLogEntryMetadata).toHaveBeenNthCalledWith(
+      2,
+      "user-uuid-123",
+      42,
+      expect.objectContaining({ fitbitLogId: 77777 }),
+      expect.anything(),
+    );
   });
 });

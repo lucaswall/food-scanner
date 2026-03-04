@@ -62,6 +62,7 @@ export interface UpdateFoodLogInput {
   date: string;
   time: string;
   fitbitLogId?: number | null;
+  fitbitFoodId?: number | null;
 }
 
 export async function insertCustomFood(
@@ -597,6 +598,74 @@ export async function updateFoodLogEntryMetadata(
 
 type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
+export interface InsertCustomFoodWithLogEntryResult {
+  customFoodId: number;
+  foodLogId: number;
+}
+
+export async function insertCustomFoodWithLogEntry(
+  userId: string,
+  customFoodData: CustomFoodInput,
+  logEntryData: Omit<FoodLogEntryInput, "customFoodId">,
+  log?: Logger,
+): Promise<InsertCustomFoodWithLogEntryResult> {
+  const l = log ?? logger;
+  const db = getDb();
+
+  return db.transaction(async (tx) => {
+    const foodRows = await tx
+      .insert(customFoods)
+      .values({
+        userId,
+        foodName: customFoodData.foodName,
+        amount: String(customFoodData.amount),
+        unitId: customFoodData.unitId,
+        calories: Math.round(customFoodData.calories),
+        proteinG: String(customFoodData.proteinG),
+        carbsG: String(customFoodData.carbsG),
+        fatG: String(customFoodData.fatG),
+        fiberG: String(customFoodData.fiberG),
+        sodiumMg: String(customFoodData.sodiumMg),
+        saturatedFatG: customFoodData.saturatedFatG != null ? String(customFoodData.saturatedFatG) : null,
+        transFatG: customFoodData.transFatG != null ? String(customFoodData.transFatG) : null,
+        sugarsG: customFoodData.sugarsG != null ? String(customFoodData.sugarsG) : null,
+        caloriesFromFat: customFoodData.caloriesFromFat != null ? String(customFoodData.caloriesFromFat) : null,
+        confidence: customFoodData.confidence,
+        notes: customFoodData.notes,
+        description: customFoodData.description ?? null,
+        fitbitFoodId: customFoodData.fitbitFoodId ?? null,
+        keywords: customFoodData.keywords ?? null,
+      })
+      .returning({ id: customFoods.id, createdAt: customFoods.createdAt });
+
+    const foodRow = foodRows[0];
+    if (!foodRow) throw new Error("Failed to insert custom food: no row returned");
+
+    const entryRows = await tx
+      .insert(foodLogEntries)
+      .values({
+        userId,
+        customFoodId: foodRow.id,
+        mealTypeId: logEntryData.mealTypeId,
+        amount: String(logEntryData.amount),
+        unitId: logEntryData.unitId,
+        date: logEntryData.date,
+        time: logEntryData.time,
+        fitbitLogId: logEntryData.fitbitLogId ?? null,
+      })
+      .returning({ id: foodLogEntries.id, loggedAt: foodLogEntries.loggedAt });
+
+    const entryRow = entryRows[0];
+    if (!entryRow) throw new Error("Failed to insert food log entry: no row returned");
+
+    l.debug(
+      { action: "insert_custom_food_with_log_entry", foodName: customFoodData.foodName, customFoodId: foodRow.id, foodLogId: entryRow.id },
+      "custom food and log entry inserted in transaction",
+    );
+    return { customFoodId: foodRow.id, foodLogId: entryRow.id };
+  });
+}
+
 async function cleanupOrphanCustomFood(tx: DbTx, customFoodId: number, userId: string): Promise<boolean> {
   const remainingEntries = await tx
     .select({ id: foodLogEntries.id })
@@ -707,7 +776,7 @@ export async function updateFoodLogEntry(
         notes: data.notes,
         description: data.description ?? null,
         keywords: data.keywords ?? null,
-        fitbitFoodId: oldFood?.fitbitFoodId ?? null,
+        fitbitFoodId: data.fitbitFoodId ?? oldFood?.fitbitFoodId ?? null,
         isFavorite: oldFood?.isFavorite ?? false,
         shareToken: oldFood?.shareToken ?? null,
       })
@@ -734,7 +803,7 @@ export async function updateFoodLogEntry(
     await cleanupOrphanCustomFood(tx, oldCustomFoodId, userId);
 
     l.debug({ action: "update_food_log_entry", entryId, newCustomFoodId: newFood.id }, "food log entry updated");
-    return { fitbitLogId: row.fitbitLogId, newCustomFoodId: newFood.id };
+    return { fitbitLogId: data.fitbitLogId !== undefined ? data.fitbitLogId : row.fitbitLogId, newCustomFoodId: newFood.id };
   });
 }
 
@@ -853,7 +922,9 @@ export async function updateCustomFoodMetadata(
   userId: string,
   customFoodId: number,
   metadata: CustomFoodMetadataUpdate,
+  log?: Logger,
 ): Promise<void> {
+  const l = log ?? logger;
   const db = getDb();
 
   // Only include fields that are present in the metadata object
@@ -879,6 +950,7 @@ export async function updateCustomFoodMetadata(
 
   // If no fields to update, return early
   if (Object.keys(updateFields).length === 0) {
+    l.debug({ action: "update_custom_food_metadata", customFoodId, userId }, "no fields to update, skipping");
     return;
   }
 
@@ -886,6 +958,8 @@ export async function updateCustomFoodMetadata(
     .update(customFoods)
     .set(updateFields)
     .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
+
+  l.debug({ action: "update_custom_food_metadata", customFoodId, userId }, "custom food metadata updated");
 }
 
 export async function getEarliestEntryDate(

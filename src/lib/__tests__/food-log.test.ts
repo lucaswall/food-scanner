@@ -108,6 +108,7 @@ vi.mock("@/lib/lumen", () => ({
 const {
   insertCustomFood,
   insertFoodLogEntry,
+  insertCustomFoodWithLogEntry,
   getCustomFoodById,
   getCommonFoods,
   getRecentFoods,
@@ -2673,6 +2674,46 @@ describe("updateFoodLogEntry", () => {
     const orphanDeleteWhereArg = mockDeleteWhere.mock.calls[0][0];
     expect(orphanDeleteWhereArg.queryChunks).toHaveLength(3);
   });
+
+  it("uses provided fitbitFoodId instead of old value when present in data", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food has 555
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, fitbitFoodId: 9000 });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fitbitFoodId: 9000, // new value, not 555 from old food
+      })
+    );
+  });
+
+  it("returns updated fitbitLogId when provided in data", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // old fitbitLogId is 789
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    const result = await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, fitbitLogId: 5555 });
+
+    expect(result).toEqual({ fitbitLogId: 5555, newCustomFoodId: 99 }); // 5555, not stale 789
+  });
+
+  it("returns null fitbitLogId when explicitly set to null in data", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // old fitbitLogId is 789
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    const result = await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, fitbitLogId: null });
+
+    expect(result).toEqual({ fitbitLogId: null, newCustomFoodId: 99 }); // null, not stale 789
+  });
 });
 
 describe("updateFoodLogEntryMetadata", () => {
@@ -2843,5 +2884,54 @@ describe("getDailyNutritionSummary", () => {
     const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
 
     expect(result.meals[0].entries[0].isFavorite).toBe(false);
+  });
+});
+
+describe("insertCustomFoodWithLogEntry", () => {
+  const customFoodData = {
+    foodName: "Test Food",
+    amount: 100,
+    unitId: 147,
+    calories: 250,
+    proteinG: 10,
+    carbsG: 20,
+    fatG: 5,
+    fiberG: 3,
+    sodiumMg: 200,
+    confidence: "high" as const,
+    notes: null,
+  };
+
+  const logEntryData = {
+    mealTypeId: 1,
+    amount: 100,
+    unitId: 147,
+    date: "2026-02-05",
+    time: "12:00:00",
+    fitbitLogId: null,
+  };
+
+  it("wraps both inserts in a transaction and returns customFoodId and foodLogId", async () => {
+    const createdAt = new Date("2026-02-05T12:00:00Z");
+    const loggedAt = new Date("2026-02-05T12:01:00Z");
+    mockReturning.mockResolvedValueOnce([{ id: 42, createdAt }]);
+    mockReturning.mockResolvedValueOnce([{ id: 10, loggedAt }]);
+
+    const result = await insertCustomFoodWithLogEntry("user-uuid-123", customFoodData, logEntryData);
+
+    expect(mockTransaction).toHaveBeenCalled();
+    expect(result).toEqual({ customFoodId: 42, foodLogId: 10 });
+  });
+
+  it("rolls back both inserts when log entry insert fails", async () => {
+    const createdAt = new Date("2026-02-05T12:00:00Z");
+    mockReturning.mockResolvedValueOnce([{ id: 42, createdAt }]);
+    mockReturning.mockRejectedValueOnce(new Error("log entry insert failed"));
+
+    await expect(
+      insertCustomFoodWithLogEntry("user-uuid-123", customFoodData, logEntryData),
+    ).rejects.toThrow("log entry insert failed");
+
+    expect(mockTransaction).toHaveBeenCalled();
   });
 });

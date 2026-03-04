@@ -20,6 +20,7 @@ vi.mock("@/lib/logger", () => ({
     error: vi.fn(),
     debug: vi.fn(),
   },
+  startTimer: vi.fn(() => vi.fn(() => 100)),
 }));
 
 // Mock recordUsage
