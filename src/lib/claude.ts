@@ -1341,7 +1341,7 @@ export async function* analyzeFood(
       cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
     }).catch((error) => {
       l.warn(
-        { error: error instanceof Error ? error.message : String(error), userId },
+        { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
         "failed to record API usage"
       );
     });
@@ -1585,7 +1585,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
           cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
         }).catch((error) => {
           l.warn(
-            { error: error instanceof Error ? error.message : String(error), userId },
+            { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
             "failed to record API usage"
           );
         });
@@ -1644,7 +1644,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       }).catch((error) => {
         l.warn(
-          { error: error instanceof Error ? error.message : String(error), userId },
+          { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
           "failed to record API usage"
         );
       });

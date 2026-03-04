@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Created:** 2026-03-04
 **Source:** Backlog: FOO-781, FOO-782, FOO-783, FOO-784, FOO-785, FOO-786, FOO-787
 **Linear Issues:** [FOO-781](https://linear.app/lw-claude/issue/FOO-781/truncateconversation-silently-skips-truncation-for-short-conversations), [FOO-782](https://linear.app/lw-claude/issue/FOO-782/stop-reason-model-context-window-exceeded-not-handled-in-claude-api), [FOO-783](https://linear.app/lw-claude/issue/FOO-783/edit-food-route-casts-to-foodanalysis-with-incomplete-keywords), [FOO-784](https://linear.app/lw-claude/issue/FOO-784/tool-definitions-in-chat-toolsts-and-luments-missing-strict-true), [FOO-785](https://linear.app/lw-claude/issue/FOO-785/orphaned-custom-foods-rows-on-food-log-insert-failure), [FOO-786](https://linear.app/lw-claude/issue/FOO-786/missing-action-field-on-11-log-statements-in-claudets), [FOO-787](https://linear.app/lw-claude/issue/FOO-787/data-tool-result-logged-in-full-risking-log-overflow-on-large-queries)
@@ -503,3 +503,35 @@ Summary: 6 issue(s) found (Team: security, reliability, quality reviewers)
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 1 issue(s) found, fixed inline (single-agent review)
+- FIXED INLINE: 1 issue(s) — verified via tests + bug-hunter
+
+**Issues fixed inline:**
+- [LOW] CONVENTION: Missing action field on 3 recordUsage .catch handlers (`src/lib/claude.ts:1344,1588,1647`) — added `action: "record_usage_failed"` to all 3 locations. FOO-799 fixed 4 of 7 locations; these 3 were missed.
+
+**Discarded findings (not bugs):**
+- None
+
+### Linear Updates
+- FOO-795: Review → Merge (original fix task)
+- FOO-796: Review → Merge (original fix task)
+- FOO-797: Review → Merge (original fix task)
+- FOO-798: Review → Merge (original fix task)
+- FOO-799: Review → Merge (original fix task)
+- FOO-800: Review → Merge (original fix task)
+- FOO-801: Created in Merge (Fix: missing action fields on 3 recordUsage .catch — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2516 pass
+- Bug-hunter: no new issues
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
