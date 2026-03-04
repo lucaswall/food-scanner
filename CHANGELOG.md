@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-03-04
+
+### Fixed
+
+- Editing a food entry no longer silently discards changes to notes, description, or keywords when nutrition values are unchanged
+- Food edits now correctly store the updated Fitbit food ID instead of keeping a stale reference
+- Editing food entries returns the correct Fitbit log ID after re-logging
+- AI analysis now handles content refusal responses gracefully instead of returning empty messages
+- Conversation length overflow now shows a clear error message instead of failing silently
+- Short conversations that exceed token limits now log a warning for diagnostics
+- Food logging now wraps custom food and log entry writes in a single transaction to prevent orphaned records
+- Fitbit compensation logic in food edits now correctly tracks the new log ID after recovery
+- Database update failures during food edits now trigger proper Fitbit compensation instead of leaving inconsistent state
+
 ## [1.17.1] - 2026-03-04
 
 ### Fixed
@@ -340,7 +354,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.2...HEAD
+[1.17.2]: https://github.com/lucaswall/food-scanner/compare/v1.17.1...v1.17.2
 [1.17.1]: https://github.com/lucaswall/food-scanner/compare/v1.17.0...v1.17.1
 [1.17.0]: https://github.com/lucaswall/food-scanner/compare/v1.16.0...v1.17.0
 [1.16.0]: https://github.com/lucaswall/food-scanner/compare/v1.15.3...v1.16.0
