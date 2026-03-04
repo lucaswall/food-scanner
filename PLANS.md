@@ -85,7 +85,7 @@ No breaking changes between 0.75.0 and 0.78.0. Upgrade is safe.
 **Notes:**
 - This must be Task 1 because subsequent tasks depend on the updated types. In particular, `Parameters<Anthropic["messages"]["stream"]>[0]` in Task 2 needs the GA types from the upgraded SDK.
 - The upgrade brings: top-level `WebSearchTool20260209` type (v0.76.0), `UserLocation` type fix (v0.77.0), top-level `cache_control` on `MessageCreateParams` (v0.78.0).
-- The top-level `cache_control` feature is noted but NOT adopted in this plan — it would change caching behavior and needs separate evaluation. We continue using the existing `buildToolsWithCache()` + per-block `cache_control` pattern.
+- The top-level `cache_control` feature (v0.78.0) is not adopted. The current explicit approach (`buildToolsWithCache()` + per-block `cache_control` on system prompt) gives two separate cache breakpoints and is already clean (6 lines). The top-level version auto-marks the last block, producing equivalent behavior but coupling it to SDK internals. Not worth changing.
 
 ### Task 2: Migrate createStreamWithRetry from beta to GA endpoint
 **Linear Issue:** [FOO-802](https://linear.app/lw-claude/issue/FOO-802/migrate-createstreamwithretry-from-beta-to-ga-endpoint)
@@ -183,7 +183,7 @@ No breaking changes between 0.75.0 and 0.78.0. Upgrade is safe.
 **Approach:** Upgrade SDK from 0.75.0 to 0.78.0 (no breaking changes). Remove all beta API traces from `claude.ts` (constant, method call, types, params) and tests (mock structure, assertions, fixtures). Add container ID extraction and forwarding using the SDK's typed `Message.container` and `MessageCreateParams.container` fields. Resolve Sentry issues that are either already fixed or will be fixed by these changes.
 **Scope:** 5 tasks, 3 files modified, ~12 tests
 **Key Decisions:**
-- SDK upgraded to 0.78.0 for latest types and fixes. Top-level `cache_control` feature (v0.78.0) noted but NOT adopted — requires separate evaluation of caching behavior.
+- SDK upgraded to 0.78.0 for latest types and fixes. Top-level `cache_control` feature (v0.78.0) not adopted — current explicit two-breakpoint caching is equivalent and already clean.
 - `model_context_window_exceeded` `as string` cast kept — GA `StopReason` type doesn't include it across all SDK versions through 0.78.0, but it works at runtime. Already handled by previous plan (FOO-782).
 - Container accessed via typed SDK fields (`response.container?.id`) — no runtime casts needed since SDK 0.75.0+ has full `Container` type support.
 - Tasks 2 and 3 should be done by the same worker (shared file edits).
