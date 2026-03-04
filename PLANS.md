@@ -189,3 +189,37 @@ No breaking changes between 0.75.0 and 0.78.0. Upgrade is safe.
 - Tasks 2 and 3 should be done by the same worker (shared file edits).
 **Risks:**
 - GA `Parameters<Anthropic["messages"]["stream"]>[0]` type may not accept the `betas` field — removal (Task 3) must happen in same compilation unit as the type change (Task 2).
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-04
+**Method:** Single-agent (1 independent work unit, effort score 9)
+
+### Tasks Completed This Iteration
+- Task 1: Upgrade SDK — `npm install @anthropic-ai/sdk@0.78.0`, typecheck + tests pass
+- Task 2: Migrate beta→GA — Changed `createStreamWithRetry` from `beta.messages.stream()` to `messages.stream()`, removed `BETA_HEADER`, updated param type to GA, narrowed `streamTextDeltas` return type
+- Task 3: Remove betas — Removed `betas: [BETA_HEADER]` from 3 call sites, updated all test assertions from `toContain` to `not.toHaveProperty("betas")`, removed betas from test fixtures
+- Task 4: Container forwarding — Added `containerId` option to `runToolLoop`, tracks container across iterations, `analyzeFood` and `conversationalRefine` extract and forward container from initial calls
+- Task 5: Resolve Sentry — FOOD-SCANNER-5 and FOOD-SCANNER-3 resolved (fixed by container forwarding), FOOD-SCANNER-6 already resolved
+
+### Files Modified
+- `package.json` — SDK upgrade 0.75.0 → 0.78.0
+- `package-lock.json` — Auto-generated
+- `src/lib/claude.ts` — Removed `BETA_HEADER`, migrated `createStreamWithRetry` to GA, removed `betas` from 3 call sites, narrowed `streamTextDeltas` type, added container forwarding in `runToolLoop`/`analyzeFood`/`conversationalRefine`
+- `src/lib/__tests__/claude.test.ts` — Updated mock from `beta.messages.stream` to `messages.stream`, added `.on()` to mock stream (Sentry instrumentation), updated beta assertions to GA, removed betas from fixtures, added 5 container forwarding tests
+
+### Linear Updates
+- FOO-806: Todo → In Progress → Review
+- FOO-802: Todo → In Progress → Review
+- FOO-803: Todo → In Progress → Review
+- FOO-804: Todo → In Progress → Review
+- FOO-805: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 medium (stray blank lines), fixed before proceeding
+- verifier: All 2521 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

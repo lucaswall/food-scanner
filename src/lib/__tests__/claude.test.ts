@@ -18,6 +18,7 @@ function createMockStream(rawEvents: unknown[], finalMsg: Record<string, unknown
       }
     },
     finalMessage: vi.fn().mockResolvedValue(finalMsg),
+    on: vi.fn().mockReturnThis(),
   };
 }
 
@@ -155,10 +156,8 @@ vi.mock("@anthropic-ai/sdk", () => {
     constructor(options: Record<string, unknown>) {
       mockConstructorArgs(options);
     }
-    beta = {
-      messages: {
-        stream: mockStream,
-      },
+    messages = {
+      stream: mockStream,
     };
   }
 
@@ -773,7 +772,7 @@ describe("analyzeFood", () => {
     expect(content[0]).toEqual({ type: "text", text: "2 medialunas y un cortado" });
   });
 
-  it("includes web_search tool with beta header (code_execution auto-injected by API)", async () => {
+  it("includes web_search tool (GA, no beta header)", async () => {
     mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
 
     const { analyzeFood } = await import("@/lib/claude");
@@ -784,7 +783,7 @@ describe("analyzeFood", () => {
       expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
     expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
-    expect(call.betas).toContain("code-execution-web-tools-2026-02-09");
+    expect(call).not.toHaveProperty("betas");
   });
 
   it("uses max_tokens 1024 for initial call", async () => {
@@ -998,6 +997,33 @@ describe("analyzeFood", () => {
     const analysisEvent = events.find((e) => e.type === "analysis") as { type: "analysis"; analysis: FoodAnalysis } | undefined;
     expect(analysisEvent?.analysis).toEqual(validAnalysis);
     expect(mockStream).toHaveBeenCalledTimes(3);
+  });
+
+  it("forwards container ID from initial response to tool loop", async () => {
+    // Initial response: pause_turn with container (web search triggered code execution)
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "st1", name: "web_search" },
+        ],
+        usage: { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        container: { id: "ctr_xyz", expires_at: "2026-03-05T00:00:00Z" },
+      }
+    ));
+    // Tool loop iteration 1: report_nutrition (tool_use → stores pending, continues)
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    // Tool loop iteration 2: end_turn (uses pending analysis)
+    mockStream.mockReturnValueOnce(makeTextStream("Done."));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await collectEvents(analyzeFood([], "Test food", "user-123", "2026-02-15"));
+
+    // The second call (first runToolLoop iteration) should include container from initial response
+    const toolLoopCall = mockStream.mock.calls[1][0];
+    expect(toolLoopCall.container).toBe("ctr_xyz");
   });
 });
 
@@ -1250,7 +1276,7 @@ describe("runToolLoop", () => {
       expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
     expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
-    expect(call.betas).toContain("code-execution-web-tools-2026-02-09");
+    expect(call).not.toHaveProperty("betas");
   });
 
   it("handles server_tool_use (web search) without calling executeTool", async () => {
@@ -1640,6 +1666,79 @@ describe("runToolLoop", () => {
     expect(errorEvent).toBeDefined();
     expect(errorEvent?.message).toMatch(/too long|conversation/i);
   });
+
+  it("forwards container ID from first response to subsequent iterations", async () => {
+    // First response: tool_use with container
+    mockStream.mockReturnValueOnce(
+      createMockStream(
+        [
+          { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t1", name: "get_nutrition_summary", input: {} } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_stop" },
+        ],
+        {
+          model: "claude-sonnet-4-6",
+          stop_reason: "tool_use",
+          content: [{ type: "tool_use", id: "t1", name: "get_nutrition_summary", input: { date: "2026-02-15" } }],
+          usage: { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          container: { id: "ctr_abc123", expires_at: "2026-03-05T00:00:00Z" },
+        }
+      )
+    );
+    mockExecuteTool.mockResolvedValueOnce("Calories: 1800");
+    // Second response: end_turn
+    mockStream.mockReturnValueOnce(makeTextStream("Done."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    await collectEvents(
+      runToolLoop([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
+    );
+
+    const secondCall = mockStream.mock.calls[1][0];
+    expect(secondCall.container).toBe("ctr_abc123");
+  });
+
+  it("does not include container when response has container: null", async () => {
+    // Response with container: null
+    mockStream.mockReturnValueOnce(
+      createMockStream(
+        [
+          { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t1", name: "get_nutrition_summary", input: {} } },
+          { type: "content_block_stop", index: 0 },
+          { type: "message_stop" },
+        ],
+        {
+          model: "claude-sonnet-4-6",
+          stop_reason: "tool_use",
+          content: [{ type: "tool_use", id: "t1", name: "get_nutrition_summary", input: { date: "2026-02-15" } }],
+          usage: { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          container: null,
+        }
+      )
+    );
+    mockExecuteTool.mockResolvedValueOnce("Calories: 1800");
+    mockStream.mockReturnValueOnce(makeTextStream("Done."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    await collectEvents(
+      runToolLoop([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
+    );
+
+    const secondCall = mockStream.mock.calls[1][0];
+    expect(secondCall).not.toHaveProperty("container");
+  });
+
+  it("accepts initial containerId via options and passes to first call", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("Done."));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    await collectEvents(
+      runToolLoop([{ role: "user", content: "Test" }], "user-123", "2026-02-15", { containerId: "ctr_initial" })
+    );
+
+    const firstCall = mockStream.mock.calls[0][0];
+    expect(firstCall.container).toBe("ctr_initial");
+  });
 });
 
 // =============================================================================
@@ -1962,7 +2061,7 @@ describe("conversationalRefine", () => {
       expect.objectContaining({ type: "web_search_20260209", name: "web_search" })
     );
     expect(call.tools.map((t: { name: string }) => t.name)).not.toContain("code_execution");
-    expect(call.betas).toContain("code-execution-web-tools-2026-02-09");
+    expect(call).not.toHaveProperty("betas");
   });
 
   it("enters tool loop when stop_reason is pause_turn (server-side web search)", async () => {
@@ -2104,6 +2203,34 @@ describe("conversationalRefine", () => {
     expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
     const err = error as { message: string };
     expect(err.message).toMatch(/flagged|safety|cannot/i);
+  });
+
+  it("forwards container ID from initial response to tool loop", async () => {
+    // Initial response: pause_turn with container
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "pause_turn",
+        content: [
+          { type: "server_tool_use", id: "srv_1", name: "web_search" },
+        ],
+        usage: { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        container: { id: "ctr_refine", expires_at: "2026-03-05T00:00:00Z" },
+      }
+    ));
+    // Tool loop iteration 1: report_nutrition (tool_use → stores pending, continues)
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+    // Tool loop iteration 2: end_turn (uses pending analysis)
+    mockStream.mockReturnValueOnce(makeTextStream("Done."));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(
+      conversationalRefine([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
+    );
+
+    const toolLoopCall = mockStream.mock.calls[1][0];
+    expect(toolLoopCall.container).toBe("ctr_refine");
   });
 });
 
@@ -2860,7 +2987,6 @@ describe("isOverloadedError", () => {
 const minimalStreamParams = {
   model: "claude-sonnet-4-6",
   max_tokens: 1024,
-  betas: ["code-execution-web-tools-2026-02-09"],
   system: [{ type: "text" as const, text: "test", cache_control: { type: "ephemeral" as const } }],
   tools: [],
   tool_choice: { type: "auto" as const },

@@ -83,7 +83,6 @@ Web search guidelines:
 - When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
 - If web search returns nothing useful, fall back to estimation from your training data and say so.`;
 
-const BETA_HEADER = "code-execution-web-tools-2026-02-09";
 
 export const WEB_SEARCH_TOOL = {
   type: "web_search_20260209",
@@ -264,7 +263,7 @@ const RETRY_DELAYS_MS = [1000, 3000] as const;
  * These layers don't conflict — SDK retries fire before the stream starts, ours fire after.
  */
 export async function* createStreamWithRetry(
-  streamParams: Parameters<Anthropic["beta"]["messages"]["stream"]>[0],
+  streamParams: Parameters<Anthropic["messages"]["stream"]>[0],
   requestOptions: { signal?: AbortSignal | null } | null | undefined,
   log: Logger,
   maxRetries = 2,
@@ -273,7 +272,7 @@ export async function* createStreamWithRetry(
 
   while (true) {
     try {
-      const stream = getClient().beta.messages.stream(
+      const stream = getClient().messages.stream(
         streamParams,
         requestOptions ?? {},
       );
@@ -709,7 +708,7 @@ export function truncateConversation(
  * Returns the complete final message after the stream is exhausted.
  */
 async function* streamTextDeltas(
-  stream: { [Symbol.asyncIterator](): AsyncIterator<unknown>; finalMessage(): Promise<Anthropic.Message | Anthropic.Beta.Messages.BetaMessage> },
+  stream: { [Symbol.asyncIterator](): AsyncIterator<unknown>; finalMessage(): Promise<Anthropic.Message> },
 ): AsyncGenerator<StreamEvent, Anthropic.Message> {
   for await (const event of stream) {
     const e = event as Record<string, unknown>;
@@ -804,6 +803,7 @@ export async function* runToolLoop(
     signal?: AbortSignal;
     log?: Logger;
     maxTokens?: number;
+    containerId?: string;
   }
 ): AsyncGenerator<StreamEvent> {
   const l = options?.log ?? logger;
@@ -821,6 +821,7 @@ export async function* runToolLoop(
   const MAX_ITERATIONS = 5;
   let iteration = 0;
   let pendingAnalysis: FoodAnalysis | undefined;
+  let containerId: string | undefined = options?.containerId;
 
   try {
     while (iteration < MAX_ITERATIONS) {
@@ -844,7 +845,6 @@ export async function* runToolLoop(
       const response = yield* createStreamWithRetry({
         model: CLAUDE_MODEL,
         max_tokens: maxTokens,
-        betas: [BETA_HEADER],
         system: [
           {
             type: "text" as const,
@@ -855,7 +855,12 @@ export async function* runToolLoop(
         tools: toolsWithCache,
         tool_choice: { type: "auto" },
         messages: conversationMessages,
+        ...(containerId && { container: containerId }),
       }, { signal: options?.signal }, l);
+
+      if (response.container) {
+        containerId = response.container.id;
+      }
 
       l.debug({ action: "tool_loop_api_call", iteration, durationMs: iterElapsed() }, "tool loop API call completed");
       l.debug({ action: "tool_loop_iteration", iteration, ...summarizeResponse(response) }, "tool loop iteration response");
@@ -1161,7 +1166,6 @@ export async function* analyzeFood(
     const response = yield* createStreamWithRetry({
       model: CLAUDE_MODEL,
       max_tokens: 1024,
-      betas: [BETA_HEADER],
       system: [
         {
           type: "text" as const,
@@ -1304,6 +1308,7 @@ export async function* analyzeFood(
         operation: "food-analysis",
         signal,
         log: l,
+        containerId: response.container?.id,
       });
 
       for await (const event of toolLoop) {
@@ -1504,7 +1509,6 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     const response = yield* createStreamWithRetry({
       model: CLAUDE_MODEL,
       max_tokens: 2048,
-      betas: [BETA_HEADER],
       system: [
         {
           type: "text" as const,
@@ -1608,6 +1612,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         operation: "food-chat",
         signal,
         log: l,
+        containerId: response.container?.id,
       });
 
       l.info({ action: "conversational_refine_done_via_tool_loop", durationMs: elapsed() }, "conversational refinement completed via tool loop");
