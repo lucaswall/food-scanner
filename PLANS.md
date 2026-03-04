@@ -117,7 +117,63 @@
 - Our custom retry (2 retries with 1s + 3s delays) handles SSE overloaded errors that happen mid-stream. These are a different error path — the HTTP connection succeeded but the SSE event stream contains an error.
 - The two retry layers don't conflict: SDK retries fire before the stream starts (HTTP level), our retries fire after the stream starts (SSE level).
 
-### Task 5: Full verification
+### Task 5: Add Sentry instrumentation to Lumen client
+**Files:**
+- `src/lib/lumen.ts` (modify)
+
+**Steps:**
+1. In `src/lib/lumen.ts:14-23`, wrap the Anthropic client with `Sentry.instrumentAnthropicAiClient()` — matching the pattern in `claude.ts:24`. Add the `import * as Sentry from "@sentry/nextjs"` import.
+2. Run verifier with pattern `lumen` (expect pass — no behavior change, just instrumentation)
+
+**Notes:**
+- Currently the Lumen client (`lumen.ts:16`) creates a bare Anthropic client without Sentry instrumentation. This means Lumen API calls don't appear in Sentry's AI monitoring (traces, token usage, latency). The main client in `claude.ts:24` is already instrumented.
+- Non-streaming call, so no custom retry needed — SDK `maxRetries: 2` handles HTTP-level retries.
+
+### Task 6: Fix double Sentry reporting in Lumen catch block
+**Files:**
+- `src/lib/lumen.ts` (modify)
+- `src/lib/__tests__/lumen.test.ts` (modify)
+
+**Steps:**
+1. Write test in `src/lib/__tests__/lumen.test.ts`:
+   - Test: when a non-LumenParseError is thrown by the API call (e.g., generic Error), verify `l.warn` is called (not `l.error`) and `LumenParseError` is still thrown
+   - Follow existing test patterns that use `makeTestLogger()` or equivalent
+2. Run verifier with pattern `lumen` (expect fail — test expects `l.warn` but code uses `l.error`)
+3. In `src/lib/lumen.ts:180`, change `l.error(` to `l.warn(` — keep the same log message and payload
+4. Run verifier with pattern `lumen` (expect pass)
+
+**Notes:**
+- Same double-reporting pattern as `claude.ts` (Task 3). The catch at `lumen.ts:180` calls `l.error()` (Sentry event #1), then throws `LumenParseError` which the route handler at `lumen-goals/route.ts:167` catches and calls `log.error()` again (Sentry event #2).
+- Downgrading to `l.warn` preserves diagnostics without double Sentry events.
+
+### Task 7: Include request ID in Claude API error context
+**Files:**
+- `src/lib/claude.ts` (modify)
+
+**Steps:**
+1. In `src/lib/claude.ts:203-208`, extend `ClaudeApiError` to accept an optional `requestId` property:
+   ```typescript
+   class ClaudeApiError extends Error {
+     requestId?: string;
+     constructor(message: string, requestId?: string) {
+       super(message);
+       this.name = "CLAUDE_API_ERROR";
+       this.requestId = requestId;
+     }
+   }
+   ```
+2. In the catch blocks that create `ClaudeApiError` (lines ~1058, ~1321, and `createStreamWithRetry` line ~266), extract `request_id` from the original error if available:
+   - For `Anthropic.APIError`: check `(error as Anthropic.APIError).request_id`
+   - For SSE errors: check `error.error?.request_id`
+   - Pass it to `new ClaudeApiError(message, requestId)`
+3. In `src/lib/sse.ts` where the final `logger.error()` captures the error for Sentry, the `requestId` will be included automatically as part of the error object. No changes needed there.
+4. Run verifier (no args) — all tests + lint + build
+
+**Notes:**
+- Anthropic returns `request_id` on both successful responses (`message._request_id`) and errors (`error.request_id`). Including this in Sentry error context enables correlation with Anthropic support for debugging specific failures.
+- This is additive — existing error behavior is unchanged.
+
+### Task 8: Full verification
 **Steps:**
 1. Run `verifier` (no args) — all tests + lint + build
 2. Verify zero warnings
@@ -130,9 +186,45 @@
 
 ## Plan Summary
 
-**Objective:** Fix all 6 actionable Sentry errors (23 events in last 7 days) — SSE overloaded errors bypassing retry, missing notes validation, double Sentry reporting, and disabled SDK retries causing unretried timeouts.
+**Objective:** Fix all 6 actionable Sentry errors (23 events in last 7 days) — SSE overloaded errors bypassing retry, missing notes validation, double Sentry reporting, and disabled SDK retries causing unretried timeouts. Plus harden Lumen client and add request ID tracking for better Anthropic support correlation.
 **Linear Issues:** FOO-772, FOO-773, FOO-774, FOO-775
-**Approach:** Task 1 adds a third check in `isOverloadedError` for the nested SSE error structure. Task 2 defaults `notes` to `""` like `description`. Task 3 downgrades `l.error` to `l.warn` in catch blocks. Task 4 removes `maxRetries: 0` override to re-enable SDK retries for timeouts/HTTP 529 and increases timeout from 60s to 120s. All commits include `Fixes FOOD-SCANNER-N` references for auto-closure.
-**Scope:** 5 tasks, 2 files, ~10 new tests
+**Approach:** Task 1 adds a third check in `isOverloadedError` for the nested SSE error structure. Task 2 defaults `notes` to `""` like `description`. Task 3 downgrades `l.error` to `l.warn` in claude.ts catch blocks. Task 4 removes `maxRetries: 0` override to re-enable SDK retries for timeouts/HTTP 529 and increases timeout from 60s to 120s. Task 5 adds Sentry instrumentation to the Lumen client. Task 6 fixes the same double-reporting pattern in lumen.ts. Task 7 propagates Anthropic request IDs into ClaudeApiError for Sentry correlation.
+**Scope:** 8 tasks, 4 files, ~12 new tests
 **Key Decisions:** Two-layer retry architecture — SDK handles HTTP-level failures (timeout, 529 status), our custom retry handles SSE-level overloaded errors mid-stream. No conflict between layers.
 **Risks:** None — all changes are defensive improvements with full backward compatibility.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-04
+**Method:** Single-agent (effort score 10, 2 independent units — below worker threshold)
+
+### Tasks Completed This Iteration
+- Task 1: Fix isOverloadedError to match SSE streaming error format — Added Check 3 for nested SSE structure `error.error.error.type`, 3 new tests (FOO-772)
+- Task 2: Default notes to empty string in validateFoodAnalysis — Replaced throw with default, matching description pattern, 3 new tests (FOO-773)
+- Task 3: Fix double Sentry reporting in catch blocks — Downgraded `l.error` to `l.warn` in runToolLoop and analyzeFood catch blocks, 2 new tests (FOO-774). Also fixed conversationalRefine and editAnalysis catch blocks (same pattern).
+- Task 4: Re-enable SDK retries and set sensible timeout — Removed `maxRetries: 0` override, changed timeout 60s→120s, updated JSDoc, 2 tests updated (FOO-775)
+- Task 5: Add Sentry instrumentation to Lumen client — Wrapped Anthropic client with `Sentry.instrumentAnthropicAiClient()`
+- Task 6: Fix double Sentry reporting in Lumen catch block — Downgraded `l.error` to `l.warn`, 1 new test
+- Task 7: Include request ID in Claude API error context — Extended ClaudeApiError with optional requestId, added extractRequestId helper, propagated to all 5 throw sites
+- Task 8: Full verification — All 2498 tests pass, zero lint warnings, build succeeds
+
+### Files Modified
+- `src/lib/claude.ts` — isOverloadedError Check 3, notes default, l.error→l.warn in 4 catch blocks, removed maxRetries:0, timeout 60s→120s, ClaudeApiError requestId, extractRequestId helper, updated JSDoc
+- `src/lib/lumen.ts` — Added Sentry import + instrumentation, l.error→l.warn in catch block
+- `src/lib/__tests__/claude.test.ts` — 10 new/updated tests for Tasks 1-4, 7
+- `src/lib/__tests__/lumen.test.ts` — 1 new test for Task 6
+
+### Linear Updates
+- FOO-772: Todo → In Progress → Review
+- FOO-773: Todo → In Progress → Review
+- FOO-774: Todo → In Progress → Review
+- FOO-775: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — 0 bugs found
+- verifier: All 2498 tests pass, zero warnings, build succeeds
+
+### Continuation Status
+All tasks completed.

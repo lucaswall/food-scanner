@@ -267,6 +267,23 @@ describe("parseLumenScreenshot", () => {
     expect(mockRecordUsage).not.toHaveBeenCalled();
   });
 
+  it("logs l.warn (not l.error) for non-LumenParseError and throws LumenParseError", async () => {
+    mockCreate.mockRejectedValueOnce(new Error("Connection refused"));
+
+    const { parseLumenScreenshot } = await import("@/lib/lumen");
+    const { logger } = await import("@/lib/logger");
+
+    await expect(
+      parseLumenScreenshot({ base64: "abc123", mimeType: "image/jpeg" }, "user-123")
+    ).rejects.toMatchObject({ name: "LUMEN_PARSE_ERROR" });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ error: "Connection refused" }),
+      "Lumen parsing API error"
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
   it("throws LUMEN_PARSE_ERROR when no tool_use content block", async () => {
     mockCreate.mockResolvedValueOnce({
       content: [
