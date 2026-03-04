@@ -186,11 +186,25 @@ export async function POST(request: Request) {
         const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
         log.error({ action: "edit_food_fast_path_relog_failed", error: errMsg }, "fast path re-log failed, attempting compensation");
 
-        // Compensation: re-log with same fitbitFoodId
+        // Compensation: re-log with same fitbitFoodId, capture new logId, update DB
         if (entry.fitbitLogId) {
           try {
             const freshToken = await ensureFreshToken(session!.userId, log);
-            await logFood(freshToken, entry.fitbitFoodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
+            const compensationResult = await logFood(freshToken, entry.fitbitFoodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
+            const compensationLogId = compensationResult.foodLog.logId;
+            try {
+              await updateFoodLogEntryMetadata(session!.userId, entryId, {
+                mealTypeId: entry.mealTypeId,
+                date: entry.date,
+                time: entry.time ?? time,
+                fitbitLogId: compensationLogId,
+              }, log);
+            } catch (dbUpdateErr) {
+              log.error(
+                { action: "edit_food_fast_path_compensation_db_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
+                "failed to update fitbitLogId after fast path compensation"
+              );
+            }
             log.info({ action: "edit_food_fast_path_compensation_success" }, "fast path compensation succeeded");
           } catch (compensationErr) {
             log.error(
@@ -204,36 +218,72 @@ export async function POST(request: Request) {
       }
     }
 
-    await updateFoodLogEntryMetadata(session!.userId, entryId, { mealTypeId, date, time, fitbitLogId: fastPathFitbitLogId }, log);
+    try {
+      await updateFoodLogEntryMetadata(session!.userId, entryId, { mealTypeId, date, time, fitbitLogId: fastPathFitbitLogId }, log);
 
-    // Update custom_foods metadata if it changed
-    const metadataChanged =
-      analysis.notes !== (entry.notes ?? "") ||
-      analysis.description !== (entry.description ?? "") ||
-      analysis.confidence !== entry.confidence ||
-      JSON.stringify(analysis.keywords) !== JSON.stringify(entry.keywords);
+      // Update custom_foods metadata if it changed
+      const metadataChanged =
+        analysis.notes !== (entry.notes ?? "") ||
+        analysis.description !== (entry.description ?? "") ||
+        analysis.confidence !== entry.confidence ||
+        JSON.stringify(analysis.keywords) !== JSON.stringify(entry.keywords);
 
-    if (metadataChanged) {
-      await updateCustomFoodMetadata(session!.userId, entry.customFoodId, {
-        notes: analysis.notes,
-        description: analysis.description,
-        keywords: analysis.keywords,
-        confidence: analysis.confidence,
-      }, log);
+      if (metadataChanged) {
+        await updateCustomFoodMetadata(session!.userId, entry.customFoodId, {
+          notes: analysis.notes,
+          description: analysis.description,
+          keywords: analysis.keywords,
+          confidence: analysis.confidence,
+        }, log);
+      }
+
+      log.info(
+        { action: "edit_food_fast_path_success", entryId, dryRun: isDryRun || undefined },
+        isDryRun ? "food edit metadata saved in dry-run mode (fast path)" : "food edit metadata saved via fast path"
+      );
+
+      return successResponse({
+        fitbitFoodId: entry.fitbitFoodId ?? undefined,
+        fitbitLogId: fastPathFitbitLogId ?? undefined,
+        foodLogId: entryId,
+        reusedFood: true,
+        ...(isDryRun && { dryRun: true }),
+      });
+    } catch (dbErr) {
+      const errMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      log.error({ action: "edit_food_fast_path_db_error", error: errMsg }, "fast path DB update failed after Fitbit success, attempting compensation");
+
+      // Compensation: delete new Fitbit log and re-log original
+      if (!isDryRun && entry.fitbitFoodId !== null && fastPathFitbitLogId !== null) {
+        try {
+          const freshToken = await ensureFreshToken(session!.userId, log);
+          await deleteFoodLog(freshToken, fastPathFitbitLogId, log);
+          const compensationResult = await logFood(freshToken, entry.fitbitFoodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
+          const compensationLogId = compensationResult.foodLog.logId;
+          try {
+            await updateFoodLogEntryMetadata(session!.userId, entryId, {
+              mealTypeId: entry.mealTypeId,
+              date: entry.date,
+              time: entry.time ?? time,
+              fitbitLogId: compensationLogId,
+            }, log);
+          } catch (dbUpdateErr) {
+            log.error(
+              { action: "edit_food_fast_path_db_compensation_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
+              "failed to update fitbitLogId after fast path DB compensation"
+            );
+          }
+          log.info({ action: "edit_food_fast_path_db_compensation_success" }, "fast path DB compensation succeeded");
+        } catch (compensationErr) {
+          log.error(
+            { action: "edit_food_fast_path_db_compensation_failed", error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },
+            "CRITICAL: fast path Fitbit compensation failed after DB error"
+          );
+        }
+      }
+
+      return errorResponse("INTERNAL_ERROR", "Failed to save food edit", 500);
     }
-
-    log.info(
-      { action: "edit_food_fast_path_success", entryId, dryRun: isDryRun || undefined },
-      isDryRun ? "food edit metadata saved in dry-run mode (fast path)" : "food edit metadata saved via fast path"
-    );
-
-    return successResponse({
-      fitbitFoodId: entry.fitbitFoodId ?? undefined,
-      fitbitLogId: fastPathFitbitLogId ?? undefined,
-      foodLogId: entryId,
-      reusedFood: true,
-      ...(isDryRun && { dryRun: true }),
-    });
   }
 
   let newFitbitLogId: number | undefined;
@@ -296,7 +346,21 @@ export async function POST(request: Request) {
             description: entry.description ?? "",
             keywords: entry.keywords,
           }, log);
-          await logFood(freshToken, origCreate.foodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
+          const compensationLogResult = await logFood(freshToken, origCreate.foodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
+          const compensationLogId = compensationLogResult.foodLog.logId;
+          try {
+            await updateFoodLogEntryMetadata(session!.userId, entryId, {
+              mealTypeId: entry.mealTypeId,
+              date: entry.date,
+              time: entry.time ?? time,
+              fitbitLogId: compensationLogId,
+            }, log);
+          } catch (dbUpdateErr) {
+            log.error(
+              { action: "edit_food_compensation_db_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
+              "failed to update fitbitLogId after regular path compensation"
+            );
+          }
           log.info({ action: "edit_food_compensation_success" }, "original Fitbit log restored");
         } catch (compensationErr) {
           log.error(
