@@ -884,7 +884,7 @@ export async function* runToolLoop(
           cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
         }).catch((error) => {
           l.warn(
-            { error: error instanceof Error ? error.message : String(error), userId },
+            { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
             "failed to record API usage"
           );
         });
@@ -1211,7 +1211,7 @@ export async function* analyzeFood(
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       }).catch((error) => {
         l.warn(
-          { error: error instanceof Error ? error.message : String(error), userId },
+          { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
           "failed to record API usage"
         );
       });
@@ -1280,7 +1280,7 @@ export async function* analyzeFood(
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       }).catch((error) => {
         l.warn(
-          { error: error instanceof Error ? error.message : String(error), userId },
+          { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
           "failed to record API usage"
         );
       });
@@ -1614,7 +1614,7 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       return;
     } else if (dataToolUseBlocks.length > 0) {
       l.warn(
-        { toolNames: dataToolUseBlocks.map((b) => b.name) },
+        { action: "refine_food_tool_calls_skipped", toolNames: dataToolUseBlocks.map((b) => b.name) },
         "data tool calls skipped: userId or currentDate missing from conversationalRefine"
       );
     }

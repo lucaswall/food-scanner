@@ -2083,6 +2083,28 @@ describe("conversationalRefine", () => {
     expect(analysisEvent?.analysis).toEqual(validAnalysis);
     expect(mockStream).toHaveBeenCalledTimes(3);
   });
+
+  // Fix 3 (FOO-797): refusal stop_reason in conversationalRefine
+  it("throws CLAUDE_API_ERROR when response is refusal (FOO-797)", async () => {
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "refusal",
+        content: [],
+        usage: { input_tokens: 100, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    const { error } = await collectEventsExpectThrow(
+      conversationalRefine([{ role: "user", content: "something inappropriate" }], "user-123", "2026-02-15")
+    );
+
+    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
+    const err = error as { message: string };
+    expect(err.message).toMatch(/flagged|safety|cannot/i);
+  });
 });
 
 // =============================================================================
