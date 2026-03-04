@@ -5,3 +5,4 @@ Log potential production data migrations here during development. These notes ar
 **Format:** Describe what changed and what data is affected. Simple reference SQL is fine; do not write full migration scripts — those are built at release time.
 
 <!-- Add entries below this line -->
+
