@@ -1,9 +1,9 @@
 # Implementation Plan
 
 **Created:** 2026-03-04
-**Source:** Inline request: Migrate Claude API from beta to GA, fix container forwarding, close Sentry issues, full beta cleanup
-**Linear Issues:** [FOO-802](https://linear.app/lw-claude/issue/FOO-802/migrate-createstreamwithretry-from-beta-to-ga-endpoint), [FOO-803](https://linear.app/lw-claude/issue/FOO-803/remove-betas-parameter-from-all-api-call-sites), [FOO-804](https://linear.app/lw-claude/issue/FOO-804/add-container-forwarding-in-tool-loop-and-entry-points), [FOO-805](https://linear.app/lw-claude/issue/FOO-805/resolve-sentry-issues-food-scanner-5-6-3)
-**Sentry Issues:** [FOOD-SCANNER-5](https://lucas-wall.sentry.io/issues/FOOD-SCANNER-5) (container_id, 22 events), [FOOD-SCANNER-6](https://lucas-wall.sentry.io/issues/FOOD-SCANNER-6) (union type limit, 9 events)
+**Source:** Inline request: Migrate Claude API from beta to GA, upgrade SDK, fix container forwarding, close Sentry issues, full beta cleanup
+**Linear Issues:** [FOO-802](https://linear.app/lw-claude/issue/FOO-802/migrate-createstreamwithretry-from-beta-to-ga-endpoint), [FOO-803](https://linear.app/lw-claude/issue/FOO-803/remove-betas-parameter-from-all-api-call-sites), [FOO-804](https://linear.app/lw-claude/issue/FOO-804/add-container-forwarding-in-tool-loop-and-entry-points), [FOO-805](https://linear.app/lw-claude/issue/FOO-805/resolve-sentry-issues-food-scanner-5-6-3), [FOO-806](https://linear.app/lw-claude/issue/FOO-806/upgrade-anthropic-aisdk-from-0750-to-0780)
+**Sentry Issues:** [FOOD-SCANNER-5](https://lucas-wall.sentry.io/issues/FOOD-SCANNER-5) (container_id, 22 events), [FOOD-SCANNER-6](https://lucas-wall.sentry.io/issues/FOOD-SCANNER-6) (union type limit, 9 events, resolved)
 **Branch:** refactor/beta-to-ga-migration
 
 ## Context Gathered
@@ -28,12 +28,31 @@
   - `mockStream` function returns objects with `[Symbol.asyncIterator]` and `finalMessage()`
   - Tests assert on `mockStream.mock.calls[0][0]` to verify API call parameters
 
+### SDK Version Analysis (0.75.0 → 0.78.0)
+
+Checked release notes and diffed type definitions for all versions between current (0.75.0) and latest (0.78.0):
+
+| Version | Key Changes | Impact on This Project |
+|---------|-------------|----------------------|
+| **0.76.0** | `WebSearchTool20260209`, `WebFetchTool20260209`, `CodeExecutionTool20260120` promoted from nested namespaces (`ToolUnion.WebSearchTool20260209`) to top-level exports | Cleaner type imports if we ever type `WEB_SEARCH_TOOL` explicitly. No code change required — our `as const` definition works. |
+| **0.77.0** | `UserLocation` exported as top-level type; backward-compat namespace re-exports added | No impact — we don't use `UserLocation`. |
+| **0.78.0** | Top-level `cache_control?: CacheControlEphemeral` on `MessageCreateParams` — auto-applies cache marker to last system/tool block | **Potential simplification.** We currently add `cache_control: { type: "ephemeral" }` manually to system blocks and use `buildToolsWithCache()` to add it to the last tool. Top-level `cache_control` could replace both patterns with a single top-level param. **Evaluate during implementation** — verify it produces the same caching behavior. |
+
+**Critical discovery:** `Container` type is already fully typed in SDK 0.75.0:
+- `Message.container: Container | null` (with `Container = { id: string; expires_at: string }`)
+- `MessageCreateParams.container?: string | null`
+- No runtime casts needed for container forwarding — use typed access directly.
+
+**StopReason unchanged** across all versions: `'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | 'pause_turn' | 'refusal'`. The `model_context_window_exceeded` `as string` cast remains necessary.
+
+No breaking changes between 0.75.0 and 0.78.0. Upgrade is safe.
+
 ### MCP Context
 
 - **MCPs used:** Sentry (issue investigation), Linear (issue management)
 - **Sentry findings:**
   - FOOD-SCANNER-5 (container_id error): 22 events, ignored, **still active** (last seen 22 min ago). Root cause: API returns `container` in response when code execution is used (auto-injected by web search dynamic filtering), but the code never extracts or forwards it in subsequent requests.
-  - FOOD-SCANNER-6 (union type limit): 9 events, unresolved. Root cause: `strict: true` was temporarily re-added to data tools by FOO-784, then reverted by commit `37281ed`. Recent events are from staging before revert deployed. Already fixed in code — needs to be resolved in Sentry.
+  - FOOD-SCANNER-6 (union type limit): 9 events, **resolved** (fix already deployed, Sentry resolved during planning). Root cause: `strict: true` was temporarily re-added to data tools by FOO-784, then reverted by commit `37281ed`.
   - FOOD-SCANNER-3 (tool loop error): 3 events, ignored. Related to container_id — will be fixed by container forwarding.
   - FOOD-SCANNER-7 (Claude API error): 6 events, ignored. Generic error wrapper, already handled.
   - FOOD-SCANNER-8 (missing notes): 3 events, resolved. Already resolved.
@@ -46,12 +65,29 @@
   - All features used by food-scanner (web search, `pause_turn`, `server_tool_use`, `web_search_tool_result`) are in GA `ContentBlock` union
   - `model_context_window_exceeded` stop reason works at runtime on GA endpoint (Sonnet 4.5+), even though SDK `StopReason` type doesn't include it — existing `as string` cast is correct
   - GA `client.messages.stream()` returns `Anthropic.Message` (not `BetaMessage`) — fixes the type mismatch
-  - `container` field: response includes `container: { id: "..." }` when code execution is used; subsequent requests must pass `container: containerId`
+  - `container` field: response includes `container: { id: "...", expires_at: "..." }` when code execution is used; subsequent requests must pass `container: containerId`
 - **Linear findings:** Todo queue is empty. No conflicts with existing planned work.
 
 ## Tasks
 
-### Task 1: Migrate createStreamWithRetry from beta to GA endpoint
+### Task 1: Upgrade @anthropic-ai/sdk from 0.75.0 to 0.78.0
+**Linear Issue:** [FOO-806](https://linear.app/lw-claude/issue/FOO-806/upgrade-anthropic-aisdk-from-0750-to-0780)
+**Files:**
+- `package.json` (modify)
+- `package-lock.json` (auto-generated)
+
+**Steps:**
+1. Run `npm install @anthropic-ai/sdk@0.78.0` to upgrade.
+2. Run `npm run typecheck` — expect pass (no breaking changes between versions).
+3. Run `npx vitest run "claude.test"` — expect pass (SDK upgrade doesn't change runtime behavior).
+4. Run `npm run build` — expect pass with zero warnings.
+
+**Notes:**
+- This must be Task 1 because subsequent tasks depend on the updated types. In particular, `Parameters<Anthropic["messages"]["stream"]>[0]` in Task 2 needs the GA types from the upgraded SDK.
+- The upgrade brings: top-level `WebSearchTool20260209` type (v0.76.0), `UserLocation` type fix (v0.77.0), top-level `cache_control` on `MessageCreateParams` (v0.78.0).
+- The top-level `cache_control` feature is noted but NOT adopted in this plan — it would change caching behavior and needs separate evaluation. We continue using the existing `buildToolsWithCache()` + per-block `cache_control` pattern.
+
+### Task 2: Migrate createStreamWithRetry from beta to GA endpoint
 **Linear Issue:** [FOO-802](https://linear.app/lw-claude/issue/FOO-802/migrate-createstreamwithretry-from-beta-to-ga-endpoint)
 **Files:**
 - `src/lib/__tests__/claude.test.ts` (modify)
@@ -74,14 +110,14 @@
 - The mock structure change in step 4 will cause all existing tests to route through the GA mock — no per-test changes needed for the mock wiring.
 - `WEB_SEARCH_TOOL` definition (lines 88-91) stays unchanged — it's already a GA tool type.
 
-### Task 2: Remove betas parameter from all API call sites
+### Task 3: Remove betas parameter from all API call sites
 **Linear Issue:** [FOO-803](https://linear.app/lw-claude/issue/FOO-803/remove-betas-parameter-from-all-api-call-sites)
 **Files:**
 - `src/lib/__tests__/claude.test.ts` (modify)
 - `src/lib/claude.ts` (modify)
 
 **Steps:**
-1. Write tests in `src/lib/__tests__/claude.test.ts`: for `analyzeFood`, `runToolLoop`, and `conversationalRefine`, assert that the stream call parameters do NOT contain a `betas` field. Update the existing "includes web_search tool with beta header" test (line 776) — rename to "includes web_search tool without beta header" and change assertion from `expect(call.betas).toContain(...)` to `expect(call.betas).toBeUndefined()` or `expect(call).not.toHaveProperty("betas")`.
+1. Write tests in `src/lib/__tests__/claude.test.ts`: for `analyzeFood`, `runToolLoop`, and `conversationalRefine`, assert that the stream call parameters do NOT contain a `betas` field. Update the existing "includes web_search tool with beta header" test (line 776) — rename to "includes web_search tool (GA, no beta header)" and change assertion from `expect(call.betas).toContain(...)` to `expect(call).not.toHaveProperty("betas")`.
 2. Run `npx vitest run "claude.test"` — expect fail (3 call sites still pass `betas`).
 3. In `src/lib/claude.ts`, remove `betas: [BETA_HEADER]` from:
    - `runToolLoop` stream params (line 847)
@@ -93,10 +129,10 @@
 5. Run `npx vitest run "claude.test"` — expect pass.
 
 **Notes:**
-- Task 1 deletes `BETA_HEADER` constant, so removing references to it in Task 2 is required for compilation.
-- Tasks 1 and 2 must be done by the same worker or in sequence — they share file edits in both `claude.ts` and `claude.test.ts`.
+- Task 2 deletes `BETA_HEADER` constant, so removing references to it in Task 3 is required for compilation.
+- Tasks 2 and 3 must be done by the same worker or in sequence — they share file edits in both `claude.ts` and `claude.test.ts`.
 
-### Task 3: Add container forwarding in tool loop and entry points
+### Task 4: Add container forwarding in tool loop and entry points
 **Linear Issue:** [FOO-804](https://linear.app/lw-claude/issue/FOO-804/add-container-forwarding-in-tool-loop-and-entry-points)
 **Files:**
 - `src/lib/__tests__/claude.test.ts` (modify)
@@ -104,34 +140,34 @@
 
 **Steps:**
 1. Write tests in `src/lib/__tests__/claude.test.ts`:
-   - Test for `runToolLoop`: mock a multi-iteration tool loop where the first response includes `container: { id: "ctr_abc123" }`. Assert that the second `createStreamWithRetry` call includes `container: "ctr_abc123"` in its params.
-   - Test for `analyzeFood`: mock initial response with `container: { id: "ctr_xyz" }` and `stop_reason: "pause_turn"` (triggering tool loop). Assert the tool loop call includes `container: "ctr_xyz"`.
+   - Test for `runToolLoop`: mock a multi-iteration tool loop where the first response includes `container: { id: "ctr_abc123", expires_at: "2026-03-05T00:00:00Z" }`. Assert that the second `createStreamWithRetry` call includes `container: "ctr_abc123"` in its params.
+   - Test for `analyzeFood`: mock initial response with `container: { id: "ctr_xyz", expires_at: "..." }` and `stop_reason: "pause_turn"` (triggering tool loop). Assert the tool loop call includes `container: "ctr_xyz"`.
    - Test for `conversationalRefine`: same pattern as `analyzeFood`.
-   - Test: when response does NOT include `container`, subsequent calls should NOT include `container` param.
+   - Test: when response has `container: null`, subsequent calls should NOT include `container` param.
 2. Run `npx vitest run "claude.test"` — expect fail.
 3. In `src/lib/claude.ts`:
-   - In `runToolLoop` (around line 820): add `let containerId: string | undefined;` to the loop state variables. After each `createStreamWithRetry` call (line 844), extract container: `if ((response as Record<string, unknown>).container) { containerId = ((response as Record<string, unknown>).container as { id: string }).id; }`. In the stream params object, add `...(containerId && { container: containerId })`.
-   - In `analyzeFood` (around line 1161): after the initial `createStreamWithRetry` call, extract `containerId` from response using the same pattern. Pass it to `runToolLoop` — add an optional `containerId` parameter to `runToolLoop`'s signature and include it in the first iteration's stream params.
+   - In `runToolLoop` (around line 820): add `let containerId: string | undefined;` to the loop state variables. After each `createStreamWithRetry` call (line 844), extract container: `if (response.container) { containerId = response.container.id; }`. In the stream params object, add `...(containerId && { container: containerId })`.
+   - In `analyzeFood` (around line 1161): after the initial `createStreamWithRetry` call, extract `containerId` from `response.container?.id`. Pass it to `runToolLoop` — add an optional `containerId` parameter to `runToolLoop`'s signature and include it in the first iteration's stream params.
    - In `conversationalRefine` (around line 1504): same pattern as `analyzeFood`.
 4. Run `npx vitest run "claude.test"` — expect pass.
 
 **Notes:**
-- The `container` field is at the top level of the `Message` response, but the SDK's `Anthropic.Message` type may not include it yet (SDK 0.75.0). Use `as Record<string, unknown>` cast to access it safely. This is the same pattern used elsewhere in the codebase for accessing runtime-available fields not yet in SDK types (e.g., `model_context_window_exceeded`).
+- `Container` is fully typed in SDK 0.75.0+ — `Message.container: Container | null` and `MessageCreateParams.container?: string | null`. No runtime casts needed — use `response.container?.id` directly.
 - Container forwarding fixes FOOD-SCANNER-5 (22 events) and FOOD-SCANNER-3 (3 events).
 - The `containerId` must persist across iterations within `runToolLoop` — a single `let` variable in the loop scope handles this.
 
-### Task 4: Resolve Sentry issues
+### Task 5: Resolve Sentry issues
 **Linear Issue:** [FOO-805](https://linear.app/lw-claude/issue/FOO-805/resolve-sentry-issues-food-scanner-5-6-3)
 **Files:** None (Sentry MCP operations only)
 
 **Steps:**
-1. Resolve FOOD-SCANNER-6 (union type limit) — already fixed in code (strict mode removed), staging events are stale.
-2. Resolve FOOD-SCANNER-5 (container_id) — will be fixed by Task 3 container forwarding. Resolve after code ships.
-3. Resolve FOOD-SCANNER-3 (tool loop error) — related to container_id, will be fixed by Task 3.
+1. FOOD-SCANNER-6 (union type limit) — **already resolved** during planning.
+2. Resolve FOOD-SCANNER-5 (container_id) — will be fixed by Task 4 container forwarding. Resolve after code ships.
+3. Resolve FOOD-SCANNER-3 (tool loop error) — related to container_id, will be fixed by Task 4.
 4. No action on FOOD-SCANNER-7, 8, 9, 4, 2, 1 — already resolved/ignored, transient errors.
 
 **Notes:**
-- FOOD-SCANNER-6 can be resolved immediately since the fix is already deployed. FOOD-SCANNER-5 and FOOD-SCANNER-3 should be resolved after the container forwarding code ships.
+- FOOD-SCANNER-5 and FOOD-SCANNER-3 should be resolved after the container forwarding code ships.
 - This task has no test steps — it's Sentry state management only.
 
 ## Post-Implementation Checklist
@@ -142,15 +178,14 @@
 
 ## Plan Summary
 
-**Objective:** Migrate Claude API integration from beta to GA endpoint, add container forwarding to fix active production errors, and resolve all Sentry issues.
-**Linear Issues:** FOO-802, FOO-803, FOO-804, FOO-805
-**Approach:** Remove all beta API traces from `claude.ts` (constant, method call, types, params) and tests (mock structure, assertions, fixtures). Add container ID extraction and forwarding in the tool loop and both entry points (`analyzeFood`, `conversationalRefine`). Resolve Sentry issues that are either already fixed or will be fixed by these changes.
-**Scope:** 4 tasks, 2 files modified, ~12 tests
+**Objective:** Upgrade Anthropic SDK, migrate Claude API from beta to GA endpoint, add container forwarding to fix active production errors, and resolve all Sentry issues.
+**Linear Issues:** FOO-802, FOO-803, FOO-804, FOO-805, FOO-806
+**Approach:** Upgrade SDK from 0.75.0 to 0.78.0 (no breaking changes). Remove all beta API traces from `claude.ts` (constant, method call, types, params) and tests (mock structure, assertions, fixtures). Add container ID extraction and forwarding using the SDK's typed `Message.container` and `MessageCreateParams.container` fields. Resolve Sentry issues that are either already fixed or will be fixed by these changes.
+**Scope:** 5 tasks, 3 files modified, ~12 tests
 **Key Decisions:**
-- SDK upgrade (0.75.0 → latest) deferred — not required for beta→GA migration, and avoids coupling unrelated changes.
-- `model_context_window_exceeded` `as string` cast kept — GA `StopReason` type doesn't include it, but it works at runtime. Already handled by previous plan (FOO-782).
-- `container` accessed via `as Record<string, unknown>` cast since SDK 0.75.0 types may not include the field.
-- Tasks 1 and 2 should be done by the same worker (shared file edits).
+- SDK upgraded to 0.78.0 for latest types and fixes. Top-level `cache_control` feature (v0.78.0) noted but NOT adopted — requires separate evaluation of caching behavior.
+- `model_context_window_exceeded` `as string` cast kept — GA `StopReason` type doesn't include it across all SDK versions through 0.78.0, but it works at runtime. Already handled by previous plan (FOO-782).
+- Container accessed via typed SDK fields (`response.container?.id`) — no runtime casts needed since SDK 0.75.0+ has full `Container` type support.
+- Tasks 2 and 3 should be done by the same worker (shared file edits).
 **Risks:**
-- Container field shape may differ from documented `{ id: string }` — tests should verify the extraction is resilient.
-- GA `Parameters<Anthropic["messages"]["stream"]>[0]` type may not accept all fields that beta type did (e.g., `betas` field removal must happen before type change, or compilation fails).
+- GA `Parameters<Anthropic["messages"]["stream"]>[0]` type may not accept the `betas` field — removal (Task 3) must happen in same compilation unit as the type change (Task 2).
