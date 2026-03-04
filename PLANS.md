@@ -1,6 +1,6 @@
 # Implementation Plan
 
-**Status:** COMPLETE
+**Status:** IN_PROGRESS
 **Created:** 2026-03-04
 **Source:** Backlog: FOO-781, FOO-782, FOO-783, FOO-784, FOO-785, FOO-786, FOO-787
 **Linear Issues:** [FOO-781](https://linear.app/lw-claude/issue/FOO-781/truncateconversation-silently-skips-truncation-for-short-conversations), [FOO-782](https://linear.app/lw-claude/issue/FOO-782/stop-reason-model-context-window-exceeded-not-handled-in-claude-api), [FOO-783](https://linear.app/lw-claude/issue/FOO-783/edit-food-route-casts-to-foodanalysis-with-incomplete-keywords), [FOO-784](https://linear.app/lw-claude/issue/FOO-784/tool-definitions-in-chat-toolsts-and-luments-missing-strict-true), [FOO-785](https://linear.app/lw-claude/issue/FOO-785/orphaned-custom-foods-rows-on-food-log-insert-failure), [FOO-786](https://linear.app/lw-claude/issue/FOO-786/missing-action-field-on-11-log-statements-in-claudets), [FOO-787](https://linear.app/lw-claude/issue/FOO-787/data-tool-result-logged-in-full-risking-log-overflow-on-large-queries)
@@ -374,32 +374,84 @@ Summary: 6 issue(s) found (Team: security, reliability, quality reviewers)
 
 ### Review Findings
 
-Files reviewed: 8
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+Summary: 6 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 6 issue(s) — Linear issues created in Todo
+- DISCARDED: 0 finding(s)
 
-No issues found - all implementations are correct and follow project conventions.
-
-**Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: JSON.stringify for keywords comparison is order-dependent (`src/app/api/edit-food/route.ts:213`) — analysis.keywords is validated string[]; order is preserved through the edit flow. False positives (unnecessary writes) are harmless.
-- [DISCARDED] BUG: notes comparison null/undefined mismatch (`src/app/api/edit-food/route.ts:208`) — analysis.notes is always a defined string from validated FoodAnalysis; entry.notes ?? "" handles null from DB correctly.
-- [DISCARDED] BUG: Missing refusal handling in editAnalysis (`src/lib/claude.ts:1772`) — editAnalysis delegates directly to runToolLoop which handles all stop reasons including refusal via the generic handler at line 1045. Different architecture from analyzeFood/conversationalRefine which make their own initial API calls.
-- [DISCARDED] EDGE CASE: fitbitFoodId === 0 would pass through (`src/lib/food-log.ts:778`) — reviewer noted behavior is correct; ?? only checks null/undefined. Fitbit food IDs are never 0 in practice.
-- [DISCARDED] CONVENTION: lumen test mock for startTimer uses hardcoded value (`src/lib/__tests__/lumen.test.ts:23`) — style suggestion, not a bug; mock is sufficient for testing.
-- [DISCARDED] CONVENTION: Inconsistent error message phrasing "our safety systems" vs neutral phrasing (`src/lib/claude.ts:1196`) — style-only with zero correctness impact.
+**Issues requiring fix:**
+- [HIGH] BUG/ASYNC: Fast path DB updates missing try-catch/compensation — after Fitbit ops complete, DB throws leave Fitbit state inconsistent (`src/app/api/edit-food/route.ts:207-222`) — FOO-795
+- [MEDIUM] BUG: fitbitLogId `??` vs `!== undefined` divergence — return value differs from DB state when null passed (`src/lib/food-log.ts:806`) — FOO-796
+- [MEDIUM] CONVENTION: Missing test for conversationalRefine refusal stop_reason — code added without test coverage (`src/lib/__tests__/claude.test.ts`) — FOO-797
+- [LOW] BUG: Compensation logic doesn't capture new fitbitLogId — DB references deleted Fitbit log after compensation (`src/app/api/edit-food/route.ts:190-204,278-307`) — FOO-798
+- [LOW] CONVENTION: Missing action fields on 4 log statements in claude.ts — recordUsage .catch (3 locations) + tool calls skipped (`src/lib/claude.ts:887,~1213,~1281,1616`) — FOO-799
+- [LOW] CONVENTION: updateCustomFoodMetadata missing logging and logger param (`src/lib/food-log.ts:921-958`) — FOO-800
 
 ### Linear Updates
-- FOO-789: Review → Merge
-- FOO-790: Review → Merge
-- FOO-791: Review → Merge
-- FOO-792: Review → Merge
-- FOO-793: Review → Merge
-- FOO-794: Review → Merge
+- FOO-789: Review → Merge (original fix task)
+- FOO-790: Review → Merge (original fix task)
+- FOO-791: Review → Merge (original fix task)
+- FOO-792: Review → Merge (original fix task)
+- FOO-793: Review → Merge (original fix task)
+- FOO-794: Review → Merge (original fix task)
+- FOO-795: Created in Todo (Fix: fast path missing compensation)
+- FOO-796: Created in Todo (Fix: fitbitLogId ?? divergence)
+- FOO-797: Created in Todo (Fix: missing conversationalRefine refusal test)
+- FOO-798: Created in Todo (Fix: compensation stale fitbitLogId)
+- FOO-799: Created in Todo (Fix: missing action fields in claude.ts)
+- FOO-800: Created in Todo (Fix: updateCustomFoodMetadata logging)
 
 <!-- REVIEW COMPLETE -->
 
 ---
 
-## Status: COMPLETE
+## Fix Plan 2
 
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+**Source:** Review findings from Iteration 2
+**Linear Issues:** [FOO-795](https://linear.app/lw-claude/issue/FOO-795/fast-path-db-updates-missing-try-catchcompensation-after-fitbit-ops), [FOO-796](https://linear.app/lw-claude/issue/FOO-796/fitbitlogid-vs-undefined-divergence-in-updatefoodlogentry-return), [FOO-797](https://linear.app/lw-claude/issue/FOO-797/missing-test-for-conversationalrefine-refusal-stop-reason-handling), [FOO-798](https://linear.app/lw-claude/issue/FOO-798/compensation-logic-doesnt-capture-new-fitbitlogid-after-re-log), [FOO-799](https://linear.app/lw-claude/issue/FOO-799/missing-action-fields-on-4-log-statements-in-claudets), [FOO-800](https://linear.app/lw-claude/issue/FOO-800/updatecustomfoodmetadata-missing-logging-and-logger-param)
+
+### Fix 1: Fast path DB updates missing try-catch/compensation
+**Linear Issue:** FOO-795
+
+1. Write test in `src/app/api/edit-food/__tests__/route.test.ts`: Mock `updateFoodLogEntryMetadata` to throw after Fitbit ops succeed in fast path. Assert the response is an error AND that compensation (re-log original food to Fitbit) is attempted.
+2. Run `npx vitest run "edit-food"` — expect fail.
+3. In `src/app/api/edit-food/route.ts`, wrap the fast path DB updates (lines 207-222) in a try-catch with Fitbit compensation logic matching the regular path pattern (lines 278-307). On DB failure: re-log original food to Fitbit, return errorResponse.
+4. Run `npx vitest run "edit-food"` — expect pass.
+
+### Fix 2: fitbitLogId ?? vs !== undefined divergence
+**Linear Issue:** FOO-796
+
+1. Write test in `src/lib/__tests__/food-log.test.ts`: Call `updateFoodLogEntry` with `fitbitLogId: null`. Assert the returned `fitbitLogId` is `null` (not the stale DB value).
+2. Run `npx vitest run "food-log.test"` — expect fail.
+3. In `src/lib/food-log.ts:806`, change `data.fitbitLogId ?? row.fitbitLogId` to `data.fitbitLogId !== undefined ? data.fitbitLogId : row.fitbitLogId`.
+4. Run `npx vitest run "food-log.test"` — expect pass.
+
+### Fix 3: Missing test for conversationalRefine refusal
+**Linear Issue:** FOO-797
+
+1. Write test in `src/lib/__tests__/claude.test.ts` in the `conversationalRefine` describe block: Mock initial API call returning `stop_reason: "refusal"`. Assert `ClaudeApiError` is thrown with message matching `/flagged|safety|cannot/i`.
+2. Run `npx vitest run "claude.test"` — expect pass (code already exists, just missing test coverage).
+
+### Fix 4: Compensation logic doesn't capture new fitbitLogId
+**Linear Issue:** FOO-798
+
+1. Write test in `src/app/api/edit-food/__tests__/route.test.ts`: Mock a scenario where Fitbit delete succeeds, Fitbit re-log succeeds (returns new logId), but subsequent step fails triggering compensation. Assert the compensation `logFood` return value (new fitbitLogId) is used to update the DB entry.
+2. Run `npx vitest run "edit-food"` — expect fail.
+3. In `src/app/api/edit-food/route.ts`, in both fast path and regular path compensation blocks, capture the returned fitbitLogId from the compensation `logFood` call and update the DB entry's fitbitLogId accordingly.
+4. Run `npx vitest run "edit-food"` — expect pass.
+
+### Fix 5: Missing action fields on 4 log statements in claude.ts
+**Linear Issue:** FOO-799
+
+1. No test needed — mechanical logging fix.
+2. In `src/lib/claude.ts`, add `action` field to:
+   - Line ~887: `{ action: "record_usage_failed", error, userId }` (runToolLoop recordUsage .catch)
+   - Line ~1213: `{ action: "record_usage_failed", error, userId }` (analyzeFood fast path recordUsage .catch)
+   - Line ~1281: `{ action: "record_usage_failed", error, userId }` (analyzeFood slow path recordUsage .catch)
+   - Line ~1616: `{ action: "refine_food_tool_calls_skipped", toolNames }` (conversationalRefine tool calls skipped)
+
+### Fix 6: updateCustomFoodMetadata missing logging
+**Linear Issue:** FOO-800
+
+1. No test needed — logging addition.
+2. In `src/lib/food-log.ts`, add `log?: Logger` parameter to `updateCustomFoodMetadata`. Add debug log on success: `l.debug({ action: "update_custom_food_metadata", customFoodId, userId }, "custom food metadata updated")`. Add debug log on early return (no fields to update).
+3. Update callers in `src/app/api/edit-food/route.ts` to pass `log` parameter.
