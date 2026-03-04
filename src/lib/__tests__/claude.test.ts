@@ -2828,6 +2828,30 @@ describe("createStreamWithRetry", () => {
     vi.useRealTimers();
   });
 
+  it("on persistent 529: uses log.warn not log.error for retry exhaustion", async () => {
+    vi.useFakeTimers();
+
+    const APIError = await getMockAPIErrorCtor();
+    mockStream.mockImplementation(() => { throw new APIError(529, "Overloaded"); });
+
+    const { createStreamWithRetry } = await import("@/lib/claude");
+    const log = makeTestLogger();
+
+    const resultPromise = collectEventsExpectThrow(
+      createStreamWithRetry(minimalStreamParams, {}, log, 2)
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+    await resultPromise;
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "stream_retry_exhausted" }),
+      expect.any(String)
+    );
+    expect(log.error).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
   it("on non-529 error: throws immediately without retry", async () => {
     mockStream.mockImplementationOnce(() => { throw new Error("Network error"); });
 

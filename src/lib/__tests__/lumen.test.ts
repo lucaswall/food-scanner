@@ -301,6 +301,30 @@ describe("parseLumenScreenshot", () => {
     ).rejects.toMatchObject({ name: "LUMEN_PARSE_ERROR" });
   });
 
+  it("logs l.warn (not l.error) when no tool_use block in response", async () => {
+    mockCreate.mockResolvedValueOnce({
+      content: [
+        {
+          type: "text",
+          text: "I cannot parse this image",
+        },
+      ],
+    });
+
+    const { parseLumenScreenshot } = await import("@/lib/lumen");
+    const { logger } = await import("@/lib/logger");
+
+    await expect(
+      parseLumenScreenshot({ base64: "abc123", mimeType: "image/jpeg" })
+    ).rejects.toMatchObject({ name: "LUMEN_PARSE_ERROR" });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ contentTypes: ["text"] }),
+      "no tool_use block in Lumen parsing response"
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
   it("throws LUMEN_PARSE_ERROR when goals are negative", async () => {
     mockCreate.mockResolvedValueOnce({
       content: [

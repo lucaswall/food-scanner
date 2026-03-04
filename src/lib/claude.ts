@@ -289,7 +289,7 @@ export async function* createStreamWithRetry(
         continue;
       }
       if (isOverloadedError(error)) {
-        log.error({ action: "stream_retry_exhausted", attempt }, "Claude API persistently overloaded, exhausted retries");
+        log.warn({ action: "stream_retry_exhausted", attempt }, "Claude API persistently overloaded, exhausted retries");
         throw new ClaudeApiError("The AI service is temporarily overloaded. Please try again in a moment.", extractRequestId(error));
       }
       throw error;

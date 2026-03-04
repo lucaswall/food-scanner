@@ -145,7 +145,7 @@ export async function parseLumenScreenshot(
     );
 
     if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
-      l.error(
+      l.warn(
         { contentTypes: response.content.map((b) => b.type) },
         "no tool_use block in Lumen parsing response"
       );

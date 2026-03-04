@@ -1,5 +1,6 @@
 # Implementation Plan
 
+**Status:** COMPLETE
 **Created:** 2026-03-04
 **Source:** Inline request: Fix all Sentry errors — isOverloadedError SSE mismatch, missing notes validation, double Sentry reporting
 **Linear Issues:** [FOO-772](https://linear.app/lw-claude/issue/FOO-772/fix-isoverloadederror-to-match-sse-streaming-error-format), [FOO-773](https://linear.app/lw-claude/issue/FOO-773/default-notes-to-empty-string-in-validatefoodanalysis-instead-of), [FOO-774](https://linear.app/lw-claude/issue/FOO-774/fix-double-sentry-reporting-in-claude-api-error-catch-blocks), [FOO-775](https://linear.app/lw-claude/issue/FOO-775/re-enable-sdk-retries-and-set-sensible-timeout-for-claude-api-client)
@@ -228,3 +229,35 @@
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 2 issue(s) found, fixed inline (single-agent review)
+- FIXED INLINE: 2 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [MEDIUM] BUG: Double Sentry reporting in createStreamWithRetry retry exhaustion (`src/lib/claude.ts:292`) — `log.error` before throw produces 2 Sentry events; downgraded to `log.warn`
+- [MEDIUM] BUG: Double Sentry reporting in Lumen no-tool_use-block path (`src/lib/lumen.ts:148`) — `l.error` before throw produces 2 Sentry events; downgraded to `l.warn`
+
+**Discarded findings (not bugs):**
+- None
+
+### Linear Updates
+- FOO-772: Review → Merge (original task)
+- FOO-773: Review → Merge (original task)
+- FOO-774: Review → Merge (original task)
+- FOO-775: Review → Merge (original task)
+- FOO-776: Created in Merge (Fix: double Sentry reporting in retry exhaustion — fixed inline)
+- FOO-777: Created in Merge (Fix: double Sentry reporting in Lumen no-tool_use path — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2500 pass
+- Bug-hunter: no new issues
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
