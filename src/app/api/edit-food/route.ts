@@ -219,7 +219,7 @@ export async function POST(request: Request) {
         description: analysis.description,
         keywords: analysis.keywords,
         confidence: analysis.confidence,
-      });
+      }, log);
     }
 
     log.info(

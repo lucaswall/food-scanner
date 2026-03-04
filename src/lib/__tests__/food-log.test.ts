@@ -2702,6 +2702,18 @@ describe("updateFoodLogEntry", () => {
 
     expect(result).toEqual({ fitbitLogId: 5555, newCustomFoodId: 99 }); // 5555, not stale 789
   });
+
+  it("returns null fitbitLogId when explicitly set to null in data", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // old fitbitLogId is 789
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    const result = await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, fitbitLogId: null });
+
+    expect(result).toEqual({ fitbitLogId: null, newCustomFoodId: 99 }); // null, not stale 789
+  });
 });
 
 describe("updateFoodLogEntryMetadata", () => {
