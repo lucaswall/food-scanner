@@ -84,12 +84,13 @@ describe("Chat Tool Definitions", () => {
     expect(GET_FASTING_INFO_TOOL.input_schema.properties).toHaveProperty("to_date");
   });
 
-  it("SEARCH_FOOD_LOG_TOOL has strict mode with required array", () => {
+  it("SEARCH_FOOD_LOG_TOOL is non-strict with required array", () => {
     const schema = SEARCH_FOOD_LOG_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    expect(SEARCH_FOOD_LOG_TOOL).toHaveProperty("strict", true);
-    expect(schema.additionalProperties).toBe(false);
+    // Data query tools are non-strict to stay under the 16 union-type parameter limit
+    expect(SEARCH_FOOD_LOG_TOOL).not.toHaveProperty("strict");
+    expect(schema).not.toHaveProperty("additionalProperties");
     expect(schema.required).toEqual(["keywords", "date", "from_date", "to_date", "meal_type", "limit"]);
 
     // keywords should be an array of strings
@@ -111,12 +112,12 @@ describe("Chat Tool Definitions", () => {
     expect(props.limit.type).toEqual(["number", "null"]);
   });
 
-  it("GET_NUTRITION_SUMMARY_TOOL has strict mode with required array", () => {
+  it("GET_NUTRITION_SUMMARY_TOOL is non-strict with required array", () => {
     const schema = GET_NUTRITION_SUMMARY_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    expect(GET_NUTRITION_SUMMARY_TOOL).toHaveProperty("strict", true);
-    expect(schema.additionalProperties).toBe(false);
+    expect(GET_NUTRITION_SUMMARY_TOOL).not.toHaveProperty("strict");
+    expect(schema).not.toHaveProperty("additionalProperties");
     expect(schema.required).toEqual(["date", "from_date", "to_date"]);
 
     // All string params should be nullable
@@ -125,12 +126,12 @@ describe("Chat Tool Definitions", () => {
     expect(props.to_date.type).toEqual(["string", "null"]);
   });
 
-  it("GET_FASTING_INFO_TOOL has strict mode with required array", () => {
+  it("GET_FASTING_INFO_TOOL is non-strict with required array", () => {
     const schema = GET_FASTING_INFO_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    expect(GET_FASTING_INFO_TOOL).toHaveProperty("strict", true);
-    expect(schema.additionalProperties).toBe(false);
+    expect(GET_FASTING_INFO_TOOL).not.toHaveProperty("strict");
+    expect(schema).not.toHaveProperty("additionalProperties");
     expect(schema.required).toEqual(["date", "from_date", "to_date"]);
 
     // All string params should be nullable
