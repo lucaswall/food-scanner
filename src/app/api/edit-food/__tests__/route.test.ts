@@ -204,6 +204,22 @@ describe("POST /api/edit-food", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("returns 400 when keywords field is missing", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { keywords, ...bodyWithoutKeywords } = validBody;
+    const response = await POST(createMockRequest(bodyWithoutKeywords));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when keywords is empty array", async () => {
+    const response = await POST(createMockRequest({ ...validBody, keywords: [] }));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
   it("returns 404 when entry not found", async () => {
     mockGetFoodLogEntryDetail.mockResolvedValue(null);
     const response = await POST(createMockRequest(validBody));
@@ -295,7 +311,7 @@ const unchangedNutritionBody = {
   confidence: "high" as const,
   notes: "Baked style",
   description: "Standard Argentine beef empanada",
-  keywords: [],
+  keywords: ["empanada", "carne"],
   mealTypeId: 3, // changed from 5 → metadata-only change
   date: "2026-02-16",
   time: "12:00:00",

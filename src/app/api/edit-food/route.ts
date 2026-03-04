@@ -54,14 +54,13 @@ function isValidFoodAnalysis(req: Record<string, unknown>): boolean {
     return false;
   }
 
-  if (req.keywords !== undefined) {
-    if (
-      !Array.isArray(req.keywords) ||
-      req.keywords.length > 20 ||
-      !req.keywords.every((k: unknown) => typeof k === "string" && (k as string).length <= 100)
-    ) {
-      return false;
-    }
+  if (
+    !Array.isArray(req.keywords) ||
+    req.keywords.length === 0 ||
+    req.keywords.length > 20 ||
+    !req.keywords.every((k: unknown) => typeof k === "string" && (k as string).length <= 100)
+  ) {
+    return false;
   }
 
   const tier1Fields = ["saturated_fat_g", "trans_fat_g", "sugars_g", "calories_from_fat"] as const;

@@ -44,6 +44,7 @@ vi.mock("@/lib/nutrition-goals", () => ({
   getCalorieGoalsByDateRange: (...args: unknown[]) => mockGetCalorieGoalsByDateRange(...args),
 }));
 
+import { logger } from "@/lib/logger";
 import {
   SEARCH_FOOD_LOG_TOOL,
   GET_NUTRITION_SUMMARY_TOOL,
@@ -83,13 +84,12 @@ describe("Chat Tool Definitions", () => {
     expect(GET_FASTING_INFO_TOOL.input_schema.properties).toHaveProperty("to_date");
   });
 
-  it("SEARCH_FOOD_LOG_TOOL is non-strict with required array", () => {
+  it("SEARCH_FOOD_LOG_TOOL has strict mode with required array", () => {
     const schema = SEARCH_FOOD_LOG_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    // Data query tools are non-strict to stay under the 16 union-type parameter limit
-    expect(SEARCH_FOOD_LOG_TOOL).not.toHaveProperty("strict");
-    expect(schema).not.toHaveProperty("additionalProperties");
+    expect(SEARCH_FOOD_LOG_TOOL).toHaveProperty("strict", true);
+    expect(schema.additionalProperties).toBe(false);
     expect(schema.required).toEqual(["keywords", "date", "from_date", "to_date", "meal_type", "limit"]);
 
     // keywords should be an array of strings
@@ -111,12 +111,12 @@ describe("Chat Tool Definitions", () => {
     expect(props.limit.type).toEqual(["number", "null"]);
   });
 
-  it("GET_NUTRITION_SUMMARY_TOOL is non-strict with required array", () => {
+  it("GET_NUTRITION_SUMMARY_TOOL has strict mode with required array", () => {
     const schema = GET_NUTRITION_SUMMARY_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    expect(GET_NUTRITION_SUMMARY_TOOL).not.toHaveProperty("strict");
-    expect(schema).not.toHaveProperty("additionalProperties");
+    expect(GET_NUTRITION_SUMMARY_TOOL).toHaveProperty("strict", true);
+    expect(schema.additionalProperties).toBe(false);
     expect(schema.required).toEqual(["date", "from_date", "to_date"]);
 
     // All string params should be nullable
@@ -125,12 +125,12 @@ describe("Chat Tool Definitions", () => {
     expect(props.to_date.type).toEqual(["string", "null"]);
   });
 
-  it("GET_FASTING_INFO_TOOL is non-strict with required array", () => {
+  it("GET_FASTING_INFO_TOOL has strict mode with required array", () => {
     const schema = GET_FASTING_INFO_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    expect(GET_FASTING_INFO_TOOL).not.toHaveProperty("strict");
-    expect(schema).not.toHaveProperty("additionalProperties");
+    expect(GET_FASTING_INFO_TOOL).toHaveProperty("strict", true);
+    expect(schema.additionalProperties).toBe(false);
     expect(schema.required).toEqual(["date", "from_date", "to_date"]);
 
     // All string params should be nullable
@@ -970,5 +970,46 @@ describe("executeTool - division-by-zero protection", () => {
     );
 
     expect(result).not.toContain("Infinity");
+  });
+});
+
+describe("executeTool - debug log privacy", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("debug log contains resultLength but not full result string", async () => {
+    mockSearchFoods.mockResolvedValue([
+      {
+        customFoodId: 1,
+        foodName: "Pizza napolitana",
+        amount: 300,
+        unitId: 147,
+        calories: 600,
+        proteinG: 25,
+        carbsG: 70,
+        fatG: 20,
+        fiberG: 5,
+        sodiumMg: 800,
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        fitbitFoodId: 12345,
+        mealTypeId: 3,
+      },
+    ]);
+
+    await executeTool("search_food_log", { keywords: ["pizza"] }, "user-123", "2026-02-15");
+
+    const debugCalls = vi.mocked(logger.debug).mock.calls;
+    const resultCall = debugCalls.find(
+      (call) => typeof call[0] === "object" && (call[0] as Record<string, unknown>).action === "execute_tool_result"
+    );
+
+    expect(resultCall).toBeDefined();
+    const logObj = resultCall![0] as Record<string, unknown>;
+    expect(logObj).toHaveProperty("resultLength");
+    expect(logObj).not.toHaveProperty("result");
   });
 });
