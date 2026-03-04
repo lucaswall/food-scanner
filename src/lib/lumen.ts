@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import * as Sentry from "@sentry/nextjs";
 import type { ImageInput } from "@/lib/claude";
 import type { LumenGoals } from "@/types";
 import { logger } from "@/lib/logger";
@@ -13,11 +14,12 @@ let _client: Anthropic | null = null;
 
 function getClient(): Anthropic {
   if (!_client) {
-    _client = new Anthropic({
+    const client = new Anthropic({
       apiKey: getRequiredEnv("ANTHROPIC_API_KEY"),
       timeout: 30000,
       maxRetries: 2,
     });
+    _client = Sentry.instrumentAnthropicAiClient(client);
   }
   return _client;
 }
@@ -143,7 +145,7 @@ export async function parseLumenScreenshot(
     );
 
     if (!toolUseBlock || toolUseBlock.type !== "tool_use") {
-      l.error(
+      l.warn(
         { contentTypes: response.content.map((b) => b.type) },
         "no tool_use block in Lumen parsing response"
       );
@@ -177,7 +179,7 @@ export async function parseLumenScreenshot(
       throw error;
     }
 
-    l.error(
+    l.warn(
       { error: error instanceof Error ? error.message : String(error) },
       "Lumen parsing API error"
     );

@@ -1,201 +1,257 @@
-# Fix Plan: Chat edit loses original date, time, and meal type
+# Implementation Plan
 
-**Issue:** FOO-769
-**Date:** 2026-03-02
 **Status:** COMPLETE
-**Branch:** fix/FOO-769-chat-edit-date-preservation
+**Created:** 2026-03-04
+**Source:** Inline request: Fix all Sentry errors — isOverloadedError SSE mismatch, missing notes validation, double Sentry reporting
+**Linear Issues:** [FOO-772](https://linear.app/lw-claude/issue/FOO-772/fix-isoverloadederror-to-match-sse-streaming-error-format), [FOO-773](https://linear.app/lw-claude/issue/FOO-773/default-notes-to-empty-string-in-validatefoodanalysis-instead-of), [FOO-774](https://linear.app/lw-claude/issue/FOO-774/fix-double-sentry-reporting-in-claude-api-error-catch-blocks), [FOO-775](https://linear.app/lw-claude/issue/FOO-775/re-enable-sdk-retries-and-set-sensible-timeout-for-claude-api-client)
+**Sentry Issues:** FOOD-SCANNER-3, FOOD-SCANNER-4, FOOD-SCANNER-5, FOOD-SCANNER-6, FOOD-SCANNER-7, FOOD-SCANNER-8
+**Branch:** fix/sentry-claude-api-errors
 
-## Investigation
+## Context Gathered
 
-### Bug Report
-When editing a past-date entry via the regular chat screen, the entry moves to today's date with the wrong meal type and time showing "Now". User reported: "I edited a Feb 20 yogurt from the chat screen on March 1. The entry appeared under today instead of Feb 20, meal type showed Dinner, and time showed Now."
+### Codebase Analysis
 
-### Classification
-- **Type:** Frontend Bug + Integration (prompt + UI interaction)
-- **Severity:** High
-- **Affected Area:** Chat-initiated edit flow (`editingEntryId` path in FoodChat + Claude system prompt)
+- **`src/lib/claude.ts:214-227`** — `isOverloadedError()`: two checks — `error.status === 529` and `error.error.type === "overloaded_error"`. Neither matches SSE streaming errors where the structure is `error.error = { type: "error", error: { type: "overloaded_error" } }`.
+- **`src/lib/claude.ts:239-271`** — `createStreamWithRetry()`: retry logic works, but never fires for SSE errors because `isOverloadedError` returns false. Also passes `maxRetries: 0` at line 251 which disables ALL SDK-level retries (timeouts, HTTP 529, connection errors) as collateral.
+- **`src/lib/claude.ts:17-27`** — Anthropic client configured with `timeout: 60000` (60s) and `maxRetries: 2`. The 60s timeout caused FOOD-SCANNER-4 (staging timeout with zero retries). SDK default is 600s (10 min).
+- **SDK retry architecture** — SDK retries handle HTTP-level failures (timeout, 529 status response, connection errors). Our custom retry handles SSE-level overloaded errors (mid-stream). These operate on different layers and don't conflict — the "double-retry" fear in the comment at line 236-237 was unfounded.
+- **`src/lib/claude.ts:378-379`** — `validateFoodAnalysis` throws on missing `notes`. Compare to line 398 where `description` defaults to `""`.
+- **`src/lib/claude.ts:1049-1061`** — Tool loop catch: `l.error()` + `throw ClaudeApiError` = double Sentry event.
+- **`src/lib/claude.ts:1312-1324`** — analyzeFood catch: same double-reporting pattern.
+- **`src/lib/sse.ts:44-51`** — SSE error handler checks `err.message.includes("overloaded")` for `AI_OVERLOADED` code — this still works because the message contains the JSON string.
+- **`src/lib/__tests__/claude.test.ts`** — Existing tests for `isOverloadedError` (8 tests), `createStreamWithRetry` (4 tests), `analyzeFood` overload retry (2 tests), `runToolLoop` overload retry (2 tests). All use `new APIError(529, "Overloaded")` — none test the SSE error format.
+- **`node_modules/@anthropic-ai/sdk/src/core/streaming.ts:82-83`** — SDK throws `new APIError(undefined, safeJSON(sse.data), undefined, response.headers)` for SSE errors — status is `undefined`, body is the parsed JSON.
+- **`node_modules/@anthropic-ai/sdk/src/core/error.ts:56-57`** — `APIError.generate()` returns `APIConnectionError` when status is falsy, but `streaming.ts` calls `new APIError()` directly, preserving the `APIError` type.
+- **Mock structure** — `src/lib/__tests__/claude.test.ts:142-151`: `MockAPIError(status, message, error?)` sets `this.status`, `this.error`. SSE tests need `new APIError(undefined, jsonString, sseBody)` to set `this.error` to the nested SSE structure.
 
-### Root Cause Analysis
+### MCP Context
 
-Three interacting bugs prevent the chat edit flow from preserving original entry metadata:
+- **MCPs used:** Sentry (issue search, event details, tag values), Linear (issue creation)
+- **Sentry findings:**
+  - 23 error events in last 7 days (19 production, 4 staging)
+  - 8 issue groups; 5 are unresolved and actionable
+  - FOOD-SCANNER-3/5 and FOOD-SCANNER-6/7 share trace IDs — confirmed double-reporting
+  - FOOD-SCANNER-8: 3 events in 2 minutes — same user session retrying after notes validation error
 
-**Bug 1: No `date` field in `FoodAnalysis` — Claude cannot report a date**
-The `report_nutrition` tool has `time` and `meal_type_id` fields but no `date` field. Claude knows the entry's date from `search_food_log` results (e.g., "Food log for 2026-02-20") but has no way to pass it back. The user also cannot say "move this to the 21st" because there's no field to carry that instruction.
+## Tasks
 
-**Bug 2: System prompt forbids setting time/mealType for edits**
-Lines 72-73 of `src/lib/claude.ts` say:
-- "Only set meal_type_id when the user explicitly mentions the meal context. Otherwise leave it null"
-- "Only set the time field when the user explicitly mentions a time. Do NOT guess or infer. Leave it null"
+### Task 1: Fix isOverloadedError to match SSE streaming error format
+**Linear Issue:** [FOO-772](https://linear.app/lw-claude/issue/FOO-772/fix-isoverloadederror-to-match-sse-streaming-error-format)
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
 
-These rules are correct for **new entries** (let the user pick from the UI). But for **edits**, Claude has the original values from `search_food_log` (e.g., "Afternoon Snack" at "16:58") and should preserve them.
+**Steps:**
+1. Write tests in `src/lib/__tests__/claude.test.ts` in the existing `isOverloadedError` describe block:
+   - Test: returns true for `APIError` with `status: undefined` and `error: { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }` — this is the exact SSE format from Sentry
+   - Test: returns true for `APIError` with `status: undefined` and `error: { type: "error", error: { type: "overloaded_error", message: "Overloaded" }, request_id: "req_..." }` — with request_id field
+   - Test: returns false for `APIError` with `status: undefined` and `error: { type: "error", error: { type: "invalid_request_error" } }` — other nested error types should not match
+   - Use the existing `getMockAPIErrorCtor()` helper, passing the SSE body as the third `error` argument to set `this.error`
+2. Run verifier with pattern `isOverloadedError` (expect fail — new tests)
+3. Add a third check in `isOverloadedError` (`src/lib/claude.ts:214-227`): after the existing Check 2, check one level deeper — if `body` has an `error` property that is an object with `type === "overloaded_error"`, return true. Keep existing checks unchanged.
+4. Run verifier with pattern `isOverloadedError` (expect pass)
 
-**Bug 3: `handleSaveExisting` defaults to today**
-`src/components/food-chat.tsx:681` uses `getLocalDateTime()` for both date and time. Unlike `handleSaveEdit` (line 610, which uses `editEntry.date`), `handleSaveExisting` has no access to the original entry object — it only has `latestAnalysis`. Since the analysis lacks date/time/mealType (Bugs 1 & 2), everything defaults to "now".
+**Sentry closure:** Commit message must include `Fixes FOOD-SCANNER-3`, `Fixes FOOD-SCANNER-5`, `Fixes FOOD-SCANNER-6`, `Fixes FOOD-SCANNER-7`.
 
-#### Evidence
-- **File:** `src/types/index.ts:55-80` — `FoodAnalysis` has `time?`, `mealTypeId?`, `editingEntryId?` but no `date` field
-- **File:** `src/lib/claude.ts:72` — System prompt: "Never ask which meal type... leave it null" — no edit exception
-- **File:** `src/lib/claude.ts:73` — System prompt: "Only set the time field when... leave it null" — no edit exception
-- **File:** `src/lib/claude.ts:91-163` — `REPORT_NUTRITION_TOOL` definition: has `time` and `meal_type_id` params but no `date` param
-- **File:** `src/lib/claude.ts:338-512` — `validateFoodAnalysis`: validates `time` (line 438-456) and `meal_type_id` (line 458-473) but no `date` validation
-- **File:** `src/components/food-chat.tsx:681,687` — `handleSaveExisting` uses `getLocalDateTime()` for date
-- **File:** `src/components/food-chat.tsx:610` — `handleSaveEdit` correctly uses `editEntry.date` (the edit page path works)
-- **File:** `src/components/food-chat.tsx:519-532` — `handleLog` always uses `localDateTime.date` for new entries — should use analysis date when provided
-- **File:** `src/lib/chat-tools.ts:175` — `search_food_log` output includes the date in the header: `"Food log for ${date}:"`
-- **File:** `src/lib/claude.ts:1337-1338` — `convertMessages` already appends `meal_type_id` and `time` to `[Current values]` when set — needs `date` too
+**Notes:**
+- The existing `createStreamWithRetry` tests use `new APIError(529, ...)` which exercises Check 1. These must still pass.
+- After this fix, SSE overloaded errors will trigger retries (1s + 3s delays) and show "*The AI service is momentarily busy, retrying...*" to the user.
 
-**Staging log evidence (2026-03-01T23:43):**
-- Claude's first `report_nutrition` for the edit omitted `meal_type_id` and `time` (per system prompt rules)
-- `[Current values]` annotation showed no `meal_type_id` or `time`
-- UI showed "Dinner" (from `getDefaultMealType()`) and "Now" (from `selectedTime === null`)
-- After user complained, Claude re-issued `report_nutrition` with `meal_type_id: 4` and `time: "16:58"` — but `handleSaveExisting` still used today's date via `getLocalDateTime()`
+### Task 2: Default notes to empty string in validateFoodAnalysis
+**Linear Issue:** [FOO-773](https://linear.app/lw-claude/issue/FOO-773/default-notes-to-empty-string-in-validatefoodanalysis-instead-of)
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
 
-### Impact
-- Every chat-initiated edit of a past-date entry moves it to today
-- Meal type and time are wrong until user manually corrects them
-- The edit page (`/app/edit/[id]`) is NOT affected (uses `editEntry.date`)
-- Users cannot tell Claude to log food on a specific past date ("log this for yesterday")
+**Steps:**
+1. Write tests in `src/lib/__tests__/claude.test.ts` in the existing `validateFoodAnalysis` describe block:
+   - Test: when `notes` is missing/undefined, result has `notes: ""` (not throw)
+   - Test: when `notes` is null, result has `notes: ""` (not throw)
+   - Test: when `notes` is a valid string, result has that string (existing behavior)
+   - Verify existing test for valid notes string still passes
+2. Run verifier with pattern `validateFoodAnalysis` (expect fail — new tests for missing/null notes)
+3. In `src/lib/claude.ts:378-379`, replace the throw with a default: `const notes = typeof data.notes === "string" ? data.notes : "";` — matching the pattern used for `description` at line 398. Update `result.notes` at line 513 to use the local `notes` variable instead of `data.notes as string`.
+4. Run verifier with pattern `validateFoodAnalysis` (expect pass)
 
-## Fix Plan (TDD Approach)
+**Sentry closure:** Commit message must include `Fixes FOOD-SCANNER-8`.
 
-### Step 1: Add `date` field to `FoodAnalysis` type
-**File:** `src/types/index.ts` (modify)
+### Task 3: Fix double Sentry reporting in catch blocks
+**Linear Issue:** [FOO-774](https://linear.app/lw-claude/issue/FOO-774/fix-double-sentry-reporting-in-claude-api-error-catch-blocks)
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
 
-**Behavior:**
-- Add optional `date?: string | null` field to `FoodAnalysis` interface (YYYY-MM-DD format)
-- Place it near the existing `time` field for logical grouping
-- Same optionality pattern as `time` and `mealTypeId`: undefined = not set, null = explicitly cleared, string = value
+**Steps:**
+1. Write tests in `src/lib/__tests__/claude.test.ts`:
+   - Test in `runToolLoop` describe: when a non-ClaudeApiError is thrown (e.g., generic Error), verify `l.warn` is called (not `l.error`) and ClaudeApiError is still thrown
+   - Test in `analyzeFood` describe (or `conversationalRefine` which uses the same catch path): when a non-ClaudeApiError is thrown, verify `l.warn` is called (not `l.error`) and ClaudeApiError is still thrown
+   - Follow existing test patterns that use `makeTestLogger()` and check `log.warn`/`log.error` calls
+2. Run verifier with test pattern (expect fail — tests expect `l.warn` but code uses `l.error`)
+3. In `src/lib/claude.ts:1054`, change `l.error(` to `l.warn(` — keep the same log message and payload
+4. In `src/lib/claude.ts:1317`, change `l.error(` to `l.warn(` — keep the same log message and payload
+5. Run verifier with test pattern (expect pass)
 
-### Step 2: Add `date` parameter to `report_nutrition` tool and validate in `validateFoodAnalysis`
-**File:** `src/lib/claude.ts` (modify)
-**Test:** `src/lib/__tests__/claude.test.ts` (modify)
+**Notes:**
+- The thrown `ClaudeApiError` still propagates to `sse.ts:45` where `logger.error({ err }, "SSE generator threw an unexpected error")` logs it — this is the single Sentry event per failure.
+- The downgraded logs become `warn` level which Sentry typically doesn't capture as events.
 
-**Behavior:**
-- Add `date` property to `REPORT_NUTRITION_TOOL.input_schema.properties` with type `["string", "null"]` and description explaining YYYY-MM-DD format. Follow the pattern of the existing `time` field (line 156-158). Place near `time` for grouping.
-- In `validateFoodAnalysis` (line 338-512): add date validation block after the existing time validation (line 438-456). Pattern: undefined → undefined, null → null, string → validate YYYY-MM-DD format (regex + range check for month/day). Use the same `isValidDateFormat` function from `@/lib/date-utils` that `/api/edit-food` already uses (line 136).
-- Store validated date in the result object: `if (validatedDate !== undefined) result.date = validatedDate;` — same pattern as `time` (line 503-505).
-- In `convertMessages` (line 1328-1341): add `if (a.date != null) summary += ', date=${a.date}';` after the existing `time` line (1338). This ensures Claude sees the date in subsequent conversation turns.
+### Task 4: Re-enable SDK retries and set sensible timeout
+**Linear Issue:** [FOO-775](https://linear.app/lw-claude/issue/FOO-775/re-enable-sdk-retries-and-set-sensible-timeout-for-claude-api-client)
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
 
-**Tests:**
-1. `validateFoodAnalysis` accepts valid YYYY-MM-DD date string and includes it in result
-2. `validateFoodAnalysis` accepts null date and includes null in result
-3. `validateFoodAnalysis` accepts undefined/missing date and omits it from result
-4. `validateFoodAnalysis` rejects invalid date formats (e.g., "02-20", "2026/02/20", "not-a-date")
-5. `validateFoodAnalysis` rejects dates with invalid month/day values (e.g., "2026-13-01", "2026-02-30")
-6. `REPORT_NUTRITION_TOOL` schema includes `date` property with type `["string", "null"]`
-7. `convertMessages` includes `date=YYYY-MM-DD` in `[Current values]` when analysis has date set
+**Steps:**
+1. Write tests in `src/lib/__tests__/claude.test.ts`:
+   - Test in `createStreamWithRetry` describe: verify the stream call does NOT pass `maxRetries: 0` in request options (i.e., SDK retries are not disabled). Check the second argument to `mockStream` does not contain `maxRetries: 0`. Existing test at line 2738-2746 asserts `maxRetries: 0` — update it to assert `maxRetries` is NOT overridden.
+   - Test: verify the Anthropic client is constructed with `timeout: 120000` (check `mockConstructorArgs` is called with `timeout: 120000`)
+2. Run verifier with pattern `createStreamWithRetry` (expect fail — tests expect no `maxRetries: 0` but code still has it)
+3. In `src/lib/claude.ts:251`, remove `maxRetries: 0` from the request options — change `{ ...(requestOptions ?? {}), maxRetries: 0 }` to `requestOptions ?? {}`. SDK-level retries (timeout, HTTP 529, connection errors) will now work. Our custom retry only handles SSE-level overloaded errors — no conflict.
+4. In `src/lib/claude.ts:21`, change `timeout: 60000` to `timeout: 120000` — 120 seconds gives headroom for streaming with web search without excessive user wait.
+5. Update the `createStreamWithRetry` JSDoc comment (lines 231-238) to remove the `maxRetries: 0` explanation and document the two-layer retry architecture: SDK handles HTTP-level failures, our code handles SSE-level overloaded errors.
+6. Run verifier with pattern `createStreamWithRetry` (expect pass)
 
-### Step 3: Update system prompt for edit-aware date/time/mealType behavior
-**File:** `src/lib/claude.ts` (modify)
-**Test:** `src/lib/__tests__/claude.test.ts` (modify)
+**Sentry closure:** Commit message must include `Fixes FOOD-SCANNER-4`.
 
-**Behavior:**
-- Update the `meal_type_id` rule (line 72) to add an edit exception: when `editing_entry_id` is set, Claude should preserve the original `meal_type_id` from the search results unless the user explicitly asks to change it.
-- Update the `time` rule (line 73) to add the same edit exception: preserve the original time from search results when editing.
-- Add a new rule for `date`: "Only set the date field when the user explicitly mentions a date (e.g., 'log this for yesterday', 'move this to the 21st'). When editing an existing entry (`editing_entry_id` is set), always set date to the original entry's date from the search results unless the user asks to change it. Leave null for new entries — the app uses today's date by default."
-- Update the `report_nutrition` tool's `date` property description to match this behavior.
+**Notes:**
+- SDK `maxRetries: 2` means up to 3 total attempts for timeouts/HTTP 529 — with exponential backoff managed by the SDK.
+- Our custom retry (2 retries with 1s + 3s delays) handles SSE overloaded errors that happen mid-stream. These are a different error path — the HTTP connection succeeded but the SSE event stream contains an error.
+- The two retry layers don't conflict: SDK retries fire before the stream starts (HTTP level), our retries fire after the stream starts (SSE level).
 
-**Tests:**
-1. `CHAT_SYSTEM_PROMPT` contains edit exception for `meal_type_id` (mentions `editing_entry_id`)
-2. `CHAT_SYSTEM_PROMPT` contains edit exception for `time` (mentions `editing_entry_id`)
-3. `CHAT_SYSTEM_PROMPT` contains `date` field rules (mentions editing preservation and explicit user date)
+### Task 5: Add Sentry instrumentation to Lumen client
+**Files:**
+- `src/lib/lumen.ts` (modify)
 
-### Step 4: Use analysis date/time in `handleSaveExisting` and `handleLog`
-**File:** `src/components/food-chat.tsx` (modify)
-**Test:** `src/components/__tests__/food-chat.test.tsx` (modify)
+**Steps:**
+1. In `src/lib/lumen.ts:14-23`, wrap the Anthropic client with `Sentry.instrumentAnthropicAiClient()` — matching the pattern in `claude.ts:24`. Add the `import * as Sentry from "@sentry/nextjs"` import.
+2. Run verifier with pattern `lumen` (expect pass — no behavior change, just instrumentation)
 
-**Behavior:**
+**Notes:**
+- Currently the Lumen client (`lumen.ts:16`) creates a bare Anthropic client without Sentry instrumentation. This means Lumen API calls don't appear in Sentry's AI monitoring (traces, token usage, latency). The main client in `claude.ts:24` is already instrumented.
+- Non-streaming call, so no custom retry needed — SDK `maxRetries: 2` handles HTTP-level retries.
 
-For `handleSaveExisting` (line 664-735):
-- Replace `const { date, time } = getLocalDateTime()` with logic that prefers analysis values: `const fallback = getLocalDateTime(); const date = analysis.date ?? fallback.date; const time = selectedTime ?? analysis.time ?? fallback.time;`
-- This means: if Claude provided a date (from the original entry or user instruction), use it. Otherwise fall back to today.
-- Similarly for time: if user selected a time in the UI, use that. Else if Claude provided the original time, use that. Else use current time.
-- The `mealTypeId` state variable already gets updated via the SSE event handler (line 430-431) when Claude provides `mealTypeId` — so no change needed there. The fix is in Step 3 (making Claude actually provide it for edits).
+### Task 6: Fix double Sentry reporting in Lumen catch block
+**Files:**
+- `src/lib/lumen.ts` (modify)
+- `src/lib/__tests__/lumen.test.ts` (modify)
 
-For `handleLog` (line 507-586):
-- Change `date: localDateTime.date` (lines 525, 531) to `date: analysis.date ?? localDateTime.date`. This enables the user to say "log this for yesterday" in the regular analyze flow too.
-- The FITBIT_TOKEN_INVALID pending submission (line 557) should also use the resolved date.
+**Steps:**
+1. Write test in `src/lib/__tests__/lumen.test.ts`:
+   - Test: when a non-LumenParseError is thrown by the API call (e.g., generic Error), verify `l.warn` is called (not `l.error`) and `LumenParseError` is still thrown
+   - Follow existing test patterns that use `makeTestLogger()` or equivalent
+2. Run verifier with pattern `lumen` (expect fail — test expects `l.warn` but code uses `l.error`)
+3. In `src/lib/lumen.ts:180`, change `l.error(` to `l.warn(` — keep the same log message and payload
+4. Run verifier with pattern `lumen` (expect pass)
 
-For both the `handleSaveEdit` path (line 596-662):
-- No change needed — it correctly uses `editEntry.date` from the fetched entry object.
+**Notes:**
+- Same double-reporting pattern as `claude.ts` (Task 3). The catch at `lumen.ts:180` calls `l.error()` (Sentry event #1), then throws `LumenParseError` which the route handler at `lumen-goals/route.ts:167` catches and calls `log.error()` again (Sentry event #2).
+- Downgrading to `l.warn` preserves diagnostics without double Sentry events.
 
-**Tests:**
-1. `handleSaveExisting` sends the analysis `date` (not today) when analysis includes a date
-2. `handleSaveExisting` falls back to today's date when analysis has no date
-3. `handleSaveExisting` sends analysis `time` when selectedTime is null and analysis has time
-4. `handleSaveExisting` prefers selectedTime over analysis time when both exist
-5. `handleLog` sends analysis `date` when analysis includes a date
-6. `handleLog` falls back to today's date when analysis has no date
+### Task 7: Include request ID in Claude API error context
+**Files:**
+- `src/lib/claude.ts` (modify)
 
-### Step 5: Verify
-- [ ] All new tests pass
-- [ ] All existing tests pass
-- [ ] TypeScript compiles without errors
-- [ ] Lint passes
-- [ ] Build succeeds
+**Steps:**
+1. In `src/lib/claude.ts:203-208`, extend `ClaudeApiError` to accept an optional `requestId` property:
+   ```typescript
+   class ClaudeApiError extends Error {
+     requestId?: string;
+     constructor(message: string, requestId?: string) {
+       super(message);
+       this.name = "CLAUDE_API_ERROR";
+       this.requestId = requestId;
+     }
+   }
+   ```
+2. In the catch blocks that create `ClaudeApiError` (lines ~1058, ~1321, and `createStreamWithRetry` line ~266), extract `request_id` from the original error if available:
+   - For `Anthropic.APIError`: check `(error as Anthropic.APIError).request_id`
+   - For SSE errors: check `error.error?.request_id`
+   - Pass it to `new ClaudeApiError(message, requestId)`
+3. In `src/lib/sse.ts` where the final `logger.error()` captures the error for Sentry, the `requestId` will be included automatically as part of the error object. No changes needed there.
+4. Run verifier (no args) — all tests + lint + build
 
-## Notes
-- The edit page path (`handleSaveEdit`) is NOT affected — it correctly uses `editEntry.date` and `editEntry.time`.
-- The `EDIT_SYSTEM_PROMPT` (line 1583) doesn't need the same prompt changes because the edit page flow always has the entry context injected into the system prompt (line 1638-1647), and the `handleSaveEdit` function uses `editEntry.date` directly.
-- No DB migration needed — this is a prompt/UI-only change.
-- The `date` field in `FoodAnalysis` enables a secondary use case: users can say "log this for yesterday" or "move this to the 21st" in the regular chat, which was previously impossible.
-- The `search_food_log` output already includes the date (e.g., "Food log for 2026-02-20:" at line 179 and entry dates at line 200), so Claude has the information — it just needs the prompt permission and tool field to report it back.
+**Notes:**
+- Anthropic returns `request_id` on both successful responses (`message._request_id`) and errors (`error.request_id`). Including this in Sentry error context enables correlation with Anthropic support for debugging specific failures.
+- This is additive — existing error behavior is unchanged.
+
+### Task 8: Full verification
+**Steps:**
+1. Run `verifier` (no args) — all tests + lint + build
+2. Verify zero warnings
+
+## Post-Implementation Checklist
+1. Run `bug-hunter` agent — Review changes for bugs
+2. Run `verifier` agent — Verify all tests pass and zero warnings
+
+---
+
+## Plan Summary
+
+**Objective:** Fix all 6 actionable Sentry errors (23 events in last 7 days) — SSE overloaded errors bypassing retry, missing notes validation, double Sentry reporting, and disabled SDK retries causing unretried timeouts. Plus harden Lumen client and add request ID tracking for better Anthropic support correlation.
+**Linear Issues:** FOO-772, FOO-773, FOO-774, FOO-775
+**Approach:** Task 1 adds a third check in `isOverloadedError` for the nested SSE error structure. Task 2 defaults `notes` to `""` like `description`. Task 3 downgrades `l.error` to `l.warn` in claude.ts catch blocks. Task 4 removes `maxRetries: 0` override to re-enable SDK retries for timeouts/HTTP 529 and increases timeout from 60s to 120s. Task 5 adds Sentry instrumentation to the Lumen client. Task 6 fixes the same double-reporting pattern in lumen.ts. Task 7 propagates Anthropic request IDs into ClaudeApiError for Sentry correlation.
+**Scope:** 8 tasks, 4 files, ~12 new tests
+**Key Decisions:** Two-layer retry architecture — SDK handles HTTP-level failures (timeout, 529 status), our custom retry handles SSE-level overloaded errors mid-stream. No conflict between layers.
+**Risks:** None — all changes are defensive improvements with full backward compatibility.
 
 ---
 
 ## Iteration 1
 
-**Implemented:** 2026-03-02
-**Method:** Single-agent (5 tasks, 6 effort points across 2 units — worker overhead not justified)
+**Implemented:** 2026-03-04
+**Method:** Single-agent (effort score 10, 2 independent units — below worker threshold)
 
 ### Tasks Completed This Iteration
-- Step 1: Add `date` field to `FoodAnalysis` type — added optional `date?: string | null` to interface
-- Step 2: Add `date` to `report_nutrition` tool schema + validate in `validateFoodAnalysis` + include in `convertMessages` summary
-- Step 3: Update system prompt with edit-aware exceptions for date/time/mealType preservation
-- Step 4: Use analysis date/time in `handleSaveExisting` and `handleLog` with proper fallback chains
-- Step 5: Full verification — all tests pass, lint clean, build successful
+- Task 1: Fix isOverloadedError to match SSE streaming error format — Added Check 3 for nested SSE structure `error.error.error.type`, 3 new tests (FOO-772)
+- Task 2: Default notes to empty string in validateFoodAnalysis — Replaced throw with default, matching description pattern, 3 new tests (FOO-773)
+- Task 3: Fix double Sentry reporting in catch blocks — Downgraded `l.error` to `l.warn` in runToolLoop and analyzeFood catch blocks, 2 new tests (FOO-774). Also fixed conversationalRefine and editAnalysis catch blocks (same pattern).
+- Task 4: Re-enable SDK retries and set sensible timeout — Removed `maxRetries: 0` override, changed timeout 60s→120s, updated JSDoc, 2 tests updated (FOO-775)
+- Task 5: Add Sentry instrumentation to Lumen client — Wrapped Anthropic client with `Sentry.instrumentAnthropicAiClient()`
+- Task 6: Fix double Sentry reporting in Lumen catch block — Downgraded `l.error` to `l.warn`, 1 new test
+- Task 7: Include request ID in Claude API error context — Extended ClaudeApiError with optional requestId, added extractRequestId helper, propagated to all 5 throw sites
+- Task 8: Full verification — All 2498 tests pass, zero lint warnings, build succeeds
 
 ### Files Modified
-- `src/types/index.ts` — Added `date` field to `FoodAnalysis` interface
-- `src/lib/claude.ts` — Added `date` to tool schema, validation, system prompt edit exceptions, `convertMessages` summary; imported `isValidDateFormat`
-- `src/components/food-chat.tsx` — `handleLog` and `handleSaveExisting` use `analysis.date ?? fallback.date` instead of always `getLocalDateTime().date`; destructured analysis to prevent spread override fragility
-- `src/lib/__tests__/claude.test.ts` — 13 new tests: date validation (8), tool schema (2), convertMessages (2), prompt rules (3)
-- `src/components/__tests__/food-chat.test.tsx` — 5 new tests: date/time preservation in handleSaveExisting (3), handleLog (2)
+- `src/lib/claude.ts` — isOverloadedError Check 3, notes default, l.error→l.warn in 4 catch blocks, removed maxRetries:0, timeout 60s→120s, ClaudeApiError requestId, extractRequestId helper, updated JSDoc
+- `src/lib/lumen.ts` — Added Sentry import + instrumentation, l.error→l.warn in catch block
+- `src/lib/__tests__/claude.test.ts` — 10 new/updated tests for Tasks 1-4, 7
+- `src/lib/__tests__/lumen.test.ts` — 1 new test for Task 6
 
 ### Linear Updates
-- FOO-769: Todo → In Progress → Review
+- FOO-772: Todo → In Progress → Review
+- FOO-773: Todo → In Progress → Review
+- FOO-774: Todo → In Progress → Review
+- FOO-775: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 2 medium + 1 low issues, fixed both medium (spread override fragility, test description accuracy) before proceeding
-- verifier: All 2487 tests pass, zero warnings, build successful
+- bug-hunter: Passed — 0 bugs found
+- verifier: All 2498 tests pass, zero warnings, build succeeds
 
 ### Continuation Status
 All tasks completed.
 
 ### Review Findings
 
-Summary: 2 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+Summary: 2 issue(s) found, fixed inline (single-agent review)
 - FIXED INLINE: 2 issue(s) — verified via TDD + bug-hunter
 
 **Issues fixed inline:**
-- [MEDIUM] TEST: Missing mealTypeId preservation test in handleSaveExisting (`src/components/__tests__/food-chat.test.tsx`) — added end-to-end test verifying SSE mealTypeId reaches `/api/edit-food` body
-- [LOW] TEST: Missing mealTypeId test in convertMessages Current values summary (`src/lib/__tests__/claude.test.ts`) — added test asserting `meal_type_id=4` appears in `[Current values:]`
+- [MEDIUM] BUG: Double Sentry reporting in createStreamWithRetry retry exhaustion (`src/lib/claude.ts:292`) — `log.error` before throw produces 2 Sentry events; downgraded to `log.warn`
+- [MEDIUM] BUG: Double Sentry reporting in Lumen no-tool_use-block path (`src/lib/lumen.ts:148`) — `l.error` before throw produces 2 Sentry events; downgraded to `l.warn`
 
 **Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: Prompt injection via `currentDate` interpolation (`src/lib/claude.ts:784`) — Single-user OAuth-gated app; user would inject into their own LLM prompts. No attack vector.
-- [DISCARDED] SECURITY: Prompt injection via `initialAnalysis` fields (`src/lib/claude.ts:1427`) — Same reasoning; authenticated user's own data into their own conversation.
-- [DISCARDED] TYPE: Unchecked confidence cast (`src/components/food-chat.tsx:62`) — Pre-existing; confidence always originates from Claude's validated tool output. Safe in context.
-- [DISCARDED] CONVENTION: Missing `action:` on l.warn calls (`src/lib/claude.ts`) — Pre-existing convention nit on unmodified lines. Zero correctness impact.
-- [DISCARDED] DEAD-CODE: Unreachable fallback in validateFoodAnalysis (`src/lib/claude.ts:398`) — Dead code; misleading but no runtime effect.
-- [DISCARDED] LOGIC: date/time asymmetry in handleLog (`src/components/food-chat.tsx:522`) — Reviewer marked "No bug". Functionally correct.
+- None
 
-### Linear Updates (Review)
-- FOO-769: Review → Merge (original task)
-- FOO-770: Created in Merge (Fix: missing mealTypeId preservation test — fixed inline)
-- FOO-771: Created in Merge (Fix: missing mealTypeId in convertMessages test — fixed inline)
+### Linear Updates
+- FOO-772: Review → Merge (original task)
+- FOO-773: Review → Merge (original task)
+- FOO-774: Review → Merge (original task)
+- FOO-775: Review → Merge (original task)
+- FOO-776: Created in Merge (Fix: double Sentry reporting in retry exhaustion — fixed inline)
+- FOO-777: Created in Merge (Fix: double Sentry reporting in Lumen no-tool_use path — fixed inline)
 
 ### Inline Fix Verification
-- Unit tests: all 2489 pass
+- Unit tests: all 2500 pass
 - Bug-hunter: no new issues
 
 <!-- REVIEW COMPLETE -->

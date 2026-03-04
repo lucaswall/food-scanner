@@ -18,7 +18,7 @@ function getClient(): Anthropic {
   if (!_client) {
     const client = new Anthropic({
       apiKey: getRequiredEnv("ANTHROPIC_API_KEY"),
-      timeout: 60000, // 60 second timeout — accommodates web search latency
+      timeout: 120000, // 120 second timeout — accommodates streaming with web search
       maxRetries: 2,
     });
     _client = Sentry.instrumentAnthropicAiClient(client);
@@ -201,10 +201,26 @@ export interface ImageInput {
 }
 
 class ClaudeApiError extends Error {
-  constructor(message: string) {
+  requestId?: string;
+  constructor(message: string, requestId?: string) {
     super(message);
     this.name = "CLAUDE_API_ERROR";
+    this.requestId = requestId;
   }
+}
+
+/** Extract Anthropic request_id from an error, if available. */
+function extractRequestId(error: unknown): string | undefined {
+  if (error === null || typeof error !== "object") return undefined;
+  const e = error as Record<string, unknown>;
+  // Anthropic SDK APIError exposes request_id directly
+  if (typeof e.request_id === "string") return e.request_id;
+  // SSE errors nest it inside error.error
+  if (e.error !== null && typeof e.error === "object") {
+    const body = e.error as Record<string, unknown>;
+    if (typeof body.request_id === "string") return body.request_id;
+  }
+  return undefined;
 }
 
 /**
@@ -220,7 +236,16 @@ export function isOverloadedError(error: unknown): boolean {
   if (error !== null && typeof error === "object" && "error" in error) {
     const body = (error as Record<string, unknown>).error;
     if (body !== null && typeof body === "object" && "type" in (body as object)) {
-      return (body as Record<string, unknown>).type === "overloaded_error";
+      if ((body as Record<string, unknown>).type === "overloaded_error") {
+        return true;
+      }
+      // Check 3: SSE streaming errors — nested one level deeper: { type: "error", error: { type: "overloaded_error" } }
+      if ("error" in (body as object)) {
+        const inner = (body as Record<string, unknown>).error;
+        if (inner !== null && typeof inner === "object" && "type" in (inner as object)) {
+          return (inner as Record<string, unknown>).type === "overloaded_error";
+        }
+      }
     }
   }
   return false;
@@ -229,12 +254,14 @@ export function isOverloadedError(error: unknown): boolean {
 const RETRY_DELAYS_MS = [1000, 3000] as const;
 
 /**
- * Creates a Claude API stream with automatic retry on 529 (overloaded) errors.
+ * Creates a Claude API stream with automatic retry on overloaded errors.
  * Yields a retry text_delta event before each retry so the UI can show feedback.
- * Throws ClaudeApiError if all retries are exhausted or if a non-529 error occurs.
+ * Throws ClaudeApiError if all retries are exhausted or if a non-overloaded error occurs.
  *
- * Passes maxRetries: 0 in request options to disable SDK-level retries for this call
- * (avoiding double-retry with the client's default maxRetries: 2).
+ * Two-layer retry architecture:
+ * - SDK retries (maxRetries: 2) handle HTTP-level failures: timeouts, 529 status, connection errors.
+ * - This function's custom retry handles SSE-level overloaded errors that occur mid-stream.
+ * These layers don't conflict — SDK retries fire before the stream starts, ours fire after.
  */
 export async function* createStreamWithRetry(
   streamParams: Parameters<Anthropic["beta"]["messages"]["stream"]>[0],
@@ -248,7 +275,7 @@ export async function* createStreamWithRetry(
     try {
       const stream = getClient().beta.messages.stream(
         streamParams,
-        { ...(requestOptions ?? {}), maxRetries: 0 },
+        requestOptions ?? {},
       );
       const msg: Anthropic.Message = yield* streamTextDeltas(stream);
       return msg;
@@ -262,8 +289,8 @@ export async function* createStreamWithRetry(
         continue;
       }
       if (isOverloadedError(error)) {
-        log.error({ action: "stream_retry_exhausted", attempt }, "Claude API persistently overloaded, exhausted retries");
-        throw new ClaudeApiError("The AI service is temporarily overloaded. Please try again in a moment.");
+        log.warn({ action: "stream_retry_exhausted", attempt }, "Claude API persistently overloaded, exhausted retries");
+        throw new ClaudeApiError("The AI service is temporarily overloaded. Please try again in a moment.", extractRequestId(error));
       }
       throw error;
     }
@@ -375,9 +402,7 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     throw new ClaudeApiError("Invalid food analysis: confidence must be high, medium, or low");
   }
 
-  if (typeof data.notes !== "string") {
-    throw new ClaudeApiError("Invalid food analysis: missing notes");
-  }
+  const notes = typeof data.notes === "string" ? data.notes : "";
 
   if (!Array.isArray(data.keywords)) {
     throw new ClaudeApiError("Invalid food analysis: keywords must be an array");
@@ -510,7 +535,7 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     sugars_g: tier1Values.sugars_g,
     calories_from_fat: tier1Values.calories_from_fat,
     confidence: data.confidence as FoodAnalysis["confidence"],
-    notes: data.notes as string,
+    notes,
     keywords,
     description,
   };
@@ -1051,12 +1076,13 @@ export async function* runToolLoop(
       throw error;
     }
 
-    l.error(
+    l.warn(
       { action: "tool_loop_error", error: error instanceof Error ? error.message : String(error) },
       "Claude API tool loop error"
     );
     throw new ClaudeApiError(
-      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`,
+      extractRequestId(error)
     );
   }
 }
@@ -1314,12 +1340,13 @@ export async function* analyzeFood(
       throw error;
     }
 
-    l.error(
+    l.warn(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API error"
     );
     throw new ClaudeApiError(
-      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`,
+      extractRequestId(error)
     );
   }
 }
@@ -1598,12 +1625,13 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       throw error;
     }
 
-    l.error(
+    l.warn(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API conversational refinement error"
     );
     throw new ClaudeApiError(
-      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`,
+      extractRequestId(error)
     );
   }
 }
@@ -1709,12 +1737,13 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     if (error instanceof ClaudeApiError) {
       throw error;
     }
-    l.error(
+    l.warn(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API edit analysis error"
     );
     throw new ClaudeApiError(
-      `API request failed: ${error instanceof Error ? error.message : String(error)}`
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`,
+      extractRequestId(error)
     );
   }
 }
