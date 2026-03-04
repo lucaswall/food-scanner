@@ -2,8 +2,8 @@
 
 **Created:** 2026-03-04
 **Source:** Inline request: Fix all Sentry errors — isOverloadedError SSE mismatch, missing notes validation, double Sentry reporting
-**Linear Issues:** [FOO-772](https://linear.app/lw-claude/issue/FOO-772/fix-isoverloadederror-to-match-sse-streaming-error-format), [FOO-773](https://linear.app/lw-claude/issue/FOO-773/default-notes-to-empty-string-in-validatefoodanalysis-instead-of), [FOO-774](https://linear.app/lw-claude/issue/FOO-774/fix-double-sentry-reporting-in-claude-api-error-catch-blocks)
-**Sentry Issues:** FOOD-SCANNER-3, FOOD-SCANNER-5, FOOD-SCANNER-6, FOOD-SCANNER-7, FOOD-SCANNER-8
+**Linear Issues:** [FOO-772](https://linear.app/lw-claude/issue/FOO-772/fix-isoverloadederror-to-match-sse-streaming-error-format), [FOO-773](https://linear.app/lw-claude/issue/FOO-773/default-notes-to-empty-string-in-validatefoodanalysis-instead-of), [FOO-774](https://linear.app/lw-claude/issue/FOO-774/fix-double-sentry-reporting-in-claude-api-error-catch-blocks), [FOO-775](https://linear.app/lw-claude/issue/FOO-775/re-enable-sdk-retries-and-set-sensible-timeout-for-claude-api-client)
+**Sentry Issues:** FOOD-SCANNER-3, FOOD-SCANNER-4, FOOD-SCANNER-5, FOOD-SCANNER-6, FOOD-SCANNER-7, FOOD-SCANNER-8
 **Branch:** fix/sentry-claude-api-errors
 
 ## Context Gathered
@@ -11,7 +11,9 @@
 ### Codebase Analysis
 
 - **`src/lib/claude.ts:214-227`** — `isOverloadedError()`: two checks — `error.status === 529` and `error.error.type === "overloaded_error"`. Neither matches SSE streaming errors where the structure is `error.error = { type: "error", error: { type: "overloaded_error" } }`.
-- **`src/lib/claude.ts:239-271`** — `createStreamWithRetry()`: retry logic works, but never fires for SSE errors because `isOverloadedError` returns false.
+- **`src/lib/claude.ts:239-271`** — `createStreamWithRetry()`: retry logic works, but never fires for SSE errors because `isOverloadedError` returns false. Also passes `maxRetries: 0` at line 251 which disables ALL SDK-level retries (timeouts, HTTP 529, connection errors) as collateral.
+- **`src/lib/claude.ts:17-27`** — Anthropic client configured with `timeout: 60000` (60s) and `maxRetries: 2`. The 60s timeout caused FOOD-SCANNER-4 (staging timeout with zero retries). SDK default is 600s (10 min).
+- **SDK retry architecture** — SDK retries handle HTTP-level failures (timeout, 529 status response, connection errors). Our custom retry handles SSE-level overloaded errors (mid-stream). These operate on different layers and don't conflict — the "double-retry" fear in the comment at line 236-237 was unfounded.
 - **`src/lib/claude.ts:378-379`** — `validateFoodAnalysis` throws on missing `notes`. Compare to line 398 where `description` defaults to `""`.
 - **`src/lib/claude.ts:1049-1061`** — Tool loop catch: `l.error()` + `throw ClaudeApiError` = double Sentry event.
 - **`src/lib/claude.ts:1312-1324`** — analyzeFood catch: same double-reporting pattern.
@@ -92,7 +94,30 @@
 - The thrown `ClaudeApiError` still propagates to `sse.ts:45` where `logger.error({ err }, "SSE generator threw an unexpected error")` logs it — this is the single Sentry event per failure.
 - The downgraded logs become `warn` level which Sentry typically doesn't capture as events.
 
-### Task 4: Full verification
+### Task 4: Re-enable SDK retries and set sensible timeout
+**Linear Issue:** [FOO-775](https://linear.app/lw-claude/issue/FOO-775/re-enable-sdk-retries-and-set-sensible-timeout-for-claude-api-client)
+**Files:**
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
+
+**Steps:**
+1. Write tests in `src/lib/__tests__/claude.test.ts`:
+   - Test in `createStreamWithRetry` describe: verify the stream call does NOT pass `maxRetries: 0` in request options (i.e., SDK retries are not disabled). Check the second argument to `mockStream` does not contain `maxRetries: 0`. Existing test at line 2738-2746 asserts `maxRetries: 0` — update it to assert `maxRetries` is NOT overridden.
+   - Test: verify the Anthropic client is constructed with `timeout: 120000` (check `mockConstructorArgs` is called with `timeout: 120000`)
+2. Run verifier with pattern `createStreamWithRetry` (expect fail — tests expect no `maxRetries: 0` but code still has it)
+3. In `src/lib/claude.ts:251`, remove `maxRetries: 0` from the request options — change `{ ...(requestOptions ?? {}), maxRetries: 0 }` to `requestOptions ?? {}`. SDK-level retries (timeout, HTTP 529, connection errors) will now work. Our custom retry only handles SSE-level overloaded errors — no conflict.
+4. In `src/lib/claude.ts:21`, change `timeout: 60000` to `timeout: 120000` — 120 seconds gives headroom for streaming with web search without excessive user wait.
+5. Update the `createStreamWithRetry` JSDoc comment (lines 231-238) to remove the `maxRetries: 0` explanation and document the two-layer retry architecture: SDK handles HTTP-level failures, our code handles SSE-level overloaded errors.
+6. Run verifier with pattern `createStreamWithRetry` (expect pass)
+
+**Sentry closure:** Commit message must include `Fixes FOOD-SCANNER-4`.
+
+**Notes:**
+- SDK `maxRetries: 2` means up to 3 total attempts for timeouts/HTTP 529 — with exponential backoff managed by the SDK.
+- Our custom retry (2 retries with 1s + 3s delays) handles SSE overloaded errors that happen mid-stream. These are a different error path — the HTTP connection succeeded but the SSE event stream contains an error.
+- The two retry layers don't conflict: SDK retries fire before the stream starts (HTTP level), our retries fire after the stream starts (SSE level).
+
+### Task 5: Full verification
 **Steps:**
 1. Run `verifier` (no args) — all tests + lint + build
 2. Verify zero warnings
@@ -105,9 +130,9 @@
 
 ## Plan Summary
 
-**Objective:** Fix 3 bugs causing 20 of 23 Sentry error events in the last 7 days — SSE overloaded errors bypassing retry, notes validation throwing instead of defaulting, and double Sentry event creation per failure.
-**Linear Issues:** FOO-772, FOO-773, FOO-774
-**Approach:** Task 1 adds a third check in `isOverloadedError` for the nested SSE error structure so streaming overloaded errors trigger retries. Task 2 defaults `notes` to `""` like `description` already does. Task 3 downgrades `l.error` to `l.warn` in two catch blocks to eliminate duplicate Sentry events. All tasks include Sentry issue references in commit messages for auto-closure.
-**Scope:** 4 tasks, 2 files, ~8 new tests
-**Key Decisions:** Downgrade catch-block logs to `warn` rather than removing them — preserves debuggability while eliminating Sentry noise.
+**Objective:** Fix all 6 actionable Sentry errors (23 events in last 7 days) — SSE overloaded errors bypassing retry, missing notes validation, double Sentry reporting, and disabled SDK retries causing unretried timeouts.
+**Linear Issues:** FOO-772, FOO-773, FOO-774, FOO-775
+**Approach:** Task 1 adds a third check in `isOverloadedError` for the nested SSE error structure. Task 2 defaults `notes` to `""` like `description`. Task 3 downgrades `l.error` to `l.warn` in catch blocks. Task 4 removes `maxRetries: 0` override to re-enable SDK retries for timeouts/HTTP 529 and increases timeout from 60s to 120s. All commits include `Fixes FOOD-SCANNER-N` references for auto-closure.
+**Scope:** 5 tasks, 2 files, ~10 new tests
+**Key Decisions:** Two-layer retry architecture — SDK handles HTTP-level failures (timeout, 529 status), our custom retry handles SSE-level overloaded errors mid-stream. No conflict between layers.
 **Risks:** None — all changes are defensive improvements with full backward compatibility.
