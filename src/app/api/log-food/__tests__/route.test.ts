@@ -59,12 +59,12 @@ vi.mock("@/lib/fitbit", () => ({
 }));
 
 // Mock food-log DB module
-const mockInsertCustomFood = vi.fn();
+const mockInsertCustomFoodWithLogEntry = vi.fn();
 const mockInsertFoodLogEntry = vi.fn();
 const mockGetCustomFoodById = vi.fn();
 const mockUpdateCustomFoodMetadata = vi.fn();
 vi.mock("@/lib/food-log", () => ({
-  insertCustomFood: (...args: unknown[]) => mockInsertCustomFood(...args),
+  insertCustomFoodWithLogEntry: (...args: unknown[]) => mockInsertCustomFoodWithLogEntry(...args),
   insertFoodLogEntry: (...args: unknown[]) => mockInsertFoodLogEntry(...args),
   getCustomFoodById: (...args: unknown[]) => mockGetCustomFoodById(...args),
   updateCustomFoodMetadata: (...args: unknown[]) => mockUpdateCustomFoodMetadata(...args),
@@ -112,7 +112,7 @@ function createMockRequest(body: Partial<FoodLogRequest>): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockInsertCustomFood.mockResolvedValue({ id: 1, createdAt: new Date() });
+  mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 1, foodLogId: 1 });
   mockInsertFoodLogEntry.mockResolvedValue({ id: 1, loggedAt: new Date() });
 });
 
@@ -493,21 +493,20 @@ describe("POST /api/log-food", () => {
     );
   });
 
-  it("calls insertCustomFood and insertFoodLogEntry after successful Fitbit logging", async () => {
+  it("calls insertCustomFoodWithLogEntry after successful Fitbit logging", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
-    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-    mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+    mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 42, foodLogId: 10 });
 
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
     expect(response.status).toBe(200);
-    expect(mockInsertCustomFood).toHaveBeenCalledWith(
+    expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
       "user-uuid-123",
       expect.objectContaining({
         foodName: "Test Food",
@@ -523,70 +522,47 @@ describe("POST /api/log-food", () => {
         notes: "Test notes",
         fitbitFoodId: 123,
       }),
-    );
-    expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
-      "user-uuid-123",
       expect.objectContaining({
-        customFoodId: 42,
         mealTypeId: 1,
         amount: 100,
         unitId: 147,
         fitbitLogId: 456,
       }),
+      expect.anything(),
     );
     const body = await response.json();
     expect(body.data.foodLogId).toBe(10);
   });
 
-  it("passes keywords through to insertCustomFood", async () => {
+  it("passes keywords through to insertCustomFoodWithLogEntry", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
-    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-    mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
 
     const request = createMockRequest(validFoodLogRequest);
     await POST(request);
 
-    expect(mockInsertCustomFood).toHaveBeenCalledWith(
+    expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
       "user-uuid-123",
       expect.objectContaining({
         keywords: ["test", "food"],
       }),
+      expect.anything(),
+      expect.anything(),
     );
   });
 
-  it("returns error and compensates Fitbit when insertCustomFood fails in new food flow", async () => {
+  it("returns error and compensates Fitbit when insertCustomFoodWithLogEntry fails in new food flow", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
-    mockInsertCustomFood.mockRejectedValue(new Error("DB connection failed"));
-    mockDeleteFoodLog.mockResolvedValue(undefined);
-
-    const request = createMockRequest(validFoodLogRequest);
-    const response = await POST(request);
-
-    expect(response.status).toBe(500);
-    const body = await response.json();
-    expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456, expect.any(Object));
-  });
-
-  it("returns error and compensates Fitbit when insertFoodLogEntry fails in new food flow", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("fresh-token");
-    mockFindOrCreateFood.mockResolvedValue({ foodId: 123, reused: false });
-    mockLogFood.mockResolvedValue({
-      foodLog: { logId: 456, loggedFood: { foodId: 123 } },
-    });
-    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-    mockInsertFoodLogEntry.mockRejectedValue(new Error("DB connection failed"));
+    mockInsertCustomFoodWithLogEntry.mockRejectedValue(new Error("DB connection failed"));
     mockDeleteFoodLog.mockResolvedValue(undefined);
 
     const request = createMockRequest(validFoodLogRequest);
@@ -605,7 +581,7 @@ describe("POST /api/log-food", () => {
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
-    mockInsertCustomFood.mockRejectedValue(new Error("DB connection failed"));
+    mockInsertCustomFoodWithLogEntry.mockRejectedValue(new Error("DB connection failed"));
     mockDeleteFoodLog.mockRejectedValue(new Error("Fitbit API error"));
 
     const request = createMockRequest(validFoodLogRequest);
@@ -655,7 +631,7 @@ describe("POST /api/log-food", () => {
     vi.stubEnv("FITBIT_DRY_RUN", "true");
     try {
       mockGetSession.mockResolvedValue(validSession);
-      mockInsertCustomFood.mockRejectedValue(new Error("DB connection failed"));
+      mockInsertCustomFoodWithLogEntry.mockRejectedValue(new Error("DB connection failed"));
 
       const request = createMockRequest(validFoodLogRequest);
       const response = await POST(request);
@@ -750,7 +726,7 @@ describe("POST /api/log-food", () => {
       });
       await POST(request);
 
-      expect(mockInsertCustomFood).not.toHaveBeenCalled();
+      expect(mockInsertCustomFoodWithLogEntry).not.toHaveBeenCalled();
       expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
         "user-uuid-123",
         expect.objectContaining({
@@ -842,8 +818,6 @@ describe("POST /api/log-food", () => {
       mockLogFood.mockResolvedValue({
         foodLog: { logId: 456, loggedFood: { foodId: 123 } },
       });
-      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
 
       const request = createMockRequest(validFoodLogRequest);
       const response = await POST(request);
@@ -851,7 +825,7 @@ describe("POST /api/log-food", () => {
       expect(response.status).toBe(200);
       expect(mockFindOrCreateFood).toHaveBeenCalled();
       expect(mockGetCustomFoodById).not.toHaveBeenCalled();
-      expect(mockInsertCustomFood).toHaveBeenCalled();
+      expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalled();
     });
 
     it("calls updateCustomFoodMetadata when reuse request includes new metadata fields", async () => {
@@ -1176,8 +1150,6 @@ describe("POST /api/log-food", () => {
     it("skips Fitbit API calls in new food flow", async () => {
       vi.stubEnv("FITBIT_DRY_RUN", "true");
       mockGetSession.mockResolvedValue(validSession);
-      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
 
       const request = createMockRequest(validFoodLogRequest);
       const response = await POST(request);
@@ -1191,8 +1163,7 @@ describe("POST /api/log-food", () => {
     it("returns success with dryRun flag and no fitbitLogId in new food flow", async () => {
       vi.stubEnv("FITBIT_DRY_RUN", "true");
       mockGetSession.mockResolvedValue(validSession);
-      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 42, foodLogId: 10 });
 
       const request = createMockRequest(validFoodLogRequest);
       const response = await POST(request);
@@ -1205,47 +1176,43 @@ describe("POST /api/log-food", () => {
       expect(body.data.fitbitFoodId).toBeUndefined();
     });
 
-    it("still calls insertCustomFood and insertFoodLogEntry in new food flow", async () => {
+    it("still calls insertCustomFoodWithLogEntry in new food flow", async () => {
       vi.stubEnv("FITBIT_DRY_RUN", "true");
       mockGetSession.mockResolvedValue(validSession);
-      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
 
       const request = createMockRequest(validFoodLogRequest);
       await POST(request);
 
-      expect(mockInsertCustomFood).toHaveBeenCalledWith(
+      expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
         "user-uuid-123",
         expect.objectContaining({
           foodName: "Test Food",
           fitbitFoodId: null,
         }),
-      );
-      expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
-        "user-uuid-123",
         expect.objectContaining({
-          customFoodId: 42,
           fitbitLogId: null,
         }),
+        expect.anything(),
       );
     });
 
-    it("insertFoodLogEntry receives fitbitLogId: null in new food flow", async () => {
+    it("insertCustomFoodWithLogEntry receives fitbitLogId: null in new food flow", async () => {
       vi.stubEnv("FITBIT_DRY_RUN", "true");
       mockGetSession.mockResolvedValue(validSession);
-      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
+      mockInsertCustomFoodWithLogEntry.mockResolvedValue({ customFoodId: 42, foodLogId: 10 });
 
       const request = createMockRequest(validFoodLogRequest);
       const response = await POST(request);
 
       const body = await response.json();
       expect(body.data.foodLogId).toBe(10);
-      expect(mockInsertFoodLogEntry).toHaveBeenCalledWith(
+      expect(mockInsertCustomFoodWithLogEntry).toHaveBeenCalledWith(
         "user-uuid-123",
+        expect.anything(),
         expect.objectContaining({
           fitbitLogId: null,
         }),
+        expect.anything(),
       );
     });
 
@@ -1330,8 +1297,6 @@ describe("POST /api/log-food", () => {
       mockLogFood.mockResolvedValue({
         foodLog: { logId: 456, loggedFood: { foodId: 123 } },
       });
-      mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-      mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
 
       const request = createMockRequest(validFoodLogRequest);
       const response = await POST(request);
@@ -1367,9 +1332,6 @@ describe("POST /api/log-food", () => {
     mockLogFood.mockResolvedValue({
       foodLog: { logId: 456, loggedFood: { foodId: 123 } },
     });
-    mockInsertCustomFood.mockResolvedValue({ id: 42, createdAt: new Date() });
-    mockInsertFoodLogEntry.mockResolvedValue({ id: 10, loggedAt: new Date() });
-
     const exactlyTwentyKeywords = Array.from({ length: 20 }, (_, i) => `keyword${i}`);
     const request = createMockRequest({
       ...validFoodLogRequest,

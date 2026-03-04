@@ -597,6 +597,74 @@ export async function updateFoodLogEntryMetadata(
 
 type DbTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
+export interface InsertCustomFoodWithLogEntryResult {
+  customFoodId: number;
+  foodLogId: number;
+}
+
+export async function insertCustomFoodWithLogEntry(
+  userId: string,
+  customFoodData: CustomFoodInput,
+  logEntryData: Omit<FoodLogEntryInput, "customFoodId">,
+  log?: Logger,
+): Promise<InsertCustomFoodWithLogEntryResult> {
+  const l = log ?? logger;
+  const db = getDb();
+
+  return db.transaction(async (tx) => {
+    const foodRows = await tx
+      .insert(customFoods)
+      .values({
+        userId,
+        foodName: customFoodData.foodName,
+        amount: String(customFoodData.amount),
+        unitId: customFoodData.unitId,
+        calories: Math.round(customFoodData.calories),
+        proteinG: String(customFoodData.proteinG),
+        carbsG: String(customFoodData.carbsG),
+        fatG: String(customFoodData.fatG),
+        fiberG: String(customFoodData.fiberG),
+        sodiumMg: String(customFoodData.sodiumMg),
+        saturatedFatG: customFoodData.saturatedFatG != null ? String(customFoodData.saturatedFatG) : null,
+        transFatG: customFoodData.transFatG != null ? String(customFoodData.transFatG) : null,
+        sugarsG: customFoodData.sugarsG != null ? String(customFoodData.sugarsG) : null,
+        caloriesFromFat: customFoodData.caloriesFromFat != null ? String(customFoodData.caloriesFromFat) : null,
+        confidence: customFoodData.confidence,
+        notes: customFoodData.notes,
+        description: customFoodData.description ?? null,
+        fitbitFoodId: customFoodData.fitbitFoodId ?? null,
+        keywords: customFoodData.keywords ?? null,
+      })
+      .returning({ id: customFoods.id, createdAt: customFoods.createdAt });
+
+    const foodRow = foodRows[0];
+    if (!foodRow) throw new Error("Failed to insert custom food: no row returned");
+
+    const entryRows = await tx
+      .insert(foodLogEntries)
+      .values({
+        userId,
+        customFoodId: foodRow.id,
+        mealTypeId: logEntryData.mealTypeId,
+        amount: String(logEntryData.amount),
+        unitId: logEntryData.unitId,
+        date: logEntryData.date,
+        time: logEntryData.time,
+        fitbitLogId: logEntryData.fitbitLogId ?? null,
+      })
+      .returning({ id: foodLogEntries.id, loggedAt: foodLogEntries.loggedAt });
+
+    const entryRow = entryRows[0];
+    if (!entryRow) throw new Error("Failed to insert food log entry: no row returned");
+
+    l.debug(
+      { action: "insert_custom_food_with_log_entry", foodName: customFoodData.foodName, customFoodId: foodRow.id, foodLogId: entryRow.id },
+      "custom food and log entry inserted in transaction",
+    );
+    return { customFoodId: foodRow.id, foodLogId: entryRow.id };
+  });
+}
+
 async function cleanupOrphanCustomFood(tx: DbTx, customFoodId: number, userId: string): Promise<boolean> {
   const remainingEntries = await tx
     .select({ id: foodLogEntries.id })
