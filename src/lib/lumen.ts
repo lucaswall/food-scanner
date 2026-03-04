@@ -33,8 +33,10 @@ Also extract the day type (e.g., "High Carb", "Low Carb", "Moderate").`;
 const REPORT_LUMEN_GOALS_TOOL: Anthropic.Tool = {
   name: "report_lumen_goals",
   description: "Report the macro nutrient targets from the Lumen app screenshot",
+  strict: true,
   input_schema: {
     type: "object" as const,
+    additionalProperties: false as const,
     properties: {
       day_type: {
         type: "string",
