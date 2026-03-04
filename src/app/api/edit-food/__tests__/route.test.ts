@@ -59,10 +59,12 @@ vi.mock("@/lib/fitbit", () => ({
 const mockGetFoodLogEntryDetail = vi.fn();
 const mockUpdateFoodLogEntry = vi.fn();
 const mockUpdateFoodLogEntryMetadata = vi.fn();
+const mockUpdateCustomFoodMetadata = vi.fn();
 vi.mock("@/lib/food-log", () => ({
   getFoodLogEntryDetail: (...args: unknown[]) => mockGetFoodLogEntryDetail(...args),
   updateFoodLogEntry: (...args: unknown[]) => mockUpdateFoodLogEntry(...args),
   updateFoodLogEntryMetadata: (...args: unknown[]) => mockUpdateFoodLogEntryMetadata(...args),
+  updateCustomFoodMetadata: (...args: unknown[]) => mockUpdateCustomFoodMetadata(...args),
 }));
 
 const { POST, isNutritionUnchanged } = await import("@/app/api/edit-food/route");
@@ -144,6 +146,7 @@ beforeEach(() => {
   mockLogFood.mockResolvedValue({ foodLog: { logId: 99999 } });
   mockUpdateFoodLogEntry.mockResolvedValue({ fitbitLogId: 99999, newCustomFoodId: 200 });
   mockUpdateFoodLogEntryMetadata.mockResolvedValue(undefined);
+  mockUpdateCustomFoodMetadata.mockResolvedValue(undefined);
   vi.stubEnv("FITBIT_DRY_RUN", "false");
 });
 
@@ -522,5 +525,33 @@ describe("POST /api/edit-food (fast path)", () => {
     expect(mockLogFood).not.toHaveBeenCalled();
     expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalled();
     expect(mockFindOrCreateFood).not.toHaveBeenCalled();
+  });
+
+  it("fast path: updates custom_foods metadata when notes/description/keywords/confidence differ", async () => {
+    const metadataChangedBody = {
+      ...unchangedNutritionBody,
+      notes: "Updated notes",
+      description: "Updated description",
+      keywords: ["empanada", "carne", "horneada"],
+      confidence: "medium" as const,
+    };
+    const response = await POST(createMockRequest(metadataChangedBody));
+    expect(response.status).toBe(200);
+    expect(mockUpdateCustomFoodMetadata).toHaveBeenCalledWith(
+      "user-uuid-123",
+      100, // existingEntry.customFoodId
+      {
+        notes: "Updated notes",
+        description: "Updated description",
+        keywords: ["empanada", "carne", "horneada"],
+        confidence: "medium",
+      },
+    );
+  });
+
+  it("fast path: skips custom_foods metadata update when metadata is unchanged", async () => {
+    const response = await POST(createMockRequest(unchangedNutritionBody));
+    expect(response.status).toBe(200);
+    expect(mockUpdateCustomFoodMetadata).not.toHaveBeenCalled();
   });
 });

@@ -62,6 +62,7 @@ export interface UpdateFoodLogInput {
   date: string;
   time: string;
   fitbitLogId?: number | null;
+  fitbitFoodId?: number | null;
 }
 
 export async function insertCustomFood(
@@ -775,7 +776,7 @@ export async function updateFoodLogEntry(
         notes: data.notes,
         description: data.description ?? null,
         keywords: data.keywords ?? null,
-        fitbitFoodId: oldFood?.fitbitFoodId ?? null,
+        fitbitFoodId: data.fitbitFoodId ?? oldFood?.fitbitFoodId ?? null,
         isFavorite: oldFood?.isFavorite ?? false,
         shareToken: oldFood?.shareToken ?? null,
       })
@@ -802,7 +803,7 @@ export async function updateFoodLogEntry(
     await cleanupOrphanCustomFood(tx, oldCustomFoodId, userId);
 
     l.debug({ action: "update_food_log_entry", entryId, newCustomFoodId: newFood.id }, "food log entry updated");
-    return { fitbitLogId: row.fitbitLogId, newCustomFoodId: newFood.id };
+    return { fitbitLogId: data.fitbitLogId ?? row.fitbitLogId, newCustomFoodId: newFood.id };
   });
 }
 

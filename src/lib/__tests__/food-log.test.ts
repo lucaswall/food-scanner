@@ -2674,6 +2674,34 @@ describe("updateFoodLogEntry", () => {
     const orphanDeleteWhereArg = mockDeleteWhere.mock.calls[0][0];
     expect(orphanDeleteWhereArg.queryChunks).toHaveLength(3);
   });
+
+  it("uses provided fitbitFoodId instead of old value when present in data", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: 555, isFavorite: false, shareToken: null }]); // old custom food has 555
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, fitbitFoodId: 9000 });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fitbitFoodId: 9000, // new value, not 555 from old food
+      })
+    );
+  });
+
+  it("returns updated fitbitLogId when provided in data", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]); // old fitbitLogId is 789
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    const result = await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, fitbitLogId: 5555 });
+
+    expect(result).toEqual({ fitbitLogId: 5555, newCustomFoodId: 99 }); // 5555, not stale 789
+  });
 });
 
 describe("updateFoodLogEntryMetadata", () => {

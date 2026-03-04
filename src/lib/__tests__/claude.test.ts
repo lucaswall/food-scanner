@@ -614,6 +614,28 @@ describe("analyzeFood", () => {
     expect(err.message).toMatch(/too long|conversation/i);
   });
 
+  // Fix 4 (FOO-792): refusal stop_reason in initial analyzeFood call
+  it("throws CLAUDE_API_ERROR when initial response is refusal (FOO-792)", async () => {
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "refusal",
+        content: [{ type: "text", text: "I cannot assist with that request." }],
+        usage: { input_tokens: 100, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const { error } = await collectEventsExpectThrow(
+      analyzeFood([], "something inappropriate", "user-123", "2026-02-15")
+    );
+
+    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
+    const err = error as { message: string };
+    expect(err.message).toMatch(/flagged|safety|cannot/i);
+  });
+
   // --- Keyword normalization ---
 
   it("normalizes multi-word keywords by replacing spaces with hyphens", async () => {

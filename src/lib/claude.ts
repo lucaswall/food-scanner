@@ -1045,7 +1045,7 @@ export async function* runToolLoop(
 
       // Handle other stop reasons gracefully (refusal, max_tokens, etc.)
       l.warn(
-        { stop_reason: response.stop_reason, iteration },
+        { action: "tool_loop_unexpected_stop_reason", stop_reason: response.stop_reason, iteration },
         "unexpected stop_reason, returning partial response"
       );
 
@@ -1186,6 +1186,14 @@ export async function* analyzeFood(
         "model_context_window_exceeded on initial analyzeFood call"
       );
       throw new ClaudeApiError("The conversation is too long to analyze. Please start a new session.");
+    }
+
+    if (response.stop_reason === "refusal") {
+      l.warn(
+        { action: "analyze_food_refusal" },
+        "Claude refused to analyze the food content"
+      );
+      throw new ClaudeApiError("The request was flagged by our safety systems and cannot be processed.");
     }
 
     // Check if report_nutrition was called directly (fast path)
@@ -1521,6 +1529,14 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
         "model_context_window_exceeded on initial conversationalRefine call"
       );
       throw new ClaudeApiError("The conversation is too long to continue. Please start a new session.");
+    }
+
+    if (response.stop_reason === "refusal") {
+      l.warn(
+        { action: "conversational_refine_refusal" },
+        "Claude refused the conversational refinement request"
+      );
+      throw new ClaudeApiError("The request was flagged by our safety systems and cannot be processed.");
     }
 
     // Check if Claude used any data tools (not report_nutrition)

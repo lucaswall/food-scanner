@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood, deleteFoodLog } from "@/lib/fitbit";
-import { getFoodLogEntryDetail, updateFoodLogEntry, updateFoodLogEntryMetadata } from "@/lib/food-log";
+import { getFoodLogEntryDetail, updateFoodLogEntry, updateFoodLogEntryMetadata, updateCustomFoodMetadata } from "@/lib/food-log";
 import { isValidDateFormat } from "@/lib/date-utils";
 import type { FoodAnalysis, FoodLogEntryDetail } from "@/types";
 import { FitbitMealType } from "@/types";
@@ -206,6 +206,22 @@ export async function POST(request: Request) {
 
     await updateFoodLogEntryMetadata(session!.userId, entryId, { mealTypeId, date, time, fitbitLogId: fastPathFitbitLogId }, log);
 
+    // Update custom_foods metadata if it changed
+    const metadataChanged =
+      analysis.notes !== (entry.notes ?? "") ||
+      analysis.description !== (entry.description ?? "") ||
+      analysis.confidence !== entry.confidence ||
+      JSON.stringify(analysis.keywords) !== JSON.stringify(entry.keywords);
+
+    if (metadataChanged) {
+      await updateCustomFoodMetadata(session!.userId, entry.customFoodId, {
+        notes: analysis.notes,
+        description: analysis.description,
+        keywords: analysis.keywords,
+        confidence: analysis.confidence,
+      });
+    }
+
     log.info(
       { action: "edit_food_fast_path_success", entryId, dryRun: isDryRun || undefined },
       isDryRun ? "food edit metadata saved in dry-run mode (fast path)" : "food edit metadata saved via fast path"
@@ -321,6 +337,7 @@ export async function POST(request: Request) {
         date,
         time,
         ...(newFitbitLogId !== undefined ? { fitbitLogId: newFitbitLogId } : {}),
+        ...(fitbitFoodId !== undefined ? { fitbitFoodId } : {}),
       },
       log,
     );
