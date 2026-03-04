@@ -41,6 +41,7 @@ e2e/.auth/
 
 # Claude Code local settings (personal overrides)
 .claude/settings.local.json
+.claude/agent-memory/
 
 # Production migration backups
 _migrations/
