@@ -230,8 +230,8 @@ export async function POST(request: Request) {
 
       if (metadataChanged) {
         await updateCustomFoodMetadata(session!.userId, entry.customFoodId, {
-          notes: analysis.notes,
-          description: analysis.description,
+          notes: analysis.notes || null,
+          description: analysis.description || null,
           keywords: analysis.keywords,
           confidence: analysis.confidence,
         }, log);

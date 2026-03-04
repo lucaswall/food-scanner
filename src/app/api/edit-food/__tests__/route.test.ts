@@ -552,6 +552,7 @@ describe("POST /api/edit-food (fast path)", () => {
         keywords: ["empanada", "carne", "horneada"],
         confidence: "medium",
       },
+      expect.anything(),
     );
   });
 
