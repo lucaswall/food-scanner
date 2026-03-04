@@ -592,6 +592,28 @@ describe("analyzeFood", () => {
     expect(mockRecordUsage).not.toHaveBeenCalled();
   });
 
+  // Task 2 (FOO-782): model_context_window_exceeded in initial analyzeFood call
+  it("throws CLAUDE_API_ERROR when initial response is model_context_window_exceeded (FOO-782)", async () => {
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "model_context_window_exceeded",
+        content: [],
+        usage: { input_tokens: 200000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    const { error } = await collectEventsExpectThrow(
+      analyzeFood([], "same as yesterday", "user-123", "2026-02-15")
+    );
+
+    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
+    const err = error as { message: string };
+    expect(err.message).toMatch(/too long|conversation/i);
+  });
+
   // --- Keyword normalization ---
 
   it("normalizes multi-word keywords by replacing spaces with hyphens", async () => {
@@ -1574,6 +1596,28 @@ describe("runToolLoop", () => {
     const analysisEvent = events.find((e) => e.type === "analysis");
     expect(analysisEvent).toBeUndefined();
   });
+
+  // Task 2 (FOO-782): model_context_window_exceeded should yield a user-friendly error event
+  it("model_context_window_exceeded: yields error event with conversation-length message (FOO-782)", async () => {
+    mockStream.mockReturnValueOnce(createMockStream(
+      [{ type: "message_stop" }],
+      {
+        model: "claude-sonnet-4-6",
+        stop_reason: "model_context_window_exceeded",
+        content: [],
+        usage: { input_tokens: 200000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      }
+    ));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    const events = await collectEvents(
+      runToolLoop([{ role: "user", content: "What did I eat?" }], "user-123", "2026-02-15")
+    );
+
+    const errorEvent = events.find((e) => e.type === "error") as { type: "error"; message: string } | undefined;
+    expect(errorEvent).toBeDefined();
+    expect(errorEvent?.message).toMatch(/too long|conversation/i);
+  });
 });
 
 // =============================================================================
@@ -2444,6 +2488,35 @@ describe("truncateConversation", () => {
     for (let i = 1; i < result.length; i++) {
       expect(result[i].role).not.toBe(result[i - 1].role);
     }
+  });
+
+  // Task 1 (FOO-781): short conversation over token limit should log warning
+  it("short conversation over token limit: logs warning with truncate_skip_short action", async () => {
+    const { truncateConversation } = await import("@/lib/claude");
+    const mockLog = {
+      warn: vi.fn(),
+      debug: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+    } as unknown as Logger;
+
+    // 3 messages with large content to exceed a small token limit
+    const messages: Anthropic.MessageParam[] = [
+      { role: "user", content: "x".repeat(50000) },
+      { role: "assistant", content: "x".repeat(50000) },
+      { role: "user", content: "x".repeat(50000) },
+    ];
+
+    // With maxTokens=1000, estimated tokens (~37500) far exceed limit
+    const result = truncateConversation(messages, 1000, mockLog);
+
+    // Should return messages as-is (can't truncate a short conversation meaningfully)
+    expect(result).toEqual(messages);
+    // But must log a warning so operators know about the overload
+    expect(mockLog.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "truncate_skip_short" }),
+      expect.any(String),
+    );
   });
 });
 
