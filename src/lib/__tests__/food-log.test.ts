@@ -108,6 +108,7 @@ vi.mock("@/lib/lumen", () => ({
 const {
   insertCustomFood,
   insertFoodLogEntry,
+  insertCustomFoodWithLogEntry,
   getCustomFoodById,
   getCommonFoods,
   getRecentFoods,
@@ -2843,5 +2844,54 @@ describe("getDailyNutritionSummary", () => {
     const result = await getDailyNutritionSummary("user-uuid-123", "2026-03-01");
 
     expect(result.meals[0].entries[0].isFavorite).toBe(false);
+  });
+});
+
+describe("insertCustomFoodWithLogEntry", () => {
+  const customFoodData = {
+    foodName: "Test Food",
+    amount: 100,
+    unitId: 147,
+    calories: 250,
+    proteinG: 10,
+    carbsG: 20,
+    fatG: 5,
+    fiberG: 3,
+    sodiumMg: 200,
+    confidence: "high" as const,
+    notes: null,
+  };
+
+  const logEntryData = {
+    mealTypeId: 1,
+    amount: 100,
+    unitId: 147,
+    date: "2026-02-05",
+    time: "12:00:00",
+    fitbitLogId: null,
+  };
+
+  it("wraps both inserts in a transaction and returns customFoodId and foodLogId", async () => {
+    const createdAt = new Date("2026-02-05T12:00:00Z");
+    const loggedAt = new Date("2026-02-05T12:01:00Z");
+    mockReturning.mockResolvedValueOnce([{ id: 42, createdAt }]);
+    mockReturning.mockResolvedValueOnce([{ id: 10, loggedAt }]);
+
+    const result = await insertCustomFoodWithLogEntry("user-uuid-123", customFoodData, logEntryData);
+
+    expect(mockTransaction).toHaveBeenCalled();
+    expect(result).toEqual({ customFoodId: 42, foodLogId: 10 });
+  });
+
+  it("rolls back both inserts when log entry insert fails", async () => {
+    const createdAt = new Date("2026-02-05T12:00:00Z");
+    mockReturning.mockResolvedValueOnce([{ id: 42, createdAt }]);
+    mockReturning.mockRejectedValueOnce(new Error("log entry insert failed"));
+
+    await expect(
+      insertCustomFoodWithLogEntry("user-uuid-123", customFoodData, logEntryData),
+    ).rejects.toThrow("log entry insert failed");
+
+    expect(mockTransaction).toHaveBeenCalled();
   });
 });

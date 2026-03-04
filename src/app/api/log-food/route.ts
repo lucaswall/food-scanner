@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood, deleteFoodLog } from "@/lib/fitbit";
-import { insertCustomFood, insertFoodLogEntry, getCustomFoodById, updateCustomFoodMetadata } from "@/lib/food-log";
+import { insertCustomFoodWithLogEntry, insertFoodLogEntry, getCustomFoodById, updateCustomFoodMetadata } from "@/lib/food-log";
 import { isValidDateFormat } from "@/lib/date-utils";
 import type { FoodLogRequest, FoodLogResponse } from "@/types";
 import { FitbitMealType } from "@/types";
@@ -335,34 +335,37 @@ export async function POST(request: Request) {
     }
 
     // Log to database — DB is authoritative, failures trigger compensation
+    // Both inserts are wrapped in a transaction to prevent orphaned custom_foods rows
     try {
-      const customFoodResult = await insertCustomFood(session!.userId, {
-        foodName: body.food_name,
-        amount: body.amount,
-        unitId: body.unit_id,
-        calories: body.calories,
-        proteinG: body.protein_g,
-        carbsG: body.carbs_g,
-        fatG: body.fat_g,
-        fiberG: body.fiber_g,
-        sodiumMg: body.sodium_mg,
-        confidence: body.confidence,
-        notes: body.notes,
-        description: body.description,
-        fitbitFoodId: fitbitFoodId ?? null,
-        keywords: body.keywords,
-      });
-
-      const logEntryResult = await insertFoodLogEntry(session!.userId, {
-        customFoodId: customFoodResult.id,
-        mealTypeId: body.mealTypeId,
-        amount: body.amount,
-        unitId: body.unit_id,
-        date,
-        time,
-        fitbitLogId: fitbitLogId ?? null,
-      });
-      foodLogId = logEntryResult.id;
+      const dbResult = await insertCustomFoodWithLogEntry(
+        session!.userId,
+        {
+          foodName: body.food_name,
+          amount: body.amount,
+          unitId: body.unit_id,
+          calories: body.calories,
+          proteinG: body.protein_g,
+          carbsG: body.carbs_g,
+          fatG: body.fat_g,
+          fiberG: body.fiber_g,
+          sodiumMg: body.sodium_mg,
+          confidence: body.confidence,
+          notes: body.notes,
+          description: body.description,
+          fitbitFoodId: fitbitFoodId ?? null,
+          keywords: body.keywords,
+        },
+        {
+          mealTypeId: body.mealTypeId,
+          amount: body.amount,
+          unitId: body.unit_id,
+          date,
+          time,
+          fitbitLogId: fitbitLogId ?? null,
+        },
+        log,
+      );
+      foodLogId = dbResult.foodLogId;
     } catch (dbErr) {
       log.error(
         { action: "food_log_db_error", error: dbErr instanceof Error ? dbErr.message : String(dbErr) },
