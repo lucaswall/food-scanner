@@ -192,3 +192,58 @@
 **Scope:** 7 tasks, 8 files, ~10 tests
 **Key Decisions:** FOO-778 (domain separation), FOO-788 (529 retry), FOO-779 (IP spoofing) canceled during triage as invalid for current project context.
 **Risks:** Task 4 (strict mode) may require adjusting nullable type definitions if the Anthropic API rejects the schema. Task 5 (transaction) changes the error surface of log-food — compensation logic must be re-tested.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-04
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Fix truncateConversation short conversation bypass — added warn log before early return when short conversations exceed token limit (worker-1)
+- Task 2: Handle model_context_window_exceeded stop reason — explicit handling in runToolLoop, analyzeFood, conversationalRefine (worker-1)
+- Task 3: Fix keywords validation in edit-food route — made keywords required with ≥1 element in isValidFoodAnalysis (worker-2)
+- Task 4: Add strict mode to data tool definitions — added strict: true and additionalProperties: false to all 4 tool definitions (worker-2)
+- Task 5: Wrap custom_foods + food_log_entries inserts in a transaction — new insertCustomFoodWithLogEntry function (worker-3)
+- Task 6: Add action field to 11 log statements in claude.ts — mechanical logging convention fix (worker-1)
+- Task 7: Remove full result from data tool debug log — replaced result with resultLength in debug log (worker-2)
+
+### Files Modified
+- `src/lib/claude.ts` — truncation warning, context window exceeded handling, action fields on 11 log statements
+- `src/lib/__tests__/claude.test.ts` — tests for truncation bypass and context window exceeded
+- `src/lib/chat-tools.ts` — strict mode on 3 tool definitions, removed result from debug log
+- `src/lib/__tests__/chat-tools.test.ts` — tests for strict mode and debug log cleanup
+- `src/lib/lumen.ts` — strict mode on REPORT_LUMEN_GOALS_TOOL
+- `src/lib/food-log.ts` — new insertCustomFoodWithLogEntry transaction function
+- `src/lib/__tests__/food-log.test.ts` — tests for transaction function
+- `src/app/api/edit-food/route.ts` — keywords validation made required
+- `src/app/api/edit-food/__tests__/route.test.ts` — tests for keywords validation
+- `src/app/api/log-food/route.ts` — replaced separate inserts with transaction call
+- `src/app/api/log-food/__tests__/route.test.ts` — updated mocks for transaction function
+
+### Linear Updates
+- FOO-781: Todo → In Progress → Review
+- FOO-782: Todo → In Progress → Review
+- FOO-783: Todo → In Progress → Review
+- FOO-784: Todo → In Progress → Review
+- FOO-785: Todo → In Progress → Review
+- FOO-786: Todo → In Progress → Review
+- FOO-787: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found in any of the 7 fixes
+- verifier: All 2507 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 6 (Claude API domain — claude.ts, claude.test.ts)
+- Worker 2: Tasks 3, 4, 7 (Validation + Chat tools — edit-food, chat-tools, lumen)
+- Worker 3: Task 5 (Food log transaction — food-log.ts, log-food/route.ts)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 3: merged cleanly (no conflicts), typecheck passed
+- Worker 2: merged cleanly (no conflicts), typecheck passed
+
+### Continuation Status
+All tasks completed.
