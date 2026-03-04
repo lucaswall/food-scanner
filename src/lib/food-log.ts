@@ -803,7 +803,7 @@ export async function updateFoodLogEntry(
     await cleanupOrphanCustomFood(tx, oldCustomFoodId, userId);
 
     l.debug({ action: "update_food_log_entry", entryId, newCustomFoodId: newFood.id }, "food log entry updated");
-    return { fitbitLogId: data.fitbitLogId ?? row.fitbitLogId, newCustomFoodId: newFood.id };
+    return { fitbitLogId: data.fitbitLogId !== undefined ? data.fitbitLogId : row.fitbitLogId, newCustomFoodId: newFood.id };
   });
 }
 
@@ -922,7 +922,9 @@ export async function updateCustomFoodMetadata(
   userId: string,
   customFoodId: number,
   metadata: CustomFoodMetadataUpdate,
+  log?: Logger,
 ): Promise<void> {
+  const l = log ?? logger;
   const db = getDb();
 
   // Only include fields that are present in the metadata object
@@ -948,6 +950,7 @@ export async function updateCustomFoodMetadata(
 
   // If no fields to update, return early
   if (Object.keys(updateFields).length === 0) {
+    l.debug({ action: "update_custom_food_metadata", customFoodId, userId }, "no fields to update, skipping");
     return;
   }
 
@@ -955,6 +958,8 @@ export async function updateCustomFoodMetadata(
     .update(customFoods)
     .set(updateFields)
     .where(and(eq(customFoods.id, customFoodId), eq(customFoods.userId, userId)));
+
+  l.debug({ action: "update_custom_food_metadata", customFoodId, userId }, "custom food metadata updated");
 }
 
 export async function getEarliestEntryDate(
