@@ -24,6 +24,7 @@ import {
   clearPendingSubmission,
 } from "@/lib/pending-submission";
 import { getLocalDateTime } from "@/lib/meal-type";
+import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getTodayDate } from "@/lib/date-utils";
 import { parseSSEEvents } from "@/lib/sse";
@@ -394,6 +395,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             foodName: analysis.food_name,
             date: localDateTime.date,
             time: logTime,
+            sessionId: getActiveSessionId() ?? undefined,
           });
           window.location.href = "/api/auth/fitbit";
           return;
@@ -464,6 +466,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             foodName: match.foodName,
             reuseCustomFoodId: match.customFoodId,
             ...getLocalDateTime(),
+            sessionId: getActiveSessionId() ?? undefined,
           });
           window.location.href = "/api/auth/fitbit";
           return;
