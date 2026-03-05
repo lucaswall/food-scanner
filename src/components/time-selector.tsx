@@ -43,7 +43,7 @@ export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
           <DropdownMenuItem
             className="min-h-[44px]"
             onSelect={() => {
-              setTimeout(() => timeInputRef.current?.showPicker(), 0);
+              timeInputRef.current?.showPicker();
             }}
           >
             {value !== null && <Check className="size-4" />}
@@ -56,7 +56,7 @@ export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
       <input
         ref={timeInputRef}
         type="time"
-        className="sr-only"
+        className="fixed opacity-0 -top-[9999px]"
         tabIndex={-1}
         aria-hidden="true"
         value={value ?? ""}
