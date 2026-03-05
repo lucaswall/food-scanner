@@ -61,7 +61,7 @@ const { useAnalysisSession: mockUseAnalysisSession } = vi.hoisted(() => {
 
 function useAnalysisSessionReal() {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { useState: useStateFn } = require("react");
+  const { useState: useStateFn, useCallback: useCallbackFn, useMemo: useMemoFn } = require("react");
   const [photos, setPhotosRaw] = useStateFn([] as File[]);
   const [convertedPhotoBlobs, setConvertedPhotoBlobsRaw] = useStateFn([] as (File | Blob)[]);
   const [compressedImages, setCompressedImagesRaw] = useStateFn(null as Blob[] | null);
@@ -72,20 +72,29 @@ function useAnalysisSessionReal() {
   const [selectedTime, setSelectedTimeRaw] = useStateFn(null as string | null);
   const [matches, setMatchesRaw] = useStateFn([] as unknown[]);
 
+  // Stable function references — the real hook uses useCallback, so the mock must too.
+  // Without this, the actions object changes identity on every render, causing useEffects
+  // with [actions] dependency to re-fire unexpectedly.
+  const setPhotos = useCallbackFn((newPhotos: File[], convertedBlobs?: (File | Blob)[]) => { setPhotosRaw(newPhotos); setConvertedPhotoBlobsRaw(convertedBlobs || []); }, []);
+  const setCompressedImages = useCallbackFn((images: Blob[] | null) => { setCompressedImagesRaw(images); }, []);
+  const setDescription = useCallbackFn((desc: string) => { setDescriptionRaw(desc); }, []);
+  const setAnalysis = useCallbackFn((a: FoodAnalysis | null) => { setAnalysisRaw(a); }, []);
+  const setAnalysisNarrative = useCallbackFn((n: string | null) => { setAnalysisNarrativeRaw(n); }, []);
+  const setMealTypeId = useCallbackFn((id: number) => { setMealTypeIdRaw(id); }, []);
+  const setSelectedTime = useCallbackFn((t: string | null) => { setSelectedTimeRaw(t); }, []);
+  const setMatches = useCallbackFn((m: unknown[]) => { setMatchesRaw(m); }, []);
+  const clearSession = useCallbackFn(() => {}, []);
+  const getActiveSessionId = useCallbackFn(() => "test-session-id", []);
+
+  const actions = useMemoFn(() => ({
+    setPhotos, setCompressedImages, setDescription, setAnalysis,
+    setAnalysisNarrative, setMealTypeId, setSelectedTime, setMatches,
+    clearSession, getActiveSessionId,
+  }), [setPhotos, setCompressedImages, setDescription, setAnalysis, setAnalysisNarrative, setMealTypeId, setSelectedTime, setMatches, clearSession, getActiveSessionId]);
+
   return {
     state: { photos, convertedPhotoBlobs, compressedImages, description, analysis, analysisNarrative, mealTypeId, selectedTime, matches },
-    actions: {
-      setPhotos: (newPhotos: File[], convertedBlobs?: (File | Blob)[]) => { setPhotosRaw(newPhotos); setConvertedPhotoBlobsRaw(convertedBlobs || []); },
-      setCompressedImages: (images: Blob[] | null) => { setCompressedImagesRaw(images); },
-      setDescription: (desc: string) => { setDescriptionRaw(desc); },
-      setAnalysis: (a: FoodAnalysis | null) => { setAnalysisRaw(a); },
-      setAnalysisNarrative: (n: string | null) => { setAnalysisNarrativeRaw(n); },
-      setMealTypeId: (id: number) => { setMealTypeIdRaw(id); },
-      setSelectedTime: (t: string | null) => { setSelectedTimeRaw(t); },
-      setMatches: (m: unknown[]) => { setMatchesRaw(m); },
-      clearSession: vi.fn(),
-      getActiveSessionId: vi.fn().mockReturnValue("test-session-id"),
-    },
+    actions,
     isRestoring: false,
     wasRestored: false,
   };
