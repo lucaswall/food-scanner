@@ -1,175 +1,210 @@
 # Implementation Plan
 
-**Created:** 2026-03-04
-**Source:** Inline request: Migrate Claude API from beta to GA, upgrade SDK, fix container forwarding, close Sentry issues, full beta cleanup
-**Linear Issues:** [FOO-802](https://linear.app/lw-claude/issue/FOO-802/migrate-createstreamwithretry-from-beta-to-ga-endpoint), [FOO-803](https://linear.app/lw-claude/issue/FOO-803/remove-betas-parameter-from-all-api-call-sites), [FOO-804](https://linear.app/lw-claude/issue/FOO-804/add-container-forwarding-in-tool-loop-and-entry-points), [FOO-805](https://linear.app/lw-claude/issue/FOO-805/resolve-sentry-issues-food-scanner-5-6-3), [FOO-806](https://linear.app/lw-claude/issue/FOO-806/upgrade-anthropic-aisdk-from-0750-to-0780)
-**Sentry Issues:** [FOOD-SCANNER-5](https://lucas-wall.sentry.io/issues/FOOD-SCANNER-5) (container_id, 22 events), [FOOD-SCANNER-6](https://lucas-wall.sentry.io/issues/FOOD-SCANNER-6) (union type limit, 9 events, resolved)
-**Status:** COMPLETE
-**Branch:** refactor/beta-to-ga-migration
+**Created:** 2026-03-05
+**Source:** Inline request: Analysis session persistence — persist analysis state (including photos) so accidental navigation doesn't lose work, fix Fitbit token expiry photo loss
+**Linear Issues:** [FOO-814](https://linear.app/lw-claude/issue/FOO-814/add-idb-dependency-and-create-analysis-session-storage-module), [FOO-815](https://linear.app/lw-claude/issue/FOO-815/create-useanalysissession-hook), [FOO-816](https://linear.app/lw-claude/issue/FOO-816/integrate-useanalysissession-hook-into-foodanalyzer), [FOO-817](https://linear.app/lw-claude/issue/FOO-817/add-clear-triggers-and-start-fresh-ui-for-analysis-session), [FOO-818](https://linear.app/lw-claude/issue/FOO-818/fix-pending-submission-to-use-indexeddb-photos-on-fitbit-token-expiry)
+**Branch:** feat/analysis-session-persistence
 
 ## Context Gathered
 
 ### Codebase Analysis
 
 - **Related files:**
-  - `src/lib/claude.ts` — Core Claude API integration. Contains ALL beta traces: `BETA_HEADER` constant (line 86), `getClient().beta.messages.stream()` call (line 276), `Parameters<Anthropic["beta"]["messages"]["stream"]>[0]` type (line 267), `Anthropic.Beta.Messages.BetaMessage` type (line 712), and `betas: [BETA_HEADER]` in 3 call sites (lines 847, 1164, 1507)
-  - `src/lib/__tests__/claude.test.ts` — Tests with beta mock structure: `beta: { messages: { stream: mockStream } }` (lines 158-162), beta header assertions (lines 787, 1253, 1965), and beta params in test fixtures (line 2863)
-  - `src/lib/chat-tools.ts` — Data tool definitions. NO strict:true (correctly removed). No beta references.
-  - `src/lib/lumen.ts` — Lumen goals tool. Has `strict: true` (kept). No beta references.
-  - `package.json` — `@anthropic-ai/sdk: "^0.75.0"`
+  - `src/components/food-analyzer.tsx` (748 lines) — Main analysis component with 18 `useState` hooks. Persistent state: `photos` (File[]), `convertedPhotoBlobs` ((File|Blob)[]), `compressedImages` (Blob[]), `description` (string), `analysis` (FoodAnalysis|null), `analysisNarrative` (string|null), `mealTypeId` (number), `selectedTime` (string|null), `matches` (FoodMatch[]). Transient state: `compressing`, `loading`, `loadingStep`, `error`, `logging`, `logError`, `logResponse`, `resubmitting`, `resubmitFoodName`, `streamingText`, `chatOpen`, `seedMessages`.
+  - `src/lib/pending-submission.ts` (60 lines) — Current persistence: saves `FoodAnalysis`, `mealTypeId`, `foodName`, `date`, `time` to `sessionStorage` on Fitbit token expiry. Does NOT save photos — retry after OAuth produces poor results.
+  - `src/components/pending-submission-handler.tsx` (145 lines) — Auto-resubmit component mounted in app layout. Checks `getPendingSubmission()` on mount.
+  - `src/lib/image.ts` (126 lines) — Photo compression pipeline: `validateImage()`, `isHeicFile()`, `convertHeicToJpeg()`, `compressImage()` (max 1024px, JPEG 0.8 quality → Blob).
+  - `src/types/index.ts` — `FoodAnalysis` (lines 55-82), `FoodMatch` (lines 239-255), `ConversationMessage` (lines 417-423).
+  - `src/hooks/use-debounce.ts` — Simple hook pattern: `useState` + `useEffect` with cleanup.
+  - `src/app/app/layout.tsx` (35 lines) — Server Component, wraps all `/app/*` pages. Renders `PendingSubmissionHandler`.
+  - `src/app/app/analyze/page.tsx` (33 lines) — Server Component mounting `FoodAnalyzer`.
 - **Existing patterns:**
-  - `createStreamWithRetry` is the single entry point for all Claude API streaming calls — all 3 call sites go through it
-  - `streamTextDeltas` extracts text deltas and returns `finalMessage()` — return type is `Anthropic.Message`
-  - `runToolLoop` iterates calling `createStreamWithRetry` in a while loop — natural place for container state
-  - `analyzeFood` calls `createStreamWithRetry` once for initial response, then delegates to `runToolLoop`
-  - `conversationalRefine` follows the same pattern as `analyzeFood`
+  - `sessionStorage` used for pending submission (key: `"food-scanner-pending-submission"`), `localStorage` for theme and refresh guard.
+  - No IndexedDB usage in codebase. `idb` is NOT a dependency.
+  - Runtime validation: `isValidPendingSubmission()` checks shape before trusting stored data.
+  - Custom hooks in `src/hooks/`, tests in `src/hooks/__tests__/`.
+  - Vitest with jsdom environment. `vi.mock()` for modules, `vi.stubGlobal()` for browser APIs.
 - **Test conventions:**
-  - Mock Anthropic SDK via `vi.mock("@anthropic-ai/sdk")` at top of test file
-  - `MockAnthropic` class has `beta.messages.stream` property — must change to `messages.stream`
-  - `mockStream` function returns objects with `[Symbol.asyncIterator]` and `finalMessage()`
-  - Tests assert on `mockStream.mock.calls[0][0]` to verify API call parameters
-
-### SDK Version Analysis (0.75.0 → 0.78.0)
-
-Checked release notes and diffed type definitions for all versions between current (0.75.0) and latest (0.78.0):
-
-| Version | Key Changes | Impact on This Project |
-|---------|-------------|----------------------|
-| **0.76.0** | `WebSearchTool20260209`, `WebFetchTool20260209`, `CodeExecutionTool20260120` promoted from nested namespaces (`ToolUnion.WebSearchTool20260209`) to top-level exports | Cleaner type imports if we ever type `WEB_SEARCH_TOOL` explicitly. No code change required — our `as const` definition works. |
-| **0.77.0** | `UserLocation` exported as top-level type; backward-compat namespace re-exports added | No impact — we don't use `UserLocation`. |
-| **0.78.0** | Top-level `cache_control?: CacheControlEphemeral` on `MessageCreateParams` — auto-applies cache marker to last system/tool block | **Potential simplification.** We currently add `cache_control: { type: "ephemeral" }` manually to system blocks and use `buildToolsWithCache()` to add it to the last tool. Top-level `cache_control` could replace both patterns with a single top-level param. **Evaluate during implementation** — verify it produces the same caching behavior. |
-
-**Critical discovery:** `Container` type is already fully typed in SDK 0.75.0:
-- `Message.container: Container | null` (with `Container = { id: string; expires_at: string }`)
-- `MessageCreateParams.container?: string | null`
-- No runtime casts needed for container forwarding — use typed access directly.
-
-**StopReason unchanged** across all versions: `'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | 'pause_turn' | 'refusal'`. The `model_context_window_exceeded` `as string` cast remains necessary.
-
-No breaking changes between 0.75.0 and 0.78.0. Upgrade is safe.
+  - `src/lib/__tests__/pending-submission.test.ts` (258 lines) — validates serialization, malformed JSON, missing fields, wrong types.
+  - `src/components/__tests__/food-analyzer.test.tsx` — mocked child components, assertion on callback calls.
+  - `src/lib/__tests__/image.test.ts` — tests compression, HEIC detection, validation.
 
 ### MCP Context
 
-- **MCPs used:** Sentry (issue investigation), Linear (issue management)
-- **Sentry findings:**
-  - FOOD-SCANNER-5 (container_id error): 22 events, ignored, **still active** (last seen 22 min ago). Root cause: API returns `container` in response when code execution is used (auto-injected by web search dynamic filtering), but the code never extracts or forwards it in subsequent requests.
-  - FOOD-SCANNER-6 (union type limit): 9 events, **resolved** (fix already deployed, Sentry resolved during planning). Root cause: `strict: true` was temporarily re-added to data tools by FOO-784, then reverted by commit `37281ed`.
-  - FOOD-SCANNER-3 (tool loop error): 3 events, ignored. Related to container_id — will be fixed by container forwarding.
-  - FOOD-SCANNER-7 (Claude API error): 6 events, ignored. Generic error wrapper, already handled.
-  - FOOD-SCANNER-8 (missing notes): 3 events, resolved. Already resolved.
-  - FOOD-SCANNER-9 (Load failed): 2 events, ignored. Client network error, not actionable.
-  - FOOD-SCANNER-4 (timeout): 1 event, ignored. Transient, not actionable.
-  - FOOD-SCANNER-1, FOOD-SCANNER-2 (nutrition goals): 1 event each, ignored. Transient, not actionable.
-- **API research findings:**
-  - `web_search_20260209` is fully GA as of Feb 17, 2026 — no beta header needed
-  - Code execution is auto-injected by the API when web search needs dynamic filtering — not a separate tool
-  - All features used by food-scanner (web search, `pause_turn`, `server_tool_use`, `web_search_tool_result`) are in GA `ContentBlock` union
-  - `model_context_window_exceeded` stop reason works at runtime on GA endpoint (Sonnet 4.5+), even though SDK `StopReason` type doesn't include it — existing `as string` cast is correct
-  - GA `client.messages.stream()` returns `Anthropic.Message` (not `BetaMessage`) — fixes the type mismatch
-  - `container` field: response includes `container: { id: "...", expires_at: "..." }` when code execution is used; subsequent requests must pass `container: containerId`
-- **Linear findings:** Todo queue is empty. No conflicts with existing planned work.
+- **MCPs used:** Linear (issue check)
+- **Findings:** All related issues (FOO-168 token expiry, FOO-265 useReducer, FOO-414 stale analysis, FOO-272/387 unmount state updates) are Released or Canceled. No in-progress work conflicts. Todo queue is clear.
 
 ## Tasks
 
-### Task 1: Upgrade @anthropic-ai/sdk from 0.75.0 to 0.78.0
-**Linear Issue:** [FOO-806](https://linear.app/lw-claude/issue/FOO-806/upgrade-anthropic-aisdk-from-0750-to-0780)
+### Task 1: Add `idb` dependency and create analysis session storage module
+**Linear Issue:** [FOO-814](https://linear.app/lw-claude/issue/FOO-814/add-idb-dependency-and-create-analysis-session-storage-module)
 **Files:**
 - `package.json` (modify)
-- `package-lock.json` (auto-generated)
+- `src/lib/analysis-session.ts` (create)
+- `src/lib/__tests__/analysis-session.test.ts` (create)
 
 **Steps:**
-1. Run `npm install @anthropic-ai/sdk@0.78.0` to upgrade.
-2. Run `npm run typecheck` — expect pass (no breaking changes between versions).
-3. Run `npx vitest run "claude.test"` — expect pass (SDK upgrade doesn't change runtime behavior).
-4. Run `npm run build` — expect pass with zero warnings.
+1. Install `idb` package: `npm install idb`
+2. Write tests in `src/lib/__tests__/analysis-session.test.ts` for the storage layer:
+   - **IndexedDB photo operations:**
+     - `saveSessionPhotos(sessionId, blobs)` stores Blob array, `loadSessionPhotos(sessionId)` returns them
+     - `saveSessionPhotos` with empty array stores empty array
+     - `loadSessionPhotos` with nonexistent session returns empty array
+   - **sessionStorage state operations:**
+     - `saveSessionState(sessionId, state)` stores serializable state, `loadSessionState(sessionId)` returns it
+     - State includes: `description`, `analysis`, `analysisNarrative`, `mealTypeId`, `selectedTime`, `matches`, `createdAt` (ISO timestamp)
+     - `loadSessionState` with nonexistent session returns `null`
+     - `loadSessionState` with malformed JSON returns `null` (no throw)
+     - `loadSessionState` with invalid shape returns `null` — runtime validation like `pending-submission.ts`
+   - **Session lifecycle:**
+     - `clearSession(sessionId)` removes from both IndexedDB and sessionStorage
+     - `getActiveSessionId()` returns current session ID from sessionStorage, or `null`
+     - `createSessionId()` generates a new UUID and stores it in sessionStorage
+   - **TTL expiry:**
+     - `isSessionExpired(state)` returns `true` if `createdAt` is older than 24 hours
+     - `cleanupExpiredSession()` checks active session and clears it if expired
+   - **IndexedDB unavailable fallback:**
+     - When IndexedDB is unavailable (mock `indexedDB` as undefined), photo save/load silently returns empty — no throws
+3. Run `npx vitest run "analysis-session"` — expect fail
+4. Implement `src/lib/analysis-session.ts`:
+   - Use `idb` library's `openDB()` for IndexedDB. Database name: `"food-scanner"`, store: `"session-photos"`, keyed by session ID.
+   - sessionStorage key pattern: `"food-scanner-analysis-session"` for state, `"food-scanner-session-id"` for active session ID.
+   - Runtime validation function `isValidSessionState()` following `isValidPendingSubmission()` pattern in `src/lib/pending-submission.ts`.
+   - All IndexedDB operations wrapped in try/catch — return safe defaults on failure (empty array for photos, null for state).
+5. Run `npx vitest run "analysis-session"` — expect pass
 
 **Notes:**
-- This must be Task 1 because subsequent tasks depend on the updated types. In particular, `Parameters<Anthropic["messages"]["stream"]>[0]` in Task 2 needs the GA types from the upgraded SDK.
-- The upgrade brings: top-level `WebSearchTool20260209` type (v0.76.0), `UserLocation` type fix (v0.77.0), top-level `cache_control` on `MessageCreateParams` (v0.78.0).
-- The top-level `cache_control` feature (v0.78.0) is not adopted. The current explicit approach (`buildToolsWithCache()` + per-block `cache_control` on system prompt) gives two separate cache breakpoints and is already clean (6 lines). The top-level version auto-marks the last block, producing equivalent behavior but coupling it to SDK internals. Not worth changing.
+- The `idb` library (~3KB) provides typed async API over raw IndexedDB. Follow pattern at `src/lib/pending-submission.ts` for the sessionStorage layer.
+- Photos are stored as raw Blobs in IndexedDB (native binary support, no base64 encoding needed).
+- `FoodMatch.lastLoggedAt` is a `Date` object — must serialize to ISO string on save and parse back on load. Handle this in the validation/deserialization layer.
+- Separate `sessionStorage` keys from the existing `"food-scanner-pending-submission"` key to avoid conflicts.
 
-### Task 2: Migrate createStreamWithRetry from beta to GA endpoint
-**Linear Issue:** [FOO-802](https://linear.app/lw-claude/issue/FOO-802/migrate-createstreamwithretry-from-beta-to-ga-endpoint)
+### Task 2: Create `useAnalysisSession` hook
+**Linear Issue:** [FOO-815](https://linear.app/lw-claude/issue/FOO-815/create-useanalysissession-hook)
 **Files:**
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/claude.ts` (modify)
+- `src/hooks/use-analysis-session.ts` (create)
+- `src/hooks/__tests__/use-analysis-session.test.ts` (create)
 
 **Steps:**
-1. Write test in `src/lib/__tests__/claude.test.ts` for `createStreamWithRetry`: verify that `mockStream` is called via the GA path (not `beta.messages.stream`). Assert that the call parameters do NOT contain a `betas` field.
-2. Run `npx vitest run "claude.test"` — expect fail (currently calls `beta.messages.stream` with `betas` header).
-3. In `src/lib/claude.ts`:
-   - Delete `const BETA_HEADER = "code-execution-web-tools-2026-02-09"` (line 86).
-   - Change `createStreamWithRetry` param type from `Parameters<Anthropic["beta"]["messages"]["stream"]>[0]` to `Parameters<Anthropic["messages"]["stream"]>[0]` (line 267).
-   - Change `getClient().beta.messages.stream(streamParams, requestOptions ?? {})` to `getClient().messages.stream(streamParams, requestOptions ?? {})` (line 276).
-   - In `streamTextDeltas` (line 712), remove `Anthropic.Beta.Messages.BetaMessage` from the `finalMessage()` return type union — it should be just `Promise<Anthropic.Message>`.
-4. In `src/lib/__tests__/claude.test.ts`:
-   - Change `MockAnthropic` class from `beta = { messages: { stream: mockStream } }` to `messages = { stream: mockStream }` (lines 158-162).
-5. Run `npx vitest run "claude.test"` — expect pass.
+1. Write tests in `src/hooks/__tests__/use-analysis-session.test.ts`:
+   - **Restore on mount:**
+     - When active session exists with valid state and photos, hook returns restored values for all persisted fields
+     - When active session exists but photos missing from IndexedDB, restores state without photos (graceful degradation)
+     - When no active session exists, returns default empty state
+     - When session is expired (>24h), clears it and returns default empty state
+   - **Save on change:**
+     - When persisted state changes (description, analysis, mealTypeId, etc.), debounce-writes to sessionStorage (~300ms)
+     - When photos change, writes blobs to IndexedDB immediately (no debounce — photos are captured infrequently)
+   - **Loading state:**
+     - Returns `isRestoring: true` while IndexedDB async read is in progress
+     - Returns `isRestoring: false` after restore completes (whether successful or empty)
+   - **Session ID management:**
+     - Creates new session ID on first photo capture (not on mount)
+     - Reuses existing session ID if one exists
+   - Mock `src/lib/analysis-session.ts` functions for unit testing.
+2. Run `npx vitest run "use-analysis-session"` — expect fail
+3. Implement `src/hooks/use-analysis-session.ts`:
+   - Hook signature: `useAnalysisSession()` returns `{ state, actions, isRestoring }` where `state` contains all persisted fields and `actions` contains setters that both update React state and trigger persistence.
+   - On mount: check for active session, load from storage, set `isRestoring` during async IndexedDB read.
+   - State changes trigger persistence via `useEffect` with debounce (300ms for serializable state, immediate for photos).
+   - Follow hook patterns in `src/hooks/use-debounce.ts` — `useState` + `useEffect` with cleanup.
+4. Run `npx vitest run "use-analysis-session"` — expect pass
 
 **Notes:**
-- This task changes the single entry point (`createStreamWithRetry`) that all 3 call sites use, so the beta→GA switch propagates automatically.
-- The mock structure change in step 4 will cause all existing tests to route through the GA mock — no per-test changes needed for the mock wiring.
-- `WEB_SEARCH_TOOL` definition (lines 88-91) stays unchanged — it's already a GA tool type.
+- The hook abstracts all storage complexity. `FoodAnalyzer` will call hook actions instead of raw `useState` setters for persisted fields.
+- `isRestoring` enables a brief loading state on the analyze page while IndexedDB reads complete (typically <50ms but async).
+- Photos are written immediately because they're captured one at a time (not rapid-fire). Serializable state is debounced because description typing fires on every keystroke.
 
-### Task 3: Remove betas parameter from all API call sites
-**Linear Issue:** [FOO-803](https://linear.app/lw-claude/issue/FOO-803/remove-betas-parameter-from-all-api-call-sites)
+### Task 3: Integrate `useAnalysisSession` into FoodAnalyzer
+**Linear Issue:** [FOO-816](https://linear.app/lw-claude/issue/FOO-816/integrate-useanalysissession-hook-into-foodanalyzer)
 **Files:**
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/claude.ts` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
 
 **Steps:**
-1. Write tests in `src/lib/__tests__/claude.test.ts`: for `analyzeFood`, `runToolLoop`, and `conversationalRefine`, assert that the stream call parameters do NOT contain a `betas` field. Update the existing "includes web_search tool with beta header" test (line 776) — rename to "includes web_search tool (GA, no beta header)" and change assertion from `expect(call.betas).toContain(...)` to `expect(call).not.toHaveProperty("betas")`.
-2. Run `npx vitest run "claude.test"` — expect fail (3 call sites still pass `betas`).
-3. In `src/lib/claude.ts`, remove `betas: [BETA_HEADER]` from:
-   - `runToolLoop` stream params (line 847)
-   - `analyzeFood` stream params (line 1164)
-   - `conversationalRefine` stream params (line 1507)
-4. In `src/lib/__tests__/claude.test.ts`:
-   - Remove all `expect(call.betas).toContain("code-execution-web-tools-2026-02-09")` assertions (lines 787, 1253, 1965).
-   - Remove `betas: [...]` from `minimalStreamParams` test fixture (line 2863).
-5. Run `npx vitest run "claude.test"` — expect pass.
+1. Update tests in `src/components/__tests__/food-analyzer.test.tsx`:
+   - Mock `src/hooks/use-analysis-session` — return default empty state with `isRestoring: false`
+   - Test: when `isRestoring` is true, component shows a loading skeleton (not the empty analyze form)
+   - Test: when hook returns restored state (photos, description, analysis, etc.), component renders with restored values
+   - Test: when user captures photos, hook's `setPhotos` action is called
+   - Test: when user types description, hook's `setDescription` action is called
+   - Test: when analysis completes, hook's `setAnalysis` and `setNarrative` actions are called
+2. Run `npx vitest run "food-analyzer"` — expect fail
+3. In `src/components/food-analyzer.tsx`:
+   - Import and call `useAnalysisSession()` at the top of the component
+   - Replace `useState` calls for persisted fields (`photos`, `convertedPhotoBlobs`, `compressedImages`, `description`, `analysis`, `analysisNarrative`, `mealTypeId`, `selectedTime`, `matches`) with values and setters from the hook
+   - Keep all transient state as raw `useState` (`compressing`, `loading`, `loadingStep`, `error`, `logging`, `logError`, `logResponse`, `resubmitting`, `resubmitFoodName`, `streamingText`, `chatOpen`, `seedMessages`)
+   - When `isRestoring` is true, render a loading skeleton matching the analyze page's `loading.tsx` layout
+   - Preserve all existing behavior — the hook is a drop-in replacement for the persisted `useState` calls
+4. Run `npx vitest run "food-analyzer"` — expect pass
 
 **Notes:**
-- Task 2 deletes `BETA_HEADER` constant, so removing references to it in Task 3 is required for compilation.
-- Tasks 2 and 3 must be done by the same worker or in sequence — they share file edits in both `claude.ts` and `claude.test.ts`.
+- This is the largest task — threading the hook through all state references in a 748-line component. Careful not to break existing flows (SSE streaming, compression, photo capture, logging).
+- The `handlePhotosChange` callback (line 77) resets analysis state when photos are cleared — this behavior must be preserved. The hook's setters should allow batch updates.
+- `resetAnalysisState()` (line 89) clears multiple fields — must call the hook's actions for each persisted field.
+- `autoCapture` search param flow (photo capture on mount) should work with the hook — if no restored session, proceed normally.
 
-### Task 4: Add container forwarding in tool loop and entry points
-**Linear Issue:** [FOO-804](https://linear.app/lw-claude/issue/FOO-804/add-container-forwarding-in-tool-loop-and-entry-points)
+### Task 4: Add clear triggers and "Start Fresh" UI
+**Linear Issue:** [FOO-817](https://linear.app/lw-claude/issue/FOO-817/add-clear-triggers-and-start-fresh-ui-for-analysis-session)
 **Files:**
-- `src/lib/__tests__/claude.test.ts` (modify)
-- `src/lib/claude.ts` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
 
 **Steps:**
-1. Write tests in `src/lib/__tests__/claude.test.ts`:
-   - Test for `runToolLoop`: mock a multi-iteration tool loop where the first response includes `container: { id: "ctr_abc123", expires_at: "2026-03-05T00:00:00Z" }`. Assert that the second `createStreamWithRetry` call includes `container: "ctr_abc123"` in its params.
-   - Test for `analyzeFood`: mock initial response with `container: { id: "ctr_xyz", expires_at: "..." }` and `stop_reason: "pause_turn"` (triggering tool loop). Assert the tool loop call includes `container: "ctr_xyz"`.
-   - Test for `conversationalRefine`: same pattern as `analyzeFood`.
-   - Test: when response has `container: null`, subsequent calls should NOT include `container` param.
-2. Run `npx vitest run "claude.test"` — expect fail.
-3. In `src/lib/claude.ts`:
-   - In `runToolLoop` (around line 820): add `let containerId: string | undefined;` to the loop state variables. After each `createStreamWithRetry` call (line 844), extract container: `if (response.container) { containerId = response.container.id; }`. In the stream params object, add `...(containerId && { container: containerId })`.
-   - In `analyzeFood` (around line 1161): after the initial `createStreamWithRetry` call, extract `containerId` from `response.container?.id`. Pass it to `runToolLoop` — add an optional `containerId` parameter to `runToolLoop`'s signature and include it in the first iteration's stream params.
-   - In `conversationalRefine` (around line 1504): same pattern as `analyzeFood`.
-4. Run `npx vitest run "claude.test"` — expect pass.
+1. Write tests in `src/components/__tests__/food-analyzer.test.tsx`:
+   - Test: after successful food log (logResponse received), session is cleared via hook's `clearSession` action
+   - Test: when a restored session is showing (photos/analysis present from restore), a "Start fresh" link is visible
+   - Test: when state is NOT restored (user just captured photos), "Start fresh" link is NOT visible
+   - Test: clicking "Start fresh" clears the session and resets all persisted state to defaults
+2. Run `npx vitest run "food-analyzer"` — expect fail
+3. In `src/components/food-analyzer.tsx`:
+   - After successful log (where `logResponse` is set), call the hook's `clearSession()` action
+   - Add a `wasRestored` flag from the hook (true if the current state came from storage, false if user started fresh)
+   - When `wasRestored` is true and the component has photos or analysis, render a small "Start fresh" text link near the top of the form (below the header, not prominent)
+   - "Start fresh" calls hook's `clearSession()` and resets all persisted state to defaults
+   - Touch target: at least 44px height per mobile-first policy
+4. Run `npx vitest run "food-analyzer"` — expect pass
 
 **Notes:**
-- `Container` is fully typed in SDK 0.75.0+ — `Message.container: Container | null` and `MessageCreateParams.container?: string | null`. No runtime casts needed — use `response.container?.id` directly.
-- Container forwarding fixes FOOD-SCANNER-5 (22 events) and FOOD-SCANNER-3 (3 events).
-- The `containerId` must persist across iterations within `runToolLoop` — a single `let` variable in the loop scope handles this.
+- "Start fresh" is a subtle link, not a button — prevents accidental clears. The roadmap spec explicitly says "Small link, not prominent."
+- Session is NOT cleared on navigation away — that's the whole point. Only cleared on successful log or explicit user action.
+- The `wasRestored` flag distinguishes between "user just took photos" (no Start Fresh shown) and "state was loaded from storage" (Start Fresh shown).
 
-### Task 5: Resolve Sentry issues
-**Linear Issue:** [FOO-805](https://linear.app/lw-claude/issue/FOO-805/resolve-sentry-issues-food-scanner-5-6-3)
-**Files:** None (Sentry MCP operations only)
+### Task 5: Fix pending-submission to use IndexedDB photos on Fitbit token expiry
+**Linear Issue:** [FOO-818](https://linear.app/lw-claude/issue/FOO-818/fix-pending-submission-to-use-indexeddb-photos-on-fitbit-token-expiry)
+**Files:**
+- `src/lib/pending-submission.ts` (modify)
+- `src/lib/__tests__/pending-submission.test.ts` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/pending-submission-handler.tsx` (modify)
+- `src/components/__tests__/pending-submission-handler.test.tsx` (modify)
 
 **Steps:**
-1. FOOD-SCANNER-6 (union type limit) — **already resolved** during planning.
-2. Resolve FOOD-SCANNER-5 (container_id) — will be fixed by Task 4 container forwarding. Resolve after code ships.
-3. Resolve FOOD-SCANNER-3 (tool loop error) — related to container_id, will be fixed by Task 4.
-4. No action on FOOD-SCANNER-7, 8, 9, 4, 2, 1 — already resolved/ignored, transient errors.
+1. Write tests in `src/lib/__tests__/pending-submission.test.ts`:
+   - Test: `PendingSubmission` interface now includes optional `sessionId: string` field
+   - Test: `savePendingSubmission` stores `sessionId` when provided
+   - Test: `isValidPendingSubmission` accepts objects with `sessionId` field
+   - Test: `isValidPendingSubmission` still accepts objects without `sessionId` (backward compat)
+2. Write tests in `src/components/__tests__/pending-submission-handler.test.tsx`:
+   - Test: when pending submission has `sessionId`, photos are loaded from IndexedDB via `loadSessionPhotos(sessionId)` and included in resubmit
+   - Test: when pending submission has no `sessionId`, resubmit proceeds without photos (existing behavior)
+   - Test: after successful resubmit with `sessionId`, session is cleared from IndexedDB
+3. Run `npx vitest run "pending-submission"` — expect fail
+4. In `src/lib/pending-submission.ts`:
+   - Add optional `sessionId?: string` to `PendingSubmission` interface
+   - Update `isValidPendingSubmission` to accept the new field
+5. In `src/components/food-analyzer.tsx`:
+   - In the `handleLogToFitbit` error path where `savePendingSubmission()` is called (around line 375), include the active session ID from the hook: `savePendingSubmission({ ...data, sessionId: activeSessionId })`
+   - Do NOT call `clearSession()` here — the session must survive the OAuth redirect
+6. In `src/components/pending-submission-handler.tsx`:
+   - When resubmitting with a `sessionId`, load photos from IndexedDB via `loadSessionPhotos(sessionId)` and include them in the resubmit request
+   - After successful resubmit, clear the analysis session via `clearSession(sessionId)`
+7. Run `npx vitest run "pending-submission"` — expect pass
 
 **Notes:**
-- FOOD-SCANNER-5 and FOOD-SCANNER-3 should be resolved after the container forwarding code ships.
-- This task has no test steps — it's Sentry state management only.
+- This fixes the core "photos lost on Fitbit token expiry" problem. Today, `pending-submission` only stores `FoodAnalysis` JSON. With session persistence in place, photos are already in IndexedDB before the token error occurs. The pending submission just needs to reference the session ID.
+- Backward compatible: old pending submissions without `sessionId` still work (resubmit without photos, same as today).
+- The OAuth redirect navigates away from the analyze page, which would normally lose state. But with session persistence, the full state (including photos) survives in IndexedDB + sessionStorage.
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -179,71 +214,17 @@ No breaking changes between 0.75.0 and 0.78.0. Upgrade is safe.
 
 ## Plan Summary
 
-**Objective:** Upgrade Anthropic SDK, migrate Claude API from beta to GA endpoint, add container forwarding to fix active production errors, and resolve all Sentry issues.
-**Linear Issues:** FOO-802, FOO-803, FOO-804, FOO-805, FOO-806
-**Approach:** Upgrade SDK from 0.75.0 to 0.78.0 (no breaking changes). Remove all beta API traces from `claude.ts` (constant, method call, types, params) and tests (mock structure, assertions, fixtures). Add container ID extraction and forwarding using the SDK's typed `Message.container` and `MessageCreateParams.container` fields. Resolve Sentry issues that are either already fixed or will be fixed by these changes.
-**Scope:** 5 tasks, 3 files modified, ~12 tests
+**Objective:** Persist the full analysis session state (including photos) so accidental navigation doesn't lose work, and fix the Fitbit token expiry flow to retain photos during OAuth redirect.
+**Linear Issues:** FOO-814, FOO-815, FOO-816, FOO-817, FOO-818
+**Approach:** Dual storage layer — IndexedDB (via `idb` library) for photo blobs, sessionStorage for serializable state (description, analysis, narrative, meal type, time, matches). A `useAnalysisSession` hook abstracts persistence and provides drop-in replacements for FoodAnalyzer's persisted `useState` calls. Sessions auto-expire after 24 hours. The existing `pending-submission` flow is extended with a session ID reference so photos survive OAuth redirects.
+**Scope:** 5 tasks, ~8 files, ~30 tests
 **Key Decisions:**
-- SDK upgraded to 0.78.0 for latest types and fixes. Top-level `cache_control` feature (v0.78.0) not adopted — current explicit two-breakpoint caching is equivalent and already clean.
-- `model_context_window_exceeded` `as string` cast kept — GA `StopReason` type doesn't include it across all SDK versions through 0.78.0, but it works at runtime. Already handled by previous plan (FOO-782).
-- Container accessed via typed SDK fields (`response.container?.id`) — no runtime casts needed since SDK 0.75.0+ has full `Container` type support.
-- Tasks 2 and 3 should be done by the same worker (shared file edits).
+- IndexedDB for photos (native blob support, no base64 overhead) + sessionStorage for serializable state (simple, fast, already used in codebase)
+- `idb` library (~3KB) over raw IndexedDB API — cleaner async interface, well-maintained, types included
+- One session at a time — new state overwrites previous, never stacks
+- Seamless auto-restore on mount (no "resume session?" prompt)
+- "Start Fresh" as subtle link, not button — prevents accidental clears
+- Chat state explicitly NOT persisted — this feature is analyze-screen only
 **Risks:**
-- GA `Parameters<Anthropic["messages"]["stream"]>[0]` type may not accept the `betas` field — removal (Task 3) must happen in same compilation unit as the type change (Task 2).
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-03-04
-**Method:** Single-agent (1 independent work unit, effort score 9)
-
-### Tasks Completed This Iteration
-- Task 1: Upgrade SDK — `npm install @anthropic-ai/sdk@0.78.0`, typecheck + tests pass
-- Task 2: Migrate beta→GA — Changed `createStreamWithRetry` from `beta.messages.stream()` to `messages.stream()`, removed `BETA_HEADER`, updated param type to GA, narrowed `streamTextDeltas` return type
-- Task 3: Remove betas — Removed `betas: [BETA_HEADER]` from 3 call sites, updated all test assertions from `toContain` to `not.toHaveProperty("betas")`, removed betas from test fixtures
-- Task 4: Container forwarding — Added `containerId` option to `runToolLoop`, tracks container across iterations, `analyzeFood` and `conversationalRefine` extract and forward container from initial calls
-- Task 5: Resolve Sentry — FOOD-SCANNER-5 and FOOD-SCANNER-3 resolved (fixed by container forwarding), FOOD-SCANNER-6 already resolved
-
-### Files Modified
-- `package.json` — SDK upgrade 0.75.0 → 0.78.0
-- `package-lock.json` — Auto-generated
-- `src/lib/claude.ts` — Removed `BETA_HEADER`, migrated `createStreamWithRetry` to GA, removed `betas` from 3 call sites, narrowed `streamTextDeltas` type, added container forwarding in `runToolLoop`/`analyzeFood`/`conversationalRefine`
-- `src/lib/__tests__/claude.test.ts` — Updated mock from `beta.messages.stream` to `messages.stream`, added `.on()` to mock stream (Sentry instrumentation), updated beta assertions to GA, removed betas from fixtures, added 5 container forwarding tests
-
-### Linear Updates
-- FOO-806: Todo → In Progress → Review
-- FOO-802: Todo → In Progress → Review
-- FOO-803: Todo → In Progress → Review
-- FOO-804: Todo → In Progress → Review
-- FOO-805: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 1 medium (stray blank lines), fixed before proceeding
-- verifier: All 2521 tests pass, zero warnings, build clean
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Files reviewed: 4 (package.json, src/lib/claude.ts, src/lib/__tests__/claude.test.ts, package-lock.json)
-Reviewers: single-agent (security, reliability, quality checks applied sequentially)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, Claude API Integration
-
-No issues found - all implementations are correct and follow project conventions.
-
-### Linear Updates
-- FOO-806: Review → Merge
-- FOO-802: Review → Merge
-- FOO-803: Review → Merge
-- FOO-804: Review → Merge
-- FOO-805: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- FoodAnalyzer is 748 lines with 18 useState hooks — Task 3 (integration) is the riskiest task, threading the hook through all state references without breaking existing flows
+- jsdom may not fully support IndexedDB in tests — may need `fake-indexeddb` polyfill for Vitest

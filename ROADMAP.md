@@ -12,7 +12,7 @@
 | [AI-Driven Staging QA](#ai-driven-staging-qa) | Automated functional QA against staging using Claude Chrome integration |
 | [Auto User Profile](#auto-user-profile) | Inject a personalized context block into Claude's system prompt from existing user data |
 | [Save for Later](#save-for-later) | Analyze food now, save the result, log it when you actually eat it |
-| [Analysis Session Persistence](#analysis-session-persistence) | Persist analysis state (including photos) so accidental navigation doesn't lose work |
+
 
 
 ---
@@ -642,106 +642,6 @@ The analysis timestamp is stored for display ("2h ago") but is **not** used for 
 6. Detail bottom sheet with full nutrition, meal type/time selector, log/refine/discard
 7. Chat refinement flow seeded from saved analysis
 8. Cleanup: delete saved item on successful log or discard
-
----
-
-## Analysis Session Persistence
-
-### Problem
-
-The food analysis flow holds all state in React memory — photos, description, analysis results, narrative, meal type, time selection. If the user accidentally taps the bottom nav, swipes back, or refreshes the browser, everything is lost. The multi-step nature of analysis (snap a photo, weigh something, add a description, review results) makes accidental navigation likely, especially on mobile. The existing Fitbit token expiry recovery (pending-submission) also loses photos, making the retry flow produce poor results.
-
-### Goal
-
-Persist the full analysis session state — including photos — on the client so the user can navigate away and return to exactly where they left off, surviving both soft navigation and browser refresh.
-
-### Design
-
-#### What Gets Persisted
-
-All state from the analyze page that exists between "user opened the camera" and "user tapped Log":
-
-- Captured photos (compressed blobs)
-- Description text
-- Analysis result (`FoodAnalysis` object, if analysis completed)
-- Analysis narrative (Claude's text response)
-- Selected meal type and time
-- Food matches (if any were found)
-
-#### Persistence Strategy
-
-Two storage layers working together:
-
-- **IndexedDB** for photos — blobs stored natively, no base64 encoding, no size limit concerns. A small wrapper library (`idb`, ~3KB) provides a clean async API.
-- **sessionStorage** for everything else — description, analysis result, narrative, meal type, time, match metadata. All serializable, well within the ~5MB limit.
-
-Both layers are keyed by a session ID stored in sessionStorage. This keeps them in sync and allows clean invalidation.
-
-Only **one session** exists at a time. New state overwrites the previous session, never stacks. As a safety net, on app load (any page), if the stored session is older than 24 hours, silently delete it. This handles abandoned sessions the user forgot about.
-
-#### Save Behavior
-
-State is persisted automatically and continuously:
-
-- Photos written to IndexedDB immediately on capture (before analysis begins).
-- Serializable state debounce-written to sessionStorage on every change (~300ms debounce to avoid blocking).
-- No "save" button — the user never thinks about persistence.
-
-#### Restore Behavior
-
-When the analyze page mounts:
-
-1. Check sessionStorage for an active session.
-2. If found, load photos from IndexedDB + state from sessionStorage.
-3. Auto-restore everything — the page looks exactly as the user left it.
-4. If photos are missing from IndexedDB (e.g., browser cleared storage), restore what's available and show the page without photos. The user can re-take them and continue from the existing analysis/description.
-
-No "resume previous session?" prompt. The restore is seamless — as if the user never left.
-
-#### Clear Triggers
-
-The persisted session is cleared when:
-
-- **Successful log** — food logged to Fitbit, session served its purpose.
-- **Explicit "Start Fresh"** — a clear action on the analyze page when a restored session is showing. Small link, not prominent — prevents accidental clears.
-
-The session is NOT cleared on navigation away, refresh, or new photo capture. Photos and other state changes update the existing session in place.
-
-#### Fitbit Token Expiry Fix
-
-The existing `pending-submission.ts` flow saves the analysis to sessionStorage when a Fitbit token expires mid-log, but loses photos. Updated behavior:
-
-- On token expiry, photos are already in IndexedDB (saved during analysis).
-- `pending-submission` stores a reference to the IndexedDB session ID instead of trying to include photo data.
-- On return from OAuth, the full session (including photos) is available for retry.
-
-### Architecture
-
-- **IndexedDB wrapper:** New `src/lib/session-storage.ts` (or similar) using the `idb` library. Provides `saveSessionPhotos()`, `loadSessionPhotos()`, `clearSession()`. Single object store keyed by session ID.
-- **sessionStorage integration:** Extend or complement the existing `src/lib/pending-submission.ts` pattern. Store serializable analysis state under a known key.
-- **Hydration:** A custom hook (`useAnalysisSession`) that handles save/restore logic. `FoodAnalyzer` calls it instead of managing raw `useState` for persisted fields. The hook handles IndexedDB async reads on mount with a brief loading state.
-- **No layout-level context needed.** The persistence is storage-backed, not memory-backed. The analyze page hydrates from storage on every mount. This is simpler than a context provider and works for hard navigation too.
-- **No new dependencies beyond `idb`** (~3KB, well-maintained, types included).
-- **No server-side changes.** All persistence is client-only.
-
-### Edge Cases
-
-- **IndexedDB unavailable** (private browsing on some older browsers): Fall back to memory-only behavior (current behavior). No crash, no error — just no persistence.
-- **Storage evicted by browser** (iOS Safari, 7+ days inactive): Extremely unlikely for a daily-use app. If it happens, the page loads fresh — same as today.
-- **Multiple tabs:** sessionStorage is tab-scoped, so each tab has its own session. IndexedDB is shared, but keyed by session ID from sessionStorage, so tabs don't collide.
-- **Stale session** (user left an analysis days ago, opens app): Auto-cleared on app load if older than 24 hours. If within 24 hours, restores — the "Start Fresh" option handles intentional resets.
-- **Photos captured but analysis not started yet:** Persisted. User returns, photos are there, they can tap Analyze.
-- **Analysis streaming interrupted** (navigated away mid-stream): Partial state persisted (whatever events arrived before abort). User returns to partial results and can re-analyze or continue to chat.
-
-### Implementation Order
-
-1. `idb` dependency + IndexedDB wrapper for photo blob storage
-2. sessionStorage layer for serializable analysis state
-3. `useAnalysisSession` hook combining both layers (save on change, restore on mount)
-4. Integrate hook into `FoodAnalyzer` — replace raw `useState` for persisted fields
-5. Clear triggers (on log success, on "Start Fresh")
-6. Fix `pending-submission.ts` to reference IndexedDB photos instead of losing them
-7. 24-hour TTL cleanup on app load for abandoned sessions
 
 ---
 
