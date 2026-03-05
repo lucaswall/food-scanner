@@ -1,6 +1,7 @@
 # Implementation Plan
 
 **Created:** 2026-03-05
+**Status:** COMPLETE
 **Source:** Inline request: Analysis session persistence — persist analysis state (including photos) so accidental navigation doesn't lose work, fix Fitbit token expiry photo loss
 **Linear Issues:** [FOO-814](https://linear.app/lw-claude/issue/FOO-814/add-idb-dependency-and-create-analysis-session-storage-module), [FOO-815](https://linear.app/lw-claude/issue/FOO-815/create-useanalysissession-hook), [FOO-816](https://linear.app/lw-claude/issue/FOO-816/integrate-useanalysissession-hook-into-foodanalyzer), [FOO-817](https://linear.app/lw-claude/issue/FOO-817/add-clear-triggers-and-start-fresh-ui-for-analysis-session), [FOO-818](https://linear.app/lw-claude/issue/FOO-818/fix-pending-submission-to-use-indexeddb-photos-on-fitbit-token-expiry)
 **Branch:** feat/analysis-session-persistence
@@ -265,6 +266,37 @@
 - Worker 3: 2 conflicts (analysis-session.ts stub, food-analyzer.tsx imports — resolved)
 - Post-merge: fixed API mismatches between hook and component (types, signatures, missing fields)
 
+### Review Findings
+
+Summary: 3 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [MEDIUM] BUG: `createdAt` reset on every debounced save defeats 24h TTL (`src/hooks/use-analysis-session.ts:167`) — added `createdAtRef` to preserve original timestamp + test
+- [MEDIUM] BUG: Missing fetch timeout in PendingSubmissionHandler (`src/components/pending-submission-handler.tsx:56`) — added `AbortSignal.timeout(15000)`
+- [MEDIUM] BUG: Start Fresh link hidden after photo-only session restore (`src/components/food-analyzer.tsx:643`) — added `convertedPhotoBlobs.length > 0` to condition + test
+
+**Discarded findings (not bugs):**
+- [DISCARDED] Double cast / not using serialize/deserialize helpers (`src/hooks/use-analysis-session.ts:113-118`) — code works correctly; style/maintenance concern, the inline serialization does the same thing as the helpers
+- [DISCARDED] Invalid `createdAt` date makes session non-expirable (`src/lib/analysis-session.ts:191`) — impossible in context, `createdAt` is always set by `new Date().toISOString()`
+- [DISCARDED] `r.json()` instead of `safeResponseJson()` (`src/components/pending-submission-handler.tsx:61`) — convention consistency, error already caught by surrounding try/catch
+
+### Linear Updates
+- FOO-814: Review → Merge (original task)
+- FOO-815: Review → Merge (original task)
+- FOO-816: Review → Merge (original task)
+- FOO-817: Review → Merge (original task)
+- FOO-818: Review → Merge (original task)
+- FOO-819: Created in Merge (Fix: createdAt TTL reset — fixed inline)
+- FOO-820: Created in Merge (Fix: missing fetch timeout — fixed inline)
+- FOO-821: Created in Merge (Fix: Start Fresh visibility — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all pass (2569 tests, 5 pre-existing failures in food-analyzer-reconnect unrelated to this iteration)
+- Bug-hunter: no new issues
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
 All tasks completed.
 
@@ -286,3 +318,9 @@ All tasks completed.
 **Risks:**
 - FoodAnalyzer is 748 lines with 18 useState hooks — Task 3 (integration) is the riskiest task, threading the hook through all state references without breaking existing flows
 - jsdom may not fully support IndexedDB in tests — may need `fake-indexeddb` polyfill for Vitest
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.

@@ -3966,6 +3966,30 @@ describe("FoodAnalyzer", () => {
       expect(screen.getByTestId("start-fresh-link")).toBeInTheDocument();
     });
 
+    it("shows Start fresh link when session was restored with convertedPhotoBlobs only", () => {
+      const staticActions = {
+        setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
+        setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
+        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearSession: vi.fn(),
+        getActiveSessionId: vi.fn().mockReturnValue(null),
+      };
+      mockUseAnalysisSession.mockReturnValue({
+        state: {
+          photos: [],
+          convertedPhotoBlobs: [new Blob(["photo1"])], compressedImages: null, description: "",
+          analysis: null, analysisNarrative: null, mealTypeId: 3,
+          selectedTime: null, matches: [],
+        },
+        actions: staticActions,
+        isRestoring: false,
+        wasRestored: true,
+      });
+
+      render(<FoodAnalyzer />);
+
+      expect(screen.getByTestId("start-fresh-link")).toBeInTheDocument();
+    });
+
     it("does NOT show Start fresh link when state is not restored", () => {
       render(<FoodAnalyzer />);
 

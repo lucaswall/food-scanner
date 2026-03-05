@@ -640,7 +640,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   return (
     <div className="space-y-6">
       {/* Start fresh link for restored sessions */}
-      {wasRestored && (photos.length > 0 || analysis) && (
+      {wasRestored && (photos.length > 0 || convertedPhotoBlobs.length > 0 || analysis) && (
         <button
           data-testid="start-fresh-link"
           className="text-sm text-muted-foreground underline min-h-[44px] flex items-center"

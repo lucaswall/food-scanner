@@ -280,6 +280,34 @@ describe("useAnalysisSession", () => {
     });
   });
 
+  describe("createdAt preservation", () => {
+    it("preserves original createdAt on debounced saves instead of resetting it", async () => {
+      const originalCreatedAt = "2026-03-01T10:00:00.000Z";
+      const state = makeState({ createdAt: originalCreatedAt });
+      mockGetActiveSessionId.mockReturnValue("session-1");
+      mockLoadSessionState.mockReturnValue(state);
+
+      const { result } = renderHook(() => useAnalysisSession());
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // Change description to trigger a debounced save
+      act(() => {
+        result.current.actions.setDescription("Updated description");
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(mockSaveSessionState).toHaveBeenCalled();
+      const savedState = mockSaveSessionState.mock.calls[0][1];
+      expect(savedState.createdAt).toBe(originalCreatedAt);
+    });
+  });
+
   describe("getActiveSessionId action", () => {
     it("returns the current session ID", async () => {
       mockGetActiveSessionId.mockReturnValue("session-1");

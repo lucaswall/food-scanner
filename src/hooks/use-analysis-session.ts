@@ -67,6 +67,7 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
   const [isRestoring, setIsRestoring] = useState(true);
   const [wasRestored, setWasRestored] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
+  const createdAtRef = useRef<string | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isRestoringRef = useRef(true);
 
@@ -106,6 +107,7 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
       }
 
       sessionIdRef.current = existingId;
+      createdAtRef.current = savedState.createdAt;
       const photoBlobs = await loadSessionPhotos(existingId);
 
       if (!cancelled) {
@@ -164,7 +166,7 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
         mealTypeId: state.mealTypeId,
         selectedTime: state.selectedTime,
         matches: serializedMatches,
-        createdAt: new Date().toISOString(),
+        createdAt: createdAtRef.current || new Date().toISOString(),
       };
       saveSessionState(sessionIdRef.current, sessionState);
     }, DEBOUNCE_MS);
@@ -180,6 +182,7 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
     if (sessionIdRef.current) return sessionIdRef.current;
     const id = createSessionId();
     sessionIdRef.current = id;
+    createdAtRef.current = new Date().toISOString();
     return id;
   }, []);
 
@@ -231,6 +234,7 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
       await clearStoredSession(id);
     }
     sessionIdRef.current = null;
+    createdAtRef.current = null;
     setState(DEFAULT_STATE);
     setWasRestored(false);
   }, []);
