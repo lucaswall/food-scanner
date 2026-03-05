@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.4] - 2026-03-05
+
+### Changed
+
+- Analysis loading shows streaming text sooner with a compact progress bar instead of a large centered spinner
+
+### Fixed
+
+- Transient network errors and interrupted requests no longer reported as crashes
+
 ## [1.17.3] - 2026-03-05
 
 ### Changed
@@ -361,7 +371,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.3...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.4...HEAD
+[1.17.4]: https://github.com/lucaswall/food-scanner/compare/v1.17.3...v1.17.4
 [1.17.3]: https://github.com/lucaswall/food-scanner/compare/v1.17.2...v1.17.3
 [1.17.2]: https://github.com/lucaswall/food-scanner/compare/v1.17.1...v1.17.2
 [1.17.1]: https://github.com/lucaswall/food-scanner/compare/v1.17.0...v1.17.1
