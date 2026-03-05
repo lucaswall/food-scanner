@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { FoodAnalysis } from "@/types";
+import type { FoodAnalysis, FoodMatch } from "@/types";
 import type { AnalysisSessionState } from "@/lib/analysis-session";
 import {
   getActiveSessionId as getStoredSessionId,
@@ -13,43 +13,29 @@ import {
   clearSession as clearStoredSession,
   isSessionExpired,
 } from "@/lib/analysis-session";
-
-interface SerializedFoodMatch {
-  customFoodId: number;
-  foodName: string;
-  calories: number;
-  proteinG: number;
-  carbsG: number;
-  fatG: number;
-  saturatedFatG?: number | null;
-  transFatG?: number | null;
-  sugarsG?: number | null;
-  caloriesFromFat?: number | null;
-  fitbitFoodId: number | null;
-  matchRatio: number;
-  lastLoggedAt: string;
-  amount: number;
-  unitId: number;
-}
+import { getDefaultMealType } from "@/lib/meal-type";
 
 interface AnalysisSessionHookState {
+  photos: File[];
+  convertedPhotoBlobs: (File | Blob)[];
+  compressedImages: Blob[] | null;
   description: string;
   analysis: FoodAnalysis | null;
   analysisNarrative: string | null;
   mealTypeId: number;
-  selectedTime: string;
-  matches: SerializedFoodMatch[];
-  photos: Blob[];
+  selectedTime: string | null;
+  matches: FoodMatch[];
 }
 
 interface AnalysisSessionActions {
+  setPhotos: (photos: File[], convertedBlobs?: (File | Blob)[]) => void;
+  setCompressedImages: (images: Blob[] | null) => void;
   setDescription: (description: string) => void;
   setAnalysis: (analysis: FoodAnalysis | null) => void;
   setAnalysisNarrative: (narrative: string | null) => void;
   setMealTypeId: (mealTypeId: number) => void;
-  setSelectedTime: (time: string) => void;
-  setMatches: (matches: SerializedFoodMatch[]) => void;
-  setPhotos: (photos: Blob[]) => void;
+  setSelectedTime: (time: string | null) => void;
+  setMatches: (matches: FoodMatch[]) => void;
   clearSession: () => void;
   getActiveSessionId: () => string | null;
 }
@@ -62,13 +48,15 @@ interface UseAnalysisSessionReturn {
 }
 
 const DEFAULT_STATE: AnalysisSessionHookState = {
+  photos: [],
+  convertedPhotoBlobs: [],
+  compressedImages: null,
   description: "",
   analysis: null,
   analysisNarrative: null,
-  mealTypeId: 7,
-  selectedTime: "",
+  mealTypeId: getDefaultMealType(),
+  selectedTime: null,
   matches: [],
-  photos: [],
 };
 
 const DEBOUNCE_MS = 300;
@@ -114,17 +102,27 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
       }
 
       sessionIdRef.current = existingId;
-      const photos = await loadSessionPhotos(existingId);
+      const photoBlobs = await loadSessionPhotos(existingId);
 
       if (!cancelled) {
+        // Convert serialized matches back to FoodMatch (lastLoggedAt string → Date)
+        const restoredMatches: FoodMatch[] = (savedState.matches || []).map(
+          (m) => ({
+            ...m,
+            lastLoggedAt: new Date(m.lastLoggedAt as unknown as string),
+          })
+        ) as unknown as FoodMatch[];
+
         setState({
+          photos: [],
+          convertedPhotoBlobs: photoBlobs,
+          compressedImages: null,
           description: savedState.description,
           analysis: savedState.analysis,
           analysisNarrative: savedState.analysisNarrative,
           mealTypeId: savedState.mealTypeId,
           selectedTime: savedState.selectedTime,
-          matches: savedState.matches,
-          photos,
+          matches: restoredMatches,
         });
         setWasRestored(true);
         setIsRestoring(false);
@@ -150,13 +148,18 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
 
     debounceTimerRef.current = setTimeout(() => {
       if (!sessionIdRef.current) return;
+      // Serialize matches (Date → string for lastLoggedAt)
+      const serializedMatches = state.matches.map((m) => ({
+        ...m,
+        lastLoggedAt: m.lastLoggedAt instanceof Date ? m.lastLoggedAt.toISOString() : m.lastLoggedAt,
+      }));
       const sessionState: AnalysisSessionState = {
         description: state.description,
         analysis: state.analysis,
         analysisNarrative: state.analysisNarrative,
         mealTypeId: state.mealTypeId,
         selectedTime: state.selectedTime,
-        matches: state.matches,
+        matches: serializedMatches,
         createdAt: new Date().toISOString(),
       };
       saveSessionState(sessionIdRef.current, sessionState);
@@ -192,23 +195,31 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
     setState((prev) => ({ ...prev, mealTypeId }));
   }, []);
 
-  const setSelectedTime = useCallback((selectedTime: string) => {
+  const setSelectedTime = useCallback((selectedTime: string | null) => {
     setState((prev) => ({ ...prev, selectedTime }));
   }, []);
 
-  const setMatches = useCallback((matches: SerializedFoodMatch[]) => {
+  const setMatches = useCallback((matches: FoodMatch[]) => {
     setState((prev) => ({ ...prev, matches }));
   }, []);
 
   const setPhotos = useCallback(
-    (photos: Blob[]) => {
-      const id = ensureSessionId();
-      setState((prev) => ({ ...prev, photos }));
-      // Immediate save for photos
-      saveSessionPhotos(id, photos);
+    (photos: File[], convertedBlobs?: (File | Blob)[]) => {
+      const blobs = convertedBlobs || [];
+      setState((prev) => ({ ...prev, photos, convertedPhotoBlobs: blobs }));
+      // Immediate save for photos — store convertedBlobs (or originals) to IndexedDB
+      if (photos.length > 0) {
+        const id = ensureSessionId();
+        const toStore = blobs.length > 0 ? blobs : photos;
+        saveSessionPhotos(id, toStore);
+      }
     },
     [ensureSessionId]
   );
+
+  const setCompressedImages = useCallback((compressedImages: Blob[] | null) => {
+    setState((prev) => ({ ...prev, compressedImages }));
+  }, []);
 
   const clearSessionAction = useCallback(async () => {
     const id = sessionIdRef.current;
@@ -227,13 +238,14 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
   return {
     state,
     actions: {
+      setPhotos,
+      setCompressedImages,
       setDescription,
       setAnalysis,
       setAnalysisNarrative,
       setMealTypeId,
       setSelectedTime,
       setMatches,
-      setPhotos,
       clearSession: clearSessionAction,
       getActiveSessionId: getActiveSessionIdAction,
     },

@@ -34,7 +34,7 @@ export interface AnalysisSessionState {
   analysis: FoodAnalysis | null;
   analysisNarrative: string | null;
   mealTypeId: number;
-  selectedTime: string;
+  selectedTime: string | null;
   matches: SerializedFoodMatch[];
   createdAt: string;
 }

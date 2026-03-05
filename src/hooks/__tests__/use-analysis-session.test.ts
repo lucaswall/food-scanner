@@ -144,7 +144,7 @@ describe("useAnalysisSession", () => {
       mockCreateSessionId.mockReturnValue("new-id");
 
       act(() => {
-        result.current.actions.setPhotos([new Blob(["p"])]);
+        result.current.actions.setPhotos([new File(["p"], "p.jpg", { type: "image/jpeg" })]);
       });
 
       act(() => {
@@ -174,7 +174,7 @@ describe("useAnalysisSession", () => {
         await vi.runAllTimersAsync();
       });
 
-      const photos = [new Blob(["new-photo"])];
+      const photos = [new File(["new-photo"], "photo.jpg", { type: "image/jpeg" })];
       await act(async () => {
         result.current.actions.setPhotos(photos);
       });
@@ -228,7 +228,7 @@ describe("useAnalysisSession", () => {
       expect(mockCreateSessionId).not.toHaveBeenCalled();
 
       await act(async () => {
-        result.current.actions.setPhotos([new Blob(["photo"])]);
+        result.current.actions.setPhotos([new File(["photo"], "photo.jpg", { type: "image/jpeg" })]);
       });
 
       expect(mockCreateSessionId).toHaveBeenCalledOnce();
@@ -245,7 +245,7 @@ describe("useAnalysisSession", () => {
       });
 
       await act(async () => {
-        result.current.actions.setPhotos([new Blob(["photo"])]);
+        result.current.actions.setPhotos([new File(["photo"], "photo.jpg", { type: "image/jpeg" })]);
       });
 
       expect(mockCreateSessionId).not.toHaveBeenCalled();
@@ -257,7 +257,7 @@ describe("useAnalysisSession", () => {
     it("clears all persisted state and resets to defaults", async () => {
       mockGetActiveSessionId.mockReturnValue("session-1");
       mockLoadSessionState.mockReturnValue(makeState({ description: "Saved" }));
-      mockLoadSessionPhotos.mockResolvedValue([new Blob(["photo"])]);
+      mockLoadSessionPhotos.mockResolvedValue([new File(["photo"], "photo.jpg", { type: "image/jpeg" })]);
 
       const { result } = renderHook(() => useAnalysisSession());
 
