@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.3] - 2026-03-05
+
+### Changed
+
+- Migrated Claude API from beta to GA endpoint with container forwarding for improved conversation context
+- Upgraded Anthropic SDK to v0.78.0
+
 ## [1.17.2] - 2026-03-04
 
 ### Fixed
@@ -354,7 +361,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.2...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.3...HEAD
+[1.17.3]: https://github.com/lucaswall/food-scanner/compare/v1.17.2...v1.17.3
 [1.17.2]: https://github.com/lucaswall/food-scanner/compare/v1.17.1...v1.17.2
 [1.17.1]: https://github.com/lucaswall/food-scanner/compare/v1.17.0...v1.17.1
 [1.17.0]: https://github.com/lucaswall/food-scanner/compare/v1.16.0...v1.17.0
