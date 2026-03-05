@@ -18,6 +18,18 @@ interface TimeSelectorProps {
 export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
   const timeInputRef = useRef<HTMLInputElement>(null);
 
+  const openTimePicker = () => {
+    const input = timeInputRef.current;
+    if (!input) return;
+    try {
+      input.showPicker();
+    } catch {
+      // iOS Safari: showPicker() not supported for time inputs.
+      // focus() triggers the native picker on iOS when element is in viewport.
+      input.focus();
+    }
+  };
+
   return (
     <div>
       <DropdownMenu>
@@ -42,9 +54,7 @@ export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
           </DropdownMenuItem>
           <DropdownMenuItem
             className="min-h-[44px]"
-            onSelect={() => {
-              timeInputRef.current?.showPicker();
-            }}
+            onSelect={openTimePicker}
           >
             {value !== null && <Check className="size-4" />}
             <span className={value !== null ? "" : "pl-6"}>
@@ -56,7 +66,8 @@ export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
       <input
         ref={timeInputRef}
         type="time"
-        className="fixed opacity-0 -top-[9999px]"
+        className="fixed opacity-0 pointer-events-none"
+        style={{ bottom: 0, left: 0, fontSize: "16px" }}
         tabIndex={-1}
         aria-hidden="true"
         value={value ?? ""}
