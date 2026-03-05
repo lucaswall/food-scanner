@@ -13,15 +13,17 @@ import { FoodChat } from "./food-chat";
 import { compressImage } from "@/lib/image";
 import { vibrateError } from "@/lib/haptics";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useAnalysisSession } from "@/hooks/use-analysis-session";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MessageSquare } from "lucide-react";
 import {
   savePendingSubmission,
   getPendingSubmission,
   clearPendingSubmission,
 } from "@/lib/pending-submission";
-import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
+import { getLocalDateTime } from "@/lib/meal-type";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getTodayDate } from "@/lib/date-utils";
 import { parseSSEEvents } from "@/lib/sse";
@@ -40,28 +42,34 @@ interface FoodAnalyzerProps {
 }
 
 export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
-  const [photos, setPhotos] = useState<File[]>([]);
-  const [convertedPhotoBlobs, setConvertedPhotoBlobs] = useState<(File | Blob)[]>([]);
-  const [description, setDescription] = useState("");
-  const [analysis, setAnalysis] = useState<FoodAnalysis | null>(null);
+  // Persisted state from analysis session hook
+  const { state: sessionState, actions, isRestoring, wasRestored } = useAnalysisSession();
+  const {
+    photos,
+    convertedPhotoBlobs,
+    compressedImages,
+    description,
+    analysis,
+    analysisNarrative,
+    mealTypeId,
+    selectedTime,
+    matches,
+  } = sessionState;
 
   // Refs for focus management
   const analysisSectionRef = useRef<HTMLDivElement>(null);
   const confirmationRef = useRef<HTMLDivElement>(null);
+
+  // Transient state (not persisted)
   const [compressing, setCompressing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
-  const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
-  const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [logging, setLogging] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
-  const [matches, setMatches] = useState<FoodMatch[]>([]);
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
-  const [compressedImages, setCompressedImages] = useState<Blob[] | null>(null);
-  const [analysisNarrative, setAnalysisNarrative] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [seedMessages, setSeedMessages] = useState<ConversationMessage[] | null>(null);
@@ -75,8 +83,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const canLog = analysis !== null && !loading && !logging;
 
   const handlePhotosChange = (files: File[], convertedBlobs?: (File | Blob)[]) => {
-    setPhotos(files);
-    setConvertedPhotoBlobs(convertedBlobs || []);
+    actions.setPhotos(files, convertedBlobs);
     if (files.length > 0) {
       autoCaptureUsedRef.current = true;
     }
@@ -99,16 +106,25 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     }
     // Invalidate any in-flight find-matches fetch
     findMatchesGenerationRef.current += 1;
-    setAnalysis(null);
-    setAnalysisNarrative(null);
+    actions.setAnalysis(null);
+    actions.setAnalysisNarrative(null);
     setStreamingText("");
     setError(null);
     setLogError(null);
     setLogResponse(null);
-    setMatches([]);
-    setCompressedImages(null);
+    actions.setMatches([]);
+    actions.setCompressedImages(null);
     setChatOpen(false);
     setSeedMessages(null);
+  };
+
+  const handleStartFresh = () => {
+    resetAnalysisState();
+    actions.setPhotos([], []);
+    actions.setDescription("");
+    actions.setMealTypeId(mealTypeId); // keep current default
+    actions.setSelectedTime(null);
+    actions.clearSession();
   };
 
   const handleAnalyze = async () => {
@@ -163,7 +179,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       setCompressing(false);
     }
 
-    setCompressedImages(compressedBlobs);
+    actions.setCompressedImages(compressedBlobs);
     setLoading(true);
     setLoadingStep("Analyzing food...");
     setStreamingText("");
@@ -241,8 +257,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
               setStreamingText("");
               setLoadingStep(TOOL_DESCRIPTIONS[event.tool] ?? "Processing...");
             } else if (event.type === "analysis") {
-              setAnalysis(event.analysis);
-              setAnalysisNarrative(textDeltaBufferRef.current.trim() || null);
+              actions.setAnalysis(event.analysis);
+              actions.setAnalysisNarrative(textDeltaBufferRef.current.trim() || null);
               setSeedMessages(null);
               // Fire async match search (non-blocking) — skip if Claude already identified the reused food
               if (!event.analysis.sourceCustomFoodId) {
@@ -258,7 +274,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
                     // Ignore stale result if state was reset since this fetch started
                     if (findMatchesGenerationRef.current !== matchGen) return;
                     if (matchResult.success && matchResult.data?.matches) {
-                      setMatches(matchResult.data.matches);
+                      actions.setMatches(matchResult.data.matches);
                     }
                   })
                   .catch((err) => {
@@ -394,6 +410,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       // Only set response after API confirms success
       setLogResponse(result.data ?? null);
+      actions.clearSession();
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setLogError("Request timed out. Please try again.");
@@ -463,6 +480,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       // Only set response after API confirms success
       setLogResponse(result.data ?? null);
+      actions.clearSession();
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setLogError("Request timed out. Please try again.");
@@ -504,7 +522,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
     setResubmitting(true);
     setResubmitFoodName(pending.foodName);
-    setMealTypeId(pending.mealTypeId);
+    actions.setMealTypeId(pending.mealTypeId);
 
     const dateTime = pending.date && pending.time
       ? { date: pending.date, time: pending.time }
@@ -561,6 +579,17 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     };
   }, []);
 
+  // Show loading skeleton while restoring session from storage
+  if (isRestoring) {
+    return (
+      <div data-testid="restoring-skeleton" className="space-y-6">
+        <Skeleton className="h-48 w-full rounded-lg" />
+        <Skeleton className="h-10 w-full rounded-md" />
+        <Skeleton className="h-11 w-full rounded-md" />
+      </div>
+    );
+  }
+
   // Show resubmitting state
   if (resubmitting) {
     return (
@@ -599,10 +628,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           compressedImages={compressedImages || []}
           initialMealTypeId={mealTypeId}
           onClose={() => setChatOpen(false)}
-          onLogged={(response, refinedAnalysis, mealTypeId) => {
-            setAnalysis(refinedAnalysis);
+          onLogged={(response, refinedAnalysis, chatMealTypeId) => {
+            actions.setAnalysis(refinedAnalysis);
             setLogResponse(response);
-            setMealTypeId(mealTypeId);
+            actions.setMealTypeId(chatMealTypeId);
           }}
         />
       </div>
@@ -611,6 +640,17 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
   return (
     <div className="space-y-6">
+      {/* Start fresh link for restored sessions */}
+      {wasRestored && (photos.length > 0 || analysis) && (
+        <button
+          data-testid="start-fresh-link"
+          className="text-sm text-muted-foreground underline min-h-[44px] flex items-center"
+          onClick={handleStartFresh}
+        >
+          Start fresh
+        </button>
+      )}
+
       {/* Resubmit error (shown when no analysis context) */}
       {logError && !analysis && (
         <div
@@ -624,7 +664,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} />
 
-      <DescriptionInput value={description} onChange={setDescription} disabled={loading || logging || compressing} />
+      <DescriptionInput value={description} onChange={actions.setDescription} disabled={loading || logging || compressing} />
 
       {/* First-time user guidance */}
       {photos.length === 0 && !description.trim() && !analysis && (
@@ -701,7 +741,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             <Label htmlFor="meal-type-analyzer">Meal Type</Label>
             <MealTypeSelector
               value={mealTypeId}
-              onChange={setMealTypeId}
+              onChange={actions.setMealTypeId}
               disabled={logging}
               id="meal-type-analyzer"
             />
@@ -710,7 +750,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           {/* Time selector */}
           <div className="space-y-2">
             <Label>Meal Time</Label>
-            <TimeSelector value={selectedTime} onChange={setSelectedTime} />
+            <TimeSelector value={selectedTime} onChange={actions.setSelectedTime} />
           </div>
 
           {/* Log error display */}
