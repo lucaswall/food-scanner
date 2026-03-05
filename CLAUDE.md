@@ -166,13 +166,12 @@ Do NOT flag these in code reviews:
 | **plan-review-implementation** | Opus (lead) / Sonnet (reviewers) | After plan-implement | Agent team QA review |
 | **frontend-review** | Opus (lead) / Sonnet (reviewers) | "review frontend" | Agent team frontend review → Linear Backlog issues |
 | **deep-review** | Opus | "deep review X", "analyse this screen" | Focused cross-domain analysis of a single screen/feature |
-| **pull-from-roadmap** | Opus | "pull from roadmap", "analyze this feature" | Deep research + discussion of roadmap item or new idea → cleanup |
-| **push-to-roadmap** | Opus | "push to roadmap", "add to roadmap", "roadmap this idea" | Deep research + discussion of a new idea → writes complete feature spec to ROADMAP.md |
+| **roadmap** | Opus | "roadmap", "pull from roadmap", "push to roadmap", "add to roadmap", "analyze this feature" | Deep research + discussion → write to roadmap, pull to backlog, plan, modify, or drop |
 | **tools-improve** | Opus | Before modifying skills/agents/CLAUDE.md | Best practices for Claude Code extensibility |
 | **push-to-production** | Opus | "push to production", "release" | Backup DB, migrate, merge `main` → `release` |
 
 **Workflows:**
-- **Roadmap feature:** `pull-from-roadmap` → `add-to-backlog` → `backlog-refine` (optional) → `plan-backlog` → `plan-implement` → `plan-review-implementation` (repeat) → `push-to-production`
+- **Roadmap feature:** `roadmap` → `add-to-backlog` → `backlog-refine` (optional) → `plan-backlog` → `plan-implement` → `plan-review-implementation` (repeat) → `push-to-production`
 - **Audit-driven:** `code-audit` / `frontend-review` / `deep-review` → `backlog-refine` (optional) → `plan-backlog` → `plan-implement` → `plan-review-implementation` (repeat) → `push-to-production`
 - **Direct request:** `plan-inline` → `plan-implement` → `plan-review-implementation` (repeat) → `push-to-production`
 - **Bug fix:** `investigate` (optional) → `plan-fix` → `plan-implement` → `plan-review-implementation` (repeat) → `push-to-production`
