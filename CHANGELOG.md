@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.5] - 2026-03-05
+
+### Fixed
+
+- Custom time picker now works on iOS Safari
+
 ## [1.17.4] - 2026-03-05
 
 ### Changed
@@ -371,7 +377,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.4...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.5...HEAD
+[1.17.5]: https://github.com/lucaswall/food-scanner/compare/v1.17.4...v1.17.5
 [1.17.4]: https://github.com/lucaswall/food-scanner/compare/v1.17.3...v1.17.4
 [1.17.3]: https://github.com/lucaswall/food-scanner/compare/v1.17.2...v1.17.3
 [1.17.2]: https://github.com/lucaswall/food-scanner/compare/v1.17.1...v1.17.2
