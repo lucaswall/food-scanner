@@ -29,27 +29,27 @@ export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
         <Clock className="size-4" />
         Now
       </button>
-      <div className="relative flex-[2]">
+      <div
+        className={cn(
+          "relative flex flex-[2] items-center justify-center rounded-md border min-h-[44px] transition-colors",
+          value !== null
+            ? "border-primary bg-primary/10 text-primary"
+            : "border-input text-muted-foreground",
+          disabled && "cursor-not-allowed opacity-50"
+        )}
+      >
+        <span className="pointer-events-none text-sm font-medium">
+          {value !== null ? value : "Custom"}
+        </span>
         <input
           type="time"
           disabled={disabled}
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value || null)}
           aria-label={value !== null ? `Meal time: ${value}` : "Select custom time"}
-          className={cn(
-            "w-full rounded-md border px-3 py-2 text-sm font-medium transition-colors min-h-[44px] appearance-none bg-transparent text-center",
-            value !== null
-              ? "border-primary bg-primary/10 text-primary"
-              : "border-input text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-            disabled && "cursor-not-allowed opacity-50"
-          )}
+          className="absolute inset-0 opacity-0 w-full h-full"
           style={{ fontSize: "16px" }}
         />
-        {value === null && (
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm font-medium text-muted-foreground">
-            Custom
-          </span>
-        )}
       </div>
     </div>
   );
