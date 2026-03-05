@@ -202,12 +202,26 @@
   animation: slide-in-right 0.25s ease-out;
 }
 
+@keyframes progress-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.animate-progress-bar {
+  animation: progress-bar 1.5s ease-in-out infinite;
+}
+
 /* Respect reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in,
   .animate-slide-up,
   .animate-slide-in-left,
   .animate-slide-in-right,
+  .animate-progress-bar,
   .animate-spin,
   .animate-pulse {
     animation: none;

@@ -33,24 +33,42 @@ export function AnalysisResult({
   const [detailOpen, setDetailOpen] = useState(false);
   const [narrativeOpen, setNarrativeOpen] = useState(false);
   if (loading) {
+    const hasText = !!streamingText;
     return (
       <div
-        className="flex flex-col items-center py-8 space-y-4"
+        className={`flex flex-col ${hasText ? "py-4" : "items-center py-8"} space-y-3`}
         aria-live="assertive"
         aria-busy="true"
       >
-        <div
-          data-testid="loading-spinner"
-          className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"
-          aria-hidden="true"
-        />
-        <p className="text-sm text-muted-foreground">
-          {loadingStep || "Analyzing your food..."}
-        </p>
-        {streamingText && (
-          <div className="w-full max-h-32 overflow-y-auto rounded-lg bg-muted/50 p-3">
-            <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{streamingText}</p>
-          </div>
+        {hasText ? (
+          <>
+            <div className="flex items-center gap-2">
+              <div className="h-1 flex-1 rounded-full bg-muted overflow-hidden">
+                <div
+                  data-testid="loading-bar"
+                  className="h-full w-1/3 rounded-full bg-primary animate-progress-bar"
+                  aria-hidden="true"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground shrink-0">
+                {loadingStep || "Analyzing..."}
+              </p>
+            </div>
+            <div className="w-full max-h-48 overflow-y-auto rounded-lg bg-muted/50 p-3">
+              <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{streamingText}</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div
+              data-testid="loading-spinner"
+              className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"
+              aria-hidden="true"
+            />
+            <p className="text-sm text-muted-foreground">
+              {loadingStep || "Analyzing your food..."}
+            </p>
+          </>
         )}
       </div>
     );
