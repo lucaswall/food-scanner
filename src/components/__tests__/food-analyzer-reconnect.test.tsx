@@ -49,6 +49,61 @@ vi.mock("@/lib/pending-submission", () => ({
   clearPendingSubmission: () => mockClearPending(),
 }));
 
+// Mock analysis-session (getActiveSessionId used in savePendingSubmission calls)
+vi.mock("@/lib/analysis-session", () => ({
+  getActiveSessionId: vi.fn().mockReturnValue("test-session-id"),
+}));
+
+// Mock useAnalysisSession hook — uses real React state
+const { useAnalysisSession: mockUseAnalysisSession } = vi.hoisted(() => {
+  return { useAnalysisSession: vi.fn() };
+});
+
+function useAnalysisSessionReal() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { useState: useStateFn, useCallback: useCallbackFn, useMemo: useMemoFn } = require("react");
+  const [photos, setPhotosRaw] = useStateFn([] as File[]);
+  const [convertedPhotoBlobs, setConvertedPhotoBlobsRaw] = useStateFn([] as (File | Blob)[]);
+  const [compressedImages, setCompressedImagesRaw] = useStateFn(null as Blob[] | null);
+  const [description, setDescriptionRaw] = useStateFn("");
+  const [analysis, setAnalysisRaw] = useStateFn(null as FoodAnalysis | null);
+  const [analysisNarrative, setAnalysisNarrativeRaw] = useStateFn(null as string | null);
+  const [mealTypeId, setMealTypeIdRaw] = useStateFn(3);
+  const [selectedTime, setSelectedTimeRaw] = useStateFn(null as string | null);
+  const [matches, setMatchesRaw] = useStateFn([] as unknown[]);
+
+  // Stable function references — the real hook uses useCallback, so the mock must too.
+  // Without this, the actions object changes identity on every render, causing useEffects
+  // with [actions] dependency to re-fire unexpectedly.
+  const setPhotos = useCallbackFn((newPhotos: File[], convertedBlobs?: (File | Blob)[]) => { setPhotosRaw(newPhotos); setConvertedPhotoBlobsRaw(convertedBlobs || []); }, []);
+  const setCompressedImages = useCallbackFn((images: Blob[] | null) => { setCompressedImagesRaw(images); }, []);
+  const setDescription = useCallbackFn((desc: string) => { setDescriptionRaw(desc); }, []);
+  const setAnalysis = useCallbackFn((a: FoodAnalysis | null) => { setAnalysisRaw(a); }, []);
+  const setAnalysisNarrative = useCallbackFn((n: string | null) => { setAnalysisNarrativeRaw(n); }, []);
+  const setMealTypeId = useCallbackFn((id: number) => { setMealTypeIdRaw(id); }, []);
+  const setSelectedTime = useCallbackFn((t: string | null) => { setSelectedTimeRaw(t); }, []);
+  const setMatches = useCallbackFn((m: unknown[]) => { setMatchesRaw(m); }, []);
+  const clearSession = useCallbackFn(() => {}, []);
+  const getActiveSessionId = useCallbackFn(() => "test-session-id", []);
+
+  const actions = useMemoFn(() => ({
+    setPhotos, setCompressedImages, setDescription, setAnalysis,
+    setAnalysisNarrative, setMealTypeId, setSelectedTime, setMatches,
+    clearSession, getActiveSessionId,
+  }), [setPhotos, setCompressedImages, setDescription, setAnalysis, setAnalysisNarrative, setMealTypeId, setSelectedTime, setMatches, clearSession, getActiveSessionId]);
+
+  return {
+    state: { photos, convertedPhotoBlobs, compressedImages, description, analysis, analysisNarrative, mealTypeId, selectedTime, matches },
+    actions,
+    isRestoring: false,
+    wasRestored: false,
+  };
+}
+
+vi.mock("@/hooks/use-analysis-session", () => ({
+  useAnalysisSession: mockUseAnalysisSession,
+}));
+
 // Mock child components
 vi.mock("../photo-capture", () => ({
   PhotoCapture: ({
@@ -224,6 +279,7 @@ function makeSseAnalyzeResponse(events: StreamEvent[]) {
 beforeEach(() => {
   mockFetch.mockReset();
   vi.clearAllMocks();
+  mockUseAnalysisSession.mockImplementation(useAnalysisSessionReal);
   mockGetPending.mockReturnValue(null);
   // Prevent actual navigation
   Object.defineProperty(window, "location", {

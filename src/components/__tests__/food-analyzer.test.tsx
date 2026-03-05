@@ -46,6 +46,72 @@ vi.mock("@/lib/pending-submission", () => ({
   clearPendingSubmission: vi.fn(),
 }));
 
+// Mock useAnalysisSession hook — uses real React state by default so existing tests
+// continue to work. Individual tests can override via mockUseAnalysisSession.mockReturnValue().
+const mockClearSession = vi.fn();
+const mockGetActiveSessionId = vi.fn().mockReturnValue(null);
+
+// Spy wrappers that track calls while still updating real state
+const sessionSpies = {
+  setPhotos: vi.fn(),
+  setCompressedImages: vi.fn(),
+  setDescription: vi.fn(),
+  setAnalysis: vi.fn(),
+  setAnalysisNarrative: vi.fn(),
+  setMealTypeId: vi.fn(),
+  setSelectedTime: vi.fn(),
+  setMatches: vi.fn(),
+  clearSession: mockClearSession,
+  getActiveSessionId: mockGetActiveSessionId,
+};
+
+const { useAnalysisSession: mockUseAnalysisSession } = vi.hoisted(() => {
+  return {
+    useAnalysisSession: vi.fn(),
+  };
+});
+
+// The "real" implementation that uses React state (for existing tests)
+function useAnalysisSessionReal() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { useState: useStateFn } = require("react");
+  const [photos, setPhotosRaw] = useStateFn([] as File[]);
+  const [convertedPhotoBlobs, setConvertedPhotoBlobsRaw] = useStateFn([] as (File | Blob)[]);
+  const [compressedImages, setCompressedImagesRaw] = useStateFn(null as Blob[] | null);
+  const [description, setDescriptionRaw] = useStateFn("");
+  const [analysis, setAnalysisRaw] = useStateFn(null as FoodAnalysis | null);
+  const [analysisNarrative, setAnalysisNarrativeRaw] = useStateFn(null as string | null);
+  const [mealTypeId, setMealTypeIdRaw] = useStateFn(3);
+  const [selectedTime, setSelectedTimeRaw] = useStateFn(null as string | null);
+  const [matches, setMatchesRaw] = useStateFn([] as FoodMatch[]);
+
+  return {
+    state: { photos, convertedPhotoBlobs, compressedImages, description, analysis, analysisNarrative, mealTypeId, selectedTime, matches },
+    actions: {
+      setPhotos: (newPhotos: File[], convertedBlobs?: (File | Blob)[]) => {
+        sessionSpies.setPhotos(newPhotos, convertedBlobs);
+        setPhotosRaw(newPhotos);
+        setConvertedPhotoBlobsRaw(convertedBlobs || []);
+      },
+      setCompressedImages: (images: Blob[] | null) => { sessionSpies.setCompressedImages(images); setCompressedImagesRaw(images); },
+      setDescription: (desc: string) => { sessionSpies.setDescription(desc); setDescriptionRaw(desc); },
+      setAnalysis: (a: FoodAnalysis | null) => { sessionSpies.setAnalysis(a); setAnalysisRaw(a); },
+      setAnalysisNarrative: (n: string | null) => { sessionSpies.setAnalysisNarrative(n); setAnalysisNarrativeRaw(n); },
+      setMealTypeId: (id: number) => { sessionSpies.setMealTypeId(id); setMealTypeIdRaw(id); },
+      setSelectedTime: (t: string | null) => { sessionSpies.setSelectedTime(t); setSelectedTimeRaw(t); },
+      setMatches: (m: FoodMatch[]) => { sessionSpies.setMatches(m); setMatchesRaw(m); },
+      clearSession: mockClearSession,
+      getActiveSessionId: mockGetActiveSessionId,
+    },
+    isRestoring: false,
+    wasRestored: false,
+  };
+}
+
+vi.mock("@/hooks/use-analysis-session", () => ({
+  useAnalysisSession: mockUseAnalysisSession,
+}));
+
 // Mock the child components
 vi.mock("../photo-capture", () => ({
   PhotoCapture: ({
@@ -436,6 +502,9 @@ beforeEach(() => {
   // that resolve without awaiting the subsequent fetch) would leak to the next test.
   mockFetch.mockReset();
   vi.clearAllMocks();
+
+  // Default: use real React state implementation so existing tests work unchanged
+  mockUseAnalysisSession.mockImplementation(useAnalysisSessionReal);
 });
 
 describe("FoodAnalyzer", () => {
@@ -3730,6 +3799,232 @@ describe("FoodAnalyzer", () => {
       );
       const body = JSON.parse((logCall![1] as { body: string }).body);
       expect(body.time).toMatch(/^\d{2}:\d{2}$/);
+    });
+  });
+
+  // FOO-816: useAnalysisSession integration
+  describe("analysis session persistence", () => {
+    it("shows loading skeleton when isRestoring is true", () => {
+      mockUseAnalysisSession.mockImplementation(() => ({
+        ...useAnalysisSessionReal(),
+        isRestoring: true,
+      }));
+
+      render(<FoodAnalyzer />);
+
+      // Should NOT show the analyze form elements
+      expect(screen.queryByTestId("photo-capture")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /analyze/i })).not.toBeInTheDocument();
+
+      // Should show a loading skeleton
+      expect(screen.getByTestId("restoring-skeleton")).toBeInTheDocument();
+    });
+
+    it("renders with restored state from hook", async () => {
+      const restoredActions = {
+        setPhotos: vi.fn(),
+        setCompressedImages: vi.fn(),
+        setDescription: vi.fn(),
+        setAnalysis: vi.fn(),
+        setAnalysisNarrative: vi.fn(),
+        setMealTypeId: vi.fn(),
+        setSelectedTime: vi.fn(),
+        setMatches: vi.fn(),
+        clearSession: vi.fn(),
+        getActiveSessionId: vi.fn().mockReturnValue(null),
+      };
+      mockUseAnalysisSession.mockReturnValue({
+        state: {
+          photos: [new File(["photo"], "restored.jpg", { type: "image/jpeg" })],
+          convertedPhotoBlobs: [],
+          compressedImages: null,
+          description: "restored description",
+          analysis: mockAnalysis,
+          analysisNarrative: "This is a narrative",
+          mealTypeId: 5,
+          selectedTime: null,
+          matches: mockMatches,
+        },
+        actions: restoredActions,
+        isRestoring: false,
+        wasRestored: true,
+      });
+
+      render(<FoodAnalyzer />);
+
+      // Should render the restored analysis
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne");
+        expect(screen.getByTestId("analysis-narrative")).toHaveTextContent("This is a narrative");
+      });
+    });
+
+    it("calls actions.setPhotos when user captures photos", async () => {
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+      await waitFor(() => {
+        expect(sessionSpies.setPhotos).toHaveBeenCalled();
+        const call = sessionSpies.setPhotos.mock.calls[0];
+        expect(call[0]).toHaveLength(1);
+        expect(call[0][0]).toBeInstanceOf(File);
+      });
+    });
+
+    it("calls actions.setDescription when user types description", () => {
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "test food" } });
+
+      expect(sessionSpies.setDescription).toHaveBeenCalledWith("test food");
+    });
+
+    it("calls actions.setAnalysis and setAnalysisNarrative when analysis completes", async () => {
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([
+          { type: "text_delta", text: "This is narrative text" },
+          { type: "analysis", analysis: mockAnalysis },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodAnalyzer />);
+
+      // Add photo first
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+      });
+
+      await waitFor(() => {
+        expect(sessionSpies.setAnalysis).toHaveBeenCalledWith(mockAnalysis);
+        expect(sessionSpies.setAnalysisNarrative).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // FOO-817: Clear triggers and Start Fresh UI
+  describe("session clear and Start Fresh", () => {
+    it("clears session after successful food log", async () => {
+      mockFetch
+        .mockResolvedValueOnce(
+          makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
+        )
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /log to fitbit/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(mockClearSession).toHaveBeenCalled();
+      });
+    });
+
+    it("shows Start fresh link when session was restored with photos/analysis", () => {
+      const staticActions = {
+        setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
+        setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
+        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearSession: vi.fn(),
+        getActiveSessionId: vi.fn().mockReturnValue(null),
+      };
+      mockUseAnalysisSession.mockReturnValue({
+        state: {
+          photos: [new File(["test"], "test.jpg", { type: "image/jpeg" })],
+          convertedPhotoBlobs: [], compressedImages: null, description: "",
+          analysis: mockAnalysis, analysisNarrative: null, mealTypeId: 3,
+          selectedTime: null, matches: [],
+        },
+        actions: staticActions,
+        isRestoring: false,
+        wasRestored: true,
+      });
+
+      render(<FoodAnalyzer />);
+
+      expect(screen.getByTestId("start-fresh-link")).toBeInTheDocument();
+    });
+
+    it("shows Start fresh link when session was restored with convertedPhotoBlobs only", () => {
+      const staticActions = {
+        setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
+        setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
+        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearSession: vi.fn(),
+        getActiveSessionId: vi.fn().mockReturnValue(null),
+      };
+      mockUseAnalysisSession.mockReturnValue({
+        state: {
+          photos: [],
+          convertedPhotoBlobs: [new Blob(["photo1"])], compressedImages: null, description: "",
+          analysis: null, analysisNarrative: null, mealTypeId: 3,
+          selectedTime: null, matches: [],
+        },
+        actions: staticActions,
+        isRestoring: false,
+        wasRestored: true,
+      });
+
+      render(<FoodAnalyzer />);
+
+      expect(screen.getByTestId("start-fresh-link")).toBeInTheDocument();
+    });
+
+    it("does NOT show Start fresh link when state is not restored", () => {
+      render(<FoodAnalyzer />);
+
+      // Add photo (not restored)
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+      expect(screen.queryByTestId("start-fresh-link")).not.toBeInTheDocument();
+    });
+
+    it("clicking Start fresh clears session and resets state", async () => {
+      const staticClearSession = vi.fn();
+      const staticActions = {
+        setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
+        setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
+        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearSession: staticClearSession,
+        getActiveSessionId: vi.fn().mockReturnValue(null),
+      };
+      mockUseAnalysisSession.mockReturnValue({
+        state: {
+          photos: [new File(["test"], "test.jpg", { type: "image/jpeg" })],
+          convertedPhotoBlobs: [], compressedImages: null, description: "",
+          analysis: mockAnalysis, analysisNarrative: null, mealTypeId: 3,
+          selectedTime: null, matches: [],
+        },
+        actions: staticActions,
+        isRestoring: false,
+        wasRestored: true,
+      });
+
+      render(<FoodAnalyzer />);
+
+      const startFreshLink = screen.getByTestId("start-fresh-link");
+      fireEvent.click(startFreshLink);
+
+      expect(staticClearSession).toHaveBeenCalled();
     });
   });
 

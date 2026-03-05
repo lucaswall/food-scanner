@@ -7,6 +7,7 @@ import {
   savePendingSubmission,
 } from "@/lib/pending-submission";
 import { invalidateFoodCaches } from "@/lib/swr";
+import { clearSession } from "@/lib/analysis-session";
 import { getLocalDateTime } from "@/lib/meal-type";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
@@ -56,11 +57,15 @@ export function PendingSubmissionHandler() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: AbortSignal.timeout(15000),
         });
         const result = await r.json();
 
         if (result.success) {
           clearPendingSubmission();
+          if (pending.sessionId) {
+            clearSession(pending.sessionId).catch(() => {});
+          }
           invalidateFoodCaches().catch(() => {});
           setStatus("success");
         } else {

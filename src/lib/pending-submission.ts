@@ -9,6 +9,7 @@ export interface PendingSubmission {
   reuseCustomFoodId?: number;
   date?: string;
   time?: string;
+  sessionId?: string;
 }
 
 function isValidAnalysis(analysis: unknown): analysis is FoodAnalysis {
@@ -27,6 +28,7 @@ function isValidPendingSubmission(data: unknown): data is PendingSubmission {
   if (d.reuseCustomFoodId !== undefined && typeof d.reuseCustomFoodId !== "number") return false;
   if (d.date !== undefined && typeof d.date !== "string") return false;
   if (d.time !== undefined && typeof d.time !== "string") return false;
+  if (d.sessionId !== undefined && typeof d.sessionId !== "string") return false;
   return true;
 }
 
