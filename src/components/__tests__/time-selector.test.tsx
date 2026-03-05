@@ -25,16 +25,6 @@ describe("TimeSelector", () => {
     );
   });
 
-  it("shows 'Custom' placeholder when no time selected", () => {
-    render(<TimeSelector value={null} onChange={vi.fn()} />);
-    expect(screen.getByText("Custom")).toBeInTheDocument();
-  });
-
-  it("hides 'Custom' placeholder when time is selected", () => {
-    render(<TimeSelector value="14:30" onChange={vi.fn()} />);
-    expect(screen.queryByText("Custom")).not.toBeInTheDocument();
-  });
-
   it("calls onChange(null) when Now button is clicked", () => {
     const onChange = vi.fn();
     render(<TimeSelector value="14:30" onChange={onChange} />);

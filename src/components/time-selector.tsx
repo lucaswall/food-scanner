@@ -29,37 +29,21 @@ export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
         <Clock className="size-4" />
         Now
       </button>
-      <div
+      <input
+        type="time"
+        disabled={disabled}
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value || null)}
+        aria-label={value !== null ? `Meal time: ${value}` : "Select custom time"}
         className={cn(
-          "relative flex flex-[2] items-center justify-center rounded-md border min-h-[44px] transition-colors overflow-hidden select-none",
+          "flex-[2] rounded-md border px-3 py-2 text-sm font-medium transition-colors min-h-[44px] text-center bg-transparent",
           value !== null
             ? "border-primary bg-primary/10 text-primary"
             : "border-input text-muted-foreground",
           disabled && "cursor-not-allowed opacity-50"
         )}
-      >
-        <span className="pointer-events-none text-sm font-medium" aria-hidden="true">
-          {value !== null ? value : "Custom"}
-        </span>
-        <input
-          type="time"
-          disabled={disabled}
-          value={value ?? ""}
-          onChange={(e) => onChange(e.target.value || null)}
-          aria-label={value !== null ? `Meal time: ${value}` : "Select custom time"}
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            opacity: 0.01,
-            fontSize: "16px",
-            zIndex: 1,
-            cursor: "pointer",
-          }}
-        />
-      </div>
+        style={{ fontSize: "16px" }}
+      />
     </div>
   );
 }
