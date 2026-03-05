@@ -11,6 +11,8 @@
 | [Quick Capture Session](#quick-capture-session) | Snap photos and notes quickly at meals, process everything later at home |
 | [AI-Driven Staging QA](#ai-driven-staging-qa) | Automated functional QA against staging using Claude Chrome integration |
 | [Auto User Profile](#auto-user-profile) | Inject a personalized context block into Claude's system prompt from existing user data |
+| [Save for Later](#save-for-later) | Analyze food now, save the result, log it when you actually eat it |
+| [Analysis Session Persistence](#analysis-session-persistence) | Persist analysis state (including photos) so accidental navigation doesn't lose work |
 
 
 ---
@@ -552,6 +554,194 @@ The profile is regenerated on each request — no caching of the profile itself.
 3. Integrate into `/api/analyze-food`, `/api/chat-food`, and `/api/edit-chat` routes
 4. Correction pattern detection (compare `custom_foods` nutrition vs. Claude's typical estimates)
 5. Optional preferences UI in settings (Phase 2)
+
+---
+
+## Save for Later
+
+### Problem
+
+The current flow requires logging food immediately after analysis. But meals are often prepared in advance — packing lunch for work, cooking dinner early — and the user doesn't want to log food they haven't eaten yet. There's no way to save an analysis result and come back to log it later. Navigating away from the analysis screen loses all results.
+
+### Goal
+
+Let the user analyze food at preparation time and save the result, then log it with one tap when they actually eat it.
+
+### Design
+
+#### Save Triggers
+
+Two places to save an analysis for later:
+
+- **Post-analysis screen:** A secondary outline "Save for Later" button (with a Clock icon) below the primary "Log to Fitbit" button. Visible whenever an analysis result is displayed.
+- **Chat header:** A Clock icon button in the `FoodChat` header bar. Saves the latest `report_nutrition` result from the conversation. Covers the case where the user refined with chat and wants to defer logging.
+
+Both save the current `FoodAnalysis` data to the database and show a brief toast confirmation ("Saved — find it on your dashboard"). The user is returned to the dashboard or can continue navigating.
+
+#### Dashboard Section
+
+A "Saved for Later" section appears on the dashboard **only when viewing today's date** and only when there are saved items. Positioned above the meal breakdown section.
+
+**Section header:** "Saved for Later" with a count badge.
+
+**Cards:** Each saved item renders as a compact card:
+- **Left side:** Food name (truncated if long), calories, and relative time ("2h ago", "yesterday").
+- **Right side:** Two icon buttons side by side:
+  - **Check icon** — Quick-log: logs immediately using the current time and auto-selected meal type (based on `getDefaultMealType()`). Shows a toast with the result ("Logged Milanesa as Lunch"). One tap, no dialogs.
+  - **MessageSquare icon** — Refine: opens a chat session seeded with the saved analysis. Date and time are set to now when the chat opens. After refinement, the user logs from the chat as usual. On successful log, the saved item is deleted.
+
+**Tap card body** → opens a detail bottom sheet with:
+- Full nutrition breakdown (reuse `AnalysisResult` component).
+- **Meal type selector** + **time selector** (defaults to now and auto-selected meal type).
+- **"Log to Fitbit" button** — logs with the selected meal type and time.
+- **"Refine with Chat" button** — same as the MessageSquare icon action.
+- **"Discard" button** (destructive style, at the bottom) — requires a confirmation dialog before deleting.
+
+#### Multiple Items
+
+Users can save multiple analyses. Cards are ordered by creation time (newest first). No limit on count — practical usage is 1–3 items per day.
+
+#### Date and Time Handling
+
+The analysis timestamp is stored for display ("2h ago") but is **not** used for logging. When the user logs (via quick-log icon, detail sheet, or after chat refinement), the date and time are always set to the current moment. This matches the intent: "I'm eating this now."
+
+#### Lifecycle
+
+- **Created:** User taps "Save for Later" after analysis or from chat header.
+- **Logged:** User logs via any of the three paths (quick-log, detail sheet, chat refinement). The saved item is deleted. The food enters the normal `customFoods` + `foodLogEntries` pipeline.
+- **Discarded:** User taps Discard in the detail sheet and confirms. The saved item is permanently deleted.
+- **No expiration.** Items persist until explicitly logged or discarded. The dashboard section makes them impossible to forget.
+
+### Architecture
+
+- **New DB table:** `saved_analyses` — `id` (serial PK), `userId` (FK → users), `foodAnalysis` (JSONB, stores the full `FoodAnalysis` object), `description` (text, the food name for display), `calories` (integer, denormalized for card display without parsing JSONB), `createdAt` (timestamptz).
+- **No images stored.** The AI analysis is complete — only the structured nutrition result is saved. Images are not needed to log or refine.
+- **API routes:**
+  - `POST /api/saved-analyses` — save an analysis (accepts `FoodAnalysis` JSON).
+  - `GET /api/saved-analyses` — list all saved items for the user (ordered by `createdAt` desc).
+  - `DELETE /api/saved-analyses/:id` — discard a saved item.
+- **Chat refinement:** When refining a saved analysis, the existing `/api/chat-food` endpoint is used. The saved `FoodAnalysis` is passed as the seed analysis. On successful log via `/api/log-food`, the client calls `DELETE /api/saved-analyses/:id` to clean up.
+- **SWR integration:** New `useSWR('/api/saved-analyses')` call in the dashboard. Cache invalidated after save, log, or discard.
+- **No changes to Fitbit API integration.** Logging a saved analysis uses the exact same `/api/log-food` endpoint as immediate logging.
+
+### Edge Cases
+
+- **Save from chat with no analysis yet:** The chat header save button is disabled until Claude has called `report_nutrition` at least once.
+- **Duplicate saves:** If the user analyzes the same food twice and saves both, both entries are kept. They're independent — the user decides which to log or discard.
+- **Quick-log fails (Fitbit token expired):** Same error handling as regular logging — redirect to Fitbit OAuth with pending submission in sessionStorage. On return, the food is logged and the saved item is deleted.
+- **App opened after days with stale saved items:** Items remain visible on today's dashboard. The relative time ("3 days ago") makes staleness obvious. User can discard or log at any time.
+- **Refine chat modifies nutrition significantly:** The chat produces a new `FoodAnalysis` via `report_nutrition`. On log, the new analysis is what gets logged, not the original saved data. The saved item is still deleted since it served its purpose.
+
+### Implementation Order
+
+1. `saved_analyses` DB table (Drizzle schema + migration)
+2. API routes: save, list, delete
+3. "Save for Later" button in post-analysis UI (`food-analyzer.tsx`)
+4. "Save for Later" icon in chat header (`food-chat.tsx`)
+5. Dashboard "Saved for Later" section with compact cards and quick-log/refine icons
+6. Detail bottom sheet with full nutrition, meal type/time selector, log/refine/discard
+7. Chat refinement flow seeded from saved analysis
+8. Cleanup: delete saved item on successful log or discard
+
+---
+
+## Analysis Session Persistence
+
+### Problem
+
+The food analysis flow holds all state in React memory — photos, description, analysis results, narrative, meal type, time selection. If the user accidentally taps the bottom nav, swipes back, or refreshes the browser, everything is lost. The multi-step nature of analysis (snap a photo, weigh something, add a description, review results) makes accidental navigation likely, especially on mobile. The existing Fitbit token expiry recovery (pending-submission) also loses photos, making the retry flow produce poor results.
+
+### Goal
+
+Persist the full analysis session state — including photos — on the client so the user can navigate away and return to exactly where they left off, surviving both soft navigation and browser refresh.
+
+### Design
+
+#### What Gets Persisted
+
+All state from the analyze page that exists between "user opened the camera" and "user tapped Log":
+
+- Captured photos (compressed blobs)
+- Description text
+- Analysis result (`FoodAnalysis` object, if analysis completed)
+- Analysis narrative (Claude's text response)
+- Selected meal type and time
+- Food matches (if any were found)
+
+#### Persistence Strategy
+
+Two storage layers working together:
+
+- **IndexedDB** for photos — blobs stored natively, no base64 encoding, no size limit concerns. A small wrapper library (`idb`, ~3KB) provides a clean async API.
+- **sessionStorage** for everything else — description, analysis result, narrative, meal type, time, match metadata. All serializable, well within the ~5MB limit.
+
+Both layers are keyed by a session ID stored in sessionStorage. This keeps them in sync and allows clean invalidation.
+
+Only **one session** exists at a time. New state overwrites the previous session, never stacks. As a safety net, on app load (any page), if the stored session is older than 24 hours, silently delete it. This handles abandoned sessions the user forgot about.
+
+#### Save Behavior
+
+State is persisted automatically and continuously:
+
+- Photos written to IndexedDB immediately on capture (before analysis begins).
+- Serializable state debounce-written to sessionStorage on every change (~300ms debounce to avoid blocking).
+- No "save" button — the user never thinks about persistence.
+
+#### Restore Behavior
+
+When the analyze page mounts:
+
+1. Check sessionStorage for an active session.
+2. If found, load photos from IndexedDB + state from sessionStorage.
+3. Auto-restore everything — the page looks exactly as the user left it.
+4. If photos are missing from IndexedDB (e.g., browser cleared storage), restore what's available and show the page without photos. The user can re-take them and continue from the existing analysis/description.
+
+No "resume previous session?" prompt. The restore is seamless — as if the user never left.
+
+#### Clear Triggers
+
+The persisted session is cleared when:
+
+- **Successful log** — food logged to Fitbit, session served its purpose.
+- **Explicit "Start Fresh"** — a clear action on the analyze page when a restored session is showing. Small link, not prominent — prevents accidental clears.
+
+The session is NOT cleared on navigation away, refresh, or new photo capture. Photos and other state changes update the existing session in place.
+
+#### Fitbit Token Expiry Fix
+
+The existing `pending-submission.ts` flow saves the analysis to sessionStorage when a Fitbit token expires mid-log, but loses photos. Updated behavior:
+
+- On token expiry, photos are already in IndexedDB (saved during analysis).
+- `pending-submission` stores a reference to the IndexedDB session ID instead of trying to include photo data.
+- On return from OAuth, the full session (including photos) is available for retry.
+
+### Architecture
+
+- **IndexedDB wrapper:** New `src/lib/session-storage.ts` (or similar) using the `idb` library. Provides `saveSessionPhotos()`, `loadSessionPhotos()`, `clearSession()`. Single object store keyed by session ID.
+- **sessionStorage integration:** Extend or complement the existing `src/lib/pending-submission.ts` pattern. Store serializable analysis state under a known key.
+- **Hydration:** A custom hook (`useAnalysisSession`) that handles save/restore logic. `FoodAnalyzer` calls it instead of managing raw `useState` for persisted fields. The hook handles IndexedDB async reads on mount with a brief loading state.
+- **No layout-level context needed.** The persistence is storage-backed, not memory-backed. The analyze page hydrates from storage on every mount. This is simpler than a context provider and works for hard navigation too.
+- **No new dependencies beyond `idb`** (~3KB, well-maintained, types included).
+- **No server-side changes.** All persistence is client-only.
+
+### Edge Cases
+
+- **IndexedDB unavailable** (private browsing on some older browsers): Fall back to memory-only behavior (current behavior). No crash, no error — just no persistence.
+- **Storage evicted by browser** (iOS Safari, 7+ days inactive): Extremely unlikely for a daily-use app. If it happens, the page loads fresh — same as today.
+- **Multiple tabs:** sessionStorage is tab-scoped, so each tab has its own session. IndexedDB is shared, but keyed by session ID from sessionStorage, so tabs don't collide.
+- **Stale session** (user left an analysis days ago, opens app): Auto-cleared on app load if older than 24 hours. If within 24 hours, restores — the "Start Fresh" option handles intentional resets.
+- **Photos captured but analysis not started yet:** Persisted. User returns, photos are there, they can tap Analyze.
+- **Analysis streaming interrupted** (navigated away mid-stream): Partial state persisted (whatever events arrived before abort). User returns to partial results and can re-analyze or continue to chat.
+
+### Implementation Order
+
+1. `idb` dependency + IndexedDB wrapper for photo blob storage
+2. sessionStorage layer for serializable analysis state
+3. `useAnalysisSession` hook combining both layers (save on change, restore on mount)
+4. Integrate hook into `FoodAnalyzer` — replace raw `useState` for persisted fields
+5. Clear triggers (on log success, on "Start Fresh")
+6. Fix `pending-submission.ts` to reference IndexedDB photos instead of losing them
+7. 24-hour TTL cleanup on app load for abandoned sessions
 
 ---
 
