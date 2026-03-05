@@ -250,6 +250,14 @@ export function isOverloadedError(error: unknown): boolean {
   return false;
 }
 
+/** Returns true if the error is a client-initiated abort (user navigated away, closed the app). */
+function isAbortError(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.name === "AbortError" || error.message.includes("aborted") || error.message.includes("Request was aborted");
+  }
+  return false;
+}
+
 const RETRY_DELAYS_MS = [1000, 3000] as const;
 
 /**
@@ -710,6 +718,9 @@ export function truncateConversation(
 async function* streamTextDeltas(
   stream: { [Symbol.asyncIterator](): AsyncIterator<unknown>; finalMessage(): Promise<Anthropic.Message> },
 ): AsyncGenerator<StreamEvent, Anthropic.Message> {
+  // The SDK's _accumulateMessage doesn't copy container from message_delta events,
+  // so we capture it from the raw event and patch the final message.
+  let deltaContainer: Anthropic.Messages.Container | null = null;
   for await (const event of stream) {
     const e = event as Record<string, unknown>;
     if (
@@ -720,8 +731,18 @@ async function* streamTextDeltas(
     ) {
       yield { type: "text_delta", text: (e.delta as { type: "text_delta"; text: string }).text };
     }
+    if (e.type === "message_delta" && e.delta !== null && typeof e.delta === "object") {
+      const delta = e.delta as Record<string, unknown>;
+      if (delta.container !== undefined && delta.container !== null) {
+        deltaContainer = delta.container as Anthropic.Messages.Container;
+      }
+    }
   }
-  return await stream.finalMessage() as Anthropic.Message;
+  const msg = await stream.finalMessage() as Anthropic.Message;
+  if (deltaContainer && !msg.container) {
+    msg.container = deltaContainer;
+  }
+  return msg;
 }
 
 /**
@@ -1094,6 +1115,13 @@ export async function* runToolLoop(
       throw error;
     }
 
+    // Client-initiated aborts (user navigated away) — yield error event, don't throw to Sentry
+    if (isAbortError(error)) {
+      l.info({ action: "tool_loop_aborted" }, "tool loop aborted by client");
+      yield { type: "error", message: "Request aborted by client" };
+      return;
+    }
+
     l.warn(
       { action: "tool_loop_error", error: error instanceof Error ? error.message : String(error) },
       "Claude API tool loop error"
@@ -1372,6 +1400,12 @@ export async function* analyzeFood(
   } catch (error) {
     if (error instanceof ClaudeApiError) {
       throw error;
+    }
+
+    if (isAbortError(error)) {
+      l.info({ action: "analyze_food_aborted" }, "food analysis aborted by client");
+      yield { type: "error", message: "Request aborted by client" };
+      return;
     }
 
     l.warn(
@@ -1675,6 +1709,12 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
       throw error;
     }
 
+    if (isAbortError(error)) {
+      l.info({ action: "conversational_refine_aborted" }, "conversational refinement aborted by client");
+      yield { type: "error", message: "Request aborted by client" };
+      return;
+    }
+
     l.warn(
       { error: error instanceof Error ? error.message : String(error) },
       "Claude API conversational refinement error"
@@ -1786,6 +1826,11 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
   } catch (error) {
     if (error instanceof ClaudeApiError) {
       throw error;
+    }
+    if (isAbortError(error)) {
+      l.info({ action: "edit_analysis_aborted" }, "food edit analysis aborted by client");
+      yield { type: "error", message: "Request aborted by client" };
+      return;
     }
     l.warn(
       { action: "edit_analysis_error", error: error instanceof Error ? error.message : String(error) },
