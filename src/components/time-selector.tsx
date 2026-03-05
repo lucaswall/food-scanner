@@ -9,7 +9,31 @@ interface TimeSelectorProps {
   disabled?: boolean;
 }
 
+const HOURS = Array.from({ length: 24 }, (_, i) =>
+  String(i).padStart(2, "0")
+);
+const MINUTES = Array.from({ length: 12 }, (_, i) =>
+  String(i * 5).padStart(2, "0")
+);
+
 export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
+  const hour = value?.split(":")[0] ?? "";
+  const minute = value?.split(":")[1] ?? "";
+
+  const handleHourChange = (h: string) => {
+    const m = minute || "00";
+    onChange(`${h}:${m}`);
+  };
+
+  const handleMinuteChange = (m: string) => {
+    const h = hour || HOURS[new Date().getHours()];
+    onChange(`${h}:${m}`);
+  };
+
+  const isCustom = value !== null;
+  const selectClasses =
+    "h-full bg-transparent text-sm font-medium text-center appearance-none border-0 outline-none p-0";
+
   return (
     <div className="flex gap-1.5">
       <button
@@ -17,33 +41,63 @@ export function TimeSelector({ value, onChange, disabled }: TimeSelectorProps) {
         disabled={disabled}
         onClick={() => onChange(null)}
         className={cn(
-          "flex items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors min-h-[44px] flex-1",
-          value === null
+          "flex flex-1 items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-sm font-medium transition-colors min-h-[44px]",
+          !isCustom
             ? "border-primary bg-primary/10 text-primary"
             : "border-input bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
           disabled && "cursor-not-allowed opacity-50"
         )}
         aria-label="Meal time: Now"
-        aria-pressed={value === null}
+        aria-pressed={!isCustom}
       >
         <Clock className="size-4" />
         Now
       </button>
-      <input
-        type="time"
-        disabled={disabled}
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value || null)}
-        aria-label={value !== null ? `Meal time: ${value}` : "Select custom time"}
+      <div
         className={cn(
-          "flex-[2] rounded-md border px-3 py-2 text-sm font-medium transition-colors min-h-[44px] text-center bg-transparent",
-          value !== null
+          "flex flex-1 items-center justify-center gap-0.5 rounded-md border px-3 py-2 min-h-[44px] transition-colors",
+          isCustom
             ? "border-primary bg-primary/10 text-primary"
             : "border-input text-muted-foreground",
           disabled && "cursor-not-allowed opacity-50"
         )}
-        style={{ fontSize: "16px" }}
-      />
+      >
+        <select
+          disabled={disabled}
+          value={hour}
+          onChange={(e) => handleHourChange(e.target.value)}
+          aria-label="Hour"
+          className={selectClasses}
+          style={{ fontSize: "16px" }}
+        >
+          <option value="" disabled>
+            HH
+          </option>
+          {HOURS.map((h) => (
+            <option key={h} value={h}>
+              {h}
+            </option>
+          ))}
+        </select>
+        <span className="text-sm font-medium">:</span>
+        <select
+          disabled={disabled}
+          value={minute}
+          onChange={(e) => handleMinuteChange(e.target.value)}
+          aria-label="Minute"
+          className={selectClasses}
+          style={{ fontSize: "16px" }}
+        >
+          <option value="" disabled>
+            MM
+          </option>
+          {MINUTES.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
