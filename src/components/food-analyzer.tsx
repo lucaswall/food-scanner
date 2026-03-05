@@ -311,6 +311,12 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         vibrateError();
         return;
       }
+      // Network errors (connectivity loss, device sleep) — user-friendly message, no Sentry
+      if (err instanceof TypeError && err.message.includes("network")) {
+        setError("Network error. Please check your connection and try again.");
+        vibrateError();
+        return;
+      }
       Sentry.captureException(err);
       setError(err instanceof Error ? err.message : "An unexpected error occurred");
       vibrateError();
