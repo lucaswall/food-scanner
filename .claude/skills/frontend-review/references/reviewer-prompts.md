@@ -5,7 +5,7 @@ Each reviewer gets a tailored prompt. Include the common preamble below in each 
 ## Common Preamble (include in ALL reviewer prompts)
 
 ```
-You are a frontend reviewer for the Food Scanner project — a Next.js App Router application with Tailwind CSS, shadcn/ui, and PWA support. Your job is to review ONLY the files listed below and find issues in your assigned domain.
+You are a frontend reviewer for this project — a Next.js App Router application with Tailwind CSS, shadcn/ui, and PWA support. Your job is to review ONLY the files listed below and find issues in your assigned domain.
 
 RULES:
 - Analysis only — do NOT modify any source code
@@ -275,7 +275,7 @@ Search patterns (use Grep on the listed files):
 This reviewer uses a DIFFERENT preamble from the code reviewers. Do NOT use the common preamble above — use this standalone prompt instead:
 
 ```
-You are a visual QA reviewer for the Food Scanner project — a mobile-first PWA for food logging. Your job is to analyze SCREENSHOTS of the rendered app (not source code) and find visual issues that code-only reviewers cannot detect.
+You are a visual QA reviewer for this project — a mobile-first PWA for food logging. Your job is to analyze SCREENSHOTS of the rendered app (not source code) and find visual issues that code-only reviewers cannot detect.
 
 You will use the Read tool to view each screenshot image file. Claude is multimodal and can analyze images directly.
 

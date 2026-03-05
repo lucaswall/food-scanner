@@ -23,7 +23,7 @@ Trace the full dependency graph for `$ARGUMENTS`. Find EVERY file that participa
 
 ### Step 1: Find entry points
 
-Use Glob to locate primary files matching `$ARGUMENTS`:
+Read CLAUDE.md's STRUCTURE section to discover file patterns. Use Glob to locate primary files matching `$ARGUMENTS` based on the discovered patterns:
 - Pages: `src/app/**/page.tsx`, `src/app/**/layout.tsx`
 - Components: `src/components/**/*.tsx`
 - Hooks: `src/hooks/**/*.ts`

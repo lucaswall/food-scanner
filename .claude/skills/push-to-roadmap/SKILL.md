@@ -14,7 +14,7 @@ ultrathink
 
 1. **Parse $ARGUMENTS** — Extract the feature idea or problem description. This is always a new idea being evaluated for the roadmap.
 
-2. **Read ROADMAP.md** — If found:
+2. **Read the roadmap file** — Look for `ROADMAP.md` in the project root (or discover the roadmap file path from CLAUDE.md). If found:
    - Read the full file including its Conventions section (if any)
    - Check existing features for overlap or conflict with the proposed idea
    - Note the file's structure and conventions for Phase 5
@@ -49,7 +49,7 @@ Use Task with `subagent_type=general-purpose` and `model=opus`. Search the web f
 
 Use Task with `subagent_type=Explore` or direct tool calls. Check project state:
 - **Linear issues** — Query existing Backlog/Todo/In Progress issues for related or overlapping work (if Linear MCP available)
-- **ROADMAP.md dependencies** — Does this idea depend on or block existing roadmap items?
+- **Roadmap dependencies** — Does this idea depend on or block existing roadmap items?
 - **Recent changes** — Any recent commits or PRs that affect this area?
 
 ### Research guidelines
@@ -107,9 +107,9 @@ After presenting the report, the conversation continues naturally:
 
 When the user decides to add the feature to the roadmap:
 
-1. **Read ROADMAP.md** to get current content and conventions.
+1. **Read the roadmap file** to get current content and conventions.
 
-2. **Draft the feature spec** following ROADMAP.md's conventions. The standard structure is:
+2. **Draft the feature spec** following the roadmap file's conventions. The standard structure is:
 
    ```
    ## Feature Name
@@ -145,16 +145,16 @@ When the user decides to add the feature to the roadmap:
 
 3. **Incorporate discussion decisions.** Everything agreed during Phase 4 goes into the spec. Do not invent details that weren't discussed — if something wasn't covered, either ask now or leave the section appropriately scoped.
 
-4. **Present the draft** to the user in the conversation before writing. Show the full feature spec as markdown. Ask: **"Does this capture what we discussed? Any changes before I write it to ROADMAP.md?"**
+4. **Present the draft** to the user in the conversation before writing. Show the full feature spec as markdown. Ask: **"Does this capture what we discussed? Any changes before I write it to the roadmap?"**
 
-5. **After user approval**, write the feature to ROADMAP.md:
+5. **After user approval**, write the feature to the roadmap file:
    - Insert the feature section before the Conventions section (or at the end if no Conventions section)
    - Add a `---` separator before the new feature (matching existing style)
    - Add a row to the Contents table with a linked feature name and one-sentence summary
    - Generate a stable slug anchor from the feature heading (lowercase, hyphens, never changes)
    - Check for cross-references: if existing features relate, add links where appropriate
 
-6. **Verify** — Read ROADMAP.md after writing to confirm clean structure (no orphaned separators, no broken links, contents table in sync).
+6. **Verify** — Read the file after writing to confirm clean structure (no orphaned separators, no broken links, contents table in sync).
 
 ## Rules
 
@@ -162,9 +162,9 @@ When the user decides to add the feature to the roadmap:
 - **Honest about uncertainty** — If you can't determine something, say so
 - **User's context matters** — Use project context from CLAUDE.md (audience, region, scale, constraints) to inform the analysis
 - **Don't oversell or undersell** — Present findings neutrally, let the user decide
-- **Roadmap conventions** — Follow ROADMAP.md's Conventions section for all modifications
+- **Roadmap conventions** — Follow the roadmap file's conventions section for all modifications (if one exists)
 - **No implementation** — This skill researches, discusses, and writes feature specs. It does NOT write code or create implementation plans
 - **Concise reports** — Research is thorough, output is scannable
-- **Draft before writing** — Always show the user the complete feature spec and get approval before modifying ROADMAP.md
+- **Draft before writing** — Always show the user the complete feature spec and get approval before modifying the roadmap file
 - **Problem-focused writing** — Problem and Goal sections use user-facing language. Technical details belong in Architecture
 - **No code in specs** — Reference file paths and patterns, but don't write implementation code in the roadmap

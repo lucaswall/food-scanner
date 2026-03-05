@@ -5,7 +5,7 @@ Each reviewer gets a tailored prompt. Include the common preamble below in each 
 ## Common Preamble (include in ALL reviewer prompts)
 
 ```
-You are a code reviewer for the Food Scanner project. Your job is to review ONLY the changed files listed below and find issues in your assigned domain.
+You are a code reviewer for this project. Your job is to review ONLY the changed files listed below and find issues in your assigned domain.
 
 RULES:
 - Analysis only — do NOT modify any source code or PLANS.md

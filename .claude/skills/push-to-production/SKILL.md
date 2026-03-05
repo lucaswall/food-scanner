@@ -12,9 +12,9 @@ Promote `main` to `release` with automated backup, migration assessment, and mer
 
 ### 1.1 Verify Linear MCP
 
-**ALWAYS call `mcp__linear__list_teams` directly.** Do NOT try to determine MCP availability by inspecting the tool list, checking settings, or reasoning about it — you MUST actually invoke the tool and check the result. If the call fails or returns an error, **warn** but do not stop — Linear state transitions are cosmetic, the release can proceed without them.
+**ALWAYS call `mcp__linear__list_issues` with `team: "Food Scanner"` and `state: "Done"` directly.** Do NOT try to determine MCP availability by inspecting the tool list, checking settings, or reasoning about it — you MUST actually invoke the tool and check the result. If the call fails or returns an error, **warn** but do not stop — Linear state transitions are cosmetic, the release can proceed without them.
 
-Extract the team name from the response (there should only be one team in most cases).
+Record any Done issues for the release notes.
 
 ### 1.2 Git State
 
@@ -232,7 +232,8 @@ Restore the production backup to a local test database and run the migration:
    docker compose up -d
    docker compose exec -T db psql -U postgres -c "DROP DATABASE IF EXISTS migration_test;"
    docker compose exec -T db psql -U postgres -c "CREATE DATABASE migration_test;"
-   /opt/homebrew/opt/libpq/bin/pg_restore \
+   # Adjust pg_restore path based on OS (use 'which pg_restore' or check common paths)
+   pg_restore \
      --dbname="postgresql://postgres:postgres@localhost:5432/migration_test" \
      --no-owner --no-privileges \
      _migrations/backup-*.dump
@@ -240,7 +241,8 @@ Restore the production backup to a local test database and run the migration:
 
 2. Run the migration:
    ```bash
-   /opt/homebrew/opt/libpq/bin/psql \
+   # Adjust psql path based on OS (use 'which psql' or check common paths)
+   psql \
      "postgresql://postgres:postgres@localhost:5432/migration_test" \
      -f _migrations/release-YYYYMMDD.sql
    ```
@@ -328,10 +330,11 @@ date +%Y%m%d-%H%M%S
 Use the output to construct the filename `_migrations/backup-YYYYMMDD-HHMMSS.dump`, then run:
 
 ```bash
-/opt/homebrew/opt/libpq/bin/pg_dump "$DATABASE_PUBLIC_URL" --format=custom --no-owner --no-privileges -f _migrations/backup-YYYYMMDD-HHMMSS.dump
+# Adjust pg_dump path based on OS (use 'which pg_dump' or check common paths)
+pg_dump "$DATABASE_PUBLIC_URL" --format=custom --no-owner --no-privileges -f _migrations/backup-YYYYMMDD-HHMMSS.dump
 ```
 
-**Important:** Keep pg_dump as a single-line command starting with the full path. Multi-line `\` continuations and `$(...)` subshells can break Bash permission pattern matching against `Bash(/opt/homebrew/opt/libpq/bin/pg_dump *)`.
+**Important:** Keep pg_dump as a single-line command. Multi-line `\` continuations and `$(...)` subshells can break Bash permission pattern matching against `Bash(pg_dump *)`.
 
 Verify the dump file was created and is non-empty:
 
@@ -352,7 +355,8 @@ Report: "Production backup saved to `_migrations/backup-YYYYMMDD-HHMMSS.dump` (X
 If a migration script was written in Phase 3, run it using the URL from Phase 4.2 **before** merging to release (service is already stopped):
 
 ```bash
-/opt/homebrew/opt/libpq/bin/psql "$DATABASE_PUBLIC_URL" -f _migrations/release-YYYYMMDD.sql
+# Adjust psql path based on OS (use 'which psql' or check common paths)
+psql "$DATABASE_PUBLIC_URL" -f _migrations/release-YYYYMMDD.sql
 ```
 
 If the migration fails, **STOP**: "Migration failed on production. Service is down. Investigate before proceeding. Backup available at `_migrations/backup-*.dump`. To restore service, push current `release` branch again or redeploy from Railway dashboard."
@@ -362,7 +366,8 @@ If the migration fails, **STOP**: "Migration failed on production. Service is do
 If data-only SQL was written in Phase 2.4, run it **after** merging to release and confirming the deploy succeeded (Drizzle migrations must run first at deploy startup). Wait for the Railway deploy to complete, then:
 
 ```bash
-/opt/homebrew/opt/libpq/bin/psql -d "$DATABASE_PUBLIC_URL" -f _migrations/data-YYYYMMDD.sql
+# Adjust psql path based on OS (use 'which psql' or check common paths)
+psql -d "$DATABASE_PUBLIC_URL" -f _migrations/data-YYYYMMDD.sql
 ```
 
 If no migrations or data operations are needed, skip this step.
@@ -614,7 +619,7 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 | Drizzle internals changed | STOP — read migrator source, update skill before proceeding |
 | Merge conflicts | STOP — user resolves manually |
 | Railway CLI not available | STOP — install/login Railway CLI |
-| pg_dump not found | STOP — `brew install libpq` |
+| pg_dump not found | STOP — install PostgreSQL client tools |
 | OrbStack not installed | STOP — `brew install orbstack` |
 | OrbStack stopped | Start with `orb start`, then continue |
 | Docker Compose db not running | Start with `docker compose up -d`, then continue |

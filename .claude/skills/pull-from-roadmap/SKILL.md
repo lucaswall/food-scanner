@@ -13,10 +13,10 @@ ultrathink
 ## Phase 1: Input Resolution
 
 1. **Parse $ARGUMENTS** — Determine if this is:
-   - **Existing roadmap item:** A reference to a feature in `ROADMAP.md` (e.g., "nutrition database", "offline queue", a section heading)
-   - **New idea:** A description of something NOT currently in `ROADMAP.md`
+   - **Existing roadmap item:** A reference to a feature in `ROADMAP.md` (or similar roadmap file discovered from CLAUDE.md)
+   - **New idea:** A description of something NOT currently in the roadmap
 
-2. **Read ROADMAP.md** — Search for a matching section. Match by:
+2. **Read the roadmap file** — Search for a matching section. Match by:
    - Exact heading match
    - Keyword overlap with section headings or content
    - If multiple matches, ask user to clarify
@@ -24,7 +24,7 @@ ultrathink
 
 3. **Extract the feature spec** — If existing item, extract the full section (Problem, Goal, Design, Architecture, Edge Cases, Implementation Order). If new idea, use $ARGUMENTS as the raw description.
 
-4. **Read CLAUDE.md** — Load project context, tech stack, conventions.
+4. **Read CLAUDE.md** — Load project context, tech stack, conventions. Extract the team name from the LINEAR INTEGRATION section if it exists.
 
 ## Phase 2: Deep Research
 
@@ -53,7 +53,7 @@ Use Task with `subagent_type=general-purpose` and `model=opus`. Search the web f
 
 Use Task with `subagent_type=Explore` or direct tool calls. Check project state:
 - **Linear issues** — Query existing Backlog/Todo/In Progress issues for related or overlapping work (if Linear MCP available)
-- **ROADMAP.md dependencies** — Does this feature depend on or block other roadmap items?
+- **Roadmap dependencies** — Does this feature depend on or block other roadmap items?
 - **Recent changes** — Any recent commits or PRs that affect this area?
 
 ### Research guidelines
@@ -112,35 +112,35 @@ When the user decides on an action:
 
 1. Verify Linear MCP: call `mcp__linear__list_teams`. If unavailable, STOP: "Linear MCP not connected. Run `/mcp` to reconnect."
 2. Create Backlog issues in the discovered team following the add-to-backlog patterns (problem-focused descriptions, proper labels and priority)
-3. After creation, ask: **"Remove this feature from ROADMAP.md?"**
+3. After creation, ask: **"Remove this feature from the roadmap file?"**
 4. If confirmed → run roadmap cleanup procedure
 
 ### If making an inline plan:
 
 1. Summarize what was decided during the discussion
 2. Tell the user: "Run `/plan-inline [summary]` to create the implementation plan."
-3. Ask: **"Remove this feature from ROADMAP.md?"**
+3. Ask: **"Remove this feature from the roadmap file?"**
 4. If confirmed → run roadmap cleanup procedure
 
 ### If dropping:
 
-1. Ask: **"Remove this feature from ROADMAP.md?"**
+1. Ask: **"Remove this feature from the roadmap file?"**
 2. If confirmed → run roadmap cleanup procedure
 
 ### If modifying:
 
-1. Edit the feature section in ROADMAP.md with the agreed changes
+1. Edit the feature section in the roadmap file with the agreed changes
 2. Do NOT remove — the feature stays for future evaluation
 
 ### Roadmap cleanup procedure
 
-When removing a feature from ROADMAP.md:
-1. Read ROADMAP.md to get current content
+When removing a feature from the roadmap:
+1. Read the roadmap file to get current content
 2. Delete the entire feature section (from `## Heading` through the `---` separator after it)
-3. Remove the feature's row from the Contents table at the top
+3. Remove the feature's row from the Contents table at the top (if one exists)
 4. Check remaining features for cross-references to the removed feature — update or remove them
 5. Verify file structure is clean (no orphaned separators, no broken links)
-6. Follow ROADMAP.md's Conventions section for all modifications
+6. Follow the roadmap file's conventions section for all modifications (if one exists)
 
 ## Rules
 
@@ -148,6 +148,6 @@ When removing a feature from ROADMAP.md:
 - **Honest about uncertainty** — If you can't determine something, say so
 - **User's context matters** — Use project context from CLAUDE.md (audience, region, scale, constraints) to inform the analysis
 - **Don't oversell or undersell** — Present findings neutrally, let the user decide
-- **Roadmap conventions** — Follow ROADMAP.md's Conventions section for modifications
+- **Roadmap conventions** — Follow the roadmap file's conventions section for modifications (if one exists)
 - **No implementation** — This skill researches and discusses. It does NOT write code or create implementation plans (except when creating backlog issues as part of the action phase)
 - **Concise reports** — Research is thorough, output is scannable

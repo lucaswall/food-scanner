@@ -69,7 +69,7 @@ Each reviewer gets a tailored prompt. Include the full text below in each review
 ### Common Preamble (include in ALL reviewer prompts)
 
 ```
-You are a code audit reviewer for the Food Scanner project. Your job is to scan the ENTIRE codebase and find issues in your assigned domain.
+You are a code audit reviewer for this project. Your job is to scan the ENTIRE codebase and find issues in your assigned domain.
 
 RULES:
 - Analysis only — do NOT modify any source code
