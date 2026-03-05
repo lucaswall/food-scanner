@@ -12,6 +12,7 @@ import {
   saveSessionPhotos,
   clearSession as clearStoredSession,
   isSessionExpired,
+  cleanupExpiredSession,
 } from "@/lib/analysis-session";
 import { getDefaultMealType } from "@/lib/meal-type";
 
@@ -74,6 +75,9 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
     let cancelled = false;
 
     async function restore() {
+      // Clean up any expired sessions first
+      await cleanupExpiredSession();
+
       const existingId = getStoredSessionId();
       if (!existingId) {
         if (!cancelled) {

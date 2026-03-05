@@ -49,6 +49,52 @@ vi.mock("@/lib/pending-submission", () => ({
   clearPendingSubmission: () => mockClearPending(),
 }));
 
+// Mock analysis-session (getActiveSessionId used in savePendingSubmission calls)
+vi.mock("@/lib/analysis-session", () => ({
+  getActiveSessionId: vi.fn().mockReturnValue("test-session-id"),
+}));
+
+// Mock useAnalysisSession hook — uses real React state
+const { useAnalysisSession: mockUseAnalysisSession } = vi.hoisted(() => {
+  return { useAnalysisSession: vi.fn() };
+});
+
+function useAnalysisSessionReal() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { useState: useStateFn } = require("react");
+  const [photos, setPhotosRaw] = useStateFn([] as File[]);
+  const [convertedPhotoBlobs, setConvertedPhotoBlobsRaw] = useStateFn([] as (File | Blob)[]);
+  const [compressedImages, setCompressedImagesRaw] = useStateFn(null as Blob[] | null);
+  const [description, setDescriptionRaw] = useStateFn("");
+  const [analysis, setAnalysisRaw] = useStateFn(null as FoodAnalysis | null);
+  const [analysisNarrative, setAnalysisNarrativeRaw] = useStateFn(null as string | null);
+  const [mealTypeId, setMealTypeIdRaw] = useStateFn(3);
+  const [selectedTime, setSelectedTimeRaw] = useStateFn(null as string | null);
+  const [matches, setMatchesRaw] = useStateFn([] as unknown[]);
+
+  return {
+    state: { photos, convertedPhotoBlobs, compressedImages, description, analysis, analysisNarrative, mealTypeId, selectedTime, matches },
+    actions: {
+      setPhotos: (newPhotos: File[], convertedBlobs?: (File | Blob)[]) => { setPhotosRaw(newPhotos); setConvertedPhotoBlobsRaw(convertedBlobs || []); },
+      setCompressedImages: (images: Blob[] | null) => { setCompressedImagesRaw(images); },
+      setDescription: (desc: string) => { setDescriptionRaw(desc); },
+      setAnalysis: (a: FoodAnalysis | null) => { setAnalysisRaw(a); },
+      setAnalysisNarrative: (n: string | null) => { setAnalysisNarrativeRaw(n); },
+      setMealTypeId: (id: number) => { setMealTypeIdRaw(id); },
+      setSelectedTime: (t: string | null) => { setSelectedTimeRaw(t); },
+      setMatches: (m: unknown[]) => { setMatchesRaw(m); },
+      clearSession: vi.fn(),
+      getActiveSessionId: vi.fn().mockReturnValue("test-session-id"),
+    },
+    isRestoring: false,
+    wasRestored: false,
+  };
+}
+
+vi.mock("@/hooks/use-analysis-session", () => ({
+  useAnalysisSession: mockUseAnalysisSession,
+}));
+
 // Mock child components
 vi.mock("../photo-capture", () => ({
   PhotoCapture: ({
@@ -224,6 +270,7 @@ function makeSseAnalyzeResponse(events: StreamEvent[]) {
 beforeEach(() => {
   mockFetch.mockReset();
   vi.clearAllMocks();
+  mockUseAnalysisSession.mockImplementation(useAnalysisSessionReal);
   mockGetPending.mockReturnValue(null);
   // Prevent actual navigation
   Object.defineProperty(window, "location", {

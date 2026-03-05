@@ -80,7 +80,8 @@ describe("useAnalysisSession", () => {
       });
 
       expect(result.current.state.description).toBe("Saved meal");
-      expect(result.current.state.photos).toEqual(photos);
+      expect(result.current.state.convertedPhotoBlobs).toEqual(photos);
+      expect(result.current.state.photos).toEqual([]);
       expect(result.current.wasRestored).toBe(true);
     });
 

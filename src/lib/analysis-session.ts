@@ -52,6 +52,11 @@ function isIndexedDBAvailable(): boolean {
 
 let dbPromise: Promise<IDBPDatabase<FoodScannerDB>> | null = null;
 
+/** @internal Reset DB singleton for test isolation */
+export function _resetDBForTesting(): void {
+  dbPromise = null;
+}
+
 function getDB(): Promise<IDBPDatabase<FoodScannerDB>> {
   if (!dbPromise) {
     dbPromise = openDB<FoodScannerDB>(DB_NAME, DB_VERSION, {
@@ -127,7 +132,7 @@ function isValidSessionState(data: unknown): data is AnalysisSessionState {
   if (!isValidAnalysis(d.analysis)) return false;
   if (d.analysisNarrative !== null && typeof d.analysisNarrative !== "string") return false;
   if (typeof d.mealTypeId !== "number") return false;
-  if (typeof d.selectedTime !== "string") return false;
+  if (d.selectedTime !== null && typeof d.selectedTime !== "string") return false;
   if (!Array.isArray(d.matches)) return false;
   if (!d.matches.every(isValidSerializedMatch)) return false;
   if (typeof d.createdAt !== "string") return false;

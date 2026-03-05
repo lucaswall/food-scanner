@@ -66,7 +66,6 @@ const sessionSpies = {
 };
 
 const { useAnalysisSession: mockUseAnalysisSession } = vi.hoisted(() => {
-  const { useState: realUseState } = require("react");
   return {
     useAnalysisSession: vi.fn(),
   };
@@ -74,6 +73,7 @@ const { useAnalysisSession: mockUseAnalysisSession } = vi.hoisted(() => {
 
 // The "real" implementation that uses React state (for existing tests)
 function useAnalysisSessionReal() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { useState: useStateFn } = require("react");
   const [photos, setPhotosRaw] = useStateFn([] as File[]);
   const [convertedPhotoBlobs, setConvertedPhotoBlobsRaw] = useStateFn([] as (File | Blob)[]);

@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   saveSessionPhotos,
   loadSessionPhotos,
@@ -10,6 +10,7 @@ import {
   createSessionId,
   isSessionExpired,
   cleanupExpiredSession,
+  _resetDBForTesting,
 } from "@/lib/analysis-session";
 import type { AnalysisSessionState } from "@/lib/analysis-session";
 
@@ -29,7 +30,8 @@ function makeState(overrides: Partial<AnalysisSessionState> = {}): AnalysisSessi
 describe("analysis-session", () => {
   beforeEach(() => {
     sessionStorage.clear();
-    // Clear IndexedDB between tests
+    // Reset DB singleton and IndexedDB between tests
+    _resetDBForTesting();
     indexedDB = new IDBFactory();
   });
 

@@ -28,7 +28,7 @@ import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
 import { getTodayDate } from "@/lib/date-utils";
 import { parseSSEEvents } from "@/lib/sse";
-import type { FoodAnalysis, FoodLogResponse, FoodMatch, ConversationMessage } from "@/types";
+import type { FoodLogResponse, FoodMatch, ConversationMessage } from "@/types";
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   web_search: "Searching the web...",
@@ -80,7 +80,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const findMatchesGenerationRef = useRef(0);
   const textDeltaBufferRef = useRef("");
 
-  const canAnalyze = (photos.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
+  const canAnalyze = (photos.length > 0 || convertedPhotoBlobs.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
 
   const handlePhotosChange = (files: File[], convertedBlobs?: (File | Blob)[]) => {
@@ -121,27 +121,23 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
   const handleStartFresh = () => {
     resetAnalysisState();
-    actions.setPhotos([], []);
-    actions.setDescription("");
-    actions.setMealTypeId(mealTypeId); // keep current default
-    actions.setSelectedTime(null);
     actions.clearSession();
   };
 
   const handleAnalyze = async () => {
-    if (photos.length === 0 && !description.trim()) return;
+    if (photos.length === 0 && convertedPhotoBlobs.length === 0 && !description.trim()) return;
 
     setError(null);
     setLogError(null);
 
     let compressedBlobs: Blob[] = [];
 
-    if (photos.length > 0) {
+    if (photos.length > 0 || convertedPhotoBlobs.length > 0) {
       setCompressing(true);
       setLoadingStep("Preparing images...");
 
       try {
-        // Use converted blobs if available (already converted from HEIC in PhotoCapture)
+        // Use converted blobs if available (already converted from HEIC in PhotoCapture, or restored from IndexedDB)
         // Otherwise use original photo files
         const filesToCompress = convertedPhotoBlobs.length > 0 ? convertedPhotoBlobs : photos;
         const compressionResults = await Promise.allSettled(filesToCompress.map(compressImage));
@@ -568,7 +564,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       .finally(() => {
         setResubmitting(false);
       });
-  }, []);
+  }, [actions]);
 
   // Cleanup on unmount
   useEffect(() => {
