@@ -30,17 +30,21 @@ git status --porcelain
 
 If any check fails, **STOP** and tell the user what to fix.
 
-### 1.3 Docker (OrbStack)
+### 1.3 Docker
 
-Ensure OrbStack and Docker are available for migration validation:
+Ensure Docker is available for migration validation. The approach depends on the platform (available in environment context as `Platform:`):
+
+**macOS:** Use OrbStack as the Docker provider:
 
 ```bash
 orb status
 ```
 
 - If **Running**: proceed
-- If **Stopped**: start it with `orb start`, then verify with `docker compose ps`
-- If `orb` command not found: **STOP** — "OrbStack is not installed. Install with `brew install orbstack`."
+- If **Stopped**: start it with `orb start`
+- If `orb` command not found: fall back to checking Docker directly (same as Linux)
+
+**Linux:** Docker runs natively — skip OrbStack entirely.
 
 Then ensure local Postgres is running:
 
@@ -92,7 +96,7 @@ Run the `verifier` agent in E2E mode to confirm end-to-end tests pass:
 Use Task tool with subagent_type "verifier" with prompt "e2e"
 ```
 
-Docker/OrbStack is already verified in Phase 1.3, so prerequisites are met.
+Docker is already verified in Phase 1.3, so prerequisites are met.
 
 If E2E tests fail, **STOP**. Do not proceed — E2E failures indicate integration issues that must be fixed before release.
 
@@ -620,8 +624,8 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 | Merge conflicts | STOP — user resolves manually |
 | Railway CLI not available | STOP — install/login Railway CLI |
 | pg_dump not found | STOP — install PostgreSQL client tools |
-| OrbStack not installed | STOP — `brew install orbstack` |
-| OrbStack stopped | Start with `orb start`, then continue |
+| OrbStack not installed (macOS) | Fall back to Docker directly |
+| OrbStack stopped (macOS) | Start with `orb start`, then continue |
 | Docker Compose db not running | Start with `docker compose up -d`, then continue |
 | Invalid/lower version argument | STOP — must be valid semver higher than current |
 | GitHub Release creation fails | Warn in report — release succeeded, create manually later |
