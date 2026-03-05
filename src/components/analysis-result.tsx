@@ -43,13 +43,11 @@ export function AnalysisResult({
         {hasText ? (
           <>
             <div className="flex items-center gap-2">
-              <div className="h-1 flex-1 rounded-full bg-muted overflow-hidden">
-                <div
-                  data-testid="loading-bar"
-                  className="h-full w-1/3 rounded-full bg-primary animate-progress-bar"
-                  aria-hidden="true"
-                />
-              </div>
+              <div
+                data-testid="loading-bar"
+                className="h-0.5 flex-1 rounded-full bg-primary/40 animate-pulse"
+                aria-hidden="true"
+              />
               <p className="text-xs text-muted-foreground shrink-0">
                 {loadingStep || "Analyzing..."}
               </p>
