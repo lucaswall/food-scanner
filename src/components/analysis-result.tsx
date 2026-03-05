@@ -17,6 +17,7 @@ interface AnalysisResultProps {
   error: string | null;
   onRetry: () => void;
   loadingStep?: string;
+  streamingText?: string;
   narrative?: string | null;
 }
 
@@ -26,6 +27,7 @@ export function AnalysisResult({
   error,
   onRetry,
   loadingStep,
+  streamingText,
   narrative,
 }: AnalysisResultProps) {
   const [detailOpen, setDetailOpen] = useState(false);
@@ -33,7 +35,7 @@ export function AnalysisResult({
   if (loading) {
     return (
       <div
-        className="flex flex-col items-center justify-center py-8 space-y-4"
+        className="flex flex-col items-center py-8 space-y-4"
         aria-live="assertive"
         aria-busy="true"
       >
@@ -45,6 +47,11 @@ export function AnalysisResult({
         <p className="text-sm text-muted-foreground">
           {loadingStep || "Analyzing your food..."}
         </p>
+        {streamingText && (
+          <div className="w-full max-h-32 overflow-y-auto rounded-lg bg-muted/50 p-3">
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words">{streamingText}</p>
+          </div>
+        )}
       </div>
     );
   }

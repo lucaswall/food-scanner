@@ -1056,6 +1056,12 @@ export async function* runToolLoop(
         // Code execution or web search dynamic filtering paused a long-running turn.
         // Send the response back as-is so Claude can continue (merges if last is already assistant).
         l.info({ action: "pause_turn", iteration }, "pause_turn received, continuing Claude's turn");
+        // Emit tool_start for server-side web search so the UI shows progress
+        for (const block of response.content) {
+          if (block.type === "server_tool_use" && (block as { name: string }).name === "web_search") {
+            yield { type: "tool_start", tool: "web_search" };
+          }
+        }
         appendAssistantContent(conversationMessages, response.content);
         continue;
       }

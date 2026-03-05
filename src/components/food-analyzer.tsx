@@ -62,6 +62,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
   const [compressedImages, setCompressedImages] = useState<Blob[] | null>(null);
   const [analysisNarrative, setAnalysisNarrative] = useState<string | null>(null);
+  const [streamingText, setStreamingText] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [seedMessages, setSeedMessages] = useState<ConversationMessage[] | null>(null);
   const autoCaptureUsedRef = useRef(false);
@@ -100,6 +101,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     findMatchesGenerationRef.current += 1;
     setAnalysis(null);
     setAnalysisNarrative(null);
+    setStreamingText("");
     setError(null);
     setLogError(null);
     setLogResponse(null);
@@ -164,6 +166,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setCompressedImages(compressedBlobs);
     setLoading(true);
     setLoadingStep("Analyzing food...");
+    setStreamingText("");
     analysisSectionRef.current?.scrollIntoView({ behavior: "smooth" });
     textDeltaBufferRef.current = "";
 
@@ -232,8 +235,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           for (const event of events) {
             if (event.type === "text_delta") {
               textDeltaBufferRef.current += event.text;
+              setStreamingText(textDeltaBufferRef.current);
             } else if (event.type === "tool_start") {
               textDeltaBufferRef.current = "";
+              setStreamingText("");
               setLoadingStep(TOOL_DESCRIPTIONS[event.tool] ?? "Processing...");
             } else if (event.type === "analysis") {
               setAnalysis(event.analysis);
@@ -652,6 +657,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           error={error}
           onRetry={handleRetry}
           loadingStep={loadingStep}
+          streamingText={streamingText}
           narrative={analysisNarrative}
         />
       </div>
