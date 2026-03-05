@@ -255,4 +255,53 @@ describe("pending-submission", () => {
       expect(result?.time).toBe("14:30:00");
     });
   });
+
+  describe("sessionId field", () => {
+    it("stores sessionId when provided", () => {
+      const pendingWithSession: PendingSubmission = {
+        ...mockPending,
+        sessionId: "session-abc-123",
+      };
+      savePendingSubmission(pendingWithSession);
+
+      const stored = sessionStorage.getItem("food-scanner-pending-submission");
+      expect(stored).not.toBeNull();
+      expect(JSON.parse(stored!).sessionId).toBe("session-abc-123");
+    });
+
+    it("accepts objects with sessionId field", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({
+          ...mockPending,
+          sessionId: "session-abc-123",
+        })
+      );
+      const result = getPendingSubmission();
+      expect(result).not.toBeNull();
+      expect(result?.sessionId).toBe("session-abc-123");
+    });
+
+    it("still accepts objects without sessionId (backward compat)", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify(mockPending)
+      );
+      const result = getPendingSubmission();
+      expect(result).not.toBeNull();
+      expect(result?.sessionId).toBeUndefined();
+    });
+
+    it("rejects sessionId when it is not a string", () => {
+      sessionStorage.setItem(
+        "food-scanner-pending-submission",
+        JSON.stringify({
+          ...mockPending,
+          sessionId: 12345,
+        })
+      );
+      const result = getPendingSubmission();
+      expect(result).toBeNull();
+    });
+  });
 });

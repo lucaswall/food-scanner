@@ -24,6 +24,12 @@ vi.mock("@/lib/swr", () => ({
   invalidateFoodCaches: () => mockInvalidateFoodCaches(),
 }));
 
+// Mock analysis-session
+const mockClearSession = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/analysis-session", () => ({
+  clearSession: (...args: unknown[]) => mockClearSession(...args),
+}));
+
 // Mock meal-type for getLocalDateTime fallback
 vi.mock("@/lib/meal-type", () => ({
   getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30" }),
@@ -305,6 +311,53 @@ describe("PendingSubmissionHandler", () => {
       expect(alert).not.toHaveClass("border-green-500");
       expect(description).not.toHaveClass("text-green-900");
       expect(description).toHaveClass("text-foreground");
+    });
+  });
+
+  describe("session cleanup on resubmit", () => {
+    it("clears analysis session after successful resubmit when sessionId is present", async () => {
+      const pending: PendingSubmission = {
+        analysis: null,
+        mealTypeId: 3,
+        foodName: "Empanada",
+        reuseCustomFoodId: 123,
+        sessionId: "session-abc-123",
+      };
+
+      mockGetPending.mockReturnValue(pending);
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: {} }),
+      });
+
+      render(<PendingSubmissionHandler />);
+
+      await waitFor(() => {
+        expect(mockClearPending).toHaveBeenCalled();
+        expect(mockClearSession).toHaveBeenCalledWith("session-abc-123");
+      });
+    });
+
+    it("does not call clearSession when no sessionId is present", async () => {
+      const pending: PendingSubmission = {
+        analysis: null,
+        mealTypeId: 3,
+        foodName: "Empanada",
+        reuseCustomFoodId: 123,
+      };
+
+      mockGetPending.mockReturnValue(pending);
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: {} }),
+      });
+
+      render(<PendingSubmissionHandler />);
+
+      await waitFor(() => {
+        expect(mockClearPending).toHaveBeenCalled();
+      });
+      expect(mockClearSession).not.toHaveBeenCalled();
     });
   });
 
