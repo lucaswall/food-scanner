@@ -156,17 +156,19 @@ describe("useAnalysisSession", () => {
         result.current.actions.setDescription("Updated meal");
       });
 
-      // Description change not saved yet (debounce)
-      expect(mockSaveSessionState).not.toHaveBeenCalled();
+      // Description triggers immediate save (session already exists)
+      expect(mockSaveSessionState).toHaveBeenCalledTimes(1);
+      const savedState = mockSaveSessionState.mock.calls[0][1];
+      expect(savedState.description).toBe("Updated meal");
 
-      // Advance past debounce
+      mockSaveSessionState.mockClear();
+
+      // Debounced save also fires after delay
       await act(async () => {
         vi.advanceTimersByTime(300);
       });
 
       expect(mockSaveSessionState).toHaveBeenCalled();
-      const savedState = mockSaveSessionState.mock.calls[0][1];
-      expect(savedState.description).toBe("Updated meal");
     });
 
     it("writes photos to IndexedDB immediately on change", async () => {
@@ -257,6 +259,85 @@ describe("useAnalysisSession", () => {
       });
 
       expect(mockCreateSessionId).toHaveBeenCalledOnce();
+    });
+
+    it("creates new session ID when description becomes non-empty", async () => {
+      const { result } = renderHook(() => useAnalysisSession());
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      expect(mockCreateSessionId).not.toHaveBeenCalled();
+
+      act(() => {
+        result.current.actions.setDescription("My lunch");
+      });
+
+      expect(mockCreateSessionId).toHaveBeenCalledOnce();
+    });
+
+    it("does not create session when description is set to empty string", async () => {
+      const { result } = renderHook(() => useAnalysisSession());
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      act(() => {
+        result.current.actions.setDescription("");
+      });
+
+      expect(mockCreateSessionId).not.toHaveBeenCalled();
+    });
+
+    it("does not create session when description is only whitespace", async () => {
+      const { result } = renderHook(() => useAnalysisSession());
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      act(() => {
+        result.current.actions.setDescription("   ");
+      });
+
+      expect(mockCreateSessionId).not.toHaveBeenCalled();
+    });
+
+    it("does not create duplicate session when description changes and session already exists", async () => {
+      mockGetActiveSessionId.mockReturnValue("existing-session");
+      mockLoadSessionState.mockReturnValue(makeState());
+
+      const { result } = renderHook(() => useAnalysisSession());
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      act(() => {
+        result.current.actions.setDescription("Updated description");
+      });
+
+      expect(mockCreateSessionId).not.toHaveBeenCalled();
+    });
+
+    it("saves session state immediately when description creates a new session", async () => {
+      const { result } = renderHook(() => useAnalysisSession());
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      act(() => {
+        result.current.actions.setDescription("My lunch");
+      });
+
+      // Should save immediately, not wait for debounce
+      expect(mockSaveSessionState).toHaveBeenCalledWith(
+        "new-session-id",
+        expect.objectContaining({ description: "My lunch" })
+      );
     });
 
     it("reuses existing session ID if one exists", async () => {
