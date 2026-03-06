@@ -520,11 +520,10 @@ describe("FoodAnalyzer", () => {
     expect(screen.getByTestId("description-input")).toBeInTheDocument();
   });
 
-  it("Analyze button is disabled when no photos", () => {
+  it("Sticky CTA bar is not shown when no content exists", () => {
     render(<FoodAnalyzer />);
 
-    const analyzeButton = screen.getByRole("button", { name: /analyze/i });
-    expect(analyzeButton).toBeDisabled();
+    expect(screen.queryByTestId("sticky-cta-bar")).not.toBeInTheDocument();
   });
 
   it("Analyze button is enabled when photos are selected", async () => {
@@ -754,10 +753,9 @@ describe("FoodAnalyzer", () => {
     const clearButton = screen.getByRole("button", { name: /clear photos/i });
     fireEvent.click(clearButton);
 
-    // Analyze button should be disabled again
+    // Sticky CTA bar should be hidden after clearing all content
     await waitFor(() => {
-      const analyzeButton = screen.getByRole("button", { name: /analyze/i });
-      expect(analyzeButton).toBeDisabled();
+      expect(screen.queryByTestId("sticky-cta-bar")).not.toBeInTheDocument();
     });
   });
 
@@ -1286,12 +1284,18 @@ describe("FoodAnalyzer", () => {
   });
 
   describe("sticky CTA bar", () => {
-    it("renders 'Analyze Food' button in sticky bar", () => {
+    it("renders 'Analyze Food' button in sticky bar when content exists", async () => {
       render(<FoodAnalyzer />);
 
-      const stickyBar = screen.getByTestId("sticky-cta-bar");
-      expect(stickyBar).toBeInTheDocument();
-      expect(stickyBar).toHaveTextContent(/analyze food/i);
+      // Add description to trigger hasContent
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "some food" } });
+
+      await waitFor(() => {
+        const stickyBar = screen.getByTestId("sticky-cta-bar");
+        expect(stickyBar).toBeInTheDocument();
+        expect(stickyBar).toHaveTextContent(/analyze food/i);
+      });
     });
 
     it("shows 'Log to Fitbit' when analysis exists", async () => {
@@ -1788,11 +1792,10 @@ describe("FoodAnalyzer", () => {
       });
     });
 
-    it("disables Analyze button when neither photos nor description present", () => {
+    it("sticky CTA bar is hidden when neither photos nor description present", () => {
       render(<FoodAnalyzer />);
 
-      const analyzeButton = screen.getByRole("button", { name: /analyze food/i });
-      expect(analyzeButton).toBeDisabled();
+      expect(screen.queryByTestId("sticky-cta-bar")).not.toBeInTheDocument();
     });
 
     it("Analyze Food button is enabled when description entered", async () => {

@@ -294,9 +294,8 @@ export function PhotoCapture({
     restoredBlobsRef.current = newRestoredBlobs;
     setRestoredPreviews(newRestoredPreviews);
 
-    if (newRestoredPreviews.length === 0) {
-      onPhotosChange([], []);
-    }
+    // Always notify parent with remaining blobs (or empty arrays if all removed)
+    onPhotosChange([], newRestoredBlobs.length > 0 ? newRestoredBlobs : []);
   };
 
   const handleTakePhoto = () => {
@@ -395,11 +394,13 @@ export function PhotoCapture({
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-2">
             {restoredPreviews.map((preview, index) => (
-              <button
+              <div
                 key={`restored-${index}`}
-                type="button"
+                role="button"
+                tabIndex={0}
                 className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
                 onClick={() => handlePreviewClick(index)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePreviewClick(index); } }}
                 aria-label={`View full-size preview ${index + 1}`}
               >
                 <Image
@@ -420,7 +421,7 @@ export function PhotoCapture({
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
-              </button>
+              </div>
             ))}
             {canAddMore && (
               <DropdownMenu>
@@ -464,11 +465,13 @@ export function PhotoCapture({
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-2">
             {previews.map((preview, index) => (
-              <button
+              <div
                 key={`preview-${index}`}
-                type="button"
+                role="button"
+                tabIndex={0}
                 className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
                 onClick={() => handlePreviewClick(index)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePreviewClick(index); } }}
                 aria-label={`View full-size preview ${index + 1}`}
               >
                 <Image
@@ -491,7 +494,7 @@ export function PhotoCapture({
                     <X className="h-3.5 w-3.5" />
                   </button>
                 )}
-              </button>
+              </div>
             ))}
             {canAddMore && (
               <DropdownMenu>

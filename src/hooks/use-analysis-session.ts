@@ -188,23 +188,12 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
 
   const setDescription = useCallback((description: string) => {
     setState((prev) => ({ ...prev, description }));
+    // Ensure a session exists when description becomes non-empty
+    // The debounced save effect handles persisting the state
     if (description.trim().length > 0) {
-      const id = ensureSessionId();
-      // Immediate save so the session is persisted right away
-      saveSessionState(id, {
-        description,
-        analysis: state.analysis,
-        analysisNarrative: state.analysisNarrative,
-        mealTypeId: state.mealTypeId,
-        selectedTime: state.selectedTime,
-        matches: state.matches.map((m) => ({
-          ...m,
-          lastLoggedAt: m.lastLoggedAt instanceof Date ? m.lastLoggedAt.toISOString() : m.lastLoggedAt,
-        })),
-        createdAt: createdAtRef.current || new Date().toISOString(),
-      });
+      ensureSessionId();
     }
-  }, [ensureSessionId, state.analysis, state.analysisNarrative, state.mealTypeId, state.selectedTime, state.matches]);
+  }, [ensureSessionId]);
 
   const setAnalysis = useCallback((analysis: FoodAnalysis | null) => {
     setState((prev) => ({ ...prev, analysis }));

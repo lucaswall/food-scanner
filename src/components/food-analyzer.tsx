@@ -780,6 +780,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     </div>
 
     {/* Sticky bottom CTA bar */}
+    {(hasContent || loading || compressing) && (
     <div
       data-testid="sticky-cta-bar"
       className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 z-40 px-4"
@@ -804,6 +805,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         </Button>
       </div>
     </div>
+    )}
     </>
   );
 }

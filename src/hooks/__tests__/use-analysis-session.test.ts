@@ -156,19 +156,17 @@ describe("useAnalysisSession", () => {
         result.current.actions.setDescription("Updated meal");
       });
 
-      // Description triggers immediate save (session already exists)
-      expect(mockSaveSessionState).toHaveBeenCalledTimes(1);
-      const savedState = mockSaveSessionState.mock.calls[0][1];
-      expect(savedState.description).toBe("Updated meal");
+      // Description does not trigger immediate save — relies on debounce
+      expect(mockSaveSessionState).not.toHaveBeenCalled();
 
-      mockSaveSessionState.mockClear();
-
-      // Debounced save also fires after delay
+      // Debounced save fires after delay
       await act(async () => {
         vi.advanceTimersByTime(300);
       });
 
       expect(mockSaveSessionState).toHaveBeenCalled();
+      const savedState = mockSaveSessionState.mock.calls[0][1];
+      expect(savedState.description).toBe("Updated meal");
     });
 
     it("writes photos to IndexedDB immediately on change", async () => {
@@ -322,7 +320,7 @@ describe("useAnalysisSession", () => {
       expect(mockCreateSessionId).not.toHaveBeenCalled();
     });
 
-    it("saves session state immediately when description creates a new session", async () => {
+    it("saves session state via debounce when description creates a new session", async () => {
       const { result } = renderHook(() => useAnalysisSession());
 
       await act(async () => {
@@ -333,7 +331,15 @@ describe("useAnalysisSession", () => {
         result.current.actions.setDescription("My lunch");
       });
 
-      // Should save immediately, not wait for debounce
+      // ensureSessionId is called but save is debounced, not immediate
+      expect(mockCreateSessionId).toHaveBeenCalledOnce();
+      expect(mockSaveSessionState).not.toHaveBeenCalled();
+
+      // Debounced save fires with the description
+      await act(async () => {
+        vi.advanceTimersByTime(300);
+      });
+
       expect(mockSaveSessionState).toHaveBeenCalledWith(
         "new-session-id",
         expect.objectContaining({ description: "My lunch" })
