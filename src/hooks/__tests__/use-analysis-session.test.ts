@@ -148,11 +148,15 @@ describe("useAnalysisSession", () => {
         result.current.actions.setPhotos([new File(["p"], "p.jpg", { type: "image/jpeg" })]);
       });
 
+      // Immediate save happens for photos (session state written so photo-only sessions are restorable)
+      expect(mockSaveSessionState).toHaveBeenCalledTimes(1);
+      mockSaveSessionState.mockClear();
+
       act(() => {
         result.current.actions.setDescription("Updated meal");
       });
 
-      // Not saved yet (debounce)
+      // Description change not saved yet (debounce)
       expect(mockSaveSessionState).not.toHaveBeenCalled();
 
       // Advance past debounce
@@ -181,6 +185,26 @@ describe("useAnalysisSession", () => {
       });
 
       expect(mockSaveSessionPhotos).toHaveBeenCalledWith("session-1", photos);
+    });
+
+    it("saves session state immediately when only photos are set (no other changes)", async () => {
+      const { result } = renderHook(() => useAnalysisSession());
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      mockCreateSessionId.mockReturnValue("photo-only-session");
+
+      await act(async () => {
+        result.current.actions.setPhotos([new File(["p"], "p.jpg", { type: "image/jpeg" })]);
+      });
+
+      // Session state should be saved immediately (not debounced)
+      expect(mockSaveSessionState).toHaveBeenCalledWith(
+        "photo-only-session",
+        expect.objectContaining({ createdAt: expect.any(String) })
+      );
     });
   });
 
