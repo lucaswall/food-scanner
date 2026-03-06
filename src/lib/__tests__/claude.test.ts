@@ -3032,8 +3032,8 @@ describe("createStreamWithRetry", () => {
     const { createStreamWithRetry } = await import("@/lib/claude");
     const log = makeTestLogger();
 
-    const eventsPromise = collectEvents(createStreamWithRetry(minimalStreamParams, {}, log, 2));
-    await vi.advanceTimersByTimeAsync(1000);
+    const eventsPromise = collectEvents(createStreamWithRetry(minimalStreamParams, {}, log, 3));
+    await vi.advanceTimersByTimeAsync(2000);
     const events = await eventsPromise;
 
     const retryMsg = events.find(
@@ -3056,15 +3056,15 @@ describe("createStreamWithRetry", () => {
     const log = makeTestLogger();
 
     const resultPromise = collectEventsExpectThrow(
-      createStreamWithRetry(minimalStreamParams, {}, log, 2)
+      createStreamWithRetry(minimalStreamParams, {}, log, 3)
     );
-    await vi.advanceTimersByTimeAsync(5000); // 1s + 3s delays
+    await vi.advanceTimersByTimeAsync(17000); // 2s + 5s + 10s delays
     const { events, error } = await resultPromise;
 
     const retryMsgs = events.filter(
       (e) => e.type === "text_delta" && (e as { type: "text_delta"; text: string }).text.includes("momentarily busy")
     );
-    expect(retryMsgs).toHaveLength(2);
+    expect(retryMsgs).toHaveLength(3);
     expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
     expect((error as Error).message).toContain("temporarily overloaded");
 
@@ -3081,9 +3081,9 @@ describe("createStreamWithRetry", () => {
     const log = makeTestLogger();
 
     const resultPromise = collectEventsExpectThrow(
-      createStreamWithRetry(minimalStreamParams, {}, log, 2)
+      createStreamWithRetry(minimalStreamParams, {}, log, 3)
     );
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(17000);
     await resultPromise;
 
     expect(log.warn).toHaveBeenCalledWith(
@@ -3102,7 +3102,7 @@ describe("createStreamWithRetry", () => {
     const log = makeTestLogger();
 
     const { error } = await collectEventsExpectThrow(
-      createStreamWithRetry(minimalStreamParams, {}, log, 2)
+      createStreamWithRetry(minimalStreamParams, {}, log, 3)
     );
 
     expect(mockStream).toHaveBeenCalledTimes(1);
@@ -3179,7 +3179,7 @@ describe("analyzeFood overload retry", () => {
     const eventsPromise = collectEvents(
       analyzeFood([], undefined, "user-123", "2026-02-15")
     );
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
     const events = await eventsPromise;
 
     const retryMsg = events.find(
@@ -3202,7 +3202,7 @@ describe("analyzeFood overload retry", () => {
     const resultPromise = collectEventsExpectThrow(
       analyzeFood([], undefined, "user-123", "2026-02-15")
     );
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(17000);
     const { error } = await resultPromise;
 
     expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
@@ -3232,7 +3232,7 @@ describe("runToolLoop overload retry", () => {
     const eventsPromise = collectEvents(
       runToolLoop([{ role: "user", content: "How many calories?" }], "user-123", "2026-02-15")
     );
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
     const events = await eventsPromise;
 
     const retryMsg = events.find(
@@ -3255,7 +3255,7 @@ describe("runToolLoop overload retry", () => {
     const resultPromise = collectEventsExpectThrow(
       runToolLoop([{ role: "user", content: "Test" }], "user-123", "2026-02-15")
     );
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(17000);
     const { error } = await resultPromise;
 
     expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
@@ -3289,7 +3289,7 @@ describe("conversationalRefine overload retry", () => {
         "2026-02-15"
       )
     );
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
     const events = await eventsPromise;
 
     const retryMsg = events.find(
@@ -3316,7 +3316,7 @@ describe("conversationalRefine overload retry", () => {
         "2026-02-15"
       )
     );
-    await vi.advanceTimersByTimeAsync(5000);
+    await vi.advanceTimersByTimeAsync(17000);
     const { error } = await resultPromise;
 
     expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });

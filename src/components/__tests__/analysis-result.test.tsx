@@ -327,8 +327,8 @@ describe("AnalysisResult", () => {
     expect(confidenceElement).not.toHaveAttribute("aria-label");
   });
 
-  describe("confidence tooltip", () => {
-    it("shows tooltip on hover with explanation text", async () => {
+  describe("confidence popover", () => {
+    it("shows popover on click with explanation text", async () => {
       const user = userEvent.setup();
       const onRetry = vi.fn();
       render(
@@ -341,16 +341,16 @@ describe("AnalysisResult", () => {
       );
 
       const confidenceTrigger = screen.getByTestId("confidence-trigger");
-      await user.hover(confidenceTrigger);
+      await user.click(confidenceTrigger);
 
       await waitFor(() => {
-        const tooltip = screen.getByRole("tooltip");
-        expect(tooltip).toBeInTheDocument();
-        expect(tooltip).toHaveTextContent(/confidence/i);
+        const popover = screen.getByRole("dialog");
+        expect(popover).toBeInTheDocument();
+        expect(popover).toHaveTextContent(/confidence/i);
       });
     });
 
-    it("tooltip explains high confidence", async () => {
+    it("popover explains high confidence", async () => {
       const user = userEvent.setup();
       const onRetry = vi.fn();
       render(
@@ -363,15 +363,15 @@ describe("AnalysisResult", () => {
       );
 
       const confidenceTrigger = screen.getByTestId("confidence-trigger");
-      await user.hover(confidenceTrigger);
+      await user.click(confidenceTrigger);
 
       await waitFor(() => {
-        const tooltip = screen.getByRole("tooltip");
-        expect(tooltip).toHaveTextContent(/certain|accurate/i);
+        const popover = screen.getByRole("dialog");
+        expect(popover).toHaveTextContent(/certain|accurate/i);
       });
     });
 
-    it("tooltip explains low confidence", async () => {
+    it("popover explains low confidence", async () => {
       const user = userEvent.setup();
       const onRetry = vi.fn();
       render(
@@ -384,11 +384,11 @@ describe("AnalysisResult", () => {
       );
 
       const confidenceTrigger = screen.getByTestId("confidence-trigger");
-      await user.hover(confidenceTrigger);
+      await user.click(confidenceTrigger);
 
       await waitFor(() => {
-        const tooltip = screen.getByRole("tooltip");
-        expect(tooltip).toHaveTextContent(/uncertain|verify/i);
+        const popover = screen.getByRole("dialog");
+        expect(popover).toHaveTextContent(/uncertain|verify/i);
       });
     });
   });

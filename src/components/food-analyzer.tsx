@@ -145,6 +145,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setError(null);
     setLogError(null);
 
+    // Create AbortController early so Cancel works during compression
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     let compressedBlobs: Blob[] = [];
 
     if (photos.length > 0 || convertedPhotoBlobs.length > 0) {
@@ -191,16 +195,19 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       setCompressing(false);
     }
 
+    // If cancelled during compression, bail out
+    if (controller.signal.aborted) {
+      setCompressing(false);
+      setLoadingStep(undefined);
+      return;
+    }
+
     actions.setCompressedImages(compressedBlobs);
     setLoading(true);
     setLoadingStep("Analyzing food...");
     setStreamingText("");
     analysisSectionRef.current?.scrollIntoView({ behavior: "smooth" });
     textDeltaBufferRef.current = "";
-
-    // Create AbortController for this analysis
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
 
     // Manual timeout — AbortSignal.any() not available on iOS 16, Chrome <116
     const timeoutId = setTimeout(() => controller.abort(new DOMException("signal timed out", "TimeoutError")), 120000);

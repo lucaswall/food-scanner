@@ -277,3 +277,80 @@
 - FOO-832 (nav restructure) touches multiple components — ensure swipe nav, active indicator, and bottom nav spacing all adjust correctly
 - FOO-835 viewport `maximumScale: 1` disables pinch-zoom — acceptable for PWA but verify no accessibility concerns
 - FOO-839 cancel button must not clear user state (photos/description) — only abort the in-flight request
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-06
+**Method:** Agent team (4 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Fix iOS Safari auto-zoom on input focus [FOO-835] - Changed text-sm→text-base on textarea/date inputs, added maximumScale:1 and userScalable:false to viewport (worker-3)
+- Task 2: Add confirmation dialog for restored photos Clear All [FOO-842] - Reused existing AlertDialog with dynamic dispatch for restored vs fresh photos (worker-2)
+- Task 3: Improve "Log as new" CTA label clarity [FOO-840] - Changed "Log as new" → "Log as new food", added contextual text below matches heading (worker-1)
+- Task 4: Add cancel button during food analysis [FOO-839] - Added ghost Cancel button in sticky CTA bar during loading/compression, aborts in-flight request while preserving photos/description (worker-1)
+- Task 5: Add re-analyze button after analysis completes [FOO-838] - Added outline Re-analyze button with RotateCcw icon alongside Refine with chat (worker-1)
+- Task 6: Replace confidence badge Tooltip with Popover for mobile [FOO-837] - Replaced Radix Tooltip with Popover for click-to-show on mobile, created shadcn/ui popover.tsx (worker-4)
+- Task 7: Enlarge photo remove button touch targets [FOO-836] - Expanded touch targets to 44x44px min while keeping visual size compact (worker-2)
+- Task 8: Move History from bottom nav to Home screen [FOO-832] - Removed History from navItems and TAB_PATHS, added History card link in DashboardShell (worker-3)
+- Task 9: Increase Claude API 529 retry delays [FOO-834] - Changed delays from [1000, 3000] to [2000, 5000, 10000], maxRetries from 2 to 3 (worker-4)
+- Task 10: Filter Sentry Anthropic SDK overloaded error noise [FOO-833] - Created sentry-filters.ts with beforeSend filter in instrumentation.ts (worker-4)
+
+### Files Modified
+- `src/components/food-analyzer.tsx` - CTA label, cancel button, re-analyze button, AbortController moved earlier
+- `src/components/__tests__/food-analyzer.test.tsx` - Tests for cancel, re-analyze, CTA label changes
+- `src/components/photo-capture.tsx` - Restored photos clear confirmation, touch targets, handleClearRestoredPhotos fix
+- `src/components/__tests__/photo-capture.test.tsx` - Tests for clear confirmation, touch targets
+- `src/components/confidence-badge.tsx` - Tooltip → Popover
+- `src/components/__tests__/confidence-badge.test.tsx` - Click-based popover tests
+- `src/components/ui/popover.tsx` - New shadcn/ui Popover component
+- `src/components/__tests__/analysis-result.test.tsx` - Updated tooltip tests → popover tests
+- `src/components/description-input.tsx` - text-sm → text-base
+- `src/components/__tests__/description-input.test.tsx` - New test for text-base class
+- `src/components/food-history.tsx` - text-sm → text-base on date input
+- `src/app/layout.tsx` - Viewport maximumScale:1, userScalable:false
+- `src/components/bottom-nav.tsx` - Removed History from navItems
+- `src/components/__tests__/bottom-nav.test.tsx` - Updated for 4 nav items
+- `src/lib/navigation.ts` - Removed /app/history from TAB_PATHS
+- `src/components/dashboard-shell.tsx` - Added History card link
+- `src/components/__tests__/dashboard-shell.test.tsx` - New test for History link
+- `src/hooks/__tests__/use-swipe-navigation.test.ts` - Updated for 4 tabs (removed /app/history)
+- `src/lib/claude.ts` - Retry delays and maxRetries
+- `src/lib/__tests__/claude.test.ts` - Updated timer advances for new delays
+- `src/lib/__tests__/claude-retry.test.ts` - New source-level retry constant tests
+- `src/lib/sentry-filters.ts` - New filter function for Anthropic SDK overloaded errors
+- `src/lib/__tests__/sentry-filters.test.ts` - Tests for filter function
+- `src/instrumentation.ts` - Added beforeSend filter
+
+### Linear Updates
+- FOO-835: Todo → In Progress → Review
+- FOO-842: Todo → In Progress → Review
+- FOO-840: Todo → In Progress → Review
+- FOO-839: Todo → In Progress → Review
+- FOO-838: Todo → In Progress → Review
+- FOO-837: Todo → In Progress → Review
+- FOO-836: Todo → In Progress → Review
+- FOO-832: Todo → In Progress → Review
+- FOO-834: Todo → In Progress → Review
+- FOO-833: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (1 HIGH, 2 MEDIUM, 1 LOW). Fixed HIGH (Cancel button no-op during compression — moved AbortController creation before compression) and LOW (handleClearRestoredPhotos missing setShowClearConfirm). Skipped 2 MEDIUM: raw API error message in UI (pre-existing), source-parsing test approach (not a runtime bug).
+- verifier: All 2622 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 3, 4, 5 (food-analyzer CTA/controls domain)
+- Worker 2: Tasks 2, 7 (photo-capture UX domain)
+- Worker 3: Tasks 1, 8 (navigation/layout domain)
+- Worker 4: Tasks 9, 10, 6 (backend reliability + confidence badge)
+
+### Merge Summary
+- Worker 4: fast-forward (first merge, no conflicts)
+- Worker 2: clean merge (no conflicts), typecheck passed
+- Worker 1: clean merge (no conflicts), typecheck passed
+- Worker 3: clean merge (no conflicts), typecheck passed
+- Post-merge: Fixed 19 integration test failures (swipe nav tests referenced removed /app/history path, analysis-result tests referenced old Tooltip behavior)
+
+### Continuation Status
+All tasks completed.

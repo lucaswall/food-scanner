@@ -262,6 +262,7 @@ export function PhotoCapture({
   const handleClearRestoredPhotos = () => {
     restoredPreviews.forEach((url) => URL.revokeObjectURL(url));
     setRestoredPreviews([]);
+    setShowClearConfirm(false);
     onPhotosChange([], []);
   };
 
