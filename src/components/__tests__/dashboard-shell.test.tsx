@@ -13,6 +13,27 @@ vi.mock("@/components/weekly-dashboard", () => ({
 }));
 
 describe("DashboardShell", () => {
+  it("renders a History link pointing to /app/history", () => {
+    render(<DashboardShell />);
+
+    const historyLink = screen.getByRole("link", { name: /history/i });
+    expect(historyLink).toHaveAttribute("href", "/app/history");
+  });
+
+  it("History link has Clock icon and descriptive text", () => {
+    render(<DashboardShell />);
+
+    expect(screen.getByText("History")).toBeInTheDocument();
+    expect(screen.getByText("View past logged meals")).toBeInTheDocument();
+  });
+
+  it("History link has minimum 44px touch target", () => {
+    render(<DashboardShell />);
+
+    const historyLink = screen.getByRole("link", { name: /history/i });
+    expect(historyLink.className).toMatch(/min-h-\[44px\]/);
+  });
+
   it("renders segmented control with Daily and Weekly options", () => {
     render(<DashboardShell />);
 

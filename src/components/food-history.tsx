@@ -245,7 +245,7 @@ export function FoodHistory() {
           type="date"
           value={jumpDate}
           onChange={(e) => setJumpDate(e.target.value)}
-          className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[44px]"
+          className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-base min-h-[44px]"
           aria-label="Jump to date"
         />
         <Button

@@ -8,15 +8,21 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("BottomNav", () => {
-  it("renders five nav items (Home, History, Analyze, Quick Select, Chat)", () => {
+  it("renders four nav items (Home, Analyze, Quick Select, Chat)", () => {
     mockPathname.mockReturnValue("/app");
     render(<BottomNav />);
 
     expect(screen.getByText("Home")).toBeInTheDocument();
-    expect(screen.getByText("History")).toBeInTheDocument();
     expect(screen.getByText("Analyze")).toBeInTheDocument();
     expect(screen.getByText("Quick Select")).toBeInTheDocument();
     expect(screen.getByText("Chat")).toBeInTheDocument();
+  });
+
+  it("does NOT include History in the nav items", () => {
+    mockPathname.mockReturnValue("/app");
+    render(<BottomNav />);
+
+    expect(screen.queryByText("History")).not.toBeInTheDocument();
   });
 
   it("Home links to /app", () => {
@@ -25,14 +31,6 @@ describe("BottomNav", () => {
 
     const homeLink = screen.getByRole("link", { name: /home/i });
     expect(homeLink).toHaveAttribute("href", "/app");
-  });
-
-  it("History links to /app/history", () => {
-    mockPathname.mockReturnValue("/app");
-    render(<BottomNav />);
-
-    const historyLink = screen.getByRole("link", { name: /history/i });
-    expect(historyLink).toHaveAttribute("href", "/app/history");
   });
 
   it("Analyze links to /app/analyze", () => {
@@ -66,19 +64,8 @@ describe("BottomNav", () => {
     const homeLink = screen.getByRole("link", { name: /home/i });
     expect(homeLink).toHaveAttribute("aria-current", "page");
 
-    const historyLink = screen.getByRole("link", { name: /history/i });
-    expect(historyLink).not.toHaveAttribute("aria-current");
-  });
-
-  it("History is active when on /app/history", () => {
-    mockPathname.mockReturnValue("/app/history");
-    render(<BottomNav />);
-
-    const historyLink = screen.getByRole("link", { name: /history/i });
-    expect(historyLink).toHaveAttribute("aria-current", "page");
-
-    const homeLink = screen.getByRole("link", { name: /home/i });
-    expect(homeLink).not.toHaveAttribute("aria-current");
+    const analyzeLink = screen.getByRole("link", { name: /^analyze$/i });
+    expect(analyzeLink).not.toHaveAttribute("aria-current");
   });
 
   it("Analyze is active when on /app/analyze", () => {
@@ -88,7 +75,6 @@ describe("BottomNav", () => {
     const analyzeLink = screen.getByRole("link", { name: /^analyze$/i });
     expect(analyzeLink).toHaveAttribute("aria-current", "page");
 
-    // Home should NOT be active on /app/analyze
     const homeLink = screen.getByRole("link", { name: /home/i });
     expect(homeLink).not.toHaveAttribute("aria-current");
   });
@@ -140,7 +126,7 @@ describe("BottomNav", () => {
     render(<BottomNav />);
 
     const labels = screen.getAllByText(
-      /^(Home|History|Analyze|Quick Select|Chat)$/
+      /^(Home|Analyze|Quick Select|Chat)$/
     );
     labels.forEach((label) => {
       expect(label).toHaveClass("text-xs");
@@ -152,7 +138,7 @@ describe("BottomNav", () => {
     render(<BottomNav />);
 
     const links = screen.getAllByRole("link");
-    expect(links).toHaveLength(5);
+    expect(links).toHaveLength(4);
     links.forEach((link) => {
       expect(link).toHaveClass("min-h-[44px]");
       expect(link).toHaveClass("min-w-[44px]");
@@ -191,12 +177,20 @@ describe("BottomNav", () => {
     expect(indicator).toHaveStyle("transform: translateX(0%)");
   });
 
-  it("active indicator position corresponds to Chat (index 4) when on /app/chat", () => {
+  it("active indicator position corresponds to Chat (index 3) when on /app/chat", () => {
     mockPathname.mockReturnValue("/app/chat");
     render(<BottomNav />);
 
     const indicator = screen.getByTestId("active-indicator");
-    expect(indicator).toHaveStyle("transform: translateX(400%)");
+    expect(indicator).toHaveStyle("transform: translateX(300%)");
+  });
+
+  it("active indicator width is 25%", () => {
+    mockPathname.mockReturnValue("/app");
+    render(<BottomNav />);
+
+    const indicator = screen.getByTestId("active-indicator");
+    expect(indicator).toHaveStyle("width: 25%");
   });
 
   it("active indicator has no transform when on /settings (no active tab)", () => {
@@ -204,7 +198,6 @@ describe("BottomNav", () => {
     render(<BottomNav />);
 
     const indicator = screen.getByTestId("active-indicator");
-    // When no tab is active, indicator is hidden
     expect(indicator).toHaveClass("opacity-0");
   });
 });

@@ -84,6 +84,27 @@ describe("DescriptionInput", () => {
     expect(screen.getByRole("textbox", { name: /food description/i })).toBeInTheDocument();
   });
 
+  it("textarea uses text-base (not text-sm) to prevent iOS auto-zoom", () => {
+    const onChange = vi.fn();
+    render(<DescriptionInput value="" onChange={onChange} />);
+
+    const textarea = screen.getByRole("textbox");
+    expect(textarea).not.toHaveClass("text-sm");
+    expect(textarea).toHaveClass("text-base");
+  });
+
+  it("renders textarea with expected styling classes", () => {
+    const onChange = vi.fn();
+    render(<DescriptionInput value="" onChange={onChange} />);
+
+    const textarea = screen.getByRole("textbox");
+    expect(textarea).toHaveClass("w-full");
+    expect(textarea).toHaveClass("px-3");
+    expect(textarea).toHaveClass("py-2");
+    expect(textarea).toHaveClass("border");
+    expect(textarea).toHaveClass("rounded-md");
+  });
+
   describe("visible label", () => {
     it("renders a visible label with text 'Food description (optional)'", () => {
       const onChange = vi.fn();
