@@ -142,8 +142,10 @@ test.describe('Analyze Page', () => {
     const descriptionLabel = page.getByText('Food description (optional)');
     await expect(descriptionLabel).toBeVisible({ timeout: 10000 });
 
-    // Verify analyze button is present
-    const analyzeButton = page.getByRole('button', { name: 'Analyze' });
+    // Verify analyze button appears after entering a description (sticky CTA bar only renders when content exists)
+    const descriptionInput = page.getByPlaceholder('e.g.');
+    await descriptionInput.fill('test food');
+    const analyzeButton = page.getByRole('button', { name: 'Analyze Food' });
     await expect(analyzeButton).toBeVisible();
   });
 

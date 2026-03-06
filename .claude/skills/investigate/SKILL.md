@@ -37,11 +37,21 @@ Environment mappings are also in CLAUDE.md SENTRY section.
 | Tag distribution for an issue | `get_issue_tag_values` | tagKey: "environment", "url", "browser" |
 | AI root cause analysis | `analyze_issue_with_seer` | Deep analysis with code fix suggestions |
 
+### Issue status filtering
+
+**CRITICAL: Default to unresolved issues.** Unless the user explicitly asks for resolved, ignored, or all issues:
+- Always include "unresolved" in `search_issues` queries (e.g., "unresolved errors in production")
+- After fetching issue lists, check each issue's `status` field — skip any that are `resolved` or `ignored`
+- When `get_issue_details` returns an issue, check its status before investigating further — don't waste effort on already-resolved issues
+- If all matching issues are resolved/ignored, report that to the user rather than analyzing stale issues
+
+The `search_issues` tool returns a `status` field per issue (`unresolved`, `resolved`, `ignored`). Always read it.
+
 ### Sentry investigation patterns
 
 **Error investigation:**
-1. `search_issues` — find matching issues by description or symptoms
-2. `get_issue_details` — get stacktrace, affected users, frequency
+1. `search_issues` — find matching **unresolved** issues by description or symptoms
+2. `get_issue_details` — get stacktrace, affected users, frequency — **verify status is unresolved**
 3. `get_issue_tag_values` — check environment/release/url distribution
 4. `search_issue_events` — filter to specific timeframe or environment
 5. `analyze_issue_with_seer` — get AI root cause analysis with code fixes
@@ -105,8 +115,8 @@ Based on $ARGUMENTS, determine what you're investigating:
 ### Step 2: Gather Evidence
 
 **Start with Sentry** for most investigations — it provides the richest context (stacktraces, traces, frequency, affected environments):
-1. `search_issues` to find related errors
-2. `get_issue_details` for stacktrace and metadata
+1. `search_issues` to find related **unresolved** errors (always include "unresolved" in the query)
+2. `get_issue_details` for stacktrace and metadata — **verify status is unresolved before deep-diving**
 3. `search_events` for counts, trends, or individual events
 4. `get_trace_details` to trace a request through the system
 
@@ -203,6 +213,7 @@ When investigating deployment issues (via Railway MCP):
 - **Report only** - Do NOT modify source code or files
 - **No plans** - Do NOT write PLANS.md or fix plans
 - **Start with Sentry** - For error/performance investigations, check Sentry before Railway logs
+- **Unresolved only** - Default to unresolved issues. Always check issue status before investigating. Do not analyze resolved or ignored issues unless the user explicitly asks.
 - **Explicit environment** - ALWAYS pass the `environment` parameter to Railway MCP tools; never rely on CLI defaults
 - **Sentry constants** - ALWAYS pass `organizationSlug: "lucas-wall"` and `regionUrl: "https://us.sentry.io"` to Sentry tools
 - **Be thorough** - Check multiple sources before concluding
