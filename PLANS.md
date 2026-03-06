@@ -1,255 +1,258 @@
 # Implementation Plan
 
-**Status:** COMPLETE
 **Created:** 2026-03-06
-**Source:** Inline request: Revamp analyze screen with seamless persistence, individual photo removal, always-visible reset, sticky CTA, and modern minimal layout
-**Linear Issues:** [FOO-825](https://linear.app/lw-claude/issue/FOO-825/fix-description-persistence-create-session-on-description-input), [FOO-826](https://linear.app/lw-claude/issue/FOO-826/individual-photo-removal-with-x-badges), [FOO-827](https://linear.app/lw-claude/issue/FOO-827/tile-add-more-photo-trigger-with-dropdown-picker), [FOO-828](https://linear.app/lw-claude/issue/FOO-828/always-visible-start-over-reset-button), [FOO-829](https://linear.app/lw-claude/issue/FOO-829/sticky-bottom-cta-bar-for-analyzelog-actions), [FOO-830](https://linear.app/lw-claude/issue/FOO-830/tighter-layout-and-spacing-refinements-for-analyze-screen)
-**Branch:** feat/analyze-screen-revamp
+**Source:** Backlog: FOO-835, FOO-842, FOO-840, FOO-839, FOO-838, FOO-837, FOO-836, FOO-832, FOO-834, FOO-833
+**Linear Issues:** [FOO-835](https://linear.app/lw-claude/issue/FOO-835/ios-safari-unwanted-zoomscaling-during-navigation), [FOO-842](https://linear.app/lw-claude/issue/FOO-842/restored-photos-clear-all-skips-confirmation-dialog), [FOO-840](https://linear.app/lw-claude/issue/FOO-840/log-as-new-cta-label-unclear-when-food-matches-are-shown), [FOO-839](https://linear.app/lw-claude/issue/FOO-839/no-cancel-button-during-in-progress-food-analysis), [FOO-838](https://linear.app/lw-claude/issue/FOO-838/no-way-to-re-analyze-after-initial-analysis-completes), [FOO-837](https://linear.app/lw-claude/issue/FOO-837/confidence-badge-tooltip-inaccessible-on-mobile-hover-only), [FOO-836](https://linear.app/lw-claude/issue/FOO-836/photo-remove-buttons-too-small-for-mobile-touch-targets-24x24px), [FOO-832](https://linear.app/lw-claude/issue/FOO-832/move-history-from-bottom-nav-to-a-button-on-the-home-screen), [FOO-834](https://linear.app/lw-claude/issue/FOO-834/claude-api-529-retry-backoff-too-aggressive-increase-delays), [FOO-833](https://linear.app/lw-claude/issue/FOO-833/sentry-anthropic-sdk-auto-instrumentation-double-reports-overloaded)
+**Sentry Issues:** [FOOD-SCANNER-E](https://lucas-wall.sentry.io/issues/FOOD-SCANNER-E), [FOOD-SCANNER-D](https://lucas-wall.sentry.io/issues/FOOD-SCANNER-D)
+**Branch:** fix/backlog-ux-reliability-improvements
 
 ## Context Gathered
 
 ### Codebase Analysis
-- **Related files:**
-  - `src/components/food-analyzer.tsx` — Root analyze screen component, manages state flow and renders all sub-components
-  - `src/components/photo-capture.tsx` — Photo grid, camera/gallery inputs, "Clear All" button, restored photo handling
-  - `src/components/description-input.tsx` — Textarea with character counter, 500 char max
-  - `src/components/analysis-result.tsx` — Analysis card with nutrition grid, streaming text, error/retry, collapsible narrative
-  - `src/components/food-match-card.tsx` — Similar food cards with "Use this" button
-  - `src/components/meal-type-selector.tsx` — Select dropdown for meal type with time hint
-  - `src/components/time-selector.tsx` — Now/custom time toggle with hour:minute selects
-  - `src/components/food-log-confirmation.tsx` — Success screen after logging
-  - `src/hooks/use-analysis-session.ts` — Session persistence hook (sessionStorage + IndexedDB for photos)
-  - `src/lib/analysis-session.ts` — Session storage/retrieval, TTL, IndexedDB operations
-  - `src/components/bottom-nav.tsx` — Existing fixed bottom nav bar pattern (`fixed bottom-0 left-0 right-0 bg-background border-t z-50`)
-  - `src/components/ui/dropdown-menu.tsx` — Radix DropdownMenu (installed, available)
-  - `src/components/ui/dialog.tsx` — Dialog with custom `bottom-sheet` variant
-  - `src/components/ui/alert-dialog.tsx` — Confirmation dialogs
-  - `src/components/__tests__/photo-capture.test.tsx` — 1159 lines, comprehensive photo tests
-  - `src/components/__tests__/food-analyzer.test.tsx` — ~4000 lines, full analyzer tests
-- **Existing patterns:**
-  - Fixed bottom bar: `bottom-nav.tsx` uses `fixed bottom-0 left-0 right-0 bg-background border-t z-50` with safe area insets
-  - Bottom sheet: `<DialogContent variant="bottom-sheet">` pattern used in analysis-result.tsx and food-entry-detail-sheet.tsx
-  - Touch targets: `min-h-[44px]` consistently used on all interactive elements
-  - Photo mocks: `createMockFile()` helper, `URL.createObjectURL`/`revokeObjectURL` mocks
-  - Session ID creation: `ensureSessionId()` only called in `setPhotos` — not in `setDescription`
-- **Test conventions:** Colocated `__tests__/` directories, Vitest + Testing Library, mock hooks with `vi.mock`, `vi.fn()` for callbacks, `fireEvent` for user interactions, `waitFor` for async state
+
+- **Viewport config:** `src/app/layout.tsx:34-39` — exports `viewport` with only `themeColor`, no scaling constraints
+- **Input elements with text-sm (14px):**
+  - `src/components/description-input.tsx:31` — textarea uses `text-sm`
+  - `src/components/food-history.tsx:248` — date input uses `text-sm`
+  - `src/components/ui/input.tsx:11` — shadcn Input uses `text-base` mobile / `md:text-sm` desktop (correct)
+- **Photo capture:** `src/components/photo-capture.tsx` — remove buttons at `w-6 h-6` (24px), restored Clear All has no confirmation dialog, fresh Clear All uses `handleClearClick` with dialog
+- **Food analyzer:** `src/components/food-analyzer.tsx` — CTA at lines 789-804 switches between "Analyze Food" / "Log to Fitbit" / "Log as new" / loading states. AbortController at line 201-203 is internal-only. No re-analyze UI after analysis completes.
+- **Confidence badge:** `src/components/confidence-badge.tsx` — Radix Tooltip (hover-only), has `min-h-[44px]` on trigger
+- **Bottom nav:** `src/components/bottom-nav.tsx` — 5 items, History at index 1. `src/lib/navigation.ts` defines `TAB_PATHS` used by swipe nav
+- **Claude retry:** `src/lib/claude.ts:261` — `RETRY_DELAYS_MS = [1000, 3000]`, `maxRetries = 2` default
+- **Sentry config:** `src/instrumentation.ts` — server-side Sentry init with `pinoIntegration`, no `beforeSend` filter. `src/instrumentation-client.ts` — client-side with replay, no filters
+- **Test conventions:** Colocated `__tests__/` directories, Vitest + Testing Library. Existing tests: `src/components/__tests__/bottom-nav.test.tsx`, `src/components/__tests__/food-analyzer.test.tsx`, `src/components/__tests__/photo-capture.test.tsx`
+- **Home page:** `src/app/app/page.tsx` — server component with `DashboardShell`, `FitbitStatusBanner`, `DashboardPrefetch`
+- **Swipe navigation:** `src/hooks/use-swipe-navigation.ts` uses `TAB_PATHS` from `src/lib/navigation.ts`
 
 ### MCP Context
-- **MCPs used:** Linear (team verification)
-- **Findings:** Team "Food Scanner" with prefix FOO-xxx confirmed. Previous related issues: FOO-817 (Start Fresh), FOO-821 (Start Fresh fix), FOO-824 (Clear All consolidation, complete).
+
+- **MCPs used:** Linear (issue tracking)
+- **Findings:** All 10 Backlog issues validated against codebase. All are real and actionable.
+
+### Triage Results
+
+**Planned:** FOO-835, FOO-842, FOO-840, FOO-839, FOO-838, FOO-837, FOO-836, FOO-832, FOO-834, FOO-833
+**Canceled:** None
 
 ## Tasks
 
-### Task 1: Fix description persistence — create session on description input
-**Linear Issue:** [FOO-825](https://linear.app/lw-claude/issue/FOO-825/fix-description-persistence-create-session-on-description-input)
+### Task 1: Fix iOS Safari auto-zoom on input focus
+**Linear Issue:** [FOO-835](https://linear.app/lw-claude/issue/FOO-835/ios-safari-unwanted-zoomscaling-during-navigation)
 **Files:**
-- `src/hooks/__tests__/use-analysis-session.test.ts` (create if not exists, or modify)
-- `src/hooks/use-analysis-session.ts` (modify)
+- `src/components/description-input.tsx` (modify)
+- `src/components/food-history.tsx` (modify)
+- `src/app/layout.tsx` (modify)
+- `src/components/__tests__/description-input.test.tsx` (create)
 
 **Steps:**
-1. Write/add tests in the session hook test file:
-   - Test: setting description to non-empty string when no session exists calls `createSessionId` and creates a session
-   - Test: setting description to empty string does NOT create a session
-   - Test: setting description when session already exists does NOT create a duplicate session
-   - Test: description changes are saved via debounced `saveSessionState` (existing behavior, ensure covered)
-   - Follow existing mock patterns for `analysis-session` module
-2. Run verifier with pattern "use-analysis-session" (expect fail)
-3. In `use-analysis-session.ts`:
-   - Modify `setDescription` callback to call `ensureSessionId()` when description becomes non-empty (i.e., `description.trim().length > 0`)
-   - Also trigger an immediate `saveSessionState` call (same pattern as `setPhotos` does at line 224) so the session is persisted right away rather than waiting for debounce
-4. Run verifier with pattern "use-analysis-session" (expect pass)
+1. **RED:** Write test in `src/components/__tests__/description-input.test.tsx` that renders `DescriptionInput` and asserts the textarea does NOT have `text-sm` class and DOES have `text-base` class. Write a second test that checks the textarea renders with expected styling classes.
+2. Run `npx vitest run "description-input"` (expect fail — textarea currently has `text-sm`)
+3. **GREEN:** In `src/components/description-input.tsx:31`, replace `text-sm` with `text-base` in the textarea className. This makes the textarea 16px on all screen sizes, preventing iOS auto-zoom on focus.
+4. Run `npx vitest run "description-input"` (expect pass)
+5. In `src/components/food-history.tsx:248`, replace `text-sm` with `text-base` on the date input className. No test needed — this is a presentational change in a server-rendered component.
+6. In `src/app/layout.tsx`, add `maximumScale: 1` and `userScalable: false` to the `viewport` export. This is a PWA safeguard — the app doesn't need pinch-zoom.
 
 **Notes:**
-- `ensureSessionId()` is idempotent — safe to call when session already exists (returns existing ID)
-- The debounced save effect already watches `state.description`, so subsequent changes are auto-saved; only the initial session creation + first save needs the immediate call
-- This is a prerequisite for Task 5 (auto-save feedback) — without a session, there's nothing to indicate as "saved"
+- The shadcn `Input` component (`src/components/ui/input.tsx:11`) already uses `text-base md:text-sm` which is correct (16px on mobile, 14px on desktop). No change needed there.
+- The chat `Input` at `src/components/food-chat.tsx:1007` uses the shadcn Input component, so it's already correct.
+- `src/components/fitbit-setup-form.tsx:70` uses the shadcn Input component — also correct.
 
-### Task 2: Individual photo removal with X badges
-**Linear Issue:** [FOO-826](https://linear.app/lw-claude/issue/FOO-826/individual-photo-removal-with-x-badges)
+---
+
+### Task 2: Add confirmation dialog for restored photos Clear All
+**Linear Issue:** [FOO-842](https://linear.app/lw-claude/issue/FOO-842/restored-photos-clear-all-skips-confirmation-dialog)
 **Files:**
+- `src/components/photo-capture.tsx` (modify)
 - `src/components/__tests__/photo-capture.test.tsx` (modify)
-- `src/components/photo-capture.tsx` (modify)
 
 **Steps:**
-1. Add tests in `photo-capture.test.tsx`:
-   - Test: each photo preview has a remove button with accessible label "Remove photo N"
-   - Test: clicking remove on a single photo removes only that photo and calls `onPhotosChange` with remaining photos
-   - Test: clicking remove on the last remaining photo calls `onPhotosChange([], [])`
-   - Test: remove buttons are not shown during processing (`processingCount > 0`)
-   - Test: restored photo previews also have individual remove buttons
-   - Test: clicking remove on a restored photo removes it and calls `onPhotosChange` with remaining blobs
-   - Test: remove buttons respect disabled/processing state
-2. Run verifier with pattern "photo-capture" (expect fail)
-3. In `photo-capture.tsx`:
-   - Add a `handleRemovePhoto(index: number)` function:
-     - Revoke the preview URL at that index
-     - Create new arrays without the removed index for photos, previews, and convertedBlobs
-     - Call `onPhotosChange` with updated arrays
-     - If resulting array is empty, call `onPhotosChange([], [])`
-   - Add a `handleRemoveRestoredPhoto(index: number)` function:
-     - Revoke the restored preview URL at that index
-     - Create new array of restoredBlobs without the removed index
-     - Update restoredPreviews state
-     - If the `restoredBlobs` prop was provided, need to pass remaining blobs back via `onPhotosChange` — since we don't have the original `restoredBlobs` in state, add `restoredBlobsRef` to store them, then filter and call back
-   - On each photo preview button in the grid (both regular and restored), overlay an X button:
-     - Position: `absolute top-1 right-1 z-10`
-     - Style: `w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center`
-     - Use lucide `X` icon at `h-3.5 w-3.5`
-     - `onClick` with `e.stopPropagation()` to prevent opening the preview dialog
-     - `aria-label="Remove photo N"`
-   - The photo preview container needs `relative` class (already has it via `relative aspect-square`)
-   - Remove the "Clear All" button when only 1 photo exists (individual X is sufficient). Keep "Clear All" for 2+ photos as a convenience shortcut.
-4. Run verifier with pattern "photo-capture" (expect pass)
+1. **RED:** Write test in `src/components/__tests__/photo-capture.test.tsx` that renders `PhotoCapture` with 3+ `restoredBlobs`, clicks "Clear All", and asserts that a confirmation dialog appears (check for `AlertDialogTitle` text "Clear all photos?"). Confirm clicking "Confirm" then calls `onPhotosChange` with empty arrays.
+2. Run `npx vitest run "photo-capture"` (expect fail — currently clears without dialog)
+3. **GREEN:** In `src/components/photo-capture.tsx`, modify the restored photos "Clear All" button (line 455) to call a new handler instead of `handleClearRestoredPhotos` directly. The new handler should set `showClearConfirm` state when `restoredPreviews.length >= 2`, and call `handleClearRestoredPhotos` directly for 1 photo. Update the existing `AlertDialog` to also handle the restored photos case — when `showClearConfirm` is true and there are restored previews but no fresh photos, the confirm action should call `handleClearRestoredPhotos` instead of `doClear`. The dialog description should show the restored count.
+4. Run `npx vitest run "photo-capture"` (expect pass)
+5. **REFACTOR:** Consider whether the `AlertDialog` needs a unified handler that detects which clear to perform (restored vs fresh) or if two separate dialog states are cleaner.
 
 **Notes:**
-- `e.stopPropagation()` is critical — the X button sits inside the preview button that opens the full-size dialog
-- For restored photos, we need to track the blobs in a ref since they come as a prop. Store `restoredBlobs` in a `useRef` on mount.
-- Removing the last photo triggers the full reset flow in `food-analyzer.tsx` via `handlePhotosChange` (files.length === 0 → resetAnalysisState + clearSession)
+- Follow the existing pattern at `photo-capture.tsx:524-533` for the fresh photos Clear All confirmation flow
+- The `showClearConfirm` state already exists — reuse it, but ensure the confirm action dispatches to the right handler
 
-### Task 3: "+" tile add-more photo trigger with dropdown picker
-**Linear Issue:** [FOO-827](https://linear.app/lw-claude/issue/FOO-827/tile-add-more-photo-trigger-with-dropdown-picker)
+---
+
+### Task 3: Improve "Log as new" CTA label clarity
+**Linear Issue:** [FOO-840](https://linear.app/lw-claude/issue/FOO-840/log-as-new-cta-label-unclear-when-food-matches-are-shown)
 **Files:**
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+
+**Steps:**
+1. **RED:** Write test that renders `FoodAnalyzer` with an analysis and matches present, and asserts the CTA button text is "Log as new food" (not "Log as new"). Also assert there is contextual text near the matches section explaining the reuse option (e.g., a paragraph with text mentioning "previously logged" or "reuse").
+2. Run `npx vitest run "food-analyzer"` (expect fail)
+3. **GREEN:** In `src/components/food-analyzer.tsx:802`, change `"Log as new"` to `"Log as new food"`. In the matches section (around line 747), add a brief subtitle below "Similar foods you've logged before" explaining the action, e.g., "Tap a match to reuse it, or log as a new food with the button below."
+4. Run `npx vitest run "food-analyzer"` (expect pass)
+
+**Notes:**
+- Keep the change minimal — just improve the label text and add a one-liner explanation
+- The "Similar foods you've logged before" heading at line 748 stays; the explanation goes below it
+
+---
+
+### Task 4: Add cancel button during food analysis
+**Linear Issue:** [FOO-839](https://linear.app/lw-claude/issue/FOO-839/no-cancel-button-during-in-progress-food-analysis)
+**Files:**
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+
+**Steps:**
+1. **RED:** Write test that renders `FoodAnalyzer` in loading state and asserts a "Cancel" button is visible. Clicking it should abort the analysis (check that loading state clears) but photos and description should remain.
+2. Run `npx vitest run "food-analyzer"` (expect fail)
+3. **GREEN:** In `src/components/food-analyzer.tsx`, add a cancel handler that aborts the in-flight request via `abortControllerRef.current.abort()`, clears loading state, but preserves photos and description (do NOT call `resetAnalysisState` since that clears analysis too — just abort and set `loading` to false). In the sticky CTA area (around line 788), when `loading || compressing` is true, show a secondary "Cancel" button below or beside the "Analyzing..." button. The cancel button should call the cancel handler.
+4. Run `npx vitest run "food-analyzer"` (expect pass)
+5. **Edge case test:** Write test that after canceling, the CTA reverts to "Analyze Food" so the user can retry. This should already work since `analysis` will still be null after cancel.
+
+**Notes:**
+- The abort is already handled gracefully in the catch block at `food-analyzer.tsx:333` — `AbortError` returns silently. The `finally` block at line 351 clears loading state and nulls the abortControllerRef. So aborting the controller is sufficient.
+- Cancel should NOT clear photos, description, or any user input — only the in-flight request
+- Place the cancel button as a `variant="ghost"` button below the primary CTA in the sticky bar
+
+---
+
+### Task 5: Add re-analyze button after analysis completes
+**Linear Issue:** [FOO-838](https://linear.app/lw-claude/issue/FOO-838/no-way-to-re-analyze-after-initial-analysis-completes)
+**Files:**
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+
+**Steps:**
+1. **RED:** Write test that renders `FoodAnalyzer` with a completed analysis and asserts a "Re-analyze" button is visible (secondary to the "Log to Fitbit" CTA). Clicking it should trigger `handleAnalyze` (which clears previous analysis via `resetAnalysisState` internally at the start and runs a new analysis).
+2. Run `npx vitest run "food-analyzer"` (expect fail)
+3. **GREEN:** In the post-analysis controls section (around line 722), add a "Re-analyze" button using `RotateCcw` icon. Place it in the button group near "Refine with chat" (around line 736). Use `variant="outline"` and the same `w-full min-h-[44px]` pattern. The button calls `handleAnalyze` directly — the analyze function already handles clearing previous state.
+4. Run `npx vitest run "food-analyzer"` (expect pass)
+5. **Edge case test:** Verify the re-analyze button is disabled when `!canAnalyze` (e.g., during loading, or when no photos/description exist).
+
+**Notes:**
+- The re-analyze button is secondary — keep "Log to Fitbit" as the primary CTA in the sticky bar
+- `handleAnalyze` already works for re-analysis: it compresses images again and sends a new request. The streaming event handler at line 272 sets the new analysis when it arrives.
+- `handleAnalyze` does NOT call `resetAnalysisState` at the start — it sets `error` and `logError` to null but doesn't clear `analysis`. The old analysis shows until the new one arrives from the stream. This is acceptable UX.
+
+---
+
+### Task 6: Replace confidence badge Tooltip with Popover for mobile
+**Linear Issue:** [FOO-837](https://linear.app/lw-claude/issue/FOO-837/confidence-badge-tooltip-inaccessible-on-mobile-hover-only)
+**Files:**
+- `src/components/confidence-badge.tsx` (modify)
+- `src/components/__tests__/confidence-badge.test.tsx` (modify)
+
+**Steps:**
+1. **RED:** Write test that renders `ConfidenceBadge` with `confidence="medium"`, clicks the trigger button, and asserts the explanation text appears. Currently using Tooltip which doesn't respond to click — test should verify the explanation is accessible via click/tap.
+2. Run `npx vitest run "confidence-badge"` (expect fail — Tooltip doesn't show on click in JSDOM)
+3. **GREEN:** In `src/components/confidence-badge.tsx`, replace the `Tooltip`/`TooltipTrigger`/`TooltipContent` with `Popover`/`PopoverTrigger`/`PopoverContent` from `@/components/ui/popover`. Popover works on both click (mobile) and can be configured to work on hover (desktop). Keep the button trigger and `min-h-[44px]` touch target. The popover content shows the confidence explanation text.
+4. Run `npx vitest run "confidence-badge"` (expect pass)
+5. Verify the popover content uses `max-w-xs` like the current tooltip for consistent sizing.
+
+**Notes:**
+- Radix Popover opens on click by default, which is exactly what mobile needs
+- The existing `cursor-help` style on the trigger can remain
+- Remove the `TooltipProvider` import — not needed with Popover
+- Check if `@/components/ui/popover` exists (shadcn component). If not, generate it with `npx shadcn@latest add popover`
+
+---
+
+### Task 7: Enlarge photo remove button touch targets
+**Linear Issue:** [FOO-836](https://linear.app/lw-claude/issue/FOO-836/photo-remove-buttons-too-small-for-mobile-touch-targets-24x24px)
+**Files:**
+- `src/components/photo-capture.tsx` (modify)
 - `src/components/__tests__/photo-capture.test.tsx` (modify)
-- `src/components/photo-capture.tsx` (modify)
 
 **Steps:**
-1. Add tests in `photo-capture.test.tsx`:
-   - Test: when photos exist and count < max, a "+" add tile is shown as the last grid item
-   - Test: when photos count equals max, no "+" tile is shown
-   - Test: clicking "+" tile opens a dropdown with "Take photo" and "Choose from gallery" options
-   - Test: selecting "Take photo" from dropdown triggers camera input click
-   - Test: selecting "Choose from gallery" from dropdown triggers gallery input click
-   - Test: when no photos exist, the full-width camera/gallery buttons are shown (empty state — keep existing buttons)
-   - Test: "+" tile is not shown during processing
-2. Run verifier with pattern "photo-capture" (expect fail)
-3. In `photo-capture.tsx`:
-   - Import `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent`, `DropdownMenuItem` from `@/components/ui/dropdown-menu`
-   - Import `Plus` icon from lucide
-   - When photos/restoredPreviews exist AND count < maxPhotos, render a "+" tile as the last item in the grid:
-     - Same `aspect-square rounded-md` sizing as photo previews
-     - Style: `border-2 border-dashed border-muted-foreground/30 flex items-center justify-center`
-     - Contains `Plus` icon (`h-6 w-6 text-muted-foreground`)
-     - Wrapped in `DropdownMenu` — tile is the trigger, content has two items
-     - DropdownMenuItem "Take photo" with Camera icon → clicks `cameraInputRef`
-     - DropdownMenuItem "Choose from gallery" with ImageIcon → clicks `galleryInputRef`
-   - Keep existing full-width "Take Photo" / "Choose from Gallery" buttons for the empty state (no photos yet) — the "+" tile only appears when photos already exist
-4. Run verifier with pattern "photo-capture" (expect pass)
+1. **RED:** Write test that renders `PhotoCapture` with photos and asserts the remove buttons have `min-h-[44px]` and `min-w-[44px]` classes (or equivalent 44px touch target).
+2. Run `npx vitest run "photo-capture"` (expect fail — buttons are `w-6 h-6`)
+3. **GREEN:** In `src/components/photo-capture.tsx`, update both remove button instances:
+   - Line 415 (restored photos): Change from `w-6 h-6` to a larger touch target. Use the approach of keeping the visual circle small but expanding the tappable area with padding. Change to `w-8 h-8 p-1` for the visible button, and wrap with a `min-w-[44px] min-h-[44px]` touch area using `flex items-center justify-center` positioning. The visual X icon stays at `h-3.5 w-3.5`.
+   - Line 487 (fresh photos): Same change.
+4. Run `npx vitest run "photo-capture"` (expect pass)
+5. Verify that the enlarged touch target doesn't overlap the entire photo tile in a confusing way — the button should be positioned at `top-0 right-0` with padding that creates a larger hit area extending inward.
 
 **Notes:**
-- The "+" tile replaces the need to scroll past photos to find action buttons
-- Empty state keeps the prominent buttons because first-time discoverability matters
-- DropdownMenu from shadcn/ui handles z-index, positioning, and accessibility automatically
-- The grid remains `grid-cols-3`, so the "+" tile is naturally placed as the next grid cell
+- Pattern: Keep visual size small (visible button at ~32px with icon), but expand the tappable container to 44x44px. Use `absolute top-0 right-0` positioning with the container being the 44px touch target.
+- Both restored and fresh photo grids need the same fix — there are two identical button patterns in the file.
 
-### Task 4: Always-visible "Start over" reset button
-**Linear Issue:** [FOO-828](https://linear.app/lw-claude/issue/FOO-828/always-visible-start-over-reset-button)
+---
+
+### Task 8: Move History from bottom nav to Home screen
+**Linear Issue:** [FOO-832](https://linear.app/lw-claude/issue/FOO-832/move-history-from-bottom-nav-to-a-button-on-the-home-screen)
 **Files:**
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-- `src/components/food-analyzer.tsx` (modify)
+- `src/components/bottom-nav.tsx` (modify)
+- `src/lib/navigation.ts` (modify)
+- `src/components/dashboard-shell.tsx` (modify)
+- `src/components/__tests__/bottom-nav.test.tsx` (modify)
 
 **Steps:**
-1. Add tests in `food-analyzer.test.tsx`:
-   - Test: "Start over" button is NOT shown when no content exists (no photos, empty description, no analysis)
-   - Test: "Start over" button IS shown when photos exist
-   - Test: "Start over" button IS shown when description is non-empty (even without photos)
-   - Test: "Start over" button IS shown when analysis exists
-   - Test: clicking "Start over" shows a confirmation dialog with "Start over?" title
-   - Test: confirming the dialog calls `resetAnalysisState` + `clearSession` and resets all state
-   - Test: canceling the dialog does not clear state
-   - Test: after confirming, photos, description, and analysis are all cleared
-2. Run verifier with pattern "Start over" (expect fail)
-3. In `food-analyzer.tsx`:
-   - Import `RotateCcw` from lucide
-   - Import `AlertDialog`, `AlertDialogAction`, `AlertDialogCancel`, `AlertDialogContent`, `AlertDialogDescription`, `AlertDialogFooter`, `AlertDialogHeader`, `AlertDialogTitle` from `@/components/ui/alert-dialog`
-   - Add `showStartOverConfirm` state (boolean, default false)
-   - Derive `hasContent` boolean: `photos.length > 0 || convertedPhotoBlobs.length > 0 || description.trim().length > 0 || analysis !== null`
-   - Add `handleStartOver` function: calls `resetAnalysisState()`, then `actions.clearSession()`, then `setShowStartOverConfirm(false)`. The `clearSession` action resets all state to defaults.
-   - In the JSX, at the top of the main return (inside `<div className="space-y-...">`, before the photo capture):
-     - Render a flex row with a "Start over" ghost button (only when `hasContent` is true):
-       - `<button>` with `RotateCcw` icon + "Start over" text
-       - Style: `text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 min-h-[44px] ml-auto` (right-aligned via ml-auto)
-       - `onClick={() => setShowStartOverConfirm(true)}`
-     - Render the `AlertDialog` for confirmation:
-       - Title: "Start over?"
-       - Description: "This will clear all photos, description, and analysis results."
-       - Cancel + "Start over" action button (destructive variant)
-   - Remove the first-time guidance block (lines 653-666 in current code) — it's replaced by the self-explanatory empty state with "+" tile and prominent buttons
-4. Run verifier with pattern "Start over" (expect pass)
+1. **RED:** Write/update tests in `src/components/__tests__/bottom-nav.test.tsx`:
+   - Assert bottom nav has exactly 4 items (not 5)
+   - Assert "History" is NOT in the nav items
+   - Assert the remaining items are Home, Analyze, Quick Select, Chat
+   - Assert the active indicator width is `25%` (was `20%`)
+2. Run `npx vitest run "bottom-nav"` (expect fail — currently 5 items)
+3. **GREEN:** In `src/components/bottom-nav.tsx`:
+   - Remove the History entry from `navItems` array (lines 15-19)
+   - Remove the `Clock` import if no longer used
+4. In `src/lib/navigation.ts`:
+   - Remove `"/app/history"` from `TAB_PATHS` array — this updates swipe navigation order
+5. Run `npx vitest run "bottom-nav"` (expect pass)
+6. **RED:** Write test for dashboard-shell that asserts a History button/link is rendered pointing to `/app/history`, with a `Clock` icon and descriptive text.
+7. Run `npx vitest run "dashboard-shell"` (expect fail)
+8. **GREEN:** In `src/components/dashboard-shell.tsx`, add a History button/link component above or near the existing content. Use a full-width card-style button with `Clock` icon, "History" title, and "View past logged meals" subtitle. Link to `/app/history`. Follow the card pattern used elsewhere in the dashboard (look at what `DashboardShell` renders). Use `min-h-[44px]` touch target.
+9. Run `npx vitest run "dashboard-shell"` (expect pass)
 
 **Notes:**
-- Using text+icon button (not just icon) for clarity — research shows label is important for destructive actions
-- Right-aligned to separate from primary flow, per NNGroup guidelines on consequential options
-- Confirmation dialog prevents accidental loss, per UX best practices
-- Removing first-time guidance: the camera/gallery buttons and description placeholder already explain the flow; this is a single-user app where the user already knows the purpose
+- The History page route (`src/app/app/history/page.tsx`) stays — only the entry point moves
+- Swipe navigation via `src/hooks/use-swipe-navigation.ts` will automatically update because it reads from `TAB_PATHS`
+- The dashboard-shell likely contains the daily dashboard content — read it first to determine the best placement for the History button
 
-### Task 5: Sticky bottom CTA bar
-**Linear Issue:** [FOO-829](https://linear.app/lw-claude/issue/FOO-829/sticky-bottom-cta-bar-for-analyzelog-actions)
+---
+
+### Task 9: Increase Claude API 529 retry delays
+**Linear Issue:** [FOO-834](https://linear.app/lw-claude/issue/FOO-834/claude-api-529-retry-backoff-too-aggressive-increase-delays)
 **Files:**
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-- `src/components/food-analyzer.tsx` (modify)
-- `src/app/app/analyze/page.tsx` (modify)
+- `src/lib/claude.ts` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
 
 **Steps:**
-1. Add tests in `food-analyzer.test.tsx`:
-   - Test: "Analyze Food" button renders in the sticky bar area (testid `sticky-cta-bar`)
-   - Test: when analysis exists, sticky bar shows "Log to Fitbit" button instead
-   - Test: when analysis exists with matches, sticky bar shows "Log as new"
-   - Test: sticky bar is not rendered when loading/compressing (buttons are disabled, bar still shows)
-   - Test: sticky bar is not rendered when `logResponse` exists (confirmation screen shown instead)
-   - Update existing button tests that find "Analyze Food" / "Log to Fitbit" to account for new container structure
-2. Run verifier with pattern "sticky" or "Analyze Food" or "Log to Fitbit" (expect fail)
-3. In `food-analyzer.tsx`:
-   - Remove the inline "Analyze Food" button (currently between description and analysis section)
-   - Remove the inline "Log to Fitbit" / "Log as new" button (currently at the bottom of post-analysis controls)
-   - Add a sticky bottom bar at the END of the main return JSX (outside the `space-y-...` div but still inside the fragment/wrapper):
-     - Container: `fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 z-40 px-4`
-       - The `bottom` offset accounts for the bottom-nav height (~4rem + safe area)
-     - Inner: `mx-auto w-full max-w-md py-3`
-     - Background: `bg-background/80 backdrop-blur-sm border-t` for frosted glass effect
-     - Renders the primary CTA button (full width, `min-h-[44px]`):
-       - Before analysis: "Analyze Food" (disabled when `!canAnalyze`)
-       - After analysis: "Log to Fitbit" or "Log as new" (disabled when `logging`)
-       - During compression: "Preparing images..."
-       - During loading: "Analyzing..."
-       - During logging: "Logging..."
-   - Add bottom padding to the scrollable content area to prevent the sticky bar from overlapping the last content item:
-     - Add `pb-24` to the main content wrapper (accounts for sticky bar + bottom nav)
-   - In `page.tsx`: no changes needed — the FoodAnalyzer component handles its own sticky positioning
-4. Run verifier with pattern "Analyze Food|Log to Fitbit|sticky" (expect pass)
+1. **RED:** Write/update test that verifies `RETRY_DELAYS_MS` has values `[2000, 5000, 10000]` and `createStreamWithRetry` defaults to `maxRetries = 3`. If the test file doesn't exist, check for existing claude tests and follow their pattern.
+2. Run `npx vitest run "claude"` (expect fail — currently `[1000, 3000]` and `maxRetries = 2`)
+3. **GREEN:** In `src/lib/claude.ts`:
+   - Line 261: Change `RETRY_DELAYS_MS = [1000, 3000]` to `[2000, 5000, 10000]`
+   - Line 277: Change `maxRetries = 2` to `maxRetries = 3`
+4. Run `npx vitest run "claude"` (expect pass)
+5. **Edge case test:** Verify the fallback delay (`RETRY_DELAYS_MS[attempt] ?? 3000` at line 291) still works correctly when `attempt` exceeds the array length. With 3 entries and `maxRetries = 3`, the max attempt index is 2, which is within bounds.
 
 **Notes:**
-- z-40 is below bottom-nav's z-50, so the nav stays on top
-- `bottom-[calc(4rem+env(safe-area-inset-bottom))]` positions the CTA bar just above the bottom nav. Adjust the `4rem` value to match the actual bottom-nav height.
-- Frosted glass (`bg-background/80 backdrop-blur-sm`) is a common modern pattern that lets the user see content scrolling behind the bar
-- The sticky bar does NOT hide on keyboard open — the analyze screen's textarea is short, and the Analyze button being visible while typing is actually helpful (research: users want to submit immediately after typing)
-- `max-w-md mx-auto` matches the page's content width constraint
+- Simple constant change — no logic changes needed
+- Per Anthropic docs, 529 errors are server-side and not billable, so longer waits cost nothing
+- The SDK-level `maxRetries: 2` at line 23 is separate (HTTP-level retries before stream starts) — leave it unchanged
 
-### Task 6: Tighter layout and spacing refinements
-**Linear Issue:** [FOO-830](https://linear.app/lw-claude/issue/FOO-830/tighter-layout-and-spacing-refinements-for-analyze-screen)
+---
+
+### Task 10: Filter Sentry Anthropic SDK overloaded error noise
+**Linear Issue:** [FOO-833](https://linear.app/lw-claude/issue/FOO-833/sentry-anthropic-sdk-auto-instrumentation-double-reports-overloaded)
 **Files:**
-- `src/components/__tests__/food-analyzer.test.tsx` (modify — update snapshot/structure assertions if any)
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/photo-capture.tsx` (modify)
+- `src/instrumentation.ts` (modify)
+- `src/lib/__tests__/sentry-filters.test.ts` (create)
 
 **Steps:**
-1. Update any tests that assert specific class names or container structure (if any exist — check first). Most tests use testids and text content, so this may need minimal test changes.
-2. Run verifier (expect pass — layout-only changes should not break behavior tests)
-3. In `food-analyzer.tsx`:
-   - Change main container from `space-y-6` to `space-y-4` for tighter vertical rhythm
-   - Group meal type and time selectors in a single `space-y-3` container (reduce spacing between them)
-   - Move "Refine with chat" button BELOW meal type/time selectors but ABOVE the match cards — it's a secondary action, should not interrupt the log flow
-   - The post-analysis section ordering becomes: analysis result card → meal type + time → refine with chat → match cards → log error (if any)
-   - Remove the `<Label>` wrappers for meal type and time where they just say "Meal Type" and "Meal Time" — these are self-evident from the component's content. If labels are needed for accessibility, use `aria-label` on the selects instead.
-4. In `photo-capture.tsx`:
-   - Change "Take Photo" / "Choose from Gallery" button row from `flex-col sm:flex-row` to just `flex gap-2` (always side by side — these are short labels that fit on one line)
-   - Remove the photo count text (`X/9 photos selected`) — the visual grid makes this obvious, and the "+" tile's absence at max count signals the limit
-5. Run verifier (expect pass)
+1. **RED:** Write test in `src/lib/__tests__/sentry-filters.test.ts` that tests a `shouldDropOverloadedSdkError` filter function. The function receives a Sentry event-like object and returns `true` when the event has mechanism `auto.ai.anthropic.stream_error` AND the exception message contains `overloaded_error`. Returns `false` for other events.
+2. Run `npx vitest run "sentry-filters"` (expect fail)
+3. **GREEN:** Create the filter function in `src/lib/sentry-filters.ts`. The function checks `event.exception?.values?.[0]?.mechanism?.type` for `auto.ai.anthropic.stream_error` and `event.exception?.values?.[0]?.value` for `overloaded_error`.
+4. Run `npx vitest run "sentry-filters"` (expect pass)
+5. **RED:** Write test that the Sentry `init` call in server config includes a `beforeSend` option (integration test may be difficult — a unit test of the filter function from step 1 is sufficient).
+6. **GREEN:** In `src/instrumentation.ts`, add `beforeSend` to the server-side `Sentry.init` call (line 5-22). The `beforeSend` callback calls the filter function and returns `null` (drop) when it matches, otherwise returns the event unchanged.
+7. Manually verify by reviewing the code — the filter must not drop the app-level error (FOOD-SCANNER-E) which uses mechanism `auto.log.pino`, only the SDK-level noise (FOOD-SCANNER-D) which uses `auto.ai.anthropic.stream_error`.
 
 **Notes:**
-- These are visual refinements only — no behavioral changes
-- Keeping `space-y-4` everywhere creates a more cohesive, less "spacey" feel
-- Removing the photo count label reduces clutter; the grid is the count
-- Reordering post-analysis controls puts the most common flow (analyze → pick meal/time → log) in a straight line without detours
+- After deploying, resolve FOOD-SCANNER-D in Sentry manually
+- Keep FOOD-SCANNER-E — that's the meaningful signal (app-level error after all retries exhausted)
+- The filter is intentionally narrow — only drops overloaded errors from the Anthropic SDK auto-instrumentation, nothing else
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -257,108 +260,20 @@
 
 ---
 
-## Iteration 1
-
-**Date:** 2026-03-06
-**Method:** Agent team (3 workers)
-
-### Work Partition
-
-| Worker | Tasks | Domain | Files |
-|--------|-------|--------|-------|
-| worker-1 | Task 1 (FOO-825) | Session hooks | use-analysis-session.ts, use-analysis-session.test.ts |
-| worker-2 | Tasks 2, 3 (FOO-826, FOO-827) | Photo capture | photo-capture.tsx, photo-capture.test.tsx |
-| worker-3 | Tasks 4, 5, 6 (FOO-828, FOO-829, FOO-830) | Food analyzer | food-analyzer.tsx, food-analyzer.test.tsx |
-
-### Merge Summary
-
-- worker-1 → fast-forward (foundation: hooks layer)
-- worker-2 → clean merge (photo-capture component)
-- worker-3 → clean merge (food-analyzer component)
-- No merge conflicts. Typecheck passed after each merge.
-
-### Bug Hunter Findings (5 found, all fixed)
-
-1. **HIGH — Stale closure in setDescription**: Removed immediate `saveSessionState` from `setDescription`; now relies on `ensureSessionId()` + debounced save effect (avoids capturing stale `state` fields)
-2. **HIGH — Sticky CTA always rendered**: Added conditional rendering — bar only shows when `hasContent || loading || compressing`
-3. **MEDIUM — handleRemoveRestoredPhoto silent removal**: Now always calls `onPhotosChange([], remainingBlobs)` when removing a restored photo (was only calling on full removal)
-4. **MEDIUM — Nested button elements**: Changed outer preview `<button>` to `<div role="button">` with keyboard handler to avoid invalid HTML nesting with inner X remove button
-5. **LOW — MealTypeSelector ariaLabel**: False positive — component already accepts and applies `ariaLabel` prop
-
-### Verification
-
-- **Tests:** 2597 passed (149 files), 0 failed
-- **Lint:** Clean
-- **Build:** Clean, 0 warnings
-
-### Tasks Completed
-
-- [x] Task 1: Fix description persistence (FOO-825)
-- [x] Task 2: Individual photo removal with X badges (FOO-826)
-- [x] Task 3: "+" tile add-more photo trigger with dropdown (FOO-827)
-- [x] Task 4: Always-visible "Start over" reset button (FOO-828)
-- [x] Task 5: Sticky bottom CTA bar (FOO-829)
-- [x] Task 6: Tighter layout and spacing refinements (FOO-830)
-
-### Tasks Remaining
-
-None — all tasks complete.
-
-**Status: COMPLETE**
-
-### Review Findings
-
-Files reviewed: 6
-Reviewers: security, reliability, quality (agent team)
-Checks applied: Security (OWASP), Logic, Async, Resources, Type Safety, Conventions, Test Quality
-
-No issues found - all implementations are correct and follow project conventions.
-
-**Discarded findings (not bugs):**
-- [DISCARDED] STALE CLOSURE: `setPhotos` captures closure state values for immediate save (`use-analysis-session.ts:229-240`) — impossible through normal UI interaction (description and photos can't be set in same render frame); debounced save self-corrects within 300ms
-- [DISCARDED] ASYNC: Fire-and-forget `saveSessionPhotos`/`saveSessionState` without `.catch()` (`use-analysis-session.ts:226,171`) — intentional fire-and-forget for best-effort session persistence; failure is graceful degradation, not user-visible
-- [DISCARDED] RESOURCE: Untracked setTimeout in `photo-capture.tsx:192` — React 18+ silently ignores setState on unmounted components; no memory leak or user-visible effect
-- [DISCARDED] EDGE CASE: `revokeObjectURL(undefined)` if arrays out of sync (`photo-capture.tsx:269`) — silent no-op per Web API spec; arrays maintained in sync by design
-- [DISCARDED] EDGE CASE: Restored photos lost when adding new photos via "+" tile (`photo-capture.tsx:314`) — intentional design; new capture replaces restored set
-- [DISCARDED] ERROR: Silent error on non-JSON find-matches response (`food-analyzer.tsx:292-295`) — intentionally non-critical feature with graceful degradation; matches are optional UI sugar
-- [DISCARDED] TYPE: Double cast instead of `deserializeFoodMatch()` helper (`use-analysis-session.ts:115-120`) — identical behavior to helper; style preference, not a correctness issue
-- [DISCARDED] TYPE: `Blob[]` cast on `convertedPhotoBlobs` (`food-analyzer.tsx:698`) — safe cast since `File extends Blob`
-- [DISCARDED] TYPE: Manual serialization instead of `serializeFoodMatch()` helper (`use-analysis-session.ts:158-161,235-238`) — identical behavior to helper; style preference
-- [DISCARDED] CONVENTION: `console.warn` usage in client components (`photo-capture.tsx:189`, `food-analyzer.tsx:177`) — explicitly acceptable per CLAUDE.md for `'use client'` components
-- [DISCARDED] EDGE CASE: Restored photos "Clear All" lacks confirmation dialog (`photo-capture.tsx:262-266`) — "Start over" button with confirmation covers the main full-clear case; minor UX inconsistency, not a bug
-
-### Linear Updates
-- FOO-825: Review → Merge
-- FOO-826: Review → Merge
-- FOO-827: Review → Merge
-- FOO-828: Review → Merge
-- FOO-829: Review → Merge
-- FOO-830: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
----
-
 ## Plan Summary
 
-**Objective:** Revamp the analyze screen to fix description persistence, add individual photo removal, provide an always-visible reset mechanism, add a sticky bottom CTA bar, and refine layout spacing for a modern minimal design
-**Linear Issues:** FOO-825, FOO-826, FOO-827, FOO-828, FOO-829, FOO-830
-**Approach:** Six tasks in dependency order. Task 1 fixes the core persistence bug (session ID creation on description input). Task 2 adds per-photo X badges for individual removal. Task 3 adds a "+" tile with dropdown picker for adding more photos. Task 4 adds an always-visible "Start over" button with confirmation. Task 5 moves the primary CTA (Analyze/Log) to a sticky bottom bar. Task 6 tightens spacing and reorders post-analysis controls for cleaner flow.
-**Scope:** 6 tasks, ~8 files, ~30 tests
+**Objective:** Fix 10 backlog issues spanning iOS Safari zoom bugs, UX improvements (cancel/re-analyze/clear confirmation), mobile accessibility (touch targets, tooltip-to-popover), navigation restructuring, and reliability improvements (retry backoff, Sentry noise filtering).
+**Linear Issues:** FOO-835, FOO-842, FOO-840, FOO-839, FOO-838, FOO-837, FOO-836, FOO-832, FOO-834, FOO-833
+**Approach:** Tackle issues in dependency order — foundational fixes first (iOS zoom, touch targets), then UX improvements (cancel, re-analyze, CTA labels), then structural changes (nav restructure), and finally backend reliability (retry delays, Sentry filters). All tasks are independent and can be parallelized by workers.
+**Scope:** 10 tasks, ~15 files, ~15 tests
 **Key Decisions:**
-- "Start over" as text+icon button (not just icon) with confirmation dialog — UX research shows labels are critical for destructive actions
-- Sticky CTA positioned above bottom nav (z-40 < z-50) with frosted glass background
-- Keep full-width camera/gallery buttons for empty state, "+" tile only when photos exist — first-time discoverability matters
-- Remove first-time guidance and photo count label — reduce clutter, let UI speak for itself
-- DropdownMenu for photo picker (already installed, handles accessibility)
+- Use `text-base` (16px) for all mobile text inputs to prevent iOS auto-zoom, plus `maximumScale: 1` viewport safeguard
+- Replace Radix Tooltip with Popover for confidence badge (Popover works on click for mobile)
+- Expand photo remove button touch area to 44x44px while keeping visual size small
+- History button goes in DashboardShell on Home screen, removed from bottom nav and swipe nav
+- Increase retry delays to `[2000, 5000, 10000]` with 3 retries per Anthropic recommendations
+- Sentry filter targets only `auto.ai.anthropic.stream_error` + `overloaded_error` — narrow and safe
 **Risks:**
-- Sticky bar bottom offset needs to match actual bottom-nav height — may need fine-tuning
-- Individual photo removal changes the `onPhotosChange` contract slightly (partial removal vs clear-all) — existing tests need careful updates
-- Removing Labels from meal type/time selectors needs accessibility audit (ensure aria-label coverage)
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
-E2E tests skipped — PostgreSQL not available locally (infrastructure prerequisite, not a code issue).
+- FOO-832 (nav restructure) touches multiple components — ensure swipe nav, active indicator, and bottom nav spacing all adjust correctly
+- FOO-835 viewport `maximumScale: 1` disables pinch-zoom — acceptable for PWA but verify no accessibility concerns
+- FOO-839 cancel button must not clear user state (photos/description) — only abort the in-flight request
