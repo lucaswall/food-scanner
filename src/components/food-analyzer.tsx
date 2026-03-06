@@ -15,9 +15,18 @@ import { vibrateError } from "@/lib/haptics";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useAnalysisSession } from "@/hooks/use-analysis-session";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MessageSquare } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { MessageSquare, RotateCcw } from "lucide-react";
 import {
   savePendingSubmission,
   getPendingSubmission,
@@ -74,6 +83,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [streamingText, setStreamingText] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [seedMessages, setSeedMessages] = useState<ConversationMessage[] | null>(null);
+  const [showStartOverConfirm, setShowStartOverConfirm] = useState(false);
   const autoCaptureUsedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -82,6 +92,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
   const canAnalyze = (photos.length > 0 || convertedPhotoBlobs.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
+  const hasContent = photos.length > 0 || convertedPhotoBlobs.length > 0 || description.trim().length > 0 || analysis !== null;
 
   const handlePhotosChange = (files: File[], convertedBlobs?: (File | Blob)[]) => {
     actions.setPhotos(files, convertedBlobs);
@@ -118,6 +129,14 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     actions.setCompressedImages(null);
     setChatOpen(false);
     setSeedMessages(null);
+  };
+
+  const handleStartOver = () => {
+    resetAnalysisState();
+    actions.setPhotos([], []);
+    actions.setDescription("");
+    actions.clearSession();
+    setShowStartOverConfirm(false);
   };
 
   const handleAnalyze = async () => {
@@ -634,7 +653,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   }
 
   return (
-    <div className="space-y-6">
+    <>
+    <div className="space-y-4 pb-24">
       {/* Resubmit error (shown when no analysis context) */}
       {logError && !analysis && (
         <div
@@ -646,32 +666,38 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         </div>
       )}
 
-      <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} restoredBlobs={wasRestored && convertedPhotoBlobs.length > 0 ? (convertedPhotoBlobs as Blob[]) : undefined} />
-
-      <DescriptionInput value={description} onChange={actions.setDescription} disabled={loading || logging || compressing} />
-
-      {/* First-time user guidance */}
-      {photos.length === 0 && !description.trim() && !analysis && (
-        <div
-          data-testid="first-time-guidance"
-          className="p-4 rounded-lg bg-muted/50 text-muted-foreground"
-        >
-          <p className="text-sm font-medium mb-2">How it works:</p>
-          <ol className="text-sm space-y-1 list-decimal list-inside">
-            <li>Take a photo or describe your food</li>
-            <li>Add details (optional)</li>
-            <li>Log to Fitbit</li>
-          </ol>
+      {hasContent && (
+        <div className="flex">
+          <button
+            onClick={() => setShowStartOverConfirm(true)}
+            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 min-h-[44px] ml-auto"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Start over
+          </button>
         </div>
       )}
 
-      <Button
-        onClick={handleAnalyze}
-        disabled={!canAnalyze}
-        className="w-full min-h-[44px] shadow-sm"
-      >
-        {compressing ? "Preparing images..." : loading ? "Analyzing..." : "Analyze Food"}
-      </Button>
+      <AlertDialog open={showStartOverConfirm} onOpenChange={setShowStartOverConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start over?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear all photos, description, and analysis results.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleStartOver} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Start over
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} restoredBlobs={wasRestored && convertedPhotoBlobs.length > 0 ? (convertedPhotoBlobs as Blob[]) : undefined} />
+
+      <DescriptionInput value={description} onChange={actions.setDescription} disabled={loading || logging || compressing} />
 
       {/* Analysis result section */}
       <div
@@ -692,25 +718,21 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         />
       </div>
 
-      {/* Food matches section */}
-      {analysis && !loading && matches.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-sm font-medium">Similar foods you&apos;ve logged before</p>
-          {matches.slice(0, 3).map((match) => (
-            <FoodMatchCard
-              key={match.customFoodId}
-              match={match}
-              onSelect={handleUseExisting}
-              disabled={logging}
-            />
-          ))}
-        </div>
-      )}
-
       {/* Post-analysis controls */}
       {analysis && !loading && (
         <div className="space-y-4">
-          {/* CTA button for chat */}
+          {/* Meal type and time selectors */}
+          <div className="space-y-3">
+            <MealTypeSelector
+              value={mealTypeId}
+              onChange={actions.setMealTypeId}
+              disabled={logging}
+              ariaLabel="Meal Type"
+            />
+            <TimeSelector value={selectedTime} onChange={actions.setSelectedTime} />
+          </div>
+
+          {/* Refine with chat */}
           <Button
             variant="outline"
             onClick={() => setChatOpen(true)}
@@ -720,22 +742,20 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             Refine with chat
           </Button>
 
-          {/* Meal type selector */}
-          <div className="space-y-2">
-            <Label htmlFor="meal-type-analyzer">Meal Type</Label>
-            <MealTypeSelector
-              value={mealTypeId}
-              onChange={actions.setMealTypeId}
-              disabled={logging}
-              id="meal-type-analyzer"
-            />
-          </div>
-
-          {/* Time selector */}
-          <div className="space-y-2">
-            <Label>Meal Time</Label>
-            <TimeSelector value={selectedTime} onChange={actions.setSelectedTime} />
-          </div>
+          {/* Food matches section */}
+          {matches.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium">Similar foods you&apos;ve logged before</p>
+              {matches.slice(0, 3).map((match) => (
+                <FoodMatchCard
+                  key={match.customFoodId}
+                  match={match}
+                  onSelect={handleUseExisting}
+                  disabled={logging}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Log error display */}
           {logError && (
@@ -755,17 +775,35 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
               )}
             </div>
           )}
-
-          {/* Log to Fitbit button */}
-          <Button
-            onClick={handleLogToFitbit}
-            disabled={logging}
-            className="w-full min-h-[44px]"
-          >
-            {logging ? "Logging..." : matches.length > 0 ? "Log as new" : "Log to Fitbit"}
-          </Button>
         </div>
       )}
     </div>
+
+    {/* Sticky bottom CTA bar */}
+    <div
+      data-testid="sticky-cta-bar"
+      className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 z-40 px-4"
+    >
+      <div className="mx-auto w-full max-w-md py-3 bg-background/80 backdrop-blur-sm border-t">
+        <Button
+          onClick={analysis ? handleLogToFitbit : handleAnalyze}
+          disabled={analysis ? logging : !canAnalyze}
+          className="w-full min-h-[44px]"
+        >
+          {compressing
+            ? "Preparing images..."
+            : loading
+              ? "Analyzing..."
+              : logging
+                ? "Logging..."
+                : analysis
+                  ? matches.length > 0
+                    ? "Log as new"
+                    : "Log to Fitbit"
+                  : "Analyze Food"}
+        </Button>
+      </div>
+    </div>
+    </>
   );
 }

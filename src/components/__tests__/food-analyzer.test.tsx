@@ -1159,44 +1159,214 @@ describe("FoodAnalyzer", () => {
 
   });
 
-  describe("first-time user guidance", () => {
-    it("shows tips when no photos, no description, and no analysis", () => {
+  describe("Start over button", () => {
+    it("is NOT shown when no content exists", () => {
       render(<FoodAnalyzer />);
 
-      expect(screen.getByText(/take a photo or describe your food/i)).toBeInTheDocument();
-      expect(screen.getByText(/add details/i)).toBeInTheDocument();
-      expect(screen.getByText(/log to fitbit/i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /start over/i })).not.toBeInTheDocument();
     });
 
-    it("hides tips after photos added", async () => {
+    it("IS shown when photos exist", async () => {
       render(<FoodAnalyzer />);
 
-      // Initially tips are visible
-      expect(screen.getByText(/take a photo or describe your food/i)).toBeInTheDocument();
-
-      // Add a photo
       fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
 
-      // Tips should be hidden
       await waitFor(() => {
-        const guidanceSection = screen.queryByTestId("first-time-guidance");
-        expect(guidanceSection).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /start over/i })).toBeInTheDocument();
       });
     });
 
-    it("hides tips after description typed", async () => {
+    it("IS shown when description is non-empty", async () => {
       render(<FoodAnalyzer />);
 
-      // Initially tips are visible
-      expect(screen.getByTestId("first-time-guidance")).toBeInTheDocument();
+      fireEvent.change(screen.getByTestId("description-input"), {
+        target: { value: "2 eggs" },
+      });
 
-      // Type a description
-      const descInput = screen.getByTestId("description-input");
-      fireEvent.change(descInput, { target: { value: "2 eggs" } });
-
-      // Tips should be hidden
       await waitFor(() => {
-        expect(screen.queryByTestId("first-time-guidance")).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /start over/i })).toBeInTheDocument();
+      });
+    });
+
+    it("IS shown when analysis exists", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ...makeSseAnalyzeResponse([
+          { type: "analysis", analysis: mockAnalysis },
+          { type: "done" },
+        ]),
+      });
+
+      render(<FoodAnalyzer />);
+      fireEvent.change(screen.getByTestId("description-input"), {
+        target: { value: "empanada" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole("button", { name: /start over/i })).toBeInTheDocument();
+    });
+
+    it("clicking shows a confirmation dialog with 'Start over?' title", async () => {
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /start over/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /start over/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Start over?")).toBeInTheDocument();
+        expect(screen.getByText(/clear all photos, description, and analysis/i)).toBeInTheDocument();
+      });
+    });
+
+    it("confirming the dialog resets all state", async () => {
+      render(<FoodAnalyzer />);
+
+      // Add photo and description
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.change(screen.getByTestId("description-input"), {
+        target: { value: "some food" },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /start over/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /start over/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Start over?")).toBeInTheDocument();
+      });
+
+      // Click the destructive "Start over" action button in the dialog
+      const dialogActions = screen.getAllByRole("button", { name: /start over/i });
+      const confirmButton = dialogActions[dialogActions.length - 1];
+      fireEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(mockClearSession).toHaveBeenCalled();
+      });
+
+      // Start over button should be gone (no content)
+      await waitFor(() => {
+        expect(screen.queryByRole("button", { name: /start over/i })).not.toBeInTheDocument();
+      });
+    });
+
+    it("canceling the dialog does not clear state", async () => {
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /start over/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /start over/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Start over?")).toBeInTheDocument();
+      });
+
+      // Click Cancel
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+      // State should still be there
+      expect(mockClearSession).not.toHaveBeenCalled();
+      // Start over button should still be visible (photos still present)
+      expect(screen.getByRole("button", { name: /start over/i })).toBeInTheDocument();
+    });
+  });
+
+  describe("sticky CTA bar", () => {
+    it("renders 'Analyze Food' button in sticky bar", () => {
+      render(<FoodAnalyzer />);
+
+      const stickyBar = screen.getByTestId("sticky-cta-bar");
+      expect(stickyBar).toBeInTheDocument();
+      expect(stickyBar).toHaveTextContent(/analyze food/i);
+    });
+
+    it("shows 'Log to Fitbit' when analysis exists", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ...makeSseAnalyzeResponse([
+          { type: "analysis", analysis: mockAnalysis },
+          { type: "done" },
+        ]),
+      });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      const stickyBar = screen.getByTestId("sticky-cta-bar");
+      expect(stickyBar).toHaveTextContent(/log to fitbit/i);
+    });
+
+    it("shows 'Log as new' when analysis exists with matches", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true, data: { matches: mockMatches } }),
+        });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        const stickyBar = screen.getByTestId("sticky-cta-bar");
+        expect(stickyBar).toHaveTextContent(/log as new/i);
+      });
+    });
+
+    it("is not rendered when logResponse exists", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true, data: mockLogResponse }),
+        });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("sticky-cta-bar")).not.toBeInTheDocument();
       });
     });
   });
@@ -1625,7 +1795,7 @@ describe("FoodAnalyzer", () => {
       expect(analyzeButton).toBeDisabled();
     });
 
-    it("Analyze Food button has shadow-sm class when enabled", async () => {
+    it("Analyze Food button is enabled when description entered", async () => {
       render(<FoodAnalyzer />);
 
       const descInput = screen.getByTestId("description-input");
@@ -1634,7 +1804,6 @@ describe("FoodAnalyzer", () => {
       await waitFor(() => {
         const analyzeButton = screen.getByRole("button", { name: /analyze food/i });
         expect(analyzeButton).not.toBeDisabled();
-        expect(analyzeButton).toHaveClass("shadow-sm");
       });
     });
 
@@ -1810,8 +1979,8 @@ describe("FoodAnalyzer", () => {
     });
   });
 
-  describe("meal type label association", () => {
-    it("meal type label is associated with selector via htmlFor", async () => {
+  describe("meal type selector accessibility", () => {
+    it("meal type selector renders after analysis", async () => {
       mockFetch.mockResolvedValueOnce({
         ...makeSseAnalyzeResponse([
         { type: "analysis", analysis: mockAnalysis },
@@ -1828,31 +1997,7 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
 
       await waitFor(() => {
-        const label = screen.getByText("Meal Type");
-        expect(label.tagName).toBe("LABEL");
-        expect(label).toHaveAttribute("for", "meal-type-analyzer");
-      });
-    });
-
-    it("meal type selector has matching id", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ...makeSseAnalyzeResponse([
-        { type: "analysis", analysis: mockAnalysis },
-        { type: "done" },
-      ]),
-      });
-
-      render(<FoodAnalyzer />);
-
-      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
-      await waitFor(() => {
-        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
-      });
-      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
-
-      await waitFor(() => {
-        const select = screen.getByTestId("meal-type-selector").querySelector("select");
-        expect(select).toHaveAttribute("id", "meal-type-analyzer");
+        expect(screen.getByTestId("meal-type-selector")).toBeInTheDocument();
       });
     });
   });
