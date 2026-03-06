@@ -101,3 +101,32 @@
 **Scope:** 2 tasks, 4 files, 2+ tests
 **Key Decisions:** Explicit save in `setPhotos` rather than adding photos to debounce dependency array (avoids redundant re-saves on every photo state change). Separate `restoredBlobs` prop rather than modifying PhotoCapture's internal state management (cleaner separation of concerns).
 **Risks:** None significant — changes are additive and existing test coverage is good.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-06
+**Method:** Single-agent (effort score 4, workers not justified)
+
+### Tasks Completed This Iteration
+- Task 1: Save session state after photo selection (FOO-823) - Added immediate `saveSessionState` call in `setPhotos` so photo-only sessions are restorable
+- Task 2: Display restored photos in PhotoCapture (FOO-822) - Added `restoredBlobs` prop to PhotoCapture, state initializer for preview URLs, passed from FoodAnalyzer on restore
+
+### Files Modified
+- `src/hooks/use-analysis-session.ts` - Added immediate session state save in `setPhotos` callback
+- `src/hooks/__tests__/use-analysis-session.test.ts` - Added test for photo-only session save, updated debounce test for immediate save
+- `src/components/photo-capture.tsx` - Added `restoredBlobs` prop, restored preview state with initializer, clear handler with URL revocation, unmount cleanup for restored URLs
+- `src/components/food-analyzer.tsx` - Pass `restoredBlobs` to PhotoCapture when session was restored
+- `src/components/__tests__/food-analyzer.test.tsx` - Updated PhotoCapture mock for `restoredBlobs`, added 2 tests for restored blob passing
+
+### Linear Updates
+- FOO-823: Todo → In Progress → Review
+- FOO-822: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 bug (memory leak in restored preview URL cleanup), fixed before proceeding
+- verifier: All 2572 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

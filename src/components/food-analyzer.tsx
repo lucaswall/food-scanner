@@ -661,7 +661,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         </div>
       )}
 
-      <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} />
+      <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} restoredBlobs={wasRestored && convertedPhotoBlobs.length > 0 ? (convertedPhotoBlobs as Blob[]) : undefined} />
 
       <DescriptionInput value={description} onChange={actions.setDescription} disabled={loading || logging || compressing} />
 

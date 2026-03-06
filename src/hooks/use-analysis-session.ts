@@ -219,9 +219,23 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
         const id = ensureSessionId();
         const toStore = blobs.length > 0 ? blobs : photos;
         saveSessionPhotos(id, toStore);
+        // Also save session state immediately so photo-only sessions are restorable
+        // (the debounced effect won't fire if no other fields change)
+        saveSessionState(id, {
+          description: state.description,
+          analysis: state.analysis,
+          analysisNarrative: state.analysisNarrative,
+          mealTypeId: state.mealTypeId,
+          selectedTime: state.selectedTime,
+          matches: state.matches.map((m) => ({
+            ...m,
+            lastLoggedAt: m.lastLoggedAt instanceof Date ? m.lastLoggedAt.toISOString() : m.lastLoggedAt,
+          })),
+          createdAt: createdAtRef.current || new Date().toISOString(),
+        });
       }
     },
-    [ensureSessionId]
+    [ensureSessionId, state.description, state.analysis, state.analysisNarrative, state.mealTypeId, state.selectedTime, state.matches]
   );
 
   const setCompressedImages = useCallback((compressedImages: Blob[] | null) => {

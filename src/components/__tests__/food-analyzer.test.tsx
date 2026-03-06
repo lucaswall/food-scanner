@@ -117,11 +117,13 @@ vi.mock("../photo-capture", () => ({
   PhotoCapture: ({
     onPhotosChange,
     autoCapture,
+    restoredBlobs,
   }: {
     onPhotosChange: (files: File[]) => void;
     autoCapture?: boolean;
+    restoredBlobs?: Blob[];
   }) => (
-    <div data-testid="photo-capture" data-auto-capture={String(!!autoCapture)}>
+    <div data-testid="photo-capture" data-auto-capture={String(!!autoCapture)} data-restored-count={restoredBlobs?.length ?? 0}>
       <button
         onClick={() =>
           onPhotosChange([new File(["test"], "test.jpg", { type: "image/jpeg" })])
@@ -140,6 +142,9 @@ vi.mock("../photo-capture", () => ({
         Add Two Photos
       </button>
       <button onClick={() => onPhotosChange([])}>Clear Photos</button>
+      {restoredBlobs && restoredBlobs.length > 0 && (
+        <span data-testid="restored-photos-indicator">{restoredBlobs.length} restored</span>
+      )}
     </div>
   ),
 }));
@@ -3988,6 +3993,41 @@ describe("FoodAnalyzer", () => {
       render(<FoodAnalyzer />);
 
       expect(screen.getByTestId("start-fresh-link")).toBeInTheDocument();
+    });
+
+    it("passes restoredBlobs to PhotoCapture when session was restored with convertedPhotoBlobs", () => {
+      const staticActions = {
+        setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
+        setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
+        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearSession: vi.fn(),
+        getActiveSessionId: vi.fn().mockReturnValue(null),
+      };
+      mockUseAnalysisSession.mockReturnValue({
+        state: {
+          photos: [],
+          convertedPhotoBlobs: [new Blob(["photo1"]), new Blob(["photo2"])],
+          compressedImages: null, description: "",
+          analysis: null, analysisNarrative: null, mealTypeId: 3,
+          selectedTime: null, matches: [],
+        },
+        actions: staticActions,
+        isRestoring: false,
+        wasRestored: true,
+      });
+
+      render(<FoodAnalyzer />);
+
+      const photoCapture = screen.getByTestId("photo-capture");
+      expect(photoCapture).toHaveAttribute("data-restored-count", "2");
+      expect(screen.getByTestId("restored-photos-indicator")).toHaveTextContent("2 restored");
+    });
+
+    it("does NOT pass restoredBlobs when session was not restored", () => {
+      render(<FoodAnalyzer />);
+
+      const photoCapture = screen.getByTestId("photo-capture");
+      expect(photoCapture).toHaveAttribute("data-restored-count", "0");
+      expect(screen.queryByTestId("restored-photos-indicator")).not.toBeInTheDocument();
     });
 
     it("does NOT show Start fresh link when state is not restored", () => {
