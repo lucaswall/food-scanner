@@ -732,20 +732,32 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             <TimeSelector value={selectedTime} onChange={actions.setSelectedTime} />
           </div>
 
-          {/* Refine with chat */}
-          <Button
-            variant="outline"
-            onClick={() => setChatOpen(true)}
-            className="w-full min-h-[44px] justify-start gap-2"
-          >
-            <MessageSquare className="h-4 w-4" />
-            Refine with chat
-          </Button>
+          {/* Action buttons */}
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setChatOpen(true)}
+              className="flex-1 min-h-[44px] justify-center gap-2"
+            >
+              <MessageSquare className="h-4 w-4" />
+              Refine with chat
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleAnalyze}
+              disabled={!canAnalyze}
+              className="flex-1 min-h-[44px] justify-center gap-2"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Re-analyze
+            </Button>
+          </div>
 
           {/* Food matches section */}
           {matches.length > 0 && (
             <div className="space-y-3">
               <p className="text-sm font-medium">Similar foods you&apos;ve logged before</p>
+              <p className="text-sm text-muted-foreground -mt-1">Tap a match to reuse it, or log as a new food with the button below.</p>
               {matches.slice(0, 3).map((match) => (
                 <FoodMatchCard
                   key={match.customFoodId}
@@ -799,10 +811,23 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
                 ? "Logging..."
                 : analysis
                   ? matches.length > 0
-                    ? "Log as new"
+                    ? "Log as new food"
                     : "Log to Fitbit"
                   : "Analyze Food"}
         </Button>
+        {(loading || compressing) && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+              }
+            }}
+            className="w-full min-h-[44px] mt-1"
+          >
+            Cancel
+          </Button>
+        )}
       </div>
     </div>
     )}
