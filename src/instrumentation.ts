@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/nextjs";
+import { shouldDropOverloadedSdkError } from "@/lib/sentry-filters";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
@@ -19,6 +20,12 @@ export async function register() {
           error: { levels: ["error", "fatal"] },
         }),
       ],
+      beforeSend(event) {
+        if (shouldDropOverloadedSdkError(event)) {
+          return null;
+        }
+        return event;
+      },
     });
   }
 
