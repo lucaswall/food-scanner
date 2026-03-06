@@ -1255,6 +1255,85 @@ describe("PhotoCapture", () => {
         expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
       });
     });
+
+    it("shows confirmation dialog when clearing 2+ restored photos", async () => {
+      const user = userEvent.setup();
+      const onPhotosChange = vi.fn();
+      const blobs = [
+        new Blob(["img1"], { type: "image/jpeg" }),
+        new Blob(["img2"], { type: "image/jpeg" }),
+        new Blob(["img3"], { type: "image/jpeg" }),
+      ];
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={blobs} />);
+
+      // Should show Clear All button for 3 restored photos
+      const clearButton = screen.getByRole("button", { name: /clear all/i });
+      await user.click(clearButton);
+
+      // Should show confirmation dialog
+      await waitFor(() => {
+        expect(screen.getByText(/clear all photos/i)).toBeInTheDocument();
+      });
+
+      // Confirm the clear action
+      const confirmButton = screen.getByRole("button", { name: /confirm/i });
+      await user.click(confirmButton);
+
+      // Should call onPhotosChange with empty arrays
+      expect(onPhotosChange).toHaveBeenCalledWith([], []);
+    });
+
+    it("clears single restored photo without confirmation dialog", () => {
+      const onPhotosChange = vi.fn();
+      const blobs = [new Blob(["img1"], { type: "image/jpeg" })];
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={blobs} />);
+
+      // With only 1 restored photo, Clear All should not be shown (need 2+)
+      expect(screen.queryByRole("button", { name: /clear all/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("remove button touch targets", () => {
+    it("remove buttons on restored photos have 44px touch targets", () => {
+      const onPhotosChange = vi.fn();
+      const blobs = [
+        new Blob(["img1"], { type: "image/jpeg" }),
+        new Blob(["img2"], { type: "image/jpeg" }),
+      ];
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={blobs} />);
+
+      const removeButtons = screen.getAllByRole("button", { name: /remove photo/i });
+      for (const btn of removeButtons) {
+        expect(btn).toHaveClass("min-h-[44px]");
+        expect(btn).toHaveClass("min-w-[44px]");
+      }
+    });
+
+    it("remove buttons on fresh photos have 44px touch targets", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: {
+          files: [
+            createMockFile("photo1.jpg", "image/jpeg", 1000),
+            createMockFile("photo2.jpg", "image/jpeg", 1000),
+          ],
+        },
+      });
+
+      await waitFor(() => {
+        const removeButtons = screen.getAllByRole("button", { name: /remove photo/i });
+        for (const btn of removeButtons) {
+          expect(btn).toHaveClass("min-h-[44px]");
+          expect(btn).toHaveClass("min-w-[44px]");
+        }
+      });
+    });
   });
 
   describe("add-more tile", () => {
