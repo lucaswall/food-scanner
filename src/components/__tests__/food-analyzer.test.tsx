@@ -3915,8 +3915,8 @@ describe("FoodAnalyzer", () => {
     });
   });
 
-  // FOO-817: Clear triggers and Start Fresh UI
-  describe("session clear and Start Fresh", () => {
+  // FOO-817: Clear triggers
+  describe("session clear", () => {
     it("clears session after successful food log", async () => {
       mockFetch
         .mockResolvedValueOnce(
@@ -3947,52 +3947,16 @@ describe("FoodAnalyzer", () => {
       });
     });
 
-    it("shows Start fresh link when session was restored with photos/analysis", () => {
-      const staticActions = {
-        setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
-        setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
-        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearSession: vi.fn(),
-        getActiveSessionId: vi.fn().mockReturnValue(null),
-      };
-      mockUseAnalysisSession.mockReturnValue({
-        state: {
-          photos: [new File(["test"], "test.jpg", { type: "image/jpeg" })],
-          convertedPhotoBlobs: [], compressedImages: null, description: "",
-          analysis: mockAnalysis, analysisNarrative: null, mealTypeId: 3,
-          selectedTime: null, matches: [],
-        },
-        actions: staticActions,
-        isRestoring: false,
-        wasRestored: true,
-      });
-
+    it("Clear All triggers clearSession when photos are cleared", () => {
       render(<FoodAnalyzer />);
 
-      expect(screen.getByTestId("start-fresh-link")).toBeInTheDocument();
-    });
+      // Add a photo first
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
 
-    it("shows Start fresh link when session was restored with convertedPhotoBlobs only", () => {
-      const staticActions = {
-        setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
-        setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
-        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearSession: vi.fn(),
-        getActiveSessionId: vi.fn().mockReturnValue(null),
-      };
-      mockUseAnalysisSession.mockReturnValue({
-        state: {
-          photos: [],
-          convertedPhotoBlobs: [new Blob(["photo1"])], compressedImages: null, description: "",
-          analysis: null, analysisNarrative: null, mealTypeId: 3,
-          selectedTime: null, matches: [],
-        },
-        actions: staticActions,
-        isRestoring: false,
-        wasRestored: true,
-      });
+      // Clear all photos (triggers onPhotosChange with empty array)
+      fireEvent.click(screen.getByRole("button", { name: /clear photos/i }));
 
-      render(<FoodAnalyzer />);
-
-      expect(screen.getByTestId("start-fresh-link")).toBeInTheDocument();
+      expect(mockClearSession).toHaveBeenCalled();
     });
 
     it("passes restoredBlobs to PhotoCapture when session was restored with convertedPhotoBlobs", () => {
@@ -4030,42 +3994,6 @@ describe("FoodAnalyzer", () => {
       expect(screen.queryByTestId("restored-photos-indicator")).not.toBeInTheDocument();
     });
 
-    it("does NOT show Start fresh link when state is not restored", () => {
-      render(<FoodAnalyzer />);
-
-      // Add photo (not restored)
-      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
-
-      expect(screen.queryByTestId("start-fresh-link")).not.toBeInTheDocument();
-    });
-
-    it("clicking Start fresh clears session and resets state", async () => {
-      const staticClearSession = vi.fn();
-      const staticActions = {
-        setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
-        setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
-        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearSession: staticClearSession,
-        getActiveSessionId: vi.fn().mockReturnValue(null),
-      };
-      mockUseAnalysisSession.mockReturnValue({
-        state: {
-          photos: [new File(["test"], "test.jpg", { type: "image/jpeg" })],
-          convertedPhotoBlobs: [], compressedImages: null, description: "",
-          analysis: mockAnalysis, analysisNarrative: null, mealTypeId: 3,
-          selectedTime: null, matches: [],
-        },
-        actions: staticActions,
-        isRestoring: false,
-        wasRestored: true,
-      });
-
-      render(<FoodAnalyzer />);
-
-      const startFreshLink = screen.getByTestId("start-fresh-link");
-      fireEvent.click(startFreshLink);
-
-      expect(staticClearSession).toHaveBeenCalled();
-    });
   });
 
   // FOO-743: Client-side Sentry error reporting
