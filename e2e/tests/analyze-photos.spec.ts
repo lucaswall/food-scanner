@@ -22,8 +22,8 @@ test.describe('Analyze Page - Photo Capture Flow', () => {
     // Verify thumbnail is shown (image preview button)
     await expect(page.getByRole('button', { name: 'View full-size preview 1' })).toBeVisible();
 
-    // Verify Clear All button appears
-    await expect(page.getByRole('button', { name: 'Clear All' })).toBeVisible();
+    // Verify Analyze Food button appears in sticky CTA bar (only renders when content exists)
+    await expect(page.getByRole('button', { name: 'Analyze Food' })).toBeVisible();
 
     // Screenshot: thumbnails visible
     await captureScreenshots(page, 'analyze-photos-thumbnail');
@@ -55,9 +55,8 @@ test.describe('Analyze Page - Photo Capture Flow', () => {
     await page.goto('/app/analyze');
     await page.waitForLoadState('networkidle');
 
-    // Analyze button should be present but may be disabled initially with no input
+    // Sticky CTA bar with Analyze Food button only renders when content exists
     const analyzeButton = page.getByRole('button', { name: 'Analyze Food' });
-    await expect(analyzeButton).toBeVisible();
 
     // Select a photo
     const galleryInput = page.locator('[data-testid="gallery-input"]');
@@ -66,7 +65,8 @@ test.describe('Analyze Page - Photo Capture Flow', () => {
     // Wait for photo to register
     await expect(page.getByText('1/9 photos selected')).toBeVisible({ timeout: 5000 });
 
-    // Analyze button should now be enabled
+    // Analyze button should now be visible and enabled
+    await expect(analyzeButton).toBeVisible();
     await expect(analyzeButton).toBeEnabled();
   });
 
@@ -118,20 +118,26 @@ test.describe('Analyze Page - Photo Capture Flow', () => {
     await page.goto('/app/analyze');
     await page.waitForLoadState('networkidle');
 
-    // Select a photo
+    // Select two photos (Clear All button only appears when >= 2 photos)
     const galleryInput = page.locator('[data-testid="gallery-input"]');
-    await galleryInput.setInputFiles(path.join(__dirname, '..', 'fixtures', 'test-image.jpg'));
-
-    // Wait for photo to appear
+    const testImage = path.join(__dirname, '..', 'fixtures', 'test-image.jpg');
+    await galleryInput.setInputFiles(testImage);
     await expect(page.getByText('1/9 photos selected')).toBeVisible({ timeout: 5000 });
+
+    // Add second photo
+    await galleryInput.setInputFiles(testImage);
+    await expect(page.getByText('2/9 photos selected')).toBeVisible({ timeout: 5000 });
 
     // Click Clear All
     await page.getByRole('button', { name: 'Clear All' }).click();
 
+    // Confirm the clear action in the alert dialog
+    await page.getByRole('button', { name: 'Confirm' }).click();
+
     // Verify photos are cleared: counter goes back to 0/9
     await expect(page.getByText('0/9 photos selected')).toBeVisible({ timeout: 3000 });
 
-    // Verify thumbnail is gone
+    // Verify thumbnails are gone
     await expect(page.getByRole('button', { name: 'View full-size preview 1' })).not.toBeVisible();
   });
 });

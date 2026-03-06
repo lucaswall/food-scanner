@@ -14,7 +14,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { PhotoPreviewDialog } from "@/components/photo-preview-dialog";
 import Image from "next/image";
-import { Camera, ImageIcon } from "lucide-react";
+import { Camera, ImageIcon, Plus, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { isHeicFile, convertHeicToJpeg } from "@/lib/image";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -50,6 +56,7 @@ export function PhotoCapture({
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
   const [selectedPreviewIndex, setSelectedPreviewIndex] = useState<number | null>(null);
   const [processingCount, setProcessingCount] = useState(0);
+  const [convertedBlobsState, setConvertedBlobsState] = useState<(File | Blob)[]>([]);
   const [restoredPreviews, setRestoredPreviews] = useState<string[]>(() => {
     if (restoredBlobs && restoredBlobs.length > 0) {
       return createRestoredPreviews(restoredBlobs);
@@ -58,6 +65,7 @@ export function PhotoCapture({
   });
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const restoredBlobsRef = useRef<Blob[]>(restoredBlobs ?? []);
 
   // Revoke blob URLs on unmount to prevent memory leaks
   const previewsRef = useRef(previews);
@@ -208,6 +216,7 @@ export function PhotoCapture({
     setProcessingCount(0);
     setPhotos(validPhotos);
     setPreviews(newPreviews);
+    setConvertedBlobsState(previewBlobs);
     onPhotosChange(validPhotos, previewBlobs);
 
     // Reset inputs to allow selecting the same file again
@@ -256,6 +265,39 @@ export function PhotoCapture({
     onPhotosChange([], []);
   };
 
+  const handleRemovePhoto = (index: number) => {
+    URL.revokeObjectURL(previews[index]);
+    const newPhotos = photos.filter((_, i) => i !== index);
+    const newPreviews = previews.filter((_, i) => i !== index);
+    const newBlobs = convertedBlobsState.filter((_, i) => i !== index);
+
+    if (newPhotos.length === 0) {
+      setPhotos([]);
+      setPreviews([]);
+      setConvertedBlobsState([]);
+      setError(null);
+      setPreviewDialogOpen(false);
+      setSelectedPreviewIndex(null);
+      onPhotosChange([], []);
+    } else {
+      setPhotos(newPhotos);
+      setPreviews(newPreviews);
+      setConvertedBlobsState(newBlobs);
+      onPhotosChange(newPhotos, newBlobs);
+    }
+  };
+
+  const handleRemoveRestoredPhoto = (index: number) => {
+    URL.revokeObjectURL(restoredPreviews[index]);
+    const newRestoredPreviews = restoredPreviews.filter((_, i) => i !== index);
+    const newRestoredBlobs = restoredBlobsRef.current.filter((_, i) => i !== index);
+    restoredBlobsRef.current = newRestoredBlobs;
+    setRestoredPreviews(newRestoredPreviews);
+
+    // Always notify parent with remaining blobs (or empty arrays if all removed)
+    onPhotosChange([], newRestoredBlobs.length > 0 ? newRestoredBlobs : []);
+  };
+
   const handleTakePhoto = () => {
     cameraInputRef.current?.click();
   };
@@ -268,6 +310,10 @@ export function PhotoCapture({
     setSelectedPreviewIndex(index);
     setPreviewDialogOpen(true);
   };
+
+  const totalPhotoCount = photos.length > 0 ? photos.length : restoredPreviews.length;
+  const hasPhotos = totalPhotoCount > 0;
+  const canAddMore = totalPhotoCount < maxPhotos && processingCount === 0;
 
   return (
     <div className="space-y-4">
@@ -292,27 +338,29 @@ export function PhotoCapture({
         className="hidden"
       />
 
-      {/* Action buttons */}
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleTakePhoto}
-          className="flex-1"
-        >
-          <Camera className="mr-2 h-4 w-4" />
-          Take Photo
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleChooseFromGallery}
-          className="flex-1"
-        >
-          <ImageIcon className="mr-2 h-4 w-4" />
-          Choose from Gallery
-        </Button>
-      </div>
+      {/* Action buttons — only shown when no photos exist (empty state) */}
+      {!hasPhotos && (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleTakePhoto}
+            className="flex-1"
+          >
+            <Camera className="mr-2 h-4 w-4" />
+            Take Photo
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleChooseFromGallery}
+            className="flex-1"
+          >
+            <ImageIcon className="mr-2 h-4 w-4" />
+            Choose from Gallery
+          </Button>
+        </div>
+      )}
 
       <p className="text-xs text-muted-foreground">
         {photos.length > 0 ? photos.length : restoredPreviews.length}/{maxPhotos} photos selected
@@ -346,11 +394,13 @@ export function PhotoCapture({
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-2">
             {restoredPreviews.map((preview, index) => (
-              <button
+              <div
                 key={`restored-${index}`}
-                type="button"
+                role="button"
+                tabIndex={0}
                 className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
                 onClick={() => handlePreviewClick(index)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePreviewClick(index); } }}
                 aria-label={`View full-size preview ${index + 1}`}
               >
                 <Image
@@ -360,18 +410,54 @@ export function PhotoCapture({
                   unoptimized
                   className="object-cover rounded-md"
                 />
-              </button>
+                <button
+                  type="button"
+                  className="absolute top-1 right-1 z-10 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveRestoredPhoto(index);
+                  }}
+                  aria-label={`Remove photo ${index + 1}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ))}
+            {canAddMore && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="add-photo-tile"
+                    className="aspect-square rounded-md border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer"
+                  >
+                    <Plus className="h-6 w-6 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={handleTakePhoto}>
+                    <Camera className="mr-2 h-4 w-4" />
+                    Take photo
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleChooseFromGallery}>
+                    <ImageIcon className="mr-2 h-4 w-4" />
+                    Choose from gallery
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
 
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleClearRestoredPhotos}
-            className="w-full"
-          >
-            Clear All
-          </Button>
+          {restoredPreviews.length >= 2 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleClearRestoredPhotos}
+              className="w-full"
+            >
+              Clear All
+            </Button>
+          )}
         </div>
       )}
 
@@ -379,11 +465,13 @@ export function PhotoCapture({
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-2">
             {previews.map((preview, index) => (
-              <button
+              <div
                 key={`preview-${index}`}
-                type="button"
+                role="button"
+                tabIndex={0}
                 className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
                 onClick={() => handlePreviewClick(index)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePreviewClick(index); } }}
                 aria-label={`View full-size preview ${index + 1}`}
               >
                 <Image
@@ -393,18 +481,56 @@ export function PhotoCapture({
                   unoptimized
                   className="object-cover rounded-md"
                 />
-              </button>
+                {processingCount === 0 && (
+                  <button
+                    type="button"
+                    className="absolute top-1 right-1 z-10 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemovePhoto(index);
+                    }}
+                    aria-label={`Remove photo ${index + 1}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             ))}
+            {canAddMore && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    data-testid="add-photo-tile"
+                    className="aspect-square rounded-md border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer"
+                  >
+                    <Plus className="h-6 w-6 text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={handleTakePhoto}>
+                    <Camera className="mr-2 h-4 w-4" />
+                    Take photo
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleChooseFromGallery}>
+                    <ImageIcon className="mr-2 h-4 w-4" />
+                    Choose from gallery
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
 
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleClearClick}
-            className="w-full"
-          >
-            Clear All
-          </Button>
+          {photos.length >= 2 && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleClearClick}
+              className="w-full"
+            >
+              Clear All
+            </Button>
+          )}
         </div>
       )}
 

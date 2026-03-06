@@ -188,7 +188,12 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
 
   const setDescription = useCallback((description: string) => {
     setState((prev) => ({ ...prev, description }));
-  }, []);
+    // Ensure a session exists when description becomes non-empty
+    // The debounced save effect handles persisting the state
+    if (description.trim().length > 0) {
+      ensureSessionId();
+    }
+  }, [ensureSessionId]);
 
   const setAnalysis = useCallback((analysis: FoodAnalysis | null) => {
     setState((prev) => ({ ...prev, analysis }));

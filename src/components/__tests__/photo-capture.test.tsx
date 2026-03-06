@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { PhotoCapture } from "../photo-capture";
 
 // Mock next/image to render a plain <img> in tests
@@ -487,7 +488,7 @@ describe("PhotoCapture", () => {
       expect(onPhotosChange).toHaveBeenLastCalledWith([], []);
     });
 
-    it("clears immediately with 1 photo (no confirmation)", async () => {
+    it("with 1 photo, no Clear All button is shown (use individual X instead)", async () => {
       const onPhotosChange = vi.fn();
       render(<PhotoCapture onPhotosChange={onPhotosChange} />);
 
@@ -501,15 +502,10 @@ describe("PhotoCapture", () => {
         expect(screen.getAllByRole("img")).toHaveLength(1);
       });
 
-      // Click clear button - with 1 photo, clears immediately
-      const clearButton = screen.getByRole("button", { name: /clear/i });
-      fireEvent.click(clearButton);
-
-      // Should clear immediately without confirmation
-      await waitFor(() => {
-        expect(screen.queryAllByRole("img")).toHaveLength(0);
-      });
-      expect(onPhotosChange).toHaveBeenLastCalledWith([], []);
+      // Clear All button should not be shown for 1 photo
+      expect(screen.queryByRole("button", { name: /clear all/i })).not.toBeInTheDocument();
+      // But remove button should exist
+      expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
     });
 
     it("shows confirmation dialog with 2+ photos", async () => {
@@ -1074,6 +1070,364 @@ describe("PhotoCapture", () => {
       expect(mockRevokeObjectURL).toHaveBeenCalledTimes(2);
       expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:photo1.jpg");
       expect(mockRevokeObjectURL).toHaveBeenCalledWith("blob:photo2.jpg");
+    });
+  });
+
+  describe("individual photo removal", () => {
+    it("each photo preview has a remove button with accessible label", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: {
+          files: [
+            createMockFile("photo1.jpg", "image/jpeg", 1000),
+            createMockFile("photo2.jpg", "image/jpeg", 1000),
+          ],
+        },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: "Remove photo 2" })).toBeInTheDocument();
+      });
+    });
+
+    it("clicking remove on a single photo removes only that photo", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: {
+          files: [
+            createMockFile("photo1.jpg", "image/jpeg", 1000),
+            createMockFile("photo2.jpg", "image/jpeg", 1000),
+            createMockFile("photo3.jpg", "image/jpeg", 1000),
+          ],
+        },
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(3);
+      });
+
+      // Remove the second photo
+      const removeBtn = screen.getByRole("button", { name: "Remove photo 2" });
+      fireEvent.click(removeBtn);
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(2);
+      });
+
+      // onPhotosChange called with remaining photos (photo1 and photo3)
+      expect(onPhotosChange).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ name: "photo1.jpg" }),
+          expect.objectContaining({ name: "photo3.jpg" }),
+        ]),
+        expect.any(Array)
+      );
+      // Should NOT contain photo2
+      const lastCall = onPhotosChange.mock.calls.at(-1);
+      expect(lastCall?.[0]).toHaveLength(2);
+    });
+
+    it("clicking remove on the last remaining photo calls onPhotosChange([], [])", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: {
+          files: [createMockFile("photo1.jpg", "image/jpeg", 1000)],
+        },
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
+
+      const removeBtn = screen.getByRole("button", { name: "Remove photo 1" });
+      fireEvent.click(removeBtn);
+
+      await waitFor(() => {
+        expect(screen.queryAllByRole("img")).toHaveLength(0);
+      });
+
+      expect(onPhotosChange).toHaveBeenLastCalledWith([], []);
+    });
+
+    it("remove buttons are not shown during processing", async () => {
+      const onPhotosChange = vi.fn();
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      // First add a regular photo
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
+
+      // Now add a HEIC file (will be processing)
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo2.heic", "image/heic", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
+      });
+
+      // Remove buttons should not be present during processing
+      expect(screen.queryByRole("button", { name: /remove photo/i })).not.toBeInTheDocument();
+
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+    });
+
+    it("restored photo previews also have individual remove buttons", () => {
+      const onPhotosChange = vi.fn();
+      const blobs = [
+        new Blob(["img1"], { type: "image/jpeg" }),
+        new Blob(["img2"], { type: "image/jpeg" }),
+      ];
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={blobs} />);
+
+      expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove photo 2" })).toBeInTheDocument();
+    });
+
+    it("clicking remove on a restored photo removes it and calls onPhotosChange", () => {
+      const onPhotosChange = vi.fn();
+      const blobs = [
+        new Blob(["img1"], { type: "image/jpeg" }),
+        new Blob(["img2"], { type: "image/jpeg" }),
+      ];
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={blobs} />);
+
+      // Remove first restored photo
+      const removeBtn = screen.getByRole("button", { name: "Remove photo 1" });
+      fireEvent.click(removeBtn);
+
+      // Should only have 1 image left
+      expect(screen.getAllByRole("img")).toHaveLength(1);
+    });
+
+    it("remove buttons respect disabled/processing state", async () => {
+      const onPhotosChange = vi.fn();
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo.heic", "image/heic", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
+      });
+
+      // No remove buttons during processing
+      expect(screen.queryByRole("button", { name: /remove photo/i })).not.toBeInTheDocument();
+
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+
+      // After processing, remove button should appear
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("add-more tile", () => {
+    it("shows a + add tile as the last grid item when photos exist and count < max", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
+      });
+    });
+
+    it("does not show + tile when photo count equals max", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={1} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
+
+      expect(screen.queryByTestId("add-photo-tile")).not.toBeInTheDocument();
+    });
+
+    it("clicking + tile opens a dropdown with Take photo and Choose from gallery", async () => {
+      const user = userEvent.setup();
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
+      });
+
+      // Click the + tile trigger using userEvent (Radix needs pointer events)
+      await user.click(screen.getByTestId("add-photo-tile"));
+
+      await waitFor(() => {
+        expect(screen.getByRole("menuitem", { name: /take photo/i })).toBeInTheDocument();
+        expect(screen.getByRole("menuitem", { name: /choose from gallery/i })).toBeInTheDocument();
+      });
+    });
+
+    it("selecting Take photo from dropdown triggers camera input click", async () => {
+      const user = userEvent.setup();
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
+      });
+
+      const cameraInput = screen.getByTestId("camera-input") as HTMLInputElement;
+      const clickSpy = vi.spyOn(cameraInput, "click");
+
+      await user.click(screen.getByTestId("add-photo-tile"));
+
+      await waitFor(() => {
+        expect(screen.getByRole("menuitem", { name: /take photo/i })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("menuitem", { name: /take photo/i }));
+
+      expect(clickSpy).toHaveBeenCalled();
+    });
+
+    it("selecting Choose from gallery from dropdown triggers gallery input click", async () => {
+      const user = userEvent.setup();
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
+
+      const galleryInput = screen.getByTestId("gallery-input") as HTMLInputElement;
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
+      });
+
+      const clickSpy = vi.spyOn(galleryInput, "click");
+
+      await user.click(screen.getByTestId("add-photo-tile"));
+
+      await waitFor(() => {
+        expect(screen.getByRole("menuitem", { name: /choose from gallery/i })).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByRole("menuitem", { name: /choose from gallery/i }));
+
+      expect(clickSpy).toHaveBeenCalled();
+    });
+
+    it("when no photos exist, the full-width camera/gallery buttons are shown", () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
+
+      expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /choose from gallery/i })).toBeInTheDocument();
+      expect(screen.queryByTestId("add-photo-tile")).not.toBeInTheDocument();
+    });
+
+    it("+ tile is not shown during processing", async () => {
+      const onPhotosChange = vi.fn();
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo.heic", "image/heic", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId("add-photo-tile")).not.toBeInTheDocument();
+
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+    });
+
+    it("shows + tile for restored photos when count < max", () => {
+      const onPhotosChange = vi.fn();
+      const blobs = [new Blob(["img1"], { type: "image/jpeg" })];
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={blobs} maxPhotos={3} />);
+
+      expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
+    });
+
+    it("hides full-width buttons when photos exist", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
+
+      // Initially buttons are visible
+      expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
+
+      // Full-width buttons should be hidden (only + tile with dropdown replaces them)
+      expect(screen.queryByRole("button", { name: /take photo/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /choose from gallery/i })).not.toBeInTheDocument();
     });
   });
 
