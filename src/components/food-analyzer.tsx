@@ -88,9 +88,10 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     if (files.length > 0) {
       autoCaptureUsedRef.current = true;
     }
-    // Clear previous analysis when photos change
+    // Clear previous analysis and persisted session when all photos removed
     if (files.length === 0) {
       resetAnalysisState();
+      actions.clearSession();
     }
   };
 
@@ -117,11 +118,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     actions.setCompressedImages(null);
     setChatOpen(false);
     setSeedMessages(null);
-  };
-
-  const handleStartFresh = () => {
-    resetAnalysisState();
-    actions.clearSession();
   };
 
   const handleAnalyze = async () => {
@@ -639,17 +635,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
   return (
     <div className="space-y-6">
-      {/* Start fresh link for restored sessions */}
-      {wasRestored && (photos.length > 0 || convertedPhotoBlobs.length > 0 || analysis) && (
-        <button
-          data-testid="start-fresh-link"
-          className="text-sm text-muted-foreground underline min-h-[44px] flex items-center"
-          onClick={handleStartFresh}
-        >
-          Start fresh
-        </button>
-      )}
-
       {/* Resubmit error (shown when no analysis context) */}
       {logError && !analysis && (
         <div

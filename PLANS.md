@@ -2,91 +2,71 @@
 
 **Status:** COMPLETE
 **Created:** 2026-03-06
-**Source:** Bug report: Photos are not persisted/displayed in analysis session restoration
-**Linear Issues:** [FOO-822](https://linear.app/lw-claude/issue/FOO-822/bug-photocapture-doesnt-display-restored-session-photos), [FOO-823](https://linear.app/lw-claude/issue/FOO-823/bug-session-state-not-saved-when-only-photos-are-selected)
-**Branch:** fix/FOO-822-photo-session-restore
+**Source:** Bug report: Analyze screen has redundant "Start Fresh" and "Clear All" — consolidate into one full-reset "Clear All"
+**Linear Issues:** [FOO-824](https://linear.app/lw-claude/issue/FOO-824/ui-remove-start-fresh-make-clear-all-fully-reset-analyze-screen)
+**Branch:** fix/FOO-824-clear-all-full-reset
 
 ## Context Gathered
 
 ### Codebase Analysis
-
 - **Related files:**
-  - `src/components/photo-capture.tsx` — Manages own internal `photos` (File[]) and `previews` (string[]) state. Accepts `onPhotosChange` callback but no prop for initial/restored photos.
-  - `src/components/food-analyzer.tsx` — Passes `onPhotosChange` to PhotoCapture (line 664) but never passes restored blobs. Uses `convertedPhotoBlobs` for analysis (line 142) and "Start Fresh" visibility (line 643).
-  - `src/hooks/use-analysis-session.ts` — `setPhotos` saves blobs to IndexedDB immediately (lines 218-221). Debounced save effect (lines 147-179) depends on `[description, analysis, analysisNarrative, mealTypeId, selectedTime, matches]` — photos NOT included.
-  - `src/lib/analysis-session.ts` — `saveSessionPhotos()` stores blobs in IndexedDB, `saveSessionState()` stores serializable state in sessionStorage. Both keyed by session ID.
-- **Existing patterns:**
-  - PhotoCapture creates preview URLs via `URL.createObjectURL()` and revokes them on clear/unmount (lines 51-59).
-  - Hook tests mock `@/lib/analysis-session` module and use `renderHook` + `act` (see `src/hooks/__tests__/use-analysis-session.test.ts`).
-  - FoodAnalyzer tests mock `useAnalysisSession` hook with spy wrappers (see `src/components/__tests__/food-analyzer.test.tsx:49-60`).
-- **Test conventions:**
-  - Hook tests: `src/hooks/__tests__/use-analysis-session.test.ts` — `vi.mock`, `renderHook`, `waitFor`, `makeState()` helper.
-  - Component tests: `src/components/__tests__/food-analyzer.test.tsx` — mocks child components, `render`, `screen`, `fireEvent`.
+  - `src/components/food-analyzer.tsx` — Main analyze screen component with "Start Fresh" button and `handlePhotosChange`/`handleStartFresh`/`resetAnalysisState`
+  - `src/components/photo-capture.tsx` — PhotoCapture component with "Clear All" button, `doClear`/`handleClearRestoredPhotos`
+  - `src/hooks/use-analysis-session.ts` — Session hook with `clearSession` action that resets to DEFAULT_STATE and clears IndexedDB/sessionStorage
+  - `src/components/__tests__/food-analyzer.test.tsx` — Tests for both Start Fresh and session clear behaviors
+  - `e2e/tests/analyze-photos.spec.ts` — E2E test for Clear All (line 117)
+- **Existing patterns:** `handlePhotosChange` already calls `resetAnalysisState()` when `files.length === 0`. `handleStartFresh` calls `resetAnalysisState()` + `actions.clearSession()`.
+- **Test conventions:** Colocated `__tests__/` directory, mock `useAnalysisSession` hook, test via rendered component behavior
+
+### MCP Context
+- **MCPs used:** Linear (issue search, creation)
+- **Findings:** FOO-817 (original Start Fresh implementation, Done), FOO-821 (Start Fresh visibility fix, Done). No existing issue for this consolidation.
 
 ### Investigation
 
-**Bug report:** Photos are not persisted in analysis sessions — two related bugs found during investigation.
-
-**Classification:** Frontend Bug / High / Photo persistence in analysis sessions
-
-**Root cause:** Two distinct bugs in the session persistence feature shipped in FOO-814 through FOO-821:
-
-1. **PhotoCapture blind to restored photos:** `PhotoCapture` manages its own internal state and has no prop to receive restored blobs. After session restore, `convertedPhotoBlobs` has data but PhotoCapture shows "0/9 photos selected" with no previews.
-
-2. **Photo-only sessions not saved:** The debounced save effect doesn't include photos in its dependency array. If a user selects photos without changing any other field, the session state is never written to sessionStorage, making photos in IndexedDB unreachable on restore.
-
+**Bug report:** Analyze screen has two confusing clear mechanisms: "Clear All" only clears photos, "Start Fresh" does full reset but only appears for restored sessions. User wants one button that does everything.
+**Classification:** Frontend Bug / Low / Analyze Screen UI
+**Root cause:** "Clear All" in PhotoCapture triggers `onPhotosChange([], [])` which calls `resetAnalysisState()` in FoodAnalyzer — this clears analysis state but does NOT call `clearSession()` (persisted session in IndexedDB/sessionStorage) and does NOT clear the description field. "Start Fresh" (lines 642-651 in food-analyzer.tsx) does the full reset but is conditionally rendered only when `wasRestored === true`.
 **Evidence:**
-- `src/components/photo-capture.tsx:29-33` — Props interface has no `restoredBlobs` or `initialPhotos` prop
-- `src/components/photo-capture.tsx:40-42` — Internal state starts empty, no way to initialize from parent
-- `src/components/food-analyzer.tsx:664` — PhotoCapture receives only `onPhotosChange` and `autoCapture`
-- `src/hooks/use-analysis-session.ts:179` — Dependency array excludes photos/convertedPhotoBlobs
-- `src/hooks/use-analysis-session.ts:213-225` — `setPhotos` saves to IndexedDB but doesn't trigger sessionStorage save
-- `src/hooks/use-analysis-session.ts:122-123` — On restore, `photos: []` and `convertedPhotoBlobs: photoBlobs`
-
-**Impact:** Users who navigate away mid-analysis see no photos when returning. Photos appear lost even though blobs may exist in IndexedDB. The "Start Fresh" link appears with no visible context of what's being restored.
+- `src/components/food-analyzer.tsx:86-95` — `handlePhotosChange` calls `resetAnalysisState()` but not `clearSession()` when files cleared
+- `src/components/food-analyzer.tsx:97-120` — `resetAnalysisState()` clears analysis/errors/streaming but not description or persisted session
+- `src/components/food-analyzer.tsx:122-125` — `handleStartFresh` does `resetAnalysisState()` + `actions.clearSession()`
+- `src/components/food-analyzer.tsx:642-651` — Start Fresh button, only visible when `wasRestored && (photos.length > 0 || convertedPhotoBlobs.length > 0 || analysis)`
+- `src/hooks/use-analysis-session.ts:245-254` — `clearSession` resets to DEFAULT_STATE (description="", photos=[], etc.) and clears IndexedDB/sessionStorage
+**Impact:** Users see stale description text and persisted session data after using Clear All. Restored sessions have two confusing options.
 
 ## Tasks
 
-### Task 1: Save session state after photo selection
-**Linear Issue:** [FOO-823](https://linear.app/lw-claude/issue/FOO-823/bug-session-state-not-saved-when-only-photos-are-selected)
+### Task 1: Remove Start Fresh, make Clear All trigger full reset
+**Linear Issue:** [FOO-824](https://linear.app/lw-claude/issue/FOO-824/ui-remove-start-fresh-make-clear-all-fully-reset-analyze-screen)
 **Files:**
-- `src/hooks/__tests__/use-analysis-session.test.ts` (modify)
-- `src/hooks/use-analysis-session.ts` (modify)
-
-**Steps:**
-1. Write test: after calling `setPhotos` with files (no other state changes), assert `saveSessionState` is called. Use the existing mock setup and `makeState()` helper. The test should call `setPhotos` via `act()`, advance timers past DEBOUNCE_MS, and verify `mockSaveSessionState` was called with a valid session state containing `createdAt`.
-2. Run verifier with pattern `use-analysis-session` (expect fail)
-3. Fix: in `setPhotos` callback, after saving photos to IndexedDB, explicitly call `saveSessionState` with current state values. This ensures the session state entry exists even when no other fields have changed.
-4. Run verifier with pattern `use-analysis-session` (expect pass)
-
-**Notes:**
-- The save should happen synchronously inside `setPhotos` (not via the debounced effect) to guarantee the state is written before the user potentially navigates away.
-- Must use `createdAtRef.current` (set by `ensureSessionId`) for the `createdAt` field.
-- The debounced save effect remains as-is for subsequent field changes — this is an additional save, not a replacement.
-
-### Task 2: Display restored photos in PhotoCapture
-**Linear Issue:** [FOO-822](https://linear.app/lw-claude/issue/FOO-822/bug-photocapture-doesnt-display-restored-session-photos)
-**Files:**
-- `src/components/photo-capture.tsx` (modify)
-- `src/components/food-analyzer.tsx` (modify)
 - `src/components/__tests__/food-analyzer.test.tsx` (modify)
+- `src/components/food-analyzer.tsx` (modify)
 
 **Steps:**
-1. Write test in `food-analyzer.test.tsx`: when `useAnalysisSession` returns `wasRestored: true` with `convertedPhotoBlobs` containing blobs, assert that PhotoCapture receives the blobs as a `restoredBlobs` prop and preview images are rendered. Also test that photo count reflects the restored count.
-2. Run verifier with pattern `food-analyzer` (expect fail)
-3. Modify `PhotoCapture`:
-   - Add optional `restoredBlobs?: Blob[]` prop to `PhotoCaptureProps`
-   - Add a `useEffect` that fires when `restoredBlobs` is provided and internal `photos` is empty: create preview URLs from the blobs via `URL.createObjectURL()`, set `previews` state. Do NOT call `onPhotosChange` (parent already has these blobs).
-   - Update photo count display to show `restoredBlobs.length` when internal `photos` is empty but restored blobs exist.
-   - Ensure "Clear All" revokes restored preview URLs and calls `onPhotosChange([], [])` to signal parent.
-4. Modify `FoodAnalyzer` (line 664): pass `restoredBlobs={wasRestored ? convertedPhotoBlobs : undefined}` to PhotoCapture. Cast to `Blob[]` if needed since `convertedPhotoBlobs` is `(File | Blob)[]`.
-5. Run verifier with pattern `food-analyzer` (expect pass)
+1. Update tests in `food-analyzer.test.tsx`:
+   - Remove test "shows Start fresh link when session was restored with photos/analysis" (line 3950)
+   - Remove test "shows Start fresh link when session was restored with convertedPhotoBlobs only" (line 3974)
+   - Remove test "does NOT show Start fresh link when state is not restored" (line 4033)
+   - Remove test "clicking Start fresh clears session and resets state" (line 4042)
+   - Add new test: "Clear All triggers clearSession and clears description" — mock `useAnalysisSession` with photos and description, simulate photo clear callback (files.length === 0), assert `clearSession` and `setDescription("")` are called
+   - Keep test "clears session after successful food log" (line 3920) — unchanged
+   - Keep test "passes restoredBlobs to PhotoCapture" (line 3998) — unchanged
+   - Keep test "does NOT pass restoredBlobs when session was not restored" (line 4025) — unchanged
+   - Rename the describe block from "session clear and Start Fresh" to "session clear"
+2. Run verifier with pattern "session clear" (expect fail — Start Fresh tests fail to find removed element, new test fails)
+3. In `food-analyzer.tsx`:
+   - Remove `handleStartFresh` function (lines 122-125)
+   - Remove the Start Fresh JSX block (lines 642-651)
+   - In `handlePhotosChange`, when `files.length === 0`: add `actions.clearSession()` after `resetAnalysisState()` — this clears persisted session AND resets all state to defaults (including description)
+   - Since `clearSession` resets state to DEFAULT_STATE (which includes `description: ""`), the explicit `resetAnalysisState()` call becomes redundant when clearing. However, keep `resetAnalysisState()` for its abort/timeout cleanup side effects, then call `clearSession()` after it.
+4. Run verifier with pattern "session clear" (expect pass)
 
 **Notes:**
-- Preview URLs from restored blobs must be revoked on unmount and on clear — follow existing cleanup pattern at `photo-capture.tsx:51-59`.
-- When user adds new photos after restore, the new photos should replace restored state. The existing `handleFileChange` flow handles this because it calls `onPhotosChange` which updates parent state.
-- `URL.createObjectURL` works with both `Blob` and `File` — no conversion needed.
-- When user clears restored photos, need to also clear the `restoredBlobs` by calling `onPhotosChange([], [])` which resets parent's `convertedPhotoBlobs`.
+- `clearSession` is async but fire-and-forget is the existing pattern (see `handleStartFresh` which doesn't await it)
+- PhotoCapture's "Clear All" button and its confirmation dialog remain unchanged — only the FoodAnalyzer callback behavior changes
+- The `handleClearRestoredPhotos` in PhotoCapture also calls `onPhotosChange([], [])` which flows through the same `handlePhotosChange`, so restored photo clear also gets the full reset — this is the desired behavior
+- E2E test at `e2e/tests/analyze-photos.spec.ts:117` should still pass since it only checks photos are cleared
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -94,62 +74,51 @@
 
 ---
 
-## Plan Summary
-
-**Objective:** Fix two bugs where photos are not properly persisted and displayed in analysis session restoration.
-**Linear Issues:** FOO-822, FOO-823
-**Approach:** Task 1 fixes the save gap by explicitly writing session state to sessionStorage inside `setPhotos` so photo-only sessions are restorable. Task 2 fixes the display gap by adding a `restoredBlobs` prop to PhotoCapture so it can generate and render preview thumbnails from blobs passed by FoodAnalyzer on session restore.
-**Scope:** 2 tasks, 4 files, 2+ tests
-**Key Decisions:** Explicit save in `setPhotos` rather than adding photos to debounce dependency array (avoids redundant re-saves on every photo state change). Separate `restoredBlobs` prop rather than modifying PhotoCapture's internal state management (cleaner separation of concerns).
-**Risks:** None significant — changes are additive and existing test coverage is good.
-
----
-
 ## Iteration 1
 
 **Implemented:** 2026-03-06
-**Method:** Single-agent (effort score 4, workers not justified)
+**Method:** Single-agent (1 task, effort score 2)
 
 ### Tasks Completed This Iteration
-- Task 1: Save session state after photo selection (FOO-823) - Added immediate `saveSessionState` call in `setPhotos` so photo-only sessions are restorable
-- Task 2: Display restored photos in PhotoCapture (FOO-822) - Added `restoredBlobs` prop to PhotoCapture, state initializer for preview URLs, passed from FoodAnalyzer on restore
+- Task 1: Remove Start Fresh, make Clear All trigger full reset — Removed `handleStartFresh` and Start Fresh JSX, added `actions.clearSession()` to `handlePhotosChange` when photos cleared, updated tests
 
 ### Files Modified
-- `src/hooks/use-analysis-session.ts` - Added immediate session state save in `setPhotos` callback
-- `src/hooks/__tests__/use-analysis-session.test.ts` - Added test for photo-only session save, updated debounce test for immediate save
-- `src/components/photo-capture.tsx` - Added `restoredBlobs` prop, restored preview state with initializer, clear handler with URL revocation, unmount cleanup for restored URLs
-- `src/components/food-analyzer.tsx` - Pass `restoredBlobs` to PhotoCapture when session was restored
-- `src/components/__tests__/food-analyzer.test.tsx` - Updated PhotoCapture mock for `restoredBlobs`, added 2 tests for restored blob passing
+- `src/components/food-analyzer.tsx` - Removed handleStartFresh function and Start Fresh JSX block, added clearSession() call in handlePhotosChange
+- `src/components/__tests__/food-analyzer.test.tsx` - Removed 4 Start Fresh tests, added "Clear All triggers clearSession" test, renamed describe block
 
 ### Linear Updates
-- FOO-823: Todo → In Progress → Review
-- FOO-822: Todo → In Progress → Review
+- FOO-824: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 1 bug (memory leak in restored preview URL cleanup), fixed before proceeding
-- verifier: All 2572 tests pass, zero warnings, build clean
+- bug-hunter: Passed, no bugs found
+- verifier: All 2569 tests pass, zero warnings, build clean
 
 ### Continuation Status
 All tasks completed.
 
 ### Review Findings
 
-Files reviewed: 5
-Reviewers: security, reliability, quality (agent team)
+Files reviewed: 2
+Reviewer: single-agent (2 files, below threshold)
 Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
 
 No issues found - all implementations are correct and follow project conventions.
 
-**Discarded findings (not bugs):**
-- [DISCARDED] BUG: `handleClearClick` doesn't check restored photos count for confirmation dialog (`src/components/photo-capture.tsx:224`) — False positive: restored photos use separate `handleClearRestoredPhotos` handler (line 370), not `handleClearClick`. The confirmation dialog pattern only applies to user-captured photos.
-- [DISCARDED] TYPE: `convertedPhotoBlobs as Blob[]` cast in food-analyzer.tsx:664 — Not a bug: `File extends Blob`, so the cast is type-safe. PhotoCapture only uses the blobs for `URL.createObjectURL()` which accepts `Blob`.
-- [DISCARDED] CONVENTION: `createRestoredPreviews` defined outside component (`src/components/photo-capture.tsx:36`) — Style-only: defining pure helpers outside components is recommended React practice (avoids re-creation on renders).
-
 ### Linear Updates
-- FOO-822: Review → Merge
-- FOO-823: Review → Merge
+- FOO-824: Review → Merge
 
 <!-- REVIEW COMPLETE -->
+
+---
+
+## Plan Summary
+
+**Objective:** Remove redundant "Start Fresh" button and make "Clear All" perform a full state reset including persisted session and description
+**Linear Issues:** FOO-824
+**Approach:** Remove Start Fresh UI and handler from food-analyzer.tsx. Enhance `handlePhotosChange` to call `clearSession()` when photos are cleared, which resets all state (photos, description, analysis, persisted session) to defaults. Update tests to remove Start Fresh assertions and add Clear All full-reset verification.
+**Scope:** 1 task, 2 files, ~5 tests modified
+**Key Decisions:** Keep `resetAnalysisState()` before `clearSession()` for its abort/cleanup side effects even though clearSession resets state
+**Risks:** None significant — straightforward UI simplification
 
 ---
 
