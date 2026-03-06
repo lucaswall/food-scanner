@@ -1,211 +1,91 @@
 # Implementation Plan
 
-**Created:** 2026-03-05
-**Status:** COMPLETE
-**Source:** Inline request: Analysis session persistence — persist analysis state (including photos) so accidental navigation doesn't lose work, fix Fitbit token expiry photo loss
-**Linear Issues:** [FOO-814](https://linear.app/lw-claude/issue/FOO-814/add-idb-dependency-and-create-analysis-session-storage-module), [FOO-815](https://linear.app/lw-claude/issue/FOO-815/create-useanalysissession-hook), [FOO-816](https://linear.app/lw-claude/issue/FOO-816/integrate-useanalysissession-hook-into-foodanalyzer), [FOO-817](https://linear.app/lw-claude/issue/FOO-817/add-clear-triggers-and-start-fresh-ui-for-analysis-session), [FOO-818](https://linear.app/lw-claude/issue/FOO-818/fix-pending-submission-to-use-indexeddb-photos-on-fitbit-token-expiry)
-**Branch:** feat/analysis-session-persistence
+**Created:** 2026-03-06
+**Source:** Bug report: Photos are not persisted/displayed in analysis session restoration
+**Linear Issues:** [FOO-822](https://linear.app/lw-claude/issue/FOO-822/bug-photocapture-doesnt-display-restored-session-photos), [FOO-823](https://linear.app/lw-claude/issue/FOO-823/bug-session-state-not-saved-when-only-photos-are-selected)
+**Branch:** fix/FOO-822-photo-session-restore
 
 ## Context Gathered
 
 ### Codebase Analysis
 
 - **Related files:**
-  - `src/components/food-analyzer.tsx` (748 lines) — Main analysis component with 18 `useState` hooks. Persistent state: `photos` (File[]), `convertedPhotoBlobs` ((File|Blob)[]), `compressedImages` (Blob[]), `description` (string), `analysis` (FoodAnalysis|null), `analysisNarrative` (string|null), `mealTypeId` (number), `selectedTime` (string|null), `matches` (FoodMatch[]). Transient state: `compressing`, `loading`, `loadingStep`, `error`, `logging`, `logError`, `logResponse`, `resubmitting`, `resubmitFoodName`, `streamingText`, `chatOpen`, `seedMessages`.
-  - `src/lib/pending-submission.ts` (60 lines) — Current persistence: saves `FoodAnalysis`, `mealTypeId`, `foodName`, `date`, `time` to `sessionStorage` on Fitbit token expiry. Does NOT save photos — retry after OAuth produces poor results.
-  - `src/components/pending-submission-handler.tsx` (145 lines) — Auto-resubmit component mounted in app layout. Checks `getPendingSubmission()` on mount.
-  - `src/lib/image.ts` (126 lines) — Photo compression pipeline: `validateImage()`, `isHeicFile()`, `convertHeicToJpeg()`, `compressImage()` (max 1024px, JPEG 0.8 quality → Blob).
-  - `src/types/index.ts` — `FoodAnalysis` (lines 55-82), `FoodMatch` (lines 239-255), `ConversationMessage` (lines 417-423).
-  - `src/hooks/use-debounce.ts` — Simple hook pattern: `useState` + `useEffect` with cleanup.
-  - `src/app/app/layout.tsx` (35 lines) — Server Component, wraps all `/app/*` pages. Renders `PendingSubmissionHandler`.
-  - `src/app/app/analyze/page.tsx` (33 lines) — Server Component mounting `FoodAnalyzer`.
+  - `src/components/photo-capture.tsx` — Manages own internal `photos` (File[]) and `previews` (string[]) state. Accepts `onPhotosChange` callback but no prop for initial/restored photos.
+  - `src/components/food-analyzer.tsx` — Passes `onPhotosChange` to PhotoCapture (line 664) but never passes restored blobs. Uses `convertedPhotoBlobs` for analysis (line 142) and "Start Fresh" visibility (line 643).
+  - `src/hooks/use-analysis-session.ts` — `setPhotos` saves blobs to IndexedDB immediately (lines 218-221). Debounced save effect (lines 147-179) depends on `[description, analysis, analysisNarrative, mealTypeId, selectedTime, matches]` — photos NOT included.
+  - `src/lib/analysis-session.ts` — `saveSessionPhotos()` stores blobs in IndexedDB, `saveSessionState()` stores serializable state in sessionStorage. Both keyed by session ID.
 - **Existing patterns:**
-  - `sessionStorage` used for pending submission (key: `"food-scanner-pending-submission"`), `localStorage` for theme and refresh guard.
-  - No IndexedDB usage in codebase. `idb` is NOT a dependency.
-  - Runtime validation: `isValidPendingSubmission()` checks shape before trusting stored data.
-  - Custom hooks in `src/hooks/`, tests in `src/hooks/__tests__/`.
-  - Vitest with jsdom environment. `vi.mock()` for modules, `vi.stubGlobal()` for browser APIs.
+  - PhotoCapture creates preview URLs via `URL.createObjectURL()` and revokes them on clear/unmount (lines 51-59).
+  - Hook tests mock `@/lib/analysis-session` module and use `renderHook` + `act` (see `src/hooks/__tests__/use-analysis-session.test.ts`).
+  - FoodAnalyzer tests mock `useAnalysisSession` hook with spy wrappers (see `src/components/__tests__/food-analyzer.test.tsx:49-60`).
 - **Test conventions:**
-  - `src/lib/__tests__/pending-submission.test.ts` (258 lines) — validates serialization, malformed JSON, missing fields, wrong types.
-  - `src/components/__tests__/food-analyzer.test.tsx` — mocked child components, assertion on callback calls.
-  - `src/lib/__tests__/image.test.ts` — tests compression, HEIC detection, validation.
+  - Hook tests: `src/hooks/__tests__/use-analysis-session.test.ts` — `vi.mock`, `renderHook`, `waitFor`, `makeState()` helper.
+  - Component tests: `src/components/__tests__/food-analyzer.test.tsx` — mocks child components, `render`, `screen`, `fireEvent`.
 
-### MCP Context
+### Investigation
 
-- **MCPs used:** Linear (issue check)
-- **Findings:** All related issues (FOO-168 token expiry, FOO-265 useReducer, FOO-414 stale analysis, FOO-272/387 unmount state updates) are Released or Canceled. No in-progress work conflicts. Todo queue is clear.
+**Bug report:** Photos are not persisted in analysis sessions — two related bugs found during investigation.
+
+**Classification:** Frontend Bug / High / Photo persistence in analysis sessions
+
+**Root cause:** Two distinct bugs in the session persistence feature shipped in FOO-814 through FOO-821:
+
+1. **PhotoCapture blind to restored photos:** `PhotoCapture` manages its own internal state and has no prop to receive restored blobs. After session restore, `convertedPhotoBlobs` has data but PhotoCapture shows "0/9 photos selected" with no previews.
+
+2. **Photo-only sessions not saved:** The debounced save effect doesn't include photos in its dependency array. If a user selects photos without changing any other field, the session state is never written to sessionStorage, making photos in IndexedDB unreachable on restore.
+
+**Evidence:**
+- `src/components/photo-capture.tsx:29-33` — Props interface has no `restoredBlobs` or `initialPhotos` prop
+- `src/components/photo-capture.tsx:40-42` — Internal state starts empty, no way to initialize from parent
+- `src/components/food-analyzer.tsx:664` — PhotoCapture receives only `onPhotosChange` and `autoCapture`
+- `src/hooks/use-analysis-session.ts:179` — Dependency array excludes photos/convertedPhotoBlobs
+- `src/hooks/use-analysis-session.ts:213-225` — `setPhotos` saves to IndexedDB but doesn't trigger sessionStorage save
+- `src/hooks/use-analysis-session.ts:122-123` — On restore, `photos: []` and `convertedPhotoBlobs: photoBlobs`
+
+**Impact:** Users who navigate away mid-analysis see no photos when returning. Photos appear lost even though blobs may exist in IndexedDB. The "Start Fresh" link appears with no visible context of what's being restored.
 
 ## Tasks
 
-### Task 1: Add `idb` dependency and create analysis session storage module
-**Linear Issue:** [FOO-814](https://linear.app/lw-claude/issue/FOO-814/add-idb-dependency-and-create-analysis-session-storage-module)
+### Task 1: Save session state after photo selection
+**Linear Issue:** [FOO-823](https://linear.app/lw-claude/issue/FOO-823/bug-session-state-not-saved-when-only-photos-are-selected)
 **Files:**
-- `package.json` (modify)
-- `src/lib/analysis-session.ts` (create)
-- `src/lib/__tests__/analysis-session.test.ts` (create)
+- `src/hooks/__tests__/use-analysis-session.test.ts` (modify)
+- `src/hooks/use-analysis-session.ts` (modify)
 
 **Steps:**
-1. Install `idb` package: `npm install idb`
-2. Write tests in `src/lib/__tests__/analysis-session.test.ts` for the storage layer:
-   - **IndexedDB photo operations:**
-     - `saveSessionPhotos(sessionId, blobs)` stores Blob array, `loadSessionPhotos(sessionId)` returns them
-     - `saveSessionPhotos` with empty array stores empty array
-     - `loadSessionPhotos` with nonexistent session returns empty array
-   - **sessionStorage state operations:**
-     - `saveSessionState(sessionId, state)` stores serializable state, `loadSessionState(sessionId)` returns it
-     - State includes: `description`, `analysis`, `analysisNarrative`, `mealTypeId`, `selectedTime`, `matches`, `createdAt` (ISO timestamp)
-     - `loadSessionState` with nonexistent session returns `null`
-     - `loadSessionState` with malformed JSON returns `null` (no throw)
-     - `loadSessionState` with invalid shape returns `null` — runtime validation like `pending-submission.ts`
-   - **Session lifecycle:**
-     - `clearSession(sessionId)` removes from both IndexedDB and sessionStorage
-     - `getActiveSessionId()` returns current session ID from sessionStorage, or `null`
-     - `createSessionId()` generates a new UUID and stores it in sessionStorage
-   - **TTL expiry:**
-     - `isSessionExpired(state)` returns `true` if `createdAt` is older than 24 hours
-     - `cleanupExpiredSession()` checks active session and clears it if expired
-   - **IndexedDB unavailable fallback:**
-     - When IndexedDB is unavailable (mock `indexedDB` as undefined), photo save/load silently returns empty — no throws
-3. Run `npx vitest run "analysis-session"` — expect fail
-4. Implement `src/lib/analysis-session.ts`:
-   - Use `idb` library's `openDB()` for IndexedDB. Database name: `"food-scanner"`, store: `"session-photos"`, keyed by session ID.
-   - sessionStorage key pattern: `"food-scanner-analysis-session"` for state, `"food-scanner-session-id"` for active session ID.
-   - Runtime validation function `isValidSessionState()` following `isValidPendingSubmission()` pattern in `src/lib/pending-submission.ts`.
-   - All IndexedDB operations wrapped in try/catch — return safe defaults on failure (empty array for photos, null for state).
-5. Run `npx vitest run "analysis-session"` — expect pass
+1. Write test: after calling `setPhotos` with files (no other state changes), assert `saveSessionState` is called. Use the existing mock setup and `makeState()` helper. The test should call `setPhotos` via `act()`, advance timers past DEBOUNCE_MS, and verify `mockSaveSessionState` was called with a valid session state containing `createdAt`.
+2. Run verifier with pattern `use-analysis-session` (expect fail)
+3. Fix: in `setPhotos` callback, after saving photos to IndexedDB, explicitly call `saveSessionState` with current state values. This ensures the session state entry exists even when no other fields have changed.
+4. Run verifier with pattern `use-analysis-session` (expect pass)
 
 **Notes:**
-- The `idb` library (~3KB) provides typed async API over raw IndexedDB. Follow pattern at `src/lib/pending-submission.ts` for the sessionStorage layer.
-- Photos are stored as raw Blobs in IndexedDB (native binary support, no base64 encoding needed).
-- `FoodMatch.lastLoggedAt` is a `Date` object — must serialize to ISO string on save and parse back on load. Handle this in the validation/deserialization layer.
-- Separate `sessionStorage` keys from the existing `"food-scanner-pending-submission"` key to avoid conflicts.
+- The save should happen synchronously inside `setPhotos` (not via the debounced effect) to guarantee the state is written before the user potentially navigates away.
+- Must use `createdAtRef.current` (set by `ensureSessionId`) for the `createdAt` field.
+- The debounced save effect remains as-is for subsequent field changes — this is an additional save, not a replacement.
 
-### Task 2: Create `useAnalysisSession` hook
-**Linear Issue:** [FOO-815](https://linear.app/lw-claude/issue/FOO-815/create-useanalysissession-hook)
+### Task 2: Display restored photos in PhotoCapture
+**Linear Issue:** [FOO-822](https://linear.app/lw-claude/issue/FOO-822/bug-photocapture-doesnt-display-restored-session-photos)
 **Files:**
-- `src/hooks/use-analysis-session.ts` (create)
-- `src/hooks/__tests__/use-analysis-session.test.ts` (create)
-
-**Steps:**
-1. Write tests in `src/hooks/__tests__/use-analysis-session.test.ts`:
-   - **Restore on mount:**
-     - When active session exists with valid state and photos, hook returns restored values for all persisted fields
-     - When active session exists but photos missing from IndexedDB, restores state without photos (graceful degradation)
-     - When no active session exists, returns default empty state
-     - When session is expired (>24h), clears it and returns default empty state
-   - **Save on change:**
-     - When persisted state changes (description, analysis, mealTypeId, etc.), debounce-writes to sessionStorage (~300ms)
-     - When photos change, writes blobs to IndexedDB immediately (no debounce — photos are captured infrequently)
-   - **Loading state:**
-     - Returns `isRestoring: true` while IndexedDB async read is in progress
-     - Returns `isRestoring: false` after restore completes (whether successful or empty)
-   - **Session ID management:**
-     - Creates new session ID on first photo capture (not on mount)
-     - Reuses existing session ID if one exists
-   - Mock `src/lib/analysis-session.ts` functions for unit testing.
-2. Run `npx vitest run "use-analysis-session"` — expect fail
-3. Implement `src/hooks/use-analysis-session.ts`:
-   - Hook signature: `useAnalysisSession()` returns `{ state, actions, isRestoring }` where `state` contains all persisted fields and `actions` contains setters that both update React state and trigger persistence.
-   - On mount: check for active session, load from storage, set `isRestoring` during async IndexedDB read.
-   - State changes trigger persistence via `useEffect` with debounce (300ms for serializable state, immediate for photos).
-   - Follow hook patterns in `src/hooks/use-debounce.ts` — `useState` + `useEffect` with cleanup.
-4. Run `npx vitest run "use-analysis-session"` — expect pass
-
-**Notes:**
-- The hook abstracts all storage complexity. `FoodAnalyzer` will call hook actions instead of raw `useState` setters for persisted fields.
-- `isRestoring` enables a brief loading state on the analyze page while IndexedDB reads complete (typically <50ms but async).
-- Photos are written immediately because they're captured one at a time (not rapid-fire). Serializable state is debounced because description typing fires on every keystroke.
-
-### Task 3: Integrate `useAnalysisSession` into FoodAnalyzer
-**Linear Issue:** [FOO-816](https://linear.app/lw-claude/issue/FOO-816/integrate-useanalysissession-hook-into-foodanalyzer)
-**Files:**
+- `src/components/photo-capture.tsx` (modify)
 - `src/components/food-analyzer.tsx` (modify)
 - `src/components/__tests__/food-analyzer.test.tsx` (modify)
 
 **Steps:**
-1. Update tests in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Mock `src/hooks/use-analysis-session` — return default empty state with `isRestoring: false`
-   - Test: when `isRestoring` is true, component shows a loading skeleton (not the empty analyze form)
-   - Test: when hook returns restored state (photos, description, analysis, etc.), component renders with restored values
-   - Test: when user captures photos, hook's `setPhotos` action is called
-   - Test: when user types description, hook's `setDescription` action is called
-   - Test: when analysis completes, hook's `setAnalysis` and `setNarrative` actions are called
-2. Run `npx vitest run "food-analyzer"` — expect fail
-3. In `src/components/food-analyzer.tsx`:
-   - Import and call `useAnalysisSession()` at the top of the component
-   - Replace `useState` calls for persisted fields (`photos`, `convertedPhotoBlobs`, `compressedImages`, `description`, `analysis`, `analysisNarrative`, `mealTypeId`, `selectedTime`, `matches`) with values and setters from the hook
-   - Keep all transient state as raw `useState` (`compressing`, `loading`, `loadingStep`, `error`, `logging`, `logError`, `logResponse`, `resubmitting`, `resubmitFoodName`, `streamingText`, `chatOpen`, `seedMessages`)
-   - When `isRestoring` is true, render a loading skeleton matching the analyze page's `loading.tsx` layout
-   - Preserve all existing behavior — the hook is a drop-in replacement for the persisted `useState` calls
-4. Run `npx vitest run "food-analyzer"` — expect pass
+1. Write test in `food-analyzer.test.tsx`: when `useAnalysisSession` returns `wasRestored: true` with `convertedPhotoBlobs` containing blobs, assert that PhotoCapture receives the blobs as a `restoredBlobs` prop and preview images are rendered. Also test that photo count reflects the restored count.
+2. Run verifier with pattern `food-analyzer` (expect fail)
+3. Modify `PhotoCapture`:
+   - Add optional `restoredBlobs?: Blob[]` prop to `PhotoCaptureProps`
+   - Add a `useEffect` that fires when `restoredBlobs` is provided and internal `photos` is empty: create preview URLs from the blobs via `URL.createObjectURL()`, set `previews` state. Do NOT call `onPhotosChange` (parent already has these blobs).
+   - Update photo count display to show `restoredBlobs.length` when internal `photos` is empty but restored blobs exist.
+   - Ensure "Clear All" revokes restored preview URLs and calls `onPhotosChange([], [])` to signal parent.
+4. Modify `FoodAnalyzer` (line 664): pass `restoredBlobs={wasRestored ? convertedPhotoBlobs : undefined}` to PhotoCapture. Cast to `Blob[]` if needed since `convertedPhotoBlobs` is `(File | Blob)[]`.
+5. Run verifier with pattern `food-analyzer` (expect pass)
 
 **Notes:**
-- This is the largest task — threading the hook through all state references in a 748-line component. Careful not to break existing flows (SSE streaming, compression, photo capture, logging).
-- The `handlePhotosChange` callback (line 77) resets analysis state when photos are cleared — this behavior must be preserved. The hook's setters should allow batch updates.
-- `resetAnalysisState()` (line 89) clears multiple fields — must call the hook's actions for each persisted field.
-- `autoCapture` search param flow (photo capture on mount) should work with the hook — if no restored session, proceed normally.
-
-### Task 4: Add clear triggers and "Start Fresh" UI
-**Linear Issue:** [FOO-817](https://linear.app/lw-claude/issue/FOO-817/add-clear-triggers-and-start-fresh-ui-for-analysis-session)
-**Files:**
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-
-**Steps:**
-1. Write tests in `src/components/__tests__/food-analyzer.test.tsx`:
-   - Test: after successful food log (logResponse received), session is cleared via hook's `clearSession` action
-   - Test: when a restored session is showing (photos/analysis present from restore), a "Start fresh" link is visible
-   - Test: when state is NOT restored (user just captured photos), "Start fresh" link is NOT visible
-   - Test: clicking "Start fresh" clears the session and resets all persisted state to defaults
-2. Run `npx vitest run "food-analyzer"` — expect fail
-3. In `src/components/food-analyzer.tsx`:
-   - After successful log (where `logResponse` is set), call the hook's `clearSession()` action
-   - Add a `wasRestored` flag from the hook (true if the current state came from storage, false if user started fresh)
-   - When `wasRestored` is true and the component has photos or analysis, render a small "Start fresh" text link near the top of the form (below the header, not prominent)
-   - "Start fresh" calls hook's `clearSession()` and resets all persisted state to defaults
-   - Touch target: at least 44px height per mobile-first policy
-4. Run `npx vitest run "food-analyzer"` — expect pass
-
-**Notes:**
-- "Start fresh" is a subtle link, not a button — prevents accidental clears. The roadmap spec explicitly says "Small link, not prominent."
-- Session is NOT cleared on navigation away — that's the whole point. Only cleared on successful log or explicit user action.
-- The `wasRestored` flag distinguishes between "user just took photos" (no Start Fresh shown) and "state was loaded from storage" (Start Fresh shown).
-
-### Task 5: Fix pending-submission to use IndexedDB photos on Fitbit token expiry
-**Linear Issue:** [FOO-818](https://linear.app/lw-claude/issue/FOO-818/fix-pending-submission-to-use-indexeddb-photos-on-fitbit-token-expiry)
-**Files:**
-- `src/lib/pending-submission.ts` (modify)
-- `src/lib/__tests__/pending-submission.test.ts` (modify)
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/pending-submission-handler.tsx` (modify)
-- `src/components/__tests__/pending-submission-handler.test.tsx` (modify)
-
-**Steps:**
-1. Write tests in `src/lib/__tests__/pending-submission.test.ts`:
-   - Test: `PendingSubmission` interface now includes optional `sessionId: string` field
-   - Test: `savePendingSubmission` stores `sessionId` when provided
-   - Test: `isValidPendingSubmission` accepts objects with `sessionId` field
-   - Test: `isValidPendingSubmission` still accepts objects without `sessionId` (backward compat)
-2. Write tests in `src/components/__tests__/pending-submission-handler.test.tsx`:
-   - Test: when pending submission has `sessionId`, photos are loaded from IndexedDB via `loadSessionPhotos(sessionId)` and included in resubmit
-   - Test: when pending submission has no `sessionId`, resubmit proceeds without photos (existing behavior)
-   - Test: after successful resubmit with `sessionId`, session is cleared from IndexedDB
-3. Run `npx vitest run "pending-submission"` — expect fail
-4. In `src/lib/pending-submission.ts`:
-   - Add optional `sessionId?: string` to `PendingSubmission` interface
-   - Update `isValidPendingSubmission` to accept the new field
-5. In `src/components/food-analyzer.tsx`:
-   - In the `handleLogToFitbit` error path where `savePendingSubmission()` is called (around line 375), include the active session ID from the hook: `savePendingSubmission({ ...data, sessionId: activeSessionId })`
-   - Do NOT call `clearSession()` here — the session must survive the OAuth redirect
-6. In `src/components/pending-submission-handler.tsx`:
-   - When resubmitting with a `sessionId`, load photos from IndexedDB via `loadSessionPhotos(sessionId)` and include them in the resubmit request
-   - After successful resubmit, clear the analysis session via `clearSession(sessionId)`
-7. Run `npx vitest run "pending-submission"` — expect pass
-
-**Notes:**
-- This fixes the core "photos lost on Fitbit token expiry" problem. Today, `pending-submission` only stores `FoodAnalysis` JSON. With session persistence in place, photos are already in IndexedDB before the token error occurs. The pending submission just needs to reference the session ID.
-- Backward compatible: old pending submissions without `sessionId` still work (resubmit without photos, same as today).
-- The OAuth redirect navigates away from the analyze page, which would normally lose state. But with session persistence, the full state (including photos) survives in IndexedDB + sessionStorage.
+- Preview URLs from restored blobs must be revoked on unmount and on clear — follow existing cleanup pattern at `photo-capture.tsx:51-59`.
+- When user adds new photos after restore, the new photos should replace restored state. The existing `handleFileChange` flow handles this because it calls `onPhotosChange` which updates parent state.
+- `URL.createObjectURL` works with both `Blob` and `File` — no conversion needed.
+- When user clears restored photos, need to also clear the `restoredBlobs` by calling `onPhotosChange([], [])` which resets parent's `convertedPhotoBlobs`.
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -213,114 +93,11 @@
 
 ---
 
-## Iteration 1
-
-**Implemented:** 2026-03-05
-**Method:** Agent team (3 workers, worktree-isolated)
-
-### Tasks Completed This Iteration
-- Task 1: Add `idb` dependency and create analysis session storage module [FOO-814] (worker-1)
-- Task 2: Create `useAnalysisSession` hook [FOO-815] (worker-1)
-- Task 3: Integrate `useAnalysisSession` into FoodAnalyzer [FOO-816] (worker-2)
-- Task 4: Add clear triggers and "Start Fresh" UI [FOO-817] (worker-2)
-- Task 5: Fix pending-submission to use IndexedDB photos on Fitbit token expiry [FOO-818] (worker-3)
-
-### Files Modified
-- `src/lib/analysis-session.ts` - Created dual storage layer (IndexedDB + sessionStorage)
-- `src/lib/__tests__/analysis-session.test.ts` - 18 tests for storage module
-- `src/hooks/use-analysis-session.ts` - Created persistence hook with restore/save/clear
-- `src/hooks/__tests__/use-analysis-session.test.ts` - 12 tests for hook
-- `src/components/food-analyzer.tsx` - Integrated hook, added Start Fresh UI, fixed canAnalyze for restored sessions
-- `src/components/__tests__/food-analyzer.test.tsx` - Added 9 new tests, added useAnalysisSession mock
-- `src/components/__tests__/food-analyzer-reconnect.test.tsx` - Added useAnalysisSession mock for compatibility
-- `src/lib/pending-submission.ts` - Added optional sessionId field
-- `src/lib/__tests__/pending-submission.test.ts` - Tests for sessionId field
-- `src/components/pending-submission-handler.tsx` - Session cleanup after resubmit
-- `src/components/__tests__/pending-submission-handler.test.tsx` - Tests for session cleanup
-- `package.json` - Added `idb` and `fake-indexeddb` (dev) dependencies
-
-### Linear Updates
-- FOO-814: Todo → In Progress → Review
-- FOO-815: Todo → In Progress → Review
-- FOO-816: Todo → In Progress → Review
-- FOO-817: Todo → In Progress → Review
-- FOO-818: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 5 bugs (2 HIGH, 2 MEDIUM, 1 LOW), all fixed before commit
-  - HIGH: `isValidSessionState` rejected null selectedTime (silently broke all restores)
-  - HIGH: `canAnalyze` was false after photo restore (restored blobs in convertedPhotoBlobs, not photos)
-  - MEDIUM: `cleanupExpiredSession` never called (added to hook mount)
-  - MEDIUM: Module-level dbPromise singleton leaked across tests (added _resetDBForTesting)
-  - LOW: `handleStartFresh` no-op setMealTypeId (removed redundant code)
-- verifier: All 2567 tests pass, zero lint warnings, build clean
-
-### Work Partition
-- Worker 1: Tasks 1+2 (foundation — storage module + hook)
-- Worker 2: Tasks 3+4 (UI integration — FoodAnalyzer + Start Fresh)
-- Worker 3: Task 5 (pending-submission fix)
-
-### Merge Summary
-- Worker 1: fast-forward (no conflicts)
-- Worker 2: 1 conflict in src/hooks/use-analysis-session.ts (stub vs real implementation — kept worker-1's)
-- Worker 3: 2 conflicts (analysis-session.ts stub, food-analyzer.tsx imports — resolved)
-- Post-merge: fixed API mismatches between hook and component (types, signatures, missing fields)
-
-### Review Findings
-
-Summary: 3 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
-- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
-
-**Issues fixed inline:**
-- [MEDIUM] BUG: `createdAt` reset on every debounced save defeats 24h TTL (`src/hooks/use-analysis-session.ts:167`) — added `createdAtRef` to preserve original timestamp + test
-- [MEDIUM] BUG: Missing fetch timeout in PendingSubmissionHandler (`src/components/pending-submission-handler.tsx:56`) — added `AbortSignal.timeout(15000)`
-- [MEDIUM] BUG: Start Fresh link hidden after photo-only session restore (`src/components/food-analyzer.tsx:643`) — added `convertedPhotoBlobs.length > 0` to condition + test
-
-**Discarded findings (not bugs):**
-- [DISCARDED] Double cast / not using serialize/deserialize helpers (`src/hooks/use-analysis-session.ts:113-118`) — code works correctly; style/maintenance concern, the inline serialization does the same thing as the helpers
-- [DISCARDED] Invalid `createdAt` date makes session non-expirable (`src/lib/analysis-session.ts:191`) — impossible in context, `createdAt` is always set by `new Date().toISOString()`
-- [DISCARDED] `r.json()` instead of `safeResponseJson()` (`src/components/pending-submission-handler.tsx:61`) — convention consistency, error already caught by surrounding try/catch
-
-### Linear Updates
-- FOO-814: Review → Merge (original task)
-- FOO-815: Review → Merge (original task)
-- FOO-816: Review → Merge (original task)
-- FOO-817: Review → Merge (original task)
-- FOO-818: Review → Merge (original task)
-- FOO-819: Created in Merge (Fix: createdAt TTL reset — fixed inline)
-- FOO-820: Created in Merge (Fix: missing fetch timeout — fixed inline)
-- FOO-821: Created in Merge (Fix: Start Fresh visibility — fixed inline)
-
-### Inline Fix Verification
-- Unit tests: all pass (2569 tests, 5 pre-existing failures in food-analyzer-reconnect unrelated to this iteration)
-- Bug-hunter: no new issues
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-All tasks completed.
-
----
-
 ## Plan Summary
 
-**Objective:** Persist the full analysis session state (including photos) so accidental navigation doesn't lose work, and fix the Fitbit token expiry flow to retain photos during OAuth redirect.
-**Linear Issues:** FOO-814, FOO-815, FOO-816, FOO-817, FOO-818
-**Approach:** Dual storage layer — IndexedDB (via `idb` library) for photo blobs, sessionStorage for serializable state (description, analysis, narrative, meal type, time, matches). A `useAnalysisSession` hook abstracts persistence and provides drop-in replacements for FoodAnalyzer's persisted `useState` calls. Sessions auto-expire after 24 hours. The existing `pending-submission` flow is extended with a session ID reference so photos survive OAuth redirects.
-**Scope:** 5 tasks, ~8 files, ~30 tests
-**Key Decisions:**
-- IndexedDB for photos (native blob support, no base64 overhead) + sessionStorage for serializable state (simple, fast, already used in codebase)
-- `idb` library (~3KB) over raw IndexedDB API — cleaner async interface, well-maintained, types included
-- One session at a time — new state overwrites previous, never stacks
-- Seamless auto-restore on mount (no "resume session?" prompt)
-- "Start Fresh" as subtle link, not button — prevents accidental clears
-- Chat state explicitly NOT persisted — this feature is analyze-screen only
-**Risks:**
-- FoodAnalyzer is 748 lines with 18 useState hooks — Task 3 (integration) is the riskiest task, threading the hook through all state references without breaking existing flows
-- jsdom may not fully support IndexedDB in tests — may need `fake-indexeddb` polyfill for Vitest
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+**Objective:** Fix two bugs where photos are not properly persisted and displayed in analysis session restoration.
+**Linear Issues:** FOO-822, FOO-823
+**Approach:** Task 1 fixes the save gap by explicitly writing session state to sessionStorage inside `setPhotos` so photo-only sessions are restorable. Task 2 fixes the display gap by adding a `restoredBlobs` prop to PhotoCapture so it can generate and render preview thumbnails from blobs passed by FoodAnalyzer on session restore.
+**Scope:** 2 tasks, 4 files, 2+ tests
+**Key Decisions:** Explicit save in `setPhotos` rather than adding photos to debounce dependency array (avoids redundant re-saves on every photo state change). Separate `restoredBlobs` prop rather than modifying PhotoCapture's internal state management (cleaner separation of concerns).
+**Risks:** None significant — changes are additive and existing test coverage is good.
