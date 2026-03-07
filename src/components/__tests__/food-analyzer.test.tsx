@@ -306,14 +306,17 @@ vi.mock("../food-log-confirmation", () => ({
     response,
     foodName,
     mealTypeId,
+    onDone,
   }: {
     response: FoodLogResponse | null;
     foodName: string;
     mealTypeId: number;
+    onDone?: () => void;
   }) =>
     response ? (
       <div data-testid="food-log-confirmation" data-meal-type-id={mealTypeId} tabIndex={-1}>
         <span>Successfully logged {foodName}</span>
+        <button onClick={onDone}>Done</button>
       </div>
     ) : null,
 }));
@@ -4186,7 +4189,7 @@ describe("FoodAnalyzer", () => {
 
   // FOO-817: Clear triggers
   describe("session clear", () => {
-    it("clears session after successful food log", async () => {
+    it("clears session when user clicks Done after successful food log", async () => {
       mockFetch
         .mockResolvedValueOnce(
           makeSseAnalyzeResponse([{ type: "analysis", analysis: mockAnalysis }, { type: "done" }])
@@ -4212,8 +4215,13 @@ describe("FoodAnalyzer", () => {
       fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
       await waitFor(() => {
-        expect(mockClearSession).toHaveBeenCalled();
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
       });
+
+      fireEvent.click(screen.getByRole("button", { name: /done/i }));
+
+      expect(mockClearSession).toHaveBeenCalled();
+      expect(mockPush).toHaveBeenCalledWith("/app");
     });
 
     it("Clear All triggers clearSession when photos are cleared", () => {

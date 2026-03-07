@@ -38,6 +38,11 @@ mockFetch.mockResolvedValueOnce = (value: unknown) => {
 
 vi.stubGlobal("fetch", mockFetch);
 
+// Mock next/navigation
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 // Mock pending-submission module
 const mockSavePending = vi.fn();
 const mockGetPending = vi.fn();

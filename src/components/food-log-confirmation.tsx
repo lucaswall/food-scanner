@@ -15,6 +15,7 @@ interface FoodLogConfirmationProps {
   analysis?: FoodAnalysis;
   mealTypeId?: number;
   isEdit?: boolean;
+  onDone?: () => void;
 }
 
 export function FoodLogConfirmation({
@@ -23,6 +24,7 @@ export function FoodLogConfirmation({
   analysis,
   mealTypeId,
   isEdit,
+  onDone,
 }: FoodLogConfirmationProps) {
   const router = useRouter();
   // Trigger haptic feedback and invalidate caches on mount
@@ -86,7 +88,7 @@ export function FoodLogConfirmation({
 
       <div className="flex justify-center">
         <Button
-          onClick={() => router.push("/app")}
+          onClick={onDone ?? (() => router.push("/app"))}
           variant="default"
           className="min-h-[44px] min-w-[120px]"
           data-variant="default"

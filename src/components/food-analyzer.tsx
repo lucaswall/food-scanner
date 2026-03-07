@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import * as Sentry from "@sentry/nextjs";
 import { PhotoCapture } from "./photo-capture";
 import { DescriptionInput } from "./description-input";
@@ -53,6 +54,7 @@ interface FoodAnalyzerProps {
 }
 
 export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
+  const router = useRouter();
   // Persisted state from analysis session hook
   const { state: sessionState, actions, isRestoring, wasRestored } = useAnalysisSession();
   const {
@@ -435,7 +437,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       // Only set response after API confirms success
       setLogResponse(result.data ?? null);
-      actions.clearSession();
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setLogError("Request timed out. Please try again.");
@@ -506,7 +507,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       // Only set response after API confirms success
       setLogResponse(result.data ?? null);
-      actions.clearSession();
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setLogError("Request timed out. Please try again.");
@@ -517,6 +517,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     } finally {
       setLogging(false);
     }
+  };
+
+  const handleDone = () => {
+    actions.clearSession();
+    router.push("/app");
   };
 
   // Register keyboard shortcuts
@@ -638,6 +643,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             foodName={analysis?.food_name || "Food"}
             analysis={analysis ?? undefined}
             mealTypeId={mealTypeId}
+            onDone={handleDone}
           />
         </div>
       </div>
