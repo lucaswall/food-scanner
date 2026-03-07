@@ -60,6 +60,7 @@ export function PhotoCapture({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const restoredBlobsRef = useRef<Blob[]>(restoredBlobs ?? []);
+  const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Revoke blob URLs on unmount to prevent memory leaks
   const previewsRef = useRef(previews);
@@ -74,6 +75,9 @@ export function PhotoCapture({
     return () => {
       previewsRef.current.forEach((url) => URL.revokeObjectURL(url));
       restoredPreviewsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      if (warningTimeoutRef.current) {
+        clearTimeout(warningTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -183,7 +187,7 @@ export function PhotoCapture({
         console.warn(warningMessage, failedIndices);
         setError(warningMessage);
         // Clear the warning after a few seconds
-        setTimeout(() => setError(null), 3000);
+        warningTimeoutRef.current = setTimeout(() => setError(null), 3000);
       }
 
       validPhotos = successfulPairs.map((pair) => pair.photo);
@@ -288,6 +292,8 @@ export function PhotoCapture({
     const newRestoredBlobs = restoredBlobsRef.current.filter((_, i) => i !== index);
     restoredBlobsRef.current = newRestoredBlobs;
     setRestoredPreviews(newRestoredPreviews);
+    setPreviewDialogOpen(false);
+    setSelectedPreviewIndex(null);
 
     // Always notify parent with remaining blobs (or empty arrays if all removed)
     onPhotosChange([], newRestoredBlobs.length > 0 ? newRestoredBlobs : []);

@@ -4,6 +4,7 @@
 **Source:** Bug report: Analyze screen UX — layout shift from "Start over", CTA hidden by keyboard, photo buttons disappear, confusing + tile dropdown
 **Linear Issues:** [FOO-843](https://linear.app/lw-claude/issue/FOO-843/ui-fix-analyze-screen-ux-layout-shift-keyboard-hidden-cta-photo-button)
 **Branch:** fix/FOO-843-analyze-screen-ux
+**Status:** COMPLETE
 
 ## Context Gathered
 
@@ -141,6 +142,29 @@
 ### Tasks Remaining
 None — all 3 tasks complete.
 
+### Review Findings
+
+Summary: 2 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 2 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [LOW] RESOURCE: Untracked setTimeout in photo-capture.tsx warning handler (`src/components/photo-capture.tsx:186`) — added warningTimeoutRef to track and clear on unmount
+- [LOW] EDGE CASE: Preview dialog stays open with stale index after removing restored photo (`src/components/photo-capture.tsx:285`) — added setPreviewDialogOpen(false) and setSelectedPreviewIndex(null) in handleRemoveRestoredPhoto
+
+**Discarded findings (not bugs):**
+- [DISCARDED] CONVENTION: console.warn in photo-capture.tsx and food-analyzer.tsx — acceptable per CLAUDE.md ("console.error/console.warn are correct for 'use client' components")
+
+### Linear Updates
+- FOO-843: Review → Merge (original task)
+- FOO-844: Created in Merge (Fix: untracked setTimeout on unmount — fixed inline)
+- FOO-845: Created in Merge (Fix: stale preview dialog index — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2628 pass
+- Bug-hunter: no new issues
+
+<!-- REVIEW COMPLETE -->
+
 ### Status: COMPLETE
 
 ---
@@ -153,3 +177,9 @@ None — all 3 tasks complete.
 **Scope:** 3 tasks, 6 files, ~8 tests
 **Key Decisions:** Keep conditional rendering for "Start over" but place it inside the h1 row so the row height is stable. Use `visualViewport` API (widely supported) for keyboard detection. Move h1 into FoodAnalyzer to co-locate the header row.
 **Risks:** `visualViewport` behavior varies slightly across browsers — the hook should gracefully fall back to 0 if the API is unavailable. Tests will need to mock `window.visualViewport`.
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
