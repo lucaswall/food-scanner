@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { PhotoCapture } from "../photo-capture";
 
 // Mock next/image to render a plain <img> in tests
@@ -448,7 +447,7 @@ describe("PhotoCapture", () => {
   });
 
   describe("clear functionality", () => {
-    it("clear button removes all selected photos from both sources", async () => {
+    it("individual X buttons remove photos one by one", async () => {
       const onPhotosChange = vi.fn();
       render(<PhotoCapture onPhotosChange={onPhotosChange} />);
 
@@ -471,24 +470,21 @@ describe("PhotoCapture", () => {
         expect(screen.getAllByRole("img")).toHaveLength(2);
       });
 
-      // Click clear button - with 2+ photos, shows confirmation
-      const clearButton = screen.getByRole("button", { name: /clear/i });
-      fireEvent.click(clearButton);
-
-      // Confirm the clear action
+      // Remove first photo via X button
+      fireEvent.click(screen.getByRole("button", { name: "Remove photo 1" }));
       await waitFor(() => {
-        const confirmButton = screen.getByRole("button", { name: /confirm/i });
-        fireEvent.click(confirmButton);
+        expect(screen.getAllByRole("img")).toHaveLength(1);
       });
 
-      // Should have no previews
+      // Remove last photo via X button
+      fireEvent.click(screen.getByRole("button", { name: "Remove photo 1" }));
       await waitFor(() => {
         expect(screen.queryAllByRole("img")).toHaveLength(0);
       });
       expect(onPhotosChange).toHaveBeenLastCalledWith([], []);
     });
 
-    it("with 1 photo, no Clear All button is shown (use individual X instead)", async () => {
+    it("no Clear All button is shown with 1 photo (use individual X instead)", async () => {
       const onPhotosChange = vi.fn();
       render(<PhotoCapture onPhotosChange={onPhotosChange} />);
 
@@ -502,13 +498,13 @@ describe("PhotoCapture", () => {
         expect(screen.getAllByRole("img")).toHaveLength(1);
       });
 
-      // Clear All button should not be shown for 1 photo
+      // Clear All button should not be shown
       expect(screen.queryByRole("button", { name: /clear all/i })).not.toBeInTheDocument();
       // But remove button should exist
       expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
     });
 
-    it("shows confirmation dialog with 2+ photos", async () => {
+    it("no Clear All button is shown with 2+ photos (removed — use individual X or Start Over)", async () => {
       const onPhotosChange = vi.fn();
       render(<PhotoCapture onPhotosChange={onPhotosChange} />);
 
@@ -527,49 +523,11 @@ describe("PhotoCapture", () => {
         expect(screen.getAllByRole("img")).toHaveLength(2);
       });
 
-      // Click clear button
-      const clearButton = screen.getByRole("button", { name: /clear/i });
-      fireEvent.click(clearButton);
+      // Clear All button should NOT exist (removed feature)
+      expect(screen.queryByRole("button", { name: /clear all/i })).not.toBeInTheDocument();
 
-      // Should show confirmation dialog
-      await waitFor(() => {
-        expect(screen.getByText(/clear all photos/i)).toBeInTheDocument();
-      });
-    });
-
-    it("canceling confirmation keeps photos", async () => {
-      const onPhotosChange = vi.fn();
-      render(<PhotoCapture onPhotosChange={onPhotosChange} />);
-
-      const galleryInput = screen.getByTestId("gallery-input");
-
-      // Add 2 photos
-      fireEvent.change(galleryInput, {
-        target: {
-          files: [
-            createMockFile("photo1.jpg", "image/jpeg", 1000),
-            createMockFile("photo2.jpg", "image/jpeg", 1000),
-          ],
-        },
-      });
-      await waitFor(() => {
-        expect(screen.getAllByRole("img")).toHaveLength(2);
-      });
-
-      // Click clear button
-      const clearButton = screen.getByRole("button", { name: /clear/i });
-      fireEvent.click(clearButton);
-
-      // Cancel the clear action
-      await waitFor(() => {
-        const cancelButton = screen.getByRole("button", { name: /cancel/i });
-        fireEvent.click(cancelButton);
-      });
-
-      // Photos should still be there
-      await waitFor(() => {
-        expect(screen.getAllByRole("img")).toHaveLength(2);
-      });
+      // No clear confirmation dialog should exist
+      expect(screen.queryByText(/clear all photos/i)).not.toBeInTheDocument();
     });
   });
 
@@ -941,6 +899,46 @@ describe("PhotoCapture", () => {
       resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
     });
 
+    it("processing placeholders appear in the same grid as photo previews", async () => {
+      const onPhotosChange = vi.fn();
+      mockIsHeicFile.mockReturnValue(false);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={5} />);
+
+      // Add a JPEG first
+      const jpegFile = createMockFile("existing.jpg", "image/jpeg", 1000);
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, { target: { files: [jpegFile] } });
+
+      await waitFor(() => {
+        expect(screen.getByAltText("Preview 1")).toBeInTheDocument();
+      });
+
+      // Now set up a slow HEIC conversion
+      let resolveConversion: (value: Blob) => void;
+      const conversionPromise = new Promise<Blob>((resolve) => {
+        resolveConversion = resolve;
+      });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockReturnValue(conversionPromise);
+
+      // Add a HEIC file
+      const heicFile = createMockFile("new.heic", "image/heic", 1000);
+      fireEvent.change(galleryInput, { target: { files: [heicFile] } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
+      });
+
+      // The placeholder and the preview should share the same parent grid container
+      const placeholder = screen.getByTestId("processing-placeholder");
+      const preview = screen.getByAltText("Preview 1");
+      expect(placeholder.parentElement).toBe(preview.closest("[class*='grid']"));
+
+      // Cleanup
+      resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
+    });
+
     it("ignores new selections while processing to prevent race conditions", async () => {
       const onPhotosChange = vi.fn();
       let resolveConversion: (value: Blob) => void;
@@ -1257,7 +1255,7 @@ describe("PhotoCapture", () => {
     });
 
     it("shows confirmation dialog when clearing 2+ restored photos", async () => {
-      const user = userEvent.setup();
+      // user setup not needed for this test
       const onPhotosChange = vi.fn();
       const blobs = [
         new Blob(["img1"], { type: "image/jpeg" }),
@@ -1267,30 +1265,20 @@ describe("PhotoCapture", () => {
 
       render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={blobs} />);
 
-      // Should show Clear All button for 3 restored photos
-      const clearButton = screen.getByRole("button", { name: /clear all/i });
-      await user.click(clearButton);
+      // Clear All button should NOT exist (removed feature)
+      expect(screen.queryByRole("button", { name: /clear all/i })).not.toBeInTheDocument();
 
-      // Should show confirmation dialog
-      await waitFor(() => {
-        expect(screen.getByText(/clear all photos/i)).toBeInTheDocument();
-      });
-
-      // Confirm the clear action
-      const confirmButton = screen.getByRole("button", { name: /confirm/i });
-      await user.click(confirmButton);
-
-      // Should call onPhotosChange with empty arrays
-      expect(onPhotosChange).toHaveBeenCalledWith([], []);
+      // No clear confirmation dialog should exist
+      expect(screen.queryByText(/clear all photos/i)).not.toBeInTheDocument();
     });
 
-    it("clears single restored photo without confirmation dialog", () => {
+    it("does not show Clear All button for single restored photo", () => {
       const onPhotosChange = vi.fn();
       const blobs = [new Blob(["img1"], { type: "image/jpeg" })];
 
       render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={blobs} />);
 
-      // With only 1 restored photo, Clear All should not be shown (need 2+)
+      // Clear All should not be shown
       expect(screen.queryByRole("button", { name: /clear all/i })).not.toBeInTheDocument();
     });
   });

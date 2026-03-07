@@ -2,16 +2,6 @@
 
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { PhotoPreviewDialog } from "@/components/photo-preview-dialog";
 import Image from "next/image";
 import { Camera, ImageIcon, X } from "lucide-react";
@@ -46,7 +36,6 @@ export function PhotoCapture({
   const [photos, setPhotos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [previews, setPreviews] = useState<string[]>([]);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [previewDialogOpen, setPreviewDialogOpen] = useState(false);
   const [selectedPreviewIndex, setSelectedPreviewIndex] = useState<number | null>(null);
   const [processingCount, setProcessingCount] = useState(0);
@@ -226,44 +215,6 @@ export function PhotoCapture({
     }
   };
 
-  const handleClearClick = () => {
-    // If 2+ photos, show confirmation dialog
-    if (photos.length >= 2) {
-      setShowClearConfirm(true);
-    } else {
-      // 1 photo or less, clear immediately
-      doClear();
-    }
-  };
-
-  const doClear = () => {
-    // Revoke all preview URLs
-    previews.forEach((url) => URL.revokeObjectURL(url));
-
-    setPhotos([]);
-    setPreviews([]);
-    setError(null);
-    onPhotosChange([], []);
-    setShowClearConfirm(false);
-    setPreviewDialogOpen(false);
-    setSelectedPreviewIndex(null);
-
-    // Reset inputs
-    if (cameraInputRef.current) {
-      cameraInputRef.current.value = "";
-    }
-    if (galleryInputRef.current) {
-      galleryInputRef.current.value = "";
-    }
-  };
-
-  const handleClearRestoredPhotos = () => {
-    restoredPreviews.forEach((url) => URL.revokeObjectURL(url));
-    setRestoredPreviews([]);
-    setShowClearConfirm(false);
-    onPhotosChange([], []);
-  };
-
   const handleRemovePhoto = (index: number) => {
     URL.revokeObjectURL(previews[index]);
     const newPhotos = photos.filter((_, i) => i !== index);
@@ -372,10 +323,81 @@ export function PhotoCapture({
         </p>
       )}
 
-      {/* Processing placeholders */}
-      {processingCount > 0 && (
+      {/* Restored photo previews (from session restore) */}
+      {restoredPreviews.length > 0 && previews.length === 0 && (
         <div className="grid grid-cols-3 gap-2">
-          {Array.from({ length: processingCount }).map((_, index) => (
+          {restoredPreviews.map((preview, index) => (
+            <div
+              key={`restored-${index}`}
+              role="button"
+              tabIndex={0}
+              className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
+              onClick={() => handlePreviewClick(index)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePreviewClick(index); } }}
+              aria-label={`View full-size preview ${index + 1}`}
+            >
+              <Image
+                src={preview}
+                alt={`Preview ${index + 1}`}
+                fill
+                unoptimized
+                className="object-cover rounded-md"
+              />
+              <button
+                type="button"
+                className="absolute top-0 right-0 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveRestoredPhoto(index);
+                }}
+                aria-label={`Remove photo ${index + 1}`}
+              >
+                <span className="w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center">
+                  <X className="h-3.5 w-3.5" />
+                </span>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(previews.length > 0 || processingCount > 0) && (
+        <div className="grid grid-cols-3 gap-2">
+          {previews.map((preview, index) => (
+            <div
+              key={`preview-${index}`}
+              role="button"
+              tabIndex={0}
+              className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
+              onClick={() => handlePreviewClick(index)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePreviewClick(index); } }}
+              aria-label={`View full-size preview ${index + 1}`}
+            >
+              <Image
+                src={preview}
+                alt={`Preview ${index + 1}`}
+                fill
+                unoptimized
+                className="object-cover rounded-md"
+              />
+              {processingCount === 0 && (
+                <button
+                  type="button"
+                  className="absolute top-0 right-0 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemovePhoto(index);
+                  }}
+                  aria-label={`Remove photo ${index + 1}`}
+                >
+                  <span className="w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center">
+                    <X className="h-3.5 w-3.5" />
+                  </span>
+                </button>
+              )}
+            </div>
+          ))}
+          {processingCount > 0 && Array.from({ length: processingCount }).map((_, index) => (
             <div
               key={`processing-${index}`}
               data-testid="processing-placeholder"
@@ -389,109 +411,6 @@ export function PhotoCapture({
         </div>
       )}
 
-      {/* Restored photo previews (from session restore) */}
-      {restoredPreviews.length > 0 && previews.length === 0 && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            {restoredPreviews.map((preview, index) => (
-              <div
-                key={`restored-${index}`}
-                role="button"
-                tabIndex={0}
-                className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
-                onClick={() => handlePreviewClick(index)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePreviewClick(index); } }}
-                aria-label={`View full-size preview ${index + 1}`}
-              >
-                <Image
-                  src={preview}
-                  alt={`Preview ${index + 1}`}
-                  fill
-                  unoptimized
-                  className="object-cover rounded-md"
-                />
-                <button
-                  type="button"
-                  className="absolute top-0 right-0 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRemoveRestoredPhoto(index);
-                  }}
-                  aria-label={`Remove photo ${index + 1}`}
-                >
-                  <span className="w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center">
-                    <X className="h-3.5 w-3.5" />
-                  </span>
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {restoredPreviews.length >= 2 && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowClearConfirm(true)}
-              className="w-full"
-            >
-              Clear All
-            </Button>
-          )}
-        </div>
-      )}
-
-      {previews.length > 0 && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            {previews.map((preview, index) => (
-              <div
-                key={`preview-${index}`}
-                role="button"
-                tabIndex={0}
-                className="relative aspect-square cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded-md"
-                onClick={() => handlePreviewClick(index)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handlePreviewClick(index); } }}
-                aria-label={`View full-size preview ${index + 1}`}
-              >
-                <Image
-                  src={preview}
-                  alt={`Preview ${index + 1}`}
-                  fill
-                  unoptimized
-                  className="object-cover rounded-md"
-                />
-                {processingCount === 0 && (
-                  <button
-                    type="button"
-                    className="absolute top-0 right-0 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRemovePhoto(index);
-                    }}
-                    aria-label={`Remove photo ${index + 1}`}
-                  >
-                    <span className="w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center">
-                      <X className="h-3.5 w-3.5" />
-                    </span>
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {photos.length >= 2 && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleClearClick}
-              className="w-full"
-            >
-              Clear All
-            </Button>
-          )}
-        </div>
-      )}
-
       <PhotoPreviewDialog
         open={previewDialogOpen}
         onOpenChange={setPreviewDialogOpen}
@@ -499,20 +418,6 @@ export function PhotoCapture({
         imageAlt={selectedPreviewIndex !== null ? `Preview ${selectedPreviewIndex + 1}` : undefined}
       />
 
-      <AlertDialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Clear all photos?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove all {photos.length > 0 ? photos.length : restoredPreviews.length} selected photos. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={photos.length > 0 ? doClear : () => { handleClearRestoredPhotos(); setShowClearConfirm(false); }}>Confirm</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

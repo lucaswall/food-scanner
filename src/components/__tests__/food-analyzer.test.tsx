@@ -127,31 +127,45 @@ vi.mock("../photo-capture", () => ({
     onPhotosChange: (files: File[]) => void;
     autoCapture?: boolean;
     restoredBlobs?: Blob[];
-  }) => (
-    <div data-testid="photo-capture" data-auto-capture={String(!!autoCapture)} data-restored-count={restoredBlobs?.length ?? 0}>
-      <button
-        onClick={() =>
-          onPhotosChange([new File(["test"], "test.jpg", { type: "image/jpeg" })])
-        }
-      >
-        Add Photo
-      </button>
-      <button
-        onClick={() =>
-          onPhotosChange([
-            new File(["test1"], "test1.jpg", { type: "image/jpeg" }),
-            new File(["test2"], "test2.jpg", { type: "image/jpeg" }),
-          ])
-        }
-      >
-        Add Two Photos
-      </button>
-      <button onClick={() => onPhotosChange([])}>Clear Photos</button>
-      {restoredBlobs && restoredBlobs.length > 0 && (
-        <span data-testid="restored-photos-indicator">{restoredBlobs.length} restored</span>
-      )}
-    </div>
-  ),
+  }) => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { useState: useStateFn } = require("react");
+    const [internalPhotos, setInternalPhotos] = useStateFn([] as string[]);
+
+    return (
+      <div data-testid="photo-capture" data-auto-capture={String(!!autoCapture)} data-restored-count={restoredBlobs?.length ?? 0}>
+        <button
+          onClick={() => {
+            const file = new File(["test"], "test.jpg", { type: "image/jpeg" });
+            setInternalPhotos((prev: string[]) => [...prev, "test.jpg"]);
+            onPhotosChange([file]);
+          }}
+        >
+          Add Photo
+        </button>
+        <button
+          onClick={() =>
+            onPhotosChange([
+              new File(["test1"], "test1.jpg", { type: "image/jpeg" }),
+              new File(["test2"], "test2.jpg", { type: "image/jpeg" }),
+            ])
+          }
+        >
+          Add Two Photos
+        </button>
+        <button onClick={() => onPhotosChange([])}>Clear Photos</button>
+        {internalPhotos.map((name: string, i: number) => (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img key={i} src={`blob:${name}`} alt={`Preview ${i + 1}`} data-testid="photo-preview" />
+          </>
+        ))}
+        {restoredBlobs && restoredBlobs.length > 0 && (
+          <span data-testid="restored-photos-indicator">{restoredBlobs.length} restored</span>
+        )}
+      </div>
+    );
+  },
 }));
 
 vi.mock("../description-input", () => ({
@@ -1293,6 +1307,35 @@ describe("FoodAnalyzer", () => {
       expect(mockClearSession).not.toHaveBeenCalled();
       // Start over button should still be visible (photos still present)
       expect(screen.getByRole("button", { name: /start over/i })).toBeInTheDocument();
+    });
+
+    it("confirming Start Over re-mounts PhotoCapture, clearing all thumbnails", async () => {
+      render(<FoodAnalyzer />);
+
+      // Add a photo — should render a preview inside the mock PhotoCapture
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("photo-preview")).toBeInTheDocument();
+      });
+
+      // Click Start over
+      fireEvent.click(screen.getByRole("button", { name: /start over/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Start over?")).toBeInTheDocument();
+      });
+
+      // Confirm the dialog
+      const dialogActions = screen.getAllByRole("button", { name: /start over/i });
+      const confirmButton = dialogActions[dialogActions.length - 1];
+      fireEvent.click(confirmButton);
+
+      // PhotoCapture should have re-mounted: no preview images, but camera input still exists
+      await waitFor(() => {
+        expect(screen.queryByTestId("photo-preview")).not.toBeInTheDocument();
+      });
+      expect(screen.getByTestId("photo-capture")).toBeInTheDocument();
     });
   });
 

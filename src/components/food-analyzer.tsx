@@ -85,6 +85,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [chatOpen, setChatOpen] = useState(false);
   const [seedMessages, setSeedMessages] = useState<ConversationMessage[] | null>(null);
   const [showStartOverConfirm, setShowStartOverConfirm] = useState(false);
+  const [photoCaptureKey, setPhotoCaptureKey] = useState(0);
   const autoCaptureUsedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -140,6 +141,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     actions.setDescription("");
     actions.clearSession();
     setShowStartOverConfirm(false);
+    setPhotoCaptureKey(k => k + 1);
   };
 
   const handleAnalyze = async () => {
@@ -707,7 +709,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      <PhotoCapture onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} restoredBlobs={wasRestored && convertedPhotoBlobs.length > 0 ? (convertedPhotoBlobs as Blob[]) : undefined} />
+      <PhotoCapture key={photoCaptureKey} onPhotosChange={handlePhotosChange} autoCapture={autoCapture && !autoCaptureUsedRef.current} restoredBlobs={wasRestored && convertedPhotoBlobs.length > 0 ? (convertedPhotoBlobs as Blob[]) : undefined} />
 
       <DescriptionInput value={description} onChange={actions.setDescription} disabled={loading || logging || compressing} />
 
