@@ -1432,6 +1432,40 @@ describe("FoodAnalyzer", () => {
       });
     });
 
+    it("uses opaque background and bottom border when keyboard is open", async () => {
+      mockKeyboardHeight.current = 300;
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "some food" } });
+
+      await waitFor(() => {
+        const stickyBar = screen.getByTestId("sticky-cta-bar");
+        const innerContainer = stickyBar.firstElementChild as HTMLElement;
+        expect(innerContainer.className).toContain("bg-background");
+        expect(innerContainer.className).not.toContain("bg-background/80");
+        expect(innerContainer.className).toContain("border-b");
+      });
+
+      mockKeyboardHeight.current = 0;
+    });
+
+    it("uses translucent background when keyboard is closed", async () => {
+      mockKeyboardHeight.current = 0;
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "some food" } });
+
+      await waitFor(() => {
+        const stickyBar = screen.getByTestId("sticky-cta-bar");
+        const innerContainer = stickyBar.firstElementChild as HTMLElement;
+        expect(innerContainer.className).toContain("bg-background/80");
+        expect(innerContainer.className).toContain("backdrop-blur-sm");
+        expect(innerContainer.className).not.toContain("border-b");
+      });
+    });
+
     it("is not rendered when logResponse exists", async () => {
       mockFetch
         .mockResolvedValueOnce({

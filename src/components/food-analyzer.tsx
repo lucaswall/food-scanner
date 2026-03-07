@@ -812,7 +812,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       className={`fixed left-0 right-0 z-40 px-4 ${keyboardHeight === 0 ? "bottom-[calc(4rem+env(safe-area-inset-bottom))]" : ""}`}
       style={keyboardHeight > 0 ? { bottom: `${keyboardHeight}px` } : undefined}
     >
-      <div className="mx-auto w-full max-w-md py-3 bg-background/80 backdrop-blur-sm border-t">
+      <div className={`mx-auto w-full max-w-md py-3 border-t ${keyboardHeight > 0 ? "bg-background border-b pb-4" : "bg-background/80 backdrop-blur-sm"}`}>
         <Button
           onClick={analysis ? handleLogToFitbit : handleAnalyze}
           disabled={analysis ? logging : !canAnalyze}

@@ -136,3 +136,33 @@
 **Scope:** 4 tasks, 4 files, 4 tests
 **Key Decisions:** Keep buttons visible but non-functional during processing (early return handles the race condition). Switch CTA bar from translucent to opaque when keyboard is open.
 **Risks:** Removing a photo during processing could theoretically cause index mismatches, but the existing filter-by-index approach in `handleRemovePhoto` is safe since processing placeholders are separate from previews.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-07
+**Method:** Single-agent (effort score 5, worker overhead exceeds implementation time)
+
+### Tasks Completed This Iteration
+- Task 1: Keep delete buttons visible during HEIC processing — removed `processingCount === 0` guard, added early return in `handleRemovePhoto` to prevent stale closure race
+- Task 2: Keep Take Photo / Gallery buttons visible during processing — decoupled `canAddMore` from `processingCount`
+- Task 3: Only convert new HEIC files — refactored `handleFileChange` to preserve existing `convertedBlobsState` and only process new files
+- Task 4: Fix sticky CTA bar floating appearance — conditional opaque `bg-background` + `border-b` when keyboard is open
+
+### Files Modified
+- `src/components/photo-capture.tsx` — removed button visibility guards, optimized HEIC conversion to new files only, added race condition guard in `handleRemovePhoto`
+- `src/components/__tests__/photo-capture.test.tsx` — updated 2 existing tests to expect visible buttons during processing, added 1 new test for HEIC re-conversion optimization
+- `src/components/food-analyzer.tsx` — conditional CTA bar styling based on `keyboardHeight`
+- `src/components/__tests__/food-analyzer.test.tsx` — added 2 new tests for CTA bar opaque/translucent background
+
+### Linear Updates
+- FOO-852: Todo → In Progress → Review
+- FOO-853: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 high bug (stale closure race in handleRemovePhoto during processing), fixed with early return guard. 2 medium bugs were pre-existing and out of scope.
+- verifier: All 2631 tests pass, zero warnings
+
+### Continuation Status
+All tasks completed.
