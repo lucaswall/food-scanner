@@ -44,7 +44,7 @@
 
 ## Tasks
 
-### Task 1: Move "Start over" to the page header row
+### Task 1: Move "Start over" into the page header row
 **Linear Issue:** [FOO-843](https://linear.app/lw-claude/issue/FOO-843/ui-fix-analyze-screen-ux-layout-shift-keyboard-hidden-cta-photo-button)
 **Files:**
 - `src/app/app/analyze/page.tsx` (modify)
@@ -52,13 +52,13 @@
 - `src/components/__tests__/food-analyzer.test.tsx` (modify)
 
 **Steps:**
-1. Update tests in the "Start over button" describe block: the "Start over" button should render in a header row alongside a heading, not as a standalone block that shifts content. Update the test that checks "is NOT shown when no content exists" — the button element should still exist in the DOM but be visually hidden (e.g., check for an invisible/opacity class or `pointer-events-none`). Tests that check it IS shown when content exists should verify the button is visible and clickable.
+1. Update tests in the "Start over button" describe block: the "Start over" button should render inside a flex row that also contains the `<h1>Analyze Food</h1>` heading. When `hasContent` is false the button is not in the DOM (conditional render is fine). When `hasContent` is true the button appears — but no layout shift occurs because the row height is always set by the h1, not the button. Tests that check "is NOT shown when no content exists" stay as-is (button not in DOM). Tests that check it IS shown should verify the button is inside the same container as the heading.
 2. Run verifier with pattern "Start over" (expect fail)
-3. In `food-analyzer.tsx`, move the page heading (`<h1>Analyze Food</h1>`) from `page.tsx` into `FoodAnalyzer` as the first element. Wrap it in a `flex items-center justify-between` row with the "Start over" button. Remove the `{hasContent && ...}` conditional wrapper. Instead, always render the button but toggle `opacity-0 pointer-events-none` when `!hasContent` and `opacity-100` when `hasContent`, so the row height is always reserved. Remove the now-empty `<h1>` from `page.tsx`.
+3. In `food-analyzer.tsx`, move the `<h1>Analyze Food</h1>` from `page.tsx` into `FoodAnalyzer` as the first element inside the main `div`. Wrap it in a `flex items-center justify-between` row. Place the "Start over" button (conditionally rendered with `{hasContent && ...}`) on the right side of this row. Since the h1 always determines the row height, conditionally adding/removing the button causes no vertical shift. Remove the standalone `{hasContent && <div className="flex">...}` block that currently sits between the error display and PhotoCapture. Remove the `<h1>` from `page.tsx`.
 4. Run verifier with pattern "Start over" (expect pass)
 
 **Notes:**
-- Moving the h1 into FoodAnalyzer keeps all analyze screen UI together and avoids prop drilling for `hasContent`/`onStartOver`.
+- The h1 anchors the row height — the button appearing/disappearing doesn't shift anything because it's in the same flex row, not a separate block above the content.
 - The AlertDialog for confirmation stays inside `food-analyzer.tsx` unchanged.
 
 ### Task 2: Reposition sticky CTA above virtual keyboard
@@ -114,7 +114,7 @@
 
 **Objective:** Fix four UX issues on the analyze screen that break the mobile workflow — layout shift, hidden CTA, disappearing photo buttons, and confusing dropdown.
 **Linear Issues:** FOO-843
-**Approach:** (1) Move "Start over" into a header row with the h1 and toggle visibility via opacity instead of conditional rendering to prevent layout shift. (2) Create a `useKeyboardHeight` hook using the `visualViewport` API and use it to reposition the sticky CTA above the virtual keyboard. (3) Show "Take Photo"/"Choose from Gallery" buttons whenever more photos can be added, and remove the + tile with its dropdown menu entirely.
+**Approach:** (1) Move "Start over" into the same flex row as the h1 heading — the h1 anchors the row height so the button appearing/disappearing causes no layout shift. (2) Create a `useKeyboardHeight` hook using the `visualViewport` API and use it to reposition the sticky CTA above the virtual keyboard. (3) Show "Take Photo"/"Choose from Gallery" buttons whenever more photos can be added, and remove the + tile with its dropdown menu entirely.
 **Scope:** 3 tasks, 6 files, ~8 tests
-**Key Decisions:** Use opacity/pointer-events instead of conditional rendering for "Start over" to avoid layout shift without changing component API. Use `visualViewport` API (widely supported) for keyboard detection rather than heuristics. Move h1 into FoodAnalyzer to co-locate the header row.
+**Key Decisions:** Keep conditional rendering for "Start over" but place it inside the h1 row so the row height is stable. Use `visualViewport` API (widely supported) for keyboard detection. Move h1 into FoodAnalyzer to co-locate the header row.
 **Risks:** `visualViewport` behavior varies slightly across browsers — the hook should gracefully fall back to 0 if the API is unavailable. Tests will need to mock `window.visualViewport`.
