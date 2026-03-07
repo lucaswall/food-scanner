@@ -1881,6 +1881,47 @@ describe("DailyDashboard", () => {
     });
   });
 
+  describe("History link", () => {
+    it("renders a History link pointing to /app/history with Clock icon", async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockGoals }),
+          });
+        }
+        if (url.includes("/api/lumen-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockLumenGoals }),
+          });
+        }
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: "2026-01-01" } }),
+          });
+        }
+        return Promise.reject(new Error("Unknown URL"));
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        const historyLink = screen.getByRole("link", { name: /history/i });
+        expect(historyLink).toBeInTheDocument();
+        expect(historyLink).toHaveAttribute("href", "/app/history");
+        expect(historyLink).toHaveClass("min-h-[44px]", "w-full");
+      });
+    });
+  });
+
   describe("entry interactions (FOO-749)", () => {
     function setupWithEntries(deleteResponse?: { ok: boolean; error?: { code: string; message: string } }) {
       mockFetch.mockImplementation((url: string, options?: RequestInit) => {
