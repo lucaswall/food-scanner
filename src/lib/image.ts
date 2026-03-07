@@ -29,7 +29,7 @@ export async function convertHeicToJpeg(file: File): Promise<Blob> {
   // Dynamic import - only loads when function is called (client-side only)
   // This prevents "window is not defined" SSR errors since heic-to
   // accesses browser-only APIs during module initialization
-  const { heicTo } = await import("heic-to");
+  const { heicTo } = await import("heic-to/csp");
 
   // heic-to returns a single Blob (unlike heic2any which returned arrays)
   const result = await heicTo({
