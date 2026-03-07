@@ -114,25 +114,18 @@ test.describe('Analyze Page - Photo Capture Flow', () => {
     await captureScreenshots(page, 'analyze-photos-result');
   });
 
-  test('clear all removes selected photos', async ({ page }) => {
+  test('individual X buttons remove photos', async ({ page }) => {
     await page.goto('/app/analyze');
     await page.waitForLoadState('networkidle');
 
-    // Select two photos (Clear All button only appears when >= 2 photos)
+    // Select a photo
     const galleryInput = page.locator('[data-testid="gallery-input"]');
     const testImage = path.join(__dirname, '..', 'fixtures', 'test-image.jpg');
     await galleryInput.setInputFiles(testImage);
     await expect(page.getByText('1/9 photos selected')).toBeVisible({ timeout: 5000 });
 
-    // Add second photo
-    await galleryInput.setInputFiles(testImage);
-    await expect(page.getByText('2/9 photos selected')).toBeVisible({ timeout: 5000 });
-
-    // Click Clear All
-    await page.getByRole('button', { name: 'Clear All' }).click();
-
-    // Confirm the clear action in the alert dialog
-    await page.getByRole('button', { name: 'Confirm' }).click();
+    // Remove photo via X button
+    await page.getByRole('button', { name: 'Remove photo 1' }).click();
 
     // Verify photos are cleared: counter goes back to 0/9
     await expect(page.getByText('0/9 photos selected')).toBeVisible({ timeout: 3000 });
