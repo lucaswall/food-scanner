@@ -14,13 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { PhotoPreviewDialog } from "@/components/photo-preview-dialog";
 import Image from "next/image";
-import { Camera, ImageIcon, Plus, X } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
+import { Camera, ImageIcon, X } from "lucide-react";
 import { isHeicFile, convertHeicToJpeg } from "@/lib/image";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -313,7 +307,6 @@ export function PhotoCapture({
   };
 
   const totalPhotoCount = photos.length > 0 ? photos.length : restoredPreviews.length;
-  const hasPhotos = totalPhotoCount > 0;
   const canAddMore = totalPhotoCount < maxPhotos && processingCount === 0;
 
   return (
@@ -339,8 +332,8 @@ export function PhotoCapture({
         className="hidden"
       />
 
-      {/* Action buttons — only shown when no photos exist (empty state) */}
-      {!hasPhotos && (
+      {/* Action buttons — shown whenever more photos can be added */}
+      {canAddMore && (
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button
             type="button"
@@ -426,29 +419,6 @@ export function PhotoCapture({
                 </button>
               </div>
             ))}
-            {canAddMore && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    data-testid="add-photo-tile"
-                    className="aspect-square rounded-md border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer"
-                  >
-                    <Plus className="h-6 w-6 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem onClick={handleTakePhoto}>
-                    <Camera className="mr-2 h-4 w-4" />
-                    Take photo
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleChooseFromGallery}>
-                    <ImageIcon className="mr-2 h-4 w-4" />
-                    Choose from gallery
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
           </div>
 
           {restoredPreviews.length >= 2 && (
@@ -501,29 +471,6 @@ export function PhotoCapture({
                 )}
               </div>
             ))}
-            {canAddMore && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    data-testid="add-photo-tile"
-                    className="aspect-square rounded-md border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer"
-                  >
-                    <Plus className="h-6 w-6 text-muted-foreground" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem onClick={handleTakePhoto}>
-                    <Camera className="mr-2 h-4 w-4" />
-                    Take photo
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleChooseFromGallery}>
-                    <ImageIcon className="mr-2 h-4 w-4" />
-                    Choose from gallery
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
           </div>
 
           {photos.length >= 2 && (

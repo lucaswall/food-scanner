@@ -110,6 +110,41 @@
 
 ---
 
+## Iteration 1
+
+**Date:** 2026-03-07
+**Method:** Single-agent (2 independent units, 8 effort points)
+
+### Tasks Completed
+
+1. **Task 1: Move "Start over" into the page header row** — Moved `<h1>Analyze Food</h1>` from `page.tsx` into `food-analyzer.tsx`, wrapped in a `flex items-center justify-between` row with the conditionally-rendered "Start over" button. The h1 anchors the row height so the button appearing/disappearing causes no layout shift.
+
+2. **Task 2: Reposition sticky CTA above virtual keyboard** — Created `useKeyboardHeight` hook (`src/hooks/use-keyboard-height.ts`) using the `visualViewport` API. When keyboard is open, sticky CTA positions at `keyboardHeight` pixels from bottom via inline style. When closed, falls back to the existing Tailwind class `bottom-[calc(4rem+env(safe-area-inset-bottom))]`.
+
+3. **Task 3: Keep photo buttons always visible, remove + tile dropdown** — Changed `{!hasPhotos && ...}` guard to `{canAddMore && ...}` so "Take Photo"/"Choose from Gallery" buttons show whenever more photos can be added. Removed `DropdownMenu` + `Plus` tile from both preview sections. Removed unused imports.
+
+### Verification
+
+- **bug-hunter:** No bugs found. Verified safe patterns: keyboard height formula, SSR safety, canAddMore exclusivity with processing state.
+- **verifier:** All 2628 tests passed, lint clean, build clean. Fixed stale heading assertion in `page.test.tsx` and removed unused `hasPhotos` variable.
+
+### Files Modified
+- `src/app/app/analyze/page.tsx` — Removed `<h1>` (moved to FoodAnalyzer)
+- `src/app/app/analyze/__tests__/page.test.tsx` — Removed stale heading assertion
+- `src/components/food-analyzer.tsx` — Added header row with h1 + Start over, keyboard-aware sticky CTA
+- `src/components/photo-capture.tsx` — Changed `!hasPhotos` to `canAddMore`, removed dropdown + tile, removed unused imports
+- `src/hooks/use-keyboard-height.ts` — New hook
+- `src/hooks/__tests__/use-keyboard-height.test.ts` — New tests (6)
+- `src/components/__tests__/food-analyzer.test.tsx` — Added h1/keyboard tests, mock for useKeyboardHeight
+- `src/components/__tests__/photo-capture.test.tsx` — Replaced dropdown tests with button visibility tests
+
+### Tasks Remaining
+None — all 3 tasks complete.
+
+### Status: COMPLETE
+
+---
+
 ## Plan Summary
 
 **Objective:** Fix four UX issues on the analyze screen that break the mobile workflow — layout shift, hidden CTA, disappearing photo buttons, and confusing dropdown.

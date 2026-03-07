@@ -13,6 +13,7 @@ import { FoodChat } from "./food-chat";
 import { compressImage } from "@/lib/image";
 import { vibrateError } from "@/lib/haptics";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { useKeyboardHeight } from "@/hooks/use-keyboard-height";
 import { useAnalysisSession } from "@/hooks/use-analysis-session";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -89,6 +90,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const compressionWarningTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const findMatchesGenerationRef = useRef(0);
   const textDeltaBufferRef = useRef("");
+
+  const keyboardHeight = useKeyboardHeight();
 
   const canAnalyze = (photos.length > 0 || convertedPhotoBlobs.length > 0 || description.trim().length > 0) && !compressing && !loading && !logging;
   const canLog = analysis !== null && !loading && !logging;
@@ -662,6 +665,20 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   return (
     <>
     <div className="space-y-4 pb-24">
+      {/* Header row: h1 always present (anchors row height), Start over conditionally rendered */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Analyze Food</h1>
+        {hasContent && (
+          <button
+            onClick={() => setShowStartOverConfirm(true)}
+            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 min-h-[44px]"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Start over
+          </button>
+        )}
+      </div>
+
       {/* Resubmit error (shown when no analysis context) */}
       {logError && !analysis && (
         <div
@@ -670,18 +687,6 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           aria-live="polite"
         >
           <p className="text-sm text-destructive">{logError}</p>
-        </div>
-      )}
-
-      {hasContent && (
-        <div className="flex">
-          <button
-            onClick={() => setShowStartOverConfirm(true)}
-            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1.5 min-h-[44px] ml-auto"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            Start over
-          </button>
         </div>
       )}
 
@@ -802,7 +807,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     {(hasContent || loading || compressing) && (
     <div
       data-testid="sticky-cta-bar"
-      className="fixed bottom-[calc(4rem+env(safe-area-inset-bottom))] left-0 right-0 z-40 px-4"
+      className={`fixed left-0 right-0 z-40 px-4 ${keyboardHeight === 0 ? "bottom-[calc(4rem+env(safe-area-inset-bottom))]" : ""}`}
+      style={keyboardHeight > 0 ? { bottom: `${keyboardHeight}px` } : undefined}
     >
       <div className="mx-auto w-full max-w-md py-3 bg-background/80 backdrop-blur-sm border-t">
         <Button

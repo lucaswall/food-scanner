@@ -22,8 +22,6 @@ export default async function AnalyzePage({ searchParams }: AnalyzePageProps) {
     <div className="min-h-screen px-4 py-6">
       <SkipLink />
       <main id="main-content" className="mx-auto w-full max-w-md flex flex-col gap-6">
-        <h1 className="text-2xl font-bold">Analyze Food</h1>
-
         <FitbitSetupGuard>
           <FoodAnalyzer autoCapture={autoCapture} />
         </FitbitSetupGuard>

@@ -45,13 +45,6 @@ describe("/app/analyze page", () => {
     expect(mockRedirect).toHaveBeenCalledWith("/");
   });
 
-  it("renders 'Analyze Food' heading", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    const jsx = await AnalyzePage({ searchParams: Promise.resolve({}) });
-    render(jsx);
-    expect(screen.getByText("Analyze Food")).toBeInTheDocument();
-  });
-
   it("renders FoodAnalyzer component", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const jsx = await AnalyzePage({ searchParams: Promise.resolve({}) });

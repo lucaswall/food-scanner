@@ -1336,8 +1336,8 @@ describe("PhotoCapture", () => {
     });
   });
 
-  describe("add-more tile", () => {
-    it("shows a + add tile as the last grid item when photos exist and count < max", async () => {
+  describe("add-more buttons", () => {
+    it("shows Take Photo and Choose from Gallery buttons when photos exist and count < max", async () => {
       const onPhotosChange = vi.fn();
       render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
 
@@ -1347,11 +1347,12 @@ describe("PhotoCapture", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /choose from gallery/i })).toBeInTheDocument();
       });
     });
 
-    it("does not show + tile when photo count equals max", async () => {
+    it("hides buttons when photo count equals max", async () => {
       const onPhotosChange = vi.fn();
       render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={1} />);
 
@@ -1364,97 +1365,19 @@ describe("PhotoCapture", () => {
         expect(screen.getAllByRole("img")).toHaveLength(1);
       });
 
-      expect(screen.queryByTestId("add-photo-tile")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /take photo/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /choose from gallery/i })).not.toBeInTheDocument();
     });
 
-    it("clicking + tile opens a dropdown with Take photo and Choose from gallery", async () => {
-      const user = userEvent.setup();
-      const onPhotosChange = vi.fn();
-      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
-
-      const galleryInput = screen.getByTestId("gallery-input");
-      fireEvent.change(galleryInput, {
-        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
-      });
-
-      // Click the + tile trigger using userEvent (Radix needs pointer events)
-      await user.click(screen.getByTestId("add-photo-tile"));
-
-      await waitFor(() => {
-        expect(screen.getByRole("menuitem", { name: /take photo/i })).toBeInTheDocument();
-        expect(screen.getByRole("menuitem", { name: /choose from gallery/i })).toBeInTheDocument();
-      });
-    });
-
-    it("selecting Take photo from dropdown triggers camera input click", async () => {
-      const user = userEvent.setup();
-      const onPhotosChange = vi.fn();
-      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
-
-      const galleryInput = screen.getByTestId("gallery-input");
-      fireEvent.change(galleryInput, {
-        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
-      });
-
-      const cameraInput = screen.getByTestId("camera-input") as HTMLInputElement;
-      const clickSpy = vi.spyOn(cameraInput, "click");
-
-      await user.click(screen.getByTestId("add-photo-tile"));
-
-      await waitFor(() => {
-        expect(screen.getByRole("menuitem", { name: /take photo/i })).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByRole("menuitem", { name: /take photo/i }));
-
-      expect(clickSpy).toHaveBeenCalled();
-    });
-
-    it("selecting Choose from gallery from dropdown triggers gallery input click", async () => {
-      const user = userEvent.setup();
-      const onPhotosChange = vi.fn();
-      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
-
-      const galleryInput = screen.getByTestId("gallery-input") as HTMLInputElement;
-      fireEvent.change(galleryInput, {
-        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
-      });
-
-      await waitFor(() => {
-        expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
-      });
-
-      const clickSpy = vi.spyOn(galleryInput, "click");
-
-      await user.click(screen.getByTestId("add-photo-tile"));
-
-      await waitFor(() => {
-        expect(screen.getByRole("menuitem", { name: /choose from gallery/i })).toBeInTheDocument();
-      });
-
-      await user.click(screen.getByRole("menuitem", { name: /choose from gallery/i }));
-
-      expect(clickSpy).toHaveBeenCalled();
-    });
-
-    it("when no photos exist, the full-width camera/gallery buttons are shown", () => {
+    it("when no photos exist, buttons are shown", () => {
       const onPhotosChange = vi.fn();
       render(<PhotoCapture onPhotosChange={onPhotosChange} />);
 
       expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /choose from gallery/i })).toBeInTheDocument();
-      expect(screen.queryByTestId("add-photo-tile")).not.toBeInTheDocument();
     });
 
-    it("+ tile is not shown during processing", async () => {
+    it("buttons are hidden during processing", async () => {
       const onPhotosChange = vi.fn();
       let resolveConversion: (value: Blob) => void;
       const conversionPromise = new Promise<Blob>((resolve) => {
@@ -1474,21 +1397,23 @@ describe("PhotoCapture", () => {
         expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
       });
 
-      expect(screen.queryByTestId("add-photo-tile")).not.toBeInTheDocument();
+      // canAddMore is false during processing, so buttons are hidden
+      expect(screen.queryByRole("button", { name: /take photo/i })).not.toBeInTheDocument();
 
       resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
     });
 
-    it("shows + tile for restored photos when count < max", () => {
+    it("shows buttons for restored photos when count < max", () => {
       const onPhotosChange = vi.fn();
       const blobs = [new Blob(["img1"], { type: "image/jpeg" })];
 
       render(<PhotoCapture onPhotosChange={onPhotosChange} restoredBlobs={blobs} maxPhotos={3} />);
 
-      expect(screen.getByTestId("add-photo-tile")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /choose from gallery/i })).toBeInTheDocument();
     });
 
-    it("hides full-width buttons when photos exist", async () => {
+    it("buttons remain visible when photos exist and canAddMore is true", async () => {
       const onPhotosChange = vi.fn();
       render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
 
@@ -1504,9 +1429,25 @@ describe("PhotoCapture", () => {
         expect(screen.getAllByRole("img")).toHaveLength(1);
       });
 
-      // Full-width buttons should be hidden (only + tile with dropdown replaces them)
-      expect(screen.queryByRole("button", { name: /take photo/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /choose from gallery/i })).not.toBeInTheDocument();
+      // Buttons should still be visible (canAddMore is true)
+      expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /choose from gallery/i })).toBeInTheDocument();
+    });
+
+    it("no dropdown menu or add-photo-tile exists", async () => {
+      const onPhotosChange = vi.fn();
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={3} />);
+
+      const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(1);
+      });
+
+      expect(screen.queryByTestId("add-photo-tile")).not.toBeInTheDocument();
     });
   });
 
