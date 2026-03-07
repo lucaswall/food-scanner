@@ -1,109 +1,132 @@
 # Implementation Plan
 
 **Created:** 2026-03-07
-**Source:** Bug report: Analyze screen UX — layout shift from "Start over", CTA hidden by keyboard, photo buttons disappear, confusing + tile dropdown
-**Linear Issues:** [FOO-843](https://linear.app/lw-claude/issue/FOO-843/ui-fix-analyze-screen-ux-layout-shift-keyboard-hidden-cta-photo-button)
-**Branch:** fix/FOO-843-analyze-screen-ux
-**Status:** COMPLETE
+**Source:** Backlog: FOO-847, FOO-848, FOO-849, FOO-850, FOO-851
+**Linear Issues:** [FOO-847](https://linear.app/lw-claude/issue/FOO-847/start-over-does-not-clear-photo-thumbnails-in-photocapture), [FOO-848](https://linear.app/lw-claude/issue/FOO-848/remove-redundant-clear-all-button-from-photocapture), [FOO-849](https://linear.app/lw-claude/issue/FOO-849/heic-processing-placeholder-appears-above-existing-photos-instead-of), [FOO-850](https://linear.app/lw-claude/issue/FOO-850/move-history-link-from-top-banner-to-bottom-button-on-home-screen), [FOO-851](https://linear.app/lw-claude/issue/FOO-851/dialog-and-alertdialog-popups-fly-in-from-top-left-instead-of)
+**Branch:** fix/ux-polish-batch-2
 
 ## Context Gathered
 
 ### Codebase Analysis
-- **Related files:**
-  - `src/components/food-analyzer.tsx` — Main analyzer component with "Start over" button and sticky CTA
-  - `src/components/photo-capture.tsx` — Photo capture with conditional buttons and + tile dropdown
-  - `src/app/app/analyze/page.tsx` — Page layout with `<h1>Analyze Food</h1>` header
-  - `src/components/__tests__/food-analyzer.test.tsx` — Extensive tests including "Start over button" describe block
-  - `src/components/__tests__/photo-capture.test.tsx` — Tests for add-photo-tile dropdown behavior
-- **Existing patterns:**
-  - Sticky CTA bar uses `fixed bottom-[calc(4rem+env(safe-area-inset-bottom))]` positioning
-  - Photo buttons use shadcn `Button` with `variant="outline"`
-  - DropdownMenu from `@/components/ui/dropdown-menu` wraps the + tile
-  - `hasContent` boolean gates "Start over" visibility
-- **Test conventions:** Colocated `__tests__/` dirs, `vi.fn()` mocks, `waitFor` for async, `fireEvent`/`userEvent`
 
-### Investigation
+- **Dialog components:** `src/components/ui/dialog.tsx` (line 39, default variant) and `src/components/ui/alert-dialog.tsx` (line 39) both have `slide-in-from-left-1/2` + `slide-in-from-top-[48%]` animation classes that compound with `translate-x-[-50%] translate-y-[-50%]` positioning, causing fly-in from top-left. The `bottom-sheet` variant in dialog.tsx is unaffected (uses `slide-in-from-bottom`). `photo-preview-dialog.tsx` uses zoom-only and is also unaffected.
+- **PhotoCapture state:** `src/components/photo-capture.tsx` manages internal `useState` for `photos`, `previews`, `restoredPreviews`, `processingCount`, etc. The parent `FoodAnalyzer` has no mechanism to reset these — `handleStartOver` (food-analyzer.tsx:137) clears session state but PhotoCapture's internal state persists. No `key` prop is passed to `<PhotoCapture>` at food-analyzer.tsx:710.
+- **PhotoCapture Clear All:** Two "Clear All" buttons exist at photo-capture.tsx:430-439 (restored photos, shown when >=2) and :482-491 (new photos, shown when >=2). Each triggers a shared `AlertDialog` confirmation. Individual photo X buttons also exist.
+- **HEIC placeholders:** Processing placeholders are rendered in their own grid (photo-capture.tsx:376-390), a separate block BEFORE the previews grids (lines 393-493). They should be inline grid items after existing photos.
+- **History link:** Currently in `src/components/dashboard-shell.tsx:17-27` as a card-styled `<Link>` above the segmented control. Should move to `src/components/daily-dashboard.tsx` near Settings link (line 448).
+- **Bottom button pattern:** `daily-dashboard.tsx:448-454` — Settings link uses `<Link>` with inline button classes, icon, `min-h-[44px]`, `w-full`.
+- **Test files:** `dashboard-shell.test.tsx`, `daily-dashboard.test.tsx`, `photo-capture.test.tsx`, `food-analyzer.test.tsx`, `e2e/tests/analyze-photos.spec.ts`
 
-**Bug report:** Four UX issues on the analyze screen: (1) "Start over" link appears when typing, shifting UI down; (2) Analyze button hidden behind mobile keyboard; (3) Photo buttons disappear after first photo; (4) Dropdown menu on + tile is confusing.
+### Triage Results
 
-**Classification:** Frontend Bug / High / Analyze Screen
-
-**Root cause:**
-1. Conditional rendering `{hasContent && ...}` at `food-analyzer.tsx:676` inserts "Start over" into the flow when user starts typing, pushing all content down.
-2. Sticky CTA at `food-analyzer.tsx:803-806` uses `fixed bottom-[calc(4rem+...)]` which doesn't account for the virtual keyboard on mobile — the button stays behind the keyboard.
-3. `{!hasPhotos && ...}` guard at `photo-capture.tsx:343` hides "Take Photo"/"Choose from Gallery" buttons entirely when any photo exists.
-4. `DropdownMenu` wrapping the + tile at `photo-capture.tsx:504-526` (and `429-451` for restored) introduces an unexpected interaction pattern.
-
-**Evidence:**
-- `src/components/food-analyzer.tsx:676-686` — "Start over" conditionally rendered inline
-- `src/components/food-analyzer.tsx:803-806` — Sticky CTA fixed positioning
-- `src/components/photo-capture.tsx:343` — `{!hasPhotos && ...}` hides buttons
-- `src/components/photo-capture.tsx:504-526` — DropdownMenu on + tile
-- `src/app/app/analyze/page.tsx:25` — `<h1>` header where "Start over" should move to
-
-**Impact:** On mobile, the primary workflow (take photo -> type description -> analyze) is broken because: the UI jumps when typing, the analyze button is unreachable with keyboard open, and adding more photos requires discovering a hidden interaction pattern.
+**Planned:** FOO-847, FOO-848, FOO-849, FOO-850, FOO-851
+**Canceled:** (none)
 
 ## Tasks
 
-### Task 1: Move "Start over" into the page header row
-**Linear Issue:** [FOO-843](https://linear.app/lw-claude/issue/FOO-843/ui-fix-analyze-screen-ux-layout-shift-keyboard-hidden-cta-photo-button)
+### Task 1: Fix dialog and alert-dialog fly-in animation
+**Linear Issue:** [FOO-851](https://linear.app/lw-claude/issue/FOO-851/dialog-and-alertdialog-popups-fly-in-from-top-left-instead-of)
 **Files:**
-- `src/app/app/analyze/page.tsx` (modify)
+- `src/components/ui/dialog.tsx` (modify)
+- `src/components/ui/alert-dialog.tsx` (modify)
+
+**Steps:**
+1. These are vendored shadcn/ui primitives with no existing unit tests. The change is purely CSS classes. Skip TDD — apply the fix directly and verify via build/lint.
+2. In `dialog.tsx` line 39 (default variant only), remove the four `slide-*` classes: `data-[state=closed]:slide-out-to-left-1/2`, `data-[state=closed]:slide-out-to-top-[48%]`, `data-[state=open]:slide-in-from-left-1/2`, `data-[state=open]:slide-in-from-top-[48%]`. Keep `zoom-in-95`, `zoom-out-95`, `fade-in-0`, `fade-out-0` and all other classes. Do NOT touch the `bottom-sheet` variant.
+3. In `alert-dialog.tsx` line 39, remove the same four `slide-*` classes. Keep zoom and fade classes.
+4. Run `npx vitest run` to verify no tests break.
+5. Run `npm run typecheck` and `npm run lint` to verify zero warnings.
+
+**Notes:**
+- The `bottom-sheet` variant in dialog.tsx uses `slide-in-from-bottom` / `slide-out-to-bottom` which is correct — do not modify.
+- `photo-preview-dialog.tsx` already uses zoom-only and needs no changes.
+
+---
+
+### Task 2: Fix Start Over not clearing PhotoCapture thumbnails
+**Linear Issue:** [FOO-847](https://linear.app/lw-claude/issue/FOO-847/start-over-does-not-clear-photo-thumbnails-in-photocapture)
+**Files:**
 - `src/components/food-analyzer.tsx` (modify)
 - `src/components/__tests__/food-analyzer.test.tsx` (modify)
 
 **Steps:**
-1. Update tests in the "Start over button" describe block: the "Start over" button should render inside a flex row that also contains the `<h1>Analyze Food</h1>` heading. When `hasContent` is false the button is not in the DOM (conditional render is fine). When `hasContent` is true the button appears — but no layout shift occurs because the row height is always set by the h1, not the button. Tests that check "is NOT shown when no content exists" stay as-is (button not in DOM). Tests that check it IS shown should verify the button is inside the same container as the heading.
-2. Run verifier with pattern "Start over" (expect fail)
-3. In `food-analyzer.tsx`, move the `<h1>Analyze Food</h1>` from `page.tsx` into `FoodAnalyzer` as the first element inside the main `div`. Wrap it in a `flex items-center justify-between` row. Place the "Start over" button (conditionally rendered with `{hasContent && ...}`) on the right side of this row. Since the h1 always determines the row height, conditionally adding/removing the button causes no vertical shift. Remove the standalone `{hasContent && <div className="flex">...}` block that currently sits between the error display and PhotoCapture. Remove the `<h1>` from `page.tsx`.
-4. Run verifier with pattern "Start over" (expect pass)
+1. **RED:** In `food-analyzer.test.tsx`, add a test: when Start Over is confirmed, PhotoCapture should re-mount and all photo thumbnails should be cleared. The test should: add photos via the camera input, confirm preview images render, click "Start over", confirm the AlertDialog, then assert no preview images remain in the DOM while the camera input still exists (component re-rendered fresh).
+2. Run `npx vitest run "food-analyzer"` — expect the new test to fail because PhotoCapture retains internal state after Start Over.
+3. **GREEN:** In `food-analyzer.tsx`, add a `photoCaptureKey` state counter: `const [photoCaptureKey, setPhotoCaptureKey] = useState(0)`. In `handleStartOver` (line 137), increment it: `setPhotoCaptureKey(k => k + 1)`. Pass `key={photoCaptureKey}` to the `<PhotoCapture>` component at line 710. This forces a full re-mount, clearing all internal state.
+4. Run `npx vitest run "food-analyzer"` — expect the test to pass.
 
 **Notes:**
-- The h1 anchors the row height — the button appearing/disappearing doesn't shift anything because it's in the same flex row, not a separate block above the content.
-- The AlertDialog for confirmation stays inside `food-analyzer.tsx` unchanged.
+- The `key` prop approach is the simplest fix — avoids lifting state or adding imperative refs.
 
-### Task 2: Reposition sticky CTA above virtual keyboard
-**Linear Issue:** [FOO-843](https://linear.app/lw-claude/issue/FOO-843/ui-fix-analyze-screen-ux-layout-shift-keyboard-hidden-cta-photo-button)
-**Files:**
-- `src/hooks/use-keyboard-height.ts` (create)
-- `src/hooks/__tests__/use-keyboard-height.test.ts` (create)
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+---
 
-**Steps:**
-1. Write tests for a `useKeyboardHeight` hook that returns the current keyboard height in pixels. It should listen to `window.visualViewport` `resize` events and compute `window.innerHeight - visualViewport.height - visualViewport.offsetTop`. Returns 0 when keyboard is closed. Must clean up the event listener on unmount.
-2. Run verifier with pattern "use-keyboard-height" (expect fail)
-3. Implement `useKeyboardHeight` in `src/hooks/use-keyboard-height.ts`. Use `useState` + `useEffect` with `visualViewport.addEventListener('resize', ...)`. Fall back to 0 if `visualViewport` is not available.
-4. Run verifier with pattern "use-keyboard-height" (expect pass)
-5. Write test in food-analyzer tests: when keyboard is open (mock `visualViewport`), the sticky CTA bar should have a bottom style that accounts for keyboard height.
-6. Run verifier with pattern "sticky|CTA|keyboard" (expect fail)
-7. In `food-analyzer.tsx`, use `useKeyboardHeight()` and apply the keyboard height to the sticky CTA bar's bottom style. When keyboard is open (`keyboardHeight > 0`), set `bottom` to `keyboardHeight` pixels via inline style instead of the Tailwind class. When keyboard is closed (`keyboardHeight === 0`), keep the existing `calc(4rem + env(safe-area-inset-bottom))` positioning. Also ensure the CTA doesn't cover the description textarea — increase `pb-24` on the scrollable container proportionally when the CTA moves up.
-8. Run verifier with pattern "sticky|CTA|keyboard" (expect pass)
-
-**Notes:**
-- `visualViewport` API is supported on iOS Safari 13+, Chrome 61+, Firefox 91+ — well within our support matrix.
-- When keyboard is open, the bottom nav bar is typically hidden by the keyboard too, so we don't need to add `4rem` for it — just position at `keyboardHeight` pixels from viewport bottom.
-- When keyboard is closed (`keyboardHeight === 0`), fall back to the existing `calc(4rem + env(safe-area-inset-bottom))` positioning.
-
-### Task 3: Keep photo buttons always visible, remove + tile dropdown
-**Linear Issue:** [FOO-843](https://linear.app/lw-claude/issue/FOO-843/ui-fix-analyze-screen-ux-layout-shift-keyboard-hidden-cta-photo-button)
+### Task 3: Remove redundant Clear All button from PhotoCapture
+**Linear Issue:** [FOO-848](https://linear.app/lw-claude/issue/FOO-848/remove-redundant-clear-all-button-from-photocapture)
 **Files:**
 - `src/components/photo-capture.tsx` (modify)
 - `src/components/__tests__/photo-capture.test.tsx` (modify)
 
 **Steps:**
-1. Update tests: "Take Photo" and "Choose from Gallery" buttons should be visible both when no photos exist AND when photos exist but `canAddMore` is true. Remove/update tests that assert `add-photo-tile` exists or that clicking it opens a dropdown. Add test: buttons are hidden when photo count equals max.
-2. Run verifier with pattern "photo-capture" (expect fail)
-3. In `photo-capture.tsx`:
-   - Change the `{!hasPhotos && ...}` guard on the buttons (line 343) to `{canAddMore && ...}` so buttons show whenever more photos can be added.
-   - Remove the `DropdownMenu` + `DropdownMenuTrigger` + `DropdownMenuContent` + `DropdownMenuItem` wrapper around the + tile in both the `previews` section (lines 504-526) and the `restoredPreviews` section (lines 429-451). Remove the + tile entirely.
-   - Remove the `DropdownMenu` imports since they're no longer used.
-   - Remove the `Plus` icon import if no longer used.
-4. Run verifier with pattern "photo-capture" (expect pass)
+1. **RED:** In `photo-capture.test.tsx`, update existing tests: any test that asserts the presence of "Clear All" buttons or the "Clear all photos?" confirmation dialog should be updated to assert their ABSENCE instead. Tests for individual photo removal via X buttons should remain unchanged.
+2. Run `npx vitest run "photo-capture"` — expect updated tests to fail (Clear All still exists).
+3. **GREEN:** In `photo-capture.tsx`:
+   - Remove the `showClearConfirm` state (line 49)
+   - Remove `handleClearClick` function (lines 229-237)
+   - Remove `handleClearRestoredPhotos` function (lines 260-265)
+   - Remove `doClear` function (lines 239-258)
+   - Remove the "Clear All" button for restored photos (lines 430-439)
+   - Remove the "Clear All" button for new photos (lines 482-491)
+   - Remove the `AlertDialog` for clear confirmation (lines 502-515)
+   - Remove the AlertDialog-related imports (lines 6-14) — the only AlertDialog usage in this component is the clear confirmation dialog
+4. Run `npx vitest run "photo-capture"` — expect tests to pass.
+5. Check `e2e/tests/analyze-photos.spec.ts` for any "Clear All" references that need updating.
 
 **Notes:**
-- The buttons should appear below the photo grid when photos exist, using the same styling as the empty state (side-by-side `flex-1` outline buttons).
-- The `canAddMore` variable already exists at line 317 and correctly checks `totalPhotoCount < maxPhotos && processingCount === 0`.
+- Individual photo X buttons remain — they are the primary removal mechanism.
+- "Start over" in FoodAnalyzer handles full clearing (working correctly after Task 2).
+
+---
+
+### Task 4: Move HEIC processing placeholders inline with photo grid
+**Linear Issue:** [FOO-849](https://linear.app/lw-claude/issue/FOO-849/heic-processing-placeholder-appears-above-existing-photos-instead-of)
+**Files:**
+- `src/components/photo-capture.tsx` (modify)
+- `src/components/__tests__/photo-capture.test.tsx` (modify)
+
+**Steps:**
+1. **RED:** In `photo-capture.test.tsx`, add a test: when photos exist AND processing is in progress, the processing placeholders should appear WITHIN the same grid container as the photo previews (as sibling elements), not in a separate grid above them. Assert that `processing-placeholder` testid elements share the same parent grid element as the preview thumbnails.
+2. Run `npx vitest run "photo-capture"` — expect the test to fail (placeholders are in a separate grid).
+3. **GREEN:** In `photo-capture.tsx`:
+   - Remove the standalone processing placeholders block (lines 376-390 — the entire `{processingCount > 0 && ...}` section with its own grid).
+   - Inside the new photos previews grid (the `<div className="grid grid-cols-3 gap-2">` at line 445), after the `{previews.map(...)}` block, add the processing placeholder items as additional grid children: `{processingCount > 0 && Array.from({ length: processingCount }).map((_, index) => (` with the same placeholder markup (grey background, spinner).
+   - Handle the edge case when there are NO existing previews but processing is happening (first HEIC photo selection). Change the condition at line 443 from `{previews.length > 0 && (` to `{(previews.length > 0 || processingCount > 0) && (` so the grid renders even when only processing placeholders exist.
+4. Run `npx vitest run "photo-capture"` — expect the test to pass.
+
+**Notes:**
+- The restored photos grid (lines 393-428) does not need processing placeholders — HEIC processing only happens for new file selections.
+- After Task 3, line numbers will have shifted due to removed Clear All code. The implementer should locate elements by content rather than line numbers.
+
+---
+
+### Task 5: Move History link from top banner to bottom button
+**Linear Issue:** [FOO-850](https://linear.app/lw-claude/issue/FOO-850/move-history-link-from-top-banner-to-bottom-button-on-home-screen)
+**Files:**
+- `src/components/dashboard-shell.tsx` (modify)
+- `src/components/daily-dashboard.tsx` (modify)
+- `src/components/__tests__/dashboard-shell.test.tsx` (modify)
+- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
+
+**Steps:**
+1. **RED:** In `dashboard-shell.test.tsx`, update tests to assert no History link exists. In `daily-dashboard.test.tsx`, add a test asserting a History link pointing to `/app/history` exists, rendered near the Settings link with a Clock icon.
+2. Run `npx vitest run "dashboard"` — expect dashboard-shell tests to fail (link still present) and daily-dashboard tests to fail (link not present).
+3. **GREEN:**
+   - In `dashboard-shell.tsx`: Remove the History link block (lines 17-27). Remove the `Clock` import from lucide-react (line 5) and the `Link` import from next/link (line 4) since they are no longer used in this component.
+   - In `daily-dashboard.tsx`: Add a History link in the bottom buttons area, inside the same `flex flex-col gap-2` container as the "Update Lumen goals" button (around line 428). Follow the existing Settings link pattern (line 448): `<Link>` with inline button classes, `Clock` icon, `min-h-[44px]`, `w-full`, text "History". Add `Clock` to the existing lucide-react import statement. The link should use `href="/app/history"`.
+4. Run `npx vitest run "dashboard"` — expect all tests to pass.
+
+**Notes:**
+- Follow the Settings link pattern at daily-dashboard.tsx:448-454 exactly for visual consistency.
+- Only DailyDashboard gets the History link — WeeklyDashboard does not need it.
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -111,75 +134,11 @@
 
 ---
 
-## Iteration 1
-
-**Date:** 2026-03-07
-**Method:** Single-agent (2 independent units, 8 effort points)
-
-### Tasks Completed
-
-1. **Task 1: Move "Start over" into the page header row** — Moved `<h1>Analyze Food</h1>` from `page.tsx` into `food-analyzer.tsx`, wrapped in a `flex items-center justify-between` row with the conditionally-rendered "Start over" button. The h1 anchors the row height so the button appearing/disappearing causes no layout shift.
-
-2. **Task 2: Reposition sticky CTA above virtual keyboard** — Created `useKeyboardHeight` hook (`src/hooks/use-keyboard-height.ts`) using the `visualViewport` API. When keyboard is open, sticky CTA positions at `keyboardHeight` pixels from bottom via inline style. When closed, falls back to the existing Tailwind class `bottom-[calc(4rem+env(safe-area-inset-bottom))]`.
-
-3. **Task 3: Keep photo buttons always visible, remove + tile dropdown** — Changed `{!hasPhotos && ...}` guard to `{canAddMore && ...}` so "Take Photo"/"Choose from Gallery" buttons show whenever more photos can be added. Removed `DropdownMenu` + `Plus` tile from both preview sections. Removed unused imports.
-
-### Verification
-
-- **bug-hunter:** No bugs found. Verified safe patterns: keyboard height formula, SSR safety, canAddMore exclusivity with processing state.
-- **verifier:** All 2628 tests passed, lint clean, build clean. Fixed stale heading assertion in `page.test.tsx` and removed unused `hasPhotos` variable.
-
-### Files Modified
-- `src/app/app/analyze/page.tsx` — Removed `<h1>` (moved to FoodAnalyzer)
-- `src/app/app/analyze/__tests__/page.test.tsx` — Removed stale heading assertion
-- `src/components/food-analyzer.tsx` — Added header row with h1 + Start over, keyboard-aware sticky CTA
-- `src/components/photo-capture.tsx` — Changed `!hasPhotos` to `canAddMore`, removed dropdown + tile, removed unused imports
-- `src/hooks/use-keyboard-height.ts` — New hook
-- `src/hooks/__tests__/use-keyboard-height.test.ts` — New tests (6)
-- `src/components/__tests__/food-analyzer.test.tsx` — Added h1/keyboard tests, mock for useKeyboardHeight
-- `src/components/__tests__/photo-capture.test.tsx` — Replaced dropdown tests with button visibility tests
-
-### Tasks Remaining
-None — all 3 tasks complete.
-
-### Review Findings
-
-Summary: 2 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
-- FIXED INLINE: 2 issue(s) — verified via TDD + bug-hunter
-
-**Issues fixed inline:**
-- [LOW] RESOURCE: Untracked setTimeout in photo-capture.tsx warning handler (`src/components/photo-capture.tsx:186`) — added warningTimeoutRef to track and clear on unmount
-- [LOW] EDGE CASE: Preview dialog stays open with stale index after removing restored photo (`src/components/photo-capture.tsx:285`) — added setPreviewDialogOpen(false) and setSelectedPreviewIndex(null) in handleRemoveRestoredPhoto
-
-**Discarded findings (not bugs):**
-- [DISCARDED] CONVENTION: console.warn in photo-capture.tsx and food-analyzer.tsx — acceptable per CLAUDE.md ("console.error/console.warn are correct for 'use client' components")
-
-### Linear Updates
-- FOO-843: Review → Merge (original task)
-- FOO-844: Created in Merge (Fix: untracked setTimeout on unmount — fixed inline)
-- FOO-845: Created in Merge (Fix: stale preview dialog index — fixed inline)
-
-### Inline Fix Verification
-- Unit tests: all 2628 pass
-- Bug-hunter: no new issues
-
-<!-- REVIEW COMPLETE -->
-
-### Status: COMPLETE
-
----
-
 ## Plan Summary
 
-**Objective:** Fix four UX issues on the analyze screen that break the mobile workflow — layout shift, hidden CTA, disappearing photo buttons, and confusing dropdown.
-**Linear Issues:** FOO-843
-**Approach:** (1) Move "Start over" into the same flex row as the h1 heading — the h1 anchors the row height so the button appearing/disappearing causes no layout shift. (2) Create a `useKeyboardHeight` hook using the `visualViewport` API and use it to reposition the sticky CTA above the virtual keyboard. (3) Show "Take Photo"/"Choose from Gallery" buttons whenever more photos can be added, and remove the + tile with its dropdown menu entirely.
-**Scope:** 3 tasks, 6 files, ~8 tests
-**Key Decisions:** Keep conditional rendering for "Start over" but place it inside the h1 row so the row height is stable. Use `visualViewport` API (widely supported) for keyboard detection. Move h1 into FoodAnalyzer to co-locate the header row.
-**Risks:** `visualViewport` behavior varies slightly across browsers — the hook should gracefully fall back to 0 if the API is unavailable. Tests will need to mock `window.visualViewport`.
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+**Objective:** Fix 5 UX issues: dialog fly-in animation, Start Over not clearing photos, redundant Clear All button, HEIC placeholder positioning, and History link placement.
+**Linear Issues:** FOO-847, FOO-848, FOO-849, FOO-850, FOO-851
+**Approach:** Task 1 removes broken slide-in CSS classes from dialog/alert-dialog (keep zoom+fade). Task 2 uses React `key` prop to force PhotoCapture re-mount on Start Over. Task 3 removes Clear All buttons and their confirmation dialog. Task 4 moves processing placeholders inline with the photo grid. Task 5 relocates the History link from DashboardShell to DailyDashboard's bottom button group.
+**Scope:** 5 tasks, 8 files modified, ~8 tests added/updated
+**Key Decisions:** Using `key` prop for PhotoCapture reset (simplest approach, no state lifting needed)
+**Risks:** None significant — all changes are UI-only with no backend or data impact
