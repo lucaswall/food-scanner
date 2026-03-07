@@ -437,6 +437,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       // Only set response after API confirms success
       setLogResponse(result.data ?? null);
+      actions.clearPersistedSession();
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setLogError("Request timed out. Please try again.");
@@ -507,6 +508,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
 
       // Only set response after API confirms success
       setLogResponse(result.data ?? null);
+      actions.clearPersistedSession();
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setLogError("Request timed out. Please try again.");
@@ -664,6 +666,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             actions.setAnalysis(refinedAnalysis);
             setLogResponse(response);
             actions.setMealTypeId(chatMealTypeId);
+            actions.clearPersistedSession();
           }}
         />
       </div>

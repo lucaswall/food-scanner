@@ -48,6 +48,7 @@ vi.mock("@/lib/pending-submission", () => ({
 
 // Mock useAnalysisSession hook — uses real React state by default so existing tests
 // continue to work. Individual tests can override via mockUseAnalysisSession.mockReturnValue().
+const mockClearPersistedSession = vi.fn();
 const mockClearSession = vi.fn();
 const mockGetActiveSessionId = vi.fn().mockReturnValue(null);
 
@@ -61,6 +62,7 @@ const sessionSpies = {
   setMealTypeId: vi.fn(),
   setSelectedTime: vi.fn(),
   setMatches: vi.fn(),
+  clearPersistedSession: mockClearPersistedSession,
   clearSession: mockClearSession,
   getActiveSessionId: mockGetActiveSessionId,
 };
@@ -100,6 +102,7 @@ function useAnalysisSessionReal() {
       setMealTypeId: (id: number) => { sessionSpies.setMealTypeId(id); setMealTypeIdRaw(id); },
       setSelectedTime: (t: string | null) => { sessionSpies.setSelectedTime(t); setSelectedTimeRaw(t); },
       setMatches: (m: FoodMatch[]) => { sessionSpies.setMatches(m); setMatchesRaw(m); },
+      clearPersistedSession: mockClearPersistedSession,
       clearSession: mockClearSession,
       getActiveSessionId: mockGetActiveSessionId,
     },
@@ -4107,6 +4110,7 @@ describe("FoodAnalyzer", () => {
         setMealTypeId: vi.fn(),
         setSelectedTime: vi.fn(),
         setMatches: vi.fn(),
+        clearPersistedSession: vi.fn(),
         clearSession: vi.fn(),
         getActiveSessionId: vi.fn().mockReturnValue(null),
       };
@@ -4214,10 +4218,16 @@ describe("FoodAnalyzer", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /log to fitbit/i }));
 
+      // Persisted session cleared immediately after successful log
+      await waitFor(() => {
+        expect(mockClearPersistedSession).toHaveBeenCalled();
+      });
+
       await waitFor(() => {
         expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
       });
 
+      // Full session clear + navigation on Done
       fireEvent.click(screen.getByRole("button", { name: /done/i }));
 
       expect(mockClearSession).toHaveBeenCalled();
@@ -4240,8 +4250,8 @@ describe("FoodAnalyzer", () => {
       const staticActions = {
         setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
         setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
-        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearSession: vi.fn(),
-        getActiveSessionId: vi.fn().mockReturnValue(null),
+        setSelectedTime: vi.fn(), setMatches: vi.fn(), clearPersistedSession: vi.fn(),
+        clearSession: vi.fn(), getActiveSessionId: vi.fn().mockReturnValue(null),
       };
       mockUseAnalysisSession.mockReturnValue({
         state: {

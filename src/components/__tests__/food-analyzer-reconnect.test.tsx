@@ -88,14 +88,15 @@ function useAnalysisSessionReal() {
   const setMealTypeId = useCallbackFn((id: number) => { setMealTypeIdRaw(id); }, []);
   const setSelectedTime = useCallbackFn((t: string | null) => { setSelectedTimeRaw(t); }, []);
   const setMatches = useCallbackFn((m: unknown[]) => { setMatchesRaw(m); }, []);
+  const clearPersistedSession = useCallbackFn(() => {}, []);
   const clearSession = useCallbackFn(() => {}, []);
   const getActiveSessionId = useCallbackFn(() => "test-session-id", []);
 
   const actions = useMemoFn(() => ({
     setPhotos, setCompressedImages, setDescription, setAnalysis,
     setAnalysisNarrative, setMealTypeId, setSelectedTime, setMatches,
-    clearSession, getActiveSessionId,
-  }), [setPhotos, setCompressedImages, setDescription, setAnalysis, setAnalysisNarrative, setMealTypeId, setSelectedTime, setMatches, clearSession, getActiveSessionId]);
+    clearPersistedSession, clearSession, getActiveSessionId,
+  }), [setPhotos, setCompressedImages, setDescription, setAnalysis, setAnalysisNarrative, setMealTypeId, setSelectedTime, setMatches, clearPersistedSession, clearSession, getActiveSessionId]);
 
   return {
     state: { photos, convertedPhotoBlobs, compressedImages, description, analysis, analysisNarrative, mealTypeId, selectedTime, matches },

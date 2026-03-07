@@ -37,6 +37,7 @@ interface AnalysisSessionActions {
   setMealTypeId: (mealTypeId: number) => void;
   setSelectedTime: (time: string | null) => void;
   setMatches: (matches: FoodMatch[]) => void;
+  clearPersistedSession: () => void;
   clearSession: () => void;
   getActiveSessionId: () => string | null;
 }
@@ -247,16 +248,26 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
     setState((prev) => ({ ...prev, compressedImages }));
   }, []);
 
-  const clearSessionAction = useCallback(async () => {
+  const clearPersistedSessionAction = useCallback(async () => {
+    // Cancel any pending debounced save
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
     const id = sessionIdRef.current;
     if (id) {
       await clearStoredSession(id);
     }
+    // Null the ref so the debounced save effect won't re-persist
     sessionIdRef.current = null;
     createdAtRef.current = null;
+  }, []);
+
+  const clearSessionAction = useCallback(async () => {
+    await clearPersistedSessionAction();
     setState(DEFAULT_STATE);
     setWasRestored(false);
-  }, []);
+  }, [clearPersistedSessionAction]);
 
   const getActiveSessionIdAction = useCallback((): string | null => {
     return sessionIdRef.current;
@@ -273,6 +284,7 @@ export function useAnalysisSession(): UseAnalysisSessionReturn {
       setMealTypeId,
       setSelectedTime,
       setMatches,
+      clearPersistedSession: clearPersistedSessionAction,
       clearSession: clearSessionAction,
       getActiveSessionId: getActiveSessionIdAction,
     },
