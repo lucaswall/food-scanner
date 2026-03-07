@@ -25,7 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Loader2, ScanEye, ListChecks, Settings } from "lucide-react";
+import { RefreshCw, Loader2, ScanEye, ListChecks, Settings, Clock } from "lucide-react";
 import type { NutritionSummary, NutritionGoals, LumenGoalsResponse, MealEntry, FoodLogHistoryEntry } from "@/types";
 import { useDeleteFoodEntry } from "@/hooks/use-delete-food-entry";
 
@@ -451,6 +451,15 @@ export function DailyDashboard() {
       >
         <Settings className="h-4 w-4" />
         Settings
+      </Link>
+
+      {/* History link */}
+      <Link
+        href="/app/history"
+        className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-11 px-4 py-2 w-full min-h-[44px] text-muted-foreground"
+      >
+        <Clock className="h-4 w-4" />
+        History
       </Link>
 
       <input

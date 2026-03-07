@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
-import { Clock } from "lucide-react";
 import { DailyDashboard } from "@/components/daily-dashboard";
 import { WeeklyDashboard } from "@/components/weekly-dashboard";
 
@@ -14,18 +12,6 @@ export function DashboardShell() {
 
   return (
     <div className={`space-y-6${isPending ? " opacity-50" : ""}`}>
-      {/* History link */}
-      <Link
-        href="/app/history"
-        className="flex items-center gap-3 rounded-lg border bg-card p-4 min-h-[44px] text-card-foreground transition-colors hover:bg-accent"
-      >
-        <Clock className="h-5 w-5 text-muted-foreground" />
-        <div>
-          <p className="text-sm font-medium">History</p>
-          <p className="text-xs text-muted-foreground">View past logged meals</p>
-        </div>
-      </Link>
-
       {/* Segmented control */}
       <div className="flex gap-1 p-1 bg-muted rounded-full">
         <button
