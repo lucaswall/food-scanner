@@ -91,13 +91,44 @@ describe("useKeyboardHeight", () => {
     expect(result.current).toBe(250);
   });
 
-  it("cleans up event listener on unmount", () => {
+  it("updates position when user scrolls with keyboard open", () => {
+    const { result } = renderHook(() => useKeyboardHeight());
+
+    // Open keyboard
+    act(() => {
+      mockVisualViewport.height = 500;
+      const resizeHandler = mockVisualViewport.addEventListener.mock.calls.find(
+        (call: unknown[]) => call[0] === "resize"
+      )?.[1];
+      resizeHandler?.();
+    });
+
+    expect(result.current).toBe(300);
+
+    // User scrolls down — offsetTop changes, scroll event fires (not resize)
+    act(() => {
+      mockVisualViewport.offsetTop = 100;
+      const scrollHandler = mockVisualViewport.addEventListener.mock.calls.find(
+        (call: unknown[]) => call[0] === "scroll"
+      )?.[1];
+      scrollHandler?.();
+    });
+
+    // innerHeight(800) - height(500) - offsetTop(100) = 200
+    expect(result.current).toBe(200);
+  });
+
+  it("cleans up both resize and scroll event listeners on unmount", () => {
     const { unmount } = renderHook(() => useKeyboardHeight());
 
     unmount();
 
     expect(mockVisualViewport.removeEventListener).toHaveBeenCalledWith(
       "resize",
+      expect.any(Function)
+    );
+    expect(mockVisualViewport.removeEventListener).toHaveBeenCalledWith(
+      "scroll",
       expect.any(Function)
     );
   });

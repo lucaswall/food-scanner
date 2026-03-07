@@ -13,7 +13,11 @@ export function useKeyboardHeight(): number {
     };
 
     viewport.addEventListener("resize", handleResize);
-    return () => viewport.removeEventListener("resize", handleResize);
+    viewport.addEventListener("scroll", handleResize);
+    return () => {
+      viewport.removeEventListener("resize", handleResize);
+      viewport.removeEventListener("scroll", handleResize);
+    };
   }, []);
 
   return keyboardHeight;
