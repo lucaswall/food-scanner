@@ -108,6 +108,11 @@ function useAnalysisSessionReal() {
   };
 }
 
+const mockKeyboardHeight = { current: 0 };
+vi.mock("@/hooks/use-keyboard-height", () => ({
+  useKeyboardHeight: () => mockKeyboardHeight.current,
+}));
+
 vi.mock("@/hooks/use-analysis-session", () => ({
   useAnalysisSession: mockUseAnalysisSession,
 }));
@@ -1158,10 +1163,18 @@ describe("FoodAnalyzer", () => {
   });
 
   describe("Start over button", () => {
-    it("is NOT shown when no content exists", () => {
+    it("renders h1 heading 'Analyze Food' always", () => {
+      render(<FoodAnalyzer />);
+
+      expect(screen.getByRole("heading", { level: 1, name: /analyze food/i })).toBeInTheDocument();
+    });
+
+    it("is NOT shown when no content exists, but h1 row height is stable", () => {
       render(<FoodAnalyzer />);
 
       expect(screen.queryByRole("button", { name: /start over/i })).not.toBeInTheDocument();
+      // h1 is always present so the row height doesn't shift
+      expect(screen.getByRole("heading", { level: 1, name: /analyze food/i })).toBeInTheDocument();
     });
 
     it("IS shown when photos exist", async () => {
@@ -1342,6 +1355,37 @@ describe("FoodAnalyzer", () => {
       await waitFor(() => {
         const stickyBar = screen.getByTestId("sticky-cta-bar");
         expect(stickyBar).toHaveTextContent(/log as new/i);
+      });
+    });
+
+    it("positions above keyboard when keyboard is open", async () => {
+      mockKeyboardHeight.current = 300;
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "some food" } });
+
+      await waitFor(() => {
+        const stickyBar = screen.getByTestId("sticky-cta-bar");
+        expect(stickyBar).toBeInTheDocument();
+        expect(stickyBar.style.bottom).toBe("300px");
+      });
+
+      mockKeyboardHeight.current = 0;
+    });
+
+    it("uses default positioning when keyboard is closed", async () => {
+      mockKeyboardHeight.current = 0;
+      render(<FoodAnalyzer />);
+
+      const descInput = screen.getByTestId("description-input");
+      fireEvent.change(descInput, { target: { value: "some food" } });
+
+      await waitFor(() => {
+        const stickyBar = screen.getByTestId("sticky-cta-bar");
+        expect(stickyBar).toBeInTheDocument();
+        // No inline bottom style when keyboard is closed
+        expect(stickyBar.style.bottom).toBe("");
       });
     });
 

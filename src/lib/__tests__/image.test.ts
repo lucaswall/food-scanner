@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, Mock } from "vitest";
 
 // Mock heic-to module with named export
-vi.mock("heic-to", () => ({
+vi.mock("heic-to/csp", () => ({
   heicTo: vi.fn(),
 }));
 
@@ -216,7 +216,7 @@ describe("Image utilities", () => {
     });
 
     it("handles HEIC files by converting then compressing", async () => {
-      const { heicTo } = await import("heic-to");
+      const { heicTo } = await import("heic-to/csp");
       const mockedHeicTo = heicTo as Mock;
       mockedHeicTo.mockResolvedValue(new Blob(["converted jpeg"], { type: "image/jpeg" }));
 
@@ -233,7 +233,7 @@ describe("Image utilities", () => {
     });
 
     it("skips HEIC conversion for non-HEIC files", async () => {
-      const { heicTo } = await import("heic-to");
+      const { heicTo } = await import("heic-to/csp");
       const mockedHeicTo = heicTo as Mock;
 
       const file = new File(["jpeg data"], "photo.jpg", { type: "image/jpeg" });
@@ -273,7 +273,7 @@ describe("Image utilities", () => {
 
   describe("convertHeicToJpeg", () => {
     it("returns single Blob directly (heic-to does not return arrays)", async () => {
-      const { heicTo } = await import("heic-to");
+      const { heicTo } = await import("heic-to/csp");
       const mockedHeicTo = heicTo as Mock;
       const mockBlob = new Blob(["jpeg data"], { type: "image/jpeg" });
       mockedHeicTo.mockResolvedValue(mockBlob);
@@ -290,7 +290,7 @@ describe("Image utilities", () => {
     });
 
     it("throws on conversion failure", async () => {
-      const { heicTo } = await import("heic-to");
+      const { heicTo } = await import("heic-to/csp");
       const mockedHeicTo = heicTo as Mock;
       mockedHeicTo.mockRejectedValue(new Error("Conversion failed"));
 
