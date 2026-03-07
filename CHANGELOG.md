@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-03-07
+
+### Added
+
+- Analysis session persistence — photos, description, and results survive page refreshes and OAuth redirects
+- Photo removal during analysis — delete individual photos before or after analysis
+- Keyboard height detection for mobile browsers to keep UI controls accessible
+
+### Changed
+
+- Revamped analyze screen layout with sticky CTA bar, streamlined header, and improved photo grid
+- Confidence badges redesigned with popover tooltips explaining each confidence level
+- Bottom navigation highlights active route more clearly
+
+### Fixed
+
+- HEIC photos no longer re-converted when adding additional photos to a session
+- Take Photo and Gallery buttons remain visible during HEIC processing
+- Sticky CTA bar no longer floats disconnected when mobile keyboard opens
+- Nutrition card now displays correctly on food log confirmation screen
+- Session state properly cleared after logging food while preserving confirmation display
+- Dialog animations and various minor UI polish improvements
+
 ## [1.17.6] - 2026-03-05
 
 ### Fixed
@@ -383,7 +406,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.17.6...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.18.0...HEAD
+[1.18.0]: https://github.com/lucaswall/food-scanner/compare/v1.17.6...v1.18.0
 [1.17.6]: https://github.com/lucaswall/food-scanner/compare/v1.17.5...v1.17.6
 [1.17.5]: https://github.com/lucaswall/food-scanner/compare/v1.17.4...v1.17.5
 [1.17.4]: https://github.com/lucaswall/food-scanner/compare/v1.17.3...v1.17.4
