@@ -1001,6 +1001,42 @@ describe("PhotoCapture", () => {
       // Placeholder should be cleared after error
       expect(screen.queryByTestId("processing-placeholder")).not.toBeInTheDocument();
     });
+
+    it("only converts new HEIC files, not previously converted photos", async () => {
+      const onPhotosChange = vi.fn();
+      const convertedBlob1 = new Blob(["converted1"], { type: "image/jpeg" });
+      mockIsHeicFile.mockImplementation((file: File) => file.name.endsWith(".heic"));
+      mockConvertHeicToJpeg.mockResolvedValue(convertedBlob1);
+
+      render(<PhotoCapture onPhotosChange={onPhotosChange} maxPhotos={5} />);
+
+      // First, add a HEIC file
+      const galleryInput = screen.getByTestId("gallery-input");
+      const heicFile1 = createMockFile("photo1.heic", "image/heic", 1000);
+      fireEvent.change(galleryInput, { target: { files: [heicFile1] } });
+
+      await waitFor(() => {
+        expect(screen.getByAltText("Preview 1")).toBeInTheDocument();
+      });
+
+      // convertHeicToJpeg should have been called once for the first HEIC
+      expect(mockConvertHeicToJpeg).toHaveBeenCalledTimes(1);
+      mockConvertHeicToJpeg.mockClear();
+
+      // Now add a second HEIC file
+      const convertedBlob2 = new Blob(["converted2"], { type: "image/jpeg" });
+      mockConvertHeicToJpeg.mockResolvedValue(convertedBlob2);
+      const heicFile2 = createMockFile("photo2.heic", "image/heic", 1000);
+      fireEvent.change(galleryInput, { target: { files: [heicFile2] } });
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("img")).toHaveLength(2);
+      });
+
+      // convertHeicToJpeg should only have been called once for the NEW file, not re-called for photo1
+      expect(mockConvertHeicToJpeg).toHaveBeenCalledTimes(1);
+      expect(mockConvertHeicToJpeg).toHaveBeenCalledWith(heicFile2);
+    });
   });
 
   describe("autoCapture", () => {
@@ -1157,7 +1193,7 @@ describe("PhotoCapture", () => {
       expect(onPhotosChange).toHaveBeenLastCalledWith([], []);
     });
 
-    it("remove buttons are not shown during processing", async () => {
+    it("remove buttons remain visible during HEIC processing", async () => {
       const onPhotosChange = vi.fn();
       let resolveConversion: (value: Blob) => void;
       const conversionPromise = new Promise<Blob>((resolve) => {
@@ -1187,8 +1223,8 @@ describe("PhotoCapture", () => {
         expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
       });
 
-      // Remove buttons should not be present during processing
-      expect(screen.queryByRole("button", { name: /remove photo/i })).not.toBeInTheDocument();
+      // Remove buttons should remain visible during processing
+      expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
 
       resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
     });
@@ -1223,7 +1259,7 @@ describe("PhotoCapture", () => {
       expect(screen.getAllByRole("img")).toHaveLength(1);
     });
 
-    it("remove buttons respect disabled/processing state", async () => {
+    it("remove buttons visible during and after HEIC processing", async () => {
       const onPhotosChange = vi.fn();
       let resolveConversion: (value: Blob) => void;
       const conversionPromise = new Promise<Blob>((resolve) => {
@@ -1234,7 +1270,17 @@ describe("PhotoCapture", () => {
 
       render(<PhotoCapture onPhotosChange={onPhotosChange} />);
 
+      // First add a regular photo so there's an existing preview
       const galleryInput = screen.getByTestId("gallery-input");
+      fireEvent.change(galleryInput, {
+        target: { files: [createMockFile("photo1.jpg", "image/jpeg", 1000)] },
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
+      });
+
+      // Now add a HEIC file (will be processing)
       fireEvent.change(galleryInput, {
         target: { files: [createMockFile("photo.heic", "image/heic", 1000)] },
       });
@@ -1243,12 +1289,12 @@ describe("PhotoCapture", () => {
         expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
       });
 
-      // No remove buttons during processing
-      expect(screen.queryByRole("button", { name: /remove photo/i })).not.toBeInTheDocument();
+      // Remove button should remain visible during processing
+      expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
 
       resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
 
-      // After processing, remove button should appear
+      // After processing, remove buttons should still be present
       await waitFor(() => {
         expect(screen.getByRole("button", { name: "Remove photo 1" })).toBeInTheDocument();
       });
@@ -1365,7 +1411,7 @@ describe("PhotoCapture", () => {
       expect(screen.getByRole("button", { name: /choose from gallery/i })).toBeInTheDocument();
     });
 
-    it("buttons are hidden during processing", async () => {
+    it("buttons remain visible during processing", async () => {
       const onPhotosChange = vi.fn();
       let resolveConversion: (value: Blob) => void;
       const conversionPromise = new Promise<Blob>((resolve) => {
@@ -1385,8 +1431,9 @@ describe("PhotoCapture", () => {
         expect(screen.getByTestId("processing-placeholder")).toBeInTheDocument();
       });
 
-      // canAddMore is false during processing, so buttons are hidden
-      expect(screen.queryByRole("button", { name: /take photo/i })).not.toBeInTheDocument();
+      // Buttons remain visible during processing (early return guards race conditions)
+      expect(screen.getByRole("button", { name: /take photo/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /choose from gallery/i })).toBeInTheDocument();
 
       resolveConversion!(new Blob(["converted"], { type: "image/jpeg" }));
     });

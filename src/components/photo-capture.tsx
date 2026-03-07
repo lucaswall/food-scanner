@@ -129,33 +129,38 @@ export function PhotoCapture({
     const actualNewCount = combinedPhotos.length - photos.length;
     setProcessingCount(actualNewCount);
 
-    // Convert HEIC files to JPEG for preview (browsers can't display HEIC natively)
-    // Original files are preserved for upload (conversion happens again in FoodAnalyzer)
+    // Convert only NEW HEIC files to JPEG for preview (browsers can't display HEIC natively)
+    // Existing photos already have converted blobs in convertedBlobsState
     let previewBlobs: (File | Blob)[];
     let validPhotos: File[];
     try {
-      const previewBlobPromises = combinedPhotos.map(async (file) => {
+      // Only process new files through HEIC conversion
+      const existingCount = photos.length;
+      const existingBlobs = convertedBlobsState.slice(0, existingCount);
+      const filesToProcess = combinedPhotos.slice(existingCount);
+
+      const newBlobPromises = filesToProcess.map(async (file) => {
         if (isHeicFile(file)) {
           return convertHeicToJpeg(file);
         }
         return file;
       });
 
-      const results = await Promise.allSettled(previewBlobPromises);
+      const results = await Promise.allSettled(newBlobPromises);
 
-      // Filter out failed conversions and match indices
-      const successfulPairs: Array<{ photo: File; blob: File | Blob }> = [];
+      // Filter out failed conversions from new files
+      const successfulNewPairs: Array<{ photo: File; blob: File | Blob }> = [];
       const failedIndices: number[] = [];
 
       results.forEach((result, index) => {
         if (result.status === "fulfilled") {
-          successfulPairs.push({ photo: combinedPhotos[index], blob: result.value });
+          successfulNewPairs.push({ photo: filesToProcess[index], blob: result.value });
         } else {
           failedIndices.push(index);
         }
       });
 
-      if (successfulPairs.length === 0) {
+      if (successfulNewPairs.length === 0 && existingCount === 0) {
         setError("All images failed to process. Please try different photos.");
         setProcessingCount(0);
         // Reset inputs
@@ -179,8 +184,10 @@ export function PhotoCapture({
         warningTimeoutRef.current = setTimeout(() => setError(null), 3000);
       }
 
-      validPhotos = successfulPairs.map((pair) => pair.photo);
-      previewBlobs = successfulPairs.map((pair) => pair.blob);
+      // Combine existing photos/blobs with successfully processed new ones
+      const existingPhotos = photos.slice(0, existingCount);
+      validPhotos = [...existingPhotos, ...successfulNewPairs.map((pair) => pair.photo)];
+      previewBlobs = [...existingBlobs, ...successfulNewPairs.map((pair) => pair.blob)];
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to process HEIC image. Please try a different photo.");
       setProcessingCount(0);
@@ -216,6 +223,9 @@ export function PhotoCapture({
   };
 
   const handleRemovePhoto = (index: number) => {
+    // Prevent removal during processing — async handleFileChange holds stale closure
+    // and would restore the removed photo when it completes
+    if (processingCount > 0) return;
     URL.revokeObjectURL(previews[index]);
     const newPhotos = photos.filter((_, i) => i !== index);
     const newPreviews = previews.filter((_, i) => i !== index);
@@ -264,7 +274,7 @@ export function PhotoCapture({
   };
 
   const totalPhotoCount = photos.length > 0 ? photos.length : restoredPreviews.length;
-  const canAddMore = totalPhotoCount < maxPhotos && processingCount === 0;
+  const canAddMore = totalPhotoCount < maxPhotos;
 
   return (
     <div className="space-y-4">
@@ -380,21 +390,19 @@ export function PhotoCapture({
                 unoptimized
                 className="object-cover rounded-md"
               />
-              {processingCount === 0 && (
-                <button
-                  type="button"
-                  className="absolute top-0 right-0 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRemovePhoto(index);
-                  }}
-                  aria-label={`Remove photo ${index + 1}`}
-                >
-                  <span className="w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center">
-                    <X className="h-3.5 w-3.5" />
-                  </span>
-                </button>
-              )}
+              <button
+                type="button"
+                className="absolute top-0 right-0 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemovePhoto(index);
+                }}
+                aria-label={`Remove photo ${index + 1}`}
+              >
+                <span className="w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center">
+                  <X className="h-3.5 w-3.5" />
+                </span>
+              </button>
             </div>
           ))}
           {processingCount > 0 && Array.from({ length: processingCount }).map((_, index) => (

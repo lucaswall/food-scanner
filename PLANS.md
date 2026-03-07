@@ -2,132 +2,126 @@
 
 **Status:** COMPLETE
 **Created:** 2026-03-07
-**Source:** Backlog: FOO-847, FOO-848, FOO-849, FOO-850, FOO-851
-**Linear Issues:** [FOO-847](https://linear.app/lw-claude/issue/FOO-847/start-over-does-not-clear-photo-thumbnails-in-photocapture), [FOO-848](https://linear.app/lw-claude/issue/FOO-848/remove-redundant-clear-all-button-from-photocapture), [FOO-849](https://linear.app/lw-claude/issue/FOO-849/heic-processing-placeholder-appears-above-existing-photos-instead-of), [FOO-850](https://linear.app/lw-claude/issue/FOO-850/move-history-link-from-top-banner-to-bottom-button-on-home-screen), [FOO-851](https://linear.app/lw-claude/issue/FOO-851/dialog-and-alertdialog-popups-fly-in-from-top-left-instead-of)
-**Branch:** fix/ux-polish-batch-2
+**Source:** Bug report: UI controls disappear during HEIC photo processing; sticky CTA floats disconnected when keyboard opens
+**Linear Issues:** [FOO-852](https://linear.app/lw-claude/issue/FOO-852/bug-ui-controls-disappear-during-heic-photo-processing), [FOO-853](https://linear.app/lw-claude/issue/FOO-853/bug-sticky-cta-bar-floats-disconnected-when-keyboard-opens)
+**Branch:** fix/FOO-852-heic-processing-ui
 
 ## Context Gathered
 
 ### Codebase Analysis
+- **Related files:** `src/components/photo-capture.tsx`, `src/components/__tests__/photo-capture.test.tsx`, `src/lib/image.ts`, `src/components/food-analyzer.tsx`, `src/components/__tests__/food-analyzer.test.tsx`, `src/hooks/use-keyboard-height.ts`, `src/components/bottom-nav.tsx`
+- **Existing patterns:** Processing state uses `processingCount` integer; preview generation uses `Promise.allSettled`; tests mock `isHeicFile` and `convertHeicToJpeg` from `@/lib/image`; sticky CTA bar uses `useKeyboardHeight` hook to reposition when keyboard opens; bottom nav is `fixed bottom-0 z-50`
+- **Test conventions:** Colocated `__tests__/` directory, uses Vitest + Testing Library, mocks `next/image`, `URL.createObjectURL`, and `@/lib/image` module
 
-- **Dialog components:** `src/components/ui/dialog.tsx` (line 39, default variant) and `src/components/ui/alert-dialog.tsx` (line 39) both have `slide-in-from-left-1/2` + `slide-in-from-top-[48%]` animation classes that compound with `translate-x-[-50%] translate-y-[-50%]` positioning, causing fly-in from top-left. The `bottom-sheet` variant in dialog.tsx is unaffected (uses `slide-in-from-bottom`). `photo-preview-dialog.tsx` uses zoom-only and is also unaffected.
-- **PhotoCapture state:** `src/components/photo-capture.tsx` manages internal `useState` for `photos`, `previews`, `restoredPreviews`, `processingCount`, etc. The parent `FoodAnalyzer` has no mechanism to reset these — `handleStartOver` (food-analyzer.tsx:137) clears session state but PhotoCapture's internal state persists. No `key` prop is passed to `<PhotoCapture>` at food-analyzer.tsx:710.
-- **PhotoCapture Clear All:** Two "Clear All" buttons exist at photo-capture.tsx:430-439 (restored photos, shown when >=2) and :482-491 (new photos, shown when >=2). Each triggers a shared `AlertDialog` confirmation. Individual photo X buttons also exist.
-- **HEIC placeholders:** Processing placeholders are rendered in their own grid (photo-capture.tsx:376-390), a separate block BEFORE the previews grids (lines 393-493). They should be inline grid items after existing photos.
-- **History link:** Currently in `src/components/dashboard-shell.tsx:17-27` as a card-styled `<Link>` above the segmented control. Should move to `src/components/daily-dashboard.tsx` near Settings link (line 448).
-- **Bottom button pattern:** `daily-dashboard.tsx:448-454` — Settings link uses `<Link>` with inline button classes, icon, `min-h-[44px]`, `w-full`.
-- **Test files:** `dashboard-shell.test.tsx`, `daily-dashboard.test.tsx`, `photo-capture.test.tsx`, `food-analyzer.test.tsx`, `e2e/tests/analyze-photos.spec.ts`
+### Investigation
 
-### Triage Results
+**Bug report:** When processing HEIC images, the UI "disappears" — Take Photo/Gallery buttons vanish and existing photo thumbnails lose their delete buttons. The UI looks broken/frozen for the entire duration of HEIC conversion (2-5+ seconds).
 
-**Planned:** FOO-847, FOO-848, FOO-849, FOO-850, FOO-851
-**Canceled:** (none)
+**Classification:** Frontend Bug / Medium / PhotoCapture component
+
+**Root cause:** Three interconnected issues in `photo-capture.tsx`:
+
+1. **Buttons hidden during processing:** `canAddMore` on line 267 requires `processingCount === 0`, which hides Take Photo/Gallery buttons (line 293) during HEIC conversion. The race condition is already guarded by the early return at lines 97-102, making the button hiding unnecessary.
+
+2. **Delete buttons hidden during processing:** Line 383 wraps delete buttons in `{processingCount === 0 && (...)}`, hiding delete buttons on ALL existing photo thumbnails during processing. Users cannot manage existing photos while a new one converts.
+
+3. **All photos re-converted on each addition:** Line 137 maps `combinedPhotos` (all photos, old + new) through HEIC conversion. Previously converted photos get re-converted, multiplying processing time and extending the broken UI state.
+
+**Evidence:**
+- `src/components/photo-capture.tsx:267` — `canAddMore` gated on `processingCount === 0`
+- `src/components/photo-capture.tsx:293` — buttons only render when `canAddMore`
+- `src/components/photo-capture.tsx:383` — delete buttons gated on `processingCount === 0`
+- `src/components/photo-capture.tsx:97-102` — early return already prevents race conditions during processing
+- `src/components/photo-capture.tsx:137-142` — re-converts all photos including previously converted ones
+
+**Impact:** Every HEIC photo addition causes a multi-second period where the UI appears broken. Users cannot remove photos or understand what's happening. Adding multiple HEIC photos compounds the issue since all are re-converted each time.
+
+**Bug report 2:** The "Analyze Food" CTA button floats disconnected when the mobile keyboard opens. It moves up with the keyboard but appears to float in mid-screen, not attached to anything.
+
+**Classification:** Frontend Bug / Medium / FoodAnalyzer sticky CTA bar
+
+**Root cause:** In `food-analyzer.tsx` lines 812-815, when `keyboardHeight > 0`:
+- The outer div uses `bottom: ${keyboardHeight}px` (inline style) but drops the static `bottom-[calc(4rem+...)]` class
+- The inner container uses `bg-background/80 backdrop-blur-sm border-t` — semi-transparent with only a top border
+- The bottom nav (z-50, `fixed bottom-0`) is hidden behind the keyboard
+- Result: the CTA bar floats in mid-screen with no visual connection above or below
+
+**Evidence:**
+- `src/components/food-analyzer.tsx:812` — conditional class drops bottom positioning when keyboard open
+- `src/components/food-analyzer.tsx:813` — inline style sets `bottom: keyboardHeight` with no visual anchoring
+- `src/components/food-analyzer.tsx:815` — `bg-background/80 backdrop-blur-sm border-t` — translucent, top-border only
+- `src/components/bottom-nav.tsx:41` — bottom nav at `fixed bottom-0 z-50`, hidden behind keyboard
+- `src/hooks/use-keyboard-height.ts:11` — `window.innerHeight - viewport.height - viewport.offsetTop` can leave gap on some devices
+
+**Impact:** On mobile, whenever the user taps the description field and the keyboard opens, the CTA button looks broken/floating. This is the primary action button for the analyze screen.
 
 ## Tasks
 
-### Task 1: Fix dialog and alert-dialog fly-in animation
-**Linear Issue:** [FOO-851](https://linear.app/lw-claude/issue/FOO-851/dialog-and-alertdialog-popups-fly-in-from-top-left-instead-of)
+### Task 1: Keep delete buttons visible during HEIC processing
+**Linear Issue:** [FOO-852](https://linear.app/lw-claude/issue/FOO-852/bug-ui-controls-disappear-during-heic-photo-processing)
 **Files:**
-- `src/components/ui/dialog.tsx` (modify)
-- `src/components/ui/alert-dialog.tsx` (modify)
+- `src/components/__tests__/photo-capture.test.tsx` (modify)
+- `src/components/photo-capture.tsx` (modify)
 
 **Steps:**
-1. These are vendored shadcn/ui primitives with no existing unit tests. The change is purely CSS classes. Skip TDD — apply the fix directly and verify via build/lint.
-2. In `dialog.tsx` line 39 (default variant only), remove the four `slide-*` classes: `data-[state=closed]:slide-out-to-left-1/2`, `data-[state=closed]:slide-out-to-top-[48%]`, `data-[state=open]:slide-in-from-left-1/2`, `data-[state=open]:slide-in-from-top-[48%]`. Keep `zoom-in-95`, `zoom-out-95`, `fade-in-0`, `fade-out-0` and all other classes. Do NOT touch the `bottom-sheet` variant.
-3. In `alert-dialog.tsx` line 39, remove the same four `slide-*` classes. Keep zoom and fade classes.
-4. Run `npx vitest run` to verify no tests break.
-5. Run `npm run typecheck` and `npm run lint` to verify zero warnings.
+1. Write test: when HEIC conversion is in progress (`processingCount > 0`), existing photo thumbnails still show their "Remove photo N" buttons. Use the existing mock pattern where `mockConvertHeicToJpeg` returns a pending promise, then assert `screen.getByRole("button", { name: "Remove photo 1" })` is present.
+2. Run verifier with test pattern (expect fail — current code hides delete buttons when `processingCount > 0`)
+3. Remove the `processingCount === 0` guard around the delete button JSX at line 383. The delete button should always render when previews exist.
+4. Run verifier with test pattern (expect pass)
 
 **Notes:**
-- The `bottom-sheet` variant in dialog.tsx uses `slide-in-from-bottom` / `slide-out-to-bottom` which is correct — do not modify.
-- `photo-preview-dialog.tsx` already uses zoom-only and needs no changes.
+- The early return at lines 97-102 already prevents new file selections during processing, so hiding delete buttons is unnecessary
+- Must also verify that removing a photo during processing doesn't cause state corruption — the existing `handleRemovePhoto` function filters by index, which should be safe since `processingCount` only affects the placeholder count
 
----
-
-### Task 2: Fix Start Over not clearing PhotoCapture thumbnails
-**Linear Issue:** [FOO-847](https://linear.app/lw-claude/issue/FOO-847/start-over-does-not-clear-photo-thumbnails-in-photocapture)
+### Task 2: Keep Take Photo / Gallery buttons visible during processing
+**Linear Issue:** [FOO-852](https://linear.app/lw-claude/issue/FOO-852/bug-ui-controls-disappear-during-heic-photo-processing)
 **Files:**
-- `src/components/food-analyzer.tsx` (modify)
+- `src/components/__tests__/photo-capture.test.tsx` (modify)
+- `src/components/photo-capture.tsx` (modify)
+
+**Steps:**
+1. Write test: when HEIC conversion is in progress, "Take Photo" and "Choose from Gallery" buttons remain visible. Assert they are present even while `processing-placeholder` is shown.
+2. Run verifier with test pattern (expect fail — `canAddMore` is false when `processingCount > 0`)
+3. Decouple `canAddMore` from `processingCount`. The `canAddMore` condition should only check `totalPhotoCount < maxPhotos`. The race condition protection at lines 97-102 (early return when `processingCount > 0`) already prevents new file additions during processing, so hiding the buttons is redundant.
+4. Run verifier with test pattern (expect pass)
+
+**Notes:**
+- The buttons will be visible but effectively non-functional during processing (the early return at line 98 silently discards new selections). This is acceptable UX — the user sees the buttons and the processing spinner, understanding that processing is in progress.
+
+### Task 3: Only convert new HEIC files, skip already-converted photos
+**Linear Issue:** [FOO-852](https://linear.app/lw-claude/issue/FOO-852/bug-ui-controls-disappear-during-heic-photo-processing)
+**Files:**
+- `src/components/__tests__/photo-capture.test.tsx` (modify)
+- `src/components/photo-capture.tsx` (modify)
+
+**Steps:**
+1. Write test: when adding a second photo (HEIC or not) to an existing set that included a HEIC, `convertHeicToJpeg` is called only for the NEW file(s), not for previously added photos. Track `mockConvertHeicToJpeg.mock.calls` count across two sequential file additions.
+2. Run verifier with test pattern (expect fail — current code re-maps all `combinedPhotos`)
+3. Refactor `handleFileChange` to only process new files through the HEIC conversion pipeline. Preserve the already-converted blobs from `convertedBlobsState` for existing photos. Combine the preserved blobs with newly converted blobs when setting state.
+4. Run verifier with test pattern (expect pass)
+
+**Notes:**
+- The key insight is that `convertedBlobsState` already holds the converted blobs for existing photos. Only `newFiles` need to go through `isHeicFile`/`convertHeicToJpeg`. The final state should be `[...existingConvertedBlobs, ...newlyConvertedBlobs]`.
+- `processingCount` should reflect only the new files being processed (it already does — `actualNewCount` on line 129)
+
+### Task 4: Fix sticky CTA bar floating appearance when keyboard opens
+**Linear Issue:** [FOO-853](https://linear.app/lw-claude/issue/FOO-853/bug-sticky-cta-bar-floats-disconnected-when-keyboard-opens)
+**Files:**
 - `src/components/__tests__/food-analyzer.test.tsx` (modify)
+- `src/components/food-analyzer.tsx` (modify)
 
 **Steps:**
-1. **RED:** In `food-analyzer.test.tsx`, add a test: when Start Over is confirmed, PhotoCapture should re-mount and all photo thumbnails should be cleared. The test should: add photos via the camera input, confirm preview images render, click "Start over", confirm the AlertDialog, then assert no preview images remain in the DOM while the camera input still exists (component re-rendered fresh).
-2. Run `npx vitest run "food-analyzer"` — expect the new test to fail because PhotoCapture retains internal state after Start Over.
-3. **GREEN:** In `food-analyzer.tsx`, add a `photoCaptureKey` state counter: `const [photoCaptureKey, setPhotoCaptureKey] = useState(0)`. In `handleStartOver` (line 137), increment it: `setPhotoCaptureKey(k => k + 1)`. Pass `key={photoCaptureKey}` to the `<PhotoCapture>` component at line 710. This forces a full re-mount, clearing all internal state.
-4. Run `npx vitest run "food-analyzer"` — expect the test to pass.
+1. Write test: when `keyboardHeight > 0` (mock `useKeyboardHeight` to return a positive value), the sticky CTA bar's inner container has an opaque background (not `bg-background/80`) and a bottom border. Assert the inner div's className includes `bg-background` (not `/80`) and `border-b`.
+2. Run verifier with test pattern (expect fail — current code always uses `bg-background/80` and only `border-t`)
+3. In the sticky CTA bar JSX (lines 810-847), make the inner container's styles conditional on `keyboardHeight`:
+   - When `keyboardHeight > 0`: use opaque `bg-background` (drop the `/80` and `backdrop-blur-sm`), add `border-b` alongside `border-t`, and add bottom padding to extend the bar visually toward the keyboard edge
+   - When `keyboardHeight === 0`: keep current `bg-background/80 backdrop-blur-sm border-t` styling
+4. Run verifier with test pattern (expect pass)
 
 **Notes:**
-- The `key` prop approach is the simplest fix — avoids lifting state or adding imperative refs.
-
----
-
-### Task 3: Remove redundant Clear All button from PhotoCapture
-**Linear Issue:** [FOO-848](https://linear.app/lw-claude/issue/FOO-848/remove-redundant-clear-all-button-from-photocapture)
-**Files:**
-- `src/components/photo-capture.tsx` (modify)
-- `src/components/__tests__/photo-capture.test.tsx` (modify)
-
-**Steps:**
-1. **RED:** In `photo-capture.test.tsx`, update existing tests: any test that asserts the presence of "Clear All" buttons or the "Clear all photos?" confirmation dialog should be updated to assert their ABSENCE instead. Tests for individual photo removal via X buttons should remain unchanged.
-2. Run `npx vitest run "photo-capture"` — expect updated tests to fail (Clear All still exists).
-3. **GREEN:** In `photo-capture.tsx`:
-   - Remove the `showClearConfirm` state (line 49)
-   - Remove `handleClearClick` function (lines 229-237)
-   - Remove `handleClearRestoredPhotos` function (lines 260-265)
-   - Remove `doClear` function (lines 239-258)
-   - Remove the "Clear All" button for restored photos (lines 430-439)
-   - Remove the "Clear All" button for new photos (lines 482-491)
-   - Remove the `AlertDialog` for clear confirmation (lines 502-515)
-   - Remove the AlertDialog-related imports (lines 6-14) — the only AlertDialog usage in this component is the clear confirmation dialog
-4. Run `npx vitest run "photo-capture"` — expect tests to pass.
-5. Check `e2e/tests/analyze-photos.spec.ts` for any "Clear All" references that need updating.
-
-**Notes:**
-- Individual photo X buttons remain — they are the primary removal mechanism.
-- "Start over" in FoodAnalyzer handles full clearing (working correctly after Task 2).
-
----
-
-### Task 4: Move HEIC processing placeholders inline with photo grid
-**Linear Issue:** [FOO-849](https://linear.app/lw-claude/issue/FOO-849/heic-processing-placeholder-appears-above-existing-photos-instead-of)
-**Files:**
-- `src/components/photo-capture.tsx` (modify)
-- `src/components/__tests__/photo-capture.test.tsx` (modify)
-
-**Steps:**
-1. **RED:** In `photo-capture.test.tsx`, add a test: when photos exist AND processing is in progress, the processing placeholders should appear WITHIN the same grid container as the photo previews (as sibling elements), not in a separate grid above them. Assert that `processing-placeholder` testid elements share the same parent grid element as the preview thumbnails.
-2. Run `npx vitest run "photo-capture"` — expect the test to fail (placeholders are in a separate grid).
-3. **GREEN:** In `photo-capture.tsx`:
-   - Remove the standalone processing placeholders block (lines 376-390 — the entire `{processingCount > 0 && ...}` section with its own grid).
-   - Inside the new photos previews grid (the `<div className="grid grid-cols-3 gap-2">` at line 445), after the `{previews.map(...)}` block, add the processing placeholder items as additional grid children: `{processingCount > 0 && Array.from({ length: processingCount }).map((_, index) => (` with the same placeholder markup (grey background, spinner).
-   - Handle the edge case when there are NO existing previews but processing is happening (first HEIC photo selection). Change the condition at line 443 from `{previews.length > 0 && (` to `{(previews.length > 0 || processingCount > 0) && (` so the grid renders even when only processing placeholders exist.
-4. Run `npx vitest run "photo-capture"` — expect the test to pass.
-
-**Notes:**
-- The restored photos grid (lines 393-428) does not need processing placeholders — HEIC processing only happens for new file selections.
-- After Task 3, line numbers will have shifted due to removed Clear All code. The implementer should locate elements by content rather than line numbers.
-
----
-
-### Task 5: Move History link from top banner to bottom button
-**Linear Issue:** [FOO-850](https://linear.app/lw-claude/issue/FOO-850/move-history-link-from-top-banner-to-bottom-button-on-home-screen)
-**Files:**
-- `src/components/dashboard-shell.tsx` (modify)
-- `src/components/daily-dashboard.tsx` (modify)
-- `src/components/__tests__/dashboard-shell.test.tsx` (modify)
-- `src/components/__tests__/daily-dashboard.test.tsx` (modify)
-
-**Steps:**
-1. **RED:** In `dashboard-shell.test.tsx`, update tests to assert no History link exists. In `daily-dashboard.test.tsx`, add a test asserting a History link pointing to `/app/history` exists, rendered near the Settings link with a Clock icon.
-2. Run `npx vitest run "dashboard"` — expect dashboard-shell tests to fail (link still present) and daily-dashboard tests to fail (link not present).
-3. **GREEN:**
-   - In `dashboard-shell.tsx`: Remove the History link block (lines 17-27). Remove the `Clock` import from lucide-react (line 5) and the `Link` import from next/link (line 4) since they are no longer used in this component.
-   - In `daily-dashboard.tsx`: Add a History link in the bottom buttons area, inside the same `flex flex-col gap-2` container as the "Update Lumen goals" button (around line 428). Follow the existing Settings link pattern (line 448): `<Link>` with inline button classes, `Clock` icon, `min-h-[44px]`, `w-full`, text "History". Add `Clock` to the existing lucide-react import statement. The link should use `href="/app/history"`.
-4. Run `npx vitest run "dashboard"` — expect all tests to pass.
-
-**Notes:**
-- Follow the Settings link pattern at daily-dashboard.tsx:448-454 exactly for visual consistency.
-- Only DailyDashboard gets the History link — WeeklyDashboard does not need it.
+- The opaque background prevents content from showing through, which eliminates the "floating" appearance
+- Adding `border-b` gives the bar a visible bottom edge when it's not sitting on the bottom nav
+- Bottom padding (e.g., `pb-2`) helps fill any sub-pixel gap between the bar and the keyboard
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -137,87 +131,56 @@
 
 ## Plan Summary
 
-**Objective:** Fix 5 UX issues: dialog fly-in animation, Start Over not clearing photos, redundant Clear All button, HEIC placeholder positioning, and History link placement.
-**Linear Issues:** FOO-847, FOO-848, FOO-849, FOO-850, FOO-851
-**Approach:** Task 1 removes broken slide-in CSS classes from dialog/alert-dialog (keep zoom+fade). Task 2 uses React `key` prop to force PhotoCapture re-mount on Start Over. Task 3 removes Clear All buttons and their confirmation dialog. Task 4 moves processing placeholders inline with the photo grid. Task 5 relocates the History link from DashboardShell to DailyDashboard's bottom button group.
-**Scope:** 5 tasks, 8 files modified, ~8 tests added/updated
-**Key Decisions:** Using `key` prop for PhotoCapture reset (simplest approach, no state lifting needed)
-**Risks:** None significant — all changes are UI-only with no backend or data impact
+**Objective:** Fix two analyze screen UX bugs: HEIC processing hides UI controls, and sticky CTA bar floats disconnected when keyboard opens.
+**Linear Issues:** FOO-852, FOO-853
+**Approach:** (1) Remove unnecessary `processingCount === 0` guards from button visibility — the early-return race condition guard already handles concurrent file selections. Optimize HEIC conversion to only process new files. (2) Make the sticky CTA bar's background opaque and add a bottom border when the keyboard is open, so it looks anchored instead of floating.
+**Scope:** 4 tasks, 4 files, 4 tests
+**Key Decisions:** Keep buttons visible but non-functional during processing (early return handles the race condition). Switch CTA bar from translucent to opaque when keyboard is open.
+**Risks:** Removing a photo during processing could theoretically cause index mismatches, but the existing filter-by-index approach in `handleRemovePhoto` is safe since processing placeholders are separate from previews.
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-03-07
-**Method:** Agent team (3 workers, worktree-isolated)
+**Method:** Single-agent (effort score 5, worker overhead exceeds implementation time)
 
 ### Tasks Completed This Iteration
-- Task 1: Fix dialog and alert-dialog fly-in animation — removed broken slide-* classes, kept zoom+fade (worker-1)
-- Task 2: Fix Start Over not clearing PhotoCapture thumbnails — added photoCaptureKey state with key prop for re-mount (worker-2)
-- Task 3: Remove redundant Clear All button from PhotoCapture — removed buttons, confirmation dialog, and related state/functions (worker-2)
-- Task 4: Move HEIC processing placeholders inline with photo grid — moved placeholders into same grid as previews (worker-2)
-- Task 5: Move History link from top banner to bottom button — removed from DashboardShell, added to DailyDashboard bottom buttons (worker-3)
+- Task 1: Keep delete buttons visible during HEIC processing — removed `processingCount === 0` guard, added early return in `handleRemovePhoto` to prevent stale closure race
+- Task 2: Keep Take Photo / Gallery buttons visible during processing — decoupled `canAddMore` from `processingCount`
+- Task 3: Only convert new HEIC files — refactored `handleFileChange` to preserve existing `convertedBlobsState` and only process new files
+- Task 4: Fix sticky CTA bar floating appearance — conditional opaque `bg-background` + `border-b` when keyboard is open
 
 ### Files Modified
-- `src/components/ui/dialog.tsx` — Removed slide-in/out animation classes from default variant
-- `src/components/ui/alert-dialog.tsx` — Removed slide-in/out animation classes
-- `src/components/ui/__tests__/dialog.test.tsx` — Updated to assert absence of slide classes
-- `src/components/food-analyzer.tsx` — Added photoCaptureKey state, key prop on PhotoCapture
-- `src/components/__tests__/food-analyzer.test.tsx` — Added Start Over clearing test
-- `src/components/photo-capture.tsx` — Removed Clear All buttons/dialog/state, moved HEIC placeholders inline
-- `src/components/__tests__/photo-capture.test.tsx` — Updated Clear All and placeholder tests
-- `e2e/tests/analyze-photos.spec.ts` — Updated Clear All references
-- `src/components/dashboard-shell.tsx` — Removed History link
-- `src/components/daily-dashboard.tsx` — Added History link in bottom buttons
-- `src/components/__tests__/dashboard-shell.test.tsx` — Updated to assert no History link
-- `src/components/__tests__/daily-dashboard.test.tsx` — Added History link tests
+- `src/components/photo-capture.tsx` — removed button visibility guards, optimized HEIC conversion to new files only, added race condition guard in `handleRemovePhoto`
+- `src/components/__tests__/photo-capture.test.tsx` — updated 2 existing tests to expect visible buttons during processing, added 1 new test for HEIC re-conversion optimization
+- `src/components/food-analyzer.tsx` — conditional CTA bar styling based on `keyboardHeight`
+- `src/components/__tests__/food-analyzer.test.tsx` — added 2 new tests for CTA bar opaque/translucent background
 
 ### Linear Updates
-- FOO-851: Todo → In Progress → Review
-- FOO-847: Todo → In Progress → Review
-- FOO-848: Todo → In Progress → Review
-- FOO-849: Todo → In Progress → Review
-- FOO-850: Todo → In Progress → Review
+- FOO-852: Todo → In Progress → Review
+- FOO-853: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Passed — no bugs found
-- verifier: All 2628 tests pass, zero warnings, build clean
+- bug-hunter: Found 1 high bug (stale closure race in handleRemovePhoto during processing), fixed with early return guard. 2 medium bugs were pre-existing and out of scope.
+- verifier: All 2631 tests pass, zero warnings
 
-### Work Partition
-- Worker 1: Task 1 (UI primitives — dialog/alert-dialog CSS)
-- Worker 2: Tasks 2, 3, 4 (PhotoCapture / FoodAnalyzer domain)
-- Worker 3: Task 5 (Dashboard domain — History link)
-
-### Merge Summary
-- Worker 1: fast-forward (no conflicts)
-- Worker 2: merged cleanly (no conflicts), typecheck passed
-- Worker 3: merged cleanly (no conflicts), typecheck passed
-- Post-merge: Fixed pre-existing dialog.test.tsx assertion (expected removed slide classes)
-- Post-merge: Verifier fixed 2 lint issues (unused import, missing eslint-disable)
+### Continuation Status
+All tasks completed.
 
 ### Review Findings
 
-Files reviewed: 12
-Reviewers: security, reliability, quality (agent team)
+Files reviewed: 4
+Reviewers: security, reliability, quality (single-agent review)
 Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
 
 No issues found - all implementations are correct and follow project conventions.
 
-**Discarded findings (not bugs):**
-- [DISCARDED] RESOURCE: Missing timeout cleanup before setting new timeout in `photo-capture.tsx:179` — Cosmetic timing only; even if triggered, the only effect is a warning disappears slightly early. No data loss, crash, or incorrect behavior.
-- [DISCARDED] RESOURCE: Missing cleanup for shareCopied setTimeout in `daily-dashboard.tsx:214` — React 18+ tolerates state updates after unmount. Timer is purely cosmetic (2s "copied" indicator reset). No memory leak or crash.
-
 ### Linear Updates
-- FOO-851: Review → Merge
-- FOO-847: Review → Merge
-- FOO-848: Review → Merge
-- FOO-849: Review → Merge
-- FOO-850: Review → Merge
+- FOO-852: Review → Merge
+- FOO-853: Review → Merge
 
 <!-- REVIEW COMPLETE -->
-
-### Continuation Status
-All tasks completed.
 
 ---
 
