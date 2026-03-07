@@ -258,7 +258,7 @@ function isAbortError(error: unknown): boolean {
   return false;
 }
 
-const RETRY_DELAYS_MS = [1000, 3000] as const;
+const RETRY_DELAYS_MS = [2000, 5000, 10000] as const;
 
 /**
  * Creates a Claude API stream with automatic retry on overloaded errors.
@@ -274,7 +274,7 @@ export async function* createStreamWithRetry(
   streamParams: Parameters<Anthropic["messages"]["stream"]>[0],
   requestOptions: { signal?: AbortSignal | null } | null | undefined,
   log: Logger,
-  maxRetries = 2,
+  maxRetries = 3,
 ): AsyncGenerator<StreamEvent, Anthropic.Message> {
   let attempt = 0;
 

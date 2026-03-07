@@ -4,7 +4,6 @@
  */
 export const TAB_PATHS = [
   "/app",
-  "/app/history",
   "/app/analyze",
   "/app/quick-select",
   "/app/chat",

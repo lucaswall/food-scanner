@@ -28,7 +28,7 @@ export function DescriptionInput({ value, onChange, disabled = false }: Descript
         maxLength={MAX_LENGTH}
         rows={3}
         disabled={disabled}
-        className="w-full px-3 py-2 text-sm border rounded-md border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-full px-3 py-2 text-base border rounded-md border-input bg-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
       />
       <p className="text-xs text-muted-foreground text-right">
         {value.length}/{MAX_LENGTH}

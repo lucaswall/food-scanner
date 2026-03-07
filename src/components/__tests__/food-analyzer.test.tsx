@@ -4199,4 +4199,192 @@ describe("FoodAnalyzer", () => {
       expect(mockCaptureExceptionAnalyzer).not.toHaveBeenCalled();
     });
   });
+
+  describe("CTA label clarity (FOO-840)", () => {
+    it("shows 'Log as new food' (not 'Log as new') when analysis exists with matches", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true, data: { matches: mockMatches } }),
+        });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        const stickyBar = screen.getByTestId("sticky-cta-bar");
+        expect(stickyBar).toHaveTextContent("Log as new food");
+      });
+    });
+
+    it("shows contextual text explaining match reuse in the matches section", async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ]),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true, data: { matches: mockMatches } }),
+        });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-match-card")).toBeInTheDocument();
+      });
+
+      expect(screen.getByText(/tap a match to reuse/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("cancel button during analysis (FOO-839)", () => {
+    it("shows a Cancel button while loading", async () => {
+      const { response, close } = makeControllableSseResponse();
+      mockFetch.mockResolvedValueOnce(response);
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+      });
+
+      close();
+    });
+
+    it("clicking Cancel aborts analysis but preserves photos and description", async () => {
+      // Use a fetch mock that rejects with AbortError when abort is called
+      mockFetch.mockImplementationOnce((_url: string, options: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        });
+      });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.change(screen.getByTestId("description-input"), {
+        target: { value: "my food" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+      await waitFor(() => {
+        // Loading state should clear — CTA should revert to "Analyze Food"
+        expect(screen.getByRole("button", { name: /analyze food/i })).toBeInTheDocument();
+      });
+
+      // Photos and description should still be present
+      expect(screen.getByTestId("photo-capture")).toBeInTheDocument();
+      expect(screen.getByTestId("description-input")).toHaveValue("my food");
+    });
+
+    it("after canceling, CTA reverts to 'Analyze Food' for retry", async () => {
+      mockFetch.mockImplementationOnce((_url: string, options: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        });
+      });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+      await waitFor(() => {
+        const stickyBar = screen.getByTestId("sticky-cta-bar");
+        expect(stickyBar).toHaveTextContent(/analyze food/i);
+      });
+    });
+  });
+
+  describe("re-analyze button (FOO-838)", () => {
+    it("shows a Re-analyze button after analysis completes", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ...makeSseAnalyzeResponse([
+          { type: "analysis", analysis: mockAnalysis },
+          { type: "done" },
+        ]),
+      });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      expect(screen.getByRole("button", { name: /re-analyze/i })).toBeInTheDocument();
+    });
+
+    it("clicking Re-analyze triggers a new analysis", async () => {
+      mockFetch
+        // First analysis
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: mockAnalysis },
+            { type: "done" },
+          ]),
+        })
+        // First find-matches call after analysis
+        .mockResolvedValueOnce(emptyMatchesResponse())
+        // Second analysis (re-analyze)
+        .mockResolvedValueOnce({
+          ...makeSseAnalyzeResponse([
+            { type: "analysis", analysis: { ...mockAnalysis, food_name: "Updated analysis" } },
+            { type: "done" },
+          ]),
+        });
+
+      render(<FoodAnalyzer />);
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Empanada de carne");
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /re-analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toHaveTextContent("Updated analysis");
+      });
+    });
+
+    it("Re-analyze button is not visible when no analysis exists", () => {
+      render(<FoodAnalyzer />);
+      expect(screen.queryByRole("button", { name: /re-analyze/i })).not.toBeInTheDocument();
+    });
+  });
 });

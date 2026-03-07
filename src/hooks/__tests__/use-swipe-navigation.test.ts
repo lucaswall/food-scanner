@@ -26,28 +26,22 @@ describe("useSwipeNavigation", () => {
       expect(result.current.currentIndex).toBe(0);
     });
 
-    it("returns 1 for /app/history", () => {
-      vi.mocked(usePathname).mockReturnValue("/app/history");
+    it("returns 1 for /app/analyze", () => {
+      vi.mocked(usePathname).mockReturnValue("/app/analyze");
       const { result } = renderHook(() => useSwipeNavigation());
       expect(result.current.currentIndex).toBe(1);
     });
 
-    it("returns 2 for /app/analyze", () => {
-      vi.mocked(usePathname).mockReturnValue("/app/analyze");
+    it("returns 2 for /app/quick-select", () => {
+      vi.mocked(usePathname).mockReturnValue("/app/quick-select");
       const { result } = renderHook(() => useSwipeNavigation());
       expect(result.current.currentIndex).toBe(2);
     });
 
-    it("returns 3 for /app/quick-select", () => {
-      vi.mocked(usePathname).mockReturnValue("/app/quick-select");
-      const { result } = renderHook(() => useSwipeNavigation());
-      expect(result.current.currentIndex).toBe(3);
-    });
-
-    it("returns 4 for /app/chat", () => {
+    it("returns 3 for /app/chat", () => {
       vi.mocked(usePathname).mockReturnValue("/app/chat");
       const { result } = renderHook(() => useSwipeNavigation());
-      expect(result.current.currentIndex).toBe(4);
+      expect(result.current.currentIndex).toBe(3);
     });
 
     it("returns -1 for /settings", () => {
@@ -64,7 +58,7 @@ describe("useSwipeNavigation", () => {
   });
 
   describe("canSwipeLeft", () => {
-    it("is false when at last tab (index 4)", () => {
+    it("is false when at last tab (index 3)", () => {
       vi.mocked(usePathname).mockReturnValue("/app/chat");
       const { result } = renderHook(() => useSwipeNavigation());
       expect(result.current.canSwipeLeft).toBe(false);
@@ -91,7 +85,7 @@ describe("useSwipeNavigation", () => {
     });
 
     it("is true when not at first tab", () => {
-      vi.mocked(usePathname).mockReturnValue("/app/history");
+      vi.mocked(usePathname).mockReturnValue("/app/analyze");
       const { result } = renderHook(() => useSwipeNavigation());
       expect(result.current.canSwipeRight).toBe(true);
     });
@@ -108,20 +102,20 @@ describe("useSwipeNavigation", () => {
       vi.mocked(usePathname).mockReturnValue("/app");
       const { result } = renderHook(() => useSwipeNavigation());
       result.current.navigateToTab(1);
-      expect(mockReplace).toHaveBeenCalledWith("/app/history");
+      expect(mockReplace).toHaveBeenCalledWith("/app/analyze");
     });
 
     it("calls router.replace with /app for index 0", () => {
-      vi.mocked(usePathname).mockReturnValue("/app/history");
+      vi.mocked(usePathname).mockReturnValue("/app/analyze");
       const { result } = renderHook(() => useSwipeNavigation());
       result.current.navigateToTab(0);
       expect(mockReplace).toHaveBeenCalledWith("/app");
     });
 
-    it("calls router.replace with /app/chat for index 4", () => {
+    it("calls router.replace with /app/chat for index 3", () => {
       vi.mocked(usePathname).mockReturnValue("/app");
       const { result } = renderHook(() => useSwipeNavigation());
-      result.current.navigateToTab(4);
+      result.current.navigateToTab(3);
       expect(mockReplace).toHaveBeenCalledWith("/app/chat");
     });
   });

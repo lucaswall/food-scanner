@@ -262,6 +262,7 @@ export function PhotoCapture({
   const handleClearRestoredPhotos = () => {
     restoredPreviews.forEach((url) => URL.revokeObjectURL(url));
     setRestoredPreviews([]);
+    setShowClearConfirm(false);
     onPhotosChange([], []);
   };
 
@@ -412,14 +413,16 @@ export function PhotoCapture({
                 />
                 <button
                   type="button"
-                  className="absolute top-1 right-1 z-10 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center"
+                  className="absolute top-0 right-0 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleRemoveRestoredPhoto(index);
                   }}
                   aria-label={`Remove photo ${index + 1}`}
                 >
-                  <X className="h-3.5 w-3.5" />
+                  <span className="w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center">
+                    <X className="h-3.5 w-3.5" />
+                  </span>
                 </button>
               </div>
             ))}
@@ -452,7 +455,7 @@ export function PhotoCapture({
             <Button
               type="button"
               variant="outline"
-              onClick={handleClearRestoredPhotos}
+              onClick={() => setShowClearConfirm(true)}
               className="w-full"
             >
               Clear All
@@ -484,14 +487,16 @@ export function PhotoCapture({
                 {processingCount === 0 && (
                   <button
                     type="button"
-                    className="absolute top-1 right-1 z-10 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center"
+                    className="absolute top-0 right-0 z-10 min-w-[44px] min-h-[44px] flex items-center justify-center"
                     onClick={(e) => {
                       e.stopPropagation();
                       handleRemovePhoto(index);
                     }}
                     aria-label={`Remove photo ${index + 1}`}
                   >
-                    <X className="h-3.5 w-3.5" />
+                    <span className="w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center">
+                      <X className="h-3.5 w-3.5" />
+                    </span>
                   </button>
                 )}
               </div>
@@ -546,12 +551,12 @@ export function PhotoCapture({
           <AlertDialogHeader>
             <AlertDialogTitle>Clear all photos?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove all {photos.length} selected photos. This action cannot be undone.
+              This will remove all {photos.length > 0 ? photos.length : restoredPreviews.length} selected photos. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={doClear}>Confirm</AlertDialogAction>
+            <AlertDialogAction onClick={photos.length > 0 ? doClear : () => { handleClearRestoredPhotos(); setShowClearConfirm(false); }}>Confirm</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

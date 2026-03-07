@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConfidenceBadge } from "../confidence-badge";
+import { confidenceExplanations } from "@/lib/confidence";
 
 // Mock ResizeObserver for Radix UI
 beforeAll(() => {
@@ -57,17 +58,39 @@ describe("ConfidenceBadge", () => {
     expect(indicator).not.toHaveAttribute("aria-label");
   });
 
-  it("shows tooltip with confidence explanation on hover", async () => {
+  it("shows explanation on click (popover)", async () => {
+    const user = userEvent.setup();
+    render(<ConfidenceBadge confidence="medium" />);
+
+    const trigger = screen.getByTestId("confidence-trigger");
+    await user.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.getByText(confidenceExplanations.medium)).toBeInTheDocument();
+    });
+  });
+
+  it("shows high confidence explanation on click", async () => {
     const user = userEvent.setup();
     render(<ConfidenceBadge confidence="high" />);
 
     const trigger = screen.getByTestId("confidence-trigger");
-    await user.hover(trigger);
+    await user.click(trigger);
 
     await waitFor(() => {
-      const tooltip = screen.getByRole("tooltip");
-      expect(tooltip).toBeInTheDocument();
-      expect(tooltip).toHaveTextContent(/certain/i);
+      expect(screen.getByText(confidenceExplanations.high)).toBeInTheDocument();
+    });
+  });
+
+  it("shows low confidence explanation on click", async () => {
+    const user = userEvent.setup();
+    render(<ConfidenceBadge confidence="low" />);
+
+    const trigger = screen.getByTestId("confidence-trigger");
+    await user.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.getByText(confidenceExplanations.low)).toBeInTheDocument();
     });
   });
 
@@ -75,18 +98,5 @@ describe("ConfidenceBadge", () => {
     render(<ConfidenceBadge confidence="high" />);
     const trigger = screen.getByTestId("confidence-trigger");
     expect(trigger).toHaveClass("min-h-[44px]");
-  });
-
-  it("shows low confidence explanation in tooltip", async () => {
-    const user = userEvent.setup();
-    render(<ConfidenceBadge confidence="low" />);
-
-    const trigger = screen.getByTestId("confidence-trigger");
-    await user.hover(trigger);
-
-    await waitFor(() => {
-      const tooltip = screen.getByRole("tooltip");
-      expect(tooltip).toHaveTextContent(/uncertain|verify/i);
-    });
   });
 });

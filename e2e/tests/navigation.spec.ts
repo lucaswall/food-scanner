@@ -1,15 +1,14 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Bottom Navigation', () => {
-  test('shows all 5 navigation items on /app', async ({ page }) => {
+  test('shows all 4 navigation items on /app', async ({ page }) => {
     await page.goto('/app');
 
     const nav = page.locator('nav[aria-label="Main navigation"]');
     await expect(nav).toBeVisible();
 
-    // Verify all 5 nav items are visible
+    // Verify all 4 nav items are visible (History moved to Home screen)
     await expect(nav.getByRole('link', { name: /home/i })).toBeVisible();
-    await expect(nav.getByRole('link', { name: /history/i })).toBeVisible();
     await expect(nav.getByRole('link', { name: /analyze/i })).toBeVisible();
     await expect(nav.getByRole('link', { name: /quick select/i })).toBeVisible();
     await expect(nav.getByRole('link', { name: /^chat$/i })).toBeVisible();
@@ -36,16 +35,15 @@ test.describe('Bottom Navigation', () => {
     await expect(quickSelectLink).toHaveAttribute('aria-current', 'page');
   });
 
-  test('navigates to History and shows it as active', async ({ page }) => {
+  test('navigates to History via Home screen button', async ({ page }) => {
     await page.goto('/app');
 
-    const nav = page.locator('nav[aria-label="Main navigation"]');
-    await nav.getByRole('link', { name: /history/i }).click();
+    // History is now a button on the Home screen, not in bottom nav
+    const historyLink = page.getByRole('link', { name: /history/i });
+    await expect(historyLink).toBeVisible();
+    await historyLink.click();
 
     await expect(page).toHaveURL('/app/history');
-
-    const historyLink = nav.getByRole('link', { name: /history/i });
-    await expect(historyLink).toHaveAttribute('aria-current', 'page');
   });
 
   test('navigates to Chat and shows it as active', async ({ page }) => {
@@ -68,10 +66,6 @@ test.describe('Bottom Navigation', () => {
 
     // Navigate to Quick Select
     await nav.getByRole('link', { name: /quick select/i }).click();
-    await expect(nav).toBeVisible();
-
-    // Navigate to History
-    await nav.getByRole('link', { name: /history/i }).click();
     await expect(nav).toBeVisible();
 
     // Navigate to Chat
