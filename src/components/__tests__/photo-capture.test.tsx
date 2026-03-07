@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { PhotoCapture } from "../photo-capture";
 
 // Mock next/image to render a plain <img> in tests
@@ -1256,7 +1255,7 @@ describe("PhotoCapture", () => {
     });
 
     it("shows confirmation dialog when clearing 2+ restored photos", async () => {
-      const user = userEvent.setup();
+      // user setup not needed for this test
       const onPhotosChange = vi.fn();
       const blobs = [
         new Blob(["img1"], { type: "image/jpeg" }),

@@ -155,7 +155,10 @@ vi.mock("../photo-capture", () => ({
         </button>
         <button onClick={() => onPhotosChange([])}>Clear Photos</button>
         {internalPhotos.map((name: string, i: number) => (
-          <img key={i} src={`blob:${name}`} alt={`Preview ${i + 1}`} data-testid="photo-preview" />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img key={i} src={`blob:${name}`} alt={`Preview ${i + 1}`} data-testid="photo-preview" />
+          </>
         ))}
         {restoredBlobs && restoredBlobs.length > 0 && (
           <span data-testid="restored-photos-indicator">{restoredBlobs.length} restored</span>

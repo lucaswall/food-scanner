@@ -16,11 +16,11 @@ describe("DialogContent variant prop", () => {
     expect(classes).toContain("zoom-out-95");
     expect(classes).toContain("zoom-in-95");
 
-    // Default variant should have slide-from-top/left animations
-    expect(classes).toContain("slide-out-to-left-1/2");
-    expect(classes).toContain("slide-out-to-top-[48%]");
-    expect(classes).toContain("slide-in-from-left-1/2");
-    expect(classes).toContain("slide-in-from-top-[48%]");
+    // Default variant should NOT have slide animations (removed — they caused fly-in from top-left)
+    expect(classes).not.toContain("slide-out-to-left-1/2");
+    expect(classes).not.toContain("slide-out-to-top-[48%]");
+    expect(classes).not.toContain("slide-in-from-left-1/2");
+    expect(classes).not.toContain("slide-in-from-top-[48%]");
 
     // Default variant should have rounded corners on sm screens
     expect(classes).toContain("sm:rounded-lg");

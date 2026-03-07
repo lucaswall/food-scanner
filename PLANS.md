@@ -142,3 +142,57 @@
 **Scope:** 5 tasks, 8 files modified, ~8 tests added/updated
 **Key Decisions:** Using `key` prop for PhotoCapture reset (simplest approach, no state lifting needed)
 **Risks:** None significant — all changes are UI-only with no backend or data impact
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-07
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Fix dialog and alert-dialog fly-in animation — removed broken slide-* classes, kept zoom+fade (worker-1)
+- Task 2: Fix Start Over not clearing PhotoCapture thumbnails — added photoCaptureKey state with key prop for re-mount (worker-2)
+- Task 3: Remove redundant Clear All button from PhotoCapture — removed buttons, confirmation dialog, and related state/functions (worker-2)
+- Task 4: Move HEIC processing placeholders inline with photo grid — moved placeholders into same grid as previews (worker-2)
+- Task 5: Move History link from top banner to bottom button — removed from DashboardShell, added to DailyDashboard bottom buttons (worker-3)
+
+### Files Modified
+- `src/components/ui/dialog.tsx` — Removed slide-in/out animation classes from default variant
+- `src/components/ui/alert-dialog.tsx` — Removed slide-in/out animation classes
+- `src/components/ui/__tests__/dialog.test.tsx` — Updated to assert absence of slide classes
+- `src/components/food-analyzer.tsx` — Added photoCaptureKey state, key prop on PhotoCapture
+- `src/components/__tests__/food-analyzer.test.tsx` — Added Start Over clearing test
+- `src/components/photo-capture.tsx` — Removed Clear All buttons/dialog/state, moved HEIC placeholders inline
+- `src/components/__tests__/photo-capture.test.tsx` — Updated Clear All and placeholder tests
+- `e2e/tests/analyze-photos.spec.ts` — Updated Clear All references
+- `src/components/dashboard-shell.tsx` — Removed History link
+- `src/components/daily-dashboard.tsx` — Added History link in bottom buttons
+- `src/components/__tests__/dashboard-shell.test.tsx` — Updated to assert no History link
+- `src/components/__tests__/daily-dashboard.test.tsx` — Added History link tests
+
+### Linear Updates
+- FOO-851: Todo → In Progress → Review
+- FOO-847: Todo → In Progress → Review
+- FOO-848: Todo → In Progress → Review
+- FOO-849: Todo → In Progress → Review
+- FOO-850: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 2628 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Task 1 (UI primitives — dialog/alert-dialog CSS)
+- Worker 2: Tasks 2, 3, 4 (PhotoCapture / FoodAnalyzer domain)
+- Worker 3: Task 5 (Dashboard domain — History link)
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: merged cleanly (no conflicts), typecheck passed
+- Worker 3: merged cleanly (no conflicts), typecheck passed
+- Post-merge: Fixed pre-existing dialog.test.tsx assertion (expected removed slide classes)
+- Post-merge: Verifier fixed 2 lint issues (unused import, missing eslint-disable)
+
+### Continuation Status
+All tasks completed.
