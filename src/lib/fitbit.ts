@@ -269,7 +269,7 @@ export async function deleteFoodLog(
   );
 
   const response = await fetchWithRetry(
-    `${FITBIT_API_BASE}/1/user/-/food/log/${fitbitLogId}.json`,
+    `${FITBIT_API_BASE}/1/user/-/foods/log/${fitbitLogId}.json`,
     {
       method: "DELETE",
       headers: {

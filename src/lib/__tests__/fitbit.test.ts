@@ -1252,7 +1252,7 @@ describe("deleteFoodLog", () => {
     await deleteFoodLog("test-token", 12345);
 
     expect(fetch).toHaveBeenCalledWith(
-      "https://api.fitbit.com/1/user/-/food/log/12345.json",
+      "https://api.fitbit.com/1/user/-/foods/log/12345.json",
       expect.objectContaining({
         method: "DELETE",
         headers: expect.objectContaining({
