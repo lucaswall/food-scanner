@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-03-08
+
+### Fixed
+
+- Fitbit delete food log API URL corrected (`/food/` → `/foods/`)
+
 ## [1.18.0] - 2026-03-07
 
 ### Added
@@ -406,7 +412,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.18.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.18.1...HEAD
+[1.18.1]: https://github.com/lucaswall/food-scanner/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/lucaswall/food-scanner/compare/v1.17.6...v1.18.0
 [1.17.6]: https://github.com/lucaswall/food-scanner/compare/v1.17.5...v1.17.6
 [1.17.5]: https://github.com/lucaswall/food-scanner/compare/v1.17.4...v1.17.5
