@@ -1199,7 +1199,7 @@ export async function* analyzeFood(
     // Stream text deltas from the initial response (with overload retry)
     const response = yield* createStreamWithRetry({
       model: CLAUDE_MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: [
         {
           type: "text" as const,
