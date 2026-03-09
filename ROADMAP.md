@@ -10,7 +10,6 @@
 | [Food Log Push Notifications](#food-log-push-notifications) | Push nutrition data directly to Health Connect via a thin Android wrapper |
 | [Quick Capture Session](#quick-capture-session) | Snap photos and notes quickly at meals, process everything later at home |
 | [AI-Driven Staging QA](#ai-driven-staging-qa) | Automated functional QA against staging using Claude Chrome integration |
-| [Auto User Profile](#auto-user-profile) | Inject a personalized context block into Claude's system prompt from existing user data |
 | [Save for Later](#save-for-later) | Analyze food now, save the result, log it when you actually eat it |
 
 
@@ -481,79 +480,6 @@ The skill outputs a markdown summary:
 2. Implement core scenarios (dashboard, analyze, log, history)
 3. Add chat refinement, edit, delete, quick-select, settings scenarios
 4. Add cleanup logic (delete test entries after run)
-
----
-
-## Auto User Profile
-
-### Problem
-
-Every conversation with Claude starts from zero. The system prompt hardcodes "Argentine and Latin American cuisine" for all users, and Claude has no idea what the user typically eats, what their goals are, or what corrections they've made in the past — until it happens to call `search_food_log` or `get_nutrition_summary` mid-conversation. This means the first analysis of the day often misses context that would improve accuracy (e.g., the user always eats small portions, is lactose intolerant, or has specific calorie targets).
-
-### Goal
-
-Automatically build a compact user profile from existing data and inject it into Claude's system prompt so every interaction — both initial analysis and chat refinement — starts with personalized context.
-
-### Design
-
-#### Profile Generation
-
-At the start of each API call (`/api/analyze-food`, `/api/chat-food`, `/api/edit-chat`), generate a ~200-300 token profile block from existing database data. No user input required — the profile is derived automatically.
-
-**Data sources (all already in the DB):**
-
-- **Top foods:** 5-10 most frequently logged `custom_foods` entries (name, typical amount, calories). Gives Claude immediate context for "the usual" or portion estimation.
-- **Calorie/macro goals:** Current `daily_calorie_goals` and `lumen_goals`. Claude can reference targets without needing a tool call.
-- **Meal patterns:** Derived from `food_log_entries` — typical meal times, average meals per day, most common meal types. Helps Claude infer meal type and time.
-- **Recent corrections:** Foods where the user consistently overrides Claude's estimates (e.g., always corrects empanadas from 300 to 250 cal). Stored as correction patterns, not free-text memories.
-
-**Profile format:** A structured text block appended to `SYSTEM_PROMPT` before the mode-specific instructions. Example:
-
-> *User profile: Targets 2200 cal/day (protein 140g, carbs 220g, fat 80g). Top foods: medialunas (×32, 180cal), café con leche (×28, 90cal), milanesa con ensalada (×15, 650cal), empanadas de carne (×12, 250cal — user-corrected from default estimate). Typically logs 3-4 meals/day. Lunch usually 12:30-13:30, dinner 20:30-21:30.*
-
-#### What the Profile Does NOT Include
-
-- Full conversation history — no past chats are stored or replayed.
-- Implicitly extracted "memories" from conversations — no LLM call to extract facts. Only structured data from existing tables.
-- Dietary restrictions or allergies — unless explicitly stored by the user (see Optional Preferences below).
-
-#### Optional Preferences (Phase 2)
-
-A small preferences section in the app settings where the user can explicitly set:
-
-- Dietary restrictions (celiac, lactose intolerant, vegetarian, etc.)
-- Cooking style (grill, oven, air fryer — affects oil/fat estimates)
-- Default portion size tendency (small, normal, large)
-- Language preference for food names (Spanish, English, mixed)
-
-These are stored in a `user_preferences` JSON column on the `users` table (or a dedicated table). Injected into the profile block alongside the auto-derived data.
-
-#### Freshness
-
-The profile is regenerated on each request — no caching of the profile itself. Since the underlying queries are simple aggregations on indexed tables for a single user, generation cost is negligible (~5-10ms). The data is always fresh: if the user logs a new food or changes their calorie goal, the next conversation reflects it immediately.
-
-### Architecture
-
-- **Profile builder:** New `buildUserProfile(userId)` function in `src/lib/user-profile.ts`. Queries `custom_foods`, `food_log_entries`, `daily_calorie_goals`, and `lumen_goals`. Returns a string block.
-- **Injection point:** `SYSTEM_PROMPT` in `src/lib/claude.ts` becomes a function `getSystemPrompt(userId)` that appends the profile block. Both `ANALYSIS_SYSTEM_PROMPT` and `CHAT_SYSTEM_PROMPT` inherit it, so both initial analysis and chat refinement get the profile.
-- **Prompt caching:** The static portion of the system prompt (instructions, rules, tool descriptions) stays cacheable. The user profile block is appended after the cache checkpoint. Since this is a single-user app, the profile content is stable across requests within a session, so it benefits from the 5-minute cache TTL.
-- **No new tables for Phase 1.** Everything is derived from existing data. Phase 2 adds a `user_preferences` column or table for explicit settings.
-
-### Edge Cases
-
-- **New user with no data:** Profile block is omitted entirely — the system prompt works exactly as it does today. No empty profile injected.
-- **User with very few entries:** Profile includes whatever is available. Even 3-4 logged foods and a calorie goal provide useful context.
-- **Stale correction patterns:** Correction detection uses a rolling window (last 90 days). Old corrections age out naturally.
-- **Profile exceeds token budget:** Cap at 300 tokens. Prioritize: goals first, then top foods (by frequency), then meal patterns, then corrections. Truncate the least valuable items.
-- **Performance:** Profile generation adds one DB round-trip per request. The queries are simple indexed lookups for a single user. If latency becomes an issue, a short TTL cache (1-5 minutes) can be added without freshness concerns.
-
-### Implementation Order
-
-1. `buildUserProfile(userId)` — query existing tables, generate profile text block
-2. Refactor `SYSTEM_PROMPT` to accept dynamic profile injection
-3. Integrate into `/api/analyze-food`, `/api/chat-food`, and `/api/edit-chat` routes
-4. Correction pattern detection (compare `custom_foods` nutrition vs. Claude's typical estimates)
-5. Optional preferences UI in settings (Phase 2)
 
 ---
 

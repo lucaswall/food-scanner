@@ -134,3 +134,36 @@
 **Scope:** 4 tasks, 5 files (2 new, 3 modified), 4 test suites
 **Key Decisions:** Use plain frequency counts for top foods (not time-weighted `getCommonFoods` scores). Include today's calorie/macro progress in the profile. Profile block goes between base prompt and role-specific instructions. Return `null` for new users with no data (prompt unchanged).
 **Risks:** Profile generation adds one DB round-trip per API request (~5ms) — negligible vs. Claude API latency. If profile exceeds 300 tokens, truncation priority is goals > progress > top foods > meal patterns.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-09
+**Method:** Single-agent
+
+### Tasks Completed This Iteration
+- Task 1 (FOO-856): Create `buildUserProfile()` function — new module with 4 parallel DB queries, profile formatting, truncation logic
+- Task 2 (FOO-857): Refactor system prompt to accept dynamic profile injection — added `getSystemPrompt`, `getAnalysisSystemPrompt`, `getChatSystemPrompt`, `getEditSystemPrompt`
+- Task 3 (FOO-858): Integrate profile into API routes — wired dynamic prompts into `analyzeFood`, `conversationalRefine`, `editAnalysis`, `runToolLoop`
+- Task 4 (FOO-859): Remove Auto User Profile from ROADMAP.md — section and contents table entry removed
+
+### Files Modified
+- `src/lib/user-profile.ts` — Created: `buildUserProfile()`, `getTopFoodsByFrequency()`
+- `src/lib/__tests__/user-profile.test.ts` — Created: 7 tests for profile generation
+- `src/lib/claude.ts` — Added import for `buildUserProfile`, exported `SYSTEM_PROMPT`, added 4 dynamic prompt functions, wired into 4 API functions
+- `src/lib/__tests__/claude.test.ts` — Added mock for user-profile, 17 new tests for dynamic prompts and profile integration, fixed stale max_tokens test
+- `ROADMAP.md` — Removed Auto User Profile section and contents table entry
+
+### Linear Updates
+- FOO-856: Todo → In Progress → Review
+- FOO-857: Todo → In Progress → Review
+- FOO-858: Todo → In Progress → Review
+- FOO-859: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (unused import, missing test fields, missing error handling, dead test code), all fixed
+- verifier: All 2653 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

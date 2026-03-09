@@ -8,6 +8,7 @@ import { getRequiredEnv } from "@/lib/env";
 import { isValidDateFormat } from "@/lib/date-utils";
 import { recordUsage } from "@/lib/claude-usage";
 import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } from "@/lib/chat-tools";
+import { buildUserProfile } from "@/lib/user-profile";
 import type { StreamEvent } from "@/lib/sse";
 
 export const CLAUDE_MODEL = "claude-sonnet-4-6";
@@ -26,7 +27,7 @@ function getClient(): Anthropic {
   return _client;
 }
 
-const SYSTEM_PROMPT = `You are a nutrition analyst specializing in Argentine and Latin American cuisine.
+export const SYSTEM_PROMPT = `You are a nutrition analyst specializing in Argentine and Latin American cuisine.
 Analyze food images and descriptions to provide accurate nutritional information.
 Consider typical Argentine portions and preparation methods.
 Choose the most natural measurement unit for each food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).
@@ -594,6 +595,42 @@ Web search guidelines:
 - When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
 - If web search returns nothing useful, fall back to estimation from your training data and say so.`;
 
+export async function getSystemPrompt(userId: string, currentDate: string): Promise<string> {
+  try {
+    const profile = await buildUserProfile(userId, currentDate);
+    if (!profile) return SYSTEM_PROMPT;
+    return `${SYSTEM_PROMPT}\n\n${profile}`;
+  } catch (error) {
+    logger.warn(
+      { action: "build_user_profile_failed", error: error instanceof Error ? error.message : String(error), userId },
+      "failed to build user profile, using base prompt"
+    );
+    return SYSTEM_PROMPT;
+  }
+}
+
+export async function getAnalysisSystemPrompt(userId: string, currentDate: string): Promise<string> {
+  const base = await getSystemPrompt(userId, currentDate);
+  if (base === SYSTEM_PROMPT) return ANALYSIS_SYSTEM_PROMPT;
+  // Extract the role-specific part (everything after SYSTEM_PROMPT in ANALYSIS_SYSTEM_PROMPT)
+  const roleInstructions = ANALYSIS_SYSTEM_PROMPT.slice(SYSTEM_PROMPT.length);
+  return `${base}${roleInstructions}`;
+}
+
+export async function getChatSystemPrompt(userId: string, currentDate: string): Promise<string> {
+  const base = await getSystemPrompt(userId, currentDate);
+  if (base === SYSTEM_PROMPT) return CHAT_SYSTEM_PROMPT;
+  const roleInstructions = CHAT_SYSTEM_PROMPT.slice(SYSTEM_PROMPT.length);
+  return `${base}${roleInstructions}`;
+}
+
+export async function getEditSystemPrompt(userId: string, currentDate: string): Promise<string> {
+  const base = await getSystemPrompt(userId, currentDate);
+  if (base === SYSTEM_PROMPT) return EDIT_SYSTEM_PROMPT;
+  const roleInstructions = EDIT_SYSTEM_PROMPT.slice(SYSTEM_PROMPT.length);
+  return `${base}${roleInstructions}`;
+}
+
 const DATA_TOOLS = [
   SEARCH_FOOD_LOG_TOOL,
   GET_NUTRITION_SUMMARY_TOOL,
@@ -829,7 +866,7 @@ export async function* runToolLoop(
 ): AsyncGenerator<StreamEvent> {
   const l = options?.log ?? logger;
   const loopElapsed = startTimer();
-  let systemPrompt = options?.systemPrompt ?? CHAT_SYSTEM_PROMPT;
+  let systemPrompt = options?.systemPrompt ?? await getChatSystemPrompt(userId, currentDate);
   if (!options?.systemPrompt && currentDate) {
     systemPrompt += `\n\nToday's date is: ${currentDate}`;
   }
@@ -1165,7 +1202,7 @@ export async function* analyzeFood(
 
     const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
     const toolsWithCache = buildToolsWithCache(allTools);
-    const systemPrompt = `${ANALYSIS_SYSTEM_PROMPT}\n\nToday's date is: ${currentDate}`;
+    const systemPrompt = `${await getAnalysisSystemPrompt(userId, currentDate)}\n\nToday's date is: ${currentDate}`;
 
     const userMessage: Anthropic.MessageParam = {
       role: "user",
@@ -1516,7 +1553,9 @@ export async function* conversationalRefine(
     );
 
     // Build system prompt with date and initial analysis context
-    let systemPrompt = CHAT_SYSTEM_PROMPT;
+    let systemPrompt = (userId && currentDate)
+      ? await getChatSystemPrompt(userId, currentDate)
+      : CHAT_SYSTEM_PROMPT;
     if (currentDate) {
       systemPrompt += `\n\nToday's date is: ${currentDate}`;
     }
@@ -1779,7 +1818,7 @@ export async function* editAnalysis(
 
     // Build system prompt with EDIT_SYSTEM_PROMPT + entry context + date
     const amountLabel = getUnitLabel(entry.unitId, entry.amount);
-    let systemPrompt = EDIT_SYSTEM_PROMPT;
+    let systemPrompt = await getEditSystemPrompt(userId, currentDate);
     systemPrompt += `\n\nToday's date is: ${currentDate}`;
     const tier1Lines: string[] = [];
     if (entry.saturatedFatG != null) tier1Lines.push(`- Saturated Fat: ${entry.saturatedFatG}g`);
