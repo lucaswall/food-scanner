@@ -406,25 +406,34 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   }
 
   const validConfidence = ["high", "medium", "low"];
-  if (!validConfidence.includes(data.confidence as string)) {
-    throw new ClaudeApiError("Invalid food analysis: confidence must be high, medium, or low");
+  let confidence: string;
+  if (validConfidence.includes(data.confidence as string)) {
+    confidence = data.confidence as string;
+  } else {
+    logger.warn({ action: "validation_coerce_confidence", received: data.confidence }, "coerced invalid confidence to medium");
+    confidence = "medium";
   }
 
   const notes = typeof data.notes === "string" ? data.notes : "";
 
-  if (!Array.isArray(data.keywords)) {
-    throw new ClaudeApiError("Invalid food analysis: keywords must be an array");
-  }
-  if (data.keywords.length === 0) {
-    throw new ClaudeApiError("Invalid food analysis: keywords must have at least 1 element");
-  }
-  if (!data.keywords.every((k: unknown) => typeof k === "string")) {
-    throw new ClaudeApiError("Invalid food analysis: all keywords must be strings");
+  let rawKeywords: string[];
+  if (typeof data.keywords === "string") {
+    rawKeywords = [data.keywords];
+  } else if (Array.isArray(data.keywords)) {
+    rawKeywords = data.keywords.filter((k: unknown): k is string => typeof k === "string");
+  } else {
+    rawKeywords = [];
   }
 
-  const keywords = normalizeKeywords(data.keywords as string[]);
+  let keywords = normalizeKeywords(rawKeywords);
   if (keywords.length === 0) {
-    throw new ClaudeApiError("Invalid food analysis: keywords must have at least 1 element");
+    // Derive from food_name: split on whitespace, lowercase, take first 3
+    const foodName = data.food_name as string;
+    keywords = normalizeKeywords(foodName.split(/\s+/).slice(0, 3));
+    if (keywords.length === 0) {
+      keywords = [foodName.split(/\s+/)[0].toLowerCase()];
+    }
+    logger.warn({ action: "validation_coerce_keywords", received: typeof data.keywords, foodName }, "coerced invalid keywords from food_name");
   }
 
   // Validate description - default to empty string if missing
@@ -542,7 +551,7 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     trans_fat_g: tier1Values.trans_fat_g,
     sugars_g: tier1Values.sugars_g,
     calories_from_fat: tier1Values.calories_from_fat,
-    confidence: data.confidence as FoodAnalysis["confidence"],
+    confidence: confidence as FoodAnalysis["confidence"],
     notes,
     keywords,
     description,

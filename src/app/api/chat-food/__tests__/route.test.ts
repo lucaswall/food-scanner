@@ -433,8 +433,11 @@ describe("POST /api/chat-food", () => {
     expect(body.error.message).toContain("amount must be positive");
   });
 
-  it("returns 400 when initialAnalysis has invalid confidence value", async () => {
+  it("coerces invalid confidence in initialAnalysis to medium (FOO-862)", async () => {
     mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
 
     const request = createMockRequest({
       messages: [{ role: "user", content: "Refine this" }],
@@ -445,10 +448,7 @@ describe("POST /api/chat-food", () => {
     });
 
     const response = await POST(request);
-    expect(response.status).toBe(400);
-    const body = await response.json();
-    expect(body.error.code).toBe("VALIDATION_ERROR");
-    expect(body.error.message).toContain("confidence must be high, medium, or low");
+    expect(response.status).toBe(200);
   });
 
   // ---- SSE streaming responses (success path) ----
