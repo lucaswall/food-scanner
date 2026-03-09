@@ -1,127 +1,125 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Created:** 2026-03-07
-**Source:** Bug report: UI controls disappear during HEIC photo processing; sticky CTA floats disconnected when keyboard opens
-**Linear Issues:** [FOO-852](https://linear.app/lw-claude/issue/FOO-852/bug-ui-controls-disappear-during-heic-photo-processing), [FOO-853](https://linear.app/lw-claude/issue/FOO-853/bug-sticky-cta-bar-floats-disconnected-when-keyboard-opens)
-**Branch:** fix/FOO-852-heic-processing-ui
+**Created:** 2026-03-09
+**Source:** Inline request: Auto User Profile — build a dynamic user profile from DB data and inject into Claude's system prompt
+**Linear Issues:** [FOO-856](https://linear.app/lw-claude/issue/FOO-856/create-builduserprofile-function), [FOO-857](https://linear.app/lw-claude/issue/FOO-857/refactor-system-prompt-to-accept-dynamic-profile-injection), [FOO-858](https://linear.app/lw-claude/issue/FOO-858/integrate-dynamic-profile-into-claude-api-functions), [FOO-859](https://linear.app/lw-claude/issue/FOO-859/remove-auto-user-profile-from-roadmapmd)
+**Branch:** feat/auto-user-profile
 
 ## Context Gathered
 
 ### Codebase Analysis
-- **Related files:** `src/components/photo-capture.tsx`, `src/components/__tests__/photo-capture.test.tsx`, `src/lib/image.ts`, `src/components/food-analyzer.tsx`, `src/components/__tests__/food-analyzer.test.tsx`, `src/hooks/use-keyboard-height.ts`, `src/components/bottom-nav.tsx`
-- **Existing patterns:** Processing state uses `processingCount` integer; preview generation uses `Promise.allSettled`; tests mock `isHeicFile` and `convertHeicToJpeg` from `@/lib/image`; sticky CTA bar uses `useKeyboardHeight` hook to reposition when keyboard opens; bottom nav is `fixed bottom-0 z-50`
-- **Test conventions:** Colocated `__tests__/` directory, uses Vitest + Testing Library, mocks `next/image`, `URL.createObjectURL`, and `@/lib/image` module
+- **Related files:** `src/lib/claude.ts` (system prompts at lines 29-33, 41-84, 573-595, 1735-1751; functions `analyzeFood` line 1150, `conversationalRefine` line 1486, `editAnalysis` line 1763, `runToolLoop` line 816), `src/lib/food-log.ts` (`getCommonFoods` line 251, `searchFoods` line 810, `getDailyNutritionSummary` line 984), `src/lib/nutrition-goals.ts` (`getCalorieGoalsByDateRange` line 32), `src/lib/lumen.ts` (`getLumenGoalsByDate` line 226), `src/lib/chat-tools.ts` (tool definitions and execution), `src/app/api/analyze-food/route.ts`, `src/app/api/chat-food/route.ts`, `src/app/api/edit-chat/route.ts`
+- **Existing patterns:** All three API routes obtain `userId` from `session!.userId` and `currentDate` from client or `getTodayDate()`. System prompts are static constants derived from `SYSTEM_PROMPT`. Prompt caching uses `cache_control: { type: "ephemeral" }` on the system content block. `getCommonFoods()` already scores foods by frequency with time-decay (Gaussian kernel, recency, day-of-week). `getDailyNutritionSummary()` returns `NutritionSummary` with `.totals` (calories, macros). `getCalorieGoalsByDateRange()` and `getLumenGoalsByDate()` return goals for a date.
+- **Test conventions:** Colocated `__tests__/` dirs, Vitest + Testing Library. DB mocked via `vi.mock("@/db/index")` with chained query builders. Logger mocked. Real schema types imported via `importOriginal()`.
 
-### Investigation
-
-**Bug report:** When processing HEIC images, the UI "disappears" — Take Photo/Gallery buttons vanish and existing photo thumbnails lose their delete buttons. The UI looks broken/frozen for the entire duration of HEIC conversion (2-5+ seconds).
-
-**Classification:** Frontend Bug / Medium / PhotoCapture component
-
-**Root cause:** Three interconnected issues in `photo-capture.tsx`:
-
-1. **Buttons hidden during processing:** `canAddMore` on line 267 requires `processingCount === 0`, which hides Take Photo/Gallery buttons (line 293) during HEIC conversion. The race condition is already guarded by the early return at lines 97-102, making the button hiding unnecessary.
-
-2. **Delete buttons hidden during processing:** Line 383 wraps delete buttons in `{processingCount === 0 && (...)}`, hiding delete buttons on ALL existing photo thumbnails during processing. Users cannot manage existing photos while a new one converts.
-
-3. **All photos re-converted on each addition:** Line 137 maps `combinedPhotos` (all photos, old + new) through HEIC conversion. Previously converted photos get re-converted, multiplying processing time and extending the broken UI state.
-
-**Evidence:**
-- `src/components/photo-capture.tsx:267` — `canAddMore` gated on `processingCount === 0`
-- `src/components/photo-capture.tsx:293` — buttons only render when `canAddMore`
-- `src/components/photo-capture.tsx:383` — delete buttons gated on `processingCount === 0`
-- `src/components/photo-capture.tsx:97-102` — early return already prevents race conditions during processing
-- `src/components/photo-capture.tsx:137-142` — re-converts all photos including previously converted ones
-
-**Impact:** Every HEIC photo addition causes a multi-second period where the UI appears broken. Users cannot remove photos or understand what's happening. Adding multiple HEIC photos compounds the issue since all are re-converted each time.
-
-**Bug report 2:** The "Analyze Food" CTA button floats disconnected when the mobile keyboard opens. It moves up with the keyboard but appears to float in mid-screen, not attached to anything.
-
-**Classification:** Frontend Bug / Medium / FoodAnalyzer sticky CTA bar
-
-**Root cause:** In `food-analyzer.tsx` lines 812-815, when `keyboardHeight > 0`:
-- The outer div uses `bottom: ${keyboardHeight}px` (inline style) but drops the static `bottom-[calc(4rem+...)]` class
-- The inner container uses `bg-background/80 backdrop-blur-sm border-t` — semi-transparent with only a top border
-- The bottom nav (z-50, `fixed bottom-0`) is hidden behind the keyboard
-- Result: the CTA bar floats in mid-screen with no visual connection above or below
-
-**Evidence:**
-- `src/components/food-analyzer.tsx:812` — conditional class drops bottom positioning when keyboard open
-- `src/components/food-analyzer.tsx:813` — inline style sets `bottom: keyboardHeight` with no visual anchoring
-- `src/components/food-analyzer.tsx:815` — `bg-background/80 backdrop-blur-sm border-t` — translucent, top-border only
-- `src/components/bottom-nav.tsx:41` — bottom nav at `fixed bottom-0 z-50`, hidden behind keyboard
-- `src/hooks/use-keyboard-height.ts:11` — `window.innerHeight - viewport.height - viewport.offsetTop` can leave gap on some devices
-
-**Impact:** On mobile, whenever the user taps the description field and the keyboard opens, the CTA button looks broken/floating. This is the primary action button for the analyze screen.
+### MCP Context
+- **MCPs used:** Linear
+- **Findings:** Linear backlog is empty — no overlapping issues for user profile or system prompt personalization.
 
 ## Tasks
 
-### Task 1: Keep delete buttons visible during HEIC processing
-**Linear Issue:** [FOO-852](https://linear.app/lw-claude/issue/FOO-852/bug-ui-controls-disappear-during-heic-photo-processing)
+### Task 1: Create `buildUserProfile()` function
+**Linear Issue:** [FOO-856](https://linear.app/lw-claude/issue/FOO-856/create-builduserprofile-function)
 **Files:**
-- `src/components/__tests__/photo-capture.test.tsx` (modify)
-- `src/components/photo-capture.tsx` (modify)
+- `src/lib/__tests__/user-profile.test.ts` (create)
+- `src/lib/user-profile.ts` (create)
 
 **Steps:**
-1. Write test: when HEIC conversion is in progress (`processingCount > 0`), existing photo thumbnails still show their "Remove photo N" buttons. Use the existing mock pattern where `mockConvertHeicToJpeg` returns a pending promise, then assert `screen.getByRole("button", { name: "Remove photo 1" })` is present.
-2. Run verifier with test pattern (expect fail — current code hides delete buttons when `processingCount > 0`)
-3. Remove the `processingCount === 0` guard around the delete button JSX at line 383. The delete button should always render when previews exist.
+1. Write tests for `buildUserProfile(userId, currentDate)`:
+   - When user has calorie goal + lumen goals + food log entries + today's progress → returns formatted profile string containing all sections (goals, top foods, meal patterns, today's progress)
+   - When user has calorie goal but no lumen goals → profile includes calorie goal, omits macro goals
+   - When user has no data at all (new user) → returns `null`
+   - When user has only a few entries (3 foods, no goals) → returns partial profile with available data
+   - When today has no logged food yet → today's progress section shows 0/goal or is omitted
+   - Profile string stays under 300 tokens (~1200 characters). Assert max length.
+2. Run verifier with test pattern (expect fail)
+3. Implement `buildUserProfile(userId: string, currentDate: string): Promise<string | null>` in `src/lib/user-profile.ts`:
+   - Run 4 queries in parallel via `Promise.all`:
+     - `getCalorieGoalsByDateRange(userId, currentDate, currentDate)` — today's calorie goal
+     - `getLumenGoalsByDate(userId, currentDate)` — today's macro goals
+     - `getTopFoodsByFrequency(userId, currentDate)` — new private helper (see below)
+     - `getDailyNutritionSummary(userId, currentDate)` — today's totals for progress
+   - `getTopFoodsByFrequency` is a new private function in user-profile.ts: query `food_log_entries` joined with `custom_foods` for last 90 days, group by `customFoodId`, count occurrences, sort by count DESC, limit 10. Return `{ foodName, calories, count }[]`. Simpler than `getCommonFoods()` — no time-of-day scoring needed, just raw frequency.
+   - Build profile string in structured format. Priority order when truncating to fit 300 token budget: (1) goals, (2) today's progress, (3) top foods by frequency, (4) meal patterns.
+   - Derive meal patterns from today's `NutritionSummary.meals` array: count meals per typical day, extract common meal times from `food_log_entries` (average first meal time, average last meal time over last 14 days).
+   - If all queries return empty/null, return `null`.
+   - Profile format example: `"User profile: Targets 2200 cal/day (P:140g C:220g F:80g). Today so far: 1450 cal (66%), P:95g C:180g F:52g. Top foods: medialunas (×32, 180cal), café con leche (×28, 90cal), milanesa con ensalada (×15, 650cal). Typically 3-4 meals/day, lunch 12:30-13:30, dinner 20:30-21:30."`
 4. Run verifier with test pattern (expect pass)
 
 **Notes:**
-- The early return at lines 97-102 already prevents new file selections during processing, so hiding delete buttons is unnecessary
-- Must also verify that removing a photo during processing doesn't cause state corruption — the existing `handleRemovePhoto` function filters by index, which should be safe since `processingCount` only affects the placeholder count
+- Follow the pattern in `src/lib/nutrition-goals.ts` for module structure (direct function exports, optional Logger param)
+- DB queries use `getDb()` singleton from `@/db/index`
+- Mock DB the same way as `src/lib/__tests__/food-log.test.ts`
+- For meal patterns (average meal times), query last 14 days of `food_log_entries` grouped by `mealTypeId`, compute average time per meal type. Only include meal types with 3+ occurrences.
+- The top foods query is intentionally simpler than `getCommonFoods()` — we want plain frequency counts, not time-weighted scores. The profile should reflect overall eating habits, not just what's relevant right now.
 
-### Task 2: Keep Take Photo / Gallery buttons visible during processing
-**Linear Issue:** [FOO-852](https://linear.app/lw-claude/issue/FOO-852/bug-ui-controls-disappear-during-heic-photo-processing)
+### Task 2: Refactor system prompt to accept dynamic profile injection
+**Linear Issue:** [FOO-857](https://linear.app/lw-claude/issue/FOO-857/refactor-system-prompt-to-accept-dynamic-profile-injection)
 **Files:**
-- `src/components/__tests__/photo-capture.test.tsx` (modify)
-- `src/components/photo-capture.tsx` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/lib/claude.ts` (modify)
 
 **Steps:**
-1. Write test: when HEIC conversion is in progress, "Take Photo" and "Choose from Gallery" buttons remain visible. Assert they are present even while `processing-placeholder` is shown.
-2. Run verifier with test pattern (expect fail — `canAddMore` is false when `processingCount > 0`)
-3. Decouple `canAddMore` from `processingCount`. The `canAddMore` condition should only check `totalPhotoCount < maxPhotos`. The race condition protection at lines 97-102 (early return when `processingCount > 0`) already prevents new file additions during processing, so hiding the buttons is redundant.
+1. Write tests:
+   - `getSystemPrompt(userId, currentDate)` returns the base `SYSTEM_PROMPT` text plus the profile block when user has data
+   - `getSystemPrompt(userId, currentDate)` returns just the base `SYSTEM_PROMPT` when `buildUserProfile` returns `null` (new user)
+   - `ANALYSIS_SYSTEM_PROMPT`, `CHAT_SYSTEM_PROMPT`, `EDIT_SYSTEM_PROMPT` — verify they still contain the expected role-specific instructions when generated with a profile
+   - Verify the profile block appears AFTER the base instructions (important for prompt caching — static prefix stays cacheable)
+2. Run verifier with test pattern (expect fail)
+3. Implement the refactor in `src/lib/claude.ts`:
+   - Keep `SYSTEM_PROMPT` as the static constant (unchanged)
+   - Add new async function `getSystemPrompt(userId: string, currentDate: string): Promise<string>` that calls `buildUserProfile(userId, currentDate)` and appends the result to `SYSTEM_PROMPT` if non-null
+   - Add `getAnalysisSystemPrompt(userId, currentDate)`, `getChatSystemPrompt(userId, currentDate)`, `getEditSystemPrompt(userId, currentDate)` — each calls `getSystemPrompt()` then appends role-specific instructions (the text currently hardcoded in `ANALYSIS_SYSTEM_PROMPT`, `CHAT_SYSTEM_PROMPT`, `EDIT_SYSTEM_PROMPT`)
+   - Keep the original static constants exported for backward compatibility in tests that reference them directly, but mark them with a comment that the dynamic versions should be used in production code
+   - The profile block is appended to `SYSTEM_PROMPT` BEFORE the role-specific instructions. This way the static `SYSTEM_PROMPT` text is the cacheable prefix, the profile is the dynamic middle, and the role instructions follow.
 4. Run verifier with test pattern (expect pass)
 
 **Notes:**
-- The buttons will be visible but effectively non-functional during processing (the early return at line 98 silently discards new selections). This is acceptable UX — the user sees the buttons and the processing spinner, understanding that processing is in progress.
+- Mock `buildUserProfile` in claude.test.ts via `vi.mock("@/lib/user-profile")`
+- The prompt caching breakpoint (`cache_control: { type: "ephemeral" }`) stays on the system content block. Since this is a single-user app, the profile content is stable across requests within the 5-minute cache TTL, so even the dynamic portion benefits from caching.
+- Minimum cacheable prefix for Sonnet is 1,024 tokens. The tools array (cached separately via `buildToolsWithCache`) plus the static system prompt text exceed this threshold.
 
-### Task 3: Only convert new HEIC files, skip already-converted photos
-**Linear Issue:** [FOO-852](https://linear.app/lw-claude/issue/FOO-852/bug-ui-controls-disappear-during-heic-photo-processing)
+### Task 3: Integrate profile into API routes
+**Linear Issue:** [FOO-858](https://linear.app/lw-claude/issue/FOO-858/integrate-dynamic-profile-into-claude-api-functions)
 **Files:**
-- `src/components/__tests__/photo-capture.test.tsx` (modify)
-- `src/components/photo-capture.tsx` (modify)
+- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/lib/claude.ts` (modify)
 
 **Steps:**
-1. Write test: when adding a second photo (HEIC or not) to an existing set that included a HEIC, `convertHeicToJpeg` is called only for the NEW file(s), not for previously added photos. Track `mockConvertHeicToJpeg.mock.calls` count across two sequential file additions.
-2. Run verifier with test pattern (expect fail — current code re-maps all `combinedPhotos`)
-3. Refactor `handleFileChange` to only process new files through the HEIC conversion pipeline. Preserve the already-converted blobs from `convertedBlobsState` for existing photos. Combine the preserved blobs with newly converted blobs when setting state.
+1. Write tests:
+   - `analyzeFood()` calls `getAnalysisSystemPrompt(userId, currentDate)` and uses the returned prompt (not the static constant)
+   - `conversationalRefine()` calls `getChatSystemPrompt(userId, currentDate)` and uses the returned prompt
+   - `editAnalysis()` calls `getEditSystemPrompt(userId, currentDate)` and uses the returned prompt
+   - `runToolLoop()` when called without a custom `systemPrompt` option, calls `getChatSystemPrompt(userId, currentDate)`
+   - Verify the profile is included in the system prompt passed to the Anthropic API
+2. Run verifier with test pattern (expect fail)
+3. Modify each function in `src/lib/claude.ts`:
+   - `analyzeFood()`: replace `const systemPrompt = \`${ANALYSIS_SYSTEM_PROMPT}\n\nToday's date is: ${currentDate}\`` with `const systemPrompt = \`${await getAnalysisSystemPrompt(userId, currentDate)}\n\nToday's date is: ${currentDate}\``
+   - `conversationalRefine()`: replace `let systemPrompt = CHAT_SYSTEM_PROMPT` with `let systemPrompt = await getChatSystemPrompt(userId!, currentDate!)`  (userId is already available — it's an existing param)
+   - `editAnalysis()`: replace `let systemPrompt = EDIT_SYSTEM_PROMPT` with `let systemPrompt = await getEditSystemPrompt(userId, currentDate)`
+   - `runToolLoop()`: when no custom `systemPrompt` is provided, call `await getChatSystemPrompt(userId, currentDate)` instead of using the static `CHAT_SYSTEM_PROMPT`
+   - The date appending logic (`\n\nToday's date is: ...`) stays in each function — it's already there and works correctly
 4. Run verifier with test pattern (expect pass)
 
 **Notes:**
-- The key insight is that `convertedBlobsState` already holds the converted blobs for existing photos. Only `newFiles` need to go through `isHeicFile`/`convertHeicToJpeg`. The final state should be `[...existingConvertedBlobs, ...newlyConvertedBlobs]`.
-- `processingCount` should reflect only the new files being processed (it already does — `actualNewCount` on line 129)
+- `conversationalRefine()` has `userId?: string` (optional). When undefined (edge case), fall back to the static `CHAT_SYSTEM_PROMPT`. Same for `currentDate`.
+- `runToolLoop()` already receives `userId` and `currentDate` as required params, so no signature changes needed.
+- The API route files (`src/app/api/*/route.ts`) do NOT need changes — they already pass `userId` and `currentDate` to these functions.
 
-### Task 4: Fix sticky CTA bar floating appearance when keyboard opens
-**Linear Issue:** [FOO-853](https://linear.app/lw-claude/issue/FOO-853/bug-sticky-cta-bar-floats-disconnected-when-keyboard-opens)
+### Task 4: Remove Auto User Profile from ROADMAP.md
+**Linear Issue:** [FOO-859](https://linear.app/lw-claude/issue/FOO-859/remove-auto-user-profile-from-roadmapmd)
 **Files:**
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-- `src/components/food-analyzer.tsx` (modify)
+- `ROADMAP.md` (modify)
 
 **Steps:**
-1. Write test: when `keyboardHeight > 0` (mock `useKeyboardHeight` to return a positive value), the sticky CTA bar's inner container has an opaque background (not `bg-background/80`) and a bottom border. Assert the inner div's className includes `bg-background` (not `/80`) and `border-b`.
-2. Run verifier with test pattern (expect fail — current code always uses `bg-background/80` and only `border-t`)
-3. In the sticky CTA bar JSX (lines 810-847), make the inner container's styles conditional on `keyboardHeight`:
-   - When `keyboardHeight > 0`: use opaque `bg-background` (drop the `/80` and `backdrop-blur-sm`), add `border-b` alongside `border-t`, and add bottom padding to extend the bar visually toward the keyboard edge
-   - When `keyboardHeight === 0`: keep current `bg-background/80 backdrop-blur-sm border-t` styling
-4. Run verifier with test pattern (expect pass)
+1. Remove the entire "Auto User Profile" section (from `## Auto User Profile` heading through the `---` separator after it)
+2. Remove the Auto User Profile row from the Contents table
+3. Check remaining features for cross-references to the removed feature — update or remove them
+4. Verify file structure is clean (no orphaned separators, no broken links)
 
 **Notes:**
-- The opaque background prevents content from showing through, which eliminates the "floating" appearance
-- Adding `border-b` gives the bar a visible bottom edge when it's not sitting on the bottom nav
-- Bottom padding (e.g., `pb-2`) helps fill any sub-pixel gap between the bar and the keyboard
+- No test needed — this is documentation cleanup
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -131,56 +129,72 @@
 
 ## Plan Summary
 
-**Objective:** Fix two analyze screen UX bugs: HEIC processing hides UI controls, and sticky CTA bar floats disconnected when keyboard opens.
-**Linear Issues:** FOO-852, FOO-853
-**Approach:** (1) Remove unnecessary `processingCount === 0` guards from button visibility — the early-return race condition guard already handles concurrent file selections. Optimize HEIC conversion to only process new files. (2) Make the sticky CTA bar's background opaque and add a bottom border when the keyboard is open, so it looks anchored instead of floating.
-**Scope:** 4 tasks, 4 files, 4 tests
-**Key Decisions:** Keep buttons visible but non-functional during processing (early return handles the race condition). Switch CTA bar from translucent to opaque when keyboard is open.
-**Risks:** Removing a photo during processing could theoretically cause index mismatches, but the existing filter-by-index approach in `handleRemovePhoto` is safe since processing placeholders are separate from previews.
+**Objective:** Automatically inject a personalized user profile into Claude's system prompt so every interaction starts with context about the user's goals, top foods, meal patterns, and today's progress.
+**Linear Issues:** FOO-856, FOO-857, FOO-858, FOO-859
+**Approach:** Create a `buildUserProfile()` function that queries existing DB tables (calorie goals, lumen goals, food log entries, custom foods) in parallel and formats a ~200-300 token profile string. Refactor the static `SYSTEM_PROMPT` constant into dynamic `getSystemPrompt()` functions that append the profile. Wire into all three Claude API entry points (`analyzeFood`, `conversationalRefine`, `editAnalysis`). Remove the feature from ROADMAP.md.
+**Scope:** 4 tasks, 5 files (2 new, 3 modified), 4 test suites
+**Key Decisions:** Use plain frequency counts for top foods (not time-weighted `getCommonFoods` scores). Include today's calorie/macro progress in the profile. Profile block goes between base prompt and role-specific instructions. Return `null` for new users with no data (prompt unchanged).
+**Risks:** Profile generation adds one DB round-trip per API request (~5ms) — negligible vs. Claude API latency. If profile exceeds 300 tokens, truncation priority is goals > progress > top foods > meal patterns.
 
 ---
 
 ## Iteration 1
 
-**Implemented:** 2026-03-07
-**Method:** Single-agent (effort score 5, worker overhead exceeds implementation time)
+**Implemented:** 2026-03-09
+**Method:** Single-agent
 
 ### Tasks Completed This Iteration
-- Task 1: Keep delete buttons visible during HEIC processing — removed `processingCount === 0` guard, added early return in `handleRemovePhoto` to prevent stale closure race
-- Task 2: Keep Take Photo / Gallery buttons visible during processing — decoupled `canAddMore` from `processingCount`
-- Task 3: Only convert new HEIC files — refactored `handleFileChange` to preserve existing `convertedBlobsState` and only process new files
-- Task 4: Fix sticky CTA bar floating appearance — conditional opaque `bg-background` + `border-b` when keyboard is open
+- Task 1 (FOO-856): Create `buildUserProfile()` function — new module with 4 parallel DB queries, profile formatting, truncation logic
+- Task 2 (FOO-857): Refactor system prompt to accept dynamic profile injection — added `getSystemPrompt`, `getAnalysisSystemPrompt`, `getChatSystemPrompt`, `getEditSystemPrompt`
+- Task 3 (FOO-858): Integrate profile into API routes — wired dynamic prompts into `analyzeFood`, `conversationalRefine`, `editAnalysis`, `runToolLoop`
+- Task 4 (FOO-859): Remove Auto User Profile from ROADMAP.md — section and contents table entry removed
 
 ### Files Modified
-- `src/components/photo-capture.tsx` — removed button visibility guards, optimized HEIC conversion to new files only, added race condition guard in `handleRemovePhoto`
-- `src/components/__tests__/photo-capture.test.tsx` — updated 2 existing tests to expect visible buttons during processing, added 1 new test for HEIC re-conversion optimization
-- `src/components/food-analyzer.tsx` — conditional CTA bar styling based on `keyboardHeight`
-- `src/components/__tests__/food-analyzer.test.tsx` — added 2 new tests for CTA bar opaque/translucent background
+- `src/lib/user-profile.ts` — Created: `buildUserProfile()`, `getTopFoodsByFrequency()`
+- `src/lib/__tests__/user-profile.test.ts` — Created: 7 tests for profile generation
+- `src/lib/claude.ts` — Added import for `buildUserProfile`, exported `SYSTEM_PROMPT`, added 4 dynamic prompt functions, wired into 4 API functions
+- `src/lib/__tests__/claude.test.ts` — Added mock for user-profile, 17 new tests for dynamic prompts and profile integration, fixed stale max_tokens test
+- `ROADMAP.md` — Removed Auto User Profile section and contents table entry
 
 ### Linear Updates
-- FOO-852: Todo → In Progress → Review
-- FOO-853: Todo → In Progress → Review
+- FOO-856: Todo → In Progress → Review
+- FOO-857: Todo → In Progress → Review
+- FOO-858: Todo → In Progress → Review
+- FOO-859: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 1 high bug (stale closure race in handleRemovePhoto during processing), fixed with early return guard. 2 medium bugs were pre-existing and out of scope.
-- verifier: All 2631 tests pass, zero warnings
-
-### Continuation Status
-All tasks completed.
+- bug-hunter: Found 4 bugs (unused import, missing test fields, missing error handling, dead test code), all fixed
+- verifier: All 2653 tests pass, zero warnings, build clean
 
 ### Review Findings
 
-Files reviewed: 4
-Reviewers: security, reliability, quality (single-agent review)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+Summary: 4 findings raised, 2 fixed inline, 2 discarded (single-agent dedup from 3-reviewer team: security, reliability, quality)
+- FIXED INLINE: 2 issue(s) — verified via TDD + bug-hunter
 
-No issues found - all implementations are correct and follow project conventions.
+**Issues fixed inline:**
+- [MEDIUM] EDGE CASE: Inconsistent calorieGoal falsy check (`src/lib/user-profile.ts:92`) — changed `if (calorieGoal)` to `if (calorieGoal !== null && calorieGoal > 0)` for consistency with line 78 and explicit division-by-zero guard
+- [MEDIUM] EDGE CASE: Missing test for getSystemPrompt error handling path (`src/lib/__tests__/claude.test.ts`) — added test verifying graceful fallback when buildUserProfile throws
+
+**Discarded findings (not bugs):**
+- [DISCARDED] EDGE CASE: Truncation doesn't guarantee 1200 char limit (`src/lib/user-profile.ts:110-115`) — Impossible in context: goals + progress sections are ~150 chars max, well under 1200 even without top foods removal
+- [DISCARDED] CONVENTION: Direct DB import in user-profile.ts (`src/lib/user-profile.ts:1`) — CLAUDE.md rule "route handlers never import from src/db/ directly" applies to route handlers, not lib modules. user-profile.ts is in src/lib/
 
 ### Linear Updates
-- FOO-852: Review → Merge
-- FOO-853: Review → Merge
+- FOO-856: Review → Merge (original task)
+- FOO-857: Review → Merge (original task)
+- FOO-858: Review → Merge (original task)
+- FOO-859: Review → Merge (original task)
+- FOO-860: Created in Merge (Fix: inconsistent calorieGoal falsy check — fixed inline)
+- FOO-861: Created in Merge (Fix: missing getSystemPrompt error test — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2654 pass
+- Bug-hunter: no new issues
 
 <!-- REVIEW COMPLETE -->
+
+### Continuation Status
+All tasks completed.
 
 ---
 

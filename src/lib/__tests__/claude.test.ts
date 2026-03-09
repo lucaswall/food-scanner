@@ -205,6 +205,11 @@ vi.mock("@/lib/chat-tools", () => ({
   },
 }));
 
+const mockBuildUserProfile = vi.fn();
+vi.mock("@/lib/user-profile", () => ({
+  buildUserProfile: (...args: unknown[]) => mockBuildUserProfile(...args),
+}));
+
 vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
 
 // --- Fixtures ---
@@ -234,6 +239,7 @@ function setupMocks() {
   mockStream.mockReset();
   mockRecordUsage.mockResolvedValue(undefined);
   mockExecuteTool.mockReset();
+  mockBuildUserProfile.mockResolvedValue(null);
 }
 
 // =============================================================================
@@ -786,14 +792,14 @@ describe("analyzeFood", () => {
     expect(call).not.toHaveProperty("betas");
   });
 
-  it("uses max_tokens 1024 for initial call", async () => {
+  it("uses max_tokens 2048 for initial call", async () => {
     mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
 
     const { analyzeFood } = await import("@/lib/claude");
     await collectEvents(analyzeFood([], undefined, "user-123", "2026-02-15"));
 
     const call = mockStream.mock.calls[0][0];
-    expect(call.max_tokens).toBe(1024);
+    expect(call.max_tokens).toBe(2048);
   });
 
   // --- Tier 1 nutrients ---
@@ -3729,5 +3735,224 @@ describe("convertMessages", () => {
     ];
     const result = convertMessages(messages);
     expect(result[0].content).toHaveLength(0);
+  });
+});
+
+// =============================================================================
+// Dynamic system prompt functions
+// =============================================================================
+
+describe("getSystemPrompt", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("returns base SYSTEM_PROMPT when buildUserProfile returns null", async () => {
+    mockBuildUserProfile.mockResolvedValue(null);
+    const { getSystemPrompt, SYSTEM_PROMPT } = await import("@/lib/claude");
+    const result = await getSystemPrompt("user-1", "2026-03-09");
+    expect(result).toBe(SYSTEM_PROMPT);
+  });
+
+  it("appends profile block when buildUserProfile returns data", async () => {
+    mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
+    const { getSystemPrompt, SYSTEM_PROMPT } = await import("@/lib/claude");
+    const result = await getSystemPrompt("user-1", "2026-03-09");
+    expect(result).toContain(SYSTEM_PROMPT);
+    expect(result).toContain("User profile: Targets 2200 cal/day.");
+    // Profile appears after base prompt
+    expect(result.indexOf(SYSTEM_PROMPT)).toBeLessThan(result.indexOf("User profile:"));
+  });
+
+  it("falls back to base SYSTEM_PROMPT when buildUserProfile throws", async () => {
+    mockBuildUserProfile.mockRejectedValue(new Error("DB connection failed"));
+    const { getSystemPrompt, SYSTEM_PROMPT } = await import("@/lib/claude");
+    const result = await getSystemPrompt("user-1", "2026-03-09");
+    expect(result).toBe(SYSTEM_PROMPT);
+  });
+});
+
+describe("getAnalysisSystemPrompt", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("contains role-specific analysis instructions with profile", async () => {
+    mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
+    const { getAnalysisSystemPrompt } = await import("@/lib/claude");
+    const result = await getAnalysisSystemPrompt("user-1", "2026-03-09");
+    expect(result).toContain("User profile: Targets 2200 cal/day.");
+    expect(result).toContain("single-entry constraint");
+  });
+
+  it("contains analysis instructions without profile for new user", async () => {
+    mockBuildUserProfile.mockResolvedValue(null);
+    const { getAnalysisSystemPrompt, ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    const result = await getAnalysisSystemPrompt("user-1", "2026-03-09");
+    expect(result).toBe(ANALYSIS_SYSTEM_PROMPT);
+  });
+});
+
+describe("getChatSystemPrompt", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("contains role-specific chat instructions with profile", async () => {
+    mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
+    const { getChatSystemPrompt } = await import("@/lib/claude");
+    const result = await getChatSystemPrompt("user-1", "2026-03-09");
+    expect(result).toContain("User profile: Targets 2200 cal/day.");
+    expect(result).toContain("friendly nutrition advisor");
+  });
+});
+
+describe("getEditSystemPrompt", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("contains role-specific edit instructions with profile", async () => {
+    mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
+    const { getEditSystemPrompt } = await import("@/lib/claude");
+    const result = await getEditSystemPrompt("user-1", "2026-03-09");
+    expect(result).toContain("User profile: Targets 2200 cal/day.");
+    expect(result).toContain("existing food log entry");
+  });
+
+  it("profile appears between base prompt and role instructions", async () => {
+    mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
+    const { getEditSystemPrompt, SYSTEM_PROMPT } = await import("@/lib/claude");
+    const result = await getEditSystemPrompt("user-1", "2026-03-09");
+    const baseIdx = result.indexOf(SYSTEM_PROMPT);
+    const profileIdx = result.indexOf("User profile:");
+    const roleIdx = result.indexOf("existing food log entry");
+    expect(baseIdx).toBeLessThan(profileIdx);
+    expect(profileIdx).toBeLessThan(roleIdx);
+  });
+});
+
+// =============================================================================
+// Profile integration into API functions
+// =============================================================================
+
+describe("analyzeFood profile integration", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("includes user profile in system prompt when available", async () => {
+    mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+
+    const { analyzeFood } = await import("@/lib/claude");
+    await collectEvents(analyzeFood([], undefined, "user-123", "2026-03-09"));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.system[0].text).toContain("User profile: Targets 2200 cal/day.");
+  });
+
+  it("uses base prompt without profile for new user", async () => {
+    mockBuildUserProfile.mockResolvedValue(null);
+    mockStream.mockReturnValueOnce(makeReportNutritionStream(validAnalysis));
+
+    const { analyzeFood, ANALYSIS_SYSTEM_PROMPT } = await import("@/lib/claude");
+    await collectEvents(analyzeFood([], undefined, "user-123", "2026-03-09"));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.system[0].text).toContain(ANALYSIS_SYSTEM_PROMPT);
+    expect(call.system[0].text).not.toContain("User profile:");
+  });
+});
+
+describe("conversationalRefine profile integration", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("includes user profile in system prompt when userId and currentDate provided", async () => {
+    mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
+    mockStream.mockReturnValueOnce(makeTextStream("Sure!"));
+
+    const { conversationalRefine } = await import("@/lib/claude");
+    await collectEvents(conversationalRefine(
+      [{ role: "user", content: "Hello" }],
+      "user-123",
+      "2026-03-09",
+    ));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.system[0].text).toContain("User profile: Targets 2200 cal/day.");
+  });
+
+  it("falls back to static prompt when userId is undefined", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("Sure!"));
+
+    const { conversationalRefine, CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
+    await collectEvents(conversationalRefine(
+      [{ role: "user", content: "Hello" }],
+    ));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.system[0].text).toContain(CHAT_SYSTEM_PROMPT);
+    expect(mockBuildUserProfile).not.toHaveBeenCalled();
+  });
+});
+
+describe("editAnalysis profile integration", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("includes user profile in system prompt", async () => {
+    mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
+    mockStream.mockReturnValueOnce(makeTextStream("Updated!"));
+
+    const entry: FoodLogEntryDetail = {
+      id: 1, customFoodId: 1, foodName: "Empanada", amount: 150, unitId: 147,
+      description: null, fitbitFoodId: null, isFavorite: false, keywords: [],
+      calories: 320, proteinG: 12, carbsG: 28, fatG: 18, fiberG: 2, sodiumMg: 450,
+      saturatedFatG: null, transFatG: null, sugarsG: null, caloriesFromFat: null,
+      confidence: "high", notes: null, date: "2026-03-09", time: "12:00",
+      mealTypeId: 3, fitbitLogId: null,
+    };
+
+    const { editAnalysis } = await import("@/lib/claude");
+    await collectEvents(editAnalysis(
+      [{ role: "user", content: "Change to 200g" }],
+      entry, "user-123", "2026-03-09",
+    ));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.system[0].text).toContain("User profile: Targets 2200 cal/day.");
+  });
+});
+
+describe("runToolLoop profile integration", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("uses dynamic chat prompt when no custom systemPrompt", async () => {
+    mockBuildUserProfile.mockResolvedValue("User profile: Targets 2200 cal/day.");
+    mockStream.mockReturnValueOnce(makeTextStream("Here's your info"));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    await collectEvents(runToolLoop(
+      [{ role: "user", content: [{ type: "text", text: "What did I eat?" }] }],
+      "user-123",
+      "2026-03-09",
+    ));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.system[0].text).toContain("User profile: Targets 2200 cal/day.");
+  });
+
+  it("does not override custom systemPrompt", async () => {
+    mockStream.mockReturnValueOnce(makeTextStream("Done"));
+
+    const { runToolLoop } = await import("@/lib/claude");
+    await collectEvents(runToolLoop(
+      [{ role: "user", content: [{ type: "text", text: "test" }] }],
+      "user-123",
+      "2026-03-09",
+      { systemPrompt: "Custom prompt" },
+    ));
+
+    const call = mockStream.mock.calls[0][0];
+    expect(call.system[0].text).toContain("Custom prompt");
+    expect(mockBuildUserProfile).not.toHaveBeenCalled();
   });
 });
