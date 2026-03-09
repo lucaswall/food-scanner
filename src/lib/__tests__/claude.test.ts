@@ -540,7 +540,7 @@ describe("analyzeFood", () => {
     expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
   });
 
-  it("throws CLAUDE_API_ERROR when confidence is invalid", async () => {
+  it("coerces invalid confidence to medium", async () => {
     mockStream.mockReturnValueOnce(
       createMockStream(
         [{ type: "message_stop" }],
@@ -554,14 +554,16 @@ describe("analyzeFood", () => {
     );
 
     const { analyzeFood } = await import("@/lib/claude");
-    const { error } = await collectEventsExpectThrow(
+    const events = await collectEvents(
       analyzeFood([], undefined, "user-123", "2026-02-15")
     );
 
-    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
+    const analysisEvent = events.find(e => e.type === "analysis");
+    expect(analysisEvent).toBeDefined();
+    expect((analysisEvent as { type: "analysis"; analysis: FoodAnalysis }).analysis.confidence).toBe("medium");
   });
 
-  it("throws CLAUDE_API_ERROR when keywords is not an array", async () => {
+  it("coerces string keywords to array", async () => {
     mockStream.mockReturnValueOnce(
       createMockStream(
         [{ type: "message_stop" }],
@@ -575,11 +577,13 @@ describe("analyzeFood", () => {
     );
 
     const { analyzeFood } = await import("@/lib/claude");
-    const { error } = await collectEventsExpectThrow(
+    const events = await collectEvents(
       analyzeFood([], undefined, "user-123", "2026-02-15")
     );
 
-    expect(error).toMatchObject({ name: "CLAUDE_API_ERROR" });
+    const analysisEvent = events.find(e => e.type === "analysis");
+    expect(analysisEvent).toBeDefined();
+    expect((analysisEvent as { type: "analysis"; analysis: FoodAnalysis }).analysis.keywords).toEqual(["empanada"]);
   });
 
   it("throws CLAUDE_API_ERROR on API failure", async () => {
@@ -3954,5 +3958,99 @@ describe("runToolLoop profile integration", () => {
     const call = mockStream.mock.calls[0][0];
     expect(call.system[0].text).toContain("Custom prompt");
     expect(mockBuildUserProfile).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// validateFoodAnalysis — confidence coercion (FOO-862)
+// =============================================================================
+
+describe("validateFoodAnalysis — confidence coercion", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("coerces undefined confidence to medium", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { confidence, ...withoutConfidence } = validAnalysis;
+    const result = validateFoodAnalysis(withoutConfidence);
+    expect(result.confidence).toBe("medium");
+  });
+
+  it("coerces invalid string confidence to medium", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, confidence: "VERY_HIGH" });
+    expect(result.confidence).toBe("medium");
+  });
+
+  it("coerces non-string confidence to medium", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, confidence: 123 });
+    expect(result.confidence).toBe("medium");
+  });
+
+  it("preserves valid confidence", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, confidence: "high" });
+    expect(result.confidence).toBe("high");
+  });
+});
+
+// =============================================================================
+// validateFoodAnalysis — keywords coercion (FOO-862)
+// =============================================================================
+
+describe("validateFoodAnalysis — keywords coercion", () => {
+  beforeEach(() => { setupMocks(); });
+  afterEach(() => { vi.resetModules(); });
+
+  it("coerces string keywords to array", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, keywords: "empanada" });
+    expect(result.keywords).toEqual(["empanada"]);
+  });
+
+  it("normalizes coerced string keywords", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, keywords: "  Empanada  " });
+    expect(result.keywords).toEqual(["empanada"]);
+  });
+
+  it("derives keywords from food_name when null", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, keywords: null });
+    expect(result.keywords).toEqual(["empanada", "de", "carne"]);
+  });
+
+  it("derives keywords from food_name when undefined", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { keywords, ...withoutKeywords } = validAnalysis;
+    const result = validateFoodAnalysis(withoutKeywords);
+    expect(result.keywords).toEqual(["empanada", "de", "carne"]);
+  });
+
+  it("derives keywords from food_name when non-string non-array", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, keywords: 123 });
+    expect(result.keywords).toEqual(["empanada", "de", "carne"]);
+  });
+
+  it("derives keywords from food_name when empty array", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, keywords: [] });
+    expect(result.keywords).toEqual(["empanada", "de", "carne"]);
+  });
+
+  it("filters non-string array elements and falls back to food_name", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, keywords: [123, true] });
+    expect(result.keywords).toEqual(["empanada", "de", "carne"]);
+  });
+
+  it("preserves valid keywords array", async () => {
+    const { validateFoodAnalysis } = await import("@/lib/claude");
+    const result = validateFoodAnalysis({ ...validAnalysis, keywords: ["cerveza", "sin-alcohol"] });
+    expect(result.keywords).toEqual(["cerveza", "sin-alcohol"]);
   });
 });

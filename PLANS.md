@@ -115,3 +115,30 @@
 **Scope:** 3 tasks, 2 files, ~10 tests
 **Key Decisions:** Coerce over throw for non-critical metadata fields (confidence is a UI indicator, keywords are for search matching). Critical nutritional fields (`food_name`, `calories`, macros) remain strict — no regression risk there.
 **Risks:** None identified. Pattern is proven (PR #111), downstream consumers accept coerced values, and the change is backward-compatible.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-09
+**Method:** Single-agent (1 work unit, effort score 4)
+
+### Tasks Completed This Iteration
+- Task 1: Coerce `confidence` to "medium" when invalid — replaced throw with coercion + warning log, updated existing throw test to expect coercion, added 4 coercion tests
+- Task 2: Coerce `keywords` when invalid — replaced throws with coercion logic (string wrap, array filter, food_name derivation), updated existing throw test to expect coercion, added 8 coercion tests
+- Task 3: Sentry resolution — post-release task, commit message includes fix references
+
+### Files Modified
+- `src/lib/claude.ts` — replaced confidence throw with coercion to "medium" + warn log; replaced keywords throws with coercion logic (string→array, filter non-strings, derive from food_name) + warn log
+- `src/lib/__tests__/claude.test.ts` — updated 2 existing throw tests to expect coercion; added "confidence coercion" describe block (4 tests) and "keywords coercion" describe block (8 tests)
+- `src/app/api/chat-food/__tests__/route.test.ts` — updated "returns 400 when initialAnalysis has invalid confidence" test to expect 200 (coercion instead of rejection)
+
+### Linear Updates
+- FOO-862: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 2666 tests pass, zero lint warnings, build clean
+
+### Continuation Status
+All tasks completed.
