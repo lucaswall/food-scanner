@@ -89,7 +89,7 @@ export async function buildUserProfile(
   if (hasProgress) {
     const { calories, proteinG, carbsG, fatG } = nutritionSummary.totals;
     let progressStr = `Today so far: ${calories} cal`;
-    if (calorieGoal) {
+    if (calorieGoal !== null && calorieGoal > 0) {
       const pct = Math.round((calories / calorieGoal) * 100);
       progressStr += ` (${pct}%)`;
     }

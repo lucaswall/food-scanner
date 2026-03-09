@@ -3762,6 +3762,13 @@ describe("getSystemPrompt", () => {
     // Profile appears after base prompt
     expect(result.indexOf(SYSTEM_PROMPT)).toBeLessThan(result.indexOf("User profile:"));
   });
+
+  it("falls back to base SYSTEM_PROMPT when buildUserProfile throws", async () => {
+    mockBuildUserProfile.mockRejectedValue(new Error("DB connection failed"));
+    const { getSystemPrompt, SYSTEM_PROMPT } = await import("@/lib/claude");
+    const result = await getSystemPrompt("user-1", "2026-03-09");
+    expect(result).toBe(SYSTEM_PROMPT);
+  });
 });
 
 describe("getAnalysisSystemPrompt", () => {
