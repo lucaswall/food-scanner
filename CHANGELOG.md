@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-03-10
+
+### Added
+
+- AI analysis now incorporates your personal profile — calorie goals, macro targets, frequent foods, and recent meals for more tailored nutritional guidance
+
+### Fixed
+
+- Food analysis no longer fails when AI returns unexpected metadata formats — non-critical fields are now gracefully coerced
+
 ## [1.18.1] - 2026-03-08
 
 ### Fixed
@@ -412,7 +422,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.18.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.19.0...HEAD
+[1.19.0]: https://github.com/lucaswall/food-scanner/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/lucaswall/food-scanner/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/lucaswall/food-scanner/compare/v1.17.6...v1.18.0
 [1.17.6]: https://github.com/lucaswall/food-scanner/compare/v1.17.5...v1.17.6
