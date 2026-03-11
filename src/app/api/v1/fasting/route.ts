@@ -1,0 +1,109 @@
+import { validateApiRequest, hashForRateLimit } from "@/lib/api-auth";
+import { conditionalResponse, errorResponse } from "@/lib/api-response";
+import { createRequestLogger } from "@/lib/logger";
+import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
+import { isToday, addDays, isValidDateFormat } from "@/lib/date-utils";
+import { checkRateLimit } from "@/lib/rate-limit";
+import type { FastingResponse } from "@/types";
+
+const RATE_LIMIT_MAX = 60;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+
+export async function GET(request: Request) {
+  const log = createRequestLogger("GET", "/api/v1/fasting");
+  const authResult = await validateApiRequest(request);
+  if (authResult instanceof Response) return authResult;
+
+  const authHeader = request.headers.get("Authorization");
+  const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || "";
+
+  const { allowed } = checkRateLimit(
+    `v1:fasting:${hashForRateLimit(apiKey)}`,
+    RATE_LIMIT_MAX,
+    RATE_LIMIT_WINDOW_MS
+  );
+  if (!allowed) {
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
+  }
+
+  const { searchParams } = new URL(request.url);
+  const date = searchParams.get("date");
+  const from = searchParams.get("from");
+  const to = searchParams.get("to");
+  const clientDate = searchParams.get("clientDate");
+
+  // Single date mode
+  if (!from && !to) {
+    if (!date) {
+      return errorResponse("VALIDATION_ERROR", "Missing date parameter", 400);
+    }
+
+    if (!isValidDateFormat(date)) {
+      log.warn({ action: "fasting_validation" }, "invalid date format");
+      return errorResponse("VALIDATION_ERROR", "Invalid date format. Use YYYY-MM-DD", 400);
+    }
+
+    try {
+      const window = await getFastingWindow(authResult.userId, date, log);
+
+      let live: { lastMealTime: string; startDate: string } | null = null;
+      const isTodayCheck = clientDate ? date === clientDate : isToday(date);
+      if (window && isTodayCheck && window.firstMealTime === null) {
+        live = {
+          lastMealTime: window.lastMealTime,
+          startDate: addDays(date, -1),
+        };
+      }
+
+      log.debug(
+        { action: "v1_fasting_window_success", date, hasFast: !!window, isLive: !!live },
+        "v1 fasting window retrieved"
+      );
+
+      const response: FastingResponse = { window, live };
+      return conditionalResponse(request, response);
+    } catch (error) {
+      log.error(
+        { action: "fasting_window_error", error: error instanceof Error ? error.message : String(error) },
+        "fasting window failed"
+      );
+      return errorResponse("INTERNAL_ERROR", "Failed to retrieve fasting window", 500);
+    }
+  }
+
+  // Date range mode
+  if (!from || !to) {
+    return errorResponse("VALIDATION_ERROR", "Both from and to parameters are required for date range queries", 400);
+  }
+
+  if (!isValidDateFormat(from)) {
+    log.warn({ action: "fasting_validation" }, "invalid from date format");
+    return errorResponse("VALIDATION_ERROR", "Invalid from date format. Use YYYY-MM-DD", 400);
+  }
+
+  if (!isValidDateFormat(to)) {
+    log.warn({ action: "fasting_validation" }, "invalid to date format");
+    return errorResponse("VALIDATION_ERROR", "Invalid to date format. Use YYYY-MM-DD", 400);
+  }
+
+  if (from > to) {
+    return errorResponse("VALIDATION_ERROR", "from date must be before or equal to to date", 400);
+  }
+
+  try {
+    const windows = await getFastingWindows(authResult.userId, from, to, log);
+
+    log.debug(
+      { action: "v1_fasting_windows_success", from, to, count: windows.length },
+      "v1 fasting windows retrieved"
+    );
+
+    return conditionalResponse(request, { windows });
+  } catch (error) {
+    log.error(
+      { action: "fasting_windows_error", error: error instanceof Error ? error.message : String(error) },
+      "fasting windows failed"
+    );
+    return errorResponse("INTERNAL_ERROR", "Failed to retrieve fasting windows", 500);
+  }
+}
