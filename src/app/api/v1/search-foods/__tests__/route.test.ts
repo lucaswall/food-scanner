@@ -33,8 +33,8 @@ function createRequest(url: string, headers?: HeadersInit): Request {
 }
 
 const mockFoods = [
-  { id: 1, name: "Oatmeal", calories: 150, keywords: ["oatmeal"] },
-  { id: 2, name: "Oat Bran", calories: 90, keywords: ["oat", "bran"] },
+  { customFoodId: 1, foodName: "Oatmeal", calories: 150, keywords: ["oatmeal"] },
+  { customFoodId: 2, foodName: "Oat Bran", calories: 90, keywords: ["oat", "bran"] },
 ];
 
 describe("GET /api/v1/search-foods", () => {

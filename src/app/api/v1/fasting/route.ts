@@ -55,6 +55,11 @@ export async function GET(request: Request) {
         };
       }
 
+      log.debug(
+        { action: "v1_fasting_window_success", date, hasFast: !!window, isLive: !!live },
+        "v1 fasting window retrieved"
+      );
+
       const response: FastingResponse = { window, live };
       return conditionalResponse(request, response);
     } catch (error) {
@@ -87,6 +92,12 @@ export async function GET(request: Request) {
 
   try {
     const windows = await getFastingWindows(authResult.userId, from, to, log);
+
+    log.debug(
+      { action: "v1_fasting_windows_success", from, to, count: windows.length },
+      "v1 fasting windows retrieved"
+    );
+
     return conditionalResponse(request, { windows });
   } catch (error) {
     log.error(

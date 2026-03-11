@@ -419,13 +419,30 @@ describe("GET /api/v1/common-foods", () => {
     expect(secondResponse.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 
-  it("returns 500 on internal error", async () => {
+  it("returns 500 on internal error (default tab)", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
     mockGetCommonFoods.mockRejectedValue(new Error("DB error"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/common-foods",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("INTERNAL_ERROR");
+  });
+
+  it("returns 500 on internal error (tab=recent)", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
+    mockGetRecentFoods.mockRejectedValue(new Error("DB error"));
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/common-foods?tab=recent",
       { Authorization: "Bearer valid-key" }
     );
     const response = await GET(request);

@@ -42,6 +42,12 @@ export async function GET(request: Request) {
 
   try {
     const foods = await searchFoods(authResult.userId, keywords, { limit }, log);
+
+    log.debug(
+      { action: "v1_search_foods_success", query: q, count: foods.length },
+      "v1 search foods retrieved"
+    );
+
     return conditionalResponse(request, { foods });
   } catch (error) {
     log.error(

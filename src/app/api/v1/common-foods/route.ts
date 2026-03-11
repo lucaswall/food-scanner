@@ -53,6 +53,12 @@ export async function GET(request: Request) {
       }
 
       const result = await getRecentFoods(authResult.userId, { limit, cursor }, log);
+
+      log.debug(
+        { action: "v1_common_foods_success", tab: "recent", count: result.foods.length },
+        "v1 recent foods retrieved"
+      );
+
       return conditionalResponse(request, { foods: result.foods, nextCursor: result.nextCursor });
     }
 
@@ -89,6 +95,12 @@ export async function GET(request: Request) {
     }
 
     const result = await getCommonFoods(authResult.userId, currentTime, currentDate, { limit, cursor }, log);
+
+    log.debug(
+      { action: "v1_common_foods_success", tab: "foods", count: result.foods.length },
+      "v1 common foods retrieved"
+    );
+
     return conditionalResponse(request, { foods: result.foods, nextCursor: result.nextCursor });
   } catch (error) {
     log.error(

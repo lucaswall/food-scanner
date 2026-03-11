@@ -1,5 +1,6 @@
 # Implementation Plan
 
+**Status:** COMPLETE
 **Created:** 2026-03-11
 **Source:** Inline request: Add 5 new external API v1 endpoints (food-history, common-foods, search-foods, fasting, earliest-entry) with Bearer token auth
 **Linear Issues:** [FOO-863](https://linear.app/lw-claude/issue/FOO-863/add-get-apiv1food-history-endpoint), [FOO-864](https://linear.app/lw-claude/issue/FOO-864/add-get-apiv1common-foods-endpoint), [FOO-865](https://linear.app/lw-claude/issue/FOO-865/add-get-apiv1search-foods-endpoint), [FOO-866](https://linear.app/lw-claude/issue/FOO-866/add-get-apiv1fasting-endpoint), [FOO-867](https://linear.app/lw-claude/issue/FOO-867/add-get-apiv1earliest-entry-endpoint)
@@ -261,6 +262,41 @@
 ### Continuation Status
 All tasks completed.
 
+### Review Findings
+
+Summary: 3 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [LOW] CONVENTION: Missing debug success logs on v1 common-foods, search-foods, fasting routes — added `log.debug` with structured action fields to match v1 template pattern
+- [LOW] BUG: search-foods test mock uses `id`/`name` instead of `customFoodId`/`foodName` (`src/app/api/v1/search-foods/__tests__/route.test.ts:35-38`) — fixed field names to match `SearchFood` type
+- [MEDIUM] EDGE CASE: common-foods test missing tab=recent 500 error path (`src/app/api/v1/common-foods/__tests__/route.test.ts`) — added `getRecentFoods` rejection test
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: common-foods recent tab cursor `lastDate` not format-validated — Drizzle uses parameterized queries; string type check is sufficient and matches browser route exactly
+- [DISCARDED] SECURITY: fasting date range has no size cap — single-user app with rate limiting; matches browser route behavior
+- [DISCARDED] SECURITY: search-foods no max length on `q` — HTTP infrastructure enforces request size limits; matches browser route
+- [DISCARDED] ASYNC: URL parsing outside try/catch in food-history/search-foods/fasting — `new URL(request.url)` never throws in Next.js; matches browser route pattern
+- [DISCARDED] CONVENTION: search-foods uses `isNaN()` instead of `Number.isNaN()` — functionally equivalent for `parseInt` results; style-only
+- [DISCARDED] CONVENTION: food-history uses inline DATE_REGEX/TIME_REGEX instead of `isValidDateFormat` — faithful port of browser route which uses same inline regexes; different semantic (silent discard vs rejection)
+- [DISCARDED] EDGE CASE: search-foods test missing q=2 chars boundary test — existing `q=oat` (3 chars) test exercises the acceptance branch
+
+### Linear Updates
+- FOO-863: Review → Merge (original task)
+- FOO-864: Review → Merge (original task)
+- FOO-865: Review → Merge (original task)
+- FOO-866: Review → Merge (original task)
+- FOO-867: Review → Merge (original task)
+- FOO-868: Created in Merge (Fix: missing debug success logs — fixed inline)
+- FOO-869: Created in Merge (Fix: search-foods test mock field names — fixed inline)
+- FOO-870: Created in Merge (Fix: common-foods test missing tab=recent 500 — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2,743 pass
+- Bug-hunter: no new issues
+
+<!-- REVIEW COMPLETE -->
+
 ---
 
 ## Plan Summary
@@ -271,3 +307,9 @@ All tasks completed.
 **Scope:** 5 tasks, 10 files (5 routes + 5 test files), ~45 tests
 **Key Decisions:** All five routes are DB-only so they use the 60 req/min rate limit tier. Query param validation logic is ported verbatim from browser routes to maintain identical behavior.
 **Risks:** None. Pure wiring — no new business logic, no schema changes, no external API calls.
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
