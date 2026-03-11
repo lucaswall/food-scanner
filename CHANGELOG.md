@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-03-11
+
+### Added
+
+- External API endpoints for food history, common foods, food search, fasting windows, and earliest entry date — all with Bearer token auth and rate limiting
+
 ## [1.19.0] - 2026-03-10
 
 ### Added
@@ -422,7 +428,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.20.0...HEAD
+[1.20.0]: https://github.com/lucaswall/food-scanner/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/lucaswall/food-scanner/compare/v1.18.1...v1.19.0
 [1.18.1]: https://github.com/lucaswall/food-scanner/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/lucaswall/food-scanner/compare/v1.17.6...v1.18.0
