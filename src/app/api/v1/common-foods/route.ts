@@ -90,7 +90,11 @@ export async function GET(request: Request) {
 
     const result = await getCommonFoods(authResult.userId, currentTime, currentDate, { limit, cursor }, log);
     return conditionalResponse(request, { foods: result.foods, nextCursor: result.nextCursor });
-  } catch {
+  } catch (error) {
+    log.error(
+      { action: "v1_common_foods_error", error: error instanceof Error ? error.message : String(error) },
+      "v1 common foods failed"
+    );
     return errorResponse("INTERNAL_ERROR", "Failed to get common foods", 500);
   }
 }
