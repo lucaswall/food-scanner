@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import { FoodAnalyzer } from "../food-analyzer";
 import type { FoodAnalysis, FoodLogResponse, FoodMatch, AnalyzeFoodResult, ConversationMessage } from "@/types";
 import type { StreamEvent } from "@/lib/sse";
@@ -3853,6 +3853,58 @@ describe("FoodAnalyzer", () => {
 
       // Loading step should be gone (loading ended)
       expect(screen.queryByTestId("loading-step")).not.toBeInTheDocument();
+    });
+
+    // ---- FOO-873: meal type suggestion from analysis ----
+    it("updates MealTypeSelector to Dinner (id 5) when analysis event has mealTypeId: 5", async () => {
+      const analysisWithMealType = { ...mockAnalysis, mealTypeId: 5 };
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([
+          { type: "analysis", analysis: analysisWithMealType },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      const mealTypeSelect = within(screen.getByTestId("meal-type-selector")).getByRole("combobox");
+      expect(mealTypeSelect).toHaveValue("5");
+    });
+
+    it("retains default meal type when analysis event has mealTypeId: null", async () => {
+      const analysisWithoutMealType = { ...mockAnalysis, mealTypeId: null };
+      mockFetch.mockResolvedValueOnce(
+        makeSseAnalyzeResponse([
+          { type: "analysis", analysis: analysisWithoutMealType },
+          { type: "done" },
+        ])
+      );
+
+      render(<FoodAnalyzer />);
+
+      fireEvent.click(screen.getByRole("button", { name: /add photo/i }));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /analyze/i })).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByRole("button", { name: /analyze/i }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-name")).toBeInTheDocument();
+      });
+
+      // MealTypeSelector appears after analysis; default (3 = Lunch) should be retained
+      const mealTypeSelect = within(screen.getByTestId("meal-type-selector")).getByRole("combobox");
+      expect(mealTypeSelect).toHaveValue("3");
     });
   });
 

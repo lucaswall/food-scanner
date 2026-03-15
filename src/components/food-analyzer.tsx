@@ -285,6 +285,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             } else if (event.type === "analysis") {
               actions.setAnalysis(event.analysis);
               actions.setAnalysisNarrative(textDeltaBufferRef.current.trim() || null);
+              if (event.analysis.mealTypeId != null) {
+                actions.setMealTypeId(event.analysis.mealTypeId);
+              }
               setSeedMessages(null);
               // Fire async match search (non-blocking) — skip if Claude already identified the reused food
               if (!event.analysis.sourceCustomFoodId) {
