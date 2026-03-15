@@ -53,6 +53,11 @@ export async function POST(request: Request) {
     ? clientDateRaw
     : getTodayDate();
 
+  const clientTimeRaw = formData.get("clientTime");
+  const currentTime = typeof clientTimeRaw === "string" && /^\d{2}:\d{2}$/.test(clientTimeRaw)
+    ? clientTimeRaw
+    : undefined;
+
   // Validate: at least one image or a description is required
   if (images.length === 0 && (!description || description.trim().length === 0)) {
     log.warn({ action: "analyze_food_validation" }, "no images or description provided");
@@ -157,6 +162,7 @@ export async function POST(request: Request) {
     currentDate,
     log,
     request.signal,
+    currentTime,
   );
 
   log.info({ action: "analyze_food_streaming" }, "starting SSE stream");

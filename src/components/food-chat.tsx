@@ -23,7 +23,6 @@ import { safeResponseJson } from "@/lib/safe-json";
 import { parseSSEEvents } from "@/lib/sse";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
-import { getTodayDate } from "@/lib/date-utils";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
 import type {
@@ -338,14 +337,17 @@ export function FoodChat({
           ...(images ? { images } : {}),
         })) as ConversationMessage[];
 
+      const localDT = getLocalDateTime();
       const requestBody: {
         messages: ConversationMessage[];
         initialAnalysis?: FoodAnalysis;
         clientDate: string;
+        clientTime: string;
         entryId?: number;
       } = {
         messages: apiMessages,
-        clientDate: getTodayDate(),
+        clientDate: localDT.date,
+        clientTime: localDT.time,
       };
 
       if (latestAnalysis) {

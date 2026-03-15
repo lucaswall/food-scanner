@@ -3,8 +3,8 @@ export function getDefaultMealType(): number {
   if (hour >= 5 && hour < 10) return 1; // Breakfast
   if (hour >= 10 && hour < 12) return 2; // Morning Snack
   if (hour >= 12 && hour < 14) return 3; // Lunch
-  if (hour >= 14 && hour < 17) return 4; // Afternoon Snack
-  if (hour >= 17 && hour < 21) return 5; // Dinner
+  if (hour >= 14 && hour < 19) return 4; // Afternoon Snack
+  if (hour >= 19 && hour < 22) return 5; // Dinner
   return 7; // Anytime
 }
 

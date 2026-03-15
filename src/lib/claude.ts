@@ -71,7 +71,7 @@ Follow these rules:
 - ${REPORT_NUTRITION_UI_CARD_NOTE}
 - When the user references food from their history or from a displayed list and wants to log it (e.g., "comí eso", "registra eso", "quiero lo mismo", "comí dos", naming a food from search results, responding with a food name when asked "¿Querés registrar algo?"), call report_nutrition immediately. Do not ask for unnecessary confirmation — the user's intent to log is clear whenever they reference a specific food in a context where logging intent is established.
 - Never ask "should I log/register this?" — always call report_nutrition and let the user confirm via the UI button.
-- Never ask which meal type before calling report_nutrition. Only set meal_type_id when the user explicitly mentions the meal context (e.g., "for breakfast", "at lunch"). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original meal_type_id from the search_food_log results unless the user explicitly asks to change it. Otherwise leave it null — the user can adjust in the app UI.
+- Always suggest a meal_type_id based on: (1) the current time, (2) what meals have already been logged today (from the user profile), and (3) the type of food being analyzed (snack-like foods → Morning Snack or Afternoon Snack, full meals → Lunch or Dinner). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original meal_type_id from the search_food_log results unless the user explicitly asks to change it.
 - Only set the time field when the user explicitly mentions a time (e.g., "I had this at 8:30", "breakfast was at 7am"). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original time from the search_food_log results unless the user explicitly asks to change it. Do NOT guess or infer the time. Leave it null when the user doesn't specify.
 - Only set the date field when the user explicitly mentions a date (e.g., "log this for yesterday", "move this to the 21st"). When editing an existing entry (editing_entry_id is set), always set date to the original entry's date from the search_food_log results unless the user asks to change it. Leave null for new entries — the app uses today's date by default.
 - When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values (half portion, different ingredients, different amount), set source_custom_food_id to null.
@@ -165,7 +165,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       },
       meal_type_id: {
         type: ["number", "null"],
-        description: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Only set when the user mentions the meal context (e.g., 'for breakfast', 'lunch'). Set to null otherwise — never guess the meal type.",
+        description: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Always suggest based on current time, today's logged meals, and food type. When editing an existing entry, preserve the original value unless user asks to change it.",
       },
     },
     required: [
@@ -596,6 +596,7 @@ Follow these rules:
 - ${REPORT_NUTRITION_UI_CARD_NOTE}
 - Never ask for confirmation before calling report_nutrition — the user confirms via the UI button.
 - When reporting food that came directly from search_food_log results without modification, set source_custom_food_id to the [id:N] value from the search result. When modifying nutrition values, set source_custom_food_id to null.
+- Always suggest a meal_type_id based on: (1) the current time, (2) what meals have already been logged today (from the user profile), and (3) the type of food being analyzed (snack-like foods → Morning Snack or Afternoon Snack, full meals → Lunch or Dinner). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original meal_type_id from the search_food_log results unless the user explicitly asks to change it.
 - ${THINKING_INSTRUCTION}
 
 Web search guidelines:
@@ -1200,6 +1201,7 @@ export async function* analyzeFood(
   currentDate: string,
   log?: Logger,
   signal?: AbortSignal,
+  currentTime?: string,
 ): AsyncGenerator<StreamEvent> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -1211,7 +1213,10 @@ export async function* analyzeFood(
 
     const allTools = [WEB_SEARCH_TOOL, REPORT_NUTRITION_TOOL, ...DATA_TOOLS];
     const toolsWithCache = buildToolsWithCache(allTools);
-    const systemPrompt = `${await getAnalysisSystemPrompt(userId, currentDate)}\n\nToday's date is: ${currentDate}`;
+    const dateTimeLine = currentTime
+      ? `Today's date is: ${currentDate}. Current time: ${currentTime}`
+      : `Today's date is: ${currentDate}`;
+    const systemPrompt = `${await getAnalysisSystemPrompt(userId, currentDate)}\n\n${dateTimeLine}`;
 
     const userMessage: Anthropic.MessageParam = {
       role: "user",
@@ -1535,7 +1540,8 @@ export async function* conversationalRefine(
   currentDate?: string,
   initialAnalysis?: FoodAnalysis,
   signal?: AbortSignal,
-  log?: Logger
+  log?: Logger,
+  currentTime?: string,
 ): AsyncGenerator<StreamEvent> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -1566,7 +1572,10 @@ export async function* conversationalRefine(
       ? await getChatSystemPrompt(userId, currentDate)
       : CHAT_SYSTEM_PROMPT;
     if (currentDate) {
-      systemPrompt += `\n\nToday's date is: ${currentDate}`;
+      const dateTimeLine = currentTime
+        ? `Today's date is: ${currentDate}. Current time: ${currentTime}`
+        : `Today's date is: ${currentDate}`;
+      systemPrompt += `\n\n${dateTimeLine}`;
     }
     if (initialAnalysis) {
       const amountLabel = getUnitLabel(initialAnalysis.unit_id, initialAnalysis.amount);

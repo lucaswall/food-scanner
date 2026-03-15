@@ -6,6 +6,7 @@ import { getLumenGoalsByDate } from "@/lib/lumen";
 import { getDailyNutritionSummary } from "@/lib/food-log";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
+import { FITBIT_MEAL_TYPE_LABELS } from "@/types";
 
 interface TopFood {
   foodName: string;
@@ -47,12 +48,16 @@ async function getTopFoodsByFrequency(
   }));
 }
 
+interface BuildUserProfileOptions {
+  log?: Logger;
+}
+
 export async function buildUserProfile(
   userId: string,
   currentDate: string,
-  log?: Logger,
+  options?: BuildUserProfileOptions,
 ): Promise<string | null> {
-  const l = log ?? logger;
+  const l = options?.log ?? logger;
 
   const [calorieGoals, lumenGoals, nutritionSummary, topFoods] = await Promise.all([
     getCalorieGoalsByDateRange(userId, currentDate, currentDate),
@@ -64,10 +69,11 @@ export async function buildUserProfile(
   const calorieGoal = calorieGoals.length > 0 ? calorieGoals[0].calorieGoal : null;
   const hasGoals = calorieGoal !== null || lumenGoals !== null;
   const hasProgress = nutritionSummary.totals.calories > 0;
+  const hasMeals = nutritionSummary.meals.some((g) => g.entries.length > 0);
   const hasTopFoods = topFoods.length > 0;
 
   // Return null if user has no data at all
-  if (!hasGoals && !hasProgress && !hasTopFoods) {
+  if (!hasGoals && !hasProgress && !hasTopFoods && !hasMeals) {
     l.debug({ action: "build_user_profile_empty", userId }, "no user data for profile");
     return null;
   }
@@ -97,7 +103,20 @@ export async function buildUserProfile(
     sections.push(progressStr);
   }
 
-  // Section 3: Top foods (third priority)
+  // Section 3: Today's meals (third priority)
+  if (hasMeals) {
+    const mealStrs: string[] = [];
+    for (const group of nutritionSummary.meals) {
+      const label = FITBIT_MEAL_TYPE_LABELS[group.mealTypeId] ?? `Meal ${group.mealTypeId}`;
+      for (const entry of group.entries) {
+        const timePart = entry.time ? ` at ${entry.time}` : "";
+        mealStrs.push(`${label}${timePart} — ${entry.foodName} (${entry.calories} cal)`);
+      }
+    }
+    sections.push(`Today's meals: ${mealStrs.join(", ")}`);
+  }
+
+  // Section 4: Top foods (fourth priority)
   if (hasTopFoods) {
     const foodStrs = topFoods.map(
       (f) => `${f.foodName} (×${f.count}, ${f.calories}cal)`
@@ -107,11 +126,19 @@ export async function buildUserProfile(
 
   let profile = `User profile: ${sections.join(". ")}.`;
 
-  // Truncate to stay under 1200 characters
+  // Truncate to stay under 1200 characters — remove lowest priority sections first
   if (profile.length > 1200) {
     // Remove top foods section and rebuild
     const withoutFoods = sections.filter((s) => !s.startsWith("Top foods:"));
     profile = `User profile: ${withoutFoods.join(". ")}.`;
+  }
+
+  if (profile.length > 1200) {
+    // Remove today's meals section and rebuild
+    const withoutMeals = sections.filter(
+      (s) => !s.startsWith("Top foods:") && !s.startsWith("Today's meals:")
+    );
+    profile = `User profile: ${withoutMeals.join(". ")}.`;
   }
 
   l.debug(
