@@ -37,7 +37,6 @@ import {
 import { getLocalDateTime } from "@/lib/meal-type";
 import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
-import { getTodayDate } from "@/lib/date-utils";
 import { parseSSEEvents } from "@/lib/sse";
 import type { FoodLogResponse, FoodMatch, ConversationMessage } from "@/types";
 
@@ -228,7 +227,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       if (description) {
         formData.append("description", description);
       }
-      formData.append("clientDate", getTodayDate());
+      const localDT = getLocalDateTime();
+      formData.append("clientDate", localDT.date);
+      formData.append("clientTime", localDT.time);
 
       // Send to API
       const response = await fetch("/api/analyze-food", {
