@@ -62,6 +62,10 @@ export async function POST(request: Request) {
     currentDate = data.clientDate;
   }
 
+  const currentTime = typeof data.clientTime === "string" && /^\d{2}:\d{2}$/.test(data.clientTime)
+    ? data.clientTime
+    : undefined;
+
   log.info(
     {
       action: "chat_food_request",
@@ -78,6 +82,7 @@ export async function POST(request: Request) {
     initialAnalysis,
     request.signal,
     log,
+    currentTime,
   );
 
   log.info({ action: "chat_food_streaming" }, "starting SSE stream");

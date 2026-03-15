@@ -26,13 +26,33 @@ describe("getDefaultMealType", () => {
     expect(getDefaultMealType()).toBe(4);
   });
 
-  it("returns 5 (Dinner) at 17:00", () => {
+  it("returns 4 (Afternoon Snack) at 17:00", () => {
     vi.spyOn(Date.prototype, "getHours").mockReturnValue(17);
+    expect(getDefaultMealType()).toBe(4);
+  });
+
+  it("returns 4 (Afternoon Snack) at 18:00", () => {
+    vi.spyOn(Date.prototype, "getHours").mockReturnValue(18);
+    expect(getDefaultMealType()).toBe(4);
+  });
+
+  it("returns 5 (Dinner) at 19:00", () => {
+    vi.spyOn(Date.prototype, "getHours").mockReturnValue(19);
+    expect(getDefaultMealType()).toBe(5);
+  });
+
+  it("returns 5 (Dinner) at 21:00", () => {
+    vi.spyOn(Date.prototype, "getHours").mockReturnValue(21);
     expect(getDefaultMealType()).toBe(5);
   });
 
   it("returns 7 (Anytime) at 3:00", () => {
     vi.spyOn(Date.prototype, "getHours").mockReturnValue(3);
+    expect(getDefaultMealType()).toBe(7);
+  });
+
+  it("returns 7 (Anytime) at 22:00", () => {
+    vi.spyOn(Date.prototype, "getHours").mockReturnValue(22);
     expect(getDefaultMealType()).toBe(7);
   });
 });

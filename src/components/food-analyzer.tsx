@@ -37,7 +37,6 @@ import {
 import { getLocalDateTime } from "@/lib/meal-type";
 import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
-import { getTodayDate } from "@/lib/date-utils";
 import { parseSSEEvents } from "@/lib/sse";
 import type { FoodLogResponse, FoodMatch, ConversationMessage } from "@/types";
 
@@ -228,7 +227,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       if (description) {
         formData.append("description", description);
       }
-      formData.append("clientDate", getTodayDate());
+      const localDT = getLocalDateTime();
+      formData.append("clientDate", localDT.date);
+      formData.append("clientTime", localDT.time);
 
       // Send to API
       const response = await fetch("/api/analyze-food", {
@@ -285,6 +286,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             } else if (event.type === "analysis") {
               actions.setAnalysis(event.analysis);
               actions.setAnalysisNarrative(textDeltaBufferRef.current.trim() || null);
+              if (event.analysis.mealTypeId != null) {
+                actions.setMealTypeId(event.analysis.mealTypeId);
+              }
               setSeedMessages(null);
               // Fire async match search (non-blocking) — skip if Claude already identified the reused food
               if (!event.analysis.sourceCustomFoodId) {

@@ -2773,10 +2773,10 @@ describe("CHAT_SYSTEM_PROMPT registration guardrails", () => {
     expect(CHAT_SYSTEM_PROMPT).toMatch(/only.*register|only.*log|never.*claim|never.*say.*register/i);
   });
 
-  it("instructs not to ask about meal types", async () => {
+  it("instructs to suggest meal types based on context", async () => {
     const { CHAT_SYSTEM_PROMPT } = await import("@/lib/claude");
     expect(CHAT_SYSTEM_PROMPT).toMatch(/meal.type/i);
-    expect(CHAT_SYSTEM_PROMPT).toMatch(/never ask.*meal.type|do not ask.*meal.type|meal.type.*ui|meal.type.*not.*parameter/i);
+    expect(CHAT_SYSTEM_PROMPT).toMatch(/always suggest.*meal.type|suggest.*meal.type.*based on/i);
   });
 });
 

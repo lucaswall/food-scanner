@@ -130,13 +130,15 @@ function createMockFile(
 function createMockRequest(
   files: MockFile[],
   description?: string,
-  clientDate?: string
+  clientDate?: string,
+  clientTime?: string,
 ): Request {
   const formData = {
     getAll: (key: string) => (key === "images" ? files : []),
     get: (key: string) => {
       if (key === "description") return description ?? null;
       if (key === "clientDate") return clientDate ?? null;
+      if (key === "clientTime") return clientTime ?? null;
       return null;
     },
   };
@@ -535,6 +537,7 @@ describe("POST /api/analyze-food", () => {
       expect.any(String),
       expect.any(Object),
       expect.anything(),
+      undefined,
     );
   });
 
@@ -559,6 +562,7 @@ describe("POST /api/analyze-food", () => {
       expect.any(String),
       expect.any(Object),
       expect.anything(),
+      undefined,
     );
   });
 
@@ -581,6 +585,7 @@ describe("POST /api/analyze-food", () => {
       expect.any(String),
       expect.any(Object),
       expect.anything(),
+      undefined,
     );
   });
 
@@ -671,6 +676,7 @@ describe("POST /api/analyze-food", () => {
       expect.any(String),
       expect.any(Object),
       expect.anything(),
+      undefined,
     );
     expect(mockAnalyzeFood.mock.calls[0][0]).toHaveLength(2);
 
@@ -703,6 +709,60 @@ describe("POST /api/analyze-food", () => {
       "2026-02-15",
       expect.any(Object),
       expect.anything(),
+      undefined,
+    );
+  });
+
+  it("passes valid clientTime from FormData to analyzeFood as currentTime", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food",
+      "2026-02-15",
+      "14:30",
+    );
+
+    await POST(request);
+
+    expect(mockAnalyzeFood).toHaveBeenCalledWith(
+      expect.any(Array),
+      "Test food",
+      "user-uuid-123",
+      "2026-02-15",
+      expect.any(Object),
+      expect.anything(),
+      "14:30",
+    );
+  });
+
+  it("ignores invalid clientTime format", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockAnalyzeFood.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest(
+      [createMockFile("test.jpg", "image/jpeg", 1000)],
+      "Test food",
+      "2026-02-15",
+      "bad-time",
+    );
+
+    await POST(request);
+
+    expect(mockAnalyzeFood).toHaveBeenCalledWith(
+      expect.any(Array),
+      "Test food",
+      "user-uuid-123",
+      "2026-02-15",
+      expect.any(Object),
+      expect.anything(),
+      undefined,
     );
   });
 
@@ -732,6 +792,7 @@ describe("POST /api/analyze-food", () => {
       expect.any(String),
       expect.any(Object),
       abortController.signal,
+      undefined,
     );
   });
 });

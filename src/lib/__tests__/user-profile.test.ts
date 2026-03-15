@@ -209,4 +209,109 @@ describe("buildUserProfile", () => {
     expect(mockGetLumenGoals).toHaveBeenCalledWith(TEST_USER_ID, TEST_DATE);
     expect(mockGetNutritionSummary).toHaveBeenCalledWith(TEST_USER_ID, TEST_DATE);
   });
+
+  it("does not include current time in profile (time is in dateTimeLine footer)", async () => {
+    mockGetCalorieGoals.mockResolvedValue([{ date: TEST_DATE, calorieGoal: 2200 }]);
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).not.toContain("Current time:");
+
+    // Type guard: BuildUserProfileOptions must NOT have currentTime
+    // @ts-expect-error currentTime is not a valid option
+    await buildUserProfile(TEST_USER_ID, TEST_DATE, { currentTime: "14:30" });
+  });
+
+  it("includes today's meals section with times when meals have been logged", async () => {
+    mockGetCalorieGoals.mockResolvedValue([{ date: TEST_DATE, calorieGoal: 2200 }]);
+    mockGetNutritionSummary.mockResolvedValue({
+      date: TEST_DATE,
+      meals: [
+        { mealTypeId: 1, entries: [{ foodName: "Café con leche", calories: 90, time: "08:30" }], totals: { calories: 90, proteinG: 5, carbsG: 10, fatG: 3, fiberG: 0, sodiumMg: 50, saturatedFatG: 2, transFatG: 0, sugarsG: 8, caloriesFromFat: 27 } },
+        { mealTypeId: 3, entries: [{ foodName: "Milanesa", calories: 650, time: "13:00" }], totals: { calories: 650, proteinG: 45, carbsG: 30, fatG: 35, fiberG: 2, sodiumMg: 400, saturatedFatG: 10, transFatG: 1, sugarsG: 2, caloriesFromFat: 315 } },
+      ],
+      totals: { calories: 740, proteinG: 50, carbsG: 40, fatG: 38, fiberG: 2, sodiumMg: 450, saturatedFatG: 12, transFatG: 1, sugarsG: 10, caloriesFromFat: 342 },
+    });
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Today's meals:");
+    expect(result).toContain("Breakfast at 08:30 — Café con leche (90 cal)");
+    expect(result).toContain("Lunch at 13:00 — Milanesa (650 cal)");
+  });
+
+  it("formats meals without time as meal type and food name only", async () => {
+    mockGetCalorieGoals.mockResolvedValue([{ date: TEST_DATE, calorieGoal: 2200 }]);
+    mockGetNutritionSummary.mockResolvedValue({
+      date: TEST_DATE,
+      meals: [
+        { mealTypeId: 1, entries: [{ foodName: "Tostadas", calories: 150, time: null }], totals: { calories: 150, proteinG: 5, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100, saturatedFatG: 2, transFatG: 0, sugarsG: 3, caloriesFromFat: 45 } },
+      ],
+      totals: { calories: 150, proteinG: 5, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100, saturatedFatG: 2, transFatG: 0, sugarsG: 3, caloriesFromFat: 45 },
+    });
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Today's meals:");
+    expect(result).toContain("Breakfast — Tostadas (150 cal)");
+    expect(result).not.toContain("at null");
+  });
+
+  it("omits today's meals section when no meals have been logged", async () => {
+    mockGetCalorieGoals.mockResolvedValue([{ date: TEST_DATE, calorieGoal: 2200 }]);
+    // Default mock has empty meals
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).not.toContain("Today's meals:");
+  });
+
+  it("truncation removes top foods first then today's meals if still over 1200 chars", async () => {
+    mockGetCalorieGoals.mockResolvedValue([{ date: TEST_DATE, calorieGoal: 2200 }]);
+    mockGetLumenGoals.mockResolvedValue({
+      date: TEST_DATE, dayType: "high_carb",
+      proteinGoal: 140, carbsGoal: 220, fatGoal: 80,
+    });
+    mockGetNutritionSummary.mockResolvedValue({
+      date: TEST_DATE,
+      meals: Array.from({ length: 8 }, (_, i) => ({
+        mealTypeId: 1,
+        entries: [{ foodName: `Food with a very long name for truncation test number ${i + 1}`, calories: 100 + i * 10, time: `0${i}:00` }],
+        totals: { calories: 100 + i * 10, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100, saturatedFatG: 2, transFatG: 0, sugarsG: 5, caloriesFromFat: 45 },
+      })),
+      totals: { calories: 1200, proteinG: 95, carbsG: 180, fatG: 52, fiberG: 15, sodiumMg: 1200, saturatedFatG: 18, transFatG: 2, sugarsG: 45, caloriesFromFat: 468 },
+    });
+    mockLimit.mockResolvedValue(
+      Array.from({ length: 10 }, (_, i) => ({
+        foodName: `Food item with a reasonably long name number ${i + 1}`,
+        calories: 100 + i * 50,
+        count: 30 - i * 2,
+      }))
+    );
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result!.length).toBeLessThanOrEqual(1200);
+  });
+
+  it("accepts only userId and currentDate without options - backward compat", async () => {
+    mockGetCalorieGoals.mockResolvedValue([{ date: TEST_DATE, calorieGoal: 2000 }]);
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("2000 cal/day");
+    expect(result).not.toContain("Current time:");
+  });
 });
