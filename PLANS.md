@@ -2,7 +2,7 @@
 
 **Created:** 2026-03-15
 **Source:** Inline request: Replace static time-based meal type defaults with model-based suggestions using time, food context, and today's meal history
-**Linear Issues:** [FOO-871](https://linear.app/lw-claude/issue/FOO-871/inject-current-time-and-todays-meals-into-claude-system-prompt), [FOO-872](https://linear.app/lw-claude/issue/FOO-872/update-claude-prompts-and-tool-schema-to-suggest-meal-type), [FOO-873](https://linear.app/lw-claude/issue/FOO-873/photo-flow-apply-claudes-meal-type-suggestion-to-ui-selector)
+**Linear Issues:** [FOO-871](https://linear.app/lw-claude/issue/FOO-871/inject-current-time-and-todays-meals-into-claude-system-prompt), [FOO-872](https://linear.app/lw-claude/issue/FOO-872/update-claude-prompts-and-tool-schema-to-suggest-meal-type), [FOO-873](https://linear.app/lw-claude/issue/FOO-873/photo-flow-apply-claudes-meal-type-suggestion-to-ui-selector), [FOO-874](https://linear.app/lw-claude/issue/FOO-874/adjust-getdefaultmealtype-time-windows-dinner-1900-2159)
 **Branch:** feat/FOO-871-model-based-meal-type
 
 ## Context Gathered
@@ -121,6 +121,31 @@
   2. Fallback when Claude returns `meal_type_id: null` (shouldn't happen with new prompt, but defensive)
   3. Used by `food-chat.tsx` initial state (line 127) — same pattern applies there
 
+### Task 4: Adjust getDefaultMealType time windows
+**Linear Issue:** [FOO-874](https://linear.app/lw-claude/issue/FOO-874/adjust-getdefaultmealtype-time-windows-dinner-1900-2159)
+**Files:**
+- `src/lib/__tests__/meal-type.test.ts` (modify)
+- `src/lib/meal-type.ts` (modify)
+
+**Steps:**
+1. Update tests in `src/lib/__tests__/meal-type.test.ts`:
+   - Change "returns 5 (Dinner) at 17:00" → test at hour 19 instead
+   - Add test: hour 17 returns 4 (Afternoon Snack)
+   - Add test: hour 18 returns 4 (Afternoon Snack)
+   - Change "returns 7 (Anytime) at 3:00" → keep as-is (3:00 is still Anytime)
+   - Add test: hour 22 returns 7 (Anytime)
+   - Add test: hour 21 returns 5 (Dinner) — boundary check
+2. Run verifier with pattern `"meal-type"` (expect fail)
+3. Update `src/lib/meal-type.ts` `getDefaultMealType()`:
+   - Afternoon Snack: `hour >= 14 && hour < 19` (was `< 17`)
+   - Dinner: `hour >= 19 && hour < 22` (was `>= 17 && < 21`)
+   - Anytime: fallthrough at `hour >= 22` or `hour < 5` (was `>= 21`)
+4. Run verifier with pattern `"meal-type"` (expect pass)
+
+**Notes:**
+- This task has no dependencies on Tasks 1–3 and can be implemented in parallel.
+- Affects Quick Select (which doesn't go through Claude) and serves as the initial UI placeholder/fallback in photo and chat flows.
+
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
 2. Run `verifier` agent — Verify all tests pass and zero warnings
@@ -129,9 +154,9 @@
 
 ## Plan Summary
 
-**Objective:** Replace static time-based meal type defaults with intelligent model-based suggestions, giving Claude time-of-day context and today's meal history to infer the correct meal type.
-**Linear Issues:** FOO-871, FOO-872, FOO-873
-**Approach:** Three-layer change: (1) Inject current time and today's per-meal breakdown into the system prompt via `buildUserProfile`, adding `clientTime` to both API routes. (2) Reverse Claude's "never guess meal type" instruction to "always suggest based on time, food type, and today's meals." (3) Make the photo flow respect Claude's meal type suggestion, matching the existing chat flow behavior. `getDefaultMealType()` is retained as initial UI placeholder and fallback.
-**Scope:** 3 tasks, ~10 files, ~8 new tests
+**Objective:** Replace static time-based meal type defaults with intelligent model-based suggestions, giving Claude time-of-day context and today's meal history to infer the correct meal type. Also fix the static fallback time windows.
+**Linear Issues:** FOO-871, FOO-872, FOO-873, FOO-874
+**Approach:** Four changes: (1) Inject current time and today's per-meal breakdown into the system prompt via `buildUserProfile`, adding `clientTime` to both API routes. (2) Reverse Claude's "never guess meal type" instruction to "always suggest based on time, food type, and today's meals." (3) Make the photo flow respect Claude's meal type suggestion, matching the existing chat flow behavior. (4) Adjust `getDefaultMealType()` time windows — dinner shifts to 19:00–21:59, afternoon snack expands to 14:00–18:59. This fixes Quick Select (which doesn't use Claude) and the initial UI placeholder.
+**Scope:** 4 tasks, ~12 files, ~12 new tests
 **Key Decisions:** Keep `getDefaultMealType()` as fallback rather than deleting it — it provides a reasonable placeholder while Claude processes. Claude's suggestion overrides it when the analysis completes.
 **Risks:** Claude may occasionally suggest wrong meal types, but the user can always override via the dropdown — same as today, except the default will be better in the vast majority of cases.
