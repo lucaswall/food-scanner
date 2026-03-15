@@ -1,210 +1,125 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Created:** 2026-03-11
-**Source:** Inline request: Add 5 new external API v1 endpoints (food-history, common-foods, search-foods, fasting, earliest-entry) with Bearer token auth
-**Linear Issues:** [FOO-863](https://linear.app/lw-claude/issue/FOO-863/add-get-apiv1food-history-endpoint), [FOO-864](https://linear.app/lw-claude/issue/FOO-864/add-get-apiv1common-foods-endpoint), [FOO-865](https://linear.app/lw-claude/issue/FOO-865/add-get-apiv1search-foods-endpoint), [FOO-866](https://linear.app/lw-claude/issue/FOO-866/add-get-apiv1fasting-endpoint), [FOO-867](https://linear.app/lw-claude/issue/FOO-867/add-get-apiv1earliest-entry-endpoint)
-**Branch:** feat/FOO-863-v1-food-query-endpoints
+**Created:** 2026-03-15
+**Source:** Inline request: Replace static time-based meal type defaults with model-based suggestions using time, food context, and today's meal history
+**Linear Issues:** [FOO-871](https://linear.app/lw-claude/issue/FOO-871/inject-current-time-and-todays-meals-into-claude-system-prompt), [FOO-872](https://linear.app/lw-claude/issue/FOO-872/update-claude-prompts-and-tool-schema-to-suggest-meal-type), [FOO-873](https://linear.app/lw-claude/issue/FOO-873/photo-flow-apply-claudes-meal-type-suggestion-to-ui-selector)
+**Branch:** feat/FOO-871-model-based-meal-type
 
 ## Context Gathered
 
 ### Codebase Analysis
 - **Related files:**
-  - Existing v1 routes: `src/app/api/v1/food-log/route.ts` (template pattern), `src/app/api/v1/nutrition-summary/route.ts`, `src/app/api/v1/activity-summary/route.ts`, `src/app/api/v1/nutrition-goals/route.ts`, `src/app/api/v1/lumen-goals/route.ts`
-  - Browser routes to mirror: `src/app/api/food-history/route.ts`, `src/app/api/common-foods/route.ts`, `src/app/api/search-foods/route.ts`, `src/app/api/fasting/route.ts`, `src/app/api/earliest-entry/route.ts`
-  - Auth: `src/lib/api-auth.ts` (`validateApiRequest`, `hashForRateLimit`)
-  - Response: `src/lib/api-response.ts` (`conditionalResponse`, `errorResponse`)
-  - Business logic: `src/lib/food-log.ts` (`getFoodLogHistory`, `getCommonFoods`, `getRecentFoods`, `searchFoods`, `getEarliestEntryDate`), `src/lib/fasting.ts` (`getFastingWindow`, `getFastingWindows`)
-  - Date utils: `src/lib/date-utils.ts` (`isValidDateFormat`)
-  - Rate limiting: `src/lib/rate-limit.ts` (`checkRateLimit`)
-  - Types: `src/types/index.ts` (`ErrorCode`)
-- **Existing patterns:** All v1 routes follow identical structure: `validateApiRequest()` → extract API key for rate limiting → `checkRateLimit()` with hashed key → validate query params → call business logic with `authResult.userId` → `conditionalResponse()`. DB-only routes use 60 req/min; Fitbit routes use 30 req/min. All five new routes are DB-only.
-- **Test conventions:** Colocated `__tests__/route.test.ts` under each v1 route directory. Mock `@/lib/api-auth`, `@/lib/logger`, `@/lib/food-log`, `@/lib/rate-limit`. Use `createRequest()` helper. Test coverage: success, auth failure (401), validation errors (400), rate limit (429), Cache-Control header, ETag, 304 Not Modified, rate limit key format.
+  - `src/lib/meal-type.ts` — `getDefaultMealType()` (static hour-based algorithm) and `getLocalDateTime()`
+  - `src/lib/user-profile.ts` — `buildUserProfile()` builds system prompt context; already fetches `getDailyNutritionSummary` but discards per-meal breakdown
+  - `src/lib/claude.ts` — System prompts (`SYSTEM_PROMPT`, `CHAT_SYSTEM_PROMPT`, `ANALYSIS_SYSTEM_PROMPT`), `REPORT_NUTRITION_TOOL` schema (meal_type_id description says "never guess"), `analyzeFood()`, `conversationalRefine()`, `getSystemPrompt()`, `getAnalysisSystemPrompt()`, `getChatSystemPrompt()`
+  - `src/lib/chat-tools.ts` — `SEARCH_FOOD_LOG_TOOL`, `executeSearchFoodLog()`
+  - `src/lib/food-log.ts` — `getDailyNutritionSummary()` returns `NutritionSummary` with `meals: MealGroup[]` including `mealTypeId`, `entries[].time`, `entries[].foodName`
+  - `src/app/api/analyze-food/route.ts` — Receives `clientDate` from FormData, passes to `analyzeFood()`; no `clientTime` param
+  - `src/app/api/chat-food/route.ts` — Receives `clientDate` in JSON body, passes to `conversationalRefine()`; no `clientTime` param
+  - `src/components/food-analyzer.tsx` — Photo flow; SSE analysis event calls `actions.setAnalysis()` but does NOT update `mealTypeId` from `analysis.mealTypeId`
+  - `src/components/food-chat.tsx` — Chat flow; DOES update `mealTypeId` from `analysis.mealTypeId` (line 430-431)
+  - `src/hooks/use-analysis-session.ts` — DEFAULT_STATE uses `getDefaultMealType()` at module level (line 59)
+  - `src/components/meal-type-selector.tsx` — Dropdown with time hint text
+  - `src/types/index.ts` — `FoodAnalysis` interface, `FitbitMealType` enum, `FITBIT_MEAL_TYPE_LABELS`, `NutritionSummary`, `MealGroup`, `MealEntry`
+  - `src/lib/date-utils.ts` — `getTodayDate()`, `formatTimeFromDate()`
+- **Existing patterns:**
+  - `clientDate` flows: frontend `getTodayDate()` → API route validates format → passes to Claude functions as `currentDate`
+  - `buildUserProfile` returns a string under 1200 chars, injected into system prompt via `getSystemPrompt()`
+  - `getSystemPrompt()` prepends user profile to base `SYSTEM_PROMPT`; `getAnalysisSystemPrompt()` and `getChatSystemPrompt()` extend with role-specific instructions
+  - Both `analyzeFood()` and `conversationalRefine()` append `\nToday's date is: ${currentDate}` to the system prompt
+  - Chat flow respects Claude's `meal_type_id` (updates UI); photo flow ignores it
+- **Test conventions:**
+  - `src/lib/__tests__/meal-type.test.ts` — Tests `getDefaultMealType()` with `vi.spyOn(Date.prototype, "getHours")`
+  - `src/lib/__tests__/user-profile.test.ts` — Tests `buildUserProfile()` with mocked dependencies; checks profile string content
+  - `src/components/__tests__/food-analyzer.test.tsx` — Component tests for photo flow
+  - `src/components/__tests__/food-chat.test.tsx` — Component tests for chat flow
 
 ### MCP Context
 - **MCPs used:** Linear (issue creation)
-- **Findings:** No existing issues for v1 food query endpoints. Created FOO-863, FOO-864, FOO-865, FOO-866, FOO-867.
+- **Findings:** Created FOO-871, FOO-872, FOO-873 in Todo state.
 
 ## Tasks
 
-### Task 1: Add GET /api/v1/food-history endpoint
-**Linear Issue:** [FOO-863](https://linear.app/lw-claude/issue/FOO-863/add-get-apiv1food-history-endpoint)
+### Task 1: Inject current time and today's meals into Claude system prompt
+**Linear Issue:** [FOO-871](https://linear.app/lw-claude/issue/FOO-871/inject-current-time-and-todays-meals-into-claude-system-prompt)
 **Files:**
-- `src/app/api/v1/food-history/__tests__/route.test.ts` (create)
-- `src/app/api/v1/food-history/route.ts` (create)
+- `src/lib/__tests__/user-profile.test.ts` (modify)
+- `src/lib/user-profile.ts` (modify)
+- `src/app/api/analyze-food/route.ts` (modify)
+- `src/app/api/chat-food/route.ts` (modify)
+- `src/lib/claude.ts` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/food-chat.tsx` (modify)
 
 **Steps:**
-1. Write tests in `src/app/api/v1/food-history/__tests__/route.test.ts` following the exact mock/structure pattern from `src/app/api/v1/food-log/__tests__/route.test.ts`:
-   - Mock `@/lib/api-auth` (validateApiRequest + hashForRateLimit), `@/lib/logger`, `@/lib/food-log` (getFoodLogHistory), `@/lib/rate-limit`
-   - Success: valid auth + valid params returns paginated entries from `getFoodLogHistory`
-   - Success with cursor params: `lastDate`, `lastTime`, `lastId` parsed and passed as cursor object
-   - Success with `endDate` filter param
-   - Success with `limit` param (clamped 1-50, default 20)
-   - Auth failure: returns 401 when `validateApiRequest` returns Response
-   - Rate limit exceeded: returns 429
-   - Rate limit key format: `v1:food-history:hashed-<key>` with 60 req/min
-   - Cache-Control: `private, no-cache`
-   - ETag header present on success
-   - 304 Not Modified when If-None-Match matches ETag
-   - Internal error: returns 500 when `getFoodLogHistory` throws
-2. Run verifier with pattern `"v1/food-history"` (expect fail)
-3. Implement `src/app/api/v1/food-history/route.ts`:
-   - Follow `src/app/api/v1/food-log/route.ts` as template for auth + rate limit boilerplate
-   - Port query param parsing logic from `src/app/api/food-history/route.ts` (endDate, cursor with lastDate/lastTime/lastId, limit with 1-50 clamp and default 20)
-   - Call `getFoodLogHistory(authResult.userId, { endDate, cursor, limit }, log)` instead of session-based userId
-   - Return `conditionalResponse(request, { entries })`
-   - Error handling: catch block returns `errorResponse("INTERNAL_ERROR", "Failed to get food log history", 500)`
-4. Run verifier with pattern `"v1/food-history"` (expect pass)
+1. Write tests in `src/lib/__tests__/user-profile.test.ts` for the new `currentTime` parameter and today's meals section:
+   - Test that when `currentTime` is provided, profile includes `"Current time: HH:MM"` line
+   - Test that when `currentTime` is omitted/undefined, no current time line appears (backward compatibility)
+   - Test that when `nutritionSummary.meals` has entries, profile includes a "Today's meals" section listing each meal with: meal type label, time (if present), food name. Example: `"Today's meals: Breakfast at 08:30 — Café con leche (90 cal), Lunch at 13:00 — Milanesa (650 cal)"`
+   - Test that when meals have no time, format is just meal type + food name (no "at HH:MM")
+   - Test that when no meals logged today, the "Today's meals" section is omitted
+   - Test that the 1200-char truncation drops today's meals before top foods (today's meals is higher priority than top foods for meal type inference, but both are lower than goals/progress — actually, reconsider: today's meals should be higher priority than top foods since it's directly relevant to meal type. Drop top foods first, then today's meals if still over limit)
+   - Test that `buildUserProfile` still works with only `(userId, currentDate)` args (no breaking change)
+2. Run verifier with pattern `"user-profile"` (expect fail)
+3. Implement changes:
+   - **`src/lib/user-profile.ts`:** Add optional `currentTime?: string` parameter to `buildUserProfile()`. Add new section between progress and top foods: build "Today's meals" from `nutritionSummary.meals` — for each `MealGroup`, list entries with `FITBIT_MEAL_TYPE_LABELS[mealTypeId]`, entry time (formatted HH:MM if present), food name, and calories. Add "Current time: {currentTime}" as a separate line after goals/progress when provided. Adjust truncation: drop top foods first, then today's meals if still over 1200 chars.
+   - **`src/app/api/analyze-food/route.ts`:** Extract `clientTime` from FormData (same validation pattern as `clientDate` — validate HH:MM format with regex `^\d{2}:\d{2}$`). Pass to `analyzeFood()`.
+   - **`src/app/api/chat-food/route.ts`:** Extract `clientTime` from JSON body with same HH:MM validation. Pass to `conversationalRefine()`.
+   - **`src/lib/claude.ts`:** Update `analyzeFood()` and `conversationalRefine()` signatures to accept optional `currentTime?: string`. Pass it through to `getAnalysisSystemPrompt()` / `getChatSystemPrompt()` → `getSystemPrompt()` → `buildUserProfile()`. Append `"Current time: ${currentTime}"` alongside the existing `"Today's date is: ${currentDate}"` line when available.
+   - **`src/components/food-analyzer.tsx`:** Add `getLocalDateTime().time` to FormData as `clientTime` alongside existing `clientDate`.
+   - **`src/components/food-chat.tsx`:** Add `clientTime: getLocalDateTime().time` to the request body alongside existing `clientDate`.
+4. Run verifier with pattern `"user-profile"` (expect pass)
 
 **Notes:**
-- No date validation needed — `endDate` is optional and silently ignored if malformed (same as browser route). Cursor params are also optional.
-- The browser route at `src/app/api/food-history/route.ts` uses inline DATE_REGEX/TIME_REGEX — reuse the same regex patterns for cursor param validation.
+- `buildUserProfile` signature changes from `(userId, currentDate, log?)` to `(userId, currentDate, options?)` where options is `{ currentTime?: string; log?: Logger }` — cleaner than adding more positional params. Update all call sites.
+- The profile priority order becomes: Goals > Progress > Current time > Today's meals > Top foods. Truncation removes from bottom up.
+- Import `FITBIT_MEAL_TYPE_LABELS` from `@/types` in `user-profile.ts` for meal type label formatting.
 
-### Task 2: Add GET /api/v1/common-foods endpoint
-**Linear Issue:** [FOO-864](https://linear.app/lw-claude/issue/FOO-864/add-get-apiv1common-foods-endpoint)
+### Task 2: Update Claude prompts and tool schema to suggest meal type
+**Linear Issue:** [FOO-872](https://linear.app/lw-claude/issue/FOO-872/update-claude-prompts-and-tool-schema-to-suggest-meal-type)
 **Files:**
-- `src/app/api/v1/common-foods/__tests__/route.test.ts` (create)
-- `src/app/api/v1/common-foods/route.ts` (create)
+- `src/lib/claude.ts` (modify)
 
 **Steps:**
-1. Write tests in `src/app/api/v1/common-foods/__tests__/route.test.ts`:
-   - Mock `@/lib/api-auth`, `@/lib/logger`, `@/lib/food-log` (getCommonFoods, getRecentFoods), `@/lib/rate-limit`, `@/lib/date-utils` (isValidDateFormat)
-   - **Default tab (foods):**
-     - Success: returns foods + nextCursor from `getCommonFoods`
-     - With `clientDate` and `clientTime` params: passed to `getCommonFoods`
-     - With score-based cursor: `{"score":0.95,"id":5}` parsed and passed
-     - Invalid `clientDate` format: returns 400 VALIDATION_ERROR
-     - Invalid `clientTime` format: returns 400 VALIDATION_ERROR
-     - Invalid cursor JSON: returns 400 VALIDATION_ERROR
-     - Invalid cursor shape (missing score/id): returns 400 VALIDATION_ERROR
-   - **Recent tab (`tab=recent`):**
-     - Success: returns foods + nextCursor from `getRecentFoods`
-     - With time-based cursor: `{"lastDate":"...","lastTime":null,"lastId":5}` parsed and passed
-     - Invalid cursor format: returns 400 VALIDATION_ERROR
-   - **Shared tests:**
-     - `limit` param clamped 1-50, default 10
-     - Auth failure: 401
-     - Rate limit exceeded: 429
-     - Rate limit key: `v1:common-foods:hashed-<key>` with 60 req/min
-     - Cache-Control: `private, no-cache`
-     - ETag + 304 Not Modified
-     - Internal error: 500
-2. Run verifier with pattern `"v1/common-foods"` (expect fail)
-3. Implement `src/app/api/v1/common-foods/route.ts`:
-   - Follow v1 auth + rate limit boilerplate from `src/app/api/v1/food-log/route.ts`
-   - Port all query param parsing and cursor validation logic from `src/app/api/common-foods/route.ts` — both tabs (recent with time-based cursor, default with score-based cursor), clientDate/clientTime validation using `isValidDateFormat`, limit clamping
-   - Replace `session!.userId` with `authResult.userId`
-   - Return `conditionalResponse(request, { foods, nextCursor })`
-   - Error handling: catch block returns `errorResponse("INTERNAL_ERROR", "Failed to get common foods", 500)`
-4. Run verifier with pattern `"v1/common-foods"` (expect pass)
+1. No unit tests needed — this task changes prompt text and tool schema descriptions (natural language), not testable logic. Behavior is verified by integration in Task 3 tests and manual validation.
+2. Modify `src/lib/claude.ts`:
+   - **`CHAT_SYSTEM_PROMPT` line 74:** Replace the "Never ask which meal type" instruction. New instruction: "Always suggest a meal_type_id based on: (1) the current time, (2) what meals have already been logged today (from the user profile), and (3) the type of food being analyzed (snack-like foods → Morning Snack or Afternoon Snack, full meals → Lunch or Dinner). Exception: when editing an existing entry (editing_entry_id is set), always preserve the original meal_type_id from the search_food_log results unless the user explicitly asks to change it."
+   - **`ANALYSIS_SYSTEM_PROMPT`:** Add the same meal type suggestion instruction (currently has no explicit meal type guidance — the constraint was only in CHAT_SYSTEM_PROMPT and the tool schema).
+   - **`REPORT_NUTRITION_TOOL` schema (line 166-169):** Update `meal_type_id` description from "Only set when the user mentions the meal context... never guess the meal type" to: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Always suggest based on current time, today's logged meals, and food type. When editing an existing entry, preserve the original value unless user asks to change it."
+3. Run verifier (full — no pattern; prompt changes could affect snapshot tests or type checks)
 
 **Notes:**
-- This is the most complex of the three routes due to two tab modes with different cursor shapes. Follow the browser route logic exactly — do not simplify or change validation behavior.
+- The key behavioral shift: Claude goes from "leave null unless user says 'for breakfast'" to "always suggest based on context, user can override in UI."
+- The "time" field instruction (line 75) stays unchanged — time should still only be set when the user explicitly mentions it.
 
-### Task 3: Add GET /api/v1/search-foods endpoint
-**Linear Issue:** [FOO-865](https://linear.app/lw-claude/issue/FOO-865/add-get-apiv1search-foods-endpoint)
+### Task 3: Photo flow — apply Claude's meal type suggestion to UI selector
+**Linear Issue:** [FOO-873](https://linear.app/lw-claude/issue/FOO-873/photo-flow-apply-claudes-meal-type-suggestion-to-ui-selector)
 **Files:**
-- `src/app/api/v1/search-foods/__tests__/route.test.ts` (create)
-- `src/app/api/v1/search-foods/route.ts` (create)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/hooks/use-analysis-session.ts` (modify)
+- `src/hooks/__tests__/use-analysis-session.test.ts` (modify)
+- `src/lib/__tests__/meal-type.test.ts` (modify)
+- `src/lib/meal-type.ts` (modify)
 
 **Steps:**
-1. Write tests in `src/app/api/v1/search-foods/__tests__/route.test.ts`:
-   - Mock `@/lib/api-auth`, `@/lib/logger`, `@/lib/food-log` (searchFoods), `@/lib/rate-limit`
-   - Success: valid `q` param returns foods from `searchFoods`
-   - Query splitting: `q` is lowercased and split by whitespace into keywords array passed to `searchFoods`
-   - Missing `q` param: returns 400 VALIDATION_ERROR "Query must be at least 2 characters"
-   - `q` too short (1 char): returns 400 VALIDATION_ERROR
-   - `q` with only whitespace (splits to empty): returns 400 VALIDATION_ERROR "Query must contain at least one word"
-   - `limit` param clamped 1-50, default 10
-   - Auth failure: 401
-   - Rate limit exceeded: 429
-   - Rate limit key: `v1:search-foods:hashed-<key>` with 60 req/min
-   - Cache-Control: `private, no-cache`
-   - ETag + 304 Not Modified
-   - Internal error: 500
-2. Run verifier with pattern `"v1/search-foods"` (expect fail)
-3. Implement `src/app/api/v1/search-foods/route.ts`:
-   - Follow v1 auth + rate limit boilerplate
-   - Port query validation logic from `src/app/api/search-foods/route.ts`: `q` param required with min 2 chars, split by whitespace into keywords, reject if empty after split
-   - Call `searchFoods(authResult.userId, keywords, { limit }, log)`
-   - Return `conditionalResponse(request, { foods })`
-   - Error handling: catch block returns `errorResponse("INTERNAL_ERROR", "Failed to search foods", 500)`
-4. Run verifier with pattern `"v1/search-foods"` (expect pass)
+1. Write/update tests:
+   - **`src/components/__tests__/food-analyzer.test.tsx`:** Add test that when an analysis SSE event arrives with `mealTypeId: 5`, the MealTypeSelector updates to show Dinner. Add test that when analysis arrives with `mealTypeId: null`, the meal type selector retains `getDefaultMealType()` value.
+   - **`src/hooks/__tests__/use-analysis-session.test.ts`:** Update the `DEFAULT_STATE` expectation — `mealTypeId` initial value changes from a specific number to whatever `getDefaultMealType()` returns (this test currently expects `7` which is hardcoded for the test's mocked time).
+   - **`src/lib/__tests__/meal-type.test.ts`:** Keep existing `getDefaultMealType` tests (they still serve as fallback validation). The function itself is retained as a fallback.
+2. Run verifier with pattern `"food-analyzer|use-analysis-session|meal-type"` (expect fail for new analyzer tests)
+3. Implement changes:
+   - **`src/components/food-analyzer.tsx`:** In the `event.type === "analysis"` handler (around line 285), after `actions.setAnalysis(event.analysis)`, add: if `event.analysis.mealTypeId != null`, call `actions.setMealTypeId(event.analysis.mealTypeId)`. This mirrors the existing pattern in `food-chat.tsx` lines 430-431.
+   - **`src/hooks/use-analysis-session.ts`:** No change to DEFAULT_STATE — keep `getDefaultMealType()` as initial value. Claude's suggestion overrides it when the analysis arrives. This is fine because the meal type selector shows while Claude is processing, and the default is a reasonable placeholder until Claude responds.
+   - **`src/lib/meal-type.ts`:** Keep `getDefaultMealType()` unchanged — it serves as the initial UI default before Claude responds, and as a fallback when Claude returns `meal_type_id: null`.
+4. Run verifier with pattern `"food-analyzer|use-analysis-session|meal-type"` (expect pass)
 
 **Notes:**
-- Simplest of the three routes — no cursor, no tabs, just query + limit.
-
-### Task 4: Add GET /api/v1/fasting endpoint
-**Linear Issue:** [FOO-866](https://linear.app/lw-claude/issue/FOO-866/add-get-apiv1fasting-endpoint)
-**Files:**
-- `src/app/api/v1/fasting/__tests__/route.test.ts` (create)
-- `src/app/api/v1/fasting/route.ts` (create)
-
-**Steps:**
-1. Write tests in `src/app/api/v1/fasting/__tests__/route.test.ts`:
-   - Mock `@/lib/api-auth`, `@/lib/logger`, `@/lib/fasting` (getFastingWindow, getFastingWindows), `@/lib/rate-limit`, `@/lib/date-utils` (isToday, addDays, isValidDateFormat)
-   - **Single date mode (no `from`/`to`):**
-     - Success: valid `date` param returns `{ window, live }` from `getFastingWindow`
-     - Live detection: when `clientDate` matches `date` and `firstMealTime` is null, `live` object is populated with `lastMealTime` and `startDate` (date - 1 day via `addDays`)
-     - Live detection off: when `firstMealTime` is not null, `live` is null
-     - No clientDate: falls back to `isToday()` check for live detection
-     - Missing `date` param: returns 400 VALIDATION_ERROR "Missing date parameter"
-     - Invalid `date` format: returns 400 VALIDATION_ERROR "Invalid date format. Use YYYY-MM-DD"
-   - **Date range mode (`from` + `to`):**
-     - Success: valid `from` and `to` return `{ windows }` from `getFastingWindows`
-     - Missing `from` (only `to` provided): returns 400 VALIDATION_ERROR
-     - Missing `to` (only `from` provided): returns 400 VALIDATION_ERROR
-     - Invalid `from` format: returns 400 VALIDATION_ERROR
-     - Invalid `to` format: returns 400 VALIDATION_ERROR
-     - `from` after `to`: returns 400 VALIDATION_ERROR "from date must be before or equal to to date"
-   - **Shared tests:**
-     - Auth failure: 401
-     - Rate limit exceeded: 429
-     - Rate limit key: `v1:fasting:hashed-<key>` with 60 req/min
-     - Cache-Control: `private, no-cache`
-     - ETag + 304 Not Modified
-     - Internal error: 500
-2. Run verifier with pattern `"v1/fasting"` (expect fail)
-3. Implement `src/app/api/v1/fasting/route.ts`:
-   - Follow v1 auth + rate limit boilerplate from `src/app/api/v1/food-log/route.ts`
-   - Port all query param parsing and validation logic from `src/app/api/fasting/route.ts` — single date mode (with `date`, `clientDate`, live detection using `isToday`/`addDays`) and date range mode (with `from`, `to` validation, ordering check)
-   - Replace `session!.userId` with `authResult.userId`
-   - Single date: return `conditionalResponse(request, { window, live })`
-   - Date range: return `conditionalResponse(request, { windows })`
-   - Error handling: separate catch blocks for each mode, returning `errorResponse("INTERNAL_ERROR", ..., 500)`
-4. Run verifier with pattern `"v1/fasting"` (expect pass)
-
-**Notes:**
-- Second most complex route after common-foods due to two query modes (single date vs range) and live detection logic. Follow the browser route logic exactly.
-- `isToday` and `addDays` are imported from `@/lib/date-utils`.
-
-### Task 5: Add GET /api/v1/earliest-entry endpoint
-**Linear Issue:** [FOO-867](https://linear.app/lw-claude/issue/FOO-867/add-get-apiv1earliest-entry-endpoint)
-**Files:**
-- `src/app/api/v1/earliest-entry/__tests__/route.test.ts` (create)
-- `src/app/api/v1/earliest-entry/route.ts` (create)
-
-**Steps:**
-1. Write tests in `src/app/api/v1/earliest-entry/__tests__/route.test.ts`:
-   - Mock `@/lib/api-auth`, `@/lib/logger`, `@/lib/food-log` (getEarliestEntryDate), `@/lib/rate-limit`
-   - Success with data: returns `{ date: "2025-01-15" }` when entries exist
-   - Success with no data: returns `{ date: null }` when no entries exist
-   - Auth failure: 401
-   - Rate limit exceeded: 429
-   - Rate limit key: `v1:earliest-entry:hashed-<key>` with 60 req/min
-   - Cache-Control: `private, no-cache`
-   - ETag + 304 Not Modified
-   - Internal error: 500
-2. Run verifier with pattern `"v1/earliest-entry"` (expect fail)
-3. Implement `src/app/api/v1/earliest-entry/route.ts`:
-   - Follow v1 auth + rate limit boilerplate
-   - No query params needed — call `getEarliestEntryDate(authResult.userId, log)` directly
-   - Return `conditionalResponse(request, { date })`
-   - Error handling: catch block returns `errorResponse("INTERNAL_ERROR", "Failed to retrieve earliest entry date", 500)`
-4. Run verifier with pattern `"v1/earliest-entry"` (expect pass)
-
-**Notes:**
-- Simplest route in the plan — no query params at all, just auth + single DB call.
+- The MealTypeSelector hint text `"Based on current time (HH:MM)"` remains accurate as the initial default, but once Claude responds, the selector value changes. The hint text becomes slightly misleading. Consider changing the hint to just show the time without "Based on" — but this is cosmetic and can be a follow-up.
+- `getDefaultMealType()` is NOT deleted — it remains as:
+  1. Initial placeholder in UI while Claude is processing
+  2. Fallback when Claude returns `meal_type_id: null` (shouldn't happen with new prompt, but defensive)
+  3. Used by `food-chat.tsx` initial state (line 127) — same pattern applies there
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -212,104 +127,11 @@
 
 ---
 
-## Iteration 1
-
-**Implemented:** 2026-03-11
-**Method:** Agent team (4 workers, worktree-isolated)
-
-### Tasks Completed This Iteration
-- Task 1: Add GET /api/v1/food-history endpoint — route + 12 tests (worker-1)
-- Task 2: Add GET /api/v1/common-foods endpoint — route + 20 tests (worker-2)
-- Task 3: Add GET /api/v1/search-foods endpoint — route + 15 tests (worker-3)
-- Task 4: Add GET /api/v1/fasting endpoint — route + 20 tests (worker-4)
-- Task 5: Add GET /api/v1/earliest-entry endpoint — route + 9 tests (worker-1)
-
-### Files Modified
-- `src/app/api/v1/food-history/route.ts` — Created v1 food history endpoint
-- `src/app/api/v1/food-history/__tests__/route.test.ts` — Tests for food history endpoint
-- `src/app/api/v1/common-foods/route.ts` — Created v1 common foods endpoint
-- `src/app/api/v1/common-foods/__tests__/route.test.ts` — Tests for common foods endpoint
-- `src/app/api/v1/search-foods/route.ts` — Created v1 search foods endpoint
-- `src/app/api/v1/search-foods/__tests__/route.test.ts` — Tests for search foods endpoint
-- `src/app/api/v1/fasting/route.ts` — Created v1 fasting endpoint
-- `src/app/api/v1/fasting/__tests__/route.test.ts` — Tests for fasting endpoint
-- `src/app/api/v1/earliest-entry/route.ts` — Created v1 earliest entry endpoint
-- `src/app/api/v1/earliest-entry/__tests__/route.test.ts` — Tests for earliest entry endpoint
-
-### Linear Updates
-- FOO-863: Todo → In Progress → Review
-- FOO-864: Todo → In Progress → Review
-- FOO-865: Todo → In Progress → Review
-- FOO-866: Todo → In Progress → Review
-- FOO-867: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 2 medium bugs — 1 fixed (missing error logging in common-foods catch block), 1 skipped (food-history silent cursor discard matches browser route behavior by design)
-- verifier: All 2,742 tests pass, zero warnings, build clean
-
-### Work Partition
-- Worker 1: Task 1 (food-history) + Task 5 (earliest-entry) — food-log simple routes
-- Worker 2: Task 2 (common-foods) — food-log complex route
-- Worker 3: Task 3 (search-foods) — food-log search route
-- Worker 4: Task 4 (fasting) — fasting route
-
-### Merge Summary
-- Worker 1: fast-forward (no conflicts)
-- Worker 2: merged, no conflicts, typecheck clean
-- Worker 3: merged, no conflicts, typecheck clean
-- Worker 4: merged, no conflicts, typecheck clean
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Summary: 3 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
-- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
-
-**Issues fixed inline:**
-- [LOW] CONVENTION: Missing debug success logs on v1 common-foods, search-foods, fasting routes — added `log.debug` with structured action fields to match v1 template pattern
-- [LOW] BUG: search-foods test mock uses `id`/`name` instead of `customFoodId`/`foodName` (`src/app/api/v1/search-foods/__tests__/route.test.ts:35-38`) — fixed field names to match `SearchFood` type
-- [MEDIUM] EDGE CASE: common-foods test missing tab=recent 500 error path (`src/app/api/v1/common-foods/__tests__/route.test.ts`) — added `getRecentFoods` rejection test
-
-**Discarded findings (not bugs):**
-- [DISCARDED] SECURITY: common-foods recent tab cursor `lastDate` not format-validated — Drizzle uses parameterized queries; string type check is sufficient and matches browser route exactly
-- [DISCARDED] SECURITY: fasting date range has no size cap — single-user app with rate limiting; matches browser route behavior
-- [DISCARDED] SECURITY: search-foods no max length on `q` — HTTP infrastructure enforces request size limits; matches browser route
-- [DISCARDED] ASYNC: URL parsing outside try/catch in food-history/search-foods/fasting — `new URL(request.url)` never throws in Next.js; matches browser route pattern
-- [DISCARDED] CONVENTION: search-foods uses `isNaN()` instead of `Number.isNaN()` — functionally equivalent for `parseInt` results; style-only
-- [DISCARDED] CONVENTION: food-history uses inline DATE_REGEX/TIME_REGEX instead of `isValidDateFormat` — faithful port of browser route which uses same inline regexes; different semantic (silent discard vs rejection)
-- [DISCARDED] EDGE CASE: search-foods test missing q=2 chars boundary test — existing `q=oat` (3 chars) test exercises the acceptance branch
-
-### Linear Updates
-- FOO-863: Review → Merge (original task)
-- FOO-864: Review → Merge (original task)
-- FOO-865: Review → Merge (original task)
-- FOO-866: Review → Merge (original task)
-- FOO-867: Review → Merge (original task)
-- FOO-868: Created in Merge (Fix: missing debug success logs — fixed inline)
-- FOO-869: Created in Merge (Fix: search-foods test mock field names — fixed inline)
-- FOO-870: Created in Merge (Fix: common-foods test missing tab=recent 500 — fixed inline)
-
-### Inline Fix Verification
-- Unit tests: all 2,743 pass
-- Bug-hunter: no new issues
-
-<!-- REVIEW COMPLETE -->
-
----
-
 ## Plan Summary
 
-**Objective:** Expose 5 existing endpoints (food-history, common-foods, search-foods, fasting, earliest-entry) via the external v1 API with Bearer token authentication and rate limiting.
-**Linear Issues:** FOO-863, FOO-864, FOO-865, FOO-866, FOO-867
-**Approach:** Create 5 new v1 route files mirroring the query logic from their browser-facing counterparts, replacing session auth with `validateApiRequest()` + `checkRateLimit()`. All routes are DB-only (60 req/min). Reuse existing business logic functions from `@/lib/food-log` and `@/lib/fasting` — no new lib code needed. Follow the established v1 route pattern from `src/app/api/v1/food-log/route.ts`.
-**Scope:** 5 tasks, 10 files (5 routes + 5 test files), ~45 tests
-**Key Decisions:** All five routes are DB-only so they use the 60 req/min rate limit tier. Query param validation logic is ported verbatim from browser routes to maintain identical behavior.
-**Risks:** None. Pure wiring — no new business logic, no schema changes, no external API calls.
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+**Objective:** Replace static time-based meal type defaults with intelligent model-based suggestions, giving Claude time-of-day context and today's meal history to infer the correct meal type.
+**Linear Issues:** FOO-871, FOO-872, FOO-873
+**Approach:** Three-layer change: (1) Inject current time and today's per-meal breakdown into the system prompt via `buildUserProfile`, adding `clientTime` to both API routes. (2) Reverse Claude's "never guess meal type" instruction to "always suggest based on time, food type, and today's meals." (3) Make the photo flow respect Claude's meal type suggestion, matching the existing chat flow behavior. `getDefaultMealType()` is retained as initial UI placeholder and fallback.
+**Scope:** 3 tasks, ~10 files, ~8 new tests
+**Key Decisions:** Keep `getDefaultMealType()` as fallback rather than deleting it — it provides a reasonable placeholder while Claude processes. Claude's suggestion overrides it when the analysis completes.
+**Risks:** Claude may occasionally suggest wrong meal types, but the user can always override via the dropdown — same as today, except the default will be better in the vast majority of cases.
