@@ -49,7 +49,6 @@ async function getTopFoodsByFrequency(
 }
 
 interface BuildUserProfileOptions {
-  currentTime?: string;
   log?: Logger;
 }
 
@@ -72,7 +71,6 @@ export async function buildUserProfile(
   const hasProgress = nutritionSummary.totals.calories > 0;
   const hasMeals = nutritionSummary.meals.some((g) => g.entries.length > 0);
   const hasTopFoods = topFoods.length > 0;
-  const { currentTime } = options ?? {};
 
   // Return null if user has no data at all
   if (!hasGoals && !hasProgress && !hasTopFoods && !hasMeals) {
@@ -105,12 +103,7 @@ export async function buildUserProfile(
     sections.push(progressStr);
   }
 
-  // Section 3: Current time (third priority)
-  if (currentTime) {
-    sections.push(`Current time: ${currentTime}`);
-  }
-
-  // Section 4: Today's meals (fourth priority)
+  // Section 3: Today's meals (third priority)
   if (hasMeals) {
     const mealStrs: string[] = [];
     for (const group of nutritionSummary.meals) {
@@ -123,7 +116,7 @@ export async function buildUserProfile(
     sections.push(`Today's meals: ${mealStrs.join(", ")}`);
   }
 
-  // Section 5: Top foods (fifth priority)
+  // Section 4: Top foods (fourth priority)
   if (hasTopFoods) {
     const foodStrs = topFoods.map(
       (f) => `${f.foodName} (×${f.count}, ${f.calories}cal)`

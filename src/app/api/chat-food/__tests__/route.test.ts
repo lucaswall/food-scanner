@@ -578,6 +578,7 @@ describe("POST /api/chat-food", () => {
       undefined,
       undefined, // request.signal (mock request has no signal)
       expect.any(Object), // logger
+      undefined, // currentTime
     );
   });
 
@@ -603,6 +604,7 @@ describe("POST /api/chat-food", () => {
       validAnalysis,
       undefined, // request.signal (mock request has no signal)
       expect.any(Object), // logger
+      undefined, // currentTime
     );
   });
 
@@ -628,6 +630,57 @@ describe("POST /api/chat-food", () => {
       undefined,
       undefined, // request.signal (mock request has no signal)
       expect.any(Object), // logger
+      undefined, // currentTime
+    );
+  });
+
+  it("passes valid clientTime from request body to conversationalRefine", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "analysis", analysis: validAnalysis } as StreamEvent;
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test" }],
+      clientDate: "2026-01-15",
+      clientTime: "14:30",
+    });
+
+    await POST(request);
+
+    expect(mockConversationalRefine).toHaveBeenCalledWith(
+      [{ role: "user", content: "Test" }],
+      "user-uuid-123",
+      "2026-01-15",
+      undefined,
+      undefined,
+      expect.any(Object),
+      "14:30",
+    );
+  });
+
+  it("ignores invalid clientTime format", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockConversationalRefine.mockImplementation(async function* () {
+      yield { type: "done" } as StreamEvent;
+    });
+
+    const request = createMockRequest({
+      messages: [{ role: "user", content: "Test" }],
+      clientTime: "bad-time",
+    });
+
+    await POST(request);
+
+    expect(mockConversationalRefine).toHaveBeenCalledWith(
+      expect.any(Array),
+      "user-uuid-123",
+      expect.any(String),
+      undefined,
+      undefined,
+      expect.any(Object),
+      undefined,
     );
   });
 
@@ -699,6 +752,7 @@ describe("POST /api/chat-food", () => {
       undefined, // no initialAnalysis
       undefined, // request.signal (mock request has no signal)
       expect.any(Object), // logger
+      undefined, // currentTime
     );
   });
 });

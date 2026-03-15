@@ -210,17 +210,7 @@ describe("buildUserProfile", () => {
     expect(mockGetNutritionSummary).toHaveBeenCalledWith(TEST_USER_ID, TEST_DATE);
   });
 
-  it("includes current time in profile when currentTime option is provided", async () => {
-    mockGetCalorieGoals.mockResolvedValue([{ date: TEST_DATE, calorieGoal: 2200 }]);
-
-    const { buildUserProfile } = await import("@/lib/user-profile");
-    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE, { currentTime: "14:30" });
-
-    expect(result).not.toBeNull();
-    expect(result).toContain("Current time: 14:30");
-  });
-
-  it("omits current time when currentTime option is not provided", async () => {
+  it("does not include current time in profile (time is in dateTimeLine footer)", async () => {
     mockGetCalorieGoals.mockResolvedValue([{ date: TEST_DATE, calorieGoal: 2200 }]);
 
     const { buildUserProfile } = await import("@/lib/user-profile");
@@ -228,6 +218,10 @@ describe("buildUserProfile", () => {
 
     expect(result).not.toBeNull();
     expect(result).not.toContain("Current time:");
+
+    // Type guard: BuildUserProfileOptions must NOT have currentTime
+    // @ts-expect-error currentTime is not a valid option
+    await buildUserProfile(TEST_USER_ID, TEST_DATE, { currentTime: "14:30" });
   });
 
   it("includes today's meals section with times when meals have been logged", async () => {

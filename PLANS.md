@@ -1,5 +1,6 @@
 # Implementation Plan
 
+**Status:** COMPLETE
 **Created:** 2026-03-15
 **Source:** Inline request: Replace static time-based meal type defaults with model-based suggestions using time, food context, and today's meal history
 **Linear Issues:** [FOO-871](https://linear.app/lw-claude/issue/FOO-871/inject-current-time-and-todays-meals-into-claude-system-prompt), [FOO-872](https://linear.app/lw-claude/issue/FOO-872/update-claude-prompts-and-tool-schema-to-suggest-meal-type), [FOO-873](https://linear.app/lw-claude/issue/FOO-873/photo-flow-apply-claudes-meal-type-suggestion-to-ui-selector), [FOO-874](https://linear.app/lw-claude/issue/FOO-874/adjust-getdefaultmealtype-time-windows-dinner-1900-2159)
@@ -146,9 +147,43 @@
 - This task has no dependencies on Tasks 1–3 and can be implemented in parallel.
 - Affects Quick Select (which doesn't go through Claude) and serves as the initial UI placeholder/fallback in photo and chat flows.
 
-## Post-Implementation Checklist
-1. Run `bug-hunter` agent — Review changes for bugs
-2. Run `verifier` agent — Verify all tests pass and zero warnings
+## Tasks Completed This Iteration
+
+- Task 1: Inject current time and today's meals into Claude system prompt (FOO-871)
+- Task 2: Update Claude prompts and tool schema to suggest meal type (FOO-872)
+- Task 3: Photo flow — apply Claude's meal type suggestion to UI selector (FOO-873)
+- Task 4: Adjust getDefaultMealType time windows (FOO-874)
+
+### Review Findings
+
+Summary: 3 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [MEDIUM] BUG: Duplicate currentTime in system prompt — `buildUserProfile` and `dateTimeLine` both injected `Current time: HH:MM` (`src/lib/user-profile.ts:108-111`, `src/lib/claude.ts:1216-1219,1575-1578`) — removed from `buildUserProfile`, cleaned up dead `currentTime` parameter chain in system prompt helpers
+- [LOW] TEST: Missing `clientTime` route-layer test for analyze-food (`src/app/api/analyze-food/__tests__/route.test.ts`) — added valid + invalid clientTime tests
+- [LOW] TEST: Missing `clientTime` route-layer test for chat-food (`src/app/api/chat-food/__tests__/route.test.ts`) — added valid + invalid clientTime tests
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: Unsanitized food names in system prompt (`src/lib/user-profile.ts:118-123`) — Single-user app with email allowlist; user injects only into own session
+- [DISCARDED] TYPE: Unchecked confidence cast (`src/components/food-chat.tsx:61`) — Values validated by `validateFoodAnalysis` before DB insertion; only valid values exist in DB
+- [DISCARDED] TEST: Duplicate test in analyze-food route tests (lines 221 and 318) — Redundant but not a correctness bug
+- [DISCARDED] EDGE CASE: Date validation in `getTopFoodsByFrequency` (`src/lib/user-profile.ts:22-24`) — API routes validate format; try/catch handles gracefully
+- [DISCARDED] RESOURCE: Auto-resubmit useEffect cleanup (`src/components/food-analyzer.tsx:557-604`) — React 18+ no-ops state updates on unmounted components
+
+### Linear Updates
+- FOO-871: Review → Merge
+- FOO-872: Review → Merge
+- FOO-873: Review → Merge
+- FOO-874: Review → Merge
+- FOO-875: Created in Merge (Fix: duplicate currentTime — fixed inline)
+- FOO-876: Created in Merge (Fix: missing clientTime route tests — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2759 pass
+- Bug-hunter: dead parameter chain cleaned up, test strengthened
+
+<!-- REVIEW COMPLETE -->
 
 ---
 
@@ -160,3 +195,9 @@
 **Scope:** 4 tasks, ~12 files, ~12 new tests
 **Key Decisions:** Keep `getDefaultMealType()` as fallback rather than deleting it — it provides a reasonable placeholder while Claude processes. Claude's suggestion overrides it when the analysis completes.
 **Risks:** Claude may occasionally suggest wrong meal types, but the user can always override via the dropdown — same as today, except the default will be better in the vast majority of cases.
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.

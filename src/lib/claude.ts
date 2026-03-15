@@ -605,9 +605,9 @@ Web search guidelines:
 - When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
 - If web search returns nothing useful, fall back to estimation from your training data and say so.`;
 
-export async function getSystemPrompt(userId: string, currentDate: string, currentTime?: string): Promise<string> {
+export async function getSystemPrompt(userId: string, currentDate: string): Promise<string> {
   try {
-    const profile = await buildUserProfile(userId, currentDate, { currentTime });
+    const profile = await buildUserProfile(userId, currentDate);
     if (!profile) return SYSTEM_PROMPT;
     return `${SYSTEM_PROMPT}\n\n${profile}`;
   } catch (error) {
@@ -619,23 +619,23 @@ export async function getSystemPrompt(userId: string, currentDate: string, curre
   }
 }
 
-export async function getAnalysisSystemPrompt(userId: string, currentDate: string, currentTime?: string): Promise<string> {
-  const base = await getSystemPrompt(userId, currentDate, currentTime);
+export async function getAnalysisSystemPrompt(userId: string, currentDate: string): Promise<string> {
+  const base = await getSystemPrompt(userId, currentDate);
   if (base === SYSTEM_PROMPT) return ANALYSIS_SYSTEM_PROMPT;
   // Extract the role-specific part (everything after SYSTEM_PROMPT in ANALYSIS_SYSTEM_PROMPT)
   const roleInstructions = ANALYSIS_SYSTEM_PROMPT.slice(SYSTEM_PROMPT.length);
   return `${base}${roleInstructions}`;
 }
 
-export async function getChatSystemPrompt(userId: string, currentDate: string, currentTime?: string): Promise<string> {
-  const base = await getSystemPrompt(userId, currentDate, currentTime);
+export async function getChatSystemPrompt(userId: string, currentDate: string): Promise<string> {
+  const base = await getSystemPrompt(userId, currentDate);
   if (base === SYSTEM_PROMPT) return CHAT_SYSTEM_PROMPT;
   const roleInstructions = CHAT_SYSTEM_PROMPT.slice(SYSTEM_PROMPT.length);
   return `${base}${roleInstructions}`;
 }
 
-export async function getEditSystemPrompt(userId: string, currentDate: string, currentTime?: string): Promise<string> {
-  const base = await getSystemPrompt(userId, currentDate, currentTime);
+export async function getEditSystemPrompt(userId: string, currentDate: string): Promise<string> {
+  const base = await getSystemPrompt(userId, currentDate);
   if (base === SYSTEM_PROMPT) return EDIT_SYSTEM_PROMPT;
   const roleInstructions = EDIT_SYSTEM_PROMPT.slice(SYSTEM_PROMPT.length);
   return `${base}${roleInstructions}`;
@@ -1216,7 +1216,7 @@ export async function* analyzeFood(
     const dateTimeLine = currentTime
       ? `Today's date is: ${currentDate}. Current time: ${currentTime}`
       : `Today's date is: ${currentDate}`;
-    const systemPrompt = `${await getAnalysisSystemPrompt(userId, currentDate, currentTime)}\n\n${dateTimeLine}`;
+    const systemPrompt = `${await getAnalysisSystemPrompt(userId, currentDate)}\n\n${dateTimeLine}`;
 
     const userMessage: Anthropic.MessageParam = {
       role: "user",
@@ -1569,7 +1569,7 @@ export async function* conversationalRefine(
 
     // Build system prompt with date and initial analysis context
     let systemPrompt = (userId && currentDate)
-      ? await getChatSystemPrompt(userId, currentDate, currentTime)
+      ? await getChatSystemPrompt(userId, currentDate)
       : CHAT_SYSTEM_PROMPT;
     if (currentDate) {
       const dateTimeLine = currentTime
