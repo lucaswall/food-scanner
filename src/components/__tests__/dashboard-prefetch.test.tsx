@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "@testing-library/react";
 
 // Mock SWR's preload
-const mockPreload = vi.fn();
+const mockPreload = vi.fn().mockResolvedValue(undefined);
 vi.mock("swr", () => ({
   preload: (...args: unknown[]) => mockPreload(...args),
 }));
