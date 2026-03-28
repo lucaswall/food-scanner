@@ -414,6 +414,52 @@ export interface DateRangeNutritionResponse {
   days: DailyNutritionTotals[];
 }
 
+export interface NutritionLabel {
+  id: number;
+  userId: string;
+  brand: string;
+  productName: string;
+  variant: string | null;
+  servingSizeG: number;
+  servingSizeLabel: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sodiumMg: number;
+  saturatedFatG: number | null;
+  transFatG: number | null;
+  sugarsG: number | null;
+  extraNutrients: Record<string, number> | null;
+  source: string;
+  notes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface NutritionLabelInput {
+  brand: string;
+  productName: string;
+  variant: string | null;
+  servingSizeG: number;
+  servingSizeLabel: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sodiumMg: number;
+  saturatedFatG: number | null;
+  transFatG: number | null;
+  sugarsG: number | null;
+  extraNutrients: Record<string, number> | null;
+  source: string;
+  notes: string | null;
+}
+
+export type NutritionLabelSearchResult = NutritionLabel;
+
 export interface ConversationMessage {
   role: "user" | "assistant";
   content: string;

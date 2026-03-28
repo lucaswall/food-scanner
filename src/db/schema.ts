@@ -11,6 +11,7 @@ import {
   date,
   time,
   unique,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -128,6 +129,30 @@ export const claudeUsage = pgTable("claude_usage", {
   outputPricePerMToken: numeric("output_price_per_m_token").notNull(),
   costUsd: numeric("cost_usd").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const nutritionLabels = pgTable("nutrition_labels", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  brand: text("brand").notNull(),
+  productName: text("product_name").notNull(),
+  variant: text("variant"),
+  servingSizeG: numeric("serving_size_g").notNull(),
+  servingSizeLabel: text("serving_size_label").notNull(),
+  calories: integer("calories").notNull(),
+  proteinG: numeric("protein_g").notNull(),
+  carbsG: numeric("carbs_g").notNull(),
+  fatG: numeric("fat_g").notNull(),
+  fiberG: numeric("fiber_g").notNull(),
+  sodiumMg: numeric("sodium_mg").notNull(),
+  saturatedFatG: numeric("saturated_fat_g"),
+  transFatG: numeric("trans_fat_g"),
+  sugarsG: numeric("sugars_g"),
+  extraNutrients: jsonb("extra_nutrients"),
+  source: text("source").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 export const dailyCalorieGoals = pgTable(
