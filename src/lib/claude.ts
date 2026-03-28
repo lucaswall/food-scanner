@@ -31,7 +31,7 @@ export const SYSTEM_PROMPT = `You are a nutrition analyst specializing in Argent
 Analyze food images and descriptions to provide accurate nutritional information.
 Consider typical Argentine portions and preparation methods.
 Choose the most natural measurement unit for each food (e.g., cups for beverages, grams for solid food, slices for pizza/bread).
-Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calories_from_fat) when possible. Use null only when truly unknown.`;
+Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calories_from_fat) — provide your best numeric estimate (use 0 when the value is likely negligible).`;
 
 const THINKING_INSTRUCTION = `Before calling any tool, emit a brief natural-language sentence describing what you're about to do (e.g., 'Let me check your food history...', 'Looking up nutrition info for this restaurant...', 'Checking your fasting patterns...'). This gives the user real-time feedback. Keep it to one short sentence per tool batch.`;
 
@@ -128,20 +128,20 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       fiber_g: { type: "number" },
       sodium_mg: { type: "number" },
       saturated_fat_g: {
-        type: ["number", "null"],
-        description: "Estimated saturated fat in grams. Provide your best estimate; use null only if truly unknown.",
+        type: "number",
+        description: "Estimated saturated fat in grams. Always provide your best estimate.",
       },
       trans_fat_g: {
-        type: ["number", "null"],
-        description: "Estimated trans fat in grams. Provide your best estimate; use null only if truly unknown.",
+        type: "number",
+        description: "Estimated trans fat in grams. Always provide your best estimate (0 if likely none).",
       },
       sugars_g: {
-        type: ["number", "null"],
-        description: "Estimated sugars in grams. Provide your best estimate; use null only if truly unknown.",
+        type: "number",
+        description: "Estimated sugars in grams. Always provide your best estimate.",
       },
       calories_from_fat: {
-        type: ["number", "null"],
-        description: "Estimated calories from fat. Provide your best estimate; use null only if truly unknown.",
+        type: "number",
+        description: "Estimated calories from fat. Always provide your best estimate (fat_g × 9).",
       },
       confidence: { type: "string", enum: ["high", "medium", "low"] },
       notes: {
@@ -166,15 +166,15 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
         description: "Set to the [entry:N] value from search_food_log results when the user asks to edit an existing entry (e.g. 'edit that', 'change the chicken to 200g', 'update my lunch'). Note: [entry:N] is the food log entry ID, different from [id:N] which is the food definition ID. Set to null when creating new food.",
       },
       date: {
-        type: ["string", "null"],
-        description: "Date in YYYY-MM-DD format. When editing an existing entry (editing_entry_id is set), always set to the original entry's date from search_food_log results unless the user asks to change it. For new entries, only set when the user explicitly mentions a date (e.g., 'log this for yesterday', 'move this to the 21st'). Set to null otherwise — the app uses today's date by default.",
+        type: "string",
+        description: "Date in YYYY-MM-DD format. Use today's date (provided in system prompt) for new entries unless the user explicitly mentions a different date. When editing an existing entry (editing_entry_id is set), use the original entry's date unless the user asks to change it.",
       },
       time: {
         type: ["string", "null"],
         description: "Meal time in HH:mm format (24h). Only set when the user explicitly mentions a time (e.g., 'I had this at 8:30', 'breakfast was at 7am'). Set to null otherwise — never guess the time.",
       },
       meal_type_id: {
-        type: ["number", "null"],
+        type: "number",
         description: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Always suggest based on current time, today's logged meals, and food type. When editing an existing entry, preserve the original value unless user asks to change it.",
       },
     },
@@ -203,6 +203,32 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
       "meal_type_id",
     ],
   },
+  input_examples: [
+    {
+      food_name: "Milanesa de pollo con puré",
+      amount: 350, unit_id: 147, calories: 620, protein_g: 38, carbs_g: 45, fat_g: 30,
+      fiber_g: 3, sodium_mg: 680, saturated_fat_g: 8, trans_fat_g: 0.5, sugars_g: 2,
+      calories_from_fat: 270, confidence: "high", notes: "Breaded chicken cutlet with mashed potatoes, typical Argentine portion",
+      keywords: ["milanesa", "pollo", "pure"], description: "Breaded chicken cutlet with creamy mashed potatoes, golden brown coating",
+      source_custom_food_id: null, editing_entry_id: null, date: "2026-03-28", time: null, meal_type_id: 3,
+    },
+    {
+      food_name: "Café con leche",
+      amount: 1, unit_id: 91, calories: 60, protein_g: 3, carbs_g: 5, fat_g: 3,
+      fiber_g: 0, sodium_mg: 50, saturated_fat_g: 2, trans_fat_g: 0, sugars_g: 5,
+      calories_from_fat: 27, confidence: "medium", notes: "Standard café con leche, assumed whole milk",
+      keywords: ["cafe", "leche"], description: "Coffee with steamed whole milk in a standard cup",
+      source_custom_food_id: 42, editing_entry_id: null, date: "2026-03-28", time: null, meal_type_id: 1,
+    },
+    {
+      food_name: "Pizza de muzzarella (2 porciones)",
+      amount: 2, unit_id: 311, calories: 540, protein_g: 22, carbs_g: 60, fat_g: 24,
+      fiber_g: 3, sodium_mg: 1100, saturated_fat_g: 10, trans_fat_g: 0, sugars_g: 6,
+      calories_from_fat: 216, confidence: "medium", notes: "Editing to change from 1 to 2 slices",
+      keywords: ["pizza", "muzzarella"], description: "Two slices of classic Argentine muzzarella pizza",
+      source_custom_food_id: null, editing_entry_id: 157, date: "2026-03-27", time: "21:00", meal_type_id: 5,
+    },
+  ],
 };
 
 export interface ImageInput {

@@ -2729,15 +2729,15 @@ describe("truncateConversation", () => {
 describe("REPORT_NUTRITION_TOOL schema", () => {
   afterEach(() => { vi.resetModules(); });
 
-  it("Tier 1 fields use nullable array type", async () => {
+  it("Tier 1 fields use non-nullable number type", async () => {
     const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
     const schema = REPORT_NUTRITION_TOOL.input_schema;
     const props = schema.properties as Record<string, Record<string, unknown>>;
 
-    expect(props.saturated_fat_g.type).toEqual(["number", "null"]);
-    expect(props.trans_fat_g.type).toEqual(["number", "null"]);
-    expect(props.sugars_g.type).toEqual(["number", "null"]);
-    expect(props.calories_from_fat.type).toEqual(["number", "null"]);
+    expect(props.saturated_fat_g.type).toBe("number");
+    expect(props.trans_fat_g.type).toBe("number");
+    expect(props.sugars_g.type).toBe("number");
+    expect(props.calories_from_fat.type).toBe("number");
   });
 
   it("has additionalProperties: false and includes Tier 1 in required", async () => {
@@ -3569,11 +3569,11 @@ describe("validateFoodAnalysis — date field", () => {
 describe("REPORT_NUTRITION_TOOL — date property", () => {
   afterEach(() => { vi.resetModules(); });
 
-  it("schema includes date property with type [string, null]", async () => {
+  it("schema includes date property with type string", async () => {
     const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
     const props = REPORT_NUTRITION_TOOL.input_schema.properties as Record<string, { type?: unknown }>;
     expect(props.date).toBeDefined();
-    expect(props.date.type).toEqual(["string", "null"]);
+    expect(props.date.type).toBe("string");
   });
 
   it("date is in required fields", async () => {
