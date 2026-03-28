@@ -105,7 +105,7 @@ const SAMPLE_LABEL = {
 };
 
 describe("searchLabels", () => {
-  it("returns labels matching all search terms across brand/productName/variant", async () => {
+  it("returns labels matching any search term across brand/productName/variant/notes", async () => {
     mockLimit.mockResolvedValue([SAMPLE_LABEL]);
 
     const result = await searchLabels(USER_A, ["serenisima", "leche"]);

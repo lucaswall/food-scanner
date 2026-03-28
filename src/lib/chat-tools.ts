@@ -353,7 +353,7 @@ export const SEARCH_NUTRITION_LABELS_TOOL: Anthropic.Tool = {
       keywords: {
         type: "array",
         items: { type: "string" },
-        description: "1-5 lowercase search terms (brand name, product name, variant).",
+        description: "1-5 lowercase search terms (brand name, product name, variant). Uses OR logic — any term matching is enough to return a label.",
       },
     },
   },

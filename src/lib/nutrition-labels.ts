@@ -6,7 +6,7 @@ import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 
 const ACCENT_FROM = "áéíóúñüÁÉÍÓÚÑÜàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãõÃÕ";
-const ACCENT_TO   = "aeionuAEIONUaeiouAEIOUaeiouAEIOUaoAO";
+const ACCENT_TO   = "aeiounuAEIOUNUaeiouAEIOUaeiouAEIOUaoAO";
 
 function unaccentIlike(column: Column, term: string) {
   const normalized = term.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -59,7 +59,7 @@ export async function searchLabels(
   const rows = await db
     .select()
     .from(nutritionLabels)
-    .where(and(eq(nutritionLabels.userId, userId), ...termConditions))
+    .where(and(eq(nutritionLabels.userId, userId), or(...termConditions)))
     .orderBy(desc(nutritionLabels.updatedAt))
     .limit(10);
 
