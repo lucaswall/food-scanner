@@ -1,9 +1,17 @@
-import { eq, and, or, ilike, desc } from "drizzle-orm";
+import { eq, and, or, ilike, desc, sql, type Column } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { nutritionLabels } from "@/db/schema";
 import type { NutritionLabel, NutritionLabelInput } from "@/types";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
+
+const ACCENT_FROM = "áéíóúñüÁÉÍÓÚÑÜàèìòùÀÈÌÒÙâêîôûÂÊÎÔÛãõÃÕ";
+const ACCENT_TO   = "aeionuAEIONUaeiouAEIOUaeiouAEIOUaoAO";
+
+function unaccentIlike(column: Column, term: string) {
+  const normalized = term.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return sql`translate(lower(${column}), ${ACCENT_FROM}, ${ACCENT_TO}) like ${"%" + normalized.toLowerCase() + "%"}`
+}
 
 function mapRow(row: Record<string, unknown>): NutritionLabel {
   return {
@@ -41,9 +49,10 @@ export async function searchLabels(
 
   const termConditions = searchTerms.map((term) =>
     or(
-      ilike(nutritionLabels.brand, `%${term}%`),
-      ilike(nutritionLabels.productName, `%${term}%`),
-      ilike(nutritionLabels.variant, `%${term}%`),
+      unaccentIlike(nutritionLabels.brand, term),
+      unaccentIlike(nutritionLabels.productName, term),
+      unaccentIlike(nutritionLabels.variant, term),
+      unaccentIlike(nutritionLabels.notes, term),
     )
   );
 
@@ -195,9 +204,10 @@ export async function getAllLabels(
     whereClause = and(
       eq(nutritionLabels.userId, userId),
       or(
-        ilike(nutritionLabels.brand, `%${query}%`),
-        ilike(nutritionLabels.productName, `%${query}%`),
-        ilike(nutritionLabels.variant, `%${query}%`),
+        unaccentIlike(nutritionLabels.brand, query),
+        unaccentIlike(nutritionLabels.productName, query),
+        unaccentIlike(nutritionLabels.variant, query),
+        unaccentIlike(nutritionLabels.notes, query),
       ),
     );
   } else {
