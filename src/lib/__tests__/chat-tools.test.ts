@@ -44,11 +44,30 @@ vi.mock("@/lib/nutrition-goals", () => ({
   getCalorieGoalsByDateRange: (...args: unknown[]) => mockGetCalorieGoalsByDateRange(...args),
 }));
 
+// Mock nutrition-labels functions
+const mockSearchLabels = vi.fn();
+const mockInsertLabel = vi.fn();
+const mockUpdateLabel = vi.fn();
+const mockDeleteLabel = vi.fn();
+const mockGetLabelById = vi.fn();
+const mockFindDuplicateLabel = vi.fn();
+vi.mock("@/lib/nutrition-labels", () => ({
+  searchLabels: (...args: unknown[]) => mockSearchLabels(...args),
+  insertLabel: (...args: unknown[]) => mockInsertLabel(...args),
+  updateLabel: (...args: unknown[]) => mockUpdateLabel(...args),
+  deleteLabel: (...args: unknown[]) => mockDeleteLabel(...args),
+  getLabelById: (...args: unknown[]) => mockGetLabelById(...args),
+  findDuplicateLabel: (...args: unknown[]) => mockFindDuplicateLabel(...args),
+}));
+
 import { logger } from "@/lib/logger";
 import {
   SEARCH_FOOD_LOG_TOOL,
   GET_NUTRITION_SUMMARY_TOOL,
   GET_FASTING_INFO_TOOL,
+  SEARCH_NUTRITION_LABELS_TOOL,
+  SAVE_NUTRITION_LABEL_TOOL,
+  MANAGE_NUTRITION_LABEL_TOOL,
   executeTool,
 } from "@/lib/chat-tools";
 
@@ -1012,5 +1031,464 @@ describe("executeTool - debug log privacy", () => {
     const logObj = resultCall![0] as Record<string, unknown>;
     expect(logObj).toHaveProperty("resultLength");
     expect(logObj).not.toHaveProperty("result");
+  });
+});
+
+describe("SEARCH_NUTRITION_LABELS_TOOL", () => {
+  it("has correct schema with keywords required", () => {
+    expect(SEARCH_NUTRITION_LABELS_TOOL.name).toBe("search_nutrition_labels");
+    expect(SEARCH_NUTRITION_LABELS_TOOL.description).toContain("nutrition label library");
+    expect(SEARCH_NUTRITION_LABELS_TOOL.strict).toBe(true);
+    const props = SEARCH_NUTRITION_LABELS_TOOL.input_schema.properties as Record<string, unknown>;
+    expect(props).toHaveProperty("keywords");
+  });
+});
+
+describe("SAVE_NUTRITION_LABEL_TOOL", () => {
+  it("has correct schema with required label fields", () => {
+    expect(SAVE_NUTRITION_LABEL_TOOL.name).toBe("save_nutrition_label");
+    expect(SAVE_NUTRITION_LABEL_TOOL.description).toContain("Save nutrition data");
+    expect(SAVE_NUTRITION_LABEL_TOOL.strict).toBe(true);
+    const props = SAVE_NUTRITION_LABEL_TOOL.input_schema.properties as Record<string, unknown>;
+    expect(props).toHaveProperty("brand");
+    expect(props).toHaveProperty("product_name");
+    expect(props).toHaveProperty("serving_size_g");
+    expect(props).toHaveProperty("calories");
+    expect(props).toHaveProperty("protein_g");
+  });
+});
+
+describe("MANAGE_NUTRITION_LABEL_TOOL", () => {
+  it("has correct schema with action and label_id", () => {
+    expect(MANAGE_NUTRITION_LABEL_TOOL.name).toBe("manage_nutrition_label");
+    expect(MANAGE_NUTRITION_LABEL_TOOL.description).toContain("Update or delete");
+    expect(MANAGE_NUTRITION_LABEL_TOOL.strict).toBe(true);
+    const props = MANAGE_NUTRITION_LABEL_TOOL.input_schema.properties as Record<string, unknown>;
+    expect(props).toHaveProperty("action");
+    expect(props).toHaveProperty("label_id");
+    expect(props).toHaveProperty("update_fields");
+  });
+});
+
+describe("executeTool - search_nutrition_labels", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns formatted label candidates when matches found", async () => {
+    mockSearchLabels.mockResolvedValue([
+      {
+        id: 1,
+        userId: "user-123",
+        brand: "La Serenisima",
+        productName: "Leche Entera",
+        variant: null,
+        servingSizeG: 200,
+        servingSizeLabel: "1 vaso (200ml)",
+        calories: 130,
+        proteinG: 6.4,
+        carbsG: 9.6,
+        fatG: 6.8,
+        fiberG: 0,
+        sodiumMg: 100,
+        saturatedFatG: 4.2,
+        transFatG: 0,
+        sugarsG: 9.6,
+        extraNutrients: null,
+        source: "photo_scan",
+        notes: null,
+        createdAt: new Date("2026-03-01T10:00:00Z"),
+        updatedAt: new Date("2026-03-01T10:00:00Z"),
+      },
+    ]);
+
+    const result = await executeTool(
+      "search_nutrition_labels",
+      { keywords: ["serenisima", "leche"] },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(mockSearchLabels).toHaveBeenCalledWith("user-123", ["serenisima", "leche"], expect.anything());
+    expect(result).toContain("[label:1]");
+    expect(result).toContain("La Serenisima");
+    expect(result).toContain("Leche Entera");
+    expect(result).toContain("Cal: 130");
+  });
+
+  it("returns no-match message when no labels found", async () => {
+    mockSearchLabels.mockResolvedValue([]);
+
+    const result = await executeTool(
+      "search_nutrition_labels",
+      { keywords: ["nonexistent"] },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(result).toContain("No matching nutrition labels");
+  });
+
+  it("formats brand, productName, variant, servingSizeLabel, calories, macros", async () => {
+    mockSearchLabels.mockResolvedValue([
+      {
+        id: 5,
+        userId: "user-123",
+        brand: "Danone",
+        productName: "Activia",
+        variant: "Natural",
+        servingSizeG: 125,
+        servingSizeLabel: "1 pot (125g)",
+        calories: 75,
+        proteinG: 4,
+        carbsG: 9,
+        fatG: 2,
+        fiberG: 0,
+        sodiumMg: 60,
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        extraNutrients: null,
+        source: "manual_entry",
+        notes: null,
+        createdAt: new Date("2026-03-01T10:00:00Z"),
+        updatedAt: new Date("2026-03-01T10:00:00Z"),
+      },
+    ]);
+
+    const result = await executeTool(
+      "search_nutrition_labels",
+      { keywords: ["activia"] },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(result).toContain("Danone");
+    expect(result).toContain("Activia");
+    expect(result).toContain("Natural");
+    expect(result).toContain("1 pot (125g)");
+    expect(result).toContain("Cal: 75");
+    expect(result).toContain("P: 4g");
+    expect(result).toContain("C: 9g");
+    expect(result).toContain("F: 2g");
+  });
+});
+
+describe("executeTool - save_nutrition_label", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const BASE_PARAMS = {
+    brand: "La Serenisima",
+    product_name: "Leche Entera",
+    variant: null,
+    serving_size_g: 200,
+    serving_size_label: "1 vaso (200ml)",
+    calories: 130,
+    protein_g: 6.4,
+    carbs_g: 9.6,
+    fat_g: 6.8,
+    fiber_g: 0,
+    sodium_mg: 100,
+    saturated_fat_g: 4.2,
+    trans_fat_g: 0,
+    sugars_g: 9.6,
+    extra_nutrients: null,
+    notes: null,
+  };
+
+  it("creates new label when no duplicates found", async () => {
+    mockFindDuplicateLabel.mockResolvedValue([]);
+    mockInsertLabel.mockResolvedValue({ id: 42, createdAt: new Date() });
+
+    const result = await executeTool(
+      "save_nutrition_label",
+      BASE_PARAMS,
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(mockFindDuplicateLabel).toHaveBeenCalledWith("user-123", "La Serenisima", "Leche Entera", null, expect.anything());
+    expect(mockInsertLabel).toHaveBeenCalled();
+    expect(result).toContain("created");
+    expect(result).toContain("42");
+  });
+
+  it("updates existing label (status updated) when duplicate found with same nutrients (within 10%)", async () => {
+    const existingLabel = {
+      id: 10,
+      userId: "user-123",
+      brand: "La Serenisima",
+      productName: "Leche Entera",
+      variant: null,
+      servingSizeG: 200,
+      servingSizeLabel: "1 vaso (200ml)",
+      calories: 130,
+      proteinG: 6.4,
+      carbsG: 9.6,
+      fatG: 6.8,
+      fiberG: 0,
+      sodiumMg: 100,
+      saturatedFatG: 4.2,
+      transFatG: 0,
+      sugarsG: 9.6,
+      extraNutrients: null,
+      source: "photo_scan",
+      notes: null,
+      createdAt: new Date("2026-03-01T10:00:00Z"),
+      updatedAt: new Date("2026-03-01T10:00:00Z"),
+    };
+    mockFindDuplicateLabel.mockResolvedValue([existingLabel]);
+    mockUpdateLabel.mockResolvedValue({ ...existingLabel, updatedAt: new Date() });
+
+    const result = await executeTool(
+      "save_nutrition_label",
+      BASE_PARAMS,
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(mockUpdateLabel).toHaveBeenCalled();
+    expect(result).toContain("updated");
+    expect(result).toContain("10");
+  });
+
+  it("updates with updated_changed status when duplicate has different nutrients (>10% diff)", async () => {
+    const existingLabel = {
+      id: 10,
+      userId: "user-123",
+      brand: "La Serenisima",
+      productName: "Leche Entera",
+      variant: null,
+      servingSizeG: 200,
+      servingSizeLabel: "1 vaso (200ml)",
+      calories: 200,  // significantly different from 130
+      proteinG: 6.4,
+      carbsG: 9.6,
+      fatG: 6.8,
+      fiberG: 0,
+      sodiumMg: 100,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      extraNutrients: null,
+      source: "photo_scan",
+      notes: null,
+      createdAt: new Date("2026-03-01T10:00:00Z"),
+      updatedAt: new Date("2026-03-01T10:00:00Z"),
+    };
+    mockFindDuplicateLabel.mockResolvedValue([existingLabel]);
+    mockUpdateLabel.mockResolvedValue({ ...existingLabel, calories: 130, updatedAt: new Date() });
+
+    const result = await executeTool(
+      "save_nutrition_label",
+      BASE_PARAMS,
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(mockUpdateLabel).toHaveBeenCalled();
+    expect(result).toContain("updated_changed");
+  });
+
+  it("creates new label when duplicate has different variant", async () => {
+    const existingLabel = {
+      id: 10,
+      userId: "user-123",
+      brand: "La Serenisima",
+      productName: "Leche",
+      variant: "Descremada",  // different variant
+      servingSizeG: 200,
+      servingSizeLabel: "1 vaso (200ml)",
+      calories: 90,
+      proteinG: 6,
+      carbsG: 9,
+      fatG: 1,
+      fiberG: 0,
+      sodiumMg: 90,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      extraNutrients: null,
+      source: "photo_scan",
+      notes: null,
+      createdAt: new Date("2026-03-01T10:00:00Z"),
+      updatedAt: new Date("2026-03-01T10:00:00Z"),
+    };
+    mockFindDuplicateLabel.mockResolvedValue([existingLabel]);
+    mockInsertLabel.mockResolvedValue({ id: 99, createdAt: new Date() });
+
+    // Saving "Entera" variant, existing is "Descremada"
+    const result = await executeTool(
+      "save_nutrition_label",
+      { ...BASE_PARAMS, product_name: "Leche", variant: "Entera" },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(mockInsertLabel).toHaveBeenCalled();
+    expect(result).toContain("created");
+  });
+});
+
+describe("executeTool - manage_nutrition_label", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("deletes label and returns confirmation", async () => {
+    mockDeleteLabel.mockResolvedValue(true);
+
+    const result = await executeTool(
+      "manage_nutrition_label",
+      { action: "delete", label_id: 5, update_fields: null },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(mockDeleteLabel).toHaveBeenCalledWith("user-123", 5, expect.anything());
+    expect(result).toContain("Deleted");
+    expect(result).toContain("5");
+  });
+
+  it("returns not found message when deleting non-existent label", async () => {
+    mockDeleteLabel.mockResolvedValue(false);
+
+    const result = await executeTool(
+      "manage_nutrition_label",
+      { action: "delete", label_id: 999, update_fields: null },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(result).toContain("not found");
+  });
+
+  it("updates label and returns updated summary", async () => {
+    mockUpdateLabel.mockResolvedValue({
+      id: 5,
+      userId: "user-123",
+      brand: "Danone",
+      productName: "Activia",
+      variant: null,
+      servingSizeG: 125,
+      servingSizeLabel: "1 pot (125g)",
+      calories: 80,
+      proteinG: 4,
+      carbsG: 10,
+      fatG: 2,
+      fiberG: 0,
+      sodiumMg: 60,
+      saturatedFatG: null,
+      transFatG: null,
+      sugarsG: null,
+      extraNutrients: null,
+      source: "manual_entry",
+      notes: null,
+      createdAt: new Date("2026-03-01T10:00:00Z"),
+      updatedAt: new Date(),
+    });
+
+    const result = await executeTool(
+      "manage_nutrition_label",
+      { action: "update", label_id: 5, update_fields: { calories: 80 } },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(mockUpdateLabel).toHaveBeenCalledWith("user-123", 5, { calories: 80 }, expect.anything());
+    expect(result).toContain("Updated");
+    expect(result).toContain("Activia");
+  });
+
+  it("maps extra_nutrients in update_fields to extraNutrients", async () => {
+    mockUpdateLabel.mockResolvedValue({
+      id: 5, userId: "user-123", brand: "Danone", productName: "Activia",
+      variant: null, servingSizeG: 125, servingSizeLabel: "1 pot (125g)",
+      calories: 80, proteinG: 4, carbsG: 10, fatG: 2, fiberG: 0, sodiumMg: 60,
+      saturatedFatG: null, transFatG: null, sugarsG: null,
+      extraNutrients: { vitaminD: 2.5 }, source: "manual_entry", notes: null,
+      createdAt: new Date("2026-03-01T10:00:00Z"), updatedAt: new Date(),
+    });
+
+    await executeTool(
+      "manage_nutrition_label",
+      { action: "update", label_id: 5, update_fields: { extra_nutrients: { vitaminD: 2.5 } } },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(mockUpdateLabel).toHaveBeenCalledWith(
+      "user-123", 5, { extraNutrients: { vitaminD: 2.5 } }, expect.anything()
+    );
+  });
+
+  it("returns not found message when updating non-existent label", async () => {
+    mockUpdateLabel.mockRejectedValue(new Error("Label not found"));
+
+    const result = await executeTool(
+      "manage_nutrition_label",
+      { action: "update", label_id: 999, update_fields: { calories: 80 } },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(result).toContain("not found");
+  });
+
+  it("propagates non-not-found errors from updateLabel", async () => {
+    mockUpdateLabel.mockRejectedValue(new Error("connection refused"));
+
+    await expect(
+      executeTool(
+        "manage_nutrition_label",
+        { action: "update", label_id: 5, update_fields: { calories: 80 } },
+        "user-123",
+        "2026-03-28"
+      ),
+    ).rejects.toThrow("connection refused");
+  });
+});
+
+describe("executeTool - new tool router dispatching", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("dispatches search_nutrition_labels correctly", async () => {
+    mockSearchLabels.mockResolvedValue([]);
+    await executeTool("search_nutrition_labels", { keywords: ["test"] }, "user-123", "2026-03-28");
+    expect(mockSearchLabels).toHaveBeenCalled();
+  });
+
+  it("dispatches save_nutrition_label correctly", async () => {
+    mockFindDuplicateLabel.mockResolvedValue([]);
+    mockInsertLabel.mockResolvedValue({ id: 1, createdAt: new Date() });
+    await executeTool("save_nutrition_label", {
+      brand: "Test",
+      product_name: "Product",
+      variant: null,
+      serving_size_g: 100,
+      serving_size_label: "100g",
+      calories: 200,
+      protein_g: 10,
+      carbs_g: 20,
+      fat_g: 5,
+      fiber_g: 0,
+      sodium_mg: 100,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      sugars_g: null,
+      extra_nutrients: null,
+      notes: null,
+    }, "user-123", "2026-03-28");
+    expect(mockFindDuplicateLabel).toHaveBeenCalled();
+  });
+
+  it("dispatches manage_nutrition_label correctly", async () => {
+    mockDeleteLabel.mockResolvedValue(true);
+    await executeTool("manage_nutrition_label", { action: "delete", label_id: 1, update_fields: null }, "user-123", "2026-03-28");
+    expect(mockDeleteLabel).toHaveBeenCalled();
   });
 });

@@ -42,3 +42,13 @@ export function invalidateFoodCaches(): Promise<unknown[]> {
       FOOD_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)),
   );
 }
+
+const LABEL_CACHE_PREFIXES = ["/api/nutrition-labels"];
+
+export function invalidateLabelCaches(): Promise<unknown[]> {
+  return mutate(
+    (key) =>
+      typeof key === "string" &&
+      LABEL_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)),
+  );
+}

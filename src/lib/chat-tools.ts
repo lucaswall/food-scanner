@@ -3,6 +3,7 @@ import { searchFoods, getDailyNutritionSummary, getDateRangeNutritionSummary, ge
 import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
 import { getLumenGoalsByDate } from "@/lib/lumen";
 import { getCalorieGoalsByDateRange } from "@/lib/nutrition-goals";
+import { searchLabels, insertLabel, updateLabel, deleteLabel, findDuplicateLabel } from "@/lib/nutrition-labels";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
@@ -340,6 +341,261 @@ async function executeGetFastingInfo(
   throw new Error("Invalid get_fasting_info parameters");
 }
 
+export const SEARCH_NUTRITION_LABELS_TOOL: Anthropic.Tool = {
+  name: "search_nutrition_labels",
+  description: "Search the user's saved nutrition label library for branded/packaged products. Returns matching labels with full nutrition data. Use this BEFORE estimating nutrition for any branded, packaged, or commercial food product.",
+  strict: true,
+  input_schema: {
+    type: "object" as const,
+    additionalProperties: false as const,
+    required: ["keywords"],
+    properties: {
+      keywords: {
+        type: "array",
+        items: { type: "string" },
+        description: "1-5 lowercase search terms (brand name, product name, variant).",
+      },
+    },
+  },
+};
+
+export const SAVE_NUTRITION_LABEL_TOOL: Anthropic.Tool = {
+  name: "save_nutrition_label",
+  description: "Save nutrition data extracted from a product label photo. Automatically detects and handles duplicates. Call this when you detect a nutrition facts label in the user's photos.",
+  strict: true,
+  input_schema: {
+    type: "object" as const,
+    additionalProperties: false as const,
+    required: [
+      "brand", "product_name", "variant", "serving_size_g", "serving_size_label",
+      "calories", "protein_g", "carbs_g", "fat_g", "fiber_g", "sodium_mg",
+      "saturated_fat_g", "trans_fat_g", "sugars_g", "extra_nutrients", "notes",
+    ],
+    properties: {
+      brand: { type: "string", description: "Brand name of the product." },
+      product_name: { type: "string", description: "Product name." },
+      variant: { type: ["string", "null"], description: "Product variant (e.g., 'Entera', 'Light'), or null." },
+      serving_size_g: { type: "number", description: "Serving size in grams." },
+      serving_size_label: { type: "string", description: "Serving size label as shown on the package (e.g., '1 vaso (200ml)')." },
+      calories: { type: "number", description: "Calories per serving." },
+      protein_g: { type: "number", description: "Protein in grams per serving." },
+      carbs_g: { type: "number", description: "Carbohydrates in grams per serving." },
+      fat_g: { type: "number", description: "Total fat in grams per serving." },
+      fiber_g: { type: "number", description: "Dietary fiber in grams per serving." },
+      sodium_mg: { type: "number", description: "Sodium in milligrams per serving." },
+      saturated_fat_g: { type: ["number", "null"], description: "Saturated fat in grams, or null if not on label." },
+      trans_fat_g: { type: ["number", "null"], description: "Trans fat in grams, or null if not on label." },
+      sugars_g: { type: ["number", "null"], description: "Sugars in grams, or null if not on label." },
+      extra_nutrients: {
+        type: ["object", "null"],
+        description: "Additional nutrients as key-value pairs (name → grams), or null.",
+        additionalProperties: { type: "number" },
+      },
+      notes: { type: ["string", "null"], description: "Optional notes about the label." },
+    },
+  },
+};
+
+export const MANAGE_NUTRITION_LABEL_TOOL: Anthropic.Tool = {
+  name: "manage_nutrition_label",
+  description: "Update or delete a nutrition label entry. Use when the user explicitly asks to modify or remove a saved label.",
+  strict: true,
+  input_schema: {
+    type: "object" as const,
+    additionalProperties: false as const,
+    required: ["action", "label_id", "update_fields"],
+    properties: {
+      action: {
+        type: "string",
+        enum: ["update", "delete"],
+        description: "Action to perform: 'update' or 'delete'.",
+      },
+      label_id: { type: "number", description: "ID of the label to update or delete." },
+      update_fields: {
+        type: ["object", "null"],
+        description: "Fields to update. Required when action is 'update', null when 'delete'.",
+        additionalProperties: false,
+        properties: {
+          brand: { type: "string" },
+          product_name: { type: "string" },
+          variant: { type: ["string", "null"] },
+          serving_size_g: { type: "number" },
+          serving_size_label: { type: "string" },
+          calories: { type: "number" },
+          protein_g: { type: "number" },
+          carbs_g: { type: "number" },
+          fat_g: { type: "number" },
+          fiber_g: { type: "number" },
+          sodium_mg: { type: "number" },
+          saturated_fat_g: { type: ["number", "null"] },
+          trans_fat_g: { type: ["number", "null"] },
+          sugars_g: { type: ["number", "null"] },
+          extra_nutrients: { type: ["object", "null"], additionalProperties: { type: "number" } },
+          notes: { type: ["string", "null"] },
+        },
+      },
+    },
+  },
+};
+
+async function executeSearchNutritionLabels(
+  params: Record<string, unknown>,
+  userId: string,
+  log?: Logger,
+): Promise<string> {
+  const keywords = Array.isArray(params.keywords) ? (params.keywords as string[]) : [];
+  const labels = await searchLabels(userId, keywords, log);
+  if (labels.length === 0) {
+    return "No matching nutrition labels found in your library.";
+  }
+  const lines = labels.map((label) => {
+    const variant = label.variant ? ` (${label.variant})` : "";
+    const savedDate = label.updatedAt.toISOString().slice(0, 10);
+    return `[label:${label.id}] ${label.brand} - ${label.productName}${variant} | Serving: ${label.servingSizeLabel} | Cal: ${label.calories} | P: ${label.proteinG}g C: ${label.carbsG}g F: ${label.fatG}g | Saved: ${savedDate}`;
+  });
+  return lines.join("\n");
+}
+
+function withinTolerance(
+  oldVal: number,
+  newVal: number,
+  pctThreshold: number,
+  absThreshold: number,
+): boolean {
+  const absDiff = Math.abs(oldVal - newVal);
+  if (absDiff <= absThreshold) return true;
+  const base = Math.max(Math.abs(oldVal), 1);
+  return absDiff / base <= pctThreshold;
+}
+
+async function executeSaveNutritionLabel(
+  params: Record<string, unknown>,
+  userId: string,
+  log?: Logger,
+): Promise<string> {
+  const brand = String(params.brand);
+  const productName = String(params.product_name);
+  const variant = (params.variant as string | null) ?? null;
+  const servingSizeG = Number(params.serving_size_g);
+
+  const inputData = {
+    brand,
+    productName,
+    variant,
+    servingSizeG,
+    servingSizeLabel: String(params.serving_size_label),
+    calories: Number(params.calories),
+    proteinG: Number(params.protein_g),
+    carbsG: Number(params.carbs_g),
+    fatG: Number(params.fat_g),
+    fiberG: Number(params.fiber_g),
+    sodiumMg: Number(params.sodium_mg),
+    saturatedFatG: params.saturated_fat_g != null ? Number(params.saturated_fat_g) : null,
+    transFatG: params.trans_fat_g != null ? Number(params.trans_fat_g) : null,
+    sugarsG: params.sugars_g != null ? Number(params.sugars_g) : null,
+    extraNutrients: (params.extra_nutrients as Record<string, number> | null) ?? null,
+    source: "photo_scan",
+    notes: (params.notes as string | null) ?? null,
+  };
+
+  const duplicates = await findDuplicateLabel(userId, brand, productName, variant, log);
+
+  // Find a duplicate with matching variant (both null or same value)
+  const sameVariant = duplicates.find((d) => {
+    const dv = d.variant ?? null;
+    const iv = variant ?? null;
+    return dv === iv || (dv != null && iv != null && dv.toLowerCase() === iv.toLowerCase());
+  });
+
+  if (sameVariant) {
+    // Normalize to per-100g for comparison
+    const oldServing = sameVariant.servingSizeG > 0 ? sameVariant.servingSizeG : 100;
+    const newServing = servingSizeG > 0 ? servingSizeG : 100;
+
+    const oldCal100 = (sameVariant.calories * 100) / oldServing;
+    const oldPro100 = (sameVariant.proteinG * 100) / oldServing;
+    const oldCarb100 = (sameVariant.carbsG * 100) / oldServing;
+    const oldFat100 = (sameVariant.fatG * 100) / oldServing;
+
+    const newCal100 = (inputData.calories * 100) / newServing;
+    const newPro100 = (inputData.proteinG * 100) / newServing;
+    const newCarb100 = (inputData.carbsG * 100) / newServing;
+    const newFat100 = (inputData.fatG * 100) / newServing;
+
+    const calSame = withinTolerance(oldCal100, newCal100, 0.10, 25);
+    const proSame = withinTolerance(oldPro100, newPro100, 0.10, 3);
+    const carbSame = withinTolerance(oldCarb100, newCarb100, 0.10, 3);
+    const fatSame = withinTolerance(oldFat100, newFat100, 0.10, 3);
+
+    await updateLabel(userId, sameVariant.id, inputData, log);
+
+    if (calSame && proSame && carbSame && fatSame) {
+      return `Label updated (status: updated). Label ID: ${sameVariant.id}. Refreshed data for ${brand} - ${productName}.`;
+    }
+
+    const changes: string[] = [];
+    if (!calSame) changes.push(`calories: ${Math.round(sameVariant.calories)} → ${inputData.calories}`);
+    if (!proSame) changes.push(`protein: ${sameVariant.proteinG}g → ${inputData.proteinG}g`);
+    if (!carbSame) changes.push(`carbs: ${sameVariant.carbsG}g → ${inputData.carbsG}g`);
+    if (!fatSame) changes.push(`fat: ${sameVariant.fatG}g → ${inputData.fatG}g`);
+
+    return `Label updated with changes (status: updated_changed). Label ID: ${sameVariant.id}. Changed: ${changes.join(", ")}.`;
+  }
+
+  // No matching variant — create new
+  const inserted = await insertLabel(userId, inputData, log);
+  return `Label saved (status: created). Label ID: ${inserted.id}. Saved ${brand} - ${productName}${variant ? ` (${variant})` : ""}.`;
+}
+
+async function executeManageNutritionLabel(
+  params: Record<string, unknown>,
+  userId: string,
+  log?: Logger,
+): Promise<string> {
+  const action = String(params.action);
+  const labelId = Number(params.label_id);
+
+  if (action === "delete") {
+    const deleted = await deleteLabel(userId, labelId, log);
+    if (!deleted) return `Label not found (ID: ${labelId}).`;
+    return `Deleted label [label:${labelId}].`;
+  }
+
+  if (action === "update") {
+    const updateFields = (params.update_fields as Record<string, unknown>) ?? {};
+    const data: Record<string, unknown> = {};
+    if (updateFields.brand !== undefined) data.brand = String(updateFields.brand);
+    if (updateFields.product_name !== undefined) data.productName = String(updateFields.product_name);
+    if (updateFields.variant !== undefined) data.variant = updateFields.variant;
+    if (updateFields.serving_size_g !== undefined) data.servingSizeG = Number(updateFields.serving_size_g);
+    if (updateFields.serving_size_label !== undefined) data.servingSizeLabel = String(updateFields.serving_size_label);
+    if (updateFields.calories !== undefined) data.calories = Number(updateFields.calories);
+    if (updateFields.protein_g !== undefined) data.proteinG = Number(updateFields.protein_g);
+    if (updateFields.carbs_g !== undefined) data.carbsG = Number(updateFields.carbs_g);
+    if (updateFields.fat_g !== undefined) data.fatG = Number(updateFields.fat_g);
+    if (updateFields.fiber_g !== undefined) data.fiberG = Number(updateFields.fiber_g);
+    if (updateFields.sodium_mg !== undefined) data.sodiumMg = Number(updateFields.sodium_mg);
+    if (updateFields.saturated_fat_g !== undefined) data.saturatedFatG = updateFields.saturated_fat_g != null ? Number(updateFields.saturated_fat_g) : null;
+    if (updateFields.trans_fat_g !== undefined) data.transFatG = updateFields.trans_fat_g != null ? Number(updateFields.trans_fat_g) : null;
+    if (updateFields.sugars_g !== undefined) data.sugarsG = updateFields.sugars_g != null ? Number(updateFields.sugars_g) : null;
+    if (updateFields.extra_nutrients !== undefined) data.extraNutrients = updateFields.extra_nutrients;
+    if (updateFields.notes !== undefined) data.notes = updateFields.notes;
+
+    try {
+      const updated = await updateLabel(userId, labelId, data as Parameters<typeof updateLabel>[2], log);
+      const variant = updated.variant ? ` (${updated.variant})` : "";
+      return `Updated label [label:${updated.id}]: ${updated.brand} - ${updated.productName}${variant} | Cal: ${updated.calories} | P: ${updated.proteinG}g C: ${updated.carbsG}g F: ${updated.fatG}g.`;
+    } catch (error) {
+      if (error instanceof Error && error.message === "Label not found") {
+        return `Label not found (ID: ${labelId}).`;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`Unknown manage_nutrition_label action: ${action}`);
+}
+
 export async function executeTool(
   toolName: string,
   params: Record<string, unknown>,
@@ -357,6 +613,12 @@ export async function executeTool(
         return executeGetNutritionSummary(params, userId, currentDate, l);
       case "get_fasting_info":
         return executeGetFastingInfo(params, userId, currentDate, l);
+      case "search_nutrition_labels":
+        return executeSearchNutritionLabels(params, userId, l);
+      case "save_nutrition_label":
+        return executeSaveNutritionLabel(params, userId, l);
+      case "manage_nutrition_label":
+        return executeManageNutritionLabel(params, userId, l);
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }

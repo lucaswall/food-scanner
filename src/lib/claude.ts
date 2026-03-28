@@ -7,7 +7,7 @@ import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
 import { isValidDateFormat } from "@/lib/date-utils";
 import { recordUsage } from "@/lib/claude-usage";
-import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } from "@/lib/chat-tools";
+import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL, SEARCH_NUTRITION_LABELS_TOOL, SAVE_NUTRITION_LABEL_TOOL, MANAGE_NUTRITION_LABEL_TOOL } from "@/lib/chat-tools";
 import { buildUserProfile } from "@/lib/user-profile";
 import type { StreamEvent } from "@/lib/sse";
 
@@ -82,7 +82,17 @@ Web search guidelines:
 - You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
 - Do NOT search for generic or common foods like "an apple", "grilled chicken with rice", or "scrambled eggs" — estimate those from your training data.
 - When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
-- If web search returns nothing useful, fall back to estimation from your training data and say so.`;
+- If web search returns nothing useful, fall back to estimation from your training data and say so.
+
+Nutrition label library:
+- You have access to the user's personal nutrition label library via search_nutrition_labels, save_nutrition_label, and manage_nutrition_label.
+- BEFORE estimating nutrition for any branded, packaged, or commercial food product, ALWAYS call search_nutrition_labels with the brand and product name as keywords.
+- A nutrition label represents a SPECIFIC branded product. Only use a label when the user's description clearly refers to that exact product. "Cheese" does NOT match a "Dambo cheese" label. "La Serenisima whole milk" DOES match a "La Serenisima Entera" label.
+- Matching tiers: (1) Exact match (brand + product + variant align) → use silently, set confidence "high", include "Used label: [product]" in notes. (2) Probable match (brand + product match, variant ambiguous) → mention briefly "Using your label for X". (3) Category only (generic food, specific brand label exists) → do NOT use, estimate as usual.
+- When you detect a nutrition facts label in the user's photos, extract the data and call save_nutrition_label immediately. Do NOT ask for confirmation — auto-save is the default. Mention what you saved: "Saved label for [product]."
+- For portion estimation when using a label: use photo context, description, and common sense. Do NOT ask the user for exact grams unless truly ambiguous. If the portion looks close to the label's serving size, use it. If clearly different (half a package, double serving), scale proportionally.
+- Argentine labels: read the "por porcion" column (not per 100g). Watch for comma as decimal separator. Both kcal and kJ may be present — use kcal.
+- Users can manage labels via chat: "update my yogurt label", "delete the cheese label", "save a label for X". Use manage_nutrition_label for updates/deletes and save_nutrition_label for manual additions.`;
 
 
 export const WEB_SEARCH_TOOL = {
@@ -603,7 +613,17 @@ Web search guidelines:
 - You have access to web search. Use it to look up nutrition info for specific restaurants, branded products, packaged foods with known labels, and unfamiliar regional dishes.
 - Do NOT search for generic or common foods like "an apple", "grilled chicken with rice", or "scrambled eggs" — estimate those from your training data.
 - When you use web search results, cite the source — mention where the nutrition info came from (e.g., "Based on McDonald's nutrition page...").
-- If web search returns nothing useful, fall back to estimation from your training data and say so.`;
+- If web search returns nothing useful, fall back to estimation from your training data and say so.
+
+Nutrition label library:
+- You have access to the user's personal nutrition label library via search_nutrition_labels, save_nutrition_label, and manage_nutrition_label.
+- BEFORE estimating nutrition for any branded, packaged, or commercial food product, ALWAYS call search_nutrition_labels with the brand and product name as keywords.
+- A nutrition label represents a SPECIFIC branded product. Only use a label when the user's description clearly refers to that exact product. "Cheese" does NOT match a "Dambo cheese" label. "La Serenisima whole milk" DOES match a "La Serenisima Entera" label.
+- Matching tiers: (1) Exact match (brand + product + variant align) → use silently, set confidence "high", include "Used label: [product]" in notes. (2) Probable match (brand + product match, variant ambiguous) → mention briefly "Using your label for X". (3) Category only (generic food, specific brand label exists) → do NOT use, estimate as usual.
+- When you detect a nutrition facts label in the user's photos, extract the data and call save_nutrition_label immediately. Do NOT ask for confirmation — auto-save is the default. Mention what you saved: "Saved label for [product]."
+- For portion estimation when using a label: use photo context, description, and common sense. Do NOT ask the user for exact grams unless truly ambiguous. If the portion looks close to the label's serving size, use it. If clearly different (half a package, double serving), scale proportionally.
+- Argentine labels: read the "por porcion" column (not per 100g). Watch for comma as decimal separator. Both kcal and kJ may be present — use kcal.
+- Users can manage labels via chat: "update my yogurt label", "delete the cheese label", "save a label for X". Use manage_nutrition_label for updates/deletes and save_nutrition_label for manual additions.`;
 
 export async function getSystemPrompt(userId: string, currentDate: string): Promise<string> {
   try {
@@ -645,6 +665,9 @@ const DATA_TOOLS = [
   SEARCH_FOOD_LOG_TOOL,
   GET_NUTRITION_SUMMARY_TOOL,
   GET_FASTING_INFO_TOOL,
+  SEARCH_NUTRITION_LABELS_TOOL,
+  SAVE_NUTRITION_LABEL_TOOL,
+  MANAGE_NUTRITION_LABEL_TOOL,
 ];
 
 /** Build toolsWithCache: adds cache_control to the last tool (doesn't mutate originals) */
@@ -1805,7 +1828,10 @@ Follow these rules:
 
 Web search guidelines:
 - Use web search to look up accurate nutrition info for specific restaurants or branded products when the user wants to change to a different specific food.
-- For general corrections (different portion size, simple adjustments), use your training data.`;
+- For general corrections (different portion size, simple adjustments), use your training data.
+
+Nutrition label library:
+- You can search the user's saved label library via search_nutrition_labels. Use it when the user corrects a branded food and wants to use the exact label data.`;
 
 /**
  * Edit an existing food log entry via conversational AI. Returns a streaming generator of StreamEvent.
