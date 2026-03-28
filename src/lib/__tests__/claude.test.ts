@@ -203,6 +203,24 @@ vi.mock("@/lib/chat-tools", () => ({
     strict: true,
     input_schema: { type: "object", properties: {}, required: [] },
   },
+  SEARCH_NUTRITION_LABELS_TOOL: {
+    name: "search_nutrition_labels",
+    description: "Search nutrition labels",
+    strict: true,
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  SAVE_NUTRITION_LABEL_TOOL: {
+    name: "save_nutrition_label",
+    description: "Save nutrition label",
+    strict: true,
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  MANAGE_NUTRITION_LABEL_TOOL: {
+    name: "manage_nutrition_label",
+    description: "Manage nutrition label",
+    strict: true,
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
 }));
 
 const mockBuildUserProfile = vi.fn();
@@ -716,13 +734,16 @@ describe("analyzeFood", () => {
     await collectEvents(analyzeFood([{ base64: "img", mimeType: "image/jpeg" }], undefined, "user-123", "2026-02-15"));
 
     const call = mockStream.mock.calls[0][0];
-    expect(call.tools).toHaveLength(5);
+    expect(call.tools).toHaveLength(8);
     expect(call.tools.map((t: { name: string }) => t.name)).toEqual([
       "web_search",
       "report_nutrition",
       "search_food_log",
       "get_nutrition_summary",
       "get_fasting_info",
+      "search_nutrition_labels",
+      "save_nutrition_label",
+      "manage_nutrition_label",
     ]);
     expect(call.tool_choice).toEqual({ type: "auto" });
   });

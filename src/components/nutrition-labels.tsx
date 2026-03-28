@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import useSWR from "swr";
 import { Trash2 } from "lucide-react";
 import {
@@ -23,8 +23,9 @@ import type { NutritionLabel } from "@/types";
 export function NutritionLabels() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [debounceTimer, setDebounceTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<NutritionLabel | null>(null);
+  const [deleteError, setDeleteError] = useState(false);
   const [selectedLabel, setSelectedLabel] = useState<NutritionLabel | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -37,23 +38,29 @@ export function NutritionLabels() {
     apiFetcher,
   );
 
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, []);
+
   const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
-    if (debounceTimer) clearTimeout(debounceTimer);
-    const timer = setTimeout(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
       setDebouncedSearch(value);
     }, 300);
-    setDebounceTimer(timer);
-  }, [debounceTimer]);
+  }, []);
 
   async function handleDeleteConfirm() {
     if (!deleteTarget) return;
+    setDeleteError(false);
     try {
       await fetch(`/api/nutrition-labels/${deleteTarget.id}`, { method: "DELETE" });
       await invalidateLabelCaches();
       await mutate();
     } catch {
-      // error handled silently; list will refresh on next load
+      setDeleteError(true);
     } finally {
       setDeleteTarget(null);
     }
@@ -85,7 +92,7 @@ export function NutritionLabels() {
   if (error) {
     return (
       <div className="text-center py-8">
-        <p className="text-sm text-destructive">{error.message || "Failed to load labels"}</p>
+        <p className="text-sm text-destructive">Failed to load labels</p>
         <Button variant="outline" className="mt-4 min-h-[44px]" onClick={() => mutate()}>
           Retry
         </Button>
@@ -96,6 +103,9 @@ export function NutritionLabels() {
   return (
     <>
       <div className="flex flex-col gap-4">
+        {deleteError && (
+          <p className="text-sm text-destructive text-center">Failed to delete label. Please try again.</p>
+        )}
         <Input
           type="search"
           placeholder="Search labels..."
