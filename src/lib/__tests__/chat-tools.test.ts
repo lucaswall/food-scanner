@@ -1402,6 +1402,28 @@ describe("executeTool - manage_nutrition_label", () => {
     expect(result).toContain("Activia");
   });
 
+  it("maps extra_nutrients in update_fields to extraNutrients", async () => {
+    mockUpdateLabel.mockResolvedValue({
+      id: 5, userId: "user-123", brand: "Danone", productName: "Activia",
+      variant: null, servingSizeG: 125, servingSizeLabel: "1 pot (125g)",
+      calories: 80, proteinG: 4, carbsG: 10, fatG: 2, fiberG: 0, sodiumMg: 60,
+      saturatedFatG: null, transFatG: null, sugarsG: null,
+      extraNutrients: { vitaminD: 2.5 }, source: "manual_entry", notes: null,
+      createdAt: new Date("2026-03-01T10:00:00Z"), updatedAt: new Date(),
+    });
+
+    await executeTool(
+      "manage_nutrition_label",
+      { action: "update", label_id: 5, update_fields: { extra_nutrients: { vitaminD: 2.5 } } },
+      "user-123",
+      "2026-03-28"
+    );
+
+    expect(mockUpdateLabel).toHaveBeenCalledWith(
+      "user-123", 5, { extraNutrients: { vitaminD: 2.5 } }, expect.anything()
+    );
+  });
+
   it("returns not found message when updating non-existent label", async () => {
     mockUpdateLabel.mockRejectedValue(new Error("Label not found"));
 
@@ -1413,6 +1435,19 @@ describe("executeTool - manage_nutrition_label", () => {
     );
 
     expect(result).toContain("not found");
+  });
+
+  it("propagates non-not-found errors from updateLabel", async () => {
+    mockUpdateLabel.mockRejectedValue(new Error("connection refused"));
+
+    await expect(
+      executeTool(
+        "manage_nutrition_label",
+        { action: "update", label_id: 5, update_fields: { calories: 80 } },
+        "user-123",
+        "2026-03-28"
+      ),
+    ).rejects.toThrow("connection refused");
   });
 });
 

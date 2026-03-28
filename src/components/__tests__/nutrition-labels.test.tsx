@@ -251,6 +251,43 @@ describe("NutritionLabels", () => {
     });
   });
 
+  it("shows error when DELETE API returns non-2xx response", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: sampleLabels }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve({ success: false, error: "Internal error" }),
+      });
+
+    renderNutritionLabels();
+
+    await waitFor(() => {
+      expect(screen.getByText("Acme Foods")).toBeInTheDocument();
+    });
+
+    const deleteButtons = screen.getAllByRole("button", { name: /delete/i });
+    await act(async () => {
+      fireEvent.click(deleteButtons[0]);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /confirm/i })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/failed to delete/i)).toBeInTheDocument();
+    });
+    expect(mockInvalidateLabelCaches).not.toHaveBeenCalled();
+  });
+
   it("opens detail bottom sheet when card body is tapped", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

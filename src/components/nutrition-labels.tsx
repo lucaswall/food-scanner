@@ -56,7 +56,8 @@ export function NutritionLabels() {
     if (!deleteTarget) return;
     setDeleteError(false);
     try {
-      await fetch(`/api/nutrition-labels/${deleteTarget.id}`, { method: "DELETE" });
+      const response = await fetch(`/api/nutrition-labels/${deleteTarget.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Delete failed");
       await invalidateLabelCaches();
       await mutate();
     } catch {
@@ -73,6 +74,7 @@ export function NutritionLabels() {
 
   function handleDetailDelete(label: NutritionLabel) {
     setDetailOpen(false);
+    setDeleteError(false);
     setDeleteTarget(label);
   }
 
@@ -155,7 +157,7 @@ export function NutritionLabels() {
                   size="icon"
                   className="min-h-[44px] min-w-[44px] shrink-0 text-muted-foreground hover:text-destructive"
                   aria-label={`Delete ${label.productName}`}
-                  onClick={() => setDeleteTarget(label)}
+                  onClick={() => { setDeleteError(false); setDeleteTarget(label); }}
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

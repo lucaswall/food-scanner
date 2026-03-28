@@ -578,14 +578,18 @@ async function executeManageNutritionLabel(
     if (updateFields.saturated_fat_g !== undefined) data.saturatedFatG = updateFields.saturated_fat_g != null ? Number(updateFields.saturated_fat_g) : null;
     if (updateFields.trans_fat_g !== undefined) data.transFatG = updateFields.trans_fat_g != null ? Number(updateFields.trans_fat_g) : null;
     if (updateFields.sugars_g !== undefined) data.sugarsG = updateFields.sugars_g != null ? Number(updateFields.sugars_g) : null;
+    if (updateFields.extra_nutrients !== undefined) data.extraNutrients = updateFields.extra_nutrients;
     if (updateFields.notes !== undefined) data.notes = updateFields.notes;
 
     try {
       const updated = await updateLabel(userId, labelId, data as Parameters<typeof updateLabel>[2], log);
       const variant = updated.variant ? ` (${updated.variant})` : "";
       return `Updated label [label:${updated.id}]: ${updated.brand} - ${updated.productName}${variant} | Cal: ${updated.calories} | P: ${updated.proteinG}g C: ${updated.carbsG}g F: ${updated.fatG}g.`;
-    } catch {
-      return `Label not found (ID: ${labelId}).`;
+    } catch (error) {
+      if (error instanceof Error && error.message === "Label not found") {
+        return `Label not found (ID: ${labelId}).`;
+      }
+      throw error;
     }
   }
 
