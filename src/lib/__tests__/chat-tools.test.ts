@@ -1414,7 +1414,7 @@ describe("executeTool - manage_nutrition_label", () => {
 
     await executeTool(
       "manage_nutrition_label",
-      { action: "update", label_id: 5, update_fields: { extra_nutrients: { vitaminD: 2.5 } } },
+      { action: "update", label_id: 5, update_fields: { extra_nutrients: [{ name: "vitaminD", grams: 2.5 }] } },
       "user-123",
       "2026-03-28"
     );

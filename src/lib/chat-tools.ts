@@ -387,9 +387,17 @@ export const SAVE_NUTRITION_LABEL_TOOL: Anthropic.Tool = {
       trans_fat_g: { type: ["number", "null"], description: "Trans fat in grams, or null if not on label." },
       sugars_g: { type: ["number", "null"], description: "Sugars in grams, or null if not on label." },
       extra_nutrients: {
-        type: ["object", "null"],
-        description: "Additional nutrients as key-value pairs (name → grams), or null.",
-        additionalProperties: { type: "number" },
+        type: ["array", "null"],
+        description: "Additional nutrients, or null.",
+        items: {
+          type: "object",
+          required: ["name", "grams"],
+          additionalProperties: false,
+          properties: {
+            name: { type: "string", description: "Nutrient name" },
+            grams: { type: "number", description: "Amount in grams" },
+          },
+        },
       },
       notes: { type: ["string", "null"], description: "Optional notes about the label." },
     },
@@ -430,13 +438,37 @@ export const MANAGE_NUTRITION_LABEL_TOOL: Anthropic.Tool = {
           saturated_fat_g: { type: ["number", "null"] },
           trans_fat_g: { type: ["number", "null"] },
           sugars_g: { type: ["number", "null"] },
-          extra_nutrients: { type: ["object", "null"], additionalProperties: { type: "number" } },
+          extra_nutrients: {
+            type: ["array", "null"],
+            items: {
+              type: "object",
+              required: ["name", "grams"],
+              additionalProperties: false,
+              properties: {
+                name: { type: "string" },
+                grams: { type: "number" },
+              },
+            },
+          },
           notes: { type: ["string", "null"] },
         },
       },
     },
   },
 };
+
+function extraNutrientsToRecord(
+  value: unknown,
+): Record<string, number> | null {
+  if (!Array.isArray(value)) return null;
+  const record: Record<string, number> = {};
+  for (const item of value) {
+    if (item && typeof item === "object" && "name" in item && "grams" in item) {
+      record[String(item.name)] = Number(item.grams);
+    }
+  }
+  return Object.keys(record).length > 0 ? record : null;
+}
 
 async function executeSearchNutritionLabels(
   params: Record<string, unknown>,
@@ -493,7 +525,7 @@ async function executeSaveNutritionLabel(
     saturatedFatG: params.saturated_fat_g != null ? Number(params.saturated_fat_g) : null,
     transFatG: params.trans_fat_g != null ? Number(params.trans_fat_g) : null,
     sugarsG: params.sugars_g != null ? Number(params.sugars_g) : null,
-    extraNutrients: (params.extra_nutrients as Record<string, number> | null) ?? null,
+    extraNutrients: extraNutrientsToRecord(params.extra_nutrients) ?? null,
     source: "photo_scan",
     notes: (params.notes as string | null) ?? null,
   };
@@ -578,7 +610,7 @@ async function executeManageNutritionLabel(
     if (updateFields.saturated_fat_g !== undefined) data.saturatedFatG = updateFields.saturated_fat_g != null ? Number(updateFields.saturated_fat_g) : null;
     if (updateFields.trans_fat_g !== undefined) data.transFatG = updateFields.trans_fat_g != null ? Number(updateFields.trans_fat_g) : null;
     if (updateFields.sugars_g !== undefined) data.sugarsG = updateFields.sugars_g != null ? Number(updateFields.sugars_g) : null;
-    if (updateFields.extra_nutrients !== undefined) data.extraNutrients = updateFields.extra_nutrients;
+    if (updateFields.extra_nutrients !== undefined) data.extraNutrients = extraNutrientsToRecord(updateFields.extra_nutrients);
     if (updateFields.notes !== undefined) data.notes = updateFields.notes;
 
     try {
