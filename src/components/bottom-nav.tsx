@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, ListChecks, ScanEye, MessageCircle } from "lucide-react";
+import { Home, ListChecks, ScanEye, MessageCircle, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -11,6 +11,12 @@ const navItems = [
     href: "/app",
     icon: Home,
     isActive: (pathname: string) => pathname === "/app",
+  },
+  {
+    label: "Labels",
+    href: "/app/labels",
+    icon: Tag,
+    isActive: (pathname: string) => pathname === "/app/labels",
   },
   {
     label: "Analyze",

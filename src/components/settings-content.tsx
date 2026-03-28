@@ -8,6 +8,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { Sun, Moon, Monitor } from "lucide-react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
+import type { NutritionLabel } from "@/types";
 
 interface SessionInfo {
   email: string | null;
@@ -297,6 +298,8 @@ export function SettingsContent() {
         )}
       </div>
 
+      <NutritionLabelsSection />
+
       <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
         <h2 className="text-lg font-semibold">Appearance</h2>
         <div className="flex gap-2">
@@ -329,6 +332,37 @@ export function SettingsContent() {
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function NutritionLabelsSection() {
+  const { data } = useSWR<NutritionLabel[]>(
+    "/api/nutrition-labels",
+    apiFetcher,
+  );
+
+  const labels = data ?? [];
+  const count = labels.length;
+
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
+      <h2 className="text-lg font-semibold">Nutrition Labels</h2>
+      {count > 0 ? (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">{count} saved {count === 1 ? "label" : "labels"}</p>
+          <Button asChild variant="outline" size="sm" className="min-h-[44px]">
+            <Link href="/app/labels">Manage</Link>
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-muted-foreground">No labels saved yet</p>
+          <p className="text-xs text-muted-foreground">
+            Labels are automatically saved when you scan packaged products.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
