@@ -10,6 +10,7 @@
 | [Quick Capture Session](#quick-capture-session) | Snap photos and notes quickly at meals, process everything later at home |
 | [AI-Driven Staging QA](#ai-driven-staging-qa) | Automated functional QA against staging using Claude Chrome integration |
 | [Save for Later](#save-for-later) | Analyze food now, save the result, log it when you actually eat it |
+| [Health Readings API](#health-readings-api) | Read/write endpoints for blood glucose and blood pressure data from HealthHelper |
 
 
 
@@ -512,6 +513,83 @@ The analysis timestamp is stored for display ("2h ago") but is **not** used for 
 6. Detail bottom sheet with full nutrition, meal type/time selector, log/refine/discard
 7. Chat refinement flow seeded from saved analysis
 8. Cleanup: delete saved item on successful log or discard
+
+---
+
+## Health Readings API
+
+### Problem
+
+The HealthHelper Android app records blood glucose and blood pressure readings and pushes them to Health Connect. There's no way to store this data in Food Scanner's database for centralized tracking alongside nutrition data. The health-helper already talks to food-scanner's v1 API for food logs — health readings should follow the same pattern.
+
+### Prerequisites
+
+- HealthHelper blood glucose and blood pressure functionality (already built)
+
+### Goal
+
+Provide read/write API endpoints so HealthHelper can push glucose and blood pressure readings to Food Scanner's database, enabling centralized health data storage alongside nutrition logs.
+
+### Design
+
+#### Write Flow
+
+`POST /api/v1/glucose-readings` and `POST /api/v1/blood-pressure-readings` accept a JSON array of readings. Each reading includes a measurement timestamp and all metadata fields.
+
+Writes are **idempotent and deduplicating** — if a reading with the same userId + timestamp already exists, all fields are overwritten with the new values via `ON CONFLICT DO UPDATE`. Resending the same data is a no-op; sending corrected data for the same timestamp replaces the previous reading.
+
+No server-side validation on values — the API stores whatever the client sends. Validation is the client's responsibility.
+
+#### Glucose Reading Fields
+
+- `valueMgDl` (number) — glucose in mg/dL (base unit for this app)
+- `relationToMeal` (string) — general, fasting, before_meal, after_meal, unknown
+- `mealType` (string) — breakfast, lunch, dinner, snack, unknown
+- `specimenSource` (string) — capillary_blood, interstitial_fluid, plasma, serum, tears, whole_blood, unknown
+- `timestamp` (ISO 8601 string) — when the measurement was taken
+
+#### Blood Pressure Reading Fields
+
+- `systolic` (integer) — mmHg
+- `diastolic` (integer) — mmHg
+- `bodyPosition` (string) — standing_up, sitting_down, lying_down, reclining, unknown
+- `measurementLocation` (string) — left_upper_arm, right_upper_arm, left_wrist, right_wrist, unknown
+- `timestamp` (ISO 8601 string) — when the measurement was taken
+
+#### Read Flow
+
+`GET /api/v1/glucose-readings` and `GET /api/v1/blood-pressure-readings` support two query modes:
+
+- Single date: `?date=2026-03-28`
+- Date range: `?from=2026-03-01&to=2026-03-28`
+
+Returns readings ordered by timestamp ascending.
+
+### Architecture
+
+- **Two new DB tables:** `glucose_readings` and `blood_pressure_readings` in Drizzle schema.
+- **Deduplication:** UNIQUE constraint on `(userId, timestamp)` per table. POST uses `ON CONFLICT DO UPDATE` to upsert all fields.
+- **No `createdAt` column.** Only the measurement `timestamp` is stored.
+- **Auth:** Bearer API key via `validateApiRequest()` — same as all v1 routes.
+- **Rate limiting:** 60/min per API key (same as other DB-backed endpoints).
+- **Response format:** Standard `successResponse()`/`errorResponse()` helpers.
+- **Lib module:** New `src/lib/health-readings.ts` for DB access — route handlers don't import from `src/db/` directly.
+
+### Edge Cases
+
+- Duplicate readings in the same batch (same timestamp) — database constraint handles it, last value wins.
+- Empty `readings` array — return success with zero upserted count.
+- Health-helper sends mmol/L by mistake — no server-side validation, client's responsibility. The health-helper must convert before sending (`value * 18.018`, rounded to integer).
+- Large batch — no explicit limit. Practical usage is 1–10 readings per sync.
+- Timezone handling — timestamps are stored as `timestamptz`. The client sends UTC; the GET endpoint returns UTC.
+
+### Implementation Order
+
+1. Drizzle schema: `glucose_readings` and `blood_pressure_readings` tables + migration
+2. `src/lib/health-readings.ts` — batch upsert and query by date/range
+3. POST endpoints: `/api/v1/glucose-readings` and `/api/v1/blood-pressure-readings`
+4. GET endpoints: same paths, date and range query support
+5. Types in `src/types/index.ts` for request/response shapes
 
 ---
 
