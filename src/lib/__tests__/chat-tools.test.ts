@@ -1048,7 +1048,7 @@ describe("SAVE_NUTRITION_LABEL_TOOL", () => {
   it("has correct schema with required label fields", () => {
     expect(SAVE_NUTRITION_LABEL_TOOL.name).toBe("save_nutrition_label");
     expect(SAVE_NUTRITION_LABEL_TOOL.description).toContain("Save nutrition data");
-    expect(SAVE_NUTRITION_LABEL_TOOL.strict).toBe(true);
+    expect(SAVE_NUTRITION_LABEL_TOOL).not.toHaveProperty("strict");
     const props = SAVE_NUTRITION_LABEL_TOOL.input_schema.properties as Record<string, unknown>;
     expect(props).toHaveProperty("brand");
     expect(props).toHaveProperty("product_name");
@@ -1062,7 +1062,7 @@ describe("MANAGE_NUTRITION_LABEL_TOOL", () => {
   it("has correct schema with action and label_id", () => {
     expect(MANAGE_NUTRITION_LABEL_TOOL.name).toBe("manage_nutrition_label");
     expect(MANAGE_NUTRITION_LABEL_TOOL.description).toContain("Update or delete");
-    expect(MANAGE_NUTRITION_LABEL_TOOL.strict).toBe(true);
+    expect(MANAGE_NUTRITION_LABEL_TOOL).not.toHaveProperty("strict");
     const props = MANAGE_NUTRITION_LABEL_TOOL.input_schema.properties as Record<string, unknown>;
     expect(props).toHaveProperty("action");
     expect(props).toHaveProperty("label_id");
@@ -1414,7 +1414,7 @@ describe("executeTool - manage_nutrition_label", () => {
 
     await executeTool(
       "manage_nutrition_label",
-      { action: "update", label_id: 5, update_fields: { extra_nutrients: [{ name: "vitaminD", grams: 2.5 }] } },
+      { action: "update", label_id: 5, update_fields: { extra_nutrients: { vitaminD: 2.5 } } },
       "user-123",
       "2026-03-28"
     );
