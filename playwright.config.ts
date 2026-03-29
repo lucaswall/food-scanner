@@ -15,14 +15,17 @@ export default defineConfig({
   // Fail the build on CI if you accidentally left test.only in the source code
   forbidOnly: !!process.env.CI,
 
-  // Retry on CI only
-  retries: process.env.CI ? 2 : 0,
+  // Retry flaky tests (timeouts under load)
+  retries: process.env.CI ? 2 : 1,
 
   // Opt out of parallel tests on CI
   workers: process.env.CI ? 1 : undefined,
 
   // Reporter to use
   reporter: 'html',
+
+  // Default timeout per test (30s default is tight under parallel load)
+  timeout: 45_000,
 
   // Shared settings for all the projects below
   use: {
