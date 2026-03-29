@@ -477,3 +477,41 @@ export interface ChatFoodResponse {
   message: string;
   analysis?: FoodAnalysis;
 }
+
+export interface GlucoseReading {
+  id: number;
+  measuredAt: string;
+  zoneOffset: string | null;
+  valueMgDl: number;
+  relationToMeal: string | null;
+  mealType: string | null;
+  specimenSource: string | null;
+}
+
+export interface BloodPressureReading {
+  id: number;
+  measuredAt: string;
+  zoneOffset: string | null;
+  systolic: number;
+  diastolic: number;
+  bodyPosition: string | null;
+  measurementLocation: string | null;
+}
+
+export interface GlucoseReadingInput {
+  measuredAt: string;
+  zoneOffset: string | null;
+  valueMgDl: number;
+  relationToMeal: string | null;
+  mealType: string | null;
+  specimenSource: string | null;
+}
+
+export interface BloodPressureReadingInput {
+  measuredAt: string;
+  zoneOffset: string | null;
+  systolic: number;
+  diastolic: number;
+  bodyPosition: string | null;
+  measurementLocation: string | null;
+}
