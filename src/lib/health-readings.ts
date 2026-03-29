@@ -1,6 +1,6 @@
 import { getDb } from "@/db/index";
 import { glucoseReadings, bloodPressureReadings } from "@/db/schema";
-import { eq, and, between, asc } from "drizzle-orm";
+import { eq, and, between, asc, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import type { GlucoseReading, GlucoseReadingInput, BloodPressureReading, BloodPressureReadingInput } from "@/types";
 
@@ -26,11 +26,11 @@ export async function upsertGlucoseReadings(
     .onConflictDoUpdate({
       target: [glucoseReadings.userId, glucoseReadings.measuredAt],
       set: {
-        zoneOffset: glucoseReadings.zoneOffset,
-        valueMgDl: glucoseReadings.valueMgDl,
-        relationToMeal: glucoseReadings.relationToMeal,
-        mealType: glucoseReadings.mealType,
-        specimenSource: glucoseReadings.specimenSource,
+        zoneOffset: sql`excluded.zone_offset`,
+        valueMgDl: sql`excluded.value_mg_dl`,
+        relationToMeal: sql`excluded.relation_to_meal`,
+        mealType: sql`excluded.meal_type`,
+        specimenSource: sql`excluded.specimen_source`,
       },
     });
 
@@ -60,11 +60,11 @@ export async function upsertBloodPressureReadings(
     .onConflictDoUpdate({
       target: [bloodPressureReadings.userId, bloodPressureReadings.measuredAt],
       set: {
-        zoneOffset: bloodPressureReadings.zoneOffset,
-        systolic: bloodPressureReadings.systolic,
-        diastolic: bloodPressureReadings.diastolic,
-        bodyPosition: bloodPressureReadings.bodyPosition,
-        measurementLocation: bloodPressureReadings.measurementLocation,
+        zoneOffset: sql`excluded.zone_offset`,
+        systolic: sql`excluded.systolic`,
+        diastolic: sql`excluded.diastolic`,
+        bodyPosition: sql`excluded.body_position`,
+        measurementLocation: sql`excluded.measurement_location`,
       },
     });
 
@@ -72,6 +72,7 @@ export async function upsertBloodPressureReadings(
   return readings.length;
 }
 
+/** Query glucose readings by date range. Dates are interpreted as UTC calendar days. */
 export async function getGlucoseReadings(
   userId: string,
   from: string,
@@ -104,6 +105,7 @@ export async function getGlucoseReadings(
   }));
 }
 
+/** Query blood pressure readings by date range. Dates are interpreted as UTC calendar days. */
 export async function getBloodPressureReadings(
   userId: string,
   from: string,

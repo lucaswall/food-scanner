@@ -83,6 +83,7 @@ describe("POST /api/v1/glucose-readings", () => {
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
     expect(data.data.upserted).toBe(0);
+    expect(mockUpsertGlucoseReadings).toHaveBeenCalledWith("user-123", []);
   });
 
   it("returns 401 for missing/invalid auth", async () => {
@@ -236,6 +237,21 @@ describe("POST /api/v1/glucose-readings", () => {
     expect(data.success).toBe(false);
     expect(data.error.code).toBe("VALIDATION_ERROR");
     expect(data.error.message).toMatch(/specimenSource/i);
+  });
+
+  it("returns 400 for invalid zoneOffset format", async () => {
+    const request = createPostRequest(
+      "http://localhost:3000/api/v1/glucose-readings",
+      { readings: [{ ...VALID_READING, zoneOffset: "America/New_York" }] },
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toMatch(/zoneOffset/i);
   });
 
   it("returns 500 when lib function throws", async () => {

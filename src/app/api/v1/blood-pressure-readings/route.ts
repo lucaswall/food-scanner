@@ -9,6 +9,7 @@ import type { BloodPressureReadingInput } from "@/types";
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
+const ZONE_OFFSET_RE = /^[+-]\d{2}:\d{2}$/;
 const BODY_POSITION_VALUES = new Set([
   "standing_up", "sitting_down", "lying_down", "reclining", "unknown",
 ]);
@@ -71,6 +72,9 @@ export async function POST(request: Request) {
     }
     if (r.measurementLocation !== undefined && r.measurementLocation !== null && !MEASUREMENT_LOCATION_VALUES.has(r.measurementLocation as string)) {
       return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: invalid measurementLocation value`, 400);
+    }
+    if (typeof r.zoneOffset === "string" && !ZONE_OFFSET_RE.test(r.zoneOffset)) {
+      return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: zoneOffset must be in ±HH:MM format`, 400);
     }
 
     validated.push({

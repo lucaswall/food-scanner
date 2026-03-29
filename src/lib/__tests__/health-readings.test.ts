@@ -14,6 +14,7 @@ const mockEq = vi.fn();
 const mockAsc = vi.fn();
 const mockGte = vi.fn();
 const mockLte = vi.fn();
+const mockSql = vi.fn();
 
 vi.mock("@/db/index", () => ({
   getDb: () => ({
@@ -29,6 +30,7 @@ vi.mock("drizzle-orm", () => ({
   asc: mockAsc,
   gte: mockGte,
   lte: mockLte,
+  sql: mockSql,
 }));
 
 function setupMocks() {
@@ -59,6 +61,7 @@ describe("upsertGlucoseReadings", () => {
 
   it("calls insert with onConflictDoUpdate with correct target", async () => {
     mockOnConflictDoUpdate.mockResolvedValueOnce([{ id: 1 }, { id: 2 }]);
+    mockSql.mockReturnValue("mocked-sql");
 
     const { upsertGlucoseReadings } = await import("@/lib/health-readings");
 
@@ -122,6 +125,7 @@ describe("upsertBloodPressureReadings", () => {
 
   it("calls insert with onConflictDoUpdate with correct target", async () => {
     mockOnConflictDoUpdate.mockResolvedValueOnce([{ id: 1 }]);
+    mockSql.mockReturnValue("mocked-sql");
 
     const { upsertBloodPressureReadings } = await import("@/lib/health-readings");
 

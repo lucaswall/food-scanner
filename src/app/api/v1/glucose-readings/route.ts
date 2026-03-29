@@ -9,6 +9,7 @@ import type { GlucoseReadingInput } from "@/types";
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
+const ZONE_OFFSET_RE = /^[+-]\d{2}:\d{2}$/;
 const RELATION_TO_MEAL_VALUES = new Set(["general", "fasting", "before_meal", "after_meal", "unknown"]);
 const MEAL_TYPE_VALUES = new Set(["breakfast", "lunch", "dinner", "snack", "unknown"]);
 const SPECIMEN_SOURCE_VALUES = new Set([
@@ -70,6 +71,9 @@ export async function POST(request: Request) {
     }
     if (r.specimenSource !== undefined && r.specimenSource !== null && !SPECIMEN_SOURCE_VALUES.has(r.specimenSource as string)) {
       return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: invalid specimenSource value`, 400);
+    }
+    if (typeof r.zoneOffset === "string" && !ZONE_OFFSET_RE.test(r.zoneOffset)) {
+      return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: zoneOffset must be in ±HH:MM format`, 400);
     }
 
     validated.push({

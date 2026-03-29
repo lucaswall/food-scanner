@@ -184,3 +184,57 @@
 **Scope:** 5 tasks, 10 files (4 create, 6 modify), ~16 test scenarios per endpoint
 **Key Decisions:** String enums (not integers) for Health Connect metadata fields; only measurement timestamp (no createdAt/updatedAt); zoneOffset stored as varchar(6); mg/dL for glucose storage; numeric type for glucose values, integer for blood pressure
 **Risks:** First POST handlers in v1 API — need to verify middleware.ts matcher covers POST methods (it should, as it matches on path not method)
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-29
+**Method:** Agent team (2 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Drizzle schema + types for health readings — Added `glucoseReadings` and `bloodPressureReadings` tables, 4 TypeScript interfaces (worker-1)
+- Task 2: Health readings lib module — Created `src/lib/health-readings.ts` with batch upsert and date-range query functions, 10 unit tests (worker-1)
+- Task 3: POST endpoints — Created POST handlers for glucose-readings and blood-pressure-readings with full validation, 28 tests (worker-2)
+- Task 4: GET endpoints — Added GET handlers with single-date and date-range query modes, ETag support, 27 tests (worker-2)
+- Task 5: Documentation — Updated CLAUDE.md tables list, removed Health Readings API from ROADMAP.md (lead)
+
+### Files Modified
+- `src/db/schema.ts` — Added glucoseReadings and bloodPressureReadings tables
+- `src/types/index.ts` — Added GlucoseReading, BloodPressureReading, GlucoseReadingInput, BloodPressureReadingInput interfaces
+- `src/lib/health-readings.ts` — Created with upsertGlucoseReadings, upsertBloodPressureReadings, getGlucoseReadings, getBloodPressureReadings
+- `src/lib/__tests__/health-readings.test.ts` — 10 tests for lib module
+- `src/app/api/v1/glucose-readings/route.ts` — POST + GET handlers
+- `src/app/api/v1/blood-pressure-readings/route.ts` — POST + GET handlers
+- `src/app/api/v1/glucose-readings/__tests__/route.test.ts` — 30 tests
+- `src/app/api/v1/blood-pressure-readings/__tests__/route.test.ts` — 29 tests
+- `drizzle/0016_safe_domino.sql` — Migration for new tables
+- `CLAUDE.md` — Added new tables to DATABASE section
+- `ROADMAP.md` — Removed Health Readings API feature section
+
+### Linear Updates
+- FOO-886: Todo → In Progress → Review
+- FOO-887: Todo → In Progress → Review
+- FOO-888: Todo → In Progress → Review
+- FOO-889: Todo → In Progress → Review
+- FOO-890: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (1 critical, 3 medium), all fixed before proceeding
+  - CRITICAL: onConflictDoUpdate set clause referenced existing row values instead of incoming — fixed with `sql`excluded`` pattern
+  - MEDIUM: zoneOffset not validated — added ±HH:MM regex check
+  - MEDIUM: UTC date boundary behavior undocumented — added JSDoc comments
+  - MEDIUM: Empty array test missing mock assertion — added expect calls
+- verifier: All 2887+ tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1+2 (foundation — schema, types, lib module)
+- Worker 2: Tasks 3+4 (routes — POST and GET endpoints)
+- Lead: Task 1 step 4 (drizzle-kit generate), Task 5 (docs), bug fixes
+
+### Merge Summary
+- Worker 1: fast-forward (first merge, no conflicts)
+- Worker 2: 2 conflicts in src/types/index.ts and src/lib/health-readings.ts (worker-2 created stubs, resolved by keeping worker-1's full implementations)
+
+### Continuation Status
+All tasks completed.
