@@ -12,6 +12,7 @@ import {
   time,
   unique,
   jsonb,
+  varchar,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -167,5 +168,39 @@ export const dailyCalorieGoals = pgTable(
   },
   (table) => ({
     userDateUnique: unique("daily_calorie_goals_user_date_uniq").on(table.userId, table.date),
+  })
+);
+
+export const glucoseReadings = pgTable(
+  "glucose_readings",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    measuredAt: timestamp("measured_at", { withTimezone: true }).notNull(),
+    zoneOffset: varchar("zone_offset", { length: 6 }),
+    valueMgDl: numeric("value_mg_dl").notNull(),
+    relationToMeal: text("relation_to_meal"),
+    mealType: text("meal_type"),
+    specimenSource: text("specimen_source"),
+  },
+  (table) => ({
+    userMeasuredAtUnique: unique("glucose_readings_user_measured_at_uniq").on(table.userId, table.measuredAt),
+  })
+);
+
+export const bloodPressureReadings = pgTable(
+  "blood_pressure_readings",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    measuredAt: timestamp("measured_at", { withTimezone: true }).notNull(),
+    zoneOffset: varchar("zone_offset", { length: 6 }),
+    systolic: integer("systolic").notNull(),
+    diastolic: integer("diastolic").notNull(),
+    bodyPosition: text("body_position"),
+    measurementLocation: text("measurement_location"),
+  },
+  (table) => ({
+    userMeasuredAtUnique: unique("blood_pressure_readings_user_measured_at_uniq").on(table.userId, table.measuredAt),
   })
 );
