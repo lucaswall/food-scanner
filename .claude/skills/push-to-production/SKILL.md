@@ -12,7 +12,7 @@ Promote `main` to `release` with automated backup, migration assessment, and mer
 
 ### 1.1 Verify Linear MCP
 
-**ALWAYS call `mcp__linear__list_issues` with `team: "Food Scanner"` and `state: "Done"` directly.** Do NOT try to determine MCP availability by inspecting the tool list, checking settings, or reasoning about it — you MUST actually invoke the tool and check the result. If the call fails or returns an error, **warn** but do not stop — Linear state transitions are cosmetic, the release can proceed without them.
+**ALWAYS call `mcp__linear__list_issues` with `team: "Food Scanner"` and `state: "Done"` directly.** Do NOT try to determine MCP availability by inspecting the tool list, checking settings, or reasoning about it — you MUST actually invoke the tool and check the result. If the call fails or returns an error, **STOP** and tell the user to reconnect Linear MCP (run `/mcp`). Linear is required for issue state transitions — do not proceed without it.
 
 Record any Done issues for the release notes.
 
@@ -566,7 +566,7 @@ Transition all Linear issues in "Done" or "Merge" to "Released" now that the cod
 
 If no issues are in Done or Merge, that's fine — skip silently.
 
-If the Linear MCP is unavailable (tools fail), **do not STOP** — log a warning in the report and continue. The release itself succeeded; issue state is cosmetic.
+If the Linear MCP is unavailable (tools fail), **STOP** and tell the user to reconnect Linear MCP (run `/mcp`). Linear is required for issue state transitions.
 
 ### 6.2 Report
 
@@ -644,5 +644,5 @@ If MIGRATIONS.md mentioned any environment variable changes, remind the user:
 - **Never hardcode user data in SQL** — Derive from existing DB content (SELECT DISTINCT, JOINs), never hardcode emails, names, or personal data
 - **Semantic Versioning 2.0.0** — Version bumps follow semver rules: MAJOR for breaking changes, MINOR for new features, PATCH for bug fixes. Every release gets a CHANGELOG.md entry and matching package.json version
 - **Never defer SQL to the user** — All data operations from MIGRATIONS.md must be executed by this skill as part of the release. Never tell the user to run SQL manually post-deploy.
-- **Linear is cosmetic** — Issue state transitions are nice-to-have. Never block a release because Linear MCP is down.
+- **Linear is required** — Issue state transitions are part of the release workflow. STOP and ask user to reconnect Linear MCP if unavailable.
 - **Stop on any failure** — Better to abort than corrupt production
