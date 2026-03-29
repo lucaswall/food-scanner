@@ -195,6 +195,41 @@ describe("POST /api/v1/blood-pressure-readings", () => {
     expect(data.error.message).toMatch(/diastolic/i);
   });
 
+  it("returns 400 when readings array exceeds max batch size", async () => {
+    const readings = Array.from({ length: 1001 }, (_, i) => ({
+      measuredAt: `2026-03-28T${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}:00.000Z`,
+      systolic: 120,
+      diastolic: 80,
+    }));
+    const request = createPostRequest(
+      "http://localhost:3000/api/v1/blood-pressure-readings",
+      { readings },
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toMatch(/1000/);
+  });
+
+  it("returns 400 for non-ISO-8601 but parseable date string", async () => {
+    const request = createPostRequest(
+      "http://localhost:3000/api/v1/blood-pressure-readings",
+      { readings: [{ measuredAt: "March 28, 2026 08:00:00", systolic: 120, diastolic: 80 }] },
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toMatch(/measuredAt/i);
+  });
+
   it("returns 400 for invalid measuredAt (not ISO 8601)", async () => {
     const request = createPostRequest(
       "http://localhost:3000/api/v1/blood-pressure-readings",

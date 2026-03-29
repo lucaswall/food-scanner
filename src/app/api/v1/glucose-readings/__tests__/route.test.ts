@@ -179,6 +179,40 @@ describe("POST /api/v1/glucose-readings", () => {
     expect(data.error.message).toMatch(/valueMgDl/i);
   });
 
+  it("returns 400 when readings array exceeds max batch size", async () => {
+    const readings = Array.from({ length: 1001 }, (_, i) => ({
+      measuredAt: `2026-03-28T${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}:00.000Z`,
+      valueMgDl: 95,
+    }));
+    const request = createPostRequest(
+      "http://localhost:3000/api/v1/glucose-readings",
+      { readings },
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toMatch(/1000/);
+  });
+
+  it("returns 400 for non-ISO-8601 but parseable date string", async () => {
+    const request = createPostRequest(
+      "http://localhost:3000/api/v1/glucose-readings",
+      { readings: [{ measuredAt: "March 28, 2026 08:00:00", valueMgDl: 95 }] },
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toMatch(/measuredAt/i);
+  });
+
   it("returns 400 for invalid measuredAt (not ISO 8601)", async () => {
     const request = createPostRequest(
       "http://localhost:3000/api/v1/glucose-readings",

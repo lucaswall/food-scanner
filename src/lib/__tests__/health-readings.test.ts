@@ -12,8 +12,6 @@ const mockAnd = vi.fn();
 const mockBetween = vi.fn();
 const mockEq = vi.fn();
 const mockAsc = vi.fn();
-const mockGte = vi.fn();
-const mockLte = vi.fn();
 const mockSql = vi.fn();
 
 vi.mock("@/db/index", () => ({
@@ -28,8 +26,6 @@ vi.mock("drizzle-orm", () => ({
   between: mockBetween,
   eq: mockEq,
   asc: mockAsc,
-  gte: mockGte,
-  lte: mockLte,
   sql: mockSql,
 }));
 
@@ -95,7 +91,14 @@ describe("upsertGlucoseReadings", () => {
     );
     expect(mockOnConflictDoUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        target: expect.anything(),
+        target: expect.arrayContaining([expect.anything(), expect.anything()]),
+        set: expect.objectContaining({
+          zoneOffset: "mocked-sql",
+          valueMgDl: "mocked-sql",
+          relationToMeal: "mocked-sql",
+          mealType: "mocked-sql",
+          specimenSource: "mocked-sql",
+        }),
       })
     );
     expect(count).toBe(2);
@@ -150,7 +153,14 @@ describe("upsertBloodPressureReadings", () => {
     );
     expect(mockOnConflictDoUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        target: expect.anything(),
+        target: expect.arrayContaining([expect.anything(), expect.anything()]),
+        set: expect.objectContaining({
+          zoneOffset: "mocked-sql",
+          systolic: "mocked-sql",
+          diastolic: "mocked-sql",
+          bodyPosition: "mocked-sql",
+          measurementLocation: "mocked-sql",
+        }),
       })
     );
     expect(count).toBe(1);
@@ -208,6 +218,7 @@ describe("getGlucoseReadings", () => {
     );
     expect(mockAnd).toHaveBeenCalled();
     expect(mockOrderBy).toHaveBeenCalled();
+    expect(mockAsc).toHaveBeenCalled();
 
     expect(result).toEqual([
       expect.objectContaining({
@@ -286,6 +297,7 @@ describe("getBloodPressureReadings", () => {
       new Date("2026-03-01T23:59:59.999Z")
     );
     expect(mockOrderBy).toHaveBeenCalled();
+    expect(mockAsc).toHaveBeenCalled();
 
     expect(result).toEqual([
       expect.objectContaining({

@@ -8,8 +8,10 @@ import type { BloodPressureReadingInput } from "@/types";
 
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_BATCH_SIZE = 1000;
 
 const ZONE_OFFSET_RE = /^[+-]\d{2}:\d{2}$/;
+const ISO_8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const BODY_POSITION_VALUES = new Set([
   "standing_up", "sitting_down", "lying_down", "reclining", "unknown",
 ]);
@@ -49,6 +51,11 @@ export async function POST(request: Request) {
   }
 
   const rawReadings = (body as Record<string, unknown>).readings as unknown[];
+
+  if (rawReadings.length > MAX_BATCH_SIZE) {
+    return errorResponse("VALIDATION_ERROR", `Readings array exceeds maximum batch size of ${MAX_BATCH_SIZE}`, 400);
+  }
+
   const validated: BloodPressureReadingInput[] = [];
 
   for (let i = 0; i < rawReadings.length; i++) {
@@ -58,7 +65,7 @@ export async function POST(request: Request) {
     }
     const r = item as Record<string, unknown>;
 
-    if (typeof r.measuredAt !== "string" || isNaN(Date.parse(r.measuredAt))) {
+    if (typeof r.measuredAt !== "string" || !ISO_8601_RE.test(r.measuredAt)) {
       return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: measuredAt must be a valid ISO 8601 string`, 400);
     }
     if (typeof r.systolic !== "number" || !Number.isInteger(r.systolic) || r.systolic <= 0) {

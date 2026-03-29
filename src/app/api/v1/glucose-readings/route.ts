@@ -8,8 +8,10 @@ import type { GlucoseReadingInput } from "@/types";
 
 const RATE_LIMIT_MAX = 60;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_BATCH_SIZE = 1000;
 
 const ZONE_OFFSET_RE = /^[+-]\d{2}:\d{2}$/;
+const ISO_8601_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const RELATION_TO_MEAL_VALUES = new Set(["general", "fasting", "before_meal", "after_meal", "unknown"]);
 const MEAL_TYPE_VALUES = new Set(["breakfast", "lunch", "dinner", "snack", "unknown"]);
 const SPECIMEN_SOURCE_VALUES = new Set([
@@ -48,6 +50,11 @@ export async function POST(request: Request) {
   }
 
   const rawReadings = (body as Record<string, unknown>).readings as unknown[];
+
+  if (rawReadings.length > MAX_BATCH_SIZE) {
+    return errorResponse("VALIDATION_ERROR", `Readings array exceeds maximum batch size of ${MAX_BATCH_SIZE}`, 400);
+  }
+
   const validated: GlucoseReadingInput[] = [];
 
   for (let i = 0; i < rawReadings.length; i++) {
@@ -57,7 +64,7 @@ export async function POST(request: Request) {
     }
     const r = item as Record<string, unknown>;
 
-    if (typeof r.measuredAt !== "string" || isNaN(Date.parse(r.measuredAt))) {
+    if (typeof r.measuredAt !== "string" || !ISO_8601_RE.test(r.measuredAt)) {
       return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: measuredAt must be a valid ISO 8601 string`, 400);
     }
     if (typeof r.valueMgDl !== "number" || r.valueMgDl <= 0) {

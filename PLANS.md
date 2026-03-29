@@ -1,5 +1,6 @@
 # Implementation Plan
 
+**Status:** COMPLETE
 **Created:** 2026-03-29
 **Source:** Inline request: Health Readings API — blood glucose and blood pressure read/write endpoints for HealthHelper Android app
 **Linear Issues:** [FOO-886](https://linear.app/lw-claude/issue/FOO-886/drizzle-schema-types-for-health-readings-glucose-blood-pressure), [FOO-887](https://linear.app/lw-claude/issue/FOO-887/health-readings-lib-module-batch-upsert-date-range-queries), [FOO-888](https://linear.app/lw-claude/issue/FOO-888/post-endpoints-for-glucose-readings-and-blood-pressure-readings), [FOO-889](https://linear.app/lw-claude/issue/FOO-889/get-endpoints-for-glucose-readings-and-blood-pressure), [FOO-890](https://linear.app/lw-claude/issue/FOO-890/update-claudemd-and-remove-health-readings-api-from-roadmap)
@@ -236,5 +237,44 @@
 - Worker 1: fast-forward (first merge, no conflicts)
 - Worker 2: 2 conflicts in src/types/index.ts and src/lib/health-readings.ts (worker-2 created stubs, resolved by keeping worker-1's full implementations)
 
+### Review Findings
+
+Summary: 9 findings evaluated, 3 fixed inline (single-agent + team review: security, reliability, quality reviewers)
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [MEDIUM] BUG: No batch size limit on POST readings arrays — both glucose and BP routes accept unbounded arrays. Added `MAX_BATCH_SIZE = 1000` constant + validation check. (`src/app/api/v1/glucose-readings/route.ts:53`, `src/app/api/v1/blood-pressure-readings/route.ts:54`)
+- [MEDIUM] BUG: `Date.parse()` accepts non-ISO 8601 strings (e.g., "March 28, 2026") — replaced with strict `ISO_8601_RE` regex validation. (`src/app/api/v1/glucose-readings/route.ts:62`, `src/app/api/v1/blood-pressure-readings/route.ts:63`)
+- [LOW] TEST: Weak assertions in health-readings lib tests — upsert tests used `expect.anything()` for conflict target, didn't verify `set` payload; orderBy tests didn't assert `asc()` called; removed dead `mockGte`/`mockLte` variables. (`src/lib/__tests__/health-readings.test.ts`)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] EDGE CASE: GET endpoints accept unbounded date ranges — single-user app with tiny data volumes; all existing v1 GETs follow same pattern; not a bug
+- [DISCARDED] EDGE CASE: Day-end boundary T23:59:59.999Z misses microsecond-precision readings — Android Health Connect uses millisecond timestamps; sub-ms readings impossible in context
+- [DISCARDED] TYPE: `as string` casts before Set#has() — runtime behavior correct (Set#has returns false for non-strings); style-only, zero correctness impact
+- [DISCARDED] SECURITY: No upper-bound validation on health values (valueMgDl, systolic, diastolic) — semantic reasonableness check, not a security bug; no existing v1 endpoints enforce value ranges
+- [DISCARDED] SECURITY: userId logged at debug level — not prohibited by CLAUDE.md (only "Cookie values, access tokens, API keys" are banned); matches all other lib modules
+
+### Linear Updates
+- FOO-886: Review → Merge
+- FOO-887: Review → Merge
+- FOO-888: Review → Merge
+- FOO-889: Review → Merge
+- FOO-890: Review → Merge
+- FOO-891: Created in Merge (Fix: batch size limit)
+- FOO-892: Created in Merge (Fix: ISO 8601 validation)
+- FOO-893: Created in Merge (Fix: weak test assertions)
+
+### Inline Fix Verification
+- Unit tests: all 2893 pass
+- Bug-hunter: no new issues
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
 All tasks completed.
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
