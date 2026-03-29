@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-03-29
+
+### Added
+
+- Health readings API — blood glucose and blood pressure read/write endpoints for HealthHelper Android app
+- Batch upsert with idempotent conflict resolution for health readings
+
+### Fixed
+
+- E2E test stability under parallel load (added retry and increased timeout)
+
 ## [1.22.0] - 2026-03-29
 
 ### Added
@@ -449,7 +460,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.22.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.23.0...HEAD
+[1.23.0]: https://github.com/lucaswall/food-scanner/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/lucaswall/food-scanner/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/lucaswall/food-scanner/compare/v1.20.0...v1.21.0
 [1.20.0]: https://github.com/lucaswall/food-scanner/compare/v1.19.0...v1.20.0
