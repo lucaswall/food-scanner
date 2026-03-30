@@ -62,6 +62,7 @@ export interface UpdateFoodLogInput {
   mealTypeId: number;
   date: string;
   time: string;
+  zoneOffset?: string | null;
   fitbitLogId?: number | null;
   fitbitFoodId?: number | null;
 }
@@ -574,6 +575,7 @@ export interface FoodLogEntryMetadataUpdate {
   date: string;
   time: string;
   fitbitLogId: number | null;
+  zoneOffset?: string | null;
 }
 
 export async function updateFoodLogEntryMetadata(
@@ -592,6 +594,7 @@ export async function updateFoodLogEntryMetadata(
       date: updates.date,
       time: updates.time,
       fitbitLogId: updates.fitbitLogId,
+      ...(updates.zoneOffset !== undefined ? { zoneOffset: updates.zoneOffset } : {}),
     })
     .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
 
@@ -798,6 +801,7 @@ export async function updateFoodLogEntry(
         mealTypeId: data.mealTypeId,
         date: data.date,
         time: data.time,
+        ...(data.zoneOffset !== undefined ? { zoneOffset: data.zoneOffset } : {}),
         ...(data.fitbitLogId !== undefined ? { fitbitLogId: data.fitbitLogId } : {}),
       })
       .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));

@@ -205,3 +205,29 @@ Fix plan pending — more implementation needed.
 8. Extract `zoneOffset` and pass through all 4 `updateFoodLogEntryMetadata` callsites and the `updateFoodLogEntry` path in edit-food route
 9. Add `zoneOffset` to `saveBody` in `src/components/food-chat.tsx` handleSave
 10. Run verifier (full suite)
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-03-29
+**Method:** Single-agent
+
+### Tasks Completed This Iteration
+- Fix 1: Edit flow does not store zoneOffset (FOO-897) — Added `zoneOffset` to `UpdateFoodLogInput` and `FoodLogEntryMetadataUpdate` interfaces, updated `.set()` calls in both update functions, added validation in edit-food route, passed through all callsites, added `zoneOffset` to both `handleSave` and `handleSaveExisting` in food-chat.tsx
+
+### Files Modified
+- `src/lib/food-log.ts` — Added `zoneOffset` to `FoodLogEntryMetadataUpdate`, `UpdateFoodLogInput`, and both `.set()` calls
+- `src/app/api/edit-food/route.ts` — Added `zoneOffset` validation, extraction, and passthrough to `updateFoodLogEntryMetadata` and `updateFoodLogEntry`
+- `src/components/food-chat.tsx` — Added `zoneOffset` to `saveBody` in both `handleSave` and `handleSaveExisting`
+- `src/lib/__tests__/food-log.test.ts` — Added 3 tests for zoneOffset in updateFoodLogEntryMetadata and updateFoodLogEntry
+
+### Linear Updates
+- FOO-897: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: No bugs found
+- verifier: All 2902 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

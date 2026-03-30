@@ -615,6 +615,7 @@ export function FoodChat({
         mealTypeId,
         date: editEntry.date,
         time: selectedTime ?? editEntry.time ?? time,
+        zoneOffset,
       };
 
       const response = await fetch("/api/edit-food", {
@@ -695,6 +696,7 @@ export function FoodChat({
         mealTypeId,
         date,
         time,
+        zoneOffset: fallback.zoneOffset,
       };
 
       const response = await fetch("/api/edit-food", {

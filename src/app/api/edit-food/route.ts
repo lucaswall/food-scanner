@@ -141,10 +141,18 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid time format. Use HH:mm or HH:mm:ss", 400);
   }
 
+  // Validate zoneOffset (optional)
+  if (data.zoneOffset !== undefined && data.zoneOffset !== null) {
+    if (typeof data.zoneOffset !== "string" || !/^[+-]\d{2}:\d{2}$/.test(data.zoneOffset)) {
+      return errorResponse("VALIDATION_ERROR", "Invalid zoneOffset format. Use ±HH:MM", 400);
+    }
+  }
+
   const entryId = data.entryId as number;
   const mealTypeId = data.mealTypeId as number;
   const date = data.date as string;
   const time = data.time as string;
+  const zoneOffset = (data.zoneOffset as string | undefined) ?? null;
 
   // Look up existing entry
   const entry = await getFoodLogEntryDetail(session!.userId, entryId);
@@ -219,7 +227,7 @@ export async function POST(request: Request) {
     }
 
     try {
-      await updateFoodLogEntryMetadata(session!.userId, entryId, { mealTypeId, date, time, fitbitLogId: fastPathFitbitLogId }, log);
+      await updateFoodLogEntryMetadata(session!.userId, entryId, { mealTypeId, date, time, fitbitLogId: fastPathFitbitLogId, zoneOffset }, log);
 
       // Update custom_foods metadata if it changed
       const metadataChanged =
@@ -400,6 +408,7 @@ export async function POST(request: Request) {
         mealTypeId,
         date,
         time,
+        zoneOffset,
         ...(newFitbitLogId !== undefined ? { fitbitLogId: newFitbitLogId } : {}),
         ...(fitbitFoodId !== undefined ? { fitbitFoodId } : {}),
       },
