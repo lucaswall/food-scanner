@@ -158,5 +158,50 @@
 - bug-hunter: Found 1 medium bug (missing `zoneOffset` in 2 `savePendingSubmission` calls in food-chat.tsx edit flows), fixed before proceeding
 - verifier: All 2899 tests pass, zero warnings, build clean
 
+### Review Findings
+
+Summary: 1 issue found (Team: security, reliability, quality reviewers)
+- FIX: 1 issue — Linear issue created
+- DISCARDED: 5 findings — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: Edit flow does not store zoneOffset (`src/components/food-chat.tsx:611-618`, `src/lib/food-log.ts:792-802`, `src/lib/food-log.ts:572-577`) — `handleSave` destructures `zoneOffset` from `getLocalDateTime()` but omits it from `saveBody`. `UpdateFoodLogInput` and `FoodLogEntryMetadataUpdate` interfaces lack `zoneOffset`. `updateFoodLogEntry` and `updateFoodLogEntryMetadata` don't write it. Edit-food route doesn't validate or pass it. After any edit, `zone_offset` column retains stale value.
+
+**Discarded findings (not bugs):**
+- [DISCARDED] TYPE: Unvalidated confidence cast in food-chat.tsx:61 — confidence values are system-controlled (Claude API schema), not user input; runtime validation unnecessary
+- [DISCARDED] TYPE: Misleading confidence fallback in log-shared-content.tsx:120 — same reasoning; server validates before storage
+- [DISCARDED] CONVENTION: Time field comment says HH:mm:ss in types/index.ts:99 — style-only comment inconsistency, API accepts both formats, no correctness impact
+- [DISCARDED] CONVENTION: Test mock returns HH:mm:ss in food-analyzer-reconnect.test.tsx:226 — API accepts both formats, test validity unaffected
+- [DISCARDED] CONVENTION: Missing zoneOffset assertion in insertCustomFoodWithLogEntry test — covered transitively by insertFoodLogEntry suite
+
+### Linear Updates
+- FOO-894: Review → Merge (original task completed)
+- FOO-895: Review → Merge (original task completed)
+- FOO-896: Review → Merge (original task completed)
+- FOO-897: Created in Todo (Fix: edit flow does not store zoneOffset)
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
-All tasks completed.
+Fix plan pending — more implementation needed.
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-897](https://linear.app/lw-claude/issue/FOO-897/fix-edit-flow-does-not-store-zoneoffset)
+
+### Fix 1: Edit flow does not store zoneOffset
+**Linear Issue:** [FOO-897](https://linear.app/lw-claude/issue/FOO-897/fix-edit-flow-does-not-store-zoneoffset)
+
+1. Write test in `src/lib/__tests__/food-log.test.ts` for `updateFoodLogEntryMetadata` passing `zoneOffset` through to `.set()`
+2. Add `zoneOffset?: string | null` to `FoodLogEntryMetadataUpdate` interface in `src/lib/food-log.ts`
+3. Add `zoneOffset: updates.zoneOffset ?? undefined` to `.set()` in `updateFoodLogEntryMetadata` (only set when provided, don't overwrite with null on callers that don't pass it)
+4. Write test in `src/lib/__tests__/food-log.test.ts` for `updateFoodLogEntry` passing `zoneOffset` through to `.set()`
+5. Add `zoneOffset?: string | null` to `UpdateFoodLogInput` interface in `src/lib/food-log.ts`
+6. Add `zoneOffset: data.zoneOffset ?? null` to `.set()` in `updateFoodLogEntry`
+7. Add `zoneOffset` validation in `src/app/api/edit-food/route.ts` (same regex as log-food: `/^[+-]\d{2}:\d{2}$/`, optional, reject 400 if present and invalid)
+8. Extract `zoneOffset` and pass through all 4 `updateFoodLogEntryMetadata` callsites and the `updateFoodLogEntry` path in edit-food route
+9. Add `zoneOffset` to `saveBody` in `src/components/food-chat.tsx` handleSave
+10. Run verifier (full suite)
