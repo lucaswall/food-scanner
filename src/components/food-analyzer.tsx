@@ -394,12 +394,14 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             mealTypeId,
             date: localDateTime.date,
             time: logTime,
+            zoneOffset: localDateTime.zoneOffset,
           }
         : {
             ...analysis,
             mealTypeId,
             date: localDateTime.date,
             time: logTime,
+            zoneOffset: localDateTime.zoneOffset,
           };
 
       const response = await fetch("/api/log-food", {
@@ -424,6 +426,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             foodName: analysis.food_name,
             date: localDateTime.date,
             time: logTime,
+            zoneOffset: localDateTime.zoneOffset,
             sessionId: getActiveSessionId() ?? undefined,
           });
           window.location.href = "/api/auth/fitbit";
@@ -562,7 +565,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     actions.setMealTypeId(pending.mealTypeId);
 
     const dateTime = pending.date && pending.time
-      ? { date: pending.date, time: pending.time }
+      ? { date: pending.date, time: pending.time, zoneOffset: pending.zoneOffset }
       : getLocalDateTime();
     const body: Record<string, unknown> = { mealTypeId: pending.mealTypeId, ...dateTime };
     if (pending.reuseCustomFoodId) {

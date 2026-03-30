@@ -1,0 +1,1 @@
+ALTER TABLE "food_log_entries" ADD COLUMN "zone_offset" varchar(6);

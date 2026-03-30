@@ -97,7 +97,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
     setIsLogging(true);
     setLogError(null);
 
-    const { date, time } = getLocalDateTime();
+    const { date, time, zoneOffset } = getLocalDateTime();
 
     try {
       const response = await fetch("/api/log-food", {
@@ -124,6 +124,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
           mealTypeId,
           date,
           time,
+          zoneOffset,
         }),
       });
 

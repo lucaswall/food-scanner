@@ -32,7 +32,7 @@ vi.mock("@/lib/analysis-session", () => ({
 
 // Mock meal-type for getLocalDateTime fallback
 vi.mock("@/lib/meal-type", () => ({
-  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30" }),
+  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30", zoneOffset: "-03:00" }),
 }));
 
 beforeEach(() => {

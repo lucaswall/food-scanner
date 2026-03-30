@@ -121,3 +121,42 @@
 **Scope:** 3 tasks, ~12 files modified, ~6 new test cases
 **Key Decisions:** Nullable column (no backfill of existing rows); optional in POST body (backward compatible); same `±HH:MM` format and validation regex as health readings
 **Risks:** Low — proven pattern from health readings, no breaking changes. Only risk is missing a client component call site (6 identified, all traced).
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-03-29
+**Method:** Single-agent
+
+### Tasks Completed This Iteration
+- Task 1: Schema + types + migration (FOO-894) — Added `zone_offset` column, updated `FoodLogEntryInput`, `FoodLogRequest`, `MealEntry` types, generated Drizzle migration
+- Task 2: Full flow getLocalDateTime → API → DB (FOO-895) — Extended `getLocalDateTime()` with `zoneOffset`, threaded through all 5 client components + `PendingSubmission`, added API route validation, updated both insert functions
+- Task 3: v1 food-log GET exposes zoneOffset (FOO-896) — Added `zoneOffset` to `getDailyNutritionSummary` mapping, added test for v1 response
+
+### Files Modified
+- `src/db/schema.ts` — Added `zoneOffset` column to `foodLogEntries`
+- `src/types/index.ts` — Added `zoneOffset` to `FoodLogRequest` and `MealEntry`
+- `src/lib/food-log.ts` — Added `zoneOffset` to `FoodLogEntryInput`, both insert functions, and `getDailyNutritionSummary` mapping
+- `src/lib/meal-type.ts` — Extended `getLocalDateTime()` to compute and return `zoneOffset`
+- `src/lib/pending-submission.ts` — Added `zoneOffset` to `PendingSubmission` interface and validation
+- `src/app/api/log-food/route.ts` — Added `zoneOffset` format validation and passthrough to insert calls
+- `src/components/food-analyzer.tsx` — Added `zoneOffset` to log body and `savePendingSubmission` calls
+- `src/components/food-chat.tsx` — Added `zoneOffset` to log body and all `savePendingSubmission` calls
+- `src/app/app/log-shared/[token]/log-shared-content.tsx` — Added `zoneOffset` to destructuring and POST body
+- `src/components/pending-submission-handler.tsx` — Added `zoneOffset` to fallback dateTime object
+- `drizzle/0017_lonely_warbound.sql` — Generated migration
+- `MIGRATIONS.md` — Logged production backfill SQL
+- Test files: Updated mocks in 6 test files, added 6 new tests
+
+### Linear Updates
+- FOO-894: Todo → In Progress → Review
+- FOO-895: Todo → In Progress → Review
+- FOO-896: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 1 medium bug (missing `zoneOffset` in 2 `savePendingSubmission` calls in food-chat.tsx edit flows), fixed before proceeding
+- verifier: All 2899 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

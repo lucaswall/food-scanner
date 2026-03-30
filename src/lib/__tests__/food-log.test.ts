@@ -563,6 +563,47 @@ describe("insertFoodLogEntry", () => {
       }),
     );
   });
+
+  it("stores zoneOffset when provided", async () => {
+    const loggedAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+
+    await insertFoodLogEntry("user-uuid-123", {
+      customFoodId: 1,
+      mealTypeId: 5,
+      amount: 1,
+      unitId: 304,
+      date: "2026-02-05",
+      time: "19:30:00",
+      zoneOffset: "-03:00",
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        zoneOffset: "-03:00",
+      }),
+    );
+  });
+
+  it("stores null zoneOffset when not provided", async () => {
+    const loggedAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+
+    await insertFoodLogEntry("user-uuid-123", {
+      customFoodId: 1,
+      mealTypeId: 5,
+      amount: 1,
+      unitId: 304,
+      date: "2026-02-05",
+      time: "19:30:00",
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        zoneOffset: null,
+      }),
+    );
+  });
 });
 
 describe("getCustomFoodById", () => {

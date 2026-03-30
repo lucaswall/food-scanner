@@ -22,7 +22,7 @@ vi.mock("@/lib/pending-submission", () => ({
 // Mock meal-type
 vi.mock("@/lib/meal-type", () => ({
   getDefaultMealType: () => 3,
-  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30" }),
+  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30", zoneOffset: "-03:00" }),
 }));
 
 // Mock nutrition-facts-card

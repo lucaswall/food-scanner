@@ -120,6 +120,13 @@
       "when": 1774813915159,
       "tag": "0016_safe_domino",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1774834253370,
+      "tag": "0017_lonely_warbound",
+      "breakpoints": true
     }
   ]
 }

@@ -527,12 +527,14 @@ export function FoodChat({
             mealTypeId,
             date: logDate,
             time: logTime,
+            zoneOffset: localDateTime.zoneOffset,
           }
         : {
             ...analysis,
             mealTypeId,
             date: logDate,
             time: logTime,
+            zoneOffset: localDateTime.zoneOffset,
           };
 
       const response = await fetch("/api/log-food", {
@@ -559,6 +561,7 @@ export function FoodChat({
             foodName: analysis.food_name,
             date: logDate,
             time: logTime,
+            zoneOffset: localDateTime.zoneOffset,
           });
           window.location.href = "/api/auth/fitbit";
           return;
@@ -605,7 +608,7 @@ export function FoodChat({
     setError(null);
 
     try {
-      const { time } = getLocalDateTime();
+      const { time, zoneOffset } = getLocalDateTime();
       const saveBody = {
         entryId: editEntry.id,
         ...analysis,
@@ -637,6 +640,7 @@ export function FoodChat({
             foodName: analysis.food_name,
             date: editEntry.date,
             time: saveBody.time,
+            zoneOffset,
           });
           window.location.href = "/api/auth/fitbit";
           return;
@@ -715,6 +719,7 @@ export function FoodChat({
             foodName: analysis.food_name,
             date,
             time: saveBody.time,
+            zoneOffset: fallback.zoneOffset,
           });
           window.location.href = "/api/auth/fitbit";
           return;
