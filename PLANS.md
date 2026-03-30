@@ -40,7 +40,7 @@
 7. Run verifier (expect pass — additive changes only).
 
 **Notes:**
-- **Migration note:** New nullable column `zone_offset` on `food_log_entries`. No backfill needed — existing rows will have NULL, new rows populated going forward.
+- **Migration note:** New nullable column `zone_offset` on `food_log_entries`. Existing production rows must be backfilled with `'-03:00'` (single-user app, UTC-3 timezone). Log in `MIGRATIONS.md`: `UPDATE food_log_entries SET zone_offset = '-03:00' WHERE zone_offset IS NULL;`
 
 ### Task 2: Full flow — getLocalDateTime through to DB storage
 **Linear Issue:** [FOO-895](https://linear.app/lw-claude/issue/FOO-895/full-flow-getlocaldatetime-api-db-for-zone-offset)
