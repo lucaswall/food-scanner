@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.24.0] - 2026-03-30
+
+### Added
+
+- Timezone offset tracking on food log entries — stores client UTC offset (±HH:MM) for accurate time interpretation by external readers
+- Zone offset support in edit flow and pending submission recovery
+
 ## [1.23.0] - 2026-03-29
 
 ### Added
@@ -460,7 +467,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.23.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.24.0...HEAD
+[1.24.0]: https://github.com/lucaswall/food-scanner/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/lucaswall/food-scanner/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/lucaswall/food-scanner/compare/v1.21.0...v1.22.0
 [1.21.0]: https://github.com/lucaswall/food-scanner/compare/v1.20.0...v1.21.0
