@@ -66,7 +66,7 @@ describe("GET /api/v1/food-log", () => {
               amount: 1,
               unitId: 304,
               isFavorite: false,
-              fitbitLogId: null,
+              fitbitLogId: null, zoneOffset: null,
             },
             {
               id: 2,
@@ -86,7 +86,7 @@ describe("GET /api/v1/food-log", () => {
               amount: 1,
               unitId: 304,
               isFavorite: false,
-              fitbitLogId: null,
+              fitbitLogId: null, zoneOffset: null,
             },
           ],
           subtotal: {
@@ -123,7 +123,7 @@ describe("GET /api/v1/food-log", () => {
               amount: 1,
               unitId: 304,
               isFavorite: false,
-              fitbitLogId: null,
+              fitbitLogId: null, zoneOffset: null,
             },
           ],
           subtotal: {
@@ -171,6 +171,52 @@ describe("GET /api/v1/food-log", () => {
     expect(data.data.meals[1].entries).toHaveLength(1);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
     expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-11", expect.anything());
+  });
+
+  it("includes zoneOffset in response entries", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 59 });
+
+    const mockSummary: NutritionSummary = {
+      date: "2026-02-11",
+      meals: [
+        {
+          mealTypeId: 1,
+          entries: [
+            {
+              id: 1, customFoodId: 1, foodName: "Oatmeal", time: "08:00:00",
+              zoneOffset: "-03:00",
+              calories: 150, proteinG: 5, carbsG: 27, fatG: 3, fiberG: 4,
+              sodiumMg: 0, saturatedFatG: 0.5, transFatG: 0, sugarsG: 1,
+              caloriesFromFat: 27, amount: 1, unitId: 304, isFavorite: false,
+              fitbitLogId: null,
+            },
+          ],
+          subtotal: {
+            calories: 150, proteinG: 5, carbsG: 27, fatG: 3, fiberG: 4,
+            sodiumMg: 0, saturatedFatG: 0.5, transFatG: 0, sugarsG: 1,
+            caloriesFromFat: 27,
+          },
+        },
+      ],
+      totals: {
+        calories: 150, proteinG: 5, carbsG: 27, fatG: 3, fiberG: 4,
+        sodiumMg: 0, saturatedFatG: 0.5, transFatG: 0, sugarsG: 1,
+        caloriesFromFat: 27,
+      },
+    };
+
+    mockGetDailyNutritionSummary.mockResolvedValue(mockSummary);
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/food-log?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.data.meals[0].entries[0].zoneOffset).toBe("-03:00");
   });
 
   it("returns empty meals array for date with no entries", async () => {

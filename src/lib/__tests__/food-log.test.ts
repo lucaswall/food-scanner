@@ -563,6 +563,47 @@ describe("insertFoodLogEntry", () => {
       }),
     );
   });
+
+  it("stores zoneOffset when provided", async () => {
+    const loggedAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+
+    await insertFoodLogEntry("user-uuid-123", {
+      customFoodId: 1,
+      mealTypeId: 5,
+      amount: 1,
+      unitId: 304,
+      date: "2026-02-05",
+      time: "19:30:00",
+      zoneOffset: "-03:00",
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        zoneOffset: "-03:00",
+      }),
+    );
+  });
+
+  it("stores null zoneOffset when not provided", async () => {
+    const loggedAt = new Date();
+    mockReturning.mockResolvedValue([{ id: 1, loggedAt }]);
+
+    await insertFoodLogEntry("user-uuid-123", {
+      customFoodId: 1,
+      mealTypeId: 5,
+      amount: 1,
+      unitId: 304,
+      date: "2026-02-05",
+      time: "19:30:00",
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        zoneOffset: null,
+      }),
+    );
+  });
 });
 
 describe("getCustomFoodById", () => {
@@ -2714,6 +2755,20 @@ describe("updateFoodLogEntry", () => {
 
     expect(result).toEqual({ fitbitLogId: null, newCustomFoodId: 99 }); // null, not stale 789
   });
+
+  it("passes zoneOffset through to food_log_entries .set() when provided", async () => {
+    mockWhere.mockResolvedValueOnce([{ customFoodId: 10, fitbitLogId: 789 }]);
+    mockWhere.mockResolvedValueOnce([{ fitbitFoodId: null, isFavorite: false, shareToken: null }]);
+    mockReturning.mockResolvedValueOnce([{ id: 99 }]);
+    mockUpdateWhere.mockResolvedValueOnce(undefined);
+    mockWhere.mockResolvedValueOnce([]); // orphan check
+
+    await updateFoodLogEntry("user-uuid-123", 5, { ...validInput, zoneOffset: "-03:00" });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ zoneOffset: "-03:00" }),
+    );
+  });
 });
 
 describe("updateFoodLogEntryMetadata", () => {
@@ -2761,6 +2816,33 @@ describe("updateFoodLogEntryMetadata", () => {
     });
 
     expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it("passes zoneOffset through to .set() when provided", async () => {
+    await updateFoodLogEntryMetadata("user-uuid-123", 42, {
+      mealTypeId: 3,
+      date: "2026-02-20",
+      time: "12:30:00",
+      fitbitLogId: 99999,
+      zoneOffset: "-03:00",
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ zoneOffset: "-03:00" }),
+    );
+  });
+
+  it("does not include zoneOffset in .set() when not provided", async () => {
+    await updateFoodLogEntryMetadata("user-uuid-123", 42, {
+      mealTypeId: 3,
+      date: "2026-02-20",
+      time: "12:30:00",
+      fitbitLogId: 99999,
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.not.objectContaining({ zoneOffset: expect.anything() }),
+    );
   });
 });
 

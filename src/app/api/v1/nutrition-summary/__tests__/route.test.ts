@@ -66,7 +66,7 @@ describe("GET /api/v1/nutrition-summary", () => {
               amount: 1,
               unitId: 304,
               isFavorite: false,
-              fitbitLogId: null,
+              fitbitLogId: null, zoneOffset: null,
             },
           ],
           subtotal: {

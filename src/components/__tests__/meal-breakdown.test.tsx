@@ -57,7 +57,7 @@ const mockMeals = [
         time: "08:00",
         calories: 300,
         proteinG: 10, carbsG: 50, fatG: 8, fiberG: 4, sodiumMg: 100, saturatedFatG: 1, transFatG: 0, sugarsG: 5, caloriesFromFat: 72,
-        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
+        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
       },
       {
         id: 2,
@@ -66,7 +66,7 @@ const mockMeals = [
         time: "08:15",
         calories: 150,
         proteinG: 20, carbsG: 30, fatG: 7, fiberG: 1, sodiumMg: 200, saturatedFatG: 1, transFatG: 0, sugarsG: 5, caloriesFromFat: 63,
-        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
+        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
       },
     ],
   },
@@ -81,7 +81,7 @@ const mockMeals = [
         time: "12:30",
         calories: 650,
         proteinG: 55, carbsG: 120, fatG: 35, fiberG: 5, sodiumMg: 500, saturatedFatG: 3, transFatG: 0, sugarsG: 10, caloriesFromFat: 315,
-        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
+        amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
       },
     ],
   },
@@ -201,7 +201,7 @@ describe("MealBreakdown", () => {
       id, customFoodId: id, foodName: name, time, calories: cal,
       proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
       saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
-      amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
+      amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
     });
     const sub = (cal: number) => ({
       calories: cal, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
@@ -228,7 +228,7 @@ describe("MealBreakdown", () => {
       id, customFoodId: id, foodName: name, time, calories: cal,
       proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,
       saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45,
-      amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null,
+      amount: 1, unitId: 304, isFavorite: false, fitbitLogId: null, zoneOffset: null,
     });
     const sub = (cal: number) => ({
       calories: cal, proteinG: 10, carbsG: 20, fatG: 5, fiberG: 2, sodiumMg: 100,

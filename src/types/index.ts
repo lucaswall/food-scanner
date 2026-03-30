@@ -97,6 +97,7 @@ export interface FoodLogRequest extends FoodAnalysis {
   mealTypeId: number; // 1,2,3,4,5,7
   date: string; // YYYY-MM-DD (client wall-clock)
   time: string; // HH:mm:ss (client wall-clock)
+  zoneOffset?: string; // ±HH:MM (client UTC offset)
   reuseCustomFoodId?: number;
   // Optional metadata updates when reusing a custom food
   newDescription?: string;
@@ -287,6 +288,7 @@ export interface MealEntry {
   customFoodId: number;
   foodName: string;
   time: string | null;
+  zoneOffset: string | null;
   calories: number;
   proteinG: number;
   carbsG: number;

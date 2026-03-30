@@ -173,6 +173,15 @@ export async function POST(request: Request) {
     );
   }
 
+  if (body.zoneOffset !== undefined && !/^[+-]\d{2}:\d{2}$/.test(body.zoneOffset)) {
+    log.warn({ action: "log_food_validation" }, "invalid zoneOffset format");
+    return errorResponse(
+      "VALIDATION_ERROR",
+      "Invalid zoneOffset format. Use ±HH:MM (e.g., -03:00, +05:30)",
+      400
+    );
+  }
+
   log.info(
     {
       action: "log_food_request",
@@ -187,7 +196,7 @@ export async function POST(request: Request) {
   const isDryRun = process.env.FITBIT_DRY_RUN === "true";
 
   try {
-    const { date, time } = body;
+    const { date, time, zoneOffset } = body;
     let foodLogId: number | undefined;
 
     if (body.reuseCustomFoodId) {
@@ -235,6 +244,7 @@ export async function POST(request: Request) {
           unitId: existingFood.unitId,
           date,
           time,
+          zoneOffset,
           fitbitLogId: fitbitLogId ?? null,
         });
         foodLogId = logEntryResult.id;
@@ -361,6 +371,7 @@ export async function POST(request: Request) {
           unitId: body.unit_id,
           date,
           time,
+          zoneOffset,
           fitbitLogId: fitbitLogId ?? null,
         },
         log,

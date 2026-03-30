@@ -223,7 +223,7 @@ vi.mock("@/lib/image", () => ({
 
 vi.mock("@/lib/meal-type", () => ({
   getDefaultMealType: () => 3,
-  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30:00" }),
+  getLocalDateTime: () => ({ date: "2026-02-07", time: "14:30:00", zoneOffset: "-03:00" }),
 }));
 
 const mockAnalysis: FoodAnalysis = {

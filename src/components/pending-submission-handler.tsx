@@ -29,7 +29,7 @@ export function PendingSubmissionHandler() {
 
       const dateTime =
         pending.date && pending.time
-          ? { date: pending.date, time: pending.time }
+          ? { date: pending.date, time: pending.time, zoneOffset: pending.zoneOffset }
           : getLocalDateTime();
       const body: Record<string, unknown> = {};
 

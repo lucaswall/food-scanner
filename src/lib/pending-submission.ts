@@ -9,6 +9,7 @@ export interface PendingSubmission {
   reuseCustomFoodId?: number;
   date?: string;
   time?: string;
+  zoneOffset?: string;
   sessionId?: string;
 }
 
@@ -28,6 +29,7 @@ function isValidPendingSubmission(data: unknown): data is PendingSubmission {
   if (d.reuseCustomFoodId !== undefined && typeof d.reuseCustomFoodId !== "number") return false;
   if (d.date !== undefined && typeof d.date !== "string") return false;
   if (d.time !== undefined && typeof d.time !== "string") return false;
+  if (d.zoneOffset !== undefined && typeof d.zoneOffset !== "string") return false;
   if (d.sessionId !== undefined && typeof d.sessionId !== "string") return false;
   return true;
 }

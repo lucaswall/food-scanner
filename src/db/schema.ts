@@ -85,6 +85,7 @@ export const foodLogEntries = pgTable("food_log_entries", {
   unitId: integer("unit_id").notNull(),
   date: date("date").notNull(),
   time: time("time").notNull(),
+  zoneOffset: varchar("zone_offset", { length: 6 }),
   loggedAt: timestamp("logged_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

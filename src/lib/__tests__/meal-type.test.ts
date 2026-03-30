@@ -98,4 +98,25 @@ describe("getLocalDateTime", () => {
     expect(result.time).not.toContain("45");
     expect(result.time.split(":")).toHaveLength(2);
   });
+
+  it("returns zoneOffset in ±HH:MM format for negative UTC offset (west)", () => {
+    vi.setSystemTime(new Date(2026, 1, 7, 14, 30, 0));
+    vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(180); // UTC-3
+    const result = getLocalDateTime();
+    expect(result.zoneOffset).toBe("-03:00");
+  });
+
+  it("returns zoneOffset in ±HH:MM format for positive UTC offset (east)", () => {
+    vi.setSystemTime(new Date(2026, 1, 7, 14, 30, 0));
+    vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-330); // UTC+5:30
+    const result = getLocalDateTime();
+    expect(result.zoneOffset).toBe("+05:30");
+  });
+
+  it("returns zoneOffset +00:00 for UTC", () => {
+    vi.setSystemTime(new Date(2026, 1, 7, 14, 30, 0));
+    vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(0);
+    const result = getLocalDateTime();
+    expect(result.zoneOffset).toBe("+00:00");
+  });
 });
