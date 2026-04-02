@@ -1,5 +1,9 @@
+# Local e2e test DB only — NOT production (production DB is on Railway)
+# Start explicitly with: docker compose --profile e2e up -d
+# Never start with plain `docker compose up`
 services:
   db:
+    profiles: [e2e]
     image: postgres:17-alpine
     ports:
       - "127.0.0.1:5432:5432"
