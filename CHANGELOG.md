@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.24.1] - 2026-04-04
+
+### Fixed
+
+- Food logging no longer fails when AI returns "null" as a text string for date or time fields
+- AI can no longer accidentally log food under the wrong custom food entry
+
 ## [1.24.0] - 2026-03-30
 
 ### Added
@@ -467,7 +474,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.24.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.24.1...HEAD
+[1.24.1]: https://github.com/lucaswall/food-scanner/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/lucaswall/food-scanner/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/lucaswall/food-scanner/compare/v1.22.0...v1.23.0
 [1.22.0]: https://github.com/lucaswall/food-scanner/compare/v1.21.0...v1.22.0
