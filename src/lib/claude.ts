@@ -521,7 +521,8 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
     : undefined;
 
   // Validate optional time field: null/undefined (absent) or valid HH:mm string
-  const rawTime = data.time;
+  // Claude sometimes sends the string "null" instead of actual null — treat it as null
+  const rawTime = data.time === "null" ? null : data.time;
   let validatedTime: string | null | undefined;
   if (rawTime === undefined) {
     validatedTime = undefined;
@@ -541,7 +542,8 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   }
 
   // Validate optional date field: null/undefined (absent) or valid YYYY-MM-DD string
-  const rawDate = data.date;
+  // Claude sometimes sends the string "null" instead of actual null — treat it as null
+  const rawDate = data.date === "null" ? null : data.date;
   let validatedDate: string | null | undefined;
   if (rawDate === undefined) {
     validatedDate = undefined;
