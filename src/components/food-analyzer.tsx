@@ -395,6 +395,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             date: localDateTime.date,
             time: logTime,
             zoneOffset: localDateTime.zoneOffset,
+            // Send analysis calories so server can cross-check against the reused food
+            expectedCalories: analysis.calories,
           }
         : {
             ...analysis,

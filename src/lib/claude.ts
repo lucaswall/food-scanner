@@ -1079,7 +1079,7 @@ export async function* runToolLoop(
           try {
             pendingAnalysis = validateFoodAnalysis(reportNutritionBlocks[0].input);
             l.info(
-              { action: "report_nutrition_captured", foodName: pendingAnalysis.food_name, blockCount: reportNutritionBlocks.length },
+              { action: "report_nutrition_captured", foodName: pendingAnalysis.food_name, blockCount: reportNutritionBlocks.length, sourceCustomFoodId: pendingAnalysis.sourceCustomFoodId ?? null },
               "captured report_nutrition from tool loop"
             );
           } catch (error) {
@@ -1355,6 +1355,14 @@ export async function* analyzeFood(
       });
 
       const analysis = validateFoodAnalysis(reportNutritionBlock.input);
+      // Fast path: no data tools called, so sourceCustomFoodId is always a hallucination — strip it
+      if (analysis.sourceCustomFoodId != null) {
+        l.warn(
+          { action: "analyze_food_strip_source_id", sourceCustomFoodId: analysis.sourceCustomFoodId, foodName: analysis.food_name },
+          "stripping hallucinated sourceCustomFoodId from fast-path analysis (no search_food_log was called)"
+        );
+        delete analysis.sourceCustomFoodId;
+      }
       l.info(
         { action: "analyze_food_fast_path", foodName: analysis.food_name, confidence: analysis.confidence, durationMs: elapsed() },
         "food analysis completed (fast path)"
@@ -1436,6 +1444,8 @@ export async function* analyzeFood(
       // Continue with the tool loop — wrap iteration to detect text-only completion
       let accumulatedText = "";
       let sawAnalysis = false;
+      // Track whether search_food_log was called — only then can sourceCustomFoodId be trusted
+      let sawSearchFoodLog = dataToolUseBlocks.some((b) => b.name === "search_food_log");
       const toolLoop = runToolLoop(updatedMessages, userId, currentDate, {
         systemPrompt,
         tools: allTools,
@@ -1452,8 +1462,17 @@ export async function* analyzeFood(
         } else if (event.type === "tool_start") {
           // Reset — prior text was intermediate thinking, not the final response
           accumulatedText = "";
+          if (event.tool === "search_food_log") sawSearchFoodLog = true;
           yield event;
         } else if (event.type === "analysis") {
+          // Strip sourceCustomFoodId if search_food_log was never called — Claude can't know valid IDs
+          if (event.analysis.sourceCustomFoodId != null && !sawSearchFoodLog) {
+            l.warn(
+              { action: "analyze_food_strip_source_id", sourceCustomFoodId: event.analysis.sourceCustomFoodId, foodName: event.analysis.food_name },
+              "stripping hallucinated sourceCustomFoodId from analysis (no search_food_log was called)"
+            );
+            delete event.analysis.sourceCustomFoodId;
+          }
           sawAnalysis = true;
           yield event;
         } else if (event.type === "done") {

@@ -217,6 +217,30 @@ export async function POST(request: Request) {
         );
       }
 
+      // Cross-check: if client sent expectedCalories, verify the reused food is plausible
+      // This catches hallucinated sourceCustomFoodId values from Claude
+      const expectedCalories = (body as unknown as Record<string, unknown>).expectedCalories;
+      if (typeof expectedCalories === "number" && expectedCalories > 0) {
+        const calorieDiff = Math.abs(existingFood.calories - expectedCalories);
+        if (calorieDiff > expectedCalories * 0.5) {
+          log.warn(
+            {
+              action: "log_food_reuse_mismatch",
+              reuseCustomFoodId: body.reuseCustomFoodId,
+              existingFoodName: existingFood.foodName,
+              existingCalories: existingFood.calories,
+              expectedCalories,
+            },
+            "reuse calorie mismatch detected — sourceCustomFoodId likely hallucinated"
+          );
+          return errorResponse(
+            "VALIDATION_ERROR",
+            "Reused food does not match analysis. Please try logging again.",
+            400
+          );
+        }
+      }
+
       const reused = true;
       let fitbitLogId: number | undefined;
 
