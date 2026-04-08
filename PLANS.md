@@ -378,6 +378,79 @@
 ### Continuation Status
 All tasks completed.
 
+### Review Findings
+
+Summary: 11 findings raised across 3 domains (Team: security, reliability, quality reviewers). 4 issues require fix; 7 discarded.
+- FIX: 4 issue(s) — Linear issues created
+- DISCARDED: 7 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] TIMEOUT: Missing AbortSignal.timeout on save-for-later POSTs (`src/components/food-analyzer.tsx:548`, `src/components/food-chat.tsx:762`) — hung server permanently disables Save button
+- [MEDIUM] BUG: Unchecked DELETE responses + missing timeouts in saved-food-detail (`src/components/saved-food-detail.tsx:122,138,149`) — handleDiscard navigates on silent failure; post-log DELETE can hang forever
+- [MEDIUM] TYPE: Incomplete POST validation for saved analyses API (`src/app/api/saved-analyses/route.ts:38-51`) — only validates food_name and calories; malformed JSONB causes NaN rendering
+- [MEDIUM] TEST: Missing error path test for food-chat save-for-later (`src/components/__tests__/food-chat.test.tsx`) — regression blind spot vs food-analyzer which has the test
+
+**Discarded findings (not bugs):**
+- [DISCARDED] BUG: `rows[0]` without empty check (saved-analyses.ts:20) — Drizzle `insert().values().returning()` always returns exactly one row; failures throw, never return empty
+- [DISCARDED] TYPE: JSONB cast without runtime validation (saved-analyses.ts:61) — mitigated by POST validation fix (FOO-908); reading own DB data is reasonable trust boundary
+- [DISCARDED] TYPE: Unnecessary type cast for optional fields (food-analyzer.tsx:545, food-chat.tsx:759) — style-only; fields are already optional on FoodAnalysis; destructuring works correctly regardless
+- [DISCARDED] EDGE CASE: Weak IDOR test assertions with expect.anything() (saved-analyses.test.ts) — production code correctly enforces userId in all queries; TypeScript compile-time checks provide protection; within KNOWN ACCEPTED PATTERNS for Drizzle mocks
+- [DISCARDED] SECURITY: No security findings — all routes enforce session auth, IDOR prevented via userId scoping, no injection/XSS/SSRF risks, no hardcoded secrets
+
+### Linear Updates
+- FOO-900: Review → Merge (original task)
+- FOO-901: Review → Merge (original task)
+- FOO-902: Review → Merge (original task)
+- FOO-903: Review → Merge (original task)
+- FOO-904: Review → Merge (original task)
+- FOO-905: In Progress → Merge (original task, Linear disconnected before Review)
+- FOO-906: Created in Todo (Fix: missing AbortSignal.timeout on save POSTs)
+- FOO-907: Created in Todo (Fix: unchecked DELETE responses + missing timeouts)
+- FOO-908: Created in Todo (Fix: incomplete POST validation)
+- FOO-909: Created in Todo (Fix: missing error path test)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-906](https://linear.app/lw-claude/issue/FOO-906/fix-missing-abortsignaltimeout-on-save-for-later-posts), [FOO-907](https://linear.app/lw-claude/issue/FOO-907/fix-unchecked-delete-responses-missing-timeouts-in-saved-food-detail), [FOO-908](https://linear.app/lw-claude/issue/FOO-908/fix-incomplete-post-validation-for-saved-analyses-api), [FOO-909](https://linear.app/lw-claude/issue/FOO-909/fix-missing-error-path-test-for-food-chat-save-for-later)
+
+### Fix 1: Missing AbortSignal.timeout on save-for-later POSTs
+**Linear Issue:** [FOO-906](https://linear.app/lw-claude/issue/FOO-906/fix-missing-abortsignaltimeout-on-save-for-later-posts)
+
+1. Write test in `src/components/__tests__/food-analyzer.test.tsx` verifying timeout error handling on save POST
+2. Add `signal: AbortSignal.timeout(15000)` to `handleSaveForLater` fetch in `src/components/food-analyzer.tsx:548`
+3. Add `signal: AbortSignal.timeout(15000)` to `handleSaveForLater` fetch in `src/components/food-chat.tsx:762`
+
+### Fix 2: Unchecked DELETE responses + missing timeouts in saved-food-detail
+**Linear Issue:** [FOO-907](https://linear.app/lw-claude/issue/FOO-907/fix-unchecked-delete-responses-missing-timeouts-in-saved-food-detail)
+
+1. Write tests in `src/components/__tests__/saved-food-detail.test.tsx`:
+   - handleDiscard shows error when DELETE returns non-2xx (does NOT navigate away)
+   - handleLogToFitbit handles DELETE failure gracefully (still shows success since Fitbit log succeeded)
+2. In `src/components/saved-food-detail.tsx`:
+   - handleDiscard (line 138): Check `response.ok`; if false, set error and don't navigate
+   - handleLogToFitbit (line 122): Check `response.ok`; if false, `console.warn` (don't block success flow)
+   - handleChatLogged (line 149): Check `response.ok`; if false, `console.warn`
+   - Add `signal: AbortSignal.timeout(15000)` to all 3 DELETE fetches
+
+### Fix 3: Incomplete POST validation for saved analyses API
+**Linear Issue:** [FOO-908](https://linear.app/lw-claude/issue/FOO-908/fix-incomplete-post-validation-for-saved-analyses-api)
+
+1. Write test in `src/lib/__tests__/saved-analyses.test.ts` or add API-level test for validation of amount, protein_g, carbs_g, fat_g
+2. Add `typeof` number checks for `amount`, `protein_g`, `carbs_g`, `fat_g` in POST handler (`src/app/api/saved-analyses/route.ts:40-45`)
+3. Return 400 with descriptive error if any core field is missing or wrong type
+
+### Fix 4: Missing error path test for food-chat save-for-later
+**Linear Issue:** [FOO-909](https://linear.app/lw-claude/issue/FOO-909/fix-missing-error-path-test-for-food-chat-save-for-later)
+
+1. Add test in `src/components/__tests__/food-chat.test.tsx` that mocks a failed POST response to `/api/saved-analyses`
+2. Assert error message "Failed to save analysis" (or similar) is displayed to the user
+3. Follow the same pattern as the food-analyzer error test at line 4719
+
 ---
 
 ## Plan Summary
