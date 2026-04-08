@@ -276,7 +276,7 @@ export function FoodChat({
   };
 
   const handleSend = async () => {
-    if (!input.trim() || loading || compressing) return;
+    if (!input.trim() || loading || compressing || saving) return;
 
     const userAddedImages = [...pendingImages];
     // Capture message count before adding anything so we can revert on error

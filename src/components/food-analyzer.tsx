@@ -906,7 +906,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       <div className={`mx-auto w-full max-w-md py-3 border-t ${keyboardHeight > 0 ? "bg-background border-b pb-4" : "bg-background/80 backdrop-blur-sm"}`}>
         <Button
           onClick={analysis ? handleLogToFitbit : handleAnalyze}
-          disabled={analysis ? logging : !canAnalyze}
+          disabled={analysis ? logging || saving : !canAnalyze}
           className="w-full min-h-[44px]"
         >
           {compressing

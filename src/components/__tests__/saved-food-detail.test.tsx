@@ -681,6 +681,32 @@ describe("SavedFoodDetail", () => {
       warnSpy.mockRestore();
     });
 
+    it("handleLogToFitbit shows success even when DELETE throws (timeout)", async () => {
+      setupSWR({ matches: [] });
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => JSON.stringify({ success: true, data: mockLogResponse }),
+        })
+        .mockRejectedValueOnce(new DOMException("The operation was aborted", "TimeoutError"));
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      render(<SavedFoodDetail savedId={42} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Log to Fitbit" }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      });
+
+      expect(warnSpy).toHaveBeenCalled();
+      expect(screen.queryByText(/timed out/i)).not.toBeInTheDocument();
+      warnSpy.mockRestore();
+    });
+
     it("passes AbortSignal.timeout to DELETE fetch in handleDiscard", async () => {
       setupSWR();
       mockFetch.mockResolvedValueOnce({

@@ -41,7 +41,13 @@ beforeEach(() => {
   });
 });
 
-const { POST } = await import("@/app/api/saved-analyses/route");
+const { GET, POST } = await import("@/app/api/saved-analyses/route");
+
+function makeGetRequest(): Request {
+  return new Request("http://localhost:3000/api/saved-analyses", {
+    method: "GET",
+  });
+}
 
 function makePostRequest(body: unknown): Request {
   return new Request("http://localhost:3000/api/saved-analyses", {
@@ -66,6 +72,37 @@ const validFoodAnalysis = {
   description: "grilled chicken breast",
   keywords: ["chicken"],
 };
+
+describe("GET /api/saved-analyses", () => {
+  it("returns 401 when session is invalid", async () => {
+    mockValidateSession.mockReturnValue(
+      new Response(JSON.stringify({ success: false, error: { code: "UNAUTHORIZED", message: "Unauthorized" } }), { status: 401 })
+    );
+    const response = await GET(makeGetRequest());
+    expect(response.status).toBe(401);
+  });
+
+  it("returns saved analyses list on success", async () => {
+    const mockItems = [
+      { id: 1, description: "Grilled Chicken", calories: 250, createdAt: "2026-04-08T12:00:00Z" },
+    ];
+    mockGetSavedAnalyses.mockResolvedValue(mockItems);
+    const response = await GET(makeGetRequest());
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.success).toBe(true);
+    expect(data.data.items).toEqual(mockItems);
+    expect(mockGetSavedAnalyses).toHaveBeenCalledWith("user-uuid-123");
+  });
+
+  it("returns 500 when getSavedAnalyses throws", async () => {
+    mockGetSavedAnalyses.mockRejectedValue(new Error("DB connection failed"));
+    const response = await GET(makeGetRequest());
+    expect(response.status).toBe(500);
+    const data = await response.json();
+    expect(data.error.code).toBe("INTERNAL_ERROR");
+  });
+});
 
 describe("POST /api/saved-analyses validation (FOO-908)", () => {
   it("returns 400 when amount is missing", async () => {

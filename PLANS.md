@@ -1,5 +1,6 @@
 # Implementation Plan
 
+**Status:** COMPLETE
 **Created:** 2026-04-08
 **Source:** Inline request: Save for Later — analyze food now, save the result, log it when you actually eat it
 **Linear Issues:** [FOO-900](https://linear.app/lw-claude/issue/FOO-900/add-saved-analyses-db-table), [FOO-901](https://linear.app/lw-claude/issue/FOO-901/saved-analyses-lib-module-api-routes), [FOO-902](https://linear.app/lw-claude/issue/FOO-902/save-for-later-ui-triggers-analyzer-chat-header), [FOO-903](https://linear.app/lw-claude/issue/FOO-903/dashboard-saved-for-later-section), [FOO-904](https://linear.app/lw-claude/issue/FOO-904/saved-food-detaillogging-page), [FOO-905](https://linear.app/lw-claude/issue/FOO-905/staging-qa-scenarios-for-save-for-later)
@@ -491,6 +492,40 @@ Summary: 11 findings raised across 3 domains (Team: security, reliability, quali
 ### Continuation Status
 All fix plan tasks completed. Status: COMPLETE
 
+### Review Findings
+
+Summary: 3 issue(s) found, fixed inline + 1 bug-hunter fix (single-agent review after Team: security, reliability, quality reviewers)
+- FIXED INLINE: 4 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [HIGH] BUG: DELETE exception masks successful Fitbit log (`src/components/saved-food-detail.tsx:122`) — wrapped post-log DELETE in nested try/catch so timeout doesn't mask success
+- [MEDIUM] BUG: Concurrent actions not prevented during save (`src/components/food-analyzer.tsx:909`, `src/components/food-chat.tsx:279`) — added `saving` checks to Log button disabled state and handleSend guard
+- [MEDIUM] TEST: GET /api/saved-analyses missing test coverage (`src/app/api/saved-analyses/__tests__/route.test.ts`) — added auth, success, and error path tests
+- [MEDIUM] BUG: handleDiscard leaks raw error message to UI (`src/components/saved-food-detail.tsx:153`) — added DOMException guard matching other handlers (found by bug-hunter)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] EDGE CASE: Missing sessionId in savePendingSubmission (`saved-food-detail.tsx:106`) — saved-food-detail has no analyzer session to restore; sessionId is for FoodAnalyzer state restoration
+- [DISCARDED] TYPE: Confidence cast at food-chat.tsx:63 — data only contains valid values from Claude API; safe narrowing
+- [DISCARDED] TYPE: Widening cast pattern (food-analyzer.tsx:545, food-chat.tsx:759) — style-only, eslint-disable intentional
+- [DISCARDED] CONVENTION: Two import type statements from same module (saved-food-detail.tsx:29-30) — style-only, zero correctness impact
+- [DISCARDED] SECURITY: No security findings — all routes enforce session auth, IDOR prevention, input validation
+
+### Linear Updates
+- FOO-906: Review → Merge (original task)
+- FOO-907: Review → Merge (original task)
+- FOO-908: Review → Merge (original task)
+- FOO-909: Review → Merge (original task)
+- FOO-910: Created in Merge (Fix: DELETE exception masks successful log — fixed inline)
+- FOO-911: Created in Merge (Fix: concurrent actions not prevented during save — fixed inline)
+- FOO-912: Created in Merge (Fix: GET handler missing test coverage — fixed inline)
+- FOO-913: Created in Merge (Fix: handleDiscard raw error message leak — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 2979 pass
+- Bug-hunter: 1 additional fix (handleDiscard error message), applied and verified
+
+<!-- REVIEW COMPLETE -->
+
 ---
 
 ## Plan Summary
@@ -501,3 +536,9 @@ All fix plan tasks completed. Status: COMPLETE
 **Scope:** 6 tasks, ~15 files (7 create, 8 modify), ~20 test cases
 **Key Decisions:** (1) No images stored — only FoodAnalysis nutrition data. (2) Match lookup re-runs fresh at log time via `/api/search-foods`. (3) Dashboard section is today-only, items have no date. (4) Detail page is a full page (not bottom sheet), reusing AnalysisResult + FoodMatchCard + MealTypeSelector + FoodChat. (5) No quick-log shortcut — tapping card always goes to detail page. (6) `sourceCustomFoodId` stripped on save, re-determined at log time.
 **Risks:** Low — feature is additive with no changes to existing flows. All existing components (AnalysisResult, FoodMatchCard, FoodChat, FoodLogConfirmation) are reused, not modified. Main risk is the detail page being a large new component (~400 lines estimated), but it follows established patterns closely.
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.

@@ -119,9 +119,13 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
       }
 
       // Delete saved analysis on success (non-blocking — log already succeeded)
-      const deleteRes = await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE", signal: AbortSignal.timeout(15000) });
-      if (!deleteRes.ok) {
-        console.warn("Failed to delete saved analysis after logging:", deleteRes.status);
+      try {
+        const deleteRes = await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE", signal: AbortSignal.timeout(15000) });
+        if (!deleteRes.ok) {
+          console.warn("Failed to delete saved analysis after logging:", deleteRes.status);
+        }
+      } catch (deleteErr) {
+        console.warn("Failed to delete saved analysis after logging:", deleteErr);
       }
       await Promise.all([invalidateFoodCaches(), invalidateSavedAnalysesCaches()]);
       setLogResponse(result.data ?? null);
@@ -148,7 +152,11 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
       router.push("/app");
     } catch (err) {
       setShowDiscardConfirm(false);
-      setLogError(err instanceof Error ? err.message : "Failed to discard saved food");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setLogError("Request timed out. Please try again.");
+      } else {
+        setLogError("Failed to discard saved food");
+      }
     }
   };
 
