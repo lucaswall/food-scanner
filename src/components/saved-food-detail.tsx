@@ -57,6 +57,8 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
+  const [loggedFoodName, setLoggedFoodName] = useState<string | null>(null);
+  const [loggedAnalysis, setLoggedAnalysis] = useState<SavedAnalysisDetail["foodAnalysis"] | null>(null);
 
   const handleSelectMatch = (match: FoodMatch) => {
     setSelectedMatch(match.customFoodId);
@@ -127,8 +129,10 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
       } catch (deleteErr) {
         console.warn("Failed to delete saved analysis after logging:", deleteErr);
       }
-      await Promise.all([invalidateFoodCaches(), invalidateSavedAnalysesCaches()]);
+      setLoggedFoodName(savedAnalysis.foodAnalysis.food_name);
+      setLoggedAnalysis(savedAnalysis.foodAnalysis);
       setLogResponse(result.data ?? null);
+      await Promise.all([invalidateFoodCaches(), invalidateSavedAnalysesCaches()]);
     } catch (err) {
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
         setLogError("Request timed out. Please try again.");
@@ -194,6 +198,21 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
     );
   }
 
+  // Success confirmation (checked before error — SWR may 404 after the saved analysis is deleted on log)
+  if (logResponse) {
+    return (
+      <div className="space-y-6">
+        <FoodLogConfirmation
+          response={logResponse}
+          foodName={loggedFoodName ?? savedAnalysis?.foodAnalysis.food_name ?? "Food"}
+          analysis={loggedAnalysis ?? savedAnalysis?.foodAnalysis}
+          mealTypeId={mealTypeId}
+          onDone={() => router.push("/app")}
+        />
+      </div>
+    );
+  }
+
   // Error / not found state
   if (error || !savedAnalysis) {
     return (
@@ -222,21 +241,6 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
           onLogged={(response, _analysis, _mealTypeId) => {
             handleChatLogged(response).catch(() => {});
           }}
-        />
-      </div>
-    );
-  }
-
-  // Success confirmation
-  if (logResponse) {
-    return (
-      <div className="space-y-6">
-        <FoodLogConfirmation
-          response={logResponse}
-          foodName={savedAnalysis.foodAnalysis.food_name}
-          analysis={savedAnalysis.foodAnalysis}
-          mealTypeId={mealTypeId}
-          onDone={() => router.push("/app")}
         />
       </div>
     );
