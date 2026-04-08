@@ -11,9 +11,15 @@
 1. Navigate to `/app` (the dashboard).
 2. Wait for page to fully load — use `find` to look for "Main navigation" (role: navigation).
 3. Verify the **Daily/Weekly tab buttons** are visible — use `find` to look for "Daily" and "Weekly" buttons.
-4. Verify **calorie/nutrition data renders** — use `read_page` to check for numeric content in the nutrition summary area (any number followed by "cal" or "kcal", or a progress bar/ring). Don't check exact values — just verify data is present.
+4. Verify **calorie/nutrition data renders** — use `find` to check for numeric content in the nutrition summary area (any number followed by "cal" or "kcal"). With seeded data, expect non-zero calorie values for today.
 5. **Test date navigation** — find and click the **previous day arrow** (left arrow / "Previous day" button). Verify the date label changes (no longer says "Today"). Then click the **next day arrow** (right arrow / "Next day" button) to return. Verify "Today" is shown again.
-6. Check for **console errors** — call `read_console_messages` with `onlyErrors: true`. Filter out known benign errors (e.g., favicon 404, third-party extension errors like Grammarly).
+6. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Calorie ring/progress indicator renders with data (not empty/zero if seed data is present)
+   - Macro bars (protein, carbs, fat) are visible with values
+   - Meal entries appear in the daily view (breakfast/lunch cards)
+   - Navigation bar at bottom is fully visible and not cut off
+   - No overlapping elements or broken layout at 390px width
+7. Check for **console errors** — call `read_console_messages` with `onlyErrors: true`. Filter out known benign errors (e.g., favicon 404, third-party extension errors like Grammarly).
 
 ### Pass Criteria
 
@@ -22,6 +28,13 @@
 - Nutrition data renders (at least one calorie value displayed)
 - Date navigation works (previous/next day arrows change the displayed date)
 - No unexpected console errors
+
+### Visual Criteria
+
+- Calorie ring shows progress (if seed data present)
+- Macro progress bars render correctly
+- Page fits mobile viewport without horizontal scroll
+- Bottom nav bar fully visible with all 5 items
 
 ---
 
@@ -36,18 +49,30 @@
 1. Navigate to `/app` (the dashboard).
 2. Find and click the **"Weekly" tab button**.
 3. Wait 2 seconds for data to load.
-4. Verify the **weekly view renders** — use `read_page` to check for:
+4. Verify the **weekly view renders** — use `find` to check for:
    - A date range display (e.g., "Apr 2 - Apr 8" or similar range format)
-   - Average or total calorie data (a number followed by "cal")
-   - Daily breakdown bars or rows
-5. Click the **"Daily" tab button** to switch back.
-6. Verify the daily view renders again (calorie ring or "Today" heading).
+   - With seeded data: calorie data per day (numbers followed by "cal")
+   - Daily breakdown bars or rows (Sun-Sat)
+5. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Weekly bars/chart shows varying heights across days (seeded data has different totals per day)
+   - Date range header is legible and correctly formatted
+   - Day labels (Sun-Sat) are all visible and not truncated
+   - No "Log food for a few days" empty state (if seed data present)
+6. Click the **"Daily" tab button** to switch back.
+7. Verify the daily view renders again (calorie ring or "Today" heading).
 
 ### Pass Criteria
 
 - Weekly tab switches the view successfully
-- Weekly view shows date range and calorie data
+- Weekly view shows date range
+- With seeded data: calorie data appears for multiple days
 - Switching back to Daily works correctly
+
+### Visual Criteria
+
+- Weekly chart/bars render with data (not empty state, if seeded)
+- All 7 days visible without horizontal scroll
+- Chart proportions look reasonable (bars have varying heights)
 
 ---
 
@@ -70,13 +95,17 @@
      - A food name heading in the results area (indicates analysis complete)
      - A calorie number (e.g., text matching a number followed by "cal")
      - An error message or error toast (indicates analysis failed — fail fast)
-   - Take a screenshot at each poll (for GIF smoothness if recording).
    - If 90 seconds elapse with no result → FAIL with "AI analysis timed out after 90 seconds".
 7. **Verify the analysis result:**
    - A food name heading appeared (should contain something related to "eggs" or "toast" or the food described)
    - A calorie value is displayed and is a reasonable number (50-2000 range)
    - A **"Log to Fitbit"** button is visible
-8. Check for console errors.
+8. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Food name heading is legible and not truncated
+   - Nutrition card layout is clean (calories, macros displayed in a structured format)
+   - Action buttons (Log to Fitbit, Refine with chat) are fully visible
+   - No overlapping content or broken card layout
+9. Check for console errors.
 
 ### Pass Criteria
 
@@ -85,6 +114,12 @@
 - Calorie value is displayed and in a reasonable range (50-2000)
 - "Log to Fitbit" button is visible
 - No unexpected console errors
+
+### Visual Criteria
+
+- Nutrition result card is well-structured
+- All action buttons visible without scrolling
+- Text is legible at mobile width
 
 ---
 
@@ -107,7 +142,12 @@
 9. Submit the message — press Enter via `computer` key action, or find and click a send button.
 10. **Wait for AI response** — SSE polling, 90-second budget, poll every 8 seconds looking for an updated calorie value or a new message from the assistant.
 11. Verify the AI responded — a new message appeared in the chat, or the nutrition values updated.
-12. **Navigate away without logging** — click the Home nav link or navigate to `/app` to avoid creating test data.
+12. **Visual assessment screenshot** — take a screenshot and evaluate:
+    - Chat overlay is properly layered over the analysis result
+    - Messages are readable (user message and AI response both visible)
+    - Chat input is visible at the bottom and not covered by the keyboard or other elements
+    - Nutrition values area still visible or accessible
+13. **Navigate away without logging** — click the Home nav link or navigate to `/app` to avoid creating test data.
 
 ### Pass Criteria
 
@@ -116,6 +156,12 @@
 - Chat input is functional
 - AI responds to the refinement message
 - No console errors
+
+### Visual Criteria
+
+- Chat overlay renders cleanly over the result
+- Messages are legible at mobile width
+- Input area accessible at bottom of screen
 
 **Note:** This scenario does NOT log to Fitbit — it only tests the chat refinement flow. Navigate away to avoid creating entries that need cleanup.
 
@@ -133,15 +179,24 @@
 2. Find and click the **"Log to Fitbit" button** — use `find` to locate it, then `computer` to click.
 3. **Wait for confirmation** — Poll DOM every 3 seconds for up to 15 seconds, looking for text matching `/logged successfully/i`.
 4. Verify the **"Done" button** is visible.
-5. Click **"Done"** to return to the dashboard.
-6. **Navigate to history** — Go to `/app/history`.
-7. **Verify the test entry appears** — Use `find` or `get_page_text` to look for the food name from the analysis in the history list under "Today".
+5. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Success message is prominent and readable
+   - Done button is clearly visible and tappable
+   - No error messages or broken layout
+6. Click **"Done"** to return to the dashboard.
+7. **Navigate to history** — Go to `/app/history`.
+8. **Verify the test entry appears** — Use `find` or `get_page_text` to look for the food name from the analysis in the history list under "Today".
 
 ### Pass Criteria
 
 - "Logged successfully" message appears within 15 seconds
 - "Done" button is visible and clickable
 - Test entry appears in history after navigating to the history page
+
+### Visual Criteria
+
+- Success state is clearly communicated visually
+- Done button has adequate touch target
 
 ---
 
@@ -166,6 +221,13 @@
 - Confirmation dialog appears and can be confirmed
 - Entry is removed from history after deletion
 
+### Visual Criteria
+
+- Confirmation dialog is centered and readable
+- Dialog buttons have adequate touch targets
+
+**Note:** This scenario tests the UI delete flow. DB cleanup in Phase 5 handles leftover seed/test data separately.
+
 ---
 
 ## Scenario 7: Quick Select
@@ -179,10 +241,15 @@
 1. Navigate to `/app/quick-select`.
 2. Verify the **"Quick Select" heading** is visible.
 3. Wait for page to fully load (2-3 seconds for data fetch).
-4. Verify **food items are displayed** — use `read_page` or `find` to check for food entry cards. Look for food names, calorie values, or "cal" text. The page shows suggested, recent, and favorite foods.
+4. Verify **food items are displayed** — use `find` to check for food entry cards. Look for food names, calorie values, or "cal" text. The page shows suggested, recent, and favorite foods.
 5. Check that **tab buttons exist** — look for tabs like "Suggested", "Recent", "Favorites" (or similar).
 6. Click a different tab (e.g., "Recent" or "Favorites") and verify the content updates.
-7. Check for console errors.
+7. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Food cards are evenly spaced and not overlapping
+   - Calorie values are aligned and readable
+   - Tab buttons are all visible and the active tab is distinguishable
+   - Cards don't overflow the viewport width
+8. Check for console errors.
 
 ### Pass Criteria
 
@@ -190,6 +257,12 @@
 - Food items are displayed (at least one entry with name and calories)
 - Tab switching works
 - No unexpected console errors
+
+### Visual Criteria
+
+- Food cards have consistent layout
+- Active tab clearly indicated
+- Content fits mobile viewport
 
 ---
 
@@ -203,12 +276,17 @@
 
 1. Navigate to `/app/history`.
 2. Wait for entries to load.
-3. Find any food entry in the history list (not a "[QA Test]" entry — use an existing real entry).
+3. Find any food entry in the history list (not a "[QA Test]" or "[QA Seed]" entry — use an existing real entry, or a seed entry if no real ones exist).
 4. **Click on the entry** (click the entry card/button, NOT the delete or edit icons).
 5. Verify a **detail dialog/sheet opens** — use `find` to look for "Nutrition Facts" heading or a dialog element.
 6. Verify the dialog shows **nutrition details** — calories, protein, carbs, fat values.
-7. **Close the dialog** — click outside it, press Escape, or find a close button.
-8. Verify the dialog closed and the history list is visible again.
+7. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Dialog/sheet is properly overlaying the page
+   - Nutrition Facts label is styled correctly (resembles a nutrition label)
+   - All macro values (calories, protein, carbs, fat) are displayed with units
+   - Dialog fits within the mobile viewport
+8. **Close the dialog** — click outside it, press Escape, or find a close button.
+9. Verify the dialog closed and the history list is visible again.
 
 ### Pass Criteria
 
@@ -216,6 +294,12 @@
 - Dialog shows "Nutrition Facts" with nutrition values
 - Dialog can be closed
 - History list is visible after closing
+
+### Visual Criteria
+
+- Dialog overlays correctly (not full-page redirect)
+- Nutrition label format is clean and readable
+- Close mechanism is intuitive
 
 ---
 
@@ -229,14 +313,19 @@
 
 1. Navigate to `/app/history`.
 2. Wait for entries to load.
-3. Find an existing entry (not "[QA Test]") and click its **edit button** (pencil icon).
+3. Find an existing entry (not "[QA Test]" or "[QA Seed]") and click its **edit button** (pencil icon). If only seed entries exist, use one of those.
 4. Verify the **edit page loads** — use `find` to look for text containing "You logged" and "What would you like to change".
 5. Verify the **chat input** is present — look for placeholder "Type a message...".
 6. Enter a test message using `form_input`: `[QA Test] Change the portion to 100g`
 7. Submit the message — press Enter via `computer` key action.
 8. **Wait for AI response** — SSE polling, 90-second budget, poll every 8 seconds. Look for a new assistant message or updated nutrition values.
 9. Verify the AI responded with nutrition changes.
-10. **Navigate back without saving** — click the "Back" button or navigate to `/app/history`. Do NOT click any save/log button.
+10. **Visual assessment screenshot** — take a screenshot and evaluate:
+    - Chat messages are formatted and readable
+    - AI response includes structured nutrition data
+    - Chat input remains accessible at the bottom
+    - Page scrolls properly if content is long
+11. **Navigate back without saving** — click the "Back" button or navigate to `/app/history`. Do NOT click any save/log button.
 
 ### Pass Criteria
 
@@ -244,6 +333,12 @@
 - AI responds to the edit request
 - Can navigate back without saving
 - No console errors
+
+### Visual Criteria
+
+- Chat messages formatted cleanly
+- Nutrition changes clearly presented
+- Navigation back is accessible
 
 **Note:** This scenario does NOT save changes — it only verifies the edit chat flow works. Navigate away to preserve the original entry.
 
@@ -261,13 +356,23 @@
 2. Verify the **"Nutrition Labels" heading** is visible.
 3. Wait for page content to load (2 seconds).
 4. Verify the page renders content — use `read_page` to check for any nutrition label cards or an empty state message. Either is acceptable (depends on whether labels have been saved).
-5. Check for console errors.
+5. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Heading is properly styled
+   - Content or empty state renders cleanly
+   - No broken layout or unstyled elements
+   - Navigation bar is visible at bottom
+6. Check for console errors.
 
 ### Pass Criteria
 
 - "Nutrition Labels" heading is visible
 - Page renders without errors (content or empty state)
 - No unexpected console errors
+
+### Visual Criteria
+
+- Page layout is clean (content or empty state)
+- Navigation bar visible
 
 ---
 
@@ -286,7 +391,13 @@
 5. Verify **Fitbit status** is displayed — look for text containing "Fitbit:" or "Fitbit" followed by a connection status.
 6. Verify **Fitbit App Credentials** section is visible.
 7. Scroll down and verify the **API Keys** section and **Claude Usage** section are present.
-8. Check for console errors.
+8. **Visual assessment screenshot** — take TWO screenshots (top and bottom after scrolling) and evaluate:
+   - Session info card is well-structured
+   - Fitbit connection badge/status is clearly visible
+   - Sections are properly separated and labeled
+   - Form fields (credentials) are properly laid out
+   - API Keys and Claude Usage sections render at the bottom
+9. Check for console errors.
 
 ### Pass Criteria
 
@@ -295,6 +406,12 @@
 - Fitbit connection status shown
 - Fitbit App Credentials section present
 - No unexpected console errors
+
+### Visual Criteria
+
+- All sections properly laid out and separated
+- Form fields properly sized for mobile
+- Scrollable content accessible
 
 ---
 
@@ -309,12 +426,23 @@
 1. Navigate to `/app/chat`.
 2. Verify the page loads — use `find` to look for a chat input (placeholder "Type a message..." or similar).
 3. Verify the page is functional — the input should be interactive and ready for typing.
-4. Check for console errors.
+4. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Chat input is positioned at the bottom of the screen
+   - Page has appropriate empty state or welcome message
+   - Input area has adequate touch target
+   - No broken layout elements
+5. Check for console errors.
 
 ### Pass Criteria
 
 - Chat page loads
 - Chat input is visible and interactive
 - No unexpected console errors
+
+### Visual Criteria
+
+- Chat input properly positioned
+- Empty state or welcome content renders
+- Mobile-friendly layout
 
 **Note:** This scenario only verifies the standalone chat page loads. It does NOT send a message (that would require a 90s AI wait for low additional coverage over the analyze/refine/edit scenarios that already test AI interaction).
