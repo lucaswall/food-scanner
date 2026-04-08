@@ -151,10 +151,14 @@ vi.mock("@/lib/pending-submission", () => ({
   clearPendingSubmission: vi.fn(),
 }));
 
-// Mock SWR invalidation for edit mode post-save
+// Mock SWR invalidation
+const { mockInvalidateSavedAnalysesCachesChat } = vi.hoisted(() => ({
+  mockInvalidateSavedAnalysesCachesChat: vi.fn().mockResolvedValue([]),
+}));
 vi.mock("@/lib/swr", () => ({
   apiFetcher: vi.fn(),
   invalidateFoodCaches: vi.fn(),
+  invalidateSavedAnalysesCaches: mockInvalidateSavedAnalysesCachesChat,
 }));
 
 const mockAnalysis: FoodAnalysis = {
@@ -3035,5 +3039,125 @@ describe("FOO-743: Sentry.captureException in FoodChat", () => {
     });
 
     expect(mockCaptureExceptionChat).not.toHaveBeenCalled();
+  });
+
+  describe("Save for Later in header (FOO-902)", () => {
+    it("save icon appears in header when latestAnalysis exists and not in edit mode", () => {
+      render(<FoodChat {...defaultProps} />);
+      expect(screen.getByRole("button", { name: /save for later/i })).toBeInTheDocument();
+    });
+
+    it("does not appear in edit mode", () => {
+      const editEntry: FoodLogEntryDetail = {
+        id: 1,
+        customFoodId: 1,
+        foodName: "Empanada",
+        calories: 320,
+        proteinG: 12,
+        carbsG: 28,
+        fatG: 18,
+        fiberG: 2,
+        sodiumMg: 450,
+        amount: 150,
+        unitId: 147,
+        mealTypeId: 3,
+        date: "2026-04-08",
+        time: "12:00",
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        confidence: "high",
+        notes: "",
+        description: "",
+        keywords: [],
+        isFavorite: false,
+        fitbitLogId: null,
+        fitbitFoodId: null,
+      };
+      render(
+        <FoodChat
+          {...defaultProps}
+          mode="edit"
+          editEntry={editEntry}
+        />
+      );
+      expect(screen.queryByRole("button", { name: /save for later/i })).not.toBeInTheDocument();
+    });
+
+    it("clicking calls POST /api/saved-analyses with latestAnalysis", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ success: true, data: { id: 1 } })),
+      });
+
+      render(<FoodChat {...defaultProps} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/saved-analyses",
+          expect.objectContaining({ method: "POST" })
+        );
+      });
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.foodAnalysis.food_name).toBe(mockAnalysis.food_name);
+    });
+
+    it("on success shows success message and calls onClose", async () => {
+      const onClose = vi.fn();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify({ success: true, data: { id: 1 } })),
+      });
+
+      render(<FoodChat {...defaultProps} onClose={onClose} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        expect(onClose).toHaveBeenCalled();
+      });
+    });
+
+    it("on error shows error message, does not call onClose (FOO-909)", async () => {
+      const onClose = vi.fn();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: () => Promise.resolve(JSON.stringify({ success: false, error: { code: "SAVE_FAILED", message: "Save failed" } })),
+      });
+
+      render(<FoodChat {...defaultProps} onClose={onClose} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("Save failed")).toBeInTheDocument();
+      });
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("save button is disabled while saving", async () => {
+      // Make fetch hang so saving=true
+      mockFetch.mockImplementation(() => new Promise(() => {}));
+
+      render(<FoodChat {...defaultProps} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      expect(screen.getByRole("button", { name: /save for later/i })).toBeDisabled();
+    });
   });
 });

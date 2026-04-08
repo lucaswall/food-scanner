@@ -28,7 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { MessageSquare, RotateCcw } from "lucide-react";
+import { MessageSquare, RotateCcw, Clock } from "lucide-react";
 import {
   savePendingSubmission,
   getPendingSubmission,
@@ -38,6 +38,7 @@ import { getLocalDateTime } from "@/lib/meal-type";
 import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
 import { parseSSEEvents } from "@/lib/sse";
+import { invalidateSavedAnalysesCaches } from "@/lib/swr";
 import type { FoodLogResponse, FoodMatch, ConversationMessage } from "@/types";
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
@@ -86,6 +87,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [chatOpen, setChatOpen] = useState(false);
   const [seedMessages, setSeedMessages] = useState<ConversationMessage[] | null>(null);
   const [showStartOverConfirm, setShowStartOverConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [photoCaptureKey, setPhotoCaptureKey] = useState(0);
   const autoCaptureUsedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -530,6 +534,52 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     }
   };
 
+  const handleSaveForLater = async () => {
+    if (!analysis) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+
+    // Strip transient context fields before saving
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { sourceCustomFoodId: _sourceCustomFoodId, editingEntryId: _editingEntryId, ...foodAnalysis } = analysis as typeof analysis & { sourceCustomFoodId?: unknown; editingEntryId?: unknown };
+
+    try {
+      const response = await fetch("/api/saved-analyses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ foodAnalysis }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data?: { id: number };
+        error?: { code: string; message: string };
+      };
+
+      if (!response.ok || !result.success) {
+        setSaveError(result.error?.message || "Failed to save analysis");
+        vibrateError();
+        return;
+      }
+
+      setSaveSuccess(true);
+      await invalidateSavedAnalysesCaches();
+      actions.clearSession();
+      router.push("/app");
+    } catch (err) {
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setSaveError("Request timed out. Please try again.");
+      } else {
+        setSaveError(err instanceof Error ? err.message : "Failed to save analysis");
+      }
+      vibrateError();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDone = () => {
     actions.clearSession();
     router.push("/app");
@@ -785,6 +835,29 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
             </Button>
           </div>
 
+          {/* Save for Later button */}
+          <Button
+            variant="outline"
+            onClick={handleSaveForLater}
+            disabled={logging || saving}
+            className="w-full min-h-[44px] justify-center gap-2"
+          >
+            <Clock className="h-4 w-4" />
+            Save for Later
+          </Button>
+
+          {saveSuccess && (
+            <div data-testid="save-success-banner" className="p-3 bg-green-50 border border-green-200 rounded-lg" aria-live="polite">
+              <p className="text-sm text-green-700">Saved — find it on your dashboard</p>
+            </div>
+          )}
+
+          {saveError && (
+            <div data-testid="save-error-banner" className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg" aria-live="polite">
+              <p className="text-sm text-destructive">{saveError}</p>
+            </div>
+          )}
+
           {/* Food matches section */}
           {matches.length > 0 && (
             <div className="space-y-3">
@@ -833,7 +906,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       <div className={`mx-auto w-full max-w-md py-3 border-t ${keyboardHeight > 0 ? "bg-background border-b pb-4" : "bg-background/80 backdrop-blur-sm"}`}>
         <Button
           onClick={analysis ? handleLogToFitbit : handleAnalyze}
-          disabled={analysis ? logging : !canAnalyze}
+          disabled={analysis ? logging || saving : !canAnalyze}
           className="w-full min-h-[44px]"
         >
           {compressing

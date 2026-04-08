@@ -324,6 +324,13 @@ vi.mock("../food-log-confirmation", () => ({
     ) : null,
 }));
 
+const { mockInvalidateSavedAnalysesCaches } = vi.hoisted(() => ({
+  mockInvalidateSavedAnalysesCaches: vi.fn().mockResolvedValue([]),
+}));
+vi.mock("@/lib/swr", () => ({
+  invalidateSavedAnalysesCaches: mockInvalidateSavedAnalysesCaches,
+}));
+
 vi.mock("../food-chat", () => ({
   FoodChat: ({
     initialAnalysis,
@@ -4576,6 +4583,196 @@ describe("FoodAnalyzer", () => {
     it("Re-analyze button is not visible when no analysis exists", () => {
       render(<FoodAnalyzer />);
       expect(screen.queryByRole("button", { name: /re-analyze/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Save for Later button (FOO-902)", () => {
+    function renderWithAnalysis(analysisOverride?: Partial<FoodAnalysis>) {
+      const analysis = { ...mockAnalysis, ...analysisOverride };
+      const mockActions = {
+        setPhotos: vi.fn(),
+        setCompressedImages: vi.fn(),
+        setDescription: vi.fn(),
+        setAnalysis: vi.fn(),
+        setAnalysisNarrative: vi.fn(),
+        setMealTypeId: vi.fn(),
+        setSelectedTime: vi.fn(),
+        setMatches: vi.fn(),
+        clearPersistedSession: vi.fn(),
+        clearSession: vi.fn(),
+        getActiveSessionId: vi.fn().mockReturnValue(null),
+      };
+      mockUseAnalysisSession.mockReturnValue({
+        state: {
+          photos: [new File(["photo"], "test.jpg", { type: "image/jpeg" })],
+          convertedPhotoBlobs: [],
+          compressedImages: null,
+          description: "",
+          analysis,
+          analysisNarrative: null,
+          mealTypeId: 3,
+          selectedTime: null,
+          matches: [],
+        },
+        actions: mockActions,
+        isRestoring: false,
+        wasRestored: false,
+      });
+      return { mockActions };
+    }
+
+    it("does not render before analysis completes", () => {
+      mockUseAnalysisSession.mockReturnValue({
+        state: {
+          photos: [],
+          convertedPhotoBlobs: [],
+          compressedImages: null,
+          description: "",
+          analysis: null,
+          analysisNarrative: null,
+          mealTypeId: 3,
+          selectedTime: null,
+          matches: [],
+        },
+        actions: {
+          setPhotos: vi.fn(), setCompressedImages: vi.fn(), setDescription: vi.fn(),
+          setAnalysis: vi.fn(), setAnalysisNarrative: vi.fn(), setMealTypeId: vi.fn(),
+          setSelectedTime: vi.fn(), setMatches: vi.fn(), clearPersistedSession: vi.fn(),
+          clearSession: vi.fn(), getActiveSessionId: vi.fn().mockReturnValue(null),
+        },
+        isRestoring: false,
+        wasRestored: false,
+      });
+      render(<FoodAnalyzer />);
+      expect(screen.queryByRole("button", { name: /save for later/i })).not.toBeInTheDocument();
+    });
+
+    it("renders Save for Later button when analysis exists and not loading", () => {
+      renderWithAnalysis();
+      render(<FoodAnalyzer />);
+      expect(screen.getByRole("button", { name: /save for later/i })).toBeInTheDocument();
+    });
+
+    it("button is disabled while logging", async () => {
+      renderWithAnalysis();
+      // Make log-food hang so logging=true
+      mockFetch.mockImplementation(() => new Promise(() => {}));
+      render(<FoodAnalyzer />);
+
+      const logButton = screen.getByRole("button", { name: /log to fitbit/i });
+      await act(async () => { fireEvent.click(logButton); });
+
+      expect(screen.getByRole("button", { name: /save for later/i })).toBeDisabled();
+    });
+
+    it("on click calls POST /api/saved-analyses with current FoodAnalysis", async () => {
+      const { mockActions } = renderWithAnalysis();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { id: 1 } }),
+      });
+      render(<FoodAnalyzer />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalledWith(
+          "/api/saved-analyses",
+          expect.objectContaining({ method: "POST" })
+        );
+      });
+
+      const callArgs = mockFetch.mock.calls[0];
+      const body = JSON.parse(callArgs[1].body);
+      expect(body.foodAnalysis.food_name).toBe(mockAnalysis.food_name);
+      expect(body.foodAnalysis.calories).toBe(mockAnalysis.calories);
+      // transient fields are stripped
+      expect(body.foodAnalysis.sourceCustomFoodId).toBeUndefined();
+      expect(body.foodAnalysis.editingEntryId).toBeUndefined();
+      expect(mockActions.clearSession).toHaveBeenCalled();
+      expect(mockPush).toHaveBeenCalledWith("/app");
+    });
+
+    it("on success shows success message, clears session, navigates to /app", async () => {
+      const { mockActions } = renderWithAnalysis();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { id: 1 } }),
+      });
+      render(<FoodAnalyzer />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("save-success-banner")).toBeInTheDocument();
+        expect(screen.getByTestId("save-success-banner")).toHaveTextContent("Saved — find it on your dashboard");
+      });
+
+      expect(mockActions.clearSession).toHaveBeenCalled();
+      expect(mockPush).toHaveBeenCalledWith("/app");
+    });
+
+    it("on error shows error message, does not navigate", async () => {
+      renderWithAnalysis();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ success: false, error: { code: "SAVE_FAILED", message: "Save failed" } }),
+      });
+      render(<FoodAnalyzer />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("save-error-banner")).toBeInTheDocument();
+      });
+
+      expect(mockPush).not.toHaveBeenCalledWith("/app");
+    });
+
+    it("shows user-friendly timeout error when save POST times out (FOO-906)", async () => {
+      renderWithAnalysis();
+      mockFetch.mockRejectedValueOnce(
+        new DOMException("The operation was aborted due to timeout", "TimeoutError")
+      );
+      render(<FoodAnalyzer />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("save-error-banner")).toBeInTheDocument();
+        expect(screen.getByTestId("save-error-banner")).toHaveTextContent("Request timed out. Please try again.");
+      });
+
+      expect(mockPush).not.toHaveBeenCalledWith("/app");
+    });
+
+    it("passes AbortSignal.timeout to save POST fetch (FOO-906)", async () => {
+      renderWithAnalysis();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { id: 1 } }),
+      });
+      render(<FoodAnalyzer />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        const saveCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/saved-analyses"
+        );
+        expect(saveCall).toBeDefined();
+        expect((saveCall![1] as RequestInit).signal).toBeDefined();
+      });
     });
   });
 });

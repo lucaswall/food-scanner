@@ -500,6 +500,13 @@ export interface BloodPressureReading {
   measurementLocation: string | null;
 }
 
+export interface SavedAnalysisListItem {
+  id: number;
+  description: string;
+  calories: number;
+  createdAt: string;
+}
+
 export interface GlucoseReadingInput {
   measuredAt: string;
   zoneOffset: string | null;
@@ -516,4 +523,8 @@ export interface BloodPressureReadingInput {
   diastolic: number;
   bodyPosition: string | null;
   measurementLocation: string | null;
+}
+
+export interface SavedAnalysisDetail extends SavedAnalysisListItem {
+  foodAnalysis: FoodAnalysis;
 }
