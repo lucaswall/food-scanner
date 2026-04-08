@@ -169,6 +169,7 @@ Do NOT flag these in code reviews:
 | **roadmap** | Opus | "roadmap", "pull from roadmap", "push to roadmap", "add to roadmap", "analyze this feature" | Deep research + discussion → write to roadmap, pull to backlog, plan, modify, or drop |
 | **tools-improve** | Opus | Before modifying skills/agents/CLAUDE.md | Best practices for Claude Code extensibility |
 | **push-to-production** | Opus | "push to production", "release" | Backup DB, migrate, merge `main` → `release` |
+| **staging-qa** | Opus | "staging qa", "run qa", "test staging" | Chrome-driven functional QA against staging (dashboard, analyze, log, delete) |
 
 **Workflows:**
 - **Roadmap feature:** `roadmap` → `add-to-backlog` → `backlog-refine` (optional) → `plan-backlog` → `plan-implement` → `plan-review-implementation` (repeat) → `push-to-production`

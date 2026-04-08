@@ -8,7 +8,6 @@
 | [Offline Queue with Background Sync](#offline-queue-with-background-sync) | Queue meals offline, analyze and log when back online |
 | [Food Log Push Notifications](#food-log-push-notifications) | Push nutrition data directly to Health Connect via a thin Android wrapper |
 | [Quick Capture Session](#quick-capture-session) | Snap photos and notes quickly at meals, process everything later at home |
-| [AI-Driven Staging QA](#ai-driven-staging-qa) | Automated functional QA against staging using Claude Chrome integration |
 | [Save for Later](#save-for-later) | Analyze food now, save the result, log it when you actually eat it |
 
 
@@ -342,88 +341,6 @@ Claude's API supports up to 20 images per message. A restaurant session could ex
 6. Processing UI: single conversation with all captures, chat refinement
 7. Batch logging (Log All → multiple entries at once, session deleted on success)
 8. Image budget management for large sessions
-
----
-
-## AI-Driven Staging QA
-
-### Problem
-
-After merging changes to main, manual testing on the staging site is required to verify that everything works end-to-end. This involves navigating screens, logging food, opening chats, editing entries, deleting — repeating the same flows every time. The existing E2E tests use mocked API responses and never hit the real AI, real Fitbit dry-run, or real data flows. The gap between "tests pass" and "the app actually works" can only be closed by a human clicking through staging.
-
-### Goal
-
-Automate functional QA against the live staging environment so that after merging to main, an AI-driven process navigates the real app, performs real operations, and reports what works and what doesn't.
-
-### Design
-
-#### Chrome-Driven QA
-
-A Claude Code skill (`staging-qa`) that uses the `/chrome` integration to connect to the user's real Chrome browser. The user is already logged into `food-test.lucaswall.me` with their real session (Google OAuth, Fitbit connected). Claude navigates and tests while the user watches — no headless browser, no auth bypass, no Fitbit API key workarounds. The user can intervene at any point (flag visual issues, override decisions, re-authenticate if needed).
-
-#### Test Scenarios
-
-The skill maintains a checklist of core flows to verify:
-
-1. **Dashboard loads** — nutrition summary renders, date navigation works, daily/weekly tabs switch.
-2. **Analyze food** — submit a text description, receive real AI analysis via SSE, see nutrition results.
-3. **Chat refinement** — open a chat from an analysis result, send a message, get a real AI response.
-4. **Log to Fitbit** — log an analyzed food entry (dry-run on staging), verify it appears in history.
-5. **History** — browse entries, open detail view, verify nutrition data matches what was logged.
-6. **Edit entry** — open edit mode on a logged entry, refine via chat, save changes.
-7. **Delete entry** — delete a test entry, verify it disappears from history.
-8. **Quick select** — browse custom foods, select one, log it.
-9. **Settings** — verify settings page loads, Fitbit credentials display, API key management works.
-
-Each scenario reports: pass, fail (with error details), or skip (if a prerequisite scenario failed).
-
-#### Execution Model
-
-- **Triggered manually** via `/staging-qa` after merging to main.
-- **Requires `/chrome` active** — the skill reminds the user to run `/chrome` first and navigate to the staging site.
-- **Uses the user's real session** — no test-login bypass, no separate auth. Whatever session is active in Chrome is what gets tested.
-- **Advisory, not blocking** — the report is informational. It does not gate deployments.
-- **Cleans up after itself** — deletes any test entries it created during the run.
-
-#### Reporting
-
-The skill outputs a markdown summary:
-
-> **Staging QA Report — 2026-03-01**
-> - Dashboard: PASS
-> - Analyze food: PASS
-> - Chat refinement: PASS
-> - Log to Fitbit: PASS
-> - History: PASS
-> - Edit entry: FAIL — save returned 500, response: "..."
-> - Delete entry: SKIP (edit failed)
-> - Quick select: PASS
-> - Settings: PASS
->
-> **7/9 passed, 1 failed, 1 skipped**
-
-### Architecture
-
-- **Skill definition:** `.claude/skills/staging-qa/SKILL.md` — a Claude Code skill that uses Chrome tools to navigate staging and run scenarios sequentially.
-- **Chrome integration:** Claude Code's `/chrome` command connects to the user's running Chrome instance. The user's existing authenticated session (Google OAuth + Fitbit) is shared — no separate auth flow needed.
-- **No additional infrastructure** — no MCP servers, no headless browsers, no Docker containers. Just Chrome + Claude Code.
-- **Runs locally only** — this is a developer workflow, not a CI pipeline.
-
-### Edge Cases
-
-- **Staging is down or deploying** — the skill detects connection failures and reports "staging unreachable" instead of running scenarios.
-- **Real AI responses vary** — the skill checks for structural correctness (nutrition data present, reasonable calorie range) rather than exact values.
-- **Test data accumulates** — the skill creates entries with a recognizable prefix (e.g., "[QA Test]") and deletes them at the end. If the skill crashes mid-run, leftover entries are harmless and identifiable.
-- **Fitbit dry-run mode** — staging runs with `FITBIT_DRY_RUN=true`, so logging doesn't hit the real Fitbit API. The skill verifies the log-to-Fitbit flow succeeds without checking Fitbit itself.
-- **SSE streaming timeouts** — real AI analysis takes 5–15 seconds. The skill waits with appropriate timeouts (30s) rather than the millisecond mocks in E2E tests.
-- **Chrome session expires** — if the session expires mid-testing, Claude pauses and asks the user to re-authenticate.
-
-### Implementation Order
-
-1. Build `staging-qa` skill with scenario runner framework
-2. Implement core scenarios (dashboard, analyze, log, history)
-3. Add chat refinement, edit, delete, quick-select, settings scenarios
-4. Add cleanup logic (delete test entries after run)
 
 ---
 
