@@ -52,3 +52,13 @@ export function invalidateLabelCaches(): Promise<unknown[]> {
       LABEL_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)),
   );
 }
+
+const SAVED_ANALYSES_CACHE_PREFIXES = ["/api/saved-analyses"];
+
+export function invalidateSavedAnalysesCaches(): Promise<unknown[]> {
+  return mutate(
+    (key) =>
+      typeof key === "string" &&
+      SAVED_ANALYSES_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)),
+  );
+}

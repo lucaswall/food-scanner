@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import { SWRConfig } from "swr";
 import userEvent from "@testing-library/user-event";
 import { DailyDashboard } from "../daily-dashboard";
@@ -52,6 +52,26 @@ vi.spyOn(Date, "now").mockImplementation(() => mockDateState.now);
 // Mock LumenBanner (tested separately — here we test DailyDashboard's conditional rendering)
 vi.mock("@/components/lumen-banner", () => ({
   LumenBanner: () => <div data-testid="lumen-banner">LumenBanner</div>,
+}));
+
+// Mock SavedForLaterSection for isolation
+vi.mock("@/components/saved-for-later-section", () => ({
+  SavedForLaterSection: ({
+    items,
+    onItemClick,
+  }: {
+    items: { id: number; description: string; calories: number; createdAt: string }[];
+    onItemClick: (id: number) => void;
+  }) =>
+    items.length > 0 ? (
+      <div data-testid="saved-for-later-section">
+        {items.map((item) => (
+          <button key={item.id} onClick={() => onItemClick(item.id)}>
+            {item.description}
+          </button>
+        ))}
+      </div>
+    ) : null,
 }));
 
 // Mock FoodEntryCard for isolation
@@ -2108,5 +2128,131 @@ describe("DailyDashboard", () => {
     );
     expect(fastingCall).toBeDefined();
     expect(fastingCall![0]).toMatch(/date=\d{4}-\d{2}-\d{2}/);
+  });
+
+  describe("Saved for Later section (FOO-903)", () => {
+    const mockSavedItems = [
+      { id: 1, description: "Grilled chicken", calories: 520, createdAt: new Date().toISOString() },
+      { id: 2, description: "Chocolate cake", calories: 380, createdAt: new Date().toISOString() },
+    ];
+
+    function setupBasicFetches() {
+      // Mock all standard fetches so they don't consume saved-analyses mock
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: null } }),
+          });
+        }
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: mockDateState.today, meals: [], totals: { calories: 0, proteinG: 0, carbsG: 0, fatG: 0, fiberG: 0, sodiumMg: 0, saturatedFatG: 0, transFatG: 0, sugarsG: 0, caloriesFromFat: 0 } } }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { calories: 2000 } }),
+          });
+        }
+        if (url.includes("/api/lumen-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { goals: null } }),
+          });
+        }
+        if (url.includes("/api/saved-analyses")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { items: mockSavedItems } }),
+          });
+        }
+        // Default: return empty success
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: null }),
+        });
+      });
+    }
+
+    it("fetches /api/saved-analyses when on today's date", async () => {
+      setupBasicFetches();
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        const savedCall = mockFetch.mock.calls.find((call) =>
+          call[0].includes("/api/saved-analyses")
+        );
+        expect(savedCall).toBeDefined();
+      });
+    });
+
+    it("renders SavedForLaterSection when saved items exist for today", async () => {
+      setupBasicFetches();
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("saved-for-later-section")).toBeInTheDocument();
+        expect(screen.getByText("Grilled chicken")).toBeInTheDocument();
+        expect(screen.getByText("Chocolate cake")).toBeInTheDocument();
+      });
+    });
+
+    it("does not fetch /api/saved-analyses when not on today's date", async () => {
+      setupBasicFetches();
+      renderDailyDashboard();
+
+      // Wait for the dashboard to finish loading so DateNavigator is visible
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /previous day/i })).toBeInTheDocument();
+      });
+
+      // Navigate to a past date
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /previous day/i }));
+      });
+
+      // After navigating, reset the saved-analyses call count
+      const savedCallsAfterNav = mockFetch.mock.calls.filter((call) =>
+        call[0].includes("/api/saved-analyses")
+      );
+      // Only called once (for today before navigation), not again after navigating to past
+      expect(savedCallsAfterNav.length).toBeLessThanOrEqual(1);
+    });
+
+    it("clicking a saved item navigates to /app/saved/:id", async () => {
+      setupBasicFetches();
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("saved-for-later-section")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByText("Grilled chicken"));
+      expect(mockPush).toHaveBeenCalledWith("/app/saved/1");
+    });
+
+    it("does not render SavedForLaterSection when items array is empty", async () => {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/saved-analyses")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { items: [] } }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: null }),
+        });
+      });
+
+      renderDailyDashboard();
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("saved-for-later-section")).not.toBeInTheDocument();
+      });
+    });
   });
 });

@@ -18,12 +18,14 @@ import {
   Plus,
   X,
   Paperclip,
+  Clock,
 } from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
 import { parseSSEEvents } from "@/lib/sse";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { savePendingSubmission } from "@/lib/pending-submission";
+import { invalidateSavedAnalysesCaches } from "@/lib/swr";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
 import type {
   FoodAnalysis,
@@ -129,6 +131,7 @@ export function FoodChat({
     isEditMode && editEntry?.time ? editEntry.time : null
   );
   const [pendingImages, setPendingImages] = useState<Blob[]>([]);
+  const [saving, setSaving] = useState(false);
   // Track whether initial compressed images have been embedded into a message
   const initialImagesConsumedRef = useRef(false);
   const [showScrollDown, setShowScrollDown] = useState(false);
@@ -747,6 +750,40 @@ export function FoodChat({
     }
   };
 
+  const handleSaveForLater = async () => {
+    if (!latestAnalysis) return;
+    setSaving(true);
+
+    // Strip transient context fields before saving
+    const { sourceCustomFoodId: _s, editingEntryId: _e, ...foodAnalysis } = latestAnalysis as typeof latestAnalysis & { sourceCustomFoodId?: unknown; editingEntryId?: unknown };
+
+    try {
+      const response = await fetch("/api/saved-analyses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ foodAnalysis }),
+      });
+
+      const result = (await safeResponseJson(response)) as {
+        success: boolean;
+        data?: { id: number };
+        error?: { code: string; message: string };
+      };
+
+      if (!response.ok || !result.success) {
+        setError(result.error?.message || "Failed to save analysis");
+        return;
+      }
+
+      await invalidateSavedAnalysesCaches();
+      onClose?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save analysis");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Hidden file inputs */}
@@ -788,6 +825,16 @@ export function FoodChat({
           </button>
           {latestAnalysis ? (
             <>
+              {!isEditMode && (
+                <button
+                  onClick={handleSaveForLater}
+                  disabled={saving}
+                  aria-label="Save for Later"
+                  className="shrink-0 flex items-center justify-center size-11 rounded-full disabled:opacity-50"
+                >
+                  <Clock className="h-5 w-5" />
+                </button>
+              )}
               <span className="flex-1" />
               <Button
                 onClick={isEditMode ? handleSave : isEditingExisting ? handleSaveExisting : handleLog}
