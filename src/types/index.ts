@@ -517,3 +517,14 @@ export interface BloodPressureReadingInput {
   bodyPosition: string | null;
   measurementLocation: string | null;
 }
+
+export interface SavedAnalysisListItem {
+  id: number;
+  description: string;
+  calories: number;
+  createdAt: string;
+}
+
+export interface SavedAnalysisDetail extends SavedAnalysisListItem {
+  foodAnalysis: FoodAnalysis;
+}
