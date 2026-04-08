@@ -755,6 +755,7 @@ export function FoodChat({
     setSaving(true);
 
     // Strip transient context fields before saving
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { sourceCustomFoodId: _s, editingEntryId: _e, ...foodAnalysis } = latestAnalysis as typeof latestAnalysis & { sourceCustomFoodId?: unknown; editingEntryId?: unknown };
 
     try {

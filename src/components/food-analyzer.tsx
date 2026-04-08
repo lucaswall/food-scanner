@@ -541,6 +541,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setSaveSuccess(false);
 
     // Strip transient context fields before saving
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { sourceCustomFoodId: _sourceCustomFoodId, editingEntryId: _editingEntryId, ...foodAnalysis } = analysis as typeof analysis & { sourceCustomFoodId?: unknown; editingEntryId?: unknown };
 
     try {
