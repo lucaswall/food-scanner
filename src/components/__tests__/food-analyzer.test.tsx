@@ -4734,5 +4734,45 @@ describe("FoodAnalyzer", () => {
 
       expect(mockPush).not.toHaveBeenCalledWith("/app");
     });
+
+    it("shows user-friendly timeout error when save POST times out (FOO-906)", async () => {
+      renderWithAnalysis();
+      mockFetch.mockRejectedValueOnce(
+        new DOMException("The operation was aborted due to timeout", "TimeoutError")
+      );
+      render(<FoodAnalyzer />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("save-error-banner")).toBeInTheDocument();
+        expect(screen.getByTestId("save-error-banner")).toHaveTextContent("Request timed out. Please try again.");
+      });
+
+      expect(mockPush).not.toHaveBeenCalledWith("/app");
+    });
+
+    it("passes AbortSignal.timeout to save POST fetch (FOO-906)", async () => {
+      renderWithAnalysis();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { id: 1 } }),
+      });
+      render(<FoodAnalyzer />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        const saveCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/saved-analyses"
+        );
+        expect(saveCall).toBeDefined();
+        expect((saveCall![1] as RequestInit).signal).toBeDefined();
+      });
+    });
   });
 });

@@ -453,6 +453,46 @@ Summary: 11 findings raised across 3 domains (Team: security, reliability, quali
 
 ---
 
+## Iteration 2
+
+**Implemented:** 2026-04-08
+**Method:** Single-agent (4 fixes, effort score 5 — worker overhead not justified)
+
+### Tasks Completed This Iteration
+- Fix 1: Missing AbortSignal.timeout on save-for-later POSTs (FOO-906) — added `signal: AbortSignal.timeout(15000)` to food-analyzer and food-chat save fetches
+- Fix 2: Unchecked DELETE responses + missing timeouts in saved-food-detail (FOO-907) — added response.ok checks and timeouts to all 3 DELETE fetches; discard shows error on failure instead of navigating
+- Fix 3: Incomplete POST validation for saved analyses API (FOO-908) — extended validation to require amount, protein_g, carbs_g, fat_g
+- Fix 4: Missing error path test for food-chat save-for-later (FOO-909) — added error path test matching food-analyzer pattern
+
+### Bug-Hunter Findings (fixed)
+- [HIGH] Dialog remained open after discard failure, obscuring error — fixed by calling `setShowDiscardConfirm(false)` before setting error
+- [MEDIUM] Raw TimeoutError message surfaced to user in save handlers — fixed by adding DOMException check with user-friendly "Request timed out" message (matching existing handleLogToFitbit pattern)
+
+### Files Modified
+- `src/components/food-analyzer.tsx` — AbortSignal.timeout on save POST + user-friendly timeout message
+- `src/components/food-chat.tsx` — AbortSignal.timeout on save POST + user-friendly timeout message
+- `src/components/saved-food-detail.tsx` — response.ok checks + timeouts on DELETE fetches + dialog close on error
+- `src/app/api/saved-analyses/route.ts` — extended POST validation for amount, protein_g, carbs_g, fat_g
+- `src/components/__tests__/food-analyzer.test.tsx` — 2 new tests (timeout error + signal verification)
+- `src/components/__tests__/food-chat.test.tsx` — 1 new test (error path)
+- `src/components/__tests__/saved-food-detail.test.tsx` — 3 new tests (discard error, DELETE failure, signal verification)
+- `src/app/api/saved-analyses/__tests__/route.test.ts` — new file, 5 validation tests
+
+### Linear Updates
+- FOO-906: Todo → In Progress → Review
+- FOO-907: Todo → In Progress → Review
+- FOO-908: Todo → In Progress → Review
+- FOO-909: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 2 issues (dialog open on error, raw timeout message) — both fixed
+- verifier: All 2975 tests pass, zero warnings, build passes (52 routes)
+
+### Continuation Status
+All fix plan tasks completed. Status: COMPLETE
+
+---
+
 ## Plan Summary
 
 **Objective:** Let the user analyze food at preparation time and save the result, then log it with one tap when they actually eat it.

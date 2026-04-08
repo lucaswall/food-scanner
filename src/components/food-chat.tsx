@@ -763,6 +763,7 @@ export function FoodChat({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ foodAnalysis }),
+        signal: AbortSignal.timeout(15000),
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -779,7 +780,11 @@ export function FoodChat({
       await invalidateSavedAnalysesCaches();
       onClose?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save analysis");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setError("Request timed out. Please try again.");
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to save analysis");
+      }
     } finally {
       setSaving(false);
     }

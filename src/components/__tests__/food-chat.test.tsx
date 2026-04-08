@@ -3127,6 +3127,26 @@ describe("FOO-743: Sentry.captureException in FoodChat", () => {
       });
     });
 
+    it("on error shows error message, does not call onClose (FOO-909)", async () => {
+      const onClose = vi.fn();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: () => Promise.resolve(JSON.stringify({ success: false, error: { code: "SAVE_FAILED", message: "Save failed" } })),
+      });
+
+      render(<FoodChat {...defaultProps} onClose={onClose} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save for later/i }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText("Save failed")).toBeInTheDocument();
+      });
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
     it("save button is disabled while saving", async () => {
       // Make fetch hang so saving=true
       mockFetch.mockImplementation(() => new Promise(() => {}));

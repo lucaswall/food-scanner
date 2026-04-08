@@ -549,6 +549,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ foodAnalysis }),
+        signal: AbortSignal.timeout(15000),
       });
 
       const result = (await safeResponseJson(response)) as {
@@ -568,7 +569,11 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
       actions.clearSession();
       router.push("/app");
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save analysis");
+      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        setSaveError("Request timed out. Please try again.");
+      } else {
+        setSaveError(err instanceof Error ? err.message : "Failed to save analysis");
+      }
       vibrateError();
     } finally {
       setSaving(false);

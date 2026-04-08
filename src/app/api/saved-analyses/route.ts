@@ -41,11 +41,15 @@ export async function POST(request: Request) {
       !foodAnalysis ||
       typeof foodAnalysis.food_name !== "string" ||
       !foodAnalysis.food_name ||
-      typeof foodAnalysis.calories !== "number"
+      typeof foodAnalysis.calories !== "number" ||
+      typeof foodAnalysis.amount !== "number" ||
+      typeof foodAnalysis.protein_g !== "number" ||
+      typeof foodAnalysis.carbs_g !== "number" ||
+      typeof foodAnalysis.fat_g !== "number"
     ) {
       return errorResponse(
         "VALIDATION_ERROR",
-        "foodAnalysis must include food_name and calories",
+        "foodAnalysis must include food_name, calories, amount, protein_g, carbs_g, and fat_g",
         400,
       );
     }

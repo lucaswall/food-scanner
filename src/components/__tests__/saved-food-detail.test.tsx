@@ -626,6 +626,88 @@ describe("SavedFoodDetail", () => {
     });
   });
 
+  describe("FOO-907: unchecked DELETE responses + missing timeouts", () => {
+    it("handleDiscard shows error when DELETE returns non-2xx (does NOT navigate)", async () => {
+      setupSWR();
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        text: async () => JSON.stringify({ success: false, error: { code: "INTERNAL_ERROR", message: "Server error" } }),
+      });
+
+      render(<SavedFoodDetail savedId={42} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /discard/i }));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("log-error")).toBeInTheDocument();
+      });
+
+      // Dialog should be closed so error is visible
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+      expect(mockPush).not.toHaveBeenCalled();
+    });
+
+    it("handleLogToFitbit handles DELETE failure gracefully (still shows success)", async () => {
+      setupSWR({ matches: [] });
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          text: async () => JSON.stringify({ success: true, data: mockLogResponse }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          text: async () => JSON.stringify({ success: false }),
+        });
+
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      render(<SavedFoodDetail savedId={42} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Log to Fitbit" }));
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("food-log-confirmation")).toBeInTheDocument();
+      });
+
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    it("passes AbortSignal.timeout to DELETE fetch in handleDiscard", async () => {
+      setupSWR();
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: async () => JSON.stringify({ success: true }),
+      });
+
+      render(<SavedFoodDetail savedId={42} />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /discard/i }));
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /confirm/i }));
+      });
+
+      await waitFor(() => {
+        const deleteCall = mockFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === "/api/saved-analyses/42" && (call[1] as RequestInit).method === "DELETE"
+        );
+        expect(deleteCall).toBeDefined();
+        expect((deleteCall![1] as RequestInit).signal).toBeDefined();
+      });
+    });
+  });
+
   describe("FITBIT_TOKEN_INVALID handling", () => {
     it("saves pending submission and redirects to Fitbit OAuth on token invalid", async () => {
       setupSWR({ matches: [] });

@@ -118,8 +118,11 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
         return;
       }
 
-      // Delete saved analysis on success
-      await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE" });
+      // Delete saved analysis on success (non-blocking — log already succeeded)
+      const deleteRes = await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE", signal: AbortSignal.timeout(15000) });
+      if (!deleteRes.ok) {
+        console.warn("Failed to delete saved analysis after logging:", deleteRes.status);
+      }
       await Promise.all([invalidateFoodCaches(), invalidateSavedAnalysesCaches()]);
       setLogResponse(result.data ?? null);
     } catch (err) {
@@ -135,10 +138,16 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
 
   const handleDiscard = async () => {
     try {
-      await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE" });
+      const response = await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE", signal: AbortSignal.timeout(15000) });
+      if (!response.ok) {
+        setShowDiscardConfirm(false);
+        setLogError("Failed to discard saved food");
+        return;
+      }
       await invalidateSavedAnalysesCaches();
       router.push("/app");
     } catch (err) {
+      setShowDiscardConfirm(false);
       setLogError(err instanceof Error ? err.message : "Failed to discard saved food");
     }
   };
@@ -146,11 +155,14 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
   const handleChatLogged = async (response: FoodLogResponse) => {
     if (!response.success) return;
     try {
-      await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE" });
+      const deleteRes = await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE", signal: AbortSignal.timeout(15000) });
+      if (!deleteRes.ok) {
+        console.warn("Failed to delete saved analysis after logging from chat:", deleteRes.status);
+      }
       await invalidateSavedAnalysesCaches();
       router.push("/app");
     } catch (err) {
-      console.error("Failed to delete saved analysis after logging from chat:", err);
+      console.warn("Failed to delete saved analysis after logging from chat:", err);
     }
   };
 
