@@ -1,224 +1,311 @@
 # Implementation Plan
 
-**Status:** COMPLETE
 **Created:** 2026-04-08
-**Source:** Inline request: Pull AI-Driven Staging QA from roadmap — create a standalone Claude Code skill that uses Chrome browser automation to run functional QA against the live staging site
-**Linear Issues:** [FOO-898](https://linear.app/lw-claude/issue/FOO-898/create-staging-qa-skill-with-initial-4-scenarios), [FOO-899](https://linear.app/lw-claude/issue/FOO-899/register-staging-qa-skill-and-remove-from-roadmap)
-**Branch:** feat/staging-qa
+**Source:** Inline request: Save for Later — analyze food now, save the result, log it when you actually eat it
+**Linear Issues:** [FOO-900](https://linear.app/lw-claude/issue/FOO-900/add-saved-analyses-db-table), [FOO-901](https://linear.app/lw-claude/issue/FOO-901/saved-analyses-lib-module-api-routes), [FOO-902](https://linear.app/lw-claude/issue/FOO-902/save-for-later-ui-triggers-analyzer-chat-header), [FOO-903](https://linear.app/lw-claude/issue/FOO-903/dashboard-saved-for-later-section), [FOO-904](https://linear.app/lw-claude/issue/FOO-904/saved-food-detaillogging-page), [FOO-905](https://linear.app/lw-claude/issue/FOO-905/staging-qa-scenarios-for-save-for-later)
+**Branch:** feat/save-for-later
 
 ## Context Gathered
 
 ### Codebase Analysis
 
-**Existing skill patterns:**
-- 14 skills in `.claude/skills/`, all follow: YAML frontmatter → phases → rules → termination
-- Skills with side effects use `disable-model-invocation: true` (e.g., `investigate`, `deep-review`, `push-to-production`)
-- Large reference docs go in `references/` subdirectory (e.g., `plan-inline/references/plans-template.md`)
-- Skills reference (`tools-improve/references/skills-reference.md`) says: keep SKILL.md under 500 lines, `disable-model-invocation: true` for side effects, no `context: fork` when Chrome MCP connection is needed
-- "ultrathink" keyword enables extended thinking in skills
+**Current analysis/logging flow:**
+- `food-analyzer.tsx` (870 lines): Photo/description → analyze via `/api/analyze-food` SSE → post-analysis UI with meal type/time selectors, action buttons (Refine/Re-analyze), food matches section, sticky bottom CTA ("Log to Fitbit" / "Log as new food")
+- `food-chat.tsx` (1000+ lines): Full-screen chat for refining analysis. Header has back button + "Log to Fitbit" button (when `latestAnalysis` exists). Accepts `initialAnalysis` prop in analyze mode.
+- `/api/log-food` (POST): Accepts `FoodLogRequest` (extends `FoodAnalysis` with mealTypeId, date, time, zoneOffset). Two flows: reuse existing (`reuseCustomFoodId`) or create new. Creates `custom_food` + `food_log_entry` atomically via transaction.
+- `FoodAnalysis` type (`src/types/index.ts:55-82`): 17 fields including nutrition data, confidence, notes, description, keywords. Optional: `sourceCustomFoodId`, `editingEntryId`, `date`, `time`, `mealTypeId`.
 
-**Chrome MCP tools available (18 total, 13 needed):**
-- `tabs_context_mcp` — tab group context (MUST call first each session)
-- `tabs_create_mcp` — create new tab in MCP group
-- `navigate` — URL navigation
-- `computer` — mouse, keyboard, screenshots, scrolling, waiting (max 30s per wait)
-- `read_page` — accessibility tree with element refs (max 50K chars, filterable)
-- `find` — natural-language element search (returns refs)
-- `form_input` — set form values by ref
-- `get_page_text` — extract main text content
-- `javascript_tool` — execute JS in page context
-- `read_console_messages` — filtered console output
-- `read_network_requests` — network activity with URL pattern filtering
-- `gif_creator` — record browser sessions as GIFs (start_recording → stop_recording → export)
-- `resize_window` — responsive testing
+**Dashboard structure (`daily-dashboard.tsx`):**
+- Sections in order: DateNavigator → CalorieRing → MacroBars → LumenBanner → FastingCard → Delete error → MealBreakdown (or empty state) → Lumen goals button → Settings link → History link
+- Today-only conditional pattern: `selectedDate === getTodayDate()` (used at line 366 for Lumen CTA)
+- State: `selectedDate` from `useState(getTodayDate())`
 
-**E2E test patterns (reference for QA scenarios):**
-- Analyze flow: textarea placeholder `"e.g., 250g pollo asado con chimichurri"`, button `"Analyze Food"`, heading with food_name after analysis, button `"Log to Fitbit"`, text `/logged successfully/i`, button `"Done"`
-- Dashboard: navigation `"Main navigation"`, buttons `"Daily"`/`"Weekly"`, link `"Settings"`
-- History: food entries with names, calorie counts, dates
-- All pages use `waitForLoadState('networkidle')` pattern
+**Match lookup:**
+- `/api/search-foods?q={query}` (GET): Uses `searchFoods()` from `src/lib/food-log.ts`. Accepts `q` (min 2 chars), optional `limit`. Returns `{ foods: CustomFood[] }`.
+- `FoodMatchCard` component: Renders match with "Use this" button. Used in `food-analyzer.tsx` lines 793-800.
 
-**Production AI analysis timings (from Railway logs, Apr 7-8):**
-- Simple text, no tool calls: ~9s
-- Text + nutrition label lookups: ~35s (label search + report_nutrition loop)
-- Images + label saves + lookups: ~23-30s
-- Complex multi-tool: 30-35s+
-- **CRITICAL:** The roadmap spec said "5-15 seconds" — real production times are 9-35s. The QA skill must use 60-90s total wait budgets with active DOM polling.
+**DB schema conventions (`src/db/schema.ts`):**
+- `serial("id").primaryKey()`, `uuid("user_id").notNull().references(() => users.id)`, `timestamp("created_at", { withTimezone: true }).defaultNow().notNull()`
+- snake_case for DB columns, camelCase for TS fields
+- JSONB via `jsonb("column_name")` (used in other projects, available via drizzle pg-core)
 
-**Chrome extension reliability (from external research):**
-- Chrome MV3 terminates idle service workers after ~30s, killing the WebSocket connection
-- `javascript_tool` writes to localStorage can trigger immediate disconnection (issue #27597)
-- Sessions >10-30 minutes frequently drop (issues #26449, #29523)
-- Tab groups don't persist across reconnections
-- **Mitigations:** Call `tabs_context_mcp` as heartbeat before each step; keep steps under 30s idle; detect "Browser extension is not connected" errors; avoid localStorage writes
+**API route pattern:**
+- `getSession()` → `validateSession(session)` → business logic → `conditionalResponse(request, data)` or `errorResponse(code, message, status)`
+- `createRequestLogger("METHOD", "/api/route-name")` for structured logging
 
-**SSE testing strategy (from external research):**
-- Do NOT intercept SSE at network level — fragile and poorly supported in Chrome automation
-- Trigger action → poll DOM with `read_page`/`find` every 5-10s → assert final rendered state
-- DOM polling doubles as connection heartbeat (keeps service worker alive)
-- Check for error UI elements, not network failures (errors are delivered via SSE events)
+**SWR patterns:**
+- `apiFetcher` in `src/lib/swr.ts`, `invalidateFoodCaches()` revalidates 5 cache prefixes
+- Dashboard uses `useSWR<Type>(url, apiFetcher)`
 
-**Staging environment:**
-- URL: `food-test.lucaswall.me`
-- Fitbit: dry-run mode (`FITBIT_DRY_RUN=true`) — logging doesn't hit real Fitbit API
-- Auth: user's real Chrome session (Google OAuth + Fitbit already connected)
+**UI patterns:**
+- `getDefaultMealType()` in `src/lib/meal-type.ts`: Returns Fitbit meal type ID based on current hour
+- Loading skeletons: `Skeleton` components with `data-testid`, `min-h-screen`, `max-w-md` container
+- Touch targets: `min-h-[44px]`, mobile-first layout
 
-**GIF recording pattern:**
-- `gif_creator` action: `start_recording` → take screenshots between steps → `stop_recording` → `export` with `download: true` and meaningful filename
-- Take extra screenshots before/after actions for smooth playback
-- Each scenario gets its own GIF file
+**Staging QA skill:**
+- 12 existing scenarios in `.claude/skills/staging-qa/references/test-scenarios.md`
+- Seed data in Phase 2.3 of `.claude/skills/staging-qa/SKILL.md` (inserts custom_foods + food_log_entries)
+- Cleanup in Phase 5.1 (DELETEs by `[QA Seed]` and `[QA Test]` prefixes)
+- Scenario dependencies: log → delete chain pattern (scenarios 5-6)
 
 ### MCP Context
-- **MCPs used:** Linear (issue tracking), Railway (production logs for timing data)
-- **Findings:** Team "Food Scanner", prefix FOO-xxx. No existing staging QA issues in backlog. Production logs confirmed AI analysis takes 9-35s (not 5-15s as roadmap spec stated).
+- **MCPs used:** Linear (issue tracking)
+- **Findings:** Team "Food Scanner", prefix FOO-xxx. No existing saved-analyses or save-for-later issues in backlog.
 
 ## Tasks
 
-### Task 1: Create staging-qa skill with initial scenarios
-**Linear Issue:** [FOO-898](https://linear.app/lw-claude/issue/FOO-898/create-staging-qa-skill-with-initial-4-scenarios)
+### Task 1: Add saved_analyses DB table
+**Linear Issue:** [FOO-900](https://linear.app/lw-claude/issue/FOO-900/add-saved-analyses-db-table)
 **Files:**
-- `.claude/skills/staging-qa/SKILL.md` (create)
-- `.claude/skills/staging-qa/references/test-scenarios.md` (create)
+- `src/db/schema.ts` (modify)
+- `drizzle/` (new migration generated by drizzle-kit)
+- `CLAUDE.md` (modify — add `saved_analyses` to tables list)
 
 **Steps:**
-1. No TDD — this is a Claude Code skill (markdown files), not application code.
-2. Create `.claude/skills/staging-qa/SKILL.md` with the following structure:
+1. No unit tests for schema — validated by drizzle-kit and typecheck.
+2. Add `savedAnalyses` table to `src/db/schema.ts`:
+   - `id`: serial PK
+   - `userId`: uuid FK → users, notNull
+   - `foodAnalysis`: jsonb, notNull — stores the full `FoodAnalysis` object
+   - `description`: text, notNull — the `food_name` from the analysis, denormalized for list display
+   - `calories`: integer, notNull — denormalized from `foodAnalysis.calories` for card display
+   - `createdAt`: timestamp with timezone, defaultNow, notNull
+   - Follow existing table patterns (snake_case DB columns, camelCase TS fields)
+3. Run `npx drizzle-kit generate` to create migration file.
+4. Add `saved_analyses` to the DATABASE tables list in CLAUDE.md.
+5. Run verifier (expect pass).
 
-   **Frontmatter:**
-   - `name: staging-qa`
-   - `description:` Trigger on "staging qa", "run qa", "test staging". Describe purpose: automated functional QA against staging using Chrome browser automation.
-   - `allowed-tools:` All 13 Chrome MCP tools listed in Context above, plus `Read`, `Glob`, `Grep` (for codebase reference during test validation)
-   - `disable-model-invocation: true` — has browser side effects
-   - `argument-hint: [scenarios]` — optional, to run specific scenarios instead of all
-   - No `context: fork` — must maintain Chrome MCP connection from main conversation
+**Migration note:** New table only — no existing data affected.
 
-   **Phase 1: Pre-flight** —
-   - Call `tabs_context_mcp` to verify Chrome extension is connected. If error, STOP: "Chrome extension not connected. Run `/chrome` to connect, then re-run."
-   - Create a new tab with `tabs_create_mcp`
-   - Navigate to `food-test.lucaswall.me` using `navigate` tool
-   - Verify the user is logged in by checking for the main navigation element (role: navigation, name: "Main navigation"). If login page is shown instead, STOP: "Not logged into staging. Please log in at food-test.lucaswall.me, then re-run."
-   - Record the tab ID for all subsequent operations
-
-   **Phase 2: Connection resilience protocol** —
-   - Before EVERY browser tool call, call `tabs_context_mcp` as a heartbeat
-   - If any browser tool returns a connection error: pause, inform user "Chrome connection lost. Please run `/chrome` to reconnect.", wait for user confirmation, then re-fetch tab context and resume from the current scenario
-   - Never assume tab IDs persist after reconnection — always re-fetch via `tabs_context_mcp`
-   - Avoid `javascript_tool` writes to localStorage/sessionStorage (triggers disconnection)
-
-   **Phase 3: Scenario runner** —
-   - Load scenario definitions from `references/test-scenarios.md`
-   - If `$ARGUMENTS` specifies scenario names, filter to only those; otherwise run all
-   - For each scenario:
-     1. Start GIF recording (`gif_creator` action: `start_recording`)
-     2. Take initial screenshot (`computer` action: `screenshot`)
-     3. Execute scenario steps (from references file)
-     4. Take final screenshot
-     5. Stop GIF recording (`gif_creator` action: `stop_recording`)
-     6. Export GIF with descriptive filename like `staging-qa-dashboard.gif` (`gif_creator` action: `export`, `download: true`)
-     7. Record result: PASS, FAIL (with error details), or SKIP (if prerequisite failed)
-   - If a scenario fails and subsequent scenarios depend on it (e.g., "delete entry" depends on "log entry"), mark dependents as SKIP
-
-   **Phase 4: Cleanup** —
-   - Navigate to history page
-   - Search for any entries with "[QA Test]" in the name
-   - Delete each test entry found
-   - Verify entries are gone
-   - If cleanup fails, report which entries remain for manual deletion
-
-   **Phase 5: Report** —
-   - Output a markdown summary to the conversation (NOT to a file):
-     ```
-     ## Staging QA Report — YYYY-MM-DD
-     - Scenario 1: PASS/FAIL/SKIP
-     - Scenario 2: PASS/FAIL/SKIP
-     ...
-     X/Y passed, N failed, M skipped
-     ```
-   - For failed scenarios, include: what was expected, what happened, screenshot context
-   - Note any connection drops or reconnections that occurred
-
-   **Rules section:**
-   - All test entries must use "[QA Test]" prefix in food names for cleanup identification
-   - SSE analysis waits: poll DOM every 5-10 seconds using `read_page` or `find`, total budget 90 seconds. Never use a single 30s `computer` wait — poll actively to keep connection alive.
-   - Use `find` (natural language) for element discovery, `read_page` with `filter: "interactive"` for forms
-   - Report only — this skill does not modify application code
-   - Advisory — results do not gate deployments
-   - Each scenario is independent unless explicitly chained (analyze → log → delete)
-
-3. Create `.claude/skills/staging-qa/references/test-scenarios.md` with 4 initial scenarios:
-
-   **Scenario 1: Dashboard loads** —
-   - Navigate to `/app`
-   - Verify main navigation is visible (accessibility role: navigation, name: "Main navigation")
-   - Verify Daily/Weekly tab buttons are visible
-   - Verify calorie data renders (any numeric content in the nutrition summary area — don't check exact values)
-   - Check for console errors via `read_console_messages` with `onlyErrors: true`
-   - Pass criteria: navigation visible, tabs visible, no console errors
-
-   **Scenario 2: Analyze food (text-only, real AI)** —
-   - Navigate to `/app/analyze`
-   - Verify heading "Analyze Food" is visible
-   - Find the description textarea (placeholder contains "e.g.")
-   - Enter `[QA Test] Two scrambled eggs with toast` using `form_input`
-   - Click "Analyze Food" button
-   - **Wait for AI analysis:** Poll DOM every 8 seconds using `find` looking for a nutrition result (calorie number or food name heading). Total budget: 90 seconds. If timeout, FAIL.
-   - Verify: a food name heading appeared, calorie value is displayed and is a reasonable number (50-2000 range), "Log to Fitbit" button is visible
-   - Check console for errors
-   - Pass criteria: analysis completes within 90s, nutrition data is structurally valid, no console errors
-
-   **Scenario 3: Log to Fitbit (dry-run)** —
-   - Depends on: Scenario 2 PASS (analysis result is on screen)
-   - Click "Log to Fitbit" button
-   - Wait for confirmation: poll DOM for `/logged successfully/i` text, budget 15 seconds
-   - Verify "Done" button is visible
-   - Click "Done" to return to dashboard
-   - Navigate to history page and verify the "[QA Test]" entry appears in the list
-   - Pass criteria: log succeeds, entry appears in history
-
-   **Scenario 4: Delete test entry** —
-   - Depends on: Scenario 3 PASS (entry exists in history)
-   - In history, find the "[QA Test]" entry
-   - Open the entry detail page
-   - Find and click the delete button/action
-   - Confirm deletion if a confirmation dialog appears
-   - Navigate back to history
-   - Verify the "[QA Test]" entry is no longer in the list
-   - Pass criteria: entry deleted, no longer appears in history
-
-   Each scenario definition should include:
-   - Name, dependency (which prior scenarios must pass), steps with specific UI elements to interact with, pass/fail criteria, and expected timing
-
-4. Run verifier (expect pass — no app code changed, just new markdown files)
-
-**Notes:**
-- Follow the skill structure pattern from `investigate/SKILL.md` (sequential phases, pre-flight checks, error handling table, rules section)
-- Keep SKILL.md under 500 lines — detailed scenario steps belong in references/
-- Reference the E2E test selectors from `e2e/tests/analyze.spec.ts` and `e2e/tests/dashboard.spec.ts` for known-good UI element identifiers
-- The `find` tool uses natural language queries, making selectors self-healing by nature — prefer it over hardcoded CSS selectors
-- The `read_page` tool with `filter: "interactive"` reduces output size and focuses on actionable elements
-
-### Task 2: Register skill and update roadmap
-**Linear Issue:** [FOO-899](https://linear.app/lw-claude/issue/FOO-899/register-staging-qa-skill-and-remove-from-roadmap)
+### Task 2: Saved analyses lib module + API routes
+**Linear Issue:** [FOO-901](https://linear.app/lw-claude/issue/FOO-901/saved-analyses-lib-module-api-routes)
 **Files:**
-- `CLAUDE.md` (modify)
-- `ROADMAP.md` (modify)
+- `src/lib/saved-analyses.ts` (create)
+- `src/lib/__tests__/saved-analyses.test.ts` (create)
+- `src/app/api/saved-analyses/route.ts` (create)
+- `src/app/api/saved-analyses/[id]/route.ts` (create)
+- `src/types/index.ts` (modify)
+- `src/lib/swr.ts` (modify)
 
 **Steps:**
-1. No TDD — documentation-only changes.
-2. Add `staging-qa` to the SKILLS table in CLAUDE.md:
-   - Skill: `staging-qa`
-   - Model: Opus (inline skill)
-   - Trigger: "staging qa", "run qa", "test staging"
-   - What It Does: Chrome-driven functional QA against staging (dashboard, analyze, log, delete)
-3. Remove the "AI-Driven Staging QA" section from ROADMAP.md:
-   - Remove the row from the Contents table
-   - Remove the entire feature section (from `## AI-Driven Staging QA` through the `---` separator after it)
-   - Check remaining features for cross-references to `#ai-driven-staging-qa` and remove any found
-4. Run verifier (expect pass — no app code changed)
+1. Write tests in `src/lib/__tests__/saved-analyses.test.ts`:
+   - `saveAnalysis`: inserts record, returns id + createdAt. Extracts `food_name` into `description` and `calories` from the FoodAnalysis object.
+   - `getSavedAnalyses`: returns all saved items for user, ordered by createdAt desc. Returns `id`, `description`, `calories`, `createdAt` (list view — no full JSONB).
+   - `getSavedAnalysis`: returns single item by id + userId (ownership check). Returns full `foodAnalysis` JSONB.
+   - `getSavedAnalysis` with wrong userId: returns null (no cross-user access).
+   - `deleteSavedAnalysis`: deletes by id + userId. Returns boolean (true if deleted, false if not found).
+   - Follow test patterns from `src/lib/__tests__/food-log.test.ts` (Drizzle mock with `vi.mock('@/db')`).
+2. Run verifier (expect fail — lib doesn't exist yet).
+3. Implement `src/lib/saved-analyses.ts`:
+   - `saveAnalysis(userId, foodAnalysis: FoodAnalysis)`: Insert into `savedAnalyses`. Extract `food_name` → `description`, `calories` → `calories` from the input. Store entire `FoodAnalysis` as JSONB in `foodAnalysis` column.
+   - `getSavedAnalyses(userId)`: Select id, description, calories, createdAt. Order by createdAt desc.
+   - `getSavedAnalysis(userId, id)`: Select full row including foodAnalysis JSONB. Filter by both id and userId.
+   - `deleteSavedAnalysis(userId, id)`: Delete where id = id AND userId = userId. Return whether a row was deleted.
+4. Run verifier (expect pass for lib tests).
+5. Add `SavedAnalysisListItem` and `SavedAnalysisDetail` interfaces to `src/types/index.ts`:
+   - `SavedAnalysisListItem`: `{ id: number; description: string; calories: number; createdAt: string }`
+   - `SavedAnalysisDetail`: extends list item with `foodAnalysis: FoodAnalysis`
+6. Create `src/app/api/saved-analyses/route.ts`:
+   - `GET`: session auth → `getSavedAnalyses(userId)` → `conditionalResponse`
+   - `POST`: session auth → parse body → validate `foodAnalysis` has required fields (food_name, calories as minimum) → `saveAnalysis(userId, body.foodAnalysis)` → return created item with 201 status
+   - Follow pattern from `src/app/api/search-foods/route.ts`
+7. Create `src/app/api/saved-analyses/[id]/route.ts`:
+   - `GET`: session auth → parse id from params → `getSavedAnalysis(userId, id)` → 404 if not found → `conditionalResponse`
+   - `DELETE`: session auth → parse id from params → `deleteSavedAnalysis(userId, id)` → 404 if not found → `conditionalResponse({ deleted: true })`
+   - Validate `id` is a positive integer
+8. Add `invalidateSavedAnalysesCaches` to `src/lib/swr.ts`:
+   - New constant `SAVED_ANALYSES_CACHE_PREFIXES = ["/api/saved-analyses"]`
+   - New export function following the `invalidateFoodCaches` pattern
+9. Run verifier (expect pass).
+
+### Task 3: Save for Later UI triggers (analyzer + chat header)
+**Linear Issue:** [FOO-902](https://linear.app/lw-claude/issue/FOO-902/save-for-later-ui-triggers-analyzer-chat-header)
+**Files:**
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/food-chat.tsx` (modify)
+- `src/components/__tests__/food-analyzer.test.tsx` (modify)
+- `src/components/__tests__/food-chat.test.tsx` (modify)
+
+**Steps:**
+1. Write tests for the save trigger in food-analyzer:
+   - Renders "Save for Later" button when analysis exists and not loading
+   - Button is disabled while logging or saving
+   - Clicking calls POST /api/saved-analyses with the current FoodAnalysis
+   - On success: shows toast "Saved — find it on your dashboard", clears analysis session, navigates to `/app`
+   - On error: shows error toast, does not navigate
+   - Button does NOT appear before analysis completes
+2. Write tests for the save trigger in food-chat:
+   - Save icon button appears in header when `latestAnalysis` exists and mode is "analyze" (not edit mode)
+   - Save icon is disabled until `latestAnalysis` is set
+   - Clicking calls POST /api/saved-analyses with `latestAnalysis`
+   - On success: shows toast, calls `onClose` callback
+   - Does NOT appear in edit mode (`isEditMode`)
+3. Run verifier (expect fail).
+4. Add "Save for Later" button to `food-analyzer.tsx`:
+   - Position: New row below the Refine/Re-analyze buttons (after line 786), before the food matches section
+   - Full-width outline button with Clock icon (from lucide-react) and text "Save for Later"
+   - `min-h-[44px]` touch target
+   - State: `saving` boolean to track in-flight save request and disable button
+   - On click: POST `/api/saved-analyses` with `{ foodAnalysis: analysis }` → invalidate saved analyses cache → show success toast → clear session → navigate to `/app`
+   - Import `Clock` from lucide-react, `invalidateSavedAnalysesCaches` from `@/lib/swr`
+5. Add save icon to `food-chat.tsx` header:
+   - Position: Between back button (line 788) and the flex spacer (line 791)
+   - Clock icon button, `size-11 rounded-full` (matching back button style)
+   - Only visible when `latestAnalysis` exists AND NOT in edit mode
+   - Disabled while `saving` state is true
+   - On click: POST `/api/saved-analyses` with `{ foodAnalysis: latestAnalysis }` → invalidate cache → show toast → call `onClose`
+6. Run verifier (expect pass).
 
 **Notes:**
-- Follow ROADMAP.md conventions section for removal procedure (update Contents table, fix cross-references)
-- The SKILLS table in CLAUDE.md is in the SKILLS section — insert in alphabetical order or after existing entries
+- The save button in food-analyzer strips `sourceCustomFoodId`, `editingEntryId` from the FoodAnalysis before saving — these are transient context that shouldn't persist.
+- Toast uses the existing toast pattern (check if the project has a toast component or uses a simple state-based notification).
+
+### Task 4: Dashboard Saved for Later section
+**Linear Issue:** [FOO-903](https://linear.app/lw-claude/issue/FOO-903/dashboard-saved-for-later-section)
+**Files:**
+- `src/components/saved-for-later-section.tsx` (create)
+- `src/components/__tests__/saved-for-later-section.test.tsx` (create)
+- `src/components/daily-dashboard.tsx` (modify)
+
+**Steps:**
+1. Write tests for `SavedForLaterSection` component:
+   - Renders nothing when items array is empty
+   - Renders section header "Saved for Later" with count badge when items exist
+   - Renders a card for each item showing: food name (truncated to ~30 chars), calories with "cal" suffix, relative time
+   - Cards are clickable — calls `onItemClick(id)` callback
+   - Relative time formatting: "just now" (<1 min), "Xm ago" (<1hr), "Xh ago" (<24hr), "yesterday", "X days ago"
+2. Run verifier (expect fail).
+3. Implement `src/components/saved-for-later-section.tsx`:
+   - Props: `items: SavedAnalysisListItem[]`, `onItemClick: (id: number) => void`
+   - Section header: `"Saved for Later"` text with a count badge (small rounded pill with number)
+   - Cards: Compact horizontal layout. Left: food name + calories. Right: relative time. Full card is tappable.
+   - Card styling: border, rounded, padding, `min-h-[44px]` touch target, hover state
+   - Use `'use client'` directive
+4. Run verifier (expect pass).
+5. Integrate into `daily-dashboard.tsx`:
+   - Add `useSWR<{ items: SavedAnalysisListItem[] }>` for `/api/saved-analyses` — but ONLY when `selectedDate === getTodayDate()`. Use conditional SWR key: `selectedDate === getTodayDate() ? '/api/saved-analyses' : null`
+   - Render `SavedForLaterSection` after the MealBreakdown / empty state block (after line 425), before the Lumen goals button (before line 427)
+   - Only render when `selectedDate === getTodayDate()` AND saved items exist (length > 0)
+   - `onItemClick` navigates to `/app/saved/${id}` via `router.push`
+   - Import `SavedAnalysisListItem` from `@/types`
+6. Run verifier (expect pass).
+
+### Task 5: Saved food detail/logging page
+**Linear Issue:** [FOO-904](https://linear.app/lw-claude/issue/FOO-904/saved-food-detaillogging-page)
+**Files:**
+- `src/app/app/saved/[id]/page.tsx` (create)
+- `src/app/app/saved/[id]/loading.tsx` (create)
+- `src/components/saved-food-detail.tsx` (create)
+- `src/components/__tests__/saved-food-detail.test.tsx` (create)
+
+**Steps:**
+1. Write tests for `SavedFoodDetail` component:
+   - **Loading state:** Shows skeleton while fetching saved analysis
+   - **Not found:** Shows error message + back button when saved analysis not found (404)
+   - **Renders analysis:** Shows `AnalysisResult` component with saved nutrition data
+   - **Match lookup:** Calls `/api/search-foods?q={keywords}` on mount with the saved food's name keywords. Displays `FoodMatchCard` components for matches.
+   - **No matches:** Hides matches section when no results. Sticky button says "Log to Fitbit".
+   - **With matches:** Shows matches section with "Similar foods" header. Sticky button says "Log as new food". Selecting a match sets `reuseCustomFoodId`.
+   - **Meal type selector:** Renders MealTypeSelector with `getDefaultMealType()` as default
+   - **Time selector:** Renders TimeSelector with current time as default. No date selector.
+   - **Log flow (new food):** Clicking "Log to Fitbit"/"Log as new food" → POST `/api/log-food` with FoodAnalysis + mealTypeId + today's date + current time + zoneOffset → on success DELETE `/api/saved-analyses/[id]` → invalidate both food and saved analyses caches → show `FoodLogConfirmation`
+   - **Log flow (reuse match):** Clicking "Log to Fitbit" after selecting match → POST `/api/log-food` with `reuseCustomFoodId` + mealTypeId + date + time → same success flow
+   - **Log failure:** Shows error alert (same pattern as food-analyzer log error)
+   - **Refine with chat:** Clicking "Refine with chat" → opens FoodChat overlay seeded with `initialAnalysis` from saved data, mode="analyze". On successful log from chat → DELETE saved analysis → invalidate caches → navigate to dashboard.
+   - **Discard:** Clicking "Discard" → shows confirmation dialog → on confirm DELETE `/api/saved-analyses/[id]` → invalidate cache → navigate to `/app`
+   - **Discard cancel:** Clicking cancel in confirmation dialog → dialog closes, no deletion
+2. Run verifier (expect fail).
+3. Implement `src/components/saved-food-detail.tsx`:
+   - `'use client'` component
+   - Props: `savedId: number` (from page params)
+   - Fetch saved analysis: `useSWR<SavedAnalysisDetail>(\`/api/saved-analyses/${savedId}\`, apiFetcher)`
+   - Fetch matches: `useSWR` with key derived from saved analysis name — split food name into keywords, call `/api/search-foods?q={keywords}&limit=3`. Use conditional key (null until saved analysis loads).
+   - State: `mealTypeId` (default from `getDefaultMealType()`), `selectedTime` (default current time), `selectedMatch` (null or customFoodId), `logging`, `saving`, `showChat`, `showDiscardConfirm`, `logError`, `logResponse`
+   - Layout structure (follows food-analyzer post-analysis pattern):
+     - Back button header (ArrowLeft icon, navigates to `/app`)
+     - `AnalysisResult` with the saved `foodAnalysis` data
+     - `MealTypeSelector` + `TimeSelector`
+     - "Refine with chat" + "Discard" button row (outline buttons with icons)
+     - Matches section (if any): "Similar foods" header + `FoodMatchCard` list with `onSelect` handler
+     - Log error alert (if logError)
+     - Sticky bottom CTA: "Log to Fitbit" or "Log as new food" (depending on matches)
+   - Log handler: Build `FoodLogRequest` from saved analysis data + selected meal type/time + today's date. If match selected, use `reuseCustomFoodId`. POST to `/api/log-food`. On success: DELETE saved analysis, invalidate both caches, set `logResponse`.
+   - Discard handler: Show `AlertDialog` confirmation. On confirm: DELETE `/api/saved-analyses/${savedId}`, invalidate cache, navigate to `/app`.
+   - Chat mode: Conditional render of `FoodChat` with `initialAnalysis={savedAnalysis.foodAnalysis}`, `mode="analyze"`. Pass `onLogged` callback that deletes the saved analysis and navigates to dashboard. Pass `onClose` to hide chat.
+   - When `logResponse` is set: render `FoodLogConfirmation` (full screen, same as food-analyzer success state)
+   - Handle pending submission pattern for Fitbit token expiry: if log returns `FITBIT_TOKEN_INVALID`, save pending submission to sessionStorage and redirect to Fitbit OAuth (follow existing pattern in `food-analyzer.tsx`)
+4. Create `src/app/app/saved/[id]/page.tsx`:
+   - Server component that checks session (same pattern as `src/app/app/analyze/page.tsx`)
+   - Wraps `SavedFoodDetail` in `FitbitSetupGuard`
+   - Passes `params.id` (parsed as integer) to `SavedFoodDetail`
+5. Create `src/app/app/saved/[id]/loading.tsx`:
+   - Skeleton layout matching the detail page: header bar skeleton, large nutrition card skeleton, two button row skeletons, bottom CTA skeleton
+   - Follow pattern from `src/app/app/loading.tsx`
+6. Run verifier (expect pass).
+
+**Notes:**
+- Reuse existing components: `AnalysisResult`, `FoodMatchCard`, `MealTypeSelector`, `TimeSelector`, `FoodLogConfirmation`, `FoodChat`, `AlertDialog`
+- The `FoodChat` component's `onLogged` callback receives `FoodLogResponse` — use this to confirm success before deleting the saved analysis
+- Match lookup uses the saved food's `food_name` split into keywords (same logic as `/api/search-foods` query parsing)
+- The page does NOT need a date selector — logging always uses today. The time selector defaults to now.
+
+### Task 6: Staging QA scenarios for Save for Later
+**Linear Issue:** [FOO-905](https://linear.app/lw-claude/issue/FOO-905/staging-qa-scenarios-for-save-for-later)
+**Files:**
+- `.claude/skills/staging-qa/references/test-scenarios.md` (modify)
+- `.claude/skills/staging-qa/SKILL.md` (modify)
+
+**Steps:**
+1. No TDD — staging QA skill files are markdown, not application code.
+2. Update Phase 2.3 seed data in `.claude/skills/staging-qa/SKILL.md`:
+   - Add `saved_analyses` inserts after the existing custom_foods + food_log_entries seed block
+   - Insert 2 saved analyses for the test user: one with realistic food data (e.g., "[QA Seed] Saved grilled chicken", 450 cal), one simpler (e.g., "[QA Seed] Saved banana", 105 cal)
+   - The `food_analysis` JSONB column should contain a valid `FoodAnalysis` object with all required fields
+3. Update Phase 5.1 cleanup SQL in `.claude/skills/staging-qa/SKILL.md`:
+   - Add `DELETE FROM saved_analyses WHERE description LIKE '[QA Seed]%' OR description LIKE '[QA Test]%';` before the existing custom_foods cleanup
+4. Update Scenario 1 (Dashboard) in `references/test-scenarios.md`:
+   - Add a step after meal breakdown verification: verify "Saved for Later" section is visible (with seed data, should show 2 saved items)
+   - Add visual criteria: "Saved for Later section renders below meals with food names and calorie values"
+5. Add Scenario 13: Save for Later to `references/test-scenarios.md`:
+   - Slug: `save`
+   - Depends on: none (self-contained)
+   - Expected timing: 20-50 seconds (AI analysis + save)
+   - Steps:
+     1. Navigate to `/app/analyze`
+     2. Enter description: `[QA Test] Apple with peanut butter`
+     3. Click "Analyze Food" (same button interaction pattern as Scenario 3)
+     4. Wait for AI analysis (SSE polling, 90s budget)
+     5. Verify analysis result appears
+     6. Find and click "Save for Later" button
+     7. Wait for toast/confirmation (poll for "Saved" text or navigation to dashboard)
+     8. Verify navigation to dashboard
+     9. Verify "Saved for Later" section on dashboard contains the saved item (look for "Apple" or "peanut butter" text)
+     10. Visual assessment screenshot
+   - Pass criteria: Analysis completes, save succeeds, item appears on dashboard
+   - Visual criteria: Save button visible in post-analysis UI, dashboard section shows saved item
+6. Add Scenario 14: Log Saved Food to `references/test-scenarios.md`:
+   - Slug: `log-saved`
+   - Depends on: `save` (Scenario 13)
+   - Expected timing: <15 seconds (no AI interaction)
+   - Steps:
+     1. Should be on dashboard with saved item. If not, navigate to `/app`.
+     2. Find and click the saved item card in the "Saved for Later" section
+     3. Verify detail page loads — look for nutrition data (calories, protein) and "Log to Fitbit" or "Log as new food" button
+     4. Find and click the log button
+     5. Wait for confirmation: poll for "logged successfully" text (15s budget)
+     6. Verify "Done" button, click it
+     7. Navigate to dashboard
+     8. Verify "Saved for Later" section no longer contains the logged item (or section is hidden if empty)
+     9. Visual assessment screenshot of the detail page (take before logging)
+   - Pass criteria: Detail page loads with nutrition, log succeeds, item removed from dashboard
+   - Visual criteria: Detail page layout is clean, nutrition card readable, action buttons visible
+7. Update the scenario list at the top of the scenarios file and in SKILL.md Phase 4 if there's a list of valid slugs — add `save` and `log-saved`.
+8. Run verifier (expect pass — no app code changed).
+
+**Notes:**
+- Follow existing scenario patterns: dependency chains, SSE polling strategy, `[QA Test]` prefix convention, `find` for element discovery
+- Scenario 14 depends on 13 (same pattern as scenarios 5→6 log→delete chain)
+- Cleanup covers both `[QA Seed]` (from seed data) and `[QA Test]` (from functional scenarios) prefixed saved analyses
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -226,64 +313,11 @@
 
 ---
 
-## Iteration 1
-
-**Implemented:** 2026-04-08
-**Method:** Single-agent (docs-only tasks, effort score 0)
-
-### Tasks Completed This Iteration
-- Task 1: Create staging-qa skill with initial 4 scenarios — Created SKILL.md (5 phases: pre-flight, connection resilience, scenario runner, cleanup, reporting) and references/test-scenarios.md (4 scenarios: dashboard, analyze, log, delete)
-- Task 2: Register skill and update roadmap — Added staging-qa to CLAUDE.md SKILLS table, removed AI-Driven Staging QA section from ROADMAP.md
-
-### Files Modified
-- `.claude/skills/staging-qa/SKILL.md` — Created skill framework
-- `.claude/skills/staging-qa/references/test-scenarios.md` — Created 4 test scenario definitions
-- `CLAUDE.md` — Added staging-qa to SKILLS table
-- `ROADMAP.md` — Removed AI-Driven Staging QA feature section and contents table entry
-
-### Linear Updates
-- FOO-898: Todo → In Progress → Review
-- FOO-899: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 1 LOW issue (argument parsing clarity), fixed before commit
-- verifier: All 2,902 tests pass, zero warnings
-
-### Review Findings
-
-Files reviewed: 4
-Reviewer: single-agent (≤4 changed files)
-Checks applied: Security, Reliability, Quality, Conventions
-
-No issues found — all implementations are correct and follow project conventions.
-
-- SKILL.md: Well-structured (154 lines, under 500-line limit), proper frontmatter, all 13 Chrome MCP tools listed, connection resilience protocol, SSE polling strategy, cleanup phase, error handling table
-- test-scenarios.md: 4 scenarios with clear dependencies, pass criteria, and timing expectations
-- CLAUDE.md: staging-qa correctly added to SKILLS table
-- ROADMAP.md: AI-Driven Staging QA section and contents entry properly removed, no stale cross-references
-
-### Linear Updates
-- FOO-898: Review → Merge
-- FOO-899: Review → Merge
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-All tasks completed.
-
----
-
 ## Plan Summary
 
-**Objective:** Create a standalone `/staging-qa` Claude Code skill that automates functional QA against the staging site using Chrome browser automation, with GIF recording of each scenario.
-**Linear Issues:** FOO-898, FOO-899
-**Approach:** Create a new skill in `.claude/skills/staging-qa/` with SKILL.md (framework, phases, rules) and `references/test-scenarios.md` (4 initial scenarios: dashboard, analyze, log, delete). The skill uses the `claude-in-chrome` MCP tools to navigate the real staging site with the user's authenticated session. Each scenario is GIF-recorded. Start with a 4-scenario subset covering the core happy path; remaining 5 scenarios (chat refinement, history browsing, edit, quick-select, settings) can be added incrementally. Update CLAUDE.md to register the skill and remove the feature from ROADMAP.md.
-**Scope:** 2 tasks, 4 files (2 create, 2 modify), no tests (markdown-only changes)
-**Key Decisions:** Standalone skill (not integrated into push-to-production); GIF recording per scenario; 4-scenario initial subset; 90-second wait budget for AI analysis (based on real production timings of 9-35s); active DOM polling every 8s as both assertion and connection heartbeat; "[QA Test]" prefix for test entry identification and cleanup
-**Risks:** Low — no application code changes, no regression risk. Main operational risk is Chrome extension connection stability during longer AI analysis waits (mitigated by heartbeat protocol and reconnection instructions).
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+**Objective:** Let the user analyze food at preparation time and save the result, then log it with one tap when they actually eat it.
+**Linear Issues:** FOO-900, FOO-901, FOO-902, FOO-903, FOO-904, FOO-905
+**Approach:** New `saved_analyses` DB table stores FoodAnalysis JSONB. Save triggers in food-analyzer (outline button) and food-chat (header icon). Dashboard shows "Saved for Later" section below meals on today's view only. Tapping a saved card navigates to a new detail page that re-runs match lookup against current food library, shows meal type/time selectors, and offers log/refine/discard actions. Logging always uses today's date and current time. Staging QA updated with seed data, dashboard visual check, and two new scenarios (save + log-saved).
+**Scope:** 6 tasks, ~15 files (7 create, 8 modify), ~20 test cases
+**Key Decisions:** (1) No images stored — only FoodAnalysis nutrition data. (2) Match lookup re-runs fresh at log time via `/api/search-foods`. (3) Dashboard section is today-only, items have no date. (4) Detail page is a full page (not bottom sheet), reusing AnalysisResult + FoodMatchCard + MealTypeSelector + FoodChat. (5) No quick-log shortcut — tapping card always goes to detail page. (6) `sourceCustomFoodId` stripped on save, re-determined at log time.
+**Risks:** Low — feature is additive with no changes to existing flows. All existing components (AnalysisResult, FoodMatchCard, FoodChat, FoodLogConfirmation) are reused, not modified. Main risk is the detail page being a large new component (~400 lines estimated), but it follows established patterns closely.
