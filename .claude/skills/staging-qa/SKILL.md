@@ -24,7 +24,9 @@ Automated functional QA against the live staging site (`food-test.lucaswall.me`)
 
 5. **Set mobile viewport** — Use `resize_window` to set the viewport to **390×844** (iPhone 14 equivalent). The app is used 100% on mobile — all scenarios must run at mobile width.
 
-6. **Record tab ID** — Store the tab ID for use in all subsequent browser tool calls.
+6. **Switch to light mode** — Use `javascript_tool` to run `localStorage.setItem("theme", "light")`, then reload the page via `navigate` to the same URL. This ensures screenshots have sufficient contrast for visual QA (dark mode dialogs and overlays render as black in screenshots). Verify light mode is active by checking the page background is white.
+
+7. **Record tab ID** — Store the tab ID for use in all subsequent browser tool calls.
 
 ## Phase 2: Test Data Seeding
 
@@ -109,7 +111,6 @@ Apply these rules throughout ALL browser interactions:
   4. If still disconnected, wait 2 more seconds and retry (up to 3 total attempts).
   5. Only after 3 failed retries, ask the user: "Chrome connection lost after 3 retries. Please check the extension and confirm to continue."
 - **Never assume tab IDs persist** after any connection interruption — always re-fetch via `tabs_context_mcp`.
-- **Avoid localStorage/sessionStorage writes** via `javascript_tool` — these can trigger immediate disconnection (known issue #27597).
 
 ## Phase 4: Scenario Runner
 
@@ -160,6 +161,10 @@ To minimize token waste from screenshots:
 ## Phase 5: Cleanup
 
 After all scenarios complete (regardless of pass/fail):
+
+### 5.0 Restore Theme
+
+Use `javascript_tool` to run `localStorage.setItem("theme", "system")` to restore the user's default theme preference.
 
 ### 5.1 DB Cleanup (seed data + any test entries)
 
@@ -280,14 +285,14 @@ For server errors, include:
 - **All seed data uses "[QA Seed]" prefix** for identification and cleanup.
 - **SSE analysis waits: poll DOM every 8 seconds**, total budget 90 seconds. Never use a single long wait.
 - **Use `find` (natural language)** for element discovery — self-healing by nature, no brittle CSS selectors.
-- **Use `read_page` with `filter: "interactive"`** for form interactions — reduces output size.
+- **Use `computer` type action for text inputs** — `form_input` does not trigger React onChange handlers and leaves the component state stale. Always click the input first, then type with `computer`.
+- **Use `read_page` with `filter: "interactive"`** to discover form elements — reduces output size.
 - **Report only** — this skill does NOT modify application code.
 - **Advisory** — results do not gate deployments.
 - **Each scenario is independent** unless explicitly chained via dependencies.
 - **Always clean up** — DB cleanup is primary, UI cleanup is fallback.
 - **GIF recording is opt-in** — only enabled when `gif` is in `$ARGUMENTS`. Each scenario gets its own recording with a descriptive filename.
 - **Heartbeat before every browser call** — `tabs_context_mcp` keeps the connection alive.
-- **No localStorage writes** — avoid `javascript_tool` writes to storage (triggers disconnection).
 - **One visual assessment screenshot per scenario** — minimize token waste, maximize QA value.
 - **Silent reconnection** — auto-retry 3 times before asking the user.
 

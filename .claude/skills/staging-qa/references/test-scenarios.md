@@ -86,9 +86,9 @@
 
 1. Navigate to `/app/analyze`.
 2. Verify the **"Analyze Food" heading** is visible — use `find` to look for heading with text "Analyze Food".
-3. Find the **description textarea** — use `find` to look for a textarea (placeholder contains "e.g.").
-4. Enter test text using `form_input`: `[QA Test] Two scrambled eggs with toast`
-5. Find and click the **"Analyze Food" button** — use `find` to locate the button, then `computer` to click it.
+3. Find the **description textarea** — use `find` to look for a textarea (placeholder contains "e.g."), then click it with `computer`.
+4. Enter test text using `computer` type action: `[QA Test] Two scrambled eggs with toast` (do NOT use `form_input` — it doesn't trigger React onChange handlers).
+5. Click somewhere neutral (empty area) to deselect the textarea, then find and click the **"Analyze Food" button**. If the ref-based click doesn't trigger submission (page stays unchanged after 3 seconds), fall back to `javascript_tool`: `document.querySelectorAll('button').forEach(b => { if (b.textContent.trim() === 'Analyze Food') b.click() })`.
 6. **Wait for AI analysis** using the SSE polling strategy:
    - Set a timer: 90 seconds total budget.
    - Every 8 seconds, call `find` looking for either:
@@ -132,13 +132,13 @@
 ### Steps
 
 1. Navigate to `/app/analyze`.
-2. Find the description textarea and enter using `form_input`: `[QA Test] One banana`
-3. Click the **"Analyze Food" button**.
+2. Find the description textarea, click it, and type using `computer` type action: `[QA Test] One banana`
+3. Click the **"Analyze Food" button** (same fallback as Scenario 3 if ref-click doesn't work).
 4. **Wait for AI analysis** — SSE polling strategy, 90-second budget, poll every 8 seconds.
 5. Verify analysis result appears (food name heading, calorie value).
 6. Find and click the **"Refine with chat" button**.
 7. Verify the **chat overlay appears** — use `find` to look for a text input with placeholder "Type a message..." or similar.
-8. Type a refinement message using `form_input` on the chat input: `Actually it was two bananas, not one`
+8. Type a refinement message using `computer` type action on the chat input: `Actually it was two bananas, not one`
 9. Submit the message — press Enter via `computer` key action, or find and click a send button.
 10. **Wait for AI response** — SSE polling, 90-second budget, poll every 8 seconds looking for an updated calorie value or a new message from the assistant.
 11. Verify the AI responded — a new message appeared in the chat, or the nutrition values updated.
@@ -147,8 +147,6 @@
     - Messages are readable (user message and AI response both visible)
     - Chat input is visible at the bottom and not covered by the keyboard or other elements
     - Nutrition values area still visible or accessible
-13. **Navigate away without logging** — click the Home nav link or navigate to `/app` to avoid creating test data.
-
 ### Pass Criteria
 
 - Analysis completes and shows nutrition result
@@ -163,32 +161,37 @@
 - Messages are legible at mobile width
 - Input area accessible at bottom of screen
 
-**Note:** This scenario does NOT log to Fitbit — it only tests the chat refinement flow. Navigate away to avoid creating entries that need cleanup.
+**Note:** This scenario does NOT log to Fitbit — it only tests the chat refinement flow.
 
 ---
 
 ## Scenario 5: Log to Fitbit (dry-run)
 
 - **Slug:** `log`
-- **Depends on:** `analyze` (analysis result must be on screen)
-- **Expected timing:** <15 seconds
+- **Depends on:** none (self-contained — does its own analysis)
+- **Expected timing:** 20-50 seconds (AI analysis + log)
 
 ### Steps
 
-1. **Verify prerequisite** — The analysis result from the analyze scenario should still be on screen. If not, SKIP.
-2. Find and click the **"Log to Fitbit" button** — use `find` to locate it, then `computer` to click.
-3. **Wait for confirmation** — Poll DOM every 3 seconds for up to 15 seconds, looking for text matching `/logged successfully/i`.
-4. Verify the **"Done" button** is visible.
-5. **Visual assessment screenshot** — take a screenshot and evaluate:
+1. Navigate to `/app/analyze`.
+2. Find the description textarea, click it, and type using `computer` type action: `[QA Test] Plain rice 200g`
+3. Click the **"Analyze Food" button** (same fallback as Scenario 3 if ref-click doesn't work).
+4. **Wait for AI analysis** — SSE polling strategy, 90-second budget, poll every 8 seconds.
+5. Verify analysis result appears (food name heading, calorie value).
+6. Find and click the **"Log as new food" button** (staging uses dry-run mode, so the button may say "Log as new food" or "Log to Fitbit") — use `find` to locate it, then `computer` to click.
+7. **Wait for confirmation** — Poll DOM every 3 seconds for up to 15 seconds, looking for text matching `/logged successfully/i`.
+8. Verify the **"Done" button** is visible.
+9. **Visual assessment screenshot** — take a screenshot and evaluate:
    - Success message is prominent and readable
    - Done button is clearly visible and tappable
    - No error messages or broken layout
-6. Click **"Done"** to return to the dashboard.
-7. **Navigate to history** — Go to `/app/history`.
-8. **Verify the test entry appears** — Use `find` or `get_page_text` to look for the food name from the analysis in the history list under "Today".
+10. Click **"Done"** to return to the dashboard.
+11. **Navigate to history** — Go to `/app/history`.
+12. **Verify the test entry appears** — Use `find` or `get_page_text` to look for the food name from the analysis in the history list under "Today".
 
 ### Pass Criteria
 
+- AI analysis completes
 - "Logged successfully" message appears within 15 seconds
 - "Done" button is visible and clickable
 - Test entry appears in history after navigating to the history page
@@ -316,7 +319,7 @@
 3. Find an existing entry (not "[QA Test]" or "[QA Seed]") and click its **edit button** (pencil icon). If only seed entries exist, use one of those.
 4. Verify the **edit page loads** — use `find` to look for text containing "You logged" and "What would you like to change".
 5. Verify the **chat input** is present — look for placeholder "Type a message...".
-6. Enter a test message using `form_input`: `[QA Test] Change the portion to 100g`
+6. Enter a test message using `computer` type action: `[QA Test] Change the portion to 100g`
 7. Submit the message — press Enter via `computer` key action.
 8. **Wait for AI response** — SSE polling, 90-second budget, poll every 8 seconds. Look for a new assistant message or updated nutrition values.
 9. Verify the AI responded with nutrition changes.
