@@ -12,8 +12,8 @@ export async function GET(request: Request) {
   if (validationError) return validationError;
 
   try {
-    const analyses = await getSavedAnalyses(session!.userId);
-    return conditionalResponse(request, { analyses });
+    const items = await getSavedAnalyses(session!.userId);
+    return conditionalResponse(request, { items });
   } catch (error) {
     log.error(
       {

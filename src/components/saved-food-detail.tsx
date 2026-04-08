@@ -134,16 +134,24 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
   };
 
   const handleDiscard = async () => {
-    await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE" });
-    await invalidateSavedAnalysesCaches();
-    router.push("/app");
+    try {
+      await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE" });
+      await invalidateSavedAnalysesCaches();
+      router.push("/app");
+    } catch (err) {
+      setLogError(err instanceof Error ? err.message : "Failed to discard saved food");
+    }
   };
 
   const handleChatLogged = async (response: FoodLogResponse) => {
     if (!response.success) return;
-    await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE" });
-    await invalidateSavedAnalysesCaches();
-    router.push("/app");
+    try {
+      await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE" });
+      await invalidateSavedAnalysesCaches();
+      router.push("/app");
+    } catch (err) {
+      console.error("Failed to delete saved analysis after logging from chat:", err);
+    }
   };
 
   // Loading state
@@ -190,6 +198,7 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
           initialMealTypeId={mealTypeId}
           mode="analyze"
           onClose={() => setShowChat(false)}
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           onLogged={(response, _analysis, _mealTypeId) => {
             handleChatLogged(response).catch(() => {});
           }}

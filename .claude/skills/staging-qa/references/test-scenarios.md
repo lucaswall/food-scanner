@@ -13,13 +13,15 @@
 3. Verify the **Daily/Weekly tab buttons** are visible — use `find` to look for "Daily" and "Weekly" buttons.
 4. Verify **calorie/nutrition data renders** — use `find` to check for numeric content in the nutrition summary area (any number followed by "cal" or "kcal"). With seeded data, expect non-zero calorie values for today.
 5. **Test date navigation** — find and click the **previous day arrow** (left arrow / "Previous day" button). Verify the date label changes (no longer says "Today"). Then click the **next day arrow** (right arrow / "Next day" button) to return. Verify "Today" is shown again.
-6. **Visual assessment screenshot** — take a screenshot and evaluate:
+6. **Verify "Saved for Later" section** — use `find` to look for text "Saved for Later". With seed data, expect a section showing 2 saved items with food names and calorie values. Verify at least one card is visible (e.g., containing "chicken" or "banana" text).
+7. **Visual assessment screenshot** — take a screenshot and evaluate:
    - Calorie ring/progress indicator renders with data (not empty/zero if seed data is present)
    - Macro bars (protein, carbs, fat) are visible with values
    - Meal entries appear in the daily view (breakfast/lunch cards)
+   - Saved for Later section renders below meals with food names and calorie values
    - Navigation bar at bottom is fully visible and not cut off
    - No overlapping elements or broken layout at 390px width
-7. Check for **console errors** — call `read_console_messages` with `onlyErrors: true`. Filter out known benign errors (e.g., favicon 404, third-party extension errors like Grammarly).
+8. Check for **console errors** — call `read_console_messages` with `onlyErrors: true`. Filter out known benign errors (e.g., favicon 404, third-party extension errors like Grammarly).
 
 ### Pass Criteria
 
@@ -27,12 +29,14 @@
 - Daily and Weekly tabs are visible and clickable
 - Nutrition data renders (at least one calorie value displayed)
 - Date navigation works (previous/next day arrows change the displayed date)
+- "Saved for Later" section visible with seed data (at least one saved item card)
 - No unexpected console errors
 
 ### Visual Criteria
 
 - Calorie ring shows progress (if seed data present)
 - Macro progress bars render correctly
+- Saved for Later section renders below meals with food names and calorie values
 - Page fits mobile viewport without horizontal scroll
 - Bottom nav bar fully visible with all 5 items
 
@@ -449,3 +453,73 @@
 - Mobile-friendly layout
 
 **Note:** This scenario only verifies the standalone chat page loads. It does NOT send a message (that would require a 90s AI wait for low additional coverage over the analyze/refine/edit scenarios that already test AI interaction).
+
+---
+
+## Scenario 13: Save for Later
+
+- **Slug:** `save`
+- **Depends on:** none (self-contained)
+- **Expected timing:** 20-50 seconds (AI analysis + save)
+
+### Steps
+
+1. Navigate to `/app/analyze`.
+2. Find the description textarea, click it, and type using `computer` type action: `[QA Test] Apple with peanut butter`
+3. Click the **"Analyze Food" button** (same fallback as Scenario 3 if ref-click doesn't work).
+4. **Wait for AI analysis** — SSE polling strategy, 90-second budget, poll every 8 seconds looking for a food name heading or calorie value.
+5. Verify analysis result appears (food name heading, calorie value).
+6. Find and click the **"Save for Later" button** — use `find` to locate a button containing "Save for Later" text.
+7. **Wait for save confirmation** — Poll every 3 seconds for up to 15 seconds looking for either:
+   - A "Saved" text (toast/banner)
+   - Navigation to the dashboard (URL changes to `/app`)
+8. Verify navigation to dashboard occurred.
+9. Verify **"Saved for Later" section** on dashboard contains the saved item — use `find` to look for text containing "Apple" or "peanut butter" within the Saved for Later section.
+10. **Visual assessment screenshot** — take a screenshot and evaluate the dashboard with the newly saved item visible.
+
+### Pass Criteria
+
+- Analysis completes within 90 seconds
+- "Save for Later" button is visible and clickable in post-analysis UI
+- Save succeeds (toast/banner or navigation)
+- Item appears on dashboard in the "Saved for Later" section
+- No unexpected console errors
+
+### Visual Criteria
+
+- Save button visible in post-analysis action buttons
+- Dashboard "Saved for Later" section shows the saved item with food name and calories
+
+---
+
+## Scenario 14: Log Saved Food
+
+- **Slug:** `log-saved`
+- **Depends on:** `save` (Scenario 13)
+- **Expected timing:** <15 seconds (no AI interaction)
+
+### Steps
+
+1. Should be on the dashboard with the saved item visible. If not, navigate to `/app`.
+2. Find and click the **saved item card** in the "Saved for Later" section — look for text containing "Apple" or "peanut butter" and click it.
+3. Verify the **detail page loads** — use `find` to look for nutrition data (calories, protein) and a "Log to Fitbit" or "Log as new food" button.
+4. **Visual assessment screenshot** — take a screenshot of the detail page BEFORE logging (to capture the layout).
+5. Find and click the **log button** — use `find` to locate "Log to Fitbit" or "Log as new food" button.
+6. **Wait for confirmation** — Poll every 3 seconds for up to 15 seconds looking for "logged successfully" text.
+7. Verify the **"Done" button** is visible, then click it.
+8. Navigate to the dashboard (`/app`).
+9. Verify the **"Saved for Later" section** no longer contains the logged item (look for "Apple" or "peanut butter" — should NOT be found). If the section is hidden entirely (no saved items left), that also passes.
+
+### Pass Criteria
+
+- Detail page loads with nutrition data
+- Log button is visible and clickable
+- Log succeeds ("logged successfully" message)
+- Item removed from dashboard "Saved for Later" section after logging
+- No unexpected console errors
+
+### Visual Criteria
+
+- Detail page layout is clean: nutrition card readable, action buttons visible
+- Meal type and time selectors are present
+- Sticky bottom CTA button is fully visible

@@ -95,6 +95,16 @@ VALUES
   (:uid, :chicken_id, 5, 1, 304, CURRENT_DATE - 6, '19:30');
 ```
 
+Then insert saved analyses so the dashboard "Saved for Later" section renders:
+
+```sql
+-- Create QA seed saved analyses
+INSERT INTO saved_analyses (user_id, food_analysis, description, calories)
+VALUES
+  (:uid, '{"food_name":"[QA Seed] Saved grilled chicken","amount":1,"unit_id":304,"calories":450,"protein_g":42,"carbs_g":0,"fat_g":10,"fiber_g":0,"sodium_mg":350,"saturated_fat_g":3,"trans_fat_g":0,"sugars_g":0,"calories_from_fat":90,"confidence":"high","notes":"Grilled chicken breast, no skin","description":"Grilled chicken breast seasoned with herbs","keywords":["chicken","grilled","breast"]}'::jsonb, '[QA Seed] Saved grilled chicken', 450),
+  (:uid, '{"food_name":"[QA Seed] Saved banana","amount":1,"unit_id":304,"calories":105,"protein_g":1.3,"carbs_g":27,"fat_g":0.4,"fiber_g":3.1,"sodium_mg":1,"saturated_fat_g":0.1,"trans_fat_g":0,"sugars_g":14,"calories_from_fat":3.6,"confidence":"high","notes":"Medium banana","description":"One medium banana","keywords":["banana","fruit"]}'::jsonb, '[QA Seed] Saved banana', 105);
+```
+
 **Implementation:** Build the full SQL as a single script with CTEs or sequential statements. Execute via `psql "$DB_URL" -c "..."`. The above is pseudocode — the actual SQL must use real values (not `:uid` placeholders). Use nested CTEs or a DO block to capture the user ID and custom_food IDs.
 
 **If seeding fails:** WARN but continue — scenarios still run, just with less visual data.
@@ -116,7 +126,7 @@ Apply these rules throughout ALL browser interactions:
 
 1. **Load scenarios** — Read `references/test-scenarios.md` for scenario definitions.
 
-2. **Parse arguments** — If `$ARGUMENTS` is provided, split on whitespace. Extract the `gif` keyword (enables GIF recording). Remaining tokens are scenario slug names to filter. Valid slugs: `dashboard`, `weekly`, `analyze`, `refine`, `log`, `delete`, `quick-select`, `food-detail`, `edit`, `labels`, `settings`, `chat`. If no slug tokens, run all scenarios in order.
+2. **Parse arguments** — If `$ARGUMENTS` is provided, split on whitespace. Extract the `gif` keyword (enables GIF recording). Remaining tokens are scenario slug names to filter. Valid slugs: `dashboard`, `weekly`, `analyze`, `refine`, `log`, `delete`, `quick-select`, `food-detail`, `edit`, `labels`, `settings`, `chat`, `save`, `log-saved`. If no slug tokens, run all scenarios in order.
 
 3. **For each scenario:**
 
@@ -171,6 +181,9 @@ Use `javascript_tool` to run `localStorage.setItem("theme", "system")` to restor
 Using the staging DB URL from Phase 2:
 
 ```sql
+-- Remove QA saved analyses (before custom_foods cleanup)
+DELETE FROM saved_analyses WHERE description LIKE '[QA Seed]%' OR description LIKE '[QA Test]%';
+
 -- Remove QA seed log entries (via custom_foods FK)
 DELETE FROM food_log_entries WHERE custom_food_id IN (
   SELECT id FROM custom_foods WHERE food_name LIKE '[QA Seed]%'
