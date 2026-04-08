@@ -1,14 +1,14 @@
 ---
 name: staging-qa
 description: Automated functional QA against the staging site using Chrome browser automation. Trigger on "staging qa", "run qa", "test staging". Navigates the real staging app, runs test scenarios with GIF recording, and reports results.
-argument-hint: "[scenarios] — optional scenario names to run (e.g., 'dashboard analyze'). Omit to run all."
+argument-hint: "[gif] [scenarios] — 'gif' enables GIF recording per scenario. Scenario names filter which to run (e.g., 'gif dashboard analyze'). Omit to run all without GIFs."
 allowed-tools: Read, Glob, Grep, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__find, mcp__claude-in-chrome__form_input, mcp__claude-in-chrome__get_page_text, mcp__claude-in-chrome__javascript_tool, mcp__claude-in-chrome__read_console_messages, mcp__claude-in-chrome__read_network_requests, mcp__claude-in-chrome__gif_creator, mcp__claude-in-chrome__resize_window
 disable-model-invocation: true
 ---
 
 ultrathink
 
-Automated functional QA against the live staging site (`food-test.lucaswall.me`) using Chrome browser automation. Runs test scenarios, records GIFs, cleans up test data, and reports results.
+Automated functional QA against the live staging site (`food-test.lucaswall.me`) using Chrome browser automation. Runs test scenarios, cleans up test data, and reports results. GIF recording is optional.
 
 ## Phase 1: Pre-flight
 
@@ -22,7 +22,9 @@ Automated functional QA against the live staging site (`food-test.lucaswall.me`)
 4. **Verify login** — Use `read_page` or `find` to check for the main navigation element (role: navigation, name: "Main navigation").
    - If login page is shown instead → STOP: "Not logged into staging. Please log in at food-test.lucaswall.me, then re-run `/staging-qa`."
 
-5. **Record tab ID** — Store the tab ID for use in all subsequent browser tool calls.
+5. **Set mobile viewport** — Use `resize_window` to set the viewport to **390×844** (iPhone 14 equivalent). The app is used 100% on mobile — all scenarios must run at mobile width.
+
+6. **Record tab ID** — Store the tab ID for use in all subsequent browser tool calls.
 
 ## Phase 2: Connection Resilience Protocol
 
@@ -42,25 +44,25 @@ Apply these rules throughout ALL browser interactions:
 
 1. **Load scenarios** — Read `references/test-scenarios.md` for scenario definitions.
 
-2. **Filter scenarios** — If `$ARGUMENTS` is provided, split on whitespace to get individual slug names and filter to only scenarios whose slug appears in that list (valid slugs: `dashboard`, `analyze`, `log`, `delete`). Otherwise run all scenarios in order.
+2. **Parse arguments** — If `$ARGUMENTS` is provided, split on whitespace. Extract the `gif` keyword (enables GIF recording). Remaining tokens are scenario slug names to filter. Valid slugs: `dashboard`, `weekly`, `analyze`, `refine`, `log`, `delete`, `quick-select`, `food-detail`, `edit`, `labels`, `settings`, `chat`. If no slug tokens, run all scenarios in order.
 
 3. **For each scenario:**
 
    a. **Check dependencies** — If the scenario depends on a prior scenario that FAILED or was SKIPPED, mark this scenario as SKIP with reason "dependency [scenario-name] failed".
 
-   b. **Start GIF recording** — Call `gif_creator` with action `start_recording`.
+   b. **If GIF mode:** Start GIF recording — call `gif_creator` with action `start_recording`.
 
    c. **Take initial screenshot** — Call `computer` with action `screenshot` to capture the starting state.
 
    d. **Execute scenario steps** — Follow the step-by-step instructions from the scenario definition. Between each step:
       - Call `tabs_context_mcp` (heartbeat)
-      - Take a screenshot after significant state changes (for smooth GIF playback)
+      - Take a screenshot after significant state changes (for smooth GIF playback if recording)
 
    e. **Evaluate pass/fail** — Check the scenario's pass criteria. Record the result.
 
    f. **Take final screenshot** — Capture the end state.
 
-   g. **Stop and export GIF** — Call `gif_creator` with action `stop_recording`, then `export` with `download: true` and filename `staging-qa-{scenario-slug}.gif`.
+   g. **If GIF mode:** Stop and export GIF — call `gif_creator` with action `stop_recording`, then `export` with `download: true` and filename `staging-qa-{scenario-slug}.gif`.
 
    h. **Record result** — PASS, FAIL (with error details), or SKIP (with reason).
 
@@ -68,7 +70,7 @@ Apply these rules throughout ALL browser interactions:
 
 ### SSE / AI Analysis Wait Strategy
 
-When waiting for AI analysis results (Scenario 2):
+When waiting for AI results (analyze, refine, edit scenarios):
 - **Poll actively** using `find` or `read_page` every **8 seconds**.
 - **Total budget: 90 seconds** (real AI analysis takes 9-35s on staging).
 - **Each poll doubles as a heartbeat** — keeps the Chrome service worker alive.
@@ -100,15 +102,23 @@ Output a markdown summary to the conversation (NOT to a file):
 
 | Scenario | Result | Details |
 |----------|--------|---------|
-| Dashboard loads | PASS/FAIL/SKIP | [error details if FAIL, reason if SKIP] |
+| Dashboard loads | PASS/FAIL/SKIP | |
+| Weekly view | PASS/FAIL/SKIP | |
 | Analyze food | PASS/FAIL/SKIP | |
+| Refine with chat | PASS/FAIL/SKIP | |
 | Log to Fitbit | PASS/FAIL/SKIP | |
 | Delete test entry | PASS/FAIL/SKIP | |
+| Quick Select | PASS/FAIL/SKIP | |
+| Food detail | PASS/FAIL/SKIP | |
+| Edit entry | PASS/FAIL/SKIP | |
+| Labels page | PASS/FAIL/SKIP | |
+| Settings page | PASS/FAIL/SKIP | |
+| Chat page | PASS/FAIL/SKIP | |
 
 **Summary:** X/Y passed, N failed, M skipped
 **Cleanup:** [All test entries removed / N entries remain for manual cleanup]
 **Connection:** [No drops / N reconnections during run]
-**GIF recordings:** [list of exported GIF filenames]
+**GIF recordings:** [list of GIF filenames, or "disabled"]
 ```
 
 For failed scenarios, include:
@@ -139,7 +149,7 @@ For failed scenarios, include:
 - **Advisory** — results do not gate deployments.
 - **Each scenario is independent** unless explicitly chained via dependencies.
 - **Always clean up** — delete test entries even if scenarios failed.
-- **GIF per scenario** — each scenario gets its own recording with a descriptive filename.
+- **GIF recording is opt-in** — only enabled when `gif` is in `$ARGUMENTS`. Each scenario gets its own recording with a descriptive filename.
 - **Heartbeat before every browser call** — `tabs_context_mcp` keeps the connection alive.
 - **No localStorage writes** — avoid `javascript_tool` writes to storage (triggers disconnection).
 
