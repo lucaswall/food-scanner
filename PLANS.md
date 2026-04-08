@@ -1,112 +1,224 @@
 # Implementation Plan
 
 **Status:** COMPLETE
-**Created:** 2026-03-29
-**Source:** Inline request: Add zone_offset to food log entries so external readers can interpret bare date/time fields
-**Linear Issues:** [FOO-894](https://linear.app/lw-claude/issue/FOO-894/schema-types-migration-for-food-log-zone-offset), [FOO-895](https://linear.app/lw-claude/issue/FOO-895/full-flow-getlocaldatetime-api-db-for-zone-offset), [FOO-896](https://linear.app/lw-claude/issue/FOO-896/expose-zone-offset-in-v1-food-log-get-response)
-**Branch:** feat/food-log-zone-offset
+**Created:** 2026-04-08
+**Source:** Inline request: Pull AI-Driven Staging QA from roadmap — create a standalone Claude Code skill that uses Chrome browser automation to run functional QA against the live staging site
+**Linear Issues:** [FOO-898](https://linear.app/lw-claude/issue/FOO-898/create-staging-qa-skill-with-initial-4-scenarios), [FOO-899](https://linear.app/lw-claude/issue/FOO-899/register-staging-qa-skill-and-remove-from-roadmap)
+**Branch:** feat/staging-qa
 
 ## Context Gathered
 
 ### Codebase Analysis
-- **Schema pattern:** `zoneOffset` already exists on `glucoseReadings` and `bloodPressureReadings` as `varchar("zone_offset", { length: 6 })`, nullable. Validated server-side with regex `/^[+-]\d{2}:\d{2}$/`.
-- **Client date/time source:** `getLocalDateTime()` in `src/lib/meal-type.ts` reads from `new Date()` (browser local clock), returns `{ date: string; time: string }`. Called by 6 components: `food-analyzer.tsx`, `food-chat.tsx`, `quick-select.tsx`, `log-shared-content.tsx`, `pending-submission-handler.tsx`, and the `/api/analyze` route (clientDate/clientTime).
-- **Component patterns:** `quick-select.tsx` uses spread `...getLocalDateTime()`, others destructure or assign individual fields. All pass `date` and `time` in POST body to `/api/log-food`.
-- **API route:** `/api/log-food/route.ts` validates `date` (YYYY-MM-DD) and `time` (HH:mm or HH:mm:ss), passes through to `insertFoodLogEntry` or `insertCustomFoodWithLogEntry`.
-- **Lib layer:** `FoodLogEntryInput` interface in `src/lib/food-log.ts` defines the insert shape. `insertFoodLogEntry` and `insertCustomFoodWithLogEntry` both write to `foodLogEntries` table.
-- **v1 GET response:** `getDailyNutritionSummary` uses `.select()` (all columns) and manually maps to `MealEntry` interface in `src/types/index.ts`. `zoneOffset` would need to be added to `MealEntry` and the mapping at `src/lib/food-log.ts:1049-1068`.
-- **Type contract:** `FoodLogRequest` in `src/types/index.ts` defines the POST body shape. Needs `zoneOffset?: string`.
-- **Test files:** `src/lib/__tests__/meal-type.test.ts` (getLocalDateTime tests), `src/app/api/log-food/__tests__/` (doesn't exist as dir — tests may be inline), `src/app/api/v1/food-log/__tests__/route.test.ts` (v1 GET tests), `src/lib/__tests__/food-log.test.ts` (lib tests).
+
+**Existing skill patterns:**
+- 14 skills in `.claude/skills/`, all follow: YAML frontmatter → phases → rules → termination
+- Skills with side effects use `disable-model-invocation: true` (e.g., `investigate`, `deep-review`, `push-to-production`)
+- Large reference docs go in `references/` subdirectory (e.g., `plan-inline/references/plans-template.md`)
+- Skills reference (`tools-improve/references/skills-reference.md`) says: keep SKILL.md under 500 lines, `disable-model-invocation: true` for side effects, no `context: fork` when Chrome MCP connection is needed
+- "ultrathink" keyword enables extended thinking in skills
+
+**Chrome MCP tools available (18 total, 13 needed):**
+- `tabs_context_mcp` — tab group context (MUST call first each session)
+- `tabs_create_mcp` — create new tab in MCP group
+- `navigate` — URL navigation
+- `computer` — mouse, keyboard, screenshots, scrolling, waiting (max 30s per wait)
+- `read_page` — accessibility tree with element refs (max 50K chars, filterable)
+- `find` — natural-language element search (returns refs)
+- `form_input` — set form values by ref
+- `get_page_text` — extract main text content
+- `javascript_tool` — execute JS in page context
+- `read_console_messages` — filtered console output
+- `read_network_requests` — network activity with URL pattern filtering
+- `gif_creator` — record browser sessions as GIFs (start_recording → stop_recording → export)
+- `resize_window` — responsive testing
+
+**E2E test patterns (reference for QA scenarios):**
+- Analyze flow: textarea placeholder `"e.g., 250g pollo asado con chimichurri"`, button `"Analyze Food"`, heading with food_name after analysis, button `"Log to Fitbit"`, text `/logged successfully/i`, button `"Done"`
+- Dashboard: navigation `"Main navigation"`, buttons `"Daily"`/`"Weekly"`, link `"Settings"`
+- History: food entries with names, calorie counts, dates
+- All pages use `waitForLoadState('networkidle')` pattern
+
+**Production AI analysis timings (from Railway logs, Apr 7-8):**
+- Simple text, no tool calls: ~9s
+- Text + nutrition label lookups: ~35s (label search + report_nutrition loop)
+- Images + label saves + lookups: ~23-30s
+- Complex multi-tool: 30-35s+
+- **CRITICAL:** The roadmap spec said "5-15 seconds" — real production times are 9-35s. The QA skill must use 60-90s total wait budgets with active DOM polling.
+
+**Chrome extension reliability (from external research):**
+- Chrome MV3 terminates idle service workers after ~30s, killing the WebSocket connection
+- `javascript_tool` writes to localStorage can trigger immediate disconnection (issue #27597)
+- Sessions >10-30 minutes frequently drop (issues #26449, #29523)
+- Tab groups don't persist across reconnections
+- **Mitigations:** Call `tabs_context_mcp` as heartbeat before each step; keep steps under 30s idle; detect "Browser extension is not connected" errors; avoid localStorage writes
+
+**SSE testing strategy (from external research):**
+- Do NOT intercept SSE at network level — fragile and poorly supported in Chrome automation
+- Trigger action → poll DOM with `read_page`/`find` every 5-10s → assert final rendered state
+- DOM polling doubles as connection heartbeat (keeps service worker alive)
+- Check for error UI elements, not network failures (errors are delivered via SSE events)
+
+**Staging environment:**
+- URL: `food-test.lucaswall.me`
+- Fitbit: dry-run mode (`FITBIT_DRY_RUN=true`) — logging doesn't hit real Fitbit API
+- Auth: user's real Chrome session (Google OAuth + Fitbit already connected)
+
+**GIF recording pattern:**
+- `gif_creator` action: `start_recording` → take screenshots between steps → `stop_recording` → `export` with `download: true` and meaningful filename
+- Take extra screenshots before/after actions for smooth playback
+- Each scenario gets its own GIF file
 
 ### MCP Context
-- **MCPs used:** Linear (issue tracking)
-- **Findings:** Team "Food Scanner", prefix FOO-xxx. Related prior work: FOO-886 through FOO-890 (health readings API, which established the zoneOffset pattern).
+- **MCPs used:** Linear (issue tracking), Railway (production logs for timing data)
+- **Findings:** Team "Food Scanner", prefix FOO-xxx. No existing staging QA issues in backlog. Production logs confirmed AI analysis takes 9-35s (not 5-15s as roadmap spec stated).
 
 ## Tasks
 
-### Task 1: Schema + types + migration
-**Linear Issue:** [FOO-894](https://linear.app/lw-claude/issue/FOO-894/schema-types-migration-for-food-log-zone-offset)
+### Task 1: Create staging-qa skill with initial scenarios
+**Linear Issue:** [FOO-898](https://linear.app/lw-claude/issue/FOO-898/create-staging-qa-skill-with-initial-4-scenarios)
 **Files:**
-- `src/db/schema.ts` (modify)
-- `src/types/index.ts` (modify)
-- `src/lib/food-log.ts` (modify — `FoodLogEntryInput` interface)
+- `.claude/skills/staging-qa/SKILL.md` (create)
+- `.claude/skills/staging-qa/references/test-scenarios.md` (create)
 
 **Steps:**
-1. No tests needed (declarative schema + compile-time types).
-2. Add `zoneOffset: varchar("zone_offset", { length: 6 })` to `foodLogEntries` table in `src/db/schema.ts`. Nullable (existing rows won't have it). Same pattern as `glucoseReadings.zoneOffset`.
-3. Add `zoneOffset?: string | null` to `FoodLogEntryInput` in `src/lib/food-log.ts`.
-4. Add `zoneOffset?: string` to `FoodLogRequest` in `src/types/index.ts` (optional — client may not send it during transition).
-5. Add `zoneOffset: string | null` to `MealEntry` in `src/types/index.ts` (response shape for v1 GET).
-6. Run `npx drizzle-kit generate` to create the migration.
-7. Run verifier (expect pass — additive changes only).
+1. No TDD — this is a Claude Code skill (markdown files), not application code.
+2. Create `.claude/skills/staging-qa/SKILL.md` with the following structure:
+
+   **Frontmatter:**
+   - `name: staging-qa`
+   - `description:` Trigger on "staging qa", "run qa", "test staging". Describe purpose: automated functional QA against staging using Chrome browser automation.
+   - `allowed-tools:` All 13 Chrome MCP tools listed in Context above, plus `Read`, `Glob`, `Grep` (for codebase reference during test validation)
+   - `disable-model-invocation: true` — has browser side effects
+   - `argument-hint: [scenarios]` — optional, to run specific scenarios instead of all
+   - No `context: fork` — must maintain Chrome MCP connection from main conversation
+
+   **Phase 1: Pre-flight** —
+   - Call `tabs_context_mcp` to verify Chrome extension is connected. If error, STOP: "Chrome extension not connected. Run `/chrome` to connect, then re-run."
+   - Create a new tab with `tabs_create_mcp`
+   - Navigate to `food-test.lucaswall.me` using `navigate` tool
+   - Verify the user is logged in by checking for the main navigation element (role: navigation, name: "Main navigation"). If login page is shown instead, STOP: "Not logged into staging. Please log in at food-test.lucaswall.me, then re-run."
+   - Record the tab ID for all subsequent operations
+
+   **Phase 2: Connection resilience protocol** —
+   - Before EVERY browser tool call, call `tabs_context_mcp` as a heartbeat
+   - If any browser tool returns a connection error: pause, inform user "Chrome connection lost. Please run `/chrome` to reconnect.", wait for user confirmation, then re-fetch tab context and resume from the current scenario
+   - Never assume tab IDs persist after reconnection — always re-fetch via `tabs_context_mcp`
+   - Avoid `javascript_tool` writes to localStorage/sessionStorage (triggers disconnection)
+
+   **Phase 3: Scenario runner** —
+   - Load scenario definitions from `references/test-scenarios.md`
+   - If `$ARGUMENTS` specifies scenario names, filter to only those; otherwise run all
+   - For each scenario:
+     1. Start GIF recording (`gif_creator` action: `start_recording`)
+     2. Take initial screenshot (`computer` action: `screenshot`)
+     3. Execute scenario steps (from references file)
+     4. Take final screenshot
+     5. Stop GIF recording (`gif_creator` action: `stop_recording`)
+     6. Export GIF with descriptive filename like `staging-qa-dashboard.gif` (`gif_creator` action: `export`, `download: true`)
+     7. Record result: PASS, FAIL (with error details), or SKIP (if prerequisite failed)
+   - If a scenario fails and subsequent scenarios depend on it (e.g., "delete entry" depends on "log entry"), mark dependents as SKIP
+
+   **Phase 4: Cleanup** —
+   - Navigate to history page
+   - Search for any entries with "[QA Test]" in the name
+   - Delete each test entry found
+   - Verify entries are gone
+   - If cleanup fails, report which entries remain for manual deletion
+
+   **Phase 5: Report** —
+   - Output a markdown summary to the conversation (NOT to a file):
+     ```
+     ## Staging QA Report — YYYY-MM-DD
+     - Scenario 1: PASS/FAIL/SKIP
+     - Scenario 2: PASS/FAIL/SKIP
+     ...
+     X/Y passed, N failed, M skipped
+     ```
+   - For failed scenarios, include: what was expected, what happened, screenshot context
+   - Note any connection drops or reconnections that occurred
+
+   **Rules section:**
+   - All test entries must use "[QA Test]" prefix in food names for cleanup identification
+   - SSE analysis waits: poll DOM every 5-10 seconds using `read_page` or `find`, total budget 90 seconds. Never use a single 30s `computer` wait — poll actively to keep connection alive.
+   - Use `find` (natural language) for element discovery, `read_page` with `filter: "interactive"` for forms
+   - Report only — this skill does not modify application code
+   - Advisory — results do not gate deployments
+   - Each scenario is independent unless explicitly chained (analyze → log → delete)
+
+3. Create `.claude/skills/staging-qa/references/test-scenarios.md` with 4 initial scenarios:
+
+   **Scenario 1: Dashboard loads** —
+   - Navigate to `/app`
+   - Verify main navigation is visible (accessibility role: navigation, name: "Main navigation")
+   - Verify Daily/Weekly tab buttons are visible
+   - Verify calorie data renders (any numeric content in the nutrition summary area — don't check exact values)
+   - Check for console errors via `read_console_messages` with `onlyErrors: true`
+   - Pass criteria: navigation visible, tabs visible, no console errors
+
+   **Scenario 2: Analyze food (text-only, real AI)** —
+   - Navigate to `/app/analyze`
+   - Verify heading "Analyze Food" is visible
+   - Find the description textarea (placeholder contains "e.g.")
+   - Enter `[QA Test] Two scrambled eggs with toast` using `form_input`
+   - Click "Analyze Food" button
+   - **Wait for AI analysis:** Poll DOM every 8 seconds using `find` looking for a nutrition result (calorie number or food name heading). Total budget: 90 seconds. If timeout, FAIL.
+   - Verify: a food name heading appeared, calorie value is displayed and is a reasonable number (50-2000 range), "Log to Fitbit" button is visible
+   - Check console for errors
+   - Pass criteria: analysis completes within 90s, nutrition data is structurally valid, no console errors
+
+   **Scenario 3: Log to Fitbit (dry-run)** —
+   - Depends on: Scenario 2 PASS (analysis result is on screen)
+   - Click "Log to Fitbit" button
+   - Wait for confirmation: poll DOM for `/logged successfully/i` text, budget 15 seconds
+   - Verify "Done" button is visible
+   - Click "Done" to return to dashboard
+   - Navigate to history page and verify the "[QA Test]" entry appears in the list
+   - Pass criteria: log succeeds, entry appears in history
+
+   **Scenario 4: Delete test entry** —
+   - Depends on: Scenario 3 PASS (entry exists in history)
+   - In history, find the "[QA Test]" entry
+   - Open the entry detail page
+   - Find and click the delete button/action
+   - Confirm deletion if a confirmation dialog appears
+   - Navigate back to history
+   - Verify the "[QA Test]" entry is no longer in the list
+   - Pass criteria: entry deleted, no longer appears in history
+
+   Each scenario definition should include:
+   - Name, dependency (which prior scenarios must pass), steps with specific UI elements to interact with, pass/fail criteria, and expected timing
+
+4. Run verifier (expect pass — no app code changed, just new markdown files)
 
 **Notes:**
-- **Migration note:** New nullable column `zone_offset` on `food_log_entries`. Existing production rows must be backfilled with `'-03:00'` (single-user app, UTC-3 timezone). Log in `MIGRATIONS.md`: `UPDATE food_log_entries SET zone_offset = '-03:00' WHERE zone_offset IS NULL;`
+- Follow the skill structure pattern from `investigate/SKILL.md` (sequential phases, pre-flight checks, error handling table, rules section)
+- Keep SKILL.md under 500 lines — detailed scenario steps belong in references/
+- Reference the E2E test selectors from `e2e/tests/analyze.spec.ts` and `e2e/tests/dashboard.spec.ts` for known-good UI element identifiers
+- The `find` tool uses natural language queries, making selectors self-healing by nature — prefer it over hardcoded CSS selectors
+- The `read_page` tool with `filter: "interactive"` reduces output size and focuses on actionable elements
 
-### Task 2: Full flow — getLocalDateTime through to DB storage
-**Linear Issue:** [FOO-895](https://linear.app/lw-claude/issue/FOO-895/full-flow-getlocaldatetime-api-db-for-zone-offset)
+### Task 2: Register skill and update roadmap
+**Linear Issue:** [FOO-899](https://linear.app/lw-claude/issue/FOO-899/register-staging-qa-skill-and-remove-from-roadmap)
 **Files:**
-- `src/lib/meal-type.ts` (modify)
-- `src/lib/__tests__/meal-type.test.ts` (modify)
-- `src/lib/food-log.ts` (modify — `insertFoodLogEntry`, `insertCustomFoodWithLogEntry`)
-- `src/lib/__tests__/food-log.test.ts` (modify — if exists, or check relevant test file)
-- `src/app/api/log-food/route.ts` (modify)
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/food-chat.tsx` (modify)
-- `src/components/quick-select.tsx` (modify)
-- `src/app/app/log-shared/[token]/log-shared-content.tsx` (modify)
-- `src/components/pending-submission-handler.tsx` (modify)
-
-**Steps:**
-1. Write tests in `src/lib/__tests__/meal-type.test.ts`:
-   - `getLocalDateTime` returns `zoneOffset` in `±HH:MM` format
-   - Test positive offset (e.g., UTC+5:30 → "+05:30")
-   - Test negative offset (e.g., UTC-3 → "-03:00")
-   - Test UTC (offset 0 → "+00:00")
-2. Run verifier with pattern `meal-type` (expect fail).
-3. Update `getLocalDateTime()` in `src/lib/meal-type.ts` to compute and return `zoneOffset`. Use `new Date().getTimezoneOffset()` (returns minutes, negative for east-of-UTC) and format as `±HH:MM` string. Return type becomes `{ date: string; time: string; zoneOffset: string }`.
-4. Run verifier with pattern `meal-type` (expect pass).
-5. Write tests for `insertFoodLogEntry` storing `zoneOffset`:
-   - When `zoneOffset` is provided, it appears in the `.values()` call
-   - When `zoneOffset` is undefined/null, it stores null
-   - Follow existing mock patterns in food-log tests
-6. Run verifier with pattern `food-log` (expect fail).
-7. Update `insertFoodLogEntry` in `src/lib/food-log.ts` to include `zoneOffset: data.zoneOffset ?? null` in the `.values()` object.
-8. Update `insertCustomFoodWithLogEntry` in `src/lib/food-log.ts` — the `logEntryData` parameter type is `Omit<FoodLogEntryInput, "customFoodId">`, so it already includes `zoneOffset` from Task 1. Just ensure the `.values()` call passes it through.
-9. Run verifier with pattern `food-log` (expect pass).
-10. Update `/api/log-food/route.ts`:
-    - Add `zoneOffset` validation after existing `time` validation: if present, must match `/^[+-]\d{2}:\d{2}$/` (same regex as health readings routes). If invalid format, return 400.
-    - Pass `zoneOffset` through to `insertFoodLogEntry` and `insertCustomFoodWithLogEntry` calls (extract from `body.zoneOffset`).
-11. Update client components to pass `zoneOffset` from `getLocalDateTime()`:
-    - `food-analyzer.tsx`: include `zoneOffset` in the `logBody` object alongside `date` and `time`
-    - `food-chat.tsx`: same pattern — include `zoneOffset` in log body
-    - `quick-select.tsx`: already uses `...getLocalDateTime()` spread in two places — `zoneOffset` included automatically. Verify the third usage (line 63, `useState(getLocalDateTime)`) — this captures for search ranking, not logging, so no change needed there.
-    - `log-shared-content.tsx`: add `zoneOffset` to destructuring and include in POST body
-    - `pending-submission-handler.tsx`: `getLocalDateTime()` is used as fallback — `zoneOffset` will be in the returned object. Verify the fallback object structure includes it when spreading into body.
-12. Run verifier (expect pass — full suite).
-
-**Notes:**
-- `getTimezoneOffset()` returns minutes with inverted sign: UTC+3 returns -180. Formula: `sign = offset <= 0 ? "+" : "-"`, `absMinutes = Math.abs(offset)`, `hours = Math.floor(absMinutes / 60)`, `minutes = absMinutes % 60`.
-- `isValidFoodLogRequest` in the route file validates the POST body shape. `zoneOffset` is optional, so no change needed there — it's passthrough validation (format check only if present).
-
-### Task 3: v1 food-log GET exposes zoneOffset + documentation
-**Linear Issue:** [FOO-896](https://linear.app/lw-claude/issue/FOO-896/expose-zone-offset-in-v1-food-log-get-response)
-**Files:**
-- `src/lib/food-log.ts` (modify — `getDailyNutritionSummary` mapping)
-- `src/app/api/v1/food-log/__tests__/route.test.ts` (modify)
 - `CLAUDE.md` (modify)
+- `ROADMAP.md` (modify)
 
 **Steps:**
-1. Write test in `src/app/api/v1/food-log/__tests__/route.test.ts`:
-   - v1 food-log GET response entries include `zoneOffset` field (string or null)
-   - Follow existing test patterns in the file
-2. Run verifier with pattern `v1/food-log` (expect fail).
-3. Update `getDailyNutritionSummary` in `src/lib/food-log.ts` at the `entries.push()` block (~line 1049): add `zoneOffset: row.food_log_entries.zoneOffset ?? null` to the mapped object.
-4. Run verifier with pattern `v1/food-log` (expect pass).
-5. Run verifier (full suite — no args).
+1. No TDD — documentation-only changes.
+2. Add `staging-qa` to the SKILLS table in CLAUDE.md:
+   - Skill: `staging-qa`
+   - Model: Opus (inline skill)
+   - Trigger: "staging qa", "run qa", "test staging"
+   - What It Does: Chrome-driven functional QA against staging (dashboard, analyze, log, delete)
+3. Remove the "AI-Driven Staging QA" section from ROADMAP.md:
+   - Remove the row from the Contents table
+   - Remove the entire feature section (from `## AI-Driven Staging QA` through the `---` separator after it)
+   - Check remaining features for cross-references to `#ai-driven-staging-qa` and remove any found
+4. Run verifier (expect pass — no app code changed)
 
 **Notes:**
-- The `.select()` call at line 993 already fetches all columns, so `zoneOffset` is available in `row.food_log_entries` once the schema column exists. Only the manual mapping needs updating.
+- Follow ROADMAP.md conventions section for removal procedure (update Contents table, fix cross-references)
+- The SKILLS table in CLAUDE.md is in the SKILLS section — insert in alphabetical order or after existing entries
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -114,134 +226,61 @@
 
 ---
 
-## Plan Summary
-
-**Objective:** Add `zone_offset` to food log entries so external processes can correctly interpret the timezone of bare `date` and `time` fields.
-**Linear Issues:** FOO-894, FOO-895, FOO-896
-**Approach:** Add nullable `zone_offset` varchar(6) column to `foodLogEntries` (same pattern as health readings). Extend `getLocalDateTime()` to compute the browser's UTC offset as `±HH:MM`. Thread it through all 5 client components → API route validation → lib insert functions → v1 GET response.
-**Scope:** 3 tasks, ~12 files modified, ~6 new test cases
-**Key Decisions:** Nullable column (no backfill of existing rows); optional in POST body (backward compatible); same `±HH:MM` format and validation regex as health readings
-**Risks:** Low — proven pattern from health readings, no breaking changes. Only risk is missing a client component call site (6 identified, all traced).
-
----
-
 ## Iteration 1
 
-**Implemented:** 2026-03-29
-**Method:** Single-agent
+**Implemented:** 2026-04-08
+**Method:** Single-agent (docs-only tasks, effort score 0)
 
 ### Tasks Completed This Iteration
-- Task 1: Schema + types + migration (FOO-894) — Added `zone_offset` column, updated `FoodLogEntryInput`, `FoodLogRequest`, `MealEntry` types, generated Drizzle migration
-- Task 2: Full flow getLocalDateTime → API → DB (FOO-895) — Extended `getLocalDateTime()` with `zoneOffset`, threaded through all 5 client components + `PendingSubmission`, added API route validation, updated both insert functions
-- Task 3: v1 food-log GET exposes zoneOffset (FOO-896) — Added `zoneOffset` to `getDailyNutritionSummary` mapping, added test for v1 response
+- Task 1: Create staging-qa skill with initial 4 scenarios — Created SKILL.md (5 phases: pre-flight, connection resilience, scenario runner, cleanup, reporting) and references/test-scenarios.md (4 scenarios: dashboard, analyze, log, delete)
+- Task 2: Register skill and update roadmap — Added staging-qa to CLAUDE.md SKILLS table, removed AI-Driven Staging QA section from ROADMAP.md
 
 ### Files Modified
-- `src/db/schema.ts` — Added `zoneOffset` column to `foodLogEntries`
-- `src/types/index.ts` — Added `zoneOffset` to `FoodLogRequest` and `MealEntry`
-- `src/lib/food-log.ts` — Added `zoneOffset` to `FoodLogEntryInput`, both insert functions, and `getDailyNutritionSummary` mapping
-- `src/lib/meal-type.ts` — Extended `getLocalDateTime()` to compute and return `zoneOffset`
-- `src/lib/pending-submission.ts` — Added `zoneOffset` to `PendingSubmission` interface and validation
-- `src/app/api/log-food/route.ts` — Added `zoneOffset` format validation and passthrough to insert calls
-- `src/components/food-analyzer.tsx` — Added `zoneOffset` to log body and `savePendingSubmission` calls
-- `src/components/food-chat.tsx` — Added `zoneOffset` to log body and all `savePendingSubmission` calls
-- `src/app/app/log-shared/[token]/log-shared-content.tsx` — Added `zoneOffset` to destructuring and POST body
-- `src/components/pending-submission-handler.tsx` — Added `zoneOffset` to fallback dateTime object
-- `drizzle/0017_lonely_warbound.sql` — Generated migration
-- `MIGRATIONS.md` — Logged production backfill SQL
-- Test files: Updated mocks in 6 test files, added 6 new tests
+- `.claude/skills/staging-qa/SKILL.md` — Created skill framework
+- `.claude/skills/staging-qa/references/test-scenarios.md` — Created 4 test scenario definitions
+- `CLAUDE.md` — Added staging-qa to SKILLS table
+- `ROADMAP.md` — Removed AI-Driven Staging QA feature section and contents table entry
 
 ### Linear Updates
-- FOO-894: Todo → In Progress → Review
-- FOO-895: Todo → In Progress → Review
-- FOO-896: Todo → In Progress → Review
+- FOO-898: Todo → In Progress → Review
+- FOO-899: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 1 medium bug (missing `zoneOffset` in 2 `savePendingSubmission` calls in food-chat.tsx edit flows), fixed before proceeding
-- verifier: All 2899 tests pass, zero warnings, build clean
-
-### Review Findings
-
-Summary: 1 issue found (Team: security, reliability, quality reviewers)
-- FIX: 1 issue — Linear issue created
-- DISCARDED: 5 findings — false positives / not applicable
-
-**Issues requiring fix:**
-- [MEDIUM] BUG: Edit flow does not store zoneOffset (`src/components/food-chat.tsx:611-618`, `src/lib/food-log.ts:792-802`, `src/lib/food-log.ts:572-577`) — `handleSave` destructures `zoneOffset` from `getLocalDateTime()` but omits it from `saveBody`. `UpdateFoodLogInput` and `FoodLogEntryMetadataUpdate` interfaces lack `zoneOffset`. `updateFoodLogEntry` and `updateFoodLogEntryMetadata` don't write it. Edit-food route doesn't validate or pass it. After any edit, `zone_offset` column retains stale value.
-
-**Discarded findings (not bugs):**
-- [DISCARDED] TYPE: Unvalidated confidence cast in food-chat.tsx:61 — confidence values are system-controlled (Claude API schema), not user input; runtime validation unnecessary
-- [DISCARDED] TYPE: Misleading confidence fallback in log-shared-content.tsx:120 — same reasoning; server validates before storage
-- [DISCARDED] CONVENTION: Time field comment says HH:mm:ss in types/index.ts:99 — style-only comment inconsistency, API accepts both formats, no correctness impact
-- [DISCARDED] CONVENTION: Test mock returns HH:mm:ss in food-analyzer-reconnect.test.tsx:226 — API accepts both formats, test validity unaffected
-- [DISCARDED] CONVENTION: Missing zoneOffset assertion in insertCustomFoodWithLogEntry test — covered transitively by insertFoodLogEntry suite
-
-### Linear Updates
-- FOO-894: Review → Merge (original task completed)
-- FOO-895: Review → Merge (original task completed)
-- FOO-896: Review → Merge (original task completed)
-- FOO-897: Created in Todo (Fix: edit flow does not store zoneOffset)
-
-<!-- REVIEW COMPLETE -->
-
-### Continuation Status
-Fix plan pending — more implementation needed.
-
----
-
-## Fix Plan
-
-**Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-897](https://linear.app/lw-claude/issue/FOO-897/fix-edit-flow-does-not-store-zoneoffset)
-
-### Fix 1: Edit flow does not store zoneOffset
-**Linear Issue:** [FOO-897](https://linear.app/lw-claude/issue/FOO-897/fix-edit-flow-does-not-store-zoneoffset)
-
-1. Write test in `src/lib/__tests__/food-log.test.ts` for `updateFoodLogEntryMetadata` passing `zoneOffset` through to `.set()`
-2. Add `zoneOffset?: string | null` to `FoodLogEntryMetadataUpdate` interface in `src/lib/food-log.ts`
-3. Add `zoneOffset: updates.zoneOffset ?? undefined` to `.set()` in `updateFoodLogEntryMetadata` (only set when provided, don't overwrite with null on callers that don't pass it)
-4. Write test in `src/lib/__tests__/food-log.test.ts` for `updateFoodLogEntry` passing `zoneOffset` through to `.set()`
-5. Add `zoneOffset?: string | null` to `UpdateFoodLogInput` interface in `src/lib/food-log.ts`
-6. Add `zoneOffset: data.zoneOffset ?? null` to `.set()` in `updateFoodLogEntry`
-7. Add `zoneOffset` validation in `src/app/api/edit-food/route.ts` (same regex as log-food: `/^[+-]\d{2}:\d{2}$/`, optional, reject 400 if present and invalid)
-8. Extract `zoneOffset` and pass through all 4 `updateFoodLogEntryMetadata` callsites and the `updateFoodLogEntry` path in edit-food route
-9. Add `zoneOffset` to `saveBody` in `src/components/food-chat.tsx` handleSave
-10. Run verifier (full suite)
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-03-29
-**Method:** Single-agent
-
-### Tasks Completed This Iteration
-- Fix 1: Edit flow does not store zoneOffset (FOO-897) — Added `zoneOffset` to `UpdateFoodLogInput` and `FoodLogEntryMetadataUpdate` interfaces, updated `.set()` calls in both update functions, added validation in edit-food route, passed through all callsites, added `zoneOffset` to both `handleSave` and `handleSaveExisting` in food-chat.tsx
-
-### Files Modified
-- `src/lib/food-log.ts` — Added `zoneOffset` to `FoodLogEntryMetadataUpdate`, `UpdateFoodLogInput`, and both `.set()` calls
-- `src/app/api/edit-food/route.ts` — Added `zoneOffset` validation, extraction, and passthrough to `updateFoodLogEntryMetadata` and `updateFoodLogEntry`
-- `src/components/food-chat.tsx` — Added `zoneOffset` to `saveBody` in both `handleSave` and `handleSaveExisting`
-- `src/lib/__tests__/food-log.test.ts` — Added 3 tests for zoneOffset in updateFoodLogEntryMetadata and updateFoodLogEntry
-
-### Linear Updates
-- FOO-897: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: No bugs found
-- verifier: All 2902 tests pass, zero warnings, build clean
+- bug-hunter: Found 1 LOW issue (argument parsing clarity), fixed before commit
+- verifier: All 2,902 tests pass, zero warnings
 
 ### Review Findings
 
 Files reviewed: 4
-Reviewer: single-agent (≤4 files)
-Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions
+Reviewer: single-agent (≤4 changed files)
+Checks applied: Security, Reliability, Quality, Conventions
 
-No issues found - all implementations are correct and follow project conventions.
+No issues found — all implementations are correct and follow project conventions.
+
+- SKILL.md: Well-structured (154 lines, under 500-line limit), proper frontmatter, all 13 Chrome MCP tools listed, connection resilience protocol, SSE polling strategy, cleanup phase, error handling table
+- test-scenarios.md: 4 scenarios with clear dependencies, pass criteria, and timing expectations
+- CLAUDE.md: staging-qa correctly added to SKILLS table
+- ROADMAP.md: AI-Driven Staging QA section and contents entry properly removed, no stale cross-references
 
 ### Linear Updates
-- FOO-897: Review → Merge
+- FOO-898: Review → Merge
+- FOO-899: Review → Merge
 
 <!-- REVIEW COMPLETE -->
+
+### Continuation Status
+All tasks completed.
+
+---
+
+## Plan Summary
+
+**Objective:** Create a standalone `/staging-qa` Claude Code skill that automates functional QA against the staging site using Chrome browser automation, with GIF recording of each scenario.
+**Linear Issues:** FOO-898, FOO-899
+**Approach:** Create a new skill in `.claude/skills/staging-qa/` with SKILL.md (framework, phases, rules) and `references/test-scenarios.md` (4 initial scenarios: dashboard, analyze, log, delete). The skill uses the `claude-in-chrome` MCP tools to navigate the real staging site with the user's authenticated session. Each scenario is GIF-recorded. Start with a 4-scenario subset covering the core happy path; remaining 5 scenarios (chat refinement, history browsing, edit, quick-select, settings) can be added incrementally. Update CLAUDE.md to register the skill and remove the feature from ROADMAP.md.
+**Scope:** 2 tasks, 4 files (2 create, 2 modify), no tests (markdown-only changes)
+**Key Decisions:** Standalone skill (not integrated into push-to-production); GIF recording per scenario; 4-scenario initial subset; 90-second wait budget for AI analysis (based on real production timings of 9-35s); active DOM polling every 8s as both assertion and connection heartbeat; "[QA Test]" prefix for test entry identification and cleanup
+**Risks:** Low — no application code changes, no regression risk. Main operational risk is Chrome extension connection stability during longer AI analysis waits (mitigated by heartbeat protocol and reconnection instructions).
 
 ---
 
