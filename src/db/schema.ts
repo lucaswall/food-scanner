@@ -189,6 +189,15 @@ export const glucoseReadings = pgTable(
   })
 );
 
+export const savedAnalyses = pgTable("saved_analyses", {
+  id: serial("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  foodAnalysis: jsonb("food_analysis").notNull(),
+  description: text("description").notNull(),
+  calories: integer("calories").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const bloodPressureReadings = pgTable(
   "blood_pressure_readings",
   {

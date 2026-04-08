@@ -117,7 +117,7 @@ Do NOT flag these in code reviews:
 
 ## DATABASE
 
-- **Tables:** `users`, `sessions`, `fitbit_tokens`, `fitbit_credentials`, `custom_foods`, `food_log_entries`, `lumen_goals`, `api_keys`, `claude_usage`, `daily_calorie_goals`, `glucose_readings`, `blood_pressure_readings`
+- **Tables:** `users`, `sessions`, `fitbit_tokens`, `fitbit_credentials`, `custom_foods`, `food_log_entries`, `lumen_goals`, `api_keys`, `claude_usage`, `daily_calorie_goals`, `glucose_readings`, `blood_pressure_readings`, `saved_analyses`
 - All DB access through `src/lib/` modules — route handlers never import from `src/db/` directly
 - Schema changes: edit `src/db/schema.ts`, then `npx drizzle-kit generate` (does NOT need a live DB)
 - **IMPORTANT: Never hand-write migration files or snapshots**

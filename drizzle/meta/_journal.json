@@ -127,6 +127,13 @@
       "when": 1774834253370,
       "tag": "0017_lonely_warbound",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1775667691221,
+      "tag": "0018_heavy_forgotten_one",
+      "breakpoints": true
     }
   ]
 }
