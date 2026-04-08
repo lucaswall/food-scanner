@@ -26,8 +26,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { RefreshCw, Loader2, ScanEye, ListChecks, Settings, Clock } from "lucide-react";
-import type { NutritionSummary, NutritionGoals, LumenGoalsResponse, MealEntry, FoodLogHistoryEntry } from "@/types";
+import type { NutritionSummary, NutritionGoals, LumenGoalsResponse, MealEntry, FoodLogHistoryEntry, SavedAnalysisListItem } from "@/types";
 import { useDeleteFoodEntry } from "@/hooks/use-delete-food-entry";
+import { SavedForLaterSection } from "@/components/saved-for-later-section";
 
 function DashboardSkeleton() {
   return (
@@ -135,6 +136,13 @@ export function DailyDashboard() {
     data: lumenGoals,
     mutate: mutateLumenGoals,
   } = useSWR<LumenGoalsResponse>(`/api/lumen-goals?date=${selectedDate}`, apiFetcher);
+
+  const {
+    data: savedAnalysesData,
+  } = useSWR<{ items: SavedAnalysisListItem[] }>(
+    selectedDate === getTodayDate() ? "/api/saved-analyses" : null,
+    apiFetcher
+  );
 
   const {
     deleteTargetId,
@@ -421,6 +429,14 @@ export function DailyDashboard() {
           onDelete={handleDeleteRequest}
           onEntryClick={handleEntryClick}
           deletingId={deletingId}
+        />
+      )}
+
+      {/* Saved for Later section — only shown for today */}
+      {selectedDate === getTodayDate() && (savedAnalysesData?.items?.length ?? 0) > 0 && (
+        <SavedForLaterSection
+          items={savedAnalysesData!.items}
+          onItemClick={(id) => router.push(`/app/saved/${id}`)}
         />
       )}
 
