@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { FoodAnalysis, CaptureItem } from "@/types";
 import type { StreamEvent } from "@/lib/sse";
@@ -557,6 +557,92 @@ describe("CaptureTriage", () => {
       await waitFor(() => {
         expect(screen.getByTestId("error-banner")).toBeInTheDocument();
       });
+    });
+  });
+
+  // ─── Fix 4: captureMetadata must use blobs.length, not capture.imageCount ───
+
+  describe("Fix 4: captureMetadata imageCount uses blobs.length", () => {
+    it("sends blobs.length in captureMetadata when getCaptureBlobs returns fewer blobs than imageCount", async () => {
+      // capture.imageCount = 3, but only 1 blob is stored
+      const capture = makeCapture({ id: "cap-1", imageCount: 3, order: 0 });
+
+      mockGetCaptureBlobs.mockResolvedValue([
+        new Blob(["img"], { type: "image/jpeg" }),
+      ]);
+
+      vi.mocked(useCaptureSession).mockReturnValue({
+        ...defaultCaptureSession,
+        state: { sessionId: "sess-1", captures: [capture], isActive: true },
+      });
+
+      mockFetch.mockResolvedValue(
+        makeSSEResponse([{ type: "done" }])
+      );
+
+      await act(async () => {
+        render(<CaptureTriage />);
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("analyze-all-btn"));
+      });
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+      });
+
+      const [, fetchOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
+      const body = fetchOptions.body as FormData;
+      const captureMetadataJson = body.get("captureMetadata") as string;
+      const captureMetadata = JSON.parse(captureMetadataJson) as Array<{ imageCount: number }>;
+
+      // Should be 1 (blobs.length), NOT 3 (capture.imageCount)
+      expect(captureMetadata[0].imageCount).toBe(1);
+    });
+  });
+
+  // ─── Fix 7: URL revocation when loadThumbnails cleanup runs mid-load ────────
+
+  describe("Fix 7: URL cleanup in loadThumbnails", () => {
+    afterEach(() => {
+      // Restore URL mocks to their beforeAll state after this group's tests
+      global.URL.createObjectURL = vi.fn(() => "blob:mock-url");
+      global.URL.revokeObjectURL = vi.fn();
+    });
+
+    it("revokes URLs created before cleanup when loadThumbnails is cancelled mid-load", async () => {
+      const captures: CaptureItem[] = [
+        makeCapture({ id: "cap-1", order: 0 }),
+        makeCapture({ id: "cap-2", order: 1 }),
+      ];
+
+      // cap-1 resolves immediately; cap-2 never resolves (simulates mid-load cancel)
+      mockGetCaptureBlobs
+        .mockResolvedValueOnce([new Blob(["img"], { type: "image/jpeg" })])
+        .mockReturnValueOnce(new Promise<Blob[]>(() => {}));
+
+      vi.mocked(useCaptureSession).mockReturnValue({
+        ...defaultCaptureSession,
+        state: { sessionId: "sess-1", captures, isActive: true },
+      });
+
+      const { unmount } = render(<CaptureTriage />);
+
+      // Allow cap-1's getCaptureBlobs to resolve and its URL to be created
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // cap-1's URL should have been created
+      expect(global.URL.createObjectURL).toHaveBeenCalledTimes(1);
+
+      // Unmount triggers cleanup (cancelled = true)
+      unmount();
+
+      // After fix: cleanup should revoke URLs created before cancellation
+      expect(global.URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
     });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import type { CaptureItem } from "@/types";
 
 // ResizeObserver for Radix UI AlertDialog
@@ -148,5 +148,42 @@ describe("QuickCapture", () => {
     fireEvent.click(screen.getByRole("button", { name: /clear all/i }));
     fireEvent.click(screen.getByRole("button", { name: /clear/i }));
     expect(mockActions.clearSession).toHaveBeenCalled();
+  });
+
+  // ─── Fix 5: handleSave error handling ────────────────────────────────────
+
+  describe("Fix 5: handleSave error handling", () => {
+    it("shows error banner and resets isAdding when addCapture throws", async () => {
+      setupMockHook([], "session-1");
+      mockActions.addCapture.mockRejectedValue(new Error("Storage error"));
+
+      render(<QuickCapture />);
+      await act(async () => {});
+
+      // Simulate file selection → isAdding = true
+      const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+      const file = new File(["content"], "test.jpg", { type: "image/jpeg" });
+      Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+
+      await act(async () => {
+        fireEvent.change(fileInput);
+      });
+
+      // isAdding = true → Save button is visible
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeInTheDocument();
+
+      // Click Save → addCapture rejects
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+      });
+
+      // Error banner should appear
+      await waitFor(() => {
+        expect(screen.getByText(/failed to save/i)).toBeInTheDocument();
+      });
+
+      // isAdding should be reset (Save button is gone)
+      expect(screen.queryByRole("button", { name: /^save$/i })).not.toBeInTheDocument();
+    });
   });
 });
