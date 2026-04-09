@@ -73,3 +73,22 @@ export async function deleteSavedAnalysis(
     .returning({ id: savedAnalyses.id });
   return rows.length > 0;
 }
+
+export async function bulkSaveAnalyses(
+  userId: string,
+  items: FoodAnalysis[],
+): Promise<Array<{ id: number; createdAt: Date }>> {
+  const db = getDb();
+  const rows = await db
+    .insert(savedAnalyses)
+    .values(
+      items.map((item) => ({
+        userId,
+        description: item.food_name,
+        calories: item.calories,
+        foodAnalysis: item as unknown as Record<string, unknown>,
+      }))
+    )
+    .returning({ id: savedAnalyses.id, createdAt: savedAnalyses.createdAt });
+  return rows;
+}

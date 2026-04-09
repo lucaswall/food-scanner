@@ -29,6 +29,8 @@ import { RefreshCw, Loader2, ScanEye, ListChecks, Settings, Clock } from "lucide
 import type { NutritionSummary, NutritionGoals, LumenGoalsResponse, MealEntry, FoodLogHistoryEntry, SavedAnalysisListItem } from "@/types";
 import { useDeleteFoodEntry } from "@/hooks/use-delete-food-entry";
 import { SavedForLaterSection } from "@/components/saved-for-later-section";
+import { CaptureSessionBanner } from "@/components/capture-session-banner";
+import { useCaptureSession } from "@/hooks/use-capture-session";
 
 function DashboardSkeleton() {
   return (
@@ -154,6 +156,8 @@ export function DailyDashboard() {
     handleDeleteCancel,
     clearError,
   } = useDeleteFoodEntry({ onSuccess: () => mutateSummary() });
+
+  const { state: captureState } = useCaptureSession();
 
   useEffect(() => { clearError(); }, [selectedDate, clearError]);
 
@@ -373,6 +377,15 @@ export function DailyDashboard() {
       {/* Lumen CTA Banner — only show when viewing today and no goals set */}
       {selectedDate === getTodayDate() && lumenGoals && !lumenGoals.goals && (
         <LumenBanner />
+      )}
+
+      {/* Quick Capture Banner — only show on today's view */}
+      {selectedDate === getTodayDate() && (
+        <CaptureSessionBanner
+          captureCount={captureState.captures.length}
+          onCapture={() => router.push("/app/capture")}
+          onProcess={() => router.push("/app/process-captures")}
+        />
       )}
 
       {/* Fasting Card */}

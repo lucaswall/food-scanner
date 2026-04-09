@@ -60,6 +60,7 @@ const {
   getSavedAnalyses,
   getSavedAnalysis,
   deleteSavedAnalysis,
+  bulkSaveAnalyses,
 } = await import("@/lib/saved-analyses");
 
 const mockFoodAnalysis = {
@@ -240,6 +241,51 @@ describe("deleteSavedAnalysis", () => {
 
     expect(mockDeleteWhere).toHaveBeenCalledWith(
       expect.anything(), // the and() expression
+    );
+  });
+});
+
+describe("bulkSaveAnalyses", () => {
+  it("saves multiple items in one call and returns array of IDs and dates", async () => {
+    const createdAt1 = new Date("2026-04-09T12:00:00Z");
+    const createdAt2 = new Date("2026-04-09T12:00:01Z");
+    mockReturning.mockResolvedValue([
+      { id: 1, createdAt: createdAt1 },
+      { id: 2, createdAt: createdAt2 },
+    ]);
+
+    const items = [
+      { ...mockFoodAnalysis, food_name: "Item 1", calories: 100 },
+      { ...mockFoodAnalysis, food_name: "Item 2", calories: 200 },
+    ];
+
+    const result = await bulkSaveAnalyses("user-uuid-123", items);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ id: 1, createdAt: createdAt1 });
+    expect(result[1]).toEqual({ id: 2, createdAt: createdAt2 });
+    expect(mockInsert).toHaveBeenCalled();
+  });
+
+  it("calls insert with all items in one batch, using food_name as description", async () => {
+    const createdAt = new Date("2026-04-09T12:00:00Z");
+    mockReturning.mockResolvedValue([
+      { id: 1, createdAt },
+      { id: 2, createdAt },
+    ]);
+
+    const items = [
+      { ...mockFoodAnalysis, food_name: "Empanada", calories: 320 },
+      { ...mockFoodAnalysis, food_name: "Ensalada", calories: 120 },
+    ];
+
+    await bulkSaveAnalyses("user-uuid-123", items);
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: "user-uuid-123", description: "Empanada", calories: 320 }),
+        expect.objectContaining({ userId: "user-uuid-123", description: "Ensalada", calories: 120 }),
+      ]),
     );
   });
 });

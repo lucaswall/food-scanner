@@ -467,7 +467,27 @@ export interface ConversationMessage {
   content: string;
   images?: string[];
   analysis?: FoodAnalysis;
+  sessionItems?: FoodAnalysis[];
   isThinking?: boolean;
+}
+
+export interface CaptureItem {
+  id: string;
+  imageCount: number;
+  note: string | null;
+  capturedAt: string;
+  order: number;
+}
+
+export interface CaptureSession {
+  id: string;
+  captures: CaptureItem[];
+  createdAt: string;
+}
+
+export interface ChatCapturesRequest {
+  messages: ConversationMessage[];
+  initialItems?: FoodAnalysis[];
 }
 
 export interface ChatFoodRequest {

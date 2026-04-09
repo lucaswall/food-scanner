@@ -4,7 +4,8 @@ import type { FoodAnalysis, FoodMatch } from "@/types";
 
 const DB_NAME = "food-scanner";
 const STORE_NAME = "session-photos";
-const DB_VERSION = 1;
+export const CAPTURE_BLOBS_STORE = "capture-blobs";
+const DB_VERSION = 2;
 
 const STATE_KEY_PREFIX = "food-scanner-analysis-session:";
 const SESSION_ID_KEY = "food-scanner-session-id";
@@ -39,8 +40,12 @@ export interface AnalysisSessionState {
   createdAt: string;
 }
 
-interface FoodScannerDB extends DBSchema {
+export interface FoodScannerDB extends DBSchema {
   [STORE_NAME]: {
+    key: string;
+    value: Blob[];
+  };
+  [CAPTURE_BLOBS_STORE]: {
     key: string;
     value: Blob[];
   };
@@ -57,12 +62,15 @@ export function _resetDBForTesting(): void {
   dbPromise = null;
 }
 
-function getDB(): Promise<IDBPDatabase<FoodScannerDB>> {
+export function getDB(): Promise<IDBPDatabase<FoodScannerDB>> {
   if (!dbPromise) {
     dbPromise = openDB<FoodScannerDB>(DB_NAME, DB_VERSION, {
       upgrade(db) {
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME);
+        }
+        if (!db.objectStoreNames.contains(CAPTURE_BLOBS_STORE)) {
+          db.createObjectStore(CAPTURE_BLOBS_STORE);
         }
       },
     });

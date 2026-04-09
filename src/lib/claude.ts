@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import * as Sentry from "@sentry/nextjs";
 import type { FoodAnalysis, ConversationMessage, FoodLogEntryDetail } from "@/types";
-import { getUnitLabel } from "@/types";
+import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
@@ -1971,6 +1971,506 @@ Use this as the baseline. When the user makes corrections, call report_nutrition
     l.warn(
       { action: "edit_analysis_error", error: error instanceof Error ? error.message : String(error) },
       "Claude API edit analysis error"
+    );
+    throw new ClaudeApiError(
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`,
+      extractRequestId(error)
+    );
+  }
+}
+
+// ─── Triage: Multi-capture session analysis ────────────────────────────────
+
+export const REPORT_SESSION_ITEMS_TOOL: Anthropic.Tool = {
+  name: "report_session_items",
+  description:
+    "Report all distinct food items identified across all captures in this session. Call this with the complete list of items found. When the user asks to modify the list (combine, split, remove, add, adjust), call this again with the updated list.",
+  strict: true,
+  input_schema: {
+    type: "object" as const,
+    additionalProperties: false as const,
+    properties: {
+      items: {
+        type: "array",
+        description: "All distinct food items identified across all captures in this session",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            food_name: {
+              type: "string",
+              description: "Clear name of the food in Spanish or English",
+            },
+            amount: {
+              type: "number",
+              description: "Estimated quantity in the chosen unit",
+            },
+            unit_id: {
+              type: "number",
+              description: "Fitbit measurement unit ID. Use: 147=gram, 91=cup, 226=oz, 349=tbsp, 364=tsp, 209=ml, 311=slice, 304=serving.",
+            },
+            calories: { type: "number" },
+            protein_g: { type: "number" },
+            carbs_g: { type: "number" },
+            fat_g: { type: "number" },
+            fiber_g: { type: "number" },
+            sodium_mg: { type: "number" },
+            saturated_fat_g: {
+              type: "number",
+              description: "Estimated saturated fat in grams. Always provide your best estimate.",
+            },
+            trans_fat_g: {
+              type: "number",
+              description: "Estimated trans fat in grams. Always provide your best estimate (0 if likely none).",
+            },
+            sugars_g: {
+              type: "number",
+              description: "Estimated sugars in grams. Always provide your best estimate.",
+            },
+            calories_from_fat: {
+              type: "number",
+              description: "Estimated calories from fat (fat_g × 9). Always provide your best estimate.",
+            },
+            confidence: { type: "string", enum: ["high", "medium", "low"] },
+            notes: {
+              type: "string",
+              description: "Brief explanation of assumptions made, including portion/sharing context from notes",
+            },
+            keywords: {
+              type: "array",
+              items: { type: "string" },
+              description: "3 to 5 lowercase single-word tokens identifying this food for matching.",
+            },
+            description: {
+              type: "string",
+              description: "Describe the food in 1-2 concise sentences with visible ingredients, preparation method, and portion size.",
+            },
+            time: {
+              type: "string",
+              description: "Meal time in HH:mm format (24h) from the capture timestamp of the most relevant photo for this item.",
+            },
+            date: {
+              type: "string",
+              description: "Date in YYYY-MM-DD format from the capture date of the most relevant photo for this item.",
+            },
+            meal_type_id: {
+              type: "number",
+              description: "Fitbit meal type: 1=Breakfast, 2=Morning Snack, 3=Lunch, 4=Afternoon Snack, 5=Dinner, 7=Anytime. Assign based on capture time.",
+            },
+            capture_indices: {
+              type: "array",
+              items: { type: "number" },
+              description: "Which capture indices (0-based) this item came from, for UI display purposes.",
+            },
+          },
+          required: [
+            "food_name",
+            "amount",
+            "unit_id",
+            "calories",
+            "protein_g",
+            "carbs_g",
+            "fat_g",
+            "fiber_g",
+            "sodium_mg",
+            "saturated_fat_g",
+            "trans_fat_g",
+            "sugars_g",
+            "calories_from_fat",
+            "confidence",
+            "notes",
+            "keywords",
+            "description",
+            "time",
+            "date",
+            "meal_type_id",
+            "capture_indices",
+          ],
+        },
+      },
+    },
+    required: ["items"],
+  },
+};
+
+export const TRIAGE_SYSTEM_PROMPT = `You are a nutrition analyst specializing in Argentine and Latin American cuisine.
+You are analyzing a collection of food captures from a meal session.
+
+Session analysis rules:
+- Captures are organized chronologically with timestamps and optional notes
+- Identify each distinct food item across all captures in the session
+- A menu photo provides context (dish names, prices) — use it to identify dishes in plate photos
+- Notes provide portion/sharing context (e.g., "shared appetizer, had about half") — incorporate these into your estimates
+- Group by logical food item, not by capture — one capture may contain multiple items, and multiple captures may show the same item from different angles
+- Assign the time field from the capture timestamp (HH:mm format) of the most relevant photo for each item
+- Assign the date field from the capture date (YYYY-MM-DD format) of the most relevant photo for each item
+- Assign meal_type_id based on capture times: 1=Breakfast (6-10h), 2=Morning Snack (10-12h), 3=Lunch (12-15h), 4=Afternoon Snack (15-18h), 5=Dinner (18-23h), 7=Anytime (otherwise)
+- Set capture_indices to the 0-based indices of captures that show this item
+- Always call report_session_items with the complete list of identified food items
+- When the user asks to modify the list (combine, split, remove, add items, or adjust quantities), call report_session_items again with the updated complete list
+- Be thorough — identify every distinct food and drink visible in the captures
+
+IMPORTANT: Do NOT use search_food_log, get_nutrition_summary, get_fasting_info, or any other data tools.
+Triage analysis is purely from visual evidence, capture timestamps, and user notes.
+
+Nutrition estimation rules:
+- Consider typical Argentine portions and preparation methods
+- Choose the most natural measurement unit for each food
+- Always estimate Tier 1 nutrients (saturated_fat_g, trans_fat_g, sugars_g, calories_from_fat) — provide your best numeric estimate (use 0 when negligible)`;
+
+/**
+ * Validate an array of items from report_session_items tool output.
+ * Reuses validateFoodAnalysis() for each item, filtering out invalid ones.
+ * Strips capture_indices (UI-only, not part of FoodAnalysis).
+ */
+export function validateSessionItems(input: unknown): FoodAnalysis[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+  const results: FoodAnalysis[] = [];
+  for (const item of input) {
+    try {
+      const analysis = validateFoodAnalysis(item);
+      results.push(analysis);
+    } catch {
+      logger.warn({ action: "validate_session_item_skip", item }, "skipping invalid session item");
+    }
+  }
+  return results;
+}
+
+/**
+ * Build an Anthropic user message for triage: all images grouped by capture with context text.
+ */
+function buildTriageUserMessage(
+  images: ImageInput[],
+  captureMetadata: { captureId: string; imageIndices: number[]; note: string | null; capturedAt: string }[],
+): Anthropic.MessageParam {
+  const contentBlocks: Anthropic.ContentBlockParam[] = [];
+
+  // Add all image blocks grouped by capture, with a text label before each capture
+  for (let i = 0; i < captureMetadata.length; i++) {
+    const capture = captureMetadata[i];
+    const captureImages = capture.imageIndices.map((idx) => images[idx]).filter(Boolean);
+
+    // Text label for the capture
+    const noteText = capture.note ? ` — Note: "${capture.note}"` : "";
+    contentBlocks.push({
+      type: "text" as const,
+      text: `[Capture ${i + 1} — ${capture.capturedAt}${noteText}]`,
+    });
+
+    // Image blocks for this capture
+    for (const img of captureImages) {
+      contentBlocks.push({
+        type: "image" as const,
+        source: {
+          type: "base64" as const,
+          media_type: img.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+          data: img.base64,
+        },
+      });
+    }
+  }
+
+  contentBlocks.push({
+    type: "text" as const,
+    text: "Please identify all distinct food items across these captures and call report_session_items with the complete list.",
+  });
+
+  return { role: "user", content: contentBlocks };
+}
+
+/**
+ * Analyze a collection of food captures to identify all distinct items.
+ * Streams session_items event when report_session_items is called.
+ */
+export async function* triageCaptures(
+  images: ImageInput[],
+  captureMetadata: { captureId: string; imageIndices: number[]; note: string | null; capturedAt: string }[],
+  userId: string,
+  currentDate: string,
+  log?: Logger,
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  try {
+    l.info(
+      { action: "triage_captures_start", imageCount: images.length, captureCount: captureMetadata.length },
+      "calling Claude API for session triage"
+    );
+
+    const systemPrompt = `${TRIAGE_SYSTEM_PROMPT}\n\nToday's date is: ${currentDate}`;
+    const toolsWithCache = buildToolsWithCache([REPORT_SESSION_ITEMS_TOOL]);
+    const userMessage = buildTriageUserMessage(images, captureMetadata);
+
+    l.debug(
+      { action: "triage_captures_request", captureCount: captureMetadata.length, imageCount: images.length },
+      "Claude API triage request"
+    );
+
+    const response = yield* createStreamWithRetry({
+      model: CLAUDE_MODEL,
+      max_tokens: 4096,
+      system: [
+        {
+          type: "text" as const,
+          text: systemPrompt,
+          cache_control: { type: "ephemeral" as const },
+        },
+      ],
+      tools: toolsWithCache,
+      tool_choice: { type: "auto" },
+      messages: [userMessage],
+    }, { signal }, l);
+
+    l.debug({ action: "triage_captures_response", ...summarizeResponse(response) }, "Claude API triage response received");
+
+    // Yield usage
+    yield {
+      type: "usage",
+      data: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      },
+    };
+
+    // Record usage (fire-and-forget)
+    recordUsage(userId, response.model, "triage-captures", {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+    }).catch((error) => {
+      l.warn(
+        { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
+        "failed to record API usage"
+      );
+    });
+
+    // Check for error stop_reasons
+    if ((response.stop_reason as string) === "model_context_window_exceeded") {
+      l.warn({ action: "triage_captures_context_window_exceeded" }, "model_context_window_exceeded on triageCaptures");
+      yield { type: "error", message: "The request exceeded the context window. Please try with fewer captures." };
+      return;
+    }
+    if (response.stop_reason === "refusal") {
+      l.warn({ action: "triage_captures_refusal" }, "Claude refused to process the captures");
+      yield { type: "error", message: "The request was flagged by our safety systems and cannot be processed." };
+      return;
+    }
+    if (response.stop_reason === "max_tokens") {
+      l.warn({ action: "triage_captures_max_tokens" }, "max_tokens on triageCaptures");
+      yield { type: "error", message: "The response exceeded the maximum length. Please try with fewer captures." };
+      return;
+    }
+
+    // Find report_session_items tool call
+    const reportBlock = response.content.find(
+      (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_session_items"
+    ) as Anthropic.ToolUseBlock | undefined;
+
+    if (reportBlock) {
+      const input = reportBlock.input as { items?: unknown };
+      const items = validateSessionItems(input.items);
+      l.info(
+        { action: "triage_captures_result", itemCount: items.length, durationMs: elapsed() },
+        "triage captures completed"
+      );
+      yield { type: "session_items", items };
+    } else {
+      l.warn({ action: "triage_captures_no_tool_call", stopReason: response.stop_reason }, "Claude did not call report_session_items");
+      yield { type: "session_items", items: [] };
+    }
+
+    yield { type: "done" };
+
+  } catch (error) {
+    if (error instanceof ClaudeApiError) {
+      throw error;
+    }
+    if (isAbortError(error)) {
+      l.info({ action: "triage_captures_aborted" }, "triage captures aborted by client");
+      yield { type: "error", message: "Request aborted by client" };
+      return;
+    }
+    l.warn(
+      { action: "triage_captures_error", error: error instanceof Error ? error.message : String(error) },
+      "Claude API triage captures error"
+    );
+    throw new ClaudeApiError(
+      `API request failed: ${error instanceof Error ? error.message : String(error)}`,
+      extractRequestId(error)
+    );
+  }
+}
+
+/**
+ * Convert ConversationMessage[] to Anthropic messages for triage refinement.
+ * For assistant messages with sessionItems, appends a structured item summary.
+ */
+function convertTriageMessages(messages: ConversationMessage[]): Anthropic.MessageParam[] {
+  return messages.map((msg) => {
+    const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
+
+    if (msg.role === "user" && msg.images && msg.images.length > 0) {
+      content.push(
+        ...msg.images.map((base64) => ({
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: "image/jpeg" as const,
+            data: base64,
+          },
+        }))
+      );
+    }
+
+    if (msg.content) {
+      content.push({ type: "text" as const, text: msg.content });
+    }
+
+    // For assistant messages with sessionItems, inject structured item summary
+    if (msg.role === "assistant" && msg.sessionItems && msg.sessionItems.length > 0) {
+      const itemLines = msg.sessionItems.map((item, i) => {
+        const mealLabel = item.mealTypeId != null ? (FITBIT_MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
+        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, ${item.amount} units (unit_id: ${item.unit_id}), meal: ${mealLabel}, time: ${item.time ?? "unset"}`;
+      });
+      const summary = `[Current session items:\n${itemLines.join("\n")}\n]`;
+      content.push({ type: "text" as const, text: summary });
+    }
+
+    return { role: msg.role, content };
+  });
+}
+
+/**
+ * Conversational triage refinement. Allows the user to modify the list of session items.
+ * Streams session_items event when report_session_items is called.
+ */
+export async function* triageRefine(
+  messages: ConversationMessage[],
+  userId: string,
+  initialItems?: FoodAnalysis[],
+  signal?: AbortSignal,
+  log?: Logger,
+): AsyncGenerator<StreamEvent> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  try {
+    l.info(
+      { action: "triage_refine_start", messageCount: messages.length, initialItemCount: initialItems?.length ?? 0 },
+      "calling Claude API for triage refinement"
+    );
+
+    let anthropicMessages = convertTriageMessages(messages);
+    anthropicMessages = truncateConversation(anthropicMessages, 150000, l);
+
+    let systemPrompt = TRIAGE_SYSTEM_PROMPT;
+
+    // Inject initial items as baseline context in the system prompt
+    if (initialItems && initialItems.length > 0) {
+      const itemLines = initialItems.map((item, i) => {
+        const mealLabel = item.mealTypeId != null ? (FITBIT_MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
+        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, time: ${item.time ?? "unset"}, meal: ${mealLabel}`;
+      });
+      systemPrompt += `\n\nCurrent session items baseline:\n${itemLines.join("\n")}\n\nWhen the user requests changes, call report_session_items with the updated complete list.`;
+    }
+
+    const toolsWithCache = buildToolsWithCache([REPORT_SESSION_ITEMS_TOOL]);
+
+    const response = yield* createStreamWithRetry({
+      model: CLAUDE_MODEL,
+      max_tokens: 2048,
+      system: [
+        {
+          type: "text" as const,
+          text: systemPrompt,
+          cache_control: { type: "ephemeral" as const },
+        },
+      ],
+      tools: toolsWithCache,
+      tool_choice: { type: "auto" },
+      messages: anthropicMessages,
+    }, { signal }, l);
+
+    l.debug({ action: "triage_refine_response", ...summarizeResponse(response) }, "Claude API triage refine response received");
+
+    // Yield usage
+    yield {
+      type: "usage",
+      data: {
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      },
+    };
+
+    // Record usage (fire-and-forget)
+    recordUsage(userId, response.model, "triage-refine", {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+    }).catch((error) => {
+      l.warn(
+        { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
+        "failed to record API usage"
+      );
+    });
+
+    // Check for error stop_reasons
+    if ((response.stop_reason as string) === "model_context_window_exceeded") {
+      l.warn({ action: "triage_refine_context_window_exceeded" }, "model_context_window_exceeded on triageRefine");
+      yield { type: "error", message: "The conversation is too long to process. Please start a new session." };
+      return;
+    }
+    if (response.stop_reason === "refusal") {
+      l.warn({ action: "triage_refine_refusal" }, "Claude refused to process the triage request");
+      yield { type: "error", message: "The request was flagged by our safety systems and cannot be processed." };
+      return;
+    }
+    if (response.stop_reason === "max_tokens") {
+      l.warn({ action: "triage_refine_max_tokens" }, "max_tokens on triageRefine");
+      yield { type: "error", message: "The response exceeded the maximum length. Please try again." };
+      return;
+    }
+
+    // Find report_session_items tool call
+    const reportBlock = response.content.find(
+      (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_session_items"
+    ) as Anthropic.ToolUseBlock | undefined;
+
+    if (reportBlock) {
+      const input = reportBlock.input as { items?: unknown };
+      const items = validateSessionItems(input.items);
+      l.info(
+        { action: "triage_refine_result", itemCount: items.length, durationMs: elapsed() },
+        "triage refinement completed with items"
+      );
+      yield { type: "session_items", items };
+    } else {
+      l.info({ action: "triage_refine_text_only", durationMs: elapsed() }, "triage refinement completed (text only)");
+    }
+
+    yield { type: "done" };
+
+  } catch (error) {
+    if (error instanceof ClaudeApiError) {
+      throw error;
+    }
+    if (isAbortError(error)) {
+      l.info({ action: "triage_refine_aborted" }, "triage refinement aborted by client");
+      yield { type: "error", message: "Request aborted by client" };
+      return;
+    }
+    l.warn(
+      { action: "triage_refine_error", error: error instanceof Error ? error.message : String(error) },
+      "Claude API triage refine error"
     );
     throw new ClaudeApiError(
       `API request failed: ${error instanceof Error ? error.message : String(error)}`,
