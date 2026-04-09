@@ -177,6 +177,7 @@ describe("POST /api/chat-captures", () => {
 
     expect(mockTriageRefine).toHaveBeenCalledWith(
       expect.any(Array),
+      expect.any(String),
       expect.arrayContaining([expect.objectContaining({ food_name: "Empanada" })]),
       expect.anything(),
       expect.anything(),

@@ -25,6 +25,7 @@ export function CaptureTriage() {
   const [narrative, setNarrative] = useState("");
   const narrativeRef = useRef("");
   const [chatInput, setChatInput] = useState("");
+  const [isChatSending, setIsChatSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState(0);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
@@ -130,10 +131,15 @@ export function CaptureTriage() {
       capturedAt: string;
     }> = [];
 
-    // Load blobs for each capture in order
+    // Load blobs for each capture in order, skip captures with no blobs (evicted by browser)
     const sortedCaptures = [...captures].sort((a, b) => a.order - b.order);
+    let skippedCount = 0;
     for (const capture of sortedCaptures) {
       const blobs = await actions.getCaptureBlobs(capture.id);
+      if (blobs.length === 0) {
+        skippedCount++;
+        continue;
+      }
       for (const blob of blobs) {
         const file = new File([blob], `capture-${capture.id}.jpg`, { type: blob.type || "image/jpeg" });
         formData.append("images", file);
@@ -144,6 +150,10 @@ export function CaptureTriage() {
         note: capture.note,
         capturedAt: capture.capturedAt,
       });
+    }
+
+    if (skippedCount > 0) {
+      console.warn(`Skipped ${skippedCount} capture(s) with missing images`);
     }
 
     formData.append("captureMetadata", JSON.stringify(captureMetadataArray));
@@ -198,10 +208,11 @@ export function CaptureTriage() {
 
   const handleChatSend = useCallback(async () => {
     const text = chatInput.trim();
-    if (!text || triageState !== "results") return;
+    if (!text || triageState !== "results" || isChatSending) return;
 
     setChatInput("");
     setError(null);
+    setIsChatSending(true);
 
     const userMessage: ConversationMessage = { role: "user", content: text };
     const updatedMessages = [...messages, userMessage];
@@ -227,19 +238,37 @@ export function CaptureTriage() {
         return;
       }
 
+      let assistantText = "";
+      let hadSessionItems = false;
+
       const result = await consumeSSEStream(
         response,
         (items) => {
+          hadSessionItems = true;
           setSessionItems(items);
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.role === "assistant") {
               return [...prev.slice(0, -1), { ...last, sessionItems: items }];
             }
-            return [...prev, { role: "assistant", content: "", sessionItems: items }];
+            return [...prev, { role: "assistant", content: assistantText, sessionItems: items }];
           });
+        },
+        (text) => {
+          assistantText += text;
         }
       );
+
+      // If Claude responded with text only (no tool call), append assistant message
+      if (!hadSessionItems && assistantText && result.ok) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role !== "assistant") {
+            return [...prev, { role: "assistant", content: assistantText }];
+          }
+          return prev;
+        });
+      }
 
       if (!result.ok) {
         setError(result.error || "Failed to process message");
@@ -247,8 +276,10 @@ export function CaptureTriage() {
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
       setError("Failed to send message. Please try again.");
+    } finally {
+      setIsChatSending(false);
     }
-  }, [chatInput, triageState, messages, sessionItems, consumeSSEStream]);
+  }, [chatInput, triageState, isChatSending, messages, sessionItems, consumeSSEStream]);
 
   const handleApproveAndSave = useCallback(async () => {
     setError(null);
@@ -425,7 +456,7 @@ export function CaptureTriage() {
             <Button
               data-testid="chat-send-btn"
               onClick={handleChatSend}
-              disabled={!chatInput.trim()}
+              disabled={!chatInput.trim() || isChatSending}
               size="icon"
               aria-label="Send"
             >

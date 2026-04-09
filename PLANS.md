@@ -625,3 +625,67 @@ All tasks completed.
 
 1. Write test in `src/lib/__tests__/claude-triage.test.ts` verifying recordUsage is called in triageRefine
 2. In `src/lib/claude.ts` triageRefine: add `recordUsage` call after yielding usage event, same pattern as triageCaptures (lines 2241-2252)
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-04-09
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Fix 1 (FOO-919): captureMetadata field-level validation + captureId in client (worker-1)
+- Fix 2 (FOO-920): Image index remapping for failed allSettled results (worker-1)
+- Fix 3 (FOO-921): stop_reason handling in triageCaptures and triageRefine (worker-2)
+- Fix 4 (FOO-922): Changed capture.imageCount to blobs.length in triage client (worker-3)
+- Fix 5 (FOO-923): handleSave try/catch with error state in quick-capture (worker-3)
+- Fix 6 (FOO-924): Rate limiting (30/15min) on bulk save endpoint (worker-1)
+- Fix 7 (FOO-925): Object URL leak fix in thumbnail loading cleanup (worker-3)
+- Fix 8 (FOO-926): Removed double-logging in bulkSaveAnalyses (worker-1)
+- Fix 9 (FOO-927): Added recordUsage call + userId param to triageRefine (worker-2)
+
+### Files Modified
+- `src/app/api/process-captures/route.ts` — Field-level validation, image index remapping
+- `src/app/api/process-captures/__tests__/route.test.ts` — 8 new tests
+- `src/app/api/chat-captures/route.ts` — Updated triageRefine call with userId
+- `src/app/api/chat-captures/__tests__/route.test.ts` — Updated assertion for new triageRefine signature
+- `src/app/api/saved-analyses/bulk/route.ts` — Added checkRateLimit
+- `src/app/api/saved-analyses/bulk/__tests__/route.test.ts` — Rate limit test
+- `src/lib/claude.ts` — stop_reason handling in triageCaptures/triageRefine, recordUsage in triageRefine, userId param
+- `src/lib/__tests__/claude-triage.test.ts` — 7 new tests (stop_reason + recordUsage)
+- `src/lib/saved-analyses.ts` — Removed redundant logger.info
+- `src/components/capture-triage.tsx` — captureId in metadata, blobs.length fix, 0-blob skip, URL leak fix, text-only reply handling, isChatSending guard
+- `src/components/quick-capture.tsx` — handleSave try/catch with error banner
+- `src/components/__tests__/capture-triage.test.tsx` — 2 new tests
+- `src/components/__tests__/quick-capture.test.tsx` — 1 new test
+
+### Linear Updates
+- FOO-919: Todo → In Progress → Review
+- FOO-920: Todo → In Progress → Review (via FOO-919 batch)
+- FOO-921: Todo → In Progress → Review
+- FOO-922: Todo → In Progress → Review
+- FOO-923: Todo → In Progress → Review
+- FOO-924: Todo → In Progress → Review (via FOO-919 batch)
+- FOO-925: Todo → In Progress → Review
+- FOO-926: Todo → In Progress → Review (via FOO-919 batch)
+- FOO-927: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs (0 critical, 1 high, 2 medium), all fixed before proceeding
+  - Text-only assistant replies dropped in handleChatSend — fixed with assistantText accumulator
+  - 0-blob captures causing 400 error — fixed with skip + console.warn
+  - Concurrent chat send race condition — fixed with isChatSending guard
+- verifier: All 3110 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Fixes 1, 2, 6, 8 (API route domain — process-captures validation, image index mapping, bulk save rate limit, double-logging)
+- Worker 2: Fixes 3, 9 (Claude function domain — stop_reason handling, recordUsage)
+- Worker 3: Fixes 4, 5, 7 (UI component domain — blobs.length, handleSave error, URL leak)
+
+### Merge Summary
+- Worker 2: fast-forward (first merge, no conflicts)
+- Worker 1: auto-merge, no conflicts
+- Worker 3: 1 conflict in capture-triage.tsx (worker-1's captureId + worker-3's blobs.length — kept both)
+
+### Continuation Status
+All fix plan tasks completed.
