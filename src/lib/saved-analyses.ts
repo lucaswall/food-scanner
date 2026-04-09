@@ -2,7 +2,6 @@ import { getDb } from "@/db/index";
 import { savedAnalyses } from "@/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import type { FoodAnalysis } from "@/types";
-import { logger } from "@/lib/logger";
 
 export async function saveAnalysis(
   userId: string,
@@ -91,6 +90,5 @@ export async function bulkSaveAnalyses(
       }))
     )
     .returning({ id: savedAnalyses.id, createdAt: savedAnalyses.createdAt });
-  logger.info({ action: "bulk_save_analyses", userId, count: rows.length }, "bulk saved analyses");
   return rows;
 }

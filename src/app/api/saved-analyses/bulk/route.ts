@@ -3,9 +3,12 @@ import { errorResponse, successResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { bulkSaveAnalyses } from "@/lib/saved-analyses";
 import { validateFoodAnalysis } from "@/lib/claude";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { FoodAnalysis } from "@/types";
 
 const MAX_BULK_ITEMS = 20;
+const RATE_LIMIT_MAX = 30;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/saved-analyses/bulk");
@@ -13,6 +16,11 @@ export async function POST(request: Request) {
 
   const validationError = validateSession(session);
   if (validationError) return validationError;
+
+  const { allowed } = checkRateLimit(`bulk-save:${session!.userId}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS);
+  if (!allowed) {
+    return errorResponse("RATE_LIMIT_EXCEEDED", "Too many requests. Please try again later.", 429);
+  }
 
   let body: unknown;
   try {

@@ -74,6 +74,21 @@ export async function POST(request: Request) {
     if (!Array.isArray(parsed)) {
       return errorResponse("VALIDATION_ERROR", "captureMetadata must be a JSON array", 400);
     }
+    for (let i = 0; i < parsed.length; i++) {
+      const entry = parsed[i] as Record<string, unknown>;
+      if (typeof entry.captureId !== "string") {
+        return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].captureId must be a string`, 400);
+      }
+      if (!Number.isInteger(entry.imageCount) || (entry.imageCount as number) <= 0) {
+        return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].imageCount must be a positive integer`, 400);
+      }
+      if (typeof entry.capturedAt !== "string" || entry.capturedAt.length > 30) {
+        return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].capturedAt must be an ISO string (max 30 chars)`, 400);
+      }
+      if (entry.note !== null && (typeof entry.note !== "string" || (entry.note as string).length > 500)) {
+        return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].note must be a string (max 500 chars) or null`, 400);
+      }
+    }
     captureMetadataEntries = parsed as CaptureMetadataEntry[];
   } catch {
     return errorResponse("VALIDATION_ERROR", "captureMetadata must be valid JSON", 400);
@@ -122,10 +137,25 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Failed to process images. Please try again.", 400);
   }
 
-  // Build captureMetadata with imageIndices (sequential groups)
+  // Build success index map: original position → compressed position in imageInputs
+  const successIndexMap = new Map<number, number>();
+  let compressedIndex = 0;
+  for (let i = 0; i < imageResults.length; i++) {
+    if (imageResults[i].status === "fulfilled") {
+      successIndexMap.set(i, compressedIndex++);
+    }
+  }
+
+  // Build captureMetadata with imageIndices remapped to compressed positions
   let imageOffset = 0;
   const captureMetadata = captureMetadataEntries.map((entry) => {
-    const imageIndices = Array.from({ length: entry.imageCount }, (_, i) => imageOffset + i);
+    const imageIndices: number[] = [];
+    for (let i = 0; i < entry.imageCount; i++) {
+      const newIndex = successIndexMap.get(imageOffset + i);
+      if (newIndex !== undefined) {
+        imageIndices.push(newIndex);
+      }
+    }
     imageOffset += entry.imageCount;
     return {
       captureId: entry.captureId,
