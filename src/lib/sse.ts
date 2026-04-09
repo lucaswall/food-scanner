@@ -5,6 +5,7 @@ export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "tool_start"; tool: string }
   | { type: "analysis"; analysis: FoodAnalysis }
+  | { type: "session_items"; items: FoodAnalysis[] }
   | { type: "needs_chat"; message: string }
   | {
       type: "usage";

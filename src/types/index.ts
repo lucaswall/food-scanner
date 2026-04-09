@@ -467,12 +467,18 @@ export interface ConversationMessage {
   content: string;
   images?: string[];
   analysis?: FoodAnalysis;
+  sessionItems?: FoodAnalysis[];
   isThinking?: boolean;
 }
 
 export interface ChatFoodRequest {
   messages: ConversationMessage[];
   initialAnalysis?: FoodAnalysis;
+}
+
+export interface ChatCapturesRequest {
+  messages: ConversationMessage[];
+  initialItems?: FoodAnalysis[];
 }
 
 export interface ChatFoodResponse {
