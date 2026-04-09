@@ -121,6 +121,7 @@ export function CaptureTriage() {
 
     const formData = new FormData();
     const captureMetadataArray: Array<{
+      captureId: string;
       imageCount: number;
       note: string | null;
       capturedAt: string;
@@ -135,6 +136,7 @@ export function CaptureTriage() {
         formData.append("images", file);
       }
       captureMetadataArray.push({
+        captureId: capture.id,
         imageCount: capture.imageCount,
         note: capture.note,
         capturedAt: capture.capturedAt,

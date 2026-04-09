@@ -31,6 +31,11 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
+const mockCheckRateLimit = vi.fn().mockReturnValue({ allowed: true, remaining: 29 });
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}));
+
 const { mockBulkSaveAnalyses } = vi.hoisted(() => ({
   mockBulkSaveAnalyses: vi.fn(),
 }));
@@ -95,6 +100,7 @@ function createMockRequest(body: unknown): Request {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
 });
 
 describe("POST /api/saved-analyses/bulk", () => {
@@ -178,5 +184,22 @@ describe("POST /api/saved-analyses/bulk", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
+  });
+
+  // FOO-924: rate limiting on bulk save
+  it("returns 429 when rate limit is exceeded", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockCheckRateLimit.mockReturnValueOnce({ allowed: false, remaining: 0 });
+
+    const response = await POST(createMockRequest({ items: [makeValidAnalysis()] }));
+    expect(response.status).toBe(429);
+    const body = await response.json();
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      expect.stringContaining("user-uuid-123"),
+      30,
+      15 * 60 * 1000,
+    );
   });
 });

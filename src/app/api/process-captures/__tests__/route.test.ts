@@ -249,4 +249,170 @@ describe("POST /api/process-captures", () => {
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
+
+  // FOO-919: per-entry field validation
+  it("returns 400 when captureId is not a string", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const images = [createMockFile("a.jpg", "image/jpeg")];
+    const metadata = [{ captureId: 42, imageCount: 1, note: null, capturedAt: "2026-04-09T12:00:00" }];
+    const formData = {
+      getAll: (key: string) => (key === "images" ? images : []),
+      get: (key: string) => {
+        if (key === "captureMetadata") return JSON.stringify(metadata);
+        if (key === "clientDate") return "2026-04-09";
+        return null;
+      },
+    };
+    const response = await POST(createMockRequest(formData));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when imageCount is not a positive integer", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const images = [createMockFile("a.jpg", "image/jpeg")];
+    const metadata = [{ captureId: "cap-1", imageCount: "one", note: null, capturedAt: "2026-04-09T12:00:00" }];
+    const formData = {
+      getAll: (key: string) => (key === "images" ? images : []),
+      get: (key: string) => {
+        if (key === "captureMetadata") return JSON.stringify(metadata);
+        if (key === "clientDate") return "2026-04-09";
+        return null;
+      },
+    };
+    const response = await POST(createMockRequest(formData));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when imageCount is zero", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const images = [createMockFile("a.jpg", "image/jpeg")];
+    const metadata = [{ captureId: "cap-1", imageCount: 0, note: null, capturedAt: "2026-04-09T12:00:00" }];
+    const formData = {
+      getAll: (key: string) => (key === "images" ? images : []),
+      get: (key: string) => {
+        if (key === "captureMetadata") return JSON.stringify(metadata);
+        if (key === "clientDate") return "2026-04-09";
+        return null;
+      },
+    };
+    const response = await POST(createMockRequest(formData));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when capturedAt exceeds 30 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const images = [createMockFile("a.jpg", "image/jpeg")];
+    const longDate = "2026-04-09T12:00:00.000Z-this-is-way-too-long";
+    const metadata = [{ captureId: "cap-1", imageCount: 1, note: null, capturedAt: longDate }];
+    const formData = {
+      getAll: (key: string) => (key === "images" ? images : []),
+      get: (key: string) => {
+        if (key === "captureMetadata") return JSON.stringify(metadata);
+        if (key === "clientDate") return "2026-04-09";
+        return null;
+      },
+    };
+    const response = await POST(createMockRequest(formData));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when note exceeds 500 characters", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const images = [createMockFile("a.jpg", "image/jpeg")];
+    const longNote = "x".repeat(501);
+    const metadata = [{ captureId: "cap-1", imageCount: 1, note: longNote, capturedAt: "2026-04-09T12:00:00" }];
+    const formData = {
+      getAll: (key: string) => (key === "images" ? images : []),
+      get: (key: string) => {
+        if (key === "captureMetadata") return JSON.stringify(metadata);
+        if (key === "clientDate") return "2026-04-09";
+        return null;
+      },
+    };
+    const response = await POST(createMockRequest(formData));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 when note is not a string or null", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const images = [createMockFile("a.jpg", "image/jpeg")];
+    const metadata = [{ captureId: "cap-1", imageCount: 1, note: 123, capturedAt: "2026-04-09T12:00:00" }];
+    const formData = {
+      getAll: (key: string) => (key === "images" ? images : []),
+      get: (key: string) => {
+        if (key === "captureMetadata") return JSON.stringify(metadata);
+        if (key === "clientDate") return "2026-04-09";
+        return null;
+      },
+    };
+    const response = await POST(createMockRequest(formData));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  // FOO-920: image index remapping when images fail allSettled
+  it("remaps imageIndices correctly when one image fails processing", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    // 3 images total: capture A (2 images), capture B (1 image)
+    // Image at index 1 fails arrayBuffer
+    const failingFile = {
+      name: "fail.jpg",
+      type: "image/jpeg",
+      size: 1000,
+      arrayBuffer: () => Promise.reject(new Error("disk error")),
+    };
+    const images = [
+      createMockFile("a.jpg", "image/jpeg"),
+      failingFile,
+      createMockFile("c.jpg", "image/jpeg"),
+    ];
+
+    const metadata = [
+      { captureId: "cap-a", imageCount: 2, note: null, capturedAt: "2026-04-09T12:00:00" },
+      { captureId: "cap-b", imageCount: 1, note: null, capturedAt: "2026-04-09T13:00:00" },
+    ];
+
+    let capturedMetadata: unknown;
+    mockTriageCaptures.mockImplementation(async function* (
+      _imageInputs: unknown,
+      meta: unknown,
+    ) {
+      capturedMetadata = meta;
+      yield { type: "session_items", items: [] };
+      yield { type: "done" };
+    });
+
+    const formData = {
+      getAll: (key: string) => (key === "images" ? images : []),
+      get: (key: string) => {
+        if (key === "captureMetadata") return JSON.stringify(metadata);
+        if (key === "clientDate") return "2026-04-09";
+        return null;
+      },
+    };
+
+    const response = await POST(createMockRequest(formData));
+    expect(response.status).toBe(200);
+    await consumeSSEStream(response);
+
+    // capture A: originally had images 0 and 1 — image 1 failed, so only index 0 survives
+    // capture B: originally had image 2 — maps to compressed index 1
+    const meta = capturedMetadata as Array<{ captureId: string; imageIndices: number[] }>;
+    expect(meta[0].captureId).toBe("cap-a");
+    expect(meta[0].imageIndices).toEqual([0]);
+    expect(meta[1].captureId).toBe("cap-b");
+    expect(meta[1].imageIndices).toEqual([1]);
+  });
 });
