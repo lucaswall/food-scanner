@@ -7,7 +7,7 @@
 | [Smart Multi-Item Splitting](#smart-multi-item-splitting) | Split complex meals into reusable food library entries |
 | [Offline Queue with Background Sync](#offline-queue-with-background-sync) | Queue meals offline, analyze and log when back online |
 | [Food Log Push Notifications](#food-log-push-notifications) | Push nutrition data directly to Health Connect via a thin Android wrapper |
-| [Quick Capture Session](#quick-capture-session) | Snap photos and notes quickly at meals, process everything later at home |
+| [Quick Capture Session](#quick-capture-session) | Snap photos quickly at meals, triage with AI later, log individually from Saved for Later |
 
 ---
 
@@ -235,109 +235,113 @@ Logging food at a restaurant requires the full analyze→refine→confirm→log 
 
 ### Goal
 
-Let the user quickly snap photos and jot notes during a meal with minimal friction, then process everything into proper food log entries in a single conversation later when they have time.
+Let the user quickly snap photos and jot notes during a meal with minimal friction, then process everything into proper food log entries later when they have time.
 
 ### Design
 
 #### Quick Capture Flow (at the restaurant)
 
-1. Tap "Start Session" on the dashboard to create a new session.
-2. Session view opens: a scrollable list of captures with a prominent "Add Capture" button.
-3. Tap Add → camera opens → snap photo(s) → optionally type a short note (e.g., "shared appetizer, had about half") → tap Save.
-4. Capture is persisted immediately. Timestamp recorded automatically.
-5. Back to session view. Repeat throughout the meal.
+1. Tap "Quick Capture" on the dashboard.
+2. Camera opens immediately — snap photo(s) → optionally type a short note (e.g., "shared appetizer, had about half") → tap Save.
+3. Capture is compressed (existing `compressImage()` + HEIC conversion) and persisted to IndexedDB immediately. Timestamp recorded automatically from the device clock.
+4. Camera auto-re-triggers for the next capture. Repeat throughout the meal.
+5. Tap "Done" to return to the dashboard.
 
-**Each capture should take under 10 seconds.** No AI processing, no analysis, no Fitbit interaction. Just persist the raw data.
+**Each capture should take under 5 seconds.** No server interaction, no AI processing, no uploads. Just persist locally.
 
 A capture consists of:
-- 1–9 images (same constraints as current analyze flow)
-- Optional text note (max 2000 chars, same as current description)
+- 1–9 images (same constraints as current analyze flow, compressed before storage)
+- Optional text note (max 2000 chars)
 - Auto-recorded timestamp
 - Sequential order within the session
 
-The session view shows a compact list: thumbnail of first image, note preview (truncated), and time. User can delete accidental captures from the list.
+Only one capture session at a time. Starting a new session while captures exist navigates to the existing one.
 
-#### Session Lifecycle
+#### Capture Expiry
 
-- **Active:** User explicitly taps "Start Session". If one is already active, the app navigates to it. Only one active session at a time. Captures can be added. Session persists across app close, navigation, and device restarts.
-- **Processing:** User taps "Process Session" to begin. No more captures can be added. A single Claude conversation analyzes everything. User refines and logs entries.
-- **Deleted:** Once processing completes ("Log All") or the user aborts the session, the session and all its captures are permanently deleted. Only the resulting food log entries persist — editable with existing tools like any other meal. No session history, no archival.
+Captures expire after **7 days**, matching the existing `useAnalysisSession` expiry. Cleanup runs on app mount. A toast notification informs the user when captures are removed ("2 captures expired").
 
-#### Active Session Banner
+#### Dashboard Integration
 
-When a session is active, a persistent banner appears on the dashboard: *"Capture session in progress — N captures"*. Tapping the banner opens the session view to continue capturing or close the session. This is the primary way to resume an active session — no separate navigation entry needed.
+When captures exist, a banner appears on the dashboard: *"N captures ready to process"*. Tapping it opens the capture list. The "Quick Capture" button changes to "Add Capture" to continue the session.
 
 #### Processing Flow (at home)
 
-Processing treats the entire session as a **single unit**. All captures are evidence in one meal story — not independent items to analyze separately. A menu photo gives dish names to all plate photos. A note saying "shared this" informs portion estimation. Processing them as a whole lets Claude make connections a per-capture approach would miss.
+Processing happens in two stages: **triage** (what items exist) and **per-item logging** (exact nutrition and Fitbit sync).
 
-1. User taps "Process Session" from the session view.
-2. The session view shows all captures chronologically — full images, notes, and timestamps. User can delete unwanted captures before proceeding.
-3. Tapping "Analyze All" sends **every image and note** to Claude in a single conversation, organized by capture (with timestamps).
-4. Claude proposes a **complete set of food log entries** for the session:
+**Stage 1 — Triage Chat:**
 
-   > *"I see 8 captures from 8:30 PM to 10:15 PM. From the menu and plate photos, here's what I'd log:*
-   > 1. *Bruschetta (shared, half portion) — 180 cal — 8:45 PM — Dinner*
-   > 2. *Grilled salmon with vegetables — 620 cal — 9:10 PM — Dinner*
-   > 3. *Tiramisu — 340 cal — 9:50 PM — Dinner*
+1. User taps "Process Captures" from the capture list.
+2. All images and notes are uploaded and sent to Claude in a single conversation, organized by capture with timestamps.
+3. Claude proposes a list of identified food items:
+
+   > *"I see 5 captures from 8:30 PM to 10:15 PM. From the menu and plate photos, here's what I'd log:*
+   > 1. *Bruschetta (shared, half portion) — ~180 cal — 8:45 PM — Dinner*
+   > 2. *Grilled salmon with vegetables — ~620 cal — 9:10 PM — Dinner*
+   > 3. *Tiramisu — ~340 cal — 9:50 PM — Dinner*
    >
    > *The menu helped me identify the salmon dish. Want me to adjust anything?"*
 
-5. User refines via chat: "the bruschetta was split three ways", "we also had bread from the basket, no photo", "the salmon was actually the fish of the day, about 400g". Claude updates the proposed entries.
-6. When satisfied, a **"Log All" button** creates every entry at once — each with its own timestamp and meal type (derived from capture times). The session and all its captures are then deleted. Only the food log entries remain.
+4. User refines via chat — structural changes only:
+   - *"Combine the chicken and rice into one entry"*
+   - *"Remove the bread, I didn't eat it"*
+   - *"You missed dessert — we shared a flan, I had about a third"*
+   - *"The tiramisu was actually taken home, I ate it the next day for lunch"*
+5. Claude updates the proposed list. Each item includes full nutrition estimation (name, calories, macros, confidence) and a time derived from the capture timestamp.
+6. When the user approves the list, each item becomes a **Saved Analysis** via the existing `saved_analyses` infrastructure.
+7. Captures are cleared from IndexedDB.
 
-#### Image Budget Management
+**Stage 2 — Per-Item Logging:**
 
-Claude's API supports up to 20 images per message. A restaurant session could exceed this. Strategy:
+Each item appears in the Saved for Later section on the dashboard. From there, the existing flow handles everything:
+- View full nutrition details
+- Refine via chat ("it was about 400g, not 300g")
+- Choose meal type and time (pre-filled from triage, adjustable)
+- Log to Fitbit
+- Or discard
 
-- **Under 20 total images:** Send all images inline in the first message, grouped by capture with timestamps and notes as text.
-- **Over 20 total images:** Prioritize plate/food photos (higher analysis value). Menu photos are summarized as text if Claude already identified all dishes from the plates. If not, the most information-dense menu images are kept. User sees which images are included in the analysis and can swap them before sending.
-- **Per-capture image limit stays at 9.** Most captures will be 1–3 images. A session of 8 captures with 2 images each = 16 images, well within budget.
+Items are fully independent — log some now, others tomorrow, discard any you don't want.
 
-#### Entry Points
+#### Time Assignment
 
-- **Dashboard:** "Start Session" button, distinct from existing "Analyze Food". When active, replaced by the banner.
-- **Existing analyze flow:** Unchanged. Quick capture is for deferred multi-item meals; analyze is for immediate single-item logging.
+Each food item inherits the timestamp of the capture it's most associated with. Unlike the normal analyze flow (where time is only set when the user mentions it), Quick Capture defaults to the capture timestamp — the phone already knows when each photo was taken. The user can override during triage or when logging.
+
+Special cases:
+- **One capture, multiple items** (e.g., a table photo with three plates): all items get the same capture timestamp.
+- **Context-only captures** (e.g., menu photos): no time assigned — these inform analysis but don't represent a food item.
+- **Time overrides** (e.g., "I ate the tiramisu the next day"): adjusted during triage chat, carried into the Saved Analysis.
+
+#### Image Budget
+
+Claude's API supports up to 100 images per message. A typical restaurant session of 5 captures × 2 images = 10 images — well within limits. At the per-capture limit of 9 images, even a maxed-out session of 9 captures × 9 images = 81 images stays under the API ceiling. No image selection or prioritization logic needed.
 
 ### Architecture
 
-- **New DB tables:**
-  - `capture_sessions` — `id`, `userId`, `status` (active/processing), `createdAt`.
-  - `session_captures` — `id`, `sessionId`, `images` (JSONB array of base64 + mime type), `note` (text, nullable), `capturedAt`, `order` (integer).
-- **Image storage:** Same base64 format the analyze API already uses. Images compressed client-side before upload (reuse existing `compressImage()`). Stored in the DB as JSONB — simple, no external storage dependency. For v1, storage growth is acceptable given single-user scale.
-- **API routes:**
-  - `POST /api/capture-sessions` — create new session (fails if one already active).
-  - `GET /api/capture-sessions/active` — get active session with all captures.
-  - `POST /api/capture-sessions/:id/captures` — add a capture (images + note).
-  - `DELETE /api/capture-sessions/:id/captures/:captureId` — remove a capture.
-  - `PATCH /api/capture-sessions/:id` — transition status (active → processing).
-  - `DELETE /api/capture-sessions/:id` — abort/delete session and all captures.
-- **Processing API:** New `/api/process-session` endpoint (or adapt existing `/api/analyze-food`). Accepts a session ID, loads all captures, builds a structured prompt with all images/notes/timestamps, streams Claude's response. The conversation continues via the existing `/api/chat-food` endpoint for refinements.
-- **Batch logging:** New `/api/log-session` endpoint (or extend `/api/log-food`) that accepts multiple `FoodAnalysis` entries with individual timestamps and meal types. Creates all `custom_food` + `food_log_entry` + Fitbit records atomically. On success, deletes the session and all captures. Rolls back food entries if any Fitbit call fails.
-- **New Claude tool:** `report_session_nutrition` — returns an array of food entries (each with name, nutrition, time, meal type) instead of a single entry. The chat UI renders all proposed entries in a reviewable list. Replaces `report_nutrition` during session processing only.
-- **No archival or cleanup needed.** Sessions are deleted after logging or abort. The only persistent data is the food log entries themselves.
+- **Capture storage:** IndexedDB on the client. Images stored as compressed blobs (JPEG, post-`compressImage()`), notes and timestamps as structured data. Reuse the `idb-keyval` pattern from `useAnalysisSession`. Expiry: 7 days, checked on mount. IndexedDB quotas are a non-issue — minimum ~500MB (Safari), typical ~60% of disk (Chrome). A maxed session (9 captures × 9 images × ~200KB) is ~16MB.
+- **No new DB tables.** Capture state is client-only. Triage results flow into the existing `saved_analyses` table.
+- **Triage API:** New `/api/process-captures` endpoint. Accepts all images and notes, builds a structured prompt with captures organized chronologically, streams Claude's response. The conversation continues via existing `/api/chat-food` for refinements.
+- **New Claude tool:** `report_session_items` — returns an array of food items (each with name, full nutrition, time, meal type, confidence). Replaces `report_nutrition` during triage only. On user approval, each item is saved as a Saved Analysis via `POST /api/saved-analyses`.
+- **No batch logging.** Each Saved Analysis is logged individually through the existing flow. No atomic multi-entry creation, no Fitbit rollback complexity.
+- **Image upload:** Blobs read from IndexedDB, sent as FormData to the triage endpoint. No server-side image persistence — once Claude processes them, they're not stored.
 
 ### Edge Cases
 
-- **App closed mid-capture (photo taken, save not tapped):** The photo is lost — only saved captures persist. The save action must be obvious and fast to minimize this window.
-- **Session left active for days:** No auto-expiry. The dashboard banner remains visible, making it impossible to forget.
-- **Processing interrupted (app closed mid-conversation):** The session stays in "processing" status with all captures intact. Reopening starts a fresh analysis conversation — the chat is not persisted, but the raw evidence (images + notes) is still in the DB. No data lost.
-- **"Log All" partially fails:** If some Fitbit entries succeed and others fail, roll back everything. The session stays in processing state so the user can retry. Atomic all-or-nothing.
-- **More than 20 images across all captures:** Image budget management selects the most valuable images. User can override the selection before analysis.
-- **Capture while offline:** The app is online-only (no service worker). Capture fails if there's no connectivity. The [Offline Queue](#offline-queue-with-background-sync) feature would complement this if implemented later.
-- **Empty session:** User starts a session but adds zero captures, then tries to process. Disable the "Process Session" button — nothing to analyze.
-- **Abort confirmation:** Deleting an active session with captures requires confirmation — the images and notes are gone forever.
+- **App closed mid-capture (photo taken, save not tapped):** The photo is lost — only saved captures persist. The save action must be obvious and instant.
+- **Processing interrupted (app closed mid-triage):** Captures remain in IndexedDB. User re-processes from scratch — the triage chat is not persisted, but the raw captures are safe.
+- **Captures expire:** Toast notification on next app open. No silent deletion.
+- **Empty captures:** User starts capturing but adds zero items, then tries to process. Disable the "Process Captures" button.
+- **Single capture:** Works fine — triage with one capture is just a normal analysis that outputs a Saved Analysis instead of logging directly. Slightly longer path than the regular flow, but consistent.
+- **Capture while offline:** Captures save to IndexedDB without network. Processing requires connectivity (Claude API). The capture phase works offline by nature.
+- **Abort confirmation:** Clearing all captures requires confirmation — the images and notes are gone forever.
 
 ### Implementation Order
 
-1. DB schema: `capture_sessions` and `session_captures` tables
-2. API routes for session CRUD and capture management
-3. Quick capture UI: session view, camera integration, capture list
-4. Dashboard banner for active session
-5. `report_session_nutrition` Claude tool and session processing API
-6. Processing UI: single conversation with all captures, chat refinement
-7. Batch logging (Log All → multiple entries at once, session deleted on success)
-8. Image budget management for large sessions
+1. IndexedDB capture storage (compressed blobs, notes, timestamps, 7-day expiry cleanup)
+2. Quick Capture UI: camera auto-trigger, capture list, dashboard banner
+3. `report_session_items` Claude tool and triage system prompt
+4. `/api/process-captures` endpoint with streaming response
+5. Triage chat UI: proposed item list, chat refinement, approve-to-save flow
+6. Integration with existing Saved Analyses (bulk save from triage results)
 
 ---
 
