@@ -1,544 +1,460 @@
-# Implementation Plan
+# Quick Capture Session
 
-**Status:** COMPLETE
-**Created:** 2026-04-08
-**Source:** Inline request: Save for Later — analyze food now, save the result, log it when you actually eat it
-**Linear Issues:** [FOO-900](https://linear.app/lw-claude/issue/FOO-900/add-saved-analyses-db-table), [FOO-901](https://linear.app/lw-claude/issue/FOO-901/saved-analyses-lib-module-api-routes), [FOO-902](https://linear.app/lw-claude/issue/FOO-902/save-for-later-ui-triggers-analyzer-chat-header), [FOO-903](https://linear.app/lw-claude/issue/FOO-903/dashboard-saved-for-later-section), [FOO-904](https://linear.app/lw-claude/issue/FOO-904/saved-food-detaillogging-page), [FOO-905](https://linear.app/lw-claude/issue/FOO-905/staging-qa-scenarios-for-save-for-later)
-**Branch:** feat/save-for-later
+**Source:** Inline request: Build Quick Capture Session feature from ROADMAP.md spec — client-side IndexedDB capture storage, quick capture UI with camera auto-trigger, Claude triage tool for multi-item analysis, triage API endpoints, triage chat UI with approval flow, and bulk save to Saved Analyses.
+
+---
 
 ## Context Gathered
 
 ### Codebase Analysis
 
-**Current analysis/logging flow:**
-- `food-analyzer.tsx` (870 lines): Photo/description → analyze via `/api/analyze-food` SSE → post-analysis UI with meal type/time selectors, action buttons (Refine/Re-analyze), food matches section, sticky bottom CTA ("Log to Fitbit" / "Log as new food")
-- `food-chat.tsx` (1000+ lines): Full-screen chat for refining analysis. Header has back button + "Log to Fitbit" button (when `latestAnalysis` exists). Accepts `initialAnalysis` prop in analyze mode.
-- `/api/log-food` (POST): Accepts `FoodLogRequest` (extends `FoodAnalysis` with mealTypeId, date, time, zoneOffset). Two flows: reuse existing (`reuseCustomFoodId`) or create new. Creates `custom_food` + `food_log_entry` atomically via transaction.
-- `FoodAnalysis` type (`src/types/index.ts:55-82`): 17 fields including nutrition data, confidence, notes, description, keywords. Optional: `sourceCustomFoodId`, `editingEntryId`, `date`, `time`, `mealTypeId`.
+**IndexedDB patterns (existing):**
+- `src/lib/analysis-session.ts` (231 lines): Uses `idb` v8.0.3 library. DB name `food-scanner`, store `session-photos`. Singleton `getDB()`. Photo blobs stored separately from metadata (metadata in sessionStorage). 24-hour TTL with `isSessionExpired()` + `cleanupExpiredSession()` on mount. Session IDs via `crypto.randomUUID()`.
+- `src/hooks/use-analysis-session.ts` (295 lines): React wrapper. Photo saves are immediate (not debounced). Metadata saves debounced 300ms. `clearPersistedSession()` clears both IDB and sessionStorage.
 
-**Dashboard structure (`daily-dashboard.tsx`):**
-- Sections in order: DateNavigator → CalorieRing → MacroBars → LumenBanner → FastingCard → Delete error → MealBreakdown (or empty state) → Lumen goals button → Settings link → History link
-- Today-only conditional pattern: `selectedDate === getTodayDate()` (used at line 366 for Lumen CTA)
-- State: `selectedDate` from `useState(getTodayDate())`
+**Image processing pipeline:**
+- `src/lib/image.ts`: `compressImage(file: File | Blob): Promise<Blob>` — HEIC detection → conversion via `heic-to` → canvas resize (MAX_DIMENSION=1024px) → JPEG 80% quality. `isHeicFile(file)`, `convertHeicToJpeg(file)`.
+- `src/lib/image-validation.ts`: MAX_IMAGES=9, MAX_IMAGE_SIZE=10MB, ALLOWED_TYPES=[jpeg,png,gif,webp].
 
-**Match lookup:**
-- `/api/search-foods?q={query}` (GET): Uses `searchFoods()` from `src/lib/food-log.ts`. Accepts `q` (min 2 chars), optional `limit`. Returns `{ foods: CustomFood[] }`.
-- `FoodMatchCard` component: Renders match with "Use this" button. Used in `food-analyzer.tsx` lines 793-800.
+**Photo capture UI:**
+- `src/components/photo-capture.tsx` (432 lines): Props: `onPhotosChange`, `maxPhotos?`, `autoCapture?`, `restoredBlobs?`. Uses `<input type="file" capture="environment">`. `autoCapture` triggers camera click on mount via useEffect. Manages previews with `URL.createObjectURL()` and cleanup on unmount. Separate state for restored blobs vs new photos.
 
-**DB schema conventions (`src/db/schema.ts`):**
-- `serial("id").primaryKey()`, `uuid("user_id").notNull().references(() => users.id)`, `timestamp("created_at", { withTimezone: true }).defaultNow().notNull()`
-- snake_case for DB columns, camelCase for TS fields
-- JSONB via `jsonb("column_name")` (used in other projects, available via drizzle pg-core)
+**Claude tool system:**
+- `src/lib/claude.ts` (~1980 lines): Model `claude-sonnet-4-6`. `REPORT_NUTRITION_TOOL` (lines 102-232) with strict schema. `analyzeFood()` yields `StreamEvent` via `runToolLoop()`. `conversationalRefine()` handles chat continuation. `validateFoodAnalysis()` (lines 416-619) validates and normalizes tool output. Tools: report_nutrition + data tools (search_food_log, get_nutrition_summary, etc.) + web_search.
+- System prompt enforces "ONE food log entry per session" — this constraint must be lifted for triage mode.
 
-**API route pattern:**
-- `getSession()` → `validateSession(session)` → business logic → `conditionalResponse(request, data)` or `errorResponse(code, message, status)`
-- `createRequestLogger("METHOD", "/api/route-name")` for structured logging
+**SSE streaming:**
+- `src/lib/sse.ts`: `StreamEvent` union type (text_delta, tool_start, analysis, needs_chat, usage, error, done). `createSSEResponse(generator)` wraps async generator. `parseSSEEvents()` for client-side parsing.
 
-**SWR patterns:**
-- `apiFetcher` in `src/lib/swr.ts`, `invalidateFoodCaches()` revalidates 5 cache prefixes
-- Dashboard uses `useSWR<Type>(url, apiFetcher)`
+**Saved Analyses:**
+- `src/lib/saved-analyses.ts`: `saveAnalysis(userId, foodAnalysis)` → `{id, createdAt}`. `getSavedAnalyses(userId)` → list. `getSavedAnalysis(userId, id)` → detail with full FoodAnalysis. `deleteSavedAnalysis(userId, id)`.
+- `POST /api/saved-analyses`: Validates required fields (food_name, calories, amount, protein_g, carbs_g, fat_g). Returns 201.
+- Saved analyses display on dashboard via `SavedForLaterSection` — renders null if empty, shows count badge + item list.
 
-**UI patterns:**
-- `getDefaultMealType()` in `src/lib/meal-type.ts`: Returns Fitbit meal type ID based on current hour
-- Loading skeletons: `Skeleton` components with `data-testid`, `min-h-screen`, `max-w-md` container
-- Touch targets: `min-h-[44px]`, mobile-first layout
+**Dashboard structure:**
+- `src/components/daily-dashboard.tsx`: Renders in order: DateNavigator, CalorieRing, MacroBars, LumenBanner, FastingCard, MealBreakdown, SavedForLaterSection (only if today + has items), settings/history links. Uses `space-y-6` gaps.
+- `src/components/saved-for-later-section.tsx`: Pattern to follow — shows count badge, item list with truncated names + calories + relative time, renders null when empty.
 
-**Staging QA skill:**
-- 12 existing scenarios in `.claude/skills/staging-qa/references/test-scenarios.md`
-- Seed data in Phase 2.3 of `.claude/skills/staging-qa/SKILL.md` (inserts custom_foods + food_log_entries)
-- Cleanup in Phase 5.1 (DELETEs by `[QA Seed]` and `[QA Test]` prefixes)
-- Scenario dependencies: log → delete chain pattern (scenarios 5-6)
+**SWR cache:**
+- `src/lib/swr.ts`: `apiFetcher()`, `invalidateFoodCaches()`, `invalidateLabelCaches()`, `invalidateSavedAnalysesCaches()`. All use prefix-based mutation.
+
+**Toast pattern:**
+- App uses inline `aria-live="polite"` banners, not a toast library. Success: green bg. Error: destructive bg.
+
+**UI components available:**
+- shadcn/ui: alert, alert-dialog, button, card, dialog, skeleton, input, label, select, dropdown-menu, tooltip, popover, collapsible.
+- Bottom nav: 5 items (Home, Labels, Analyze, Quick Select, Chat). Fixed bottom with safe-area insets.
+
+**Key types:**
+- `FoodAnalysis` (src/types/index.ts:55-82): food_name, amount, unit_id, calories, macros, confidence, notes, description, keywords, sourceCustomFoodId?, editingEntryId?, date?, time?, mealTypeId?.
+- `ConversationMessage` (src/types/index.ts:465-471): role, content, images?, analysis?, isThinking?.
+- `SavedAnalysisListItem` (src/types/index.ts:503-508): id, description, calories, createdAt.
+- `SavedAnalysisDetail` (src/types/index.ts:528-530): extends ListItem with foodAnalysis.
 
 ### MCP Context
-- **MCPs used:** Linear (issue tracking)
-- **Findings:** Team "Food Scanner", prefix FOO-xxx. No existing saved-analyses or save-for-later issues in backlog.
+
+- **Linear:** Team "Food Scanner" (FOO-xxx). No existing Quick Capture issues.
+- **Railway:** Not checked (not relevant for planning).
+
+---
 
 ## Tasks
 
-### Task 1: Add saved_analyses DB table
-**Linear Issue:** [FOO-900](https://linear.app/lw-claude/issue/FOO-900/add-saved-analyses-db-table)
-**Files:**
-- `src/db/schema.ts` (modify)
-- `drizzle/` (new migration generated by drizzle-kit)
-- `CLAUDE.md` (modify — add `saved_analyses` to tables list)
+### Task 1: Capture Storage Layer — Types, IndexedDB Module & React Hook
 
-**Steps:**
-1. No unit tests for schema — validated by drizzle-kit and typecheck.
-2. Add `savedAnalyses` table to `src/db/schema.ts`:
-   - `id`: serial PK
-   - `userId`: uuid FK → users, notNull
-   - `foodAnalysis`: jsonb, notNull — stores the full `FoodAnalysis` object
-   - `description`: text, notNull — the `food_name` from the analysis, denormalized for list display
-   - `calories`: integer, notNull — denormalized from `foodAnalysis.calories` for card display
-   - `createdAt`: timestamp with timezone, defaultNow, notNull
-   - Follow existing table patterns (snake_case DB columns, camelCase TS fields)
-3. Run `npx drizzle-kit generate` to create migration file.
-4. Add `saved_analyses` to the DATABASE tables list in CLAUDE.md.
-5. Run verifier (expect pass).
+**Linear Issue:** [FOO-914](https://linear.app/lw-claude/issue/FOO-914/quick-capture-capture-storage-layer-types-indexeddb-module-and-react)
 
-**Migration note:** New table only — no existing data affected.
+Add types for capture sessions, create an IndexedDB storage module for multi-capture persistence with 7-day expiry, and a React hook to manage capture state.
 
-### Task 2: Saved analyses lib module + API routes
-**Linear Issue:** [FOO-901](https://linear.app/lw-claude/issue/FOO-901/saved-analyses-lib-module-api-routes)
-**Files:**
-- `src/lib/saved-analyses.ts` (create)
-- `src/lib/__tests__/saved-analyses.test.ts` (create)
-- `src/app/api/saved-analyses/route.ts` (create)
-- `src/app/api/saved-analyses/[id]/route.ts` (create)
-- `src/types/index.ts` (modify)
-- `src/lib/swr.ts` (modify)
+**New types in `src/types/index.ts`:**
 
-**Steps:**
-1. Write tests in `src/lib/__tests__/saved-analyses.test.ts`:
-   - `saveAnalysis`: inserts record, returns id + createdAt. Extracts `food_name` into `description` and `calories` from the FoodAnalysis object.
-   - `getSavedAnalyses`: returns all saved items for user, ordered by createdAt desc. Returns `id`, `description`, `calories`, `createdAt` (list view — no full JSONB).
-   - `getSavedAnalysis`: returns single item by id + userId (ownership check). Returns full `foodAnalysis` JSONB.
-   - `getSavedAnalysis` with wrong userId: returns null (no cross-user access).
-   - `deleteSavedAnalysis`: deletes by id + userId. Returns boolean (true if deleted, false if not found).
-   - Follow test patterns from `src/lib/__tests__/food-log.test.ts` (Drizzle mock with `vi.mock('@/db')`).
-2. Run verifier (expect fail — lib doesn't exist yet).
-3. Implement `src/lib/saved-analyses.ts`:
-   - `saveAnalysis(userId, foodAnalysis: FoodAnalysis)`: Insert into `savedAnalyses`. Extract `food_name` → `description`, `calories` → `calories` from the input. Store entire `FoodAnalysis` as JSONB in `foodAnalysis` column.
-   - `getSavedAnalyses(userId)`: Select id, description, calories, createdAt. Order by createdAt desc.
-   - `getSavedAnalysis(userId, id)`: Select full row including foodAnalysis JSONB. Filter by both id and userId.
-   - `deleteSavedAnalysis(userId, id)`: Delete where id = id AND userId = userId. Return whether a row was deleted.
-4. Run verifier (expect pass for lib tests).
-5. Add `SavedAnalysisListItem` and `SavedAnalysisDetail` interfaces to `src/types/index.ts`:
-   - `SavedAnalysisListItem`: `{ id: number; description: string; calories: number; createdAt: string }`
-   - `SavedAnalysisDetail`: extends list item with `foodAnalysis: FoodAnalysis`
-6. Create `src/app/api/saved-analyses/route.ts`:
-   - `GET`: session auth → `getSavedAnalyses(userId)` → `conditionalResponse`
-   - `POST`: session auth → parse body → validate `foodAnalysis` has required fields (food_name, calories as minimum) → `saveAnalysis(userId, body.foodAnalysis)` → return created item with 201 status
-   - Follow pattern from `src/app/api/search-foods/route.ts`
-7. Create `src/app/api/saved-analyses/[id]/route.ts`:
-   - `GET`: session auth → parse id from params → `getSavedAnalysis(userId, id)` → 404 if not found → `conditionalResponse`
-   - `DELETE`: session auth → parse id from params → `deleteSavedAnalysis(userId, id)` → 404 if not found → `conditionalResponse({ deleted: true })`
-   - Validate `id` is a positive integer
-8. Add `invalidateSavedAnalysesCaches` to `src/lib/swr.ts`:
-   - New constant `SAVED_ANALYSES_CACHE_PREFIXES = ["/api/saved-analyses"]`
-   - New export function following the `invalidateFoodCaches` pattern
-9. Run verifier (expect pass).
+- `CaptureItem` interface: `id` (string, UUID), `imageCount` (number), `note` (string | null), `capturedAt` (string, ISO-8601), `order` (number).
+- `CaptureSession` interface: `id` (string, UUID), `captures` (CaptureItem[]), `createdAt` (string, ISO-8601).
 
-### Task 3: Save for Later UI triggers (analyzer + chat header)
-**Linear Issue:** [FOO-902](https://linear.app/lw-claude/issue/FOO-902/save-for-later-ui-triggers-analyzer-chat-header)
-**Files:**
-- `src/components/food-analyzer.tsx` (modify)
-- `src/components/food-chat.tsx` (modify)
-- `src/components/__tests__/food-analyzer.test.tsx` (modify)
-- `src/components/__tests__/food-chat.test.tsx` (modify)
+**New file `src/lib/capture-session.ts`:**
 
-**Steps:**
-1. Write tests for the save trigger in food-analyzer:
-   - Renders "Save for Later" button when analysis exists and not loading
-   - Button is disabled while logging or saving
-   - Clicking calls POST /api/saved-analyses with the current FoodAnalysis
-   - On success: shows toast "Saved — find it on your dashboard", clears analysis session, navigates to `/app`
-   - On error: shows error toast, does not navigate
-   - Button does NOT appear before analysis completes
-2. Write tests for the save trigger in food-chat:
-   - Save icon button appears in header when `latestAnalysis` exists and mode is "analyze" (not edit mode)
-   - Save icon is disabled until `latestAnalysis` is set
-   - Clicking calls POST /api/saved-analyses with `latestAnalysis`
-   - On success: shows toast, calls `onClose` callback
-   - Does NOT appear in edit mode (`isEditMode`)
-3. Run verifier (expect fail).
-4. Add "Save for Later" button to `food-analyzer.tsx`:
-   - Position: New row below the Refine/Re-analyze buttons (after line 786), before the food matches section
-   - Full-width outline button with Clock icon (from lucide-react) and text "Save for Later"
-   - `min-h-[44px]` touch target
-   - State: `saving` boolean to track in-flight save request and disable button
-   - On click: POST `/api/saved-analyses` with `{ foodAnalysis: analysis }` → invalidate saved analyses cache → show success toast → clear session → navigate to `/app`
-   - Import `Clock` from lucide-react, `invalidateSavedAnalysesCaches` from `@/lib/swr`
-5. Add save icon to `food-chat.tsx` header:
-   - Position: Between back button (line 788) and the flex spacer (line 791)
-   - Clock icon button, `size-11 rounded-full` (matching back button style)
-   - Only visible when `latestAnalysis` exists AND NOT in edit mode
-   - Disabled while `saving` state is true
-   - On click: POST `/api/saved-analyses` with `{ foodAnalysis: latestAnalysis }` → invalidate cache → show toast → call `onClose`
-6. Run verifier (expect pass).
+Follow patterns from `src/lib/analysis-session.ts`. Use the existing `food-scanner` DB (bump version to 2, add new object store in upgrade handler). New object store: `capture-blobs` with key = `{sessionId}:{captureId}` (string), value = `Blob[]`. Session metadata stored in localStorage (not sessionStorage — captures must survive tab close).
 
-**Notes:**
-- The save button in food-analyzer strips `sourceCustomFoodId`, `editingEntryId` from the FoodAnalysis before saving — these are transient context that shouldn't persist.
-- Toast uses the existing toast pattern (check if the project has a toast component or uses a simple state-based notification).
+Functions:
+- `getActiveCaptureSessionId(): string | null` — reads localStorage
+- `createCaptureSessionId(): string` — creates UUID, stores in localStorage
+- `saveCaptureMetadata(sessionId, session: CaptureSession): void` — saves to localStorage
+- `loadCaptureMetadata(sessionId): CaptureSession | null` — reads + validates from localStorage
+- `saveCaptureBlobs(sessionId, captureId, blobs: Blob[]): Promise<void>` — stores compressed image blobs in IndexedDB
+- `loadCaptureBlobs(sessionId, captureId): Promise<Blob[]>` — retrieves blobs
+- `deleteCaptureBlobs(sessionId, captureId): Promise<void>` — removes single capture's blobs
+- `deleteAllCaptureBlobs(sessionId): Promise<void>` — removes all blobs for a session (iterate keys with prefix)
+- `clearCaptureSession(sessionId): Promise<void>` — removes metadata from localStorage + all blobs from IndexedDB
+- `isCaptureSessionExpired(session): boolean` — checks 7-day TTL (`7 * 24 * 60 * 60 * 1000`)
+- `cleanupExpiredCaptures(): Promise<{ expiredCount: number }>` — on mount: checks active session, clears if expired, returns count for toast
 
-### Task 4: Dashboard Saved for Later section
-**Linear Issue:** [FOO-903](https://linear.app/lw-claude/issue/FOO-903/dashboard-saved-for-later-section)
-**Files:**
-- `src/components/saved-for-later-section.tsx` (create)
-- `src/components/__tests__/saved-for-later-section.test.tsx` (create)
-- `src/components/daily-dashboard.tsx` (modify)
+Key behaviors:
+- Metadata in localStorage (survives tab close, unlike sessionStorage used by analysis-session)
+- Blobs in IndexedDB with compound key `{sessionId}:{captureId}` (allows per-capture deletion)
+- 7-day TTL aligned with analysis-session pattern
+- All IDB operations are best-effort (silently fail if IDB unavailable)
+- LocalStorage keys: `food-scanner-capture-session-id`, `food-scanner-capture-session:{sessionId}`
 
-**Steps:**
-1. Write tests for `SavedForLaterSection` component:
-   - Renders nothing when items array is empty
-   - Renders section header "Saved for Later" with count badge when items exist
-   - Renders a card for each item showing: food name (truncated to ~30 chars), calories with "cal" suffix, relative time
-   - Cards are clickable — calls `onItemClick(id)` callback
-   - Relative time formatting: "just now" (<1 min), "Xm ago" (<1hr), "Xh ago" (<24hr), "yesterday", "X days ago"
-2. Run verifier (expect fail).
-3. Implement `src/components/saved-for-later-section.tsx`:
-   - Props: `items: SavedAnalysisListItem[]`, `onItemClick: (id: number) => void`
-   - Section header: `"Saved for Later"` text with a count badge (small rounded pill with number)
-   - Cards: Compact horizontal layout. Left: food name + calories. Right: relative time. Full card is tappable.
-   - Card styling: border, rounded, padding, `min-h-[44px]` touch target, hover state
-   - Use `'use client'` directive
-4. Run verifier (expect pass).
-5. Integrate into `daily-dashboard.tsx`:
-   - Add `useSWR<{ items: SavedAnalysisListItem[] }>` for `/api/saved-analyses` — but ONLY when `selectedDate === getTodayDate()`. Use conditional SWR key: `selectedDate === getTodayDate() ? '/api/saved-analyses' : null`
-   - Render `SavedForLaterSection` after the MealBreakdown / empty state block (after line 425), before the Lumen goals button (before line 427)
-   - Only render when `selectedDate === getTodayDate()` AND saved items exist (length > 0)
-   - `onItemClick` navigates to `/app/saved/${id}` via `router.push`
-   - Import `SavedAnalysisListItem` from `@/types`
-6. Run verifier (expect pass).
+**New file `src/hooks/use-capture-session.ts`:**
 
-### Task 5: Saved food detail/logging page
-**Linear Issue:** [FOO-904](https://linear.app/lw-claude/issue/FOO-904/saved-food-detaillogging-page)
-**Files:**
-- `src/app/app/saved/[id]/page.tsx` (create)
-- `src/app/app/saved/[id]/loading.tsx` (create)
-- `src/components/saved-food-detail.tsx` (create)
-- `src/components/__tests__/saved-food-detail.test.tsx` (create)
+React hook wrapping the storage module. Returns:
+- `state`: `{ sessionId: string | null, captures: CaptureItem[], isActive: boolean }`
+- `actions`: `{ startSession(), addCapture(images: Blob[], note: string | null), removeCapture(captureId: string), clearSession(), getCaptureBlobs(captureId: string): Promise<Blob[]> }`
+- `isRestoring: boolean` — true during initial load
+- `expiredCount: number` — captures expired on mount (for toast display)
 
-**Steps:**
-1. Write tests for `SavedFoodDetail` component:
-   - **Loading state:** Shows skeleton while fetching saved analysis
-   - **Not found:** Shows error message + back button when saved analysis not found (404)
-   - **Renders analysis:** Shows `AnalysisResult` component with saved nutrition data
-   - **Match lookup:** Calls `/api/search-foods?q={keywords}` on mount with the saved food's name keywords. Displays `FoodMatchCard` components for matches.
-   - **No matches:** Hides matches section when no results. Sticky button says "Log to Fitbit".
-   - **With matches:** Shows matches section with "Similar foods" header. Sticky button says "Log as new food". Selecting a match sets `reuseCustomFoodId`.
-   - **Meal type selector:** Renders MealTypeSelector with `getDefaultMealType()` as default
-   - **Time selector:** Renders TimeSelector with current time as default. No date selector.
-   - **Log flow (new food):** Clicking "Log to Fitbit"/"Log as new food" → POST `/api/log-food` with FoodAnalysis + mealTypeId + today's date + current time + zoneOffset → on success DELETE `/api/saved-analyses/[id]` → invalidate both food and saved analyses caches → show `FoodLogConfirmation`
-   - **Log flow (reuse match):** Clicking "Log to Fitbit" after selecting match → POST `/api/log-food` with `reuseCustomFoodId` + mealTypeId + date + time → same success flow
-   - **Log failure:** Shows error alert (same pattern as food-analyzer log error)
-   - **Refine with chat:** Clicking "Refine with chat" → opens FoodChat overlay seeded with `initialAnalysis` from saved data, mode="analyze". On successful log from chat → DELETE saved analysis → invalidate caches → navigate to dashboard.
-   - **Discard:** Clicking "Discard" → shows confirmation dialog → on confirm DELETE `/api/saved-analyses/[id]` → invalidate cache → navigate to `/app`
-   - **Discard cancel:** Clicking cancel in confirmation dialog → dialog closes, no deletion
-2. Run verifier (expect fail).
-3. Implement `src/components/saved-food-detail.tsx`:
-   - `'use client'` component
-   - Props: `savedId: number` (from page params)
-   - Fetch saved analysis: `useSWR<SavedAnalysisDetail>(\`/api/saved-analyses/${savedId}\`, apiFetcher)`
-   - Fetch matches: `useSWR` with key derived from saved analysis name — split food name into keywords, call `/api/search-foods?q={keywords}&limit=3`. Use conditional key (null until saved analysis loads).
-   - State: `mealTypeId` (default from `getDefaultMealType()`), `selectedTime` (default current time), `selectedMatch` (null or customFoodId), `logging`, `saving`, `showChat`, `showDiscardConfirm`, `logError`, `logResponse`
-   - Layout structure (follows food-analyzer post-analysis pattern):
-     - Back button header (ArrowLeft icon, navigates to `/app`)
-     - `AnalysisResult` with the saved `foodAnalysis` data
-     - `MealTypeSelector` + `TimeSelector`
-     - "Refine with chat" + "Discard" button row (outline buttons with icons)
-     - Matches section (if any): "Similar foods" header + `FoodMatchCard` list with `onSelect` handler
-     - Log error alert (if logError)
-     - Sticky bottom CTA: "Log to Fitbit" or "Log as new food" (depending on matches)
-   - Log handler: Build `FoodLogRequest` from saved analysis data + selected meal type/time + today's date. If match selected, use `reuseCustomFoodId`. POST to `/api/log-food`. On success: DELETE saved analysis, invalidate both caches, set `logResponse`.
-   - Discard handler: Show `AlertDialog` confirmation. On confirm: DELETE `/api/saved-analyses/${savedId}`, invalidate cache, navigate to `/app`.
-   - Chat mode: Conditional render of `FoodChat` with `initialAnalysis={savedAnalysis.foodAnalysis}`, `mode="analyze"`. Pass `onLogged` callback that deletes the saved analysis and navigates to dashboard. Pass `onClose` to hide chat.
-   - When `logResponse` is set: render `FoodLogConfirmation` (full screen, same as food-analyzer success state)
-   - Handle pending submission pattern for Fitbit token expiry: if log returns `FITBIT_TOKEN_INVALID`, save pending submission to sessionStorage and redirect to Fitbit OAuth (follow existing pattern in `food-analyzer.tsx`)
-4. Create `src/app/app/saved/[id]/page.tsx`:
-   - Server component that checks session (same pattern as `src/app/app/analyze/page.tsx`)
-   - Wraps `SavedFoodDetail` in `FitbitSetupGuard`
-   - Passes `params.id` (parsed as integer) to `SavedFoodDetail`
-5. Create `src/app/app/saved/[id]/loading.tsx`:
-   - Skeleton layout matching the detail page: header bar skeleton, large nutrition card skeleton, two button row skeletons, bottom CTA skeleton
-   - Follow pattern from `src/app/app/loading.tsx`
-6. Run verifier (expect pass).
+Behaviors:
+- On mount: `cleanupExpiredCaptures()` → load active session metadata → set `expiredCount` if any expired
+- `startSession()`: creates session ID if none active, initializes empty captures
+- `addCapture()`: compresses images via `compressImage()`, saves blobs to IDB, updates metadata with new CaptureItem (imageCount, note, capturedAt = new Date().toISOString(), auto-incrementing order), saves metadata to localStorage
+- `removeCapture()`: removes capture from metadata, deletes blobs from IDB
+- `clearSession()`: calls `clearCaptureSession()`, resets state
+- `getCaptureBlobs()`: reads blobs from IDB for a specific capture
 
-**Notes:**
-- Reuse existing components: `AnalysisResult`, `FoodMatchCard`, `MealTypeSelector`, `TimeSelector`, `FoodLogConfirmation`, `FoodChat`, `AlertDialog`
-- The `FoodChat` component's `onLogged` callback receives `FoodLogResponse` — use this to confirm success before deleting the saved analysis
-- Match lookup uses the saved food's `food_name` split into keywords (same logic as `/api/search-foods` query parsing)
-- The page does NOT need a date selector — logging always uses today. The time selector defaults to now.
+**Tests `src/lib/__tests__/capture-session.test.ts`:**
+1. `createCaptureSessionId` creates UUID and stores in localStorage
+2. `getActiveCaptureSessionId` returns null when no session exists
+3. `saveCaptureMetadata` + `loadCaptureMetadata` round-trips correctly
+4. `loadCaptureMetadata` returns null for missing/corrupt data
+5. `saveCaptureBlobs` + `loadCaptureBlobs` round-trips blob arrays
+6. `deleteCaptureBlobs` removes specific capture blobs
+7. `deleteAllCaptureBlobs` removes all blobs for a session
+8. `clearCaptureSession` removes both metadata and blobs
+9. `isCaptureSessionExpired` returns false for fresh session, true for 7+ day old session
+10. `cleanupExpiredCaptures` clears expired session and returns count
+11. `cleanupExpiredCaptures` returns 0 when no session exists
 
-### Task 6: Staging QA scenarios for Save for Later
-**Linear Issue:** [FOO-905](https://linear.app/lw-claude/issue/FOO-905/staging-qa-scenarios-for-save-for-later)
-**Files:**
-- `.claude/skills/staging-qa/references/test-scenarios.md` (modify)
-- `.claude/skills/staging-qa/SKILL.md` (modify)
+Use `fake-indexeddb` (already in devDependencies) for IDB tests. Use `vi.spyOn(Storage.prototype, ...)` for localStorage mocking.
 
-**Steps:**
-1. No TDD — staging QA skill files are markdown, not application code.
-2. Update Phase 2.3 seed data in `.claude/skills/staging-qa/SKILL.md`:
-   - Add `saved_analyses` inserts after the existing custom_foods + food_log_entries seed block
-   - Insert 2 saved analyses for the test user: one with realistic food data (e.g., "[QA Seed] Saved grilled chicken", 450 cal), one simpler (e.g., "[QA Seed] Saved banana", 105 cal)
-   - The `food_analysis` JSONB column should contain a valid `FoodAnalysis` object with all required fields
-3. Update Phase 5.1 cleanup SQL in `.claude/skills/staging-qa/SKILL.md`:
-   - Add `DELETE FROM saved_analyses WHERE description LIKE '[QA Seed]%' OR description LIKE '[QA Test]%';` before the existing custom_foods cleanup
-4. Update Scenario 1 (Dashboard) in `references/test-scenarios.md`:
-   - Add a step after meal breakdown verification: verify "Saved for Later" section is visible (with seed data, should show 2 saved items)
-   - Add visual criteria: "Saved for Later section renders below meals with food names and calorie values"
-5. Add Scenario 13: Save for Later to `references/test-scenarios.md`:
-   - Slug: `save`
-   - Depends on: none (self-contained)
-   - Expected timing: 20-50 seconds (AI analysis + save)
-   - Steps:
-     1. Navigate to `/app/analyze`
-     2. Enter description: `[QA Test] Apple with peanut butter`
-     3. Click "Analyze Food" (same button interaction pattern as Scenario 3)
-     4. Wait for AI analysis (SSE polling, 90s budget)
-     5. Verify analysis result appears
-     6. Find and click "Save for Later" button
-     7. Wait for toast/confirmation (poll for "Saved" text or navigation to dashboard)
-     8. Verify navigation to dashboard
-     9. Verify "Saved for Later" section on dashboard contains the saved item (look for "Apple" or "peanut butter" text)
-     10. Visual assessment screenshot
-   - Pass criteria: Analysis completes, save succeeds, item appears on dashboard
-   - Visual criteria: Save button visible in post-analysis UI, dashboard section shows saved item
-6. Add Scenario 14: Log Saved Food to `references/test-scenarios.md`:
-   - Slug: `log-saved`
-   - Depends on: `save` (Scenario 13)
-   - Expected timing: <15 seconds (no AI interaction)
-   - Steps:
-     1. Should be on dashboard with saved item. If not, navigate to `/app`.
-     2. Find and click the saved item card in the "Saved for Later" section
-     3. Verify detail page loads — look for nutrition data (calories, protein) and "Log to Fitbit" or "Log as new food" button
-     4. Find and click the log button
-     5. Wait for confirmation: poll for "logged successfully" text (15s budget)
-     6. Verify "Done" button, click it
-     7. Navigate to dashboard
-     8. Verify "Saved for Later" section no longer contains the logged item (or section is hidden if empty)
-     9. Visual assessment screenshot of the detail page (take before logging)
-   - Pass criteria: Detail page loads with nutrition, log succeeds, item removed from dashboard
-   - Visual criteria: Detail page layout is clean, nutrition card readable, action buttons visible
-7. Update the scenario list at the top of the scenarios file and in SKILL.md Phase 4 if there's a list of valid slugs — add `save` and `log-saved`.
-8. Run verifier (expect pass — no app code changed).
+**Tests `src/hooks/__tests__/use-capture-session.test.ts`:**
+1. Initial state has no active session
+2. `startSession` creates a new session with empty captures
+3. `addCapture` adds a capture with correct metadata
+4. `addCapture` compresses images before storing
+5. `removeCapture` removes the capture from state and IDB
+6. `clearSession` resets all state
+7. `expiredCount` reflects expired captures on mount
+8. Multiple `startSession` calls reuse existing session
 
-**Notes:**
-- Follow existing scenario patterns: dependency chains, SSE polling strategy, `[QA Test]` prefix convention, `find` for element discovery
-- Scenario 14 depends on 13 (same pattern as scenarios 5→6 log→delete chain)
-- Cleanup covers both `[QA Seed]` (from seed data) and `[QA Test]` (from functional scenarios) prefixed saved analyses
+---
+
+### Task 2: Quick Capture UI — Capture Page, Camera Flow & Dashboard Banner
+
+**Linear Issue:** [FOO-915](https://linear.app/lw-claude/issue/FOO-915/quick-capture-capture-page-camera-flow-and-dashboard-banner)
+
+Build the capture flow page with camera auto-trigger and a dashboard banner showing pending captures.
+
+**New file `src/app/app/capture/page.tsx`:**
+
+Server component. Session validation (redirect to `/` if not authenticated). Renders `<QuickCapture />` in standard page container (`min-h-screen px-4 py-6`, `mx-auto w-full max-w-md flex flex-col gap-6`).
+
+**New file `src/app/app/capture/loading.tsx`:**
+
+Skeleton: header placeholder + 3 capture card placeholders (thumbnail + text line).
+
+**New file `src/components/quick-capture.tsx`:**
+
+Client component (`'use client'`). Uses `useCaptureSession()` hook.
+
+States:
+- **Empty (no session):** Auto-starts session on mount, immediately triggers camera
+- **Capturing (session active):** Shows capture list + "Add Capture" button + "Done" button
+- **Adding:** Camera/photo input open, note input visible, "Save" button
+
+UI structure:
+- Header: "Quick Capture" title + capture count badge
+- Capture list: scrollable, each item shows thumbnail of first image (from blob URL), note preview (truncated 50 chars), relative timestamp. Delete icon button (min 44×44px touch target).
+- "Add Capture" button: prominent, triggers `<PhotoCapture autoCapture={true} />` in a dialog or inline expansion
+- Note input: `<Input>` with placeholder "Add a note (optional)" — shown after photo capture, before save
+- "Save" button: calls `addCapture()` with compressed blobs + note, then auto-re-triggers camera for next capture
+- "Done" button: navigates to `/app` (dashboard)
+- "Process Captures" button: navigates to `/app/process-captures` (visible when captures.length > 0)
+
+Camera flow: after each save, auto-trigger camera again via re-rendering PhotoCapture with `autoCapture={true}`. User taps "Done" when finished capturing.
+
+Abort confirmation: if user navigates away with captures, no confirmation needed (captures persist in IndexedDB). "Clear All" button requires `<AlertDialog>` confirmation.
+
+Memory cleanup: revoke all blob URLs on unmount.
+
+**New file `src/components/capture-session-banner.tsx`:**
+
+Client component. Props: `captureCount: number`, `onProcess: () => void`, `onCapture: () => void`.
+
+Renders null if `captureCount === 0`.
+
+Follow `SavedForLaterSection` pattern but as a single banner (not a list):
+- Container: `w-full rounded-lg border p-3 min-h-[44px]` with a distinct color scheme (e.g., `border-primary/30 bg-primary/5`)
+- Left: icon + text: "*N captures ready to process*"
+- Two action buttons: "Add More" (navigates to capture page) + "Process" (navigates to process-captures page)
+- Touch targets: 44×44px minimum
+
+**Modify `src/components/daily-dashboard.tsx`:**
+
+Add `CaptureSessionBanner` between LumenBanner and FastingCard (or similar prominent position). Only show on today's view. Use `useCaptureSession()` hook to get capture count. Pass `router.push('/app/capture')` as `onCapture` and `router.push('/app/process-captures')` as `onProcess`.
+
+**Tests `src/components/__tests__/quick-capture.test.tsx`:**
+1. Renders empty state and auto-starts session
+2. Shows capture list with thumbnails and notes after adding captures
+3. "Save" adds capture to list
+4. Delete button removes capture from list with confirmation
+5. "Done" navigates to dashboard
+6. "Process Captures" button navigates to process page
+7. "Clear All" shows AlertDialog confirmation
+
+**Tests `src/components/__tests__/capture-session-banner.test.tsx`:**
+1. Renders null when captureCount is 0
+2. Shows capture count in banner text
+3. "Add More" button calls onCapture
+4. "Process" button calls onProcess
+
+---
+
+### Task 3: Claude Triage Tool, System Prompt & Functions
+
+**Linear Issue:** [FOO-916](https://linear.app/lw-claude/issue/FOO-916/quick-capture-claude-triage-tool-system-prompt-and-functions)
+
+Define the `report_session_items` tool, create triage-specific system prompt and Claude functions for multi-item food identification.
+
+**Modify `src/lib/sse.ts`:**
+
+Add new `StreamEvent` variant: `| { type: "session_items"; items: FoodAnalysis[] }`.
+
+**Modify `src/types/index.ts`:**
+
+Add `sessionItems?: FoodAnalysis[]` field to `ConversationMessage` interface (parallel to existing `analysis?` field). This carries the triage results in conversation history for context injection during refinement.
+
+Add `ChatCapturesRequest` interface: `{ messages: ConversationMessage[]; initialItems?: FoodAnalysis[] }`.
+
+**Modify `src/lib/claude.ts`:**
+
+Add `REPORT_SESSION_ITEMS_TOOL` constant — strict schema with a single required property `items` which is an array of objects. Each object has the same fields as `REPORT_NUTRITION_TOOL` input schema (food_name, amount, unit_id, calories, all macros, confidence, notes, description, keywords) PLUS required fields: `time` (string, HH:mm — from capture timestamp, required not optional), `meal_type_id` (number), `date` (string, YYYY-MM-DD — from capture date). No `source_custom_food_id` or `editing_entry_id` (these are always new entries). Add `capture_indices` (array of numbers — which captures this item came from, for UI display).
+
+Add `TRIAGE_SYSTEM_PROMPT` constant. Key instructions:
+- You are analyzing a collection of food captures from a meal session
+- Captures are organized chronologically with timestamps and optional notes
+- Identify each distinct food item across all captures
+- A menu photo provides context (dish names, prices) — use it to identify dishes in plate photos
+- Notes provide portion/sharing context ("shared appetizer, had about half")
+- Group by logical food item, not by capture (one capture may contain multiple items, multiple captures may show the same item from different angles)
+- Assign time from the capture timestamp of the most relevant photo
+- Assign meal_type_id based on capture times (use same logic as existing prompt)
+- Always call `report_session_items` with the complete list
+- When the user asks to modify the list (combine, split, remove, add, adjust), call `report_session_items` again with the updated list
+- Do NOT use search_food_log or other data tools — triage is purely from visual evidence and notes
+
+Add `validateSessionItems(input: unknown): FoodAnalysis[]` function. Iterate the `items` array, call existing `validateFoodAnalysis()` on each item (reuse validation logic). Filter out items that fail validation. Return array of validated `FoodAnalysis` objects. `capture_indices` is stripped (UI-only, not part of FoodAnalysis).
+
+Add `triageCaptures()` async generator function. Signature: `async function* triageCaptures(images: ImageInput[], captureMetadata: { captureId: string; imageIndices: number[]; note: string | null; capturedAt: string }[], userId: string, currentDate: string, log?: Logger, signal?: AbortSignal): AsyncGenerator<StreamEvent>`. Build the initial message with all images + capture context as text (group images by capture, include timestamps and notes). Use `TRIAGE_SYSTEM_PROMPT`. Tools: `[REPORT_SESSION_ITEMS_TOOL]` only (no data tools, no web search). When `report_session_items` is called, validate via `validateSessionItems()`, yield `{ type: "session_items", items }`. Follow `analyzeFood()` patterns for streaming, error handling, usage tracking.
+
+Add `triageRefine()` async generator function. Signature: `async function* triageRefine(messages: ConversationMessage[], initialItems?: FoodAnalysis[], signal?: AbortSignal, log?: Logger): AsyncGenerator<StreamEvent>`. Follow `conversationalRefine()` patterns. For assistant messages with `sessionItems`, append a structured summary of all items (name, calories, time for each). Use `TRIAGE_SYSTEM_PROMPT`. Tools: `[REPORT_SESSION_ITEMS_TOOL]` only. When `report_session_items` is called, validate and yield `session_items` event.
+
+**Tests `src/lib/__tests__/claude-triage.test.ts`:**
+1. `validateSessionItems` validates array of valid items
+2. `validateSessionItems` filters out invalid items (missing required fields)
+3. `validateSessionItems` returns empty array for non-array input
+4. `validateSessionItems` reuses `validateFoodAnalysis` normalization (keyword cleanup, time format)
+5. `REPORT_SESSION_ITEMS_TOOL` has correct schema structure (strict mode, items array)
+6. `TRIAGE_SYSTEM_PROMPT` includes key instructions (no data tools, capture context, report_session_items)
+
+---
+
+### Task 4: Triage API Endpoints & Bulk Save
+
+**Linear Issue:** [FOO-917](https://linear.app/lw-claude/issue/FOO-917/quick-capture-triage-api-endpoints-and-bulk-save)
+
+Create the process-captures and chat-captures API routes, and add bulk save functionality to saved analyses.
+
+**New file `src/app/api/process-captures/route.ts`:**
+
+POST handler. Auth: `getSession()` + `validateSession()`. Rate limit: 10 requests per 15 minutes (triage is expensive — ~$0.10 per session).
+
+Input (FormData):
+- `images` (File[], multiple) — all capture images in order, compressed client-side
+- `captureMetadata` (string, JSON) — array of `{ captureId: string, imageCount: number, note: string | null, capturedAt: string }`. Each entry maps to a sequential group of images in the `images` array.
+- `clientDate` (string, YYYY-MM-DD)
+
+Validation:
+- At least 1 image required
+- Image type whitelist: JPEG, PNG, GIF, WebP (same as analyze-food)
+- Max 81 images (9 captures × 9 images — theoretical max)
+- captureMetadata must be valid JSON array, sum of imageCount must equal images count
+- Does NOT require Fitbit connection (triage doesn't log anything)
+
+Processing:
+- Convert images to base64 (same pattern as analyze-food)
+- Build captureMetadata with imageIndices (map each capture to its image positions in the flat array)
+- Call `triageCaptures()` generator
+- Return `createSSEResponse(generator)`
+
+**New file `src/app/api/chat-captures/route.ts`:**
+
+POST handler. Auth: `getSession()` + `validateSession()`. Rate limit: 30 requests per 15 minutes (same as chat-food).
+
+Input (JSON):
+- `messages: ConversationMessage[]` — validated, max 30 messages
+- `initialItems?: FoodAnalysis[]` — baseline items for context
+
+Validation: Same message validation pattern as chat-food route. Validate `initialItems` as array of FoodAnalysis if provided.
+
+Processing:
+- Call `triageRefine(messages, initialItems, signal, log)`
+- Return `createSSEResponse(generator)`
+
+**New file `src/app/api/saved-analyses/bulk/route.ts`:**
+
+POST handler. Auth: `getSession()` + `validateSession()`.
+
+Input (JSON):
+- `items: FoodAnalysis[]` — array of food analyses to save
+
+Validation:
+- Must be non-empty array
+- Each item validated for required fields (food_name, calories, amount, protein_g, carbs_g, fat_g) — same validation as existing `POST /api/saved-analyses`
+- Max 20 items per request
+
+Processing:
+- Call new `bulkSaveAnalyses(userId, items)` function
+- Return `{ items: Array<{ id: number; createdAt: Date }> }` with HTTP 201
+
+**Modify `src/lib/saved-analyses.ts`:**
+
+Add `bulkSaveAnalyses(userId: string, items: FoodAnalysis[]): Promise<Array<{ id: number; createdAt: Date }>>`. Insert all items in a single transaction (use Drizzle's `db.insert().values([...])` for batch insert). Each item gets `description` from `food_name` and `calories` denormalized (same as existing `saveAnalysis`).
+
+**Tests `src/app/api/__tests__/process-captures.test.ts`:**
+1. Returns 401 without session
+2. Returns 400 with no images
+3. Returns 400 when captureMetadata imageCount doesn't match images count
+4. Returns SSE stream with valid input (mock Claude response)
+5. Rate limits at 10 requests per 15 minutes
+
+**Tests `src/app/api/__tests__/chat-captures.test.ts`:**
+1. Returns 401 without session
+2. Returns 400 with empty messages
+3. Returns SSE stream with valid messages (mock Claude response)
+
+**Tests `src/app/api/__tests__/saved-analyses-bulk.test.ts`:**
+1. Returns 401 without session
+2. Returns 400 with empty array
+3. Returns 400 with invalid items (missing required fields)
+4. Returns 201 with valid items, creates all saved analyses
+5. Returns 400 with more than 20 items
+
+**Tests `src/lib/__tests__/saved-analyses.test.ts` (extend existing):**
+1. `bulkSaveAnalyses` saves multiple items in one call
+2. `bulkSaveAnalyses` returns array of IDs and dates
+
+---
+
+### Task 5: Triage Chat UI & Approval Flow
+
+**Linear Issue:** [FOO-918](https://linear.app/lw-claude/issue/FOO-918/quick-capture-triage-chat-ui-and-approval-flow)
+
+Build the triage processing page with item list display, chat refinement, and approve-to-save flow that creates Saved Analyses and clears captures.
+
+**New file `src/app/app/process-captures/page.tsx`:**
+
+Server component. Session validation. Renders `<CaptureTriage />` in standard page container.
+
+**New file `src/app/app/process-captures/loading.tsx`:**
+
+Skeleton: header + 3 item card skeletons + chat area skeleton.
+
+**New file `src/components/capture-triage.tsx`:**
+
+Client component (`'use client'`). Main orchestrator for the triage flow.
+
+Uses `useCaptureSession()` hook to access captures. If no captures exist, redirect to `/app`.
+
+States:
+- **Preview:** Shows all captures chronologically (thumbnails, notes, timestamps). User can remove captures before processing. "Analyze All" button.
+- **Analyzing:** Uploading images + streaming Claude response. Show loading state with narrative text.
+- **Results:** Shows proposed item list + chat input for refinement. "Approve & Save" button.
+- **Saving:** Saving items as Saved Analyses. Show spinner.
+- **Done:** Success message + redirect to `/app`.
+
+Analyze flow:
+1. Read all capture blobs from IndexedDB via `getCaptureBlobs(captureId)` for each capture
+2. Build FormData: images in capture order, captureMetadata JSON with imageCount/note/capturedAt per capture
+3. POST to `/api/process-captures`
+4. Consume SSE stream: accumulate `text_delta` for narrative, watch for `session_items` event
+5. On `session_items`: display proposed items list, enable chat input
+
+Chat refinement:
+- Text input at bottom (same pattern as existing chat)
+- User sends message → POST to `/api/chat-captures` with conversation history + current items as `initialItems`
+- Consume SSE stream for updated `session_items`
+- Replace displayed list on each new `session_items` event
+
+Approval flow:
+1. User taps "Approve & Save"
+2. POST to `/api/saved-analyses/bulk` with current items array
+3. On success: call `clearSession()` to remove captures from IndexedDB, `invalidateSavedAnalysesCaches()` to refresh dashboard
+4. Show success banner: "N items saved — find them in Saved for Later on your dashboard"
+5. Navigate to `/app` after brief delay (or on tap)
+
+**New file `src/components/session-items-list.tsx`:**
+
+Client component. Props: `items: FoodAnalysis[]`, `onRemoveItem?: (index: number) => void`.
+
+Displays the proposed food items from triage. Each item card:
+- Food name (bold)
+- Calories + macros summary (compact: "620 cal · 45p · 30c · 28f")
+- Time + meal type label (e.g., "9:10 PM · Dinner")
+- Confidence badge (high=green, medium=yellow, low=orange)
+- Remove button (X icon, 44×44px touch target) — calls `onRemoveItem` if provided
+
+Follow `SavedForLaterSection` item styling. Cards in a `space-y-2` list.
+
+**Tests `src/components/__tests__/capture-triage.test.tsx`:**
+1. Redirects to `/app` when no captures exist
+2. Preview state shows all captures with thumbnails and notes
+3. "Analyze All" sends images to process-captures API
+4. Shows loading state during analysis
+5. Displays proposed items list on session_items event
+6. Chat input sends message to chat-captures API
+7. Updated session_items replaces displayed list
+8. "Approve & Save" calls bulk save endpoint
+9. On save success: clears captures, invalidates caches, redirects to dashboard
+10. Shows error banner on API failure
+
+**Tests `src/components/__tests__/session-items-list.test.tsx`:**
+1. Renders all items with food name, calories, time
+2. Shows confidence badge with correct color
+3. Remove button calls onRemoveItem with correct index
+4. Renders empty state message when items array is empty
+
+---
 
 ## Post-Implementation Checklist
-1. Run `bug-hunter` agent — Review changes for bugs
-2. Run `verifier` agent — Verify all tests pass and zero warnings
 
----
-
-## Iteration 1
-
-**Implemented:** 2026-04-08
-**Method:** Agent team (3 workers, worktree-isolated)
-
-### Tasks Completed This Iteration
-- Task 1: Add saved_analyses DB table (FOO-900) — lead pre-worker, schema + drizzle-kit migration
-- Task 2: Saved analyses lib module + API routes (FOO-901) — CRUD functions, API routes, types, SWR cache (worker-1)
-- Task 3: Save for Later UI triggers (FOO-902) — Clock button in food-analyzer + food-chat header (worker-2)
-- Task 4: Dashboard Saved for Later section (FOO-903) — SavedForLaterSection component + dashboard integration (worker-2)
-- Task 5: Saved food detail/logging page (FOO-904) — /app/saved/[id] page with log/refine/discard (worker-3)
-- Task 6: Staging QA scenarios (FOO-905) — seed data, dashboard check update, Scenarios 13+14 (lead post-merge)
-
-### Files Modified
-- `src/db/schema.ts` — Added savedAnalyses table
-- `drizzle/0018_heavy_forgotten_one.sql` — Migration for saved_analyses
-- `CLAUDE.md` — Added saved_analyses to tables list
-- `src/lib/saved-analyses.ts` — CRUD functions (saveAnalysis, getSavedAnalyses, getSavedAnalysis, deleteSavedAnalysis)
-- `src/lib/__tests__/saved-analyses.test.ts` — 13 lib tests
-- `src/app/api/saved-analyses/route.ts` — GET list + POST create
-- `src/app/api/saved-analyses/[id]/route.ts` — GET detail + DELETE
-- `src/types/index.ts` — SavedAnalysisListItem, SavedAnalysisDetail interfaces
-- `src/lib/swr.ts` — invalidateSavedAnalysesCaches
-- `src/components/food-analyzer.tsx` — Save for Later button
-- `src/components/food-chat.tsx` — Save icon in header
-- `src/components/__tests__/food-analyzer.test.tsx` — 6 save-for-later tests
-- `src/components/__tests__/food-chat.test.tsx` — 5 save-for-later tests
-- `src/components/saved-for-later-section.tsx` — Dashboard section component
-- `src/components/__tests__/saved-for-later-section.test.tsx` — 11 tests
-- `src/components/daily-dashboard.tsx` — SavedForLaterSection integration
-- `src/components/__tests__/daily-dashboard.test.tsx` — 5 integration tests
-- `src/components/saved-food-detail.tsx` — Detail/logging page component
-- `src/components/__tests__/saved-food-detail.test.tsx` — 22 tests
-- `src/app/app/saved/[id]/page.tsx` — Server component wrapper
-- `src/app/app/saved/[id]/loading.tsx` — Skeleton loading state
-- `.claude/skills/staging-qa/SKILL.md` — Seed data + cleanup updates
-- `.claude/skills/staging-qa/references/test-scenarios.md` — Dashboard check + Scenarios 13-14
-
-### Linear Updates
-- FOO-900: Todo → In Progress → Review
-- FOO-901: Todo → In Progress → Review
-- FOO-902: Todo → In Progress → Review
-- FOO-903: Todo → In Progress → Review
-- FOO-904: Todo → In Progress → Review
-- FOO-905: Todo → In Progress (Linear disconnected before Review)
-
-### Pre-commit Verification
-- bug-hunter: Found 4 issues — 1 already fixed (duplicate type), 2 fixed (API key mismatch, unhandled async), 1 false positive (test mock interceptor handles it)
-- verifier: All 2964 tests pass, zero warnings, build passes (52 routes)
-
-### Work Partition
-- Lead (pre-worker): Task 1 (schema + drizzle-kit generate)
-- Worker 1: Task 2 (backend — lib module, API routes, types, SWR)
-- Worker 2: Tasks 3 + 4 (existing UI — analyzer/chat triggers + dashboard section)
-- Worker 3: Task 5 (new UI — saved food detail/logging page)
-- Lead (post-merge): Task 6 (staging QA scenarios — markdown only)
-
-### Merge Summary
-- Worker 1: fast-forward (first merge, no conflicts)
-- Worker 2: auto-merged, types/index.ts had overlapping additions (resolved automatically by git)
-- Worker 3: auto-merged, types/index.ts had duplicate SavedAnalysisListItem (removed duplicate post-merge)
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Summary: 11 findings raised across 3 domains (Team: security, reliability, quality reviewers). 4 issues require fix; 7 discarded.
-- FIX: 4 issue(s) — Linear issues created
-- DISCARDED: 7 finding(s) — false positives / not applicable
-
-**Issues requiring fix:**
-- [MEDIUM] TIMEOUT: Missing AbortSignal.timeout on save-for-later POSTs (`src/components/food-analyzer.tsx:548`, `src/components/food-chat.tsx:762`) — hung server permanently disables Save button
-- [MEDIUM] BUG: Unchecked DELETE responses + missing timeouts in saved-food-detail (`src/components/saved-food-detail.tsx:122,138,149`) — handleDiscard navigates on silent failure; post-log DELETE can hang forever
-- [MEDIUM] TYPE: Incomplete POST validation for saved analyses API (`src/app/api/saved-analyses/route.ts:38-51`) — only validates food_name and calories; malformed JSONB causes NaN rendering
-- [MEDIUM] TEST: Missing error path test for food-chat save-for-later (`src/components/__tests__/food-chat.test.tsx`) — regression blind spot vs food-analyzer which has the test
-
-**Discarded findings (not bugs):**
-- [DISCARDED] BUG: `rows[0]` without empty check (saved-analyses.ts:20) — Drizzle `insert().values().returning()` always returns exactly one row; failures throw, never return empty
-- [DISCARDED] TYPE: JSONB cast without runtime validation (saved-analyses.ts:61) — mitigated by POST validation fix (FOO-908); reading own DB data is reasonable trust boundary
-- [DISCARDED] TYPE: Unnecessary type cast for optional fields (food-analyzer.tsx:545, food-chat.tsx:759) — style-only; fields are already optional on FoodAnalysis; destructuring works correctly regardless
-- [DISCARDED] EDGE CASE: Weak IDOR test assertions with expect.anything() (saved-analyses.test.ts) — production code correctly enforces userId in all queries; TypeScript compile-time checks provide protection; within KNOWN ACCEPTED PATTERNS for Drizzle mocks
-- [DISCARDED] SECURITY: No security findings — all routes enforce session auth, IDOR prevented via userId scoping, no injection/XSS/SSRF risks, no hardcoded secrets
-
-### Linear Updates
-- FOO-900: Review → Merge (original task)
-- FOO-901: Review → Merge (original task)
-- FOO-902: Review → Merge (original task)
-- FOO-903: Review → Merge (original task)
-- FOO-904: Review → Merge (original task)
-- FOO-905: In Progress → Merge (original task, Linear disconnected before Review)
-- FOO-906: Created in Todo (Fix: missing AbortSignal.timeout on save POSTs)
-- FOO-907: Created in Todo (Fix: unchecked DELETE responses + missing timeouts)
-- FOO-908: Created in Todo (Fix: incomplete POST validation)
-- FOO-909: Created in Todo (Fix: missing error path test)
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Fix Plan
-
-**Source:** Review findings from Iteration 1
-**Linear Issues:** [FOO-906](https://linear.app/lw-claude/issue/FOO-906/fix-missing-abortsignaltimeout-on-save-for-later-posts), [FOO-907](https://linear.app/lw-claude/issue/FOO-907/fix-unchecked-delete-responses-missing-timeouts-in-saved-food-detail), [FOO-908](https://linear.app/lw-claude/issue/FOO-908/fix-incomplete-post-validation-for-saved-analyses-api), [FOO-909](https://linear.app/lw-claude/issue/FOO-909/fix-missing-error-path-test-for-food-chat-save-for-later)
-
-### Fix 1: Missing AbortSignal.timeout on save-for-later POSTs
-**Linear Issue:** [FOO-906](https://linear.app/lw-claude/issue/FOO-906/fix-missing-abortsignaltimeout-on-save-for-later-posts)
-
-1. Write test in `src/components/__tests__/food-analyzer.test.tsx` verifying timeout error handling on save POST
-2. Add `signal: AbortSignal.timeout(15000)` to `handleSaveForLater` fetch in `src/components/food-analyzer.tsx:548`
-3. Add `signal: AbortSignal.timeout(15000)` to `handleSaveForLater` fetch in `src/components/food-chat.tsx:762`
-
-### Fix 2: Unchecked DELETE responses + missing timeouts in saved-food-detail
-**Linear Issue:** [FOO-907](https://linear.app/lw-claude/issue/FOO-907/fix-unchecked-delete-responses-missing-timeouts-in-saved-food-detail)
-
-1. Write tests in `src/components/__tests__/saved-food-detail.test.tsx`:
-   - handleDiscard shows error when DELETE returns non-2xx (does NOT navigate away)
-   - handleLogToFitbit handles DELETE failure gracefully (still shows success since Fitbit log succeeded)
-2. In `src/components/saved-food-detail.tsx`:
-   - handleDiscard (line 138): Check `response.ok`; if false, set error and don't navigate
-   - handleLogToFitbit (line 122): Check `response.ok`; if false, `console.warn` (don't block success flow)
-   - handleChatLogged (line 149): Check `response.ok`; if false, `console.warn`
-   - Add `signal: AbortSignal.timeout(15000)` to all 3 DELETE fetches
-
-### Fix 3: Incomplete POST validation for saved analyses API
-**Linear Issue:** [FOO-908](https://linear.app/lw-claude/issue/FOO-908/fix-incomplete-post-validation-for-saved-analyses-api)
-
-1. Write test in `src/lib/__tests__/saved-analyses.test.ts` or add API-level test for validation of amount, protein_g, carbs_g, fat_g
-2. Add `typeof` number checks for `amount`, `protein_g`, `carbs_g`, `fat_g` in POST handler (`src/app/api/saved-analyses/route.ts:40-45`)
-3. Return 400 with descriptive error if any core field is missing or wrong type
-
-### Fix 4: Missing error path test for food-chat save-for-later
-**Linear Issue:** [FOO-909](https://linear.app/lw-claude/issue/FOO-909/fix-missing-error-path-test-for-food-chat-save-for-later)
-
-1. Add test in `src/components/__tests__/food-chat.test.tsx` that mocks a failed POST response to `/api/saved-analyses`
-2. Assert error message "Failed to save analysis" (or similar) is displayed to the user
-3. Follow the same pattern as the food-analyzer error test at line 4719
-
----
-
-## Iteration 2
-
-**Implemented:** 2026-04-08
-**Method:** Single-agent (4 fixes, effort score 5 — worker overhead not justified)
-
-### Tasks Completed This Iteration
-- Fix 1: Missing AbortSignal.timeout on save-for-later POSTs (FOO-906) — added `signal: AbortSignal.timeout(15000)` to food-analyzer and food-chat save fetches
-- Fix 2: Unchecked DELETE responses + missing timeouts in saved-food-detail (FOO-907) — added response.ok checks and timeouts to all 3 DELETE fetches; discard shows error on failure instead of navigating
-- Fix 3: Incomplete POST validation for saved analyses API (FOO-908) — extended validation to require amount, protein_g, carbs_g, fat_g
-- Fix 4: Missing error path test for food-chat save-for-later (FOO-909) — added error path test matching food-analyzer pattern
-
-### Bug-Hunter Findings (fixed)
-- [HIGH] Dialog remained open after discard failure, obscuring error — fixed by calling `setShowDiscardConfirm(false)` before setting error
-- [MEDIUM] Raw TimeoutError message surfaced to user in save handlers — fixed by adding DOMException check with user-friendly "Request timed out" message (matching existing handleLogToFitbit pattern)
-
-### Files Modified
-- `src/components/food-analyzer.tsx` — AbortSignal.timeout on save POST + user-friendly timeout message
-- `src/components/food-chat.tsx` — AbortSignal.timeout on save POST + user-friendly timeout message
-- `src/components/saved-food-detail.tsx` — response.ok checks + timeouts on DELETE fetches + dialog close on error
-- `src/app/api/saved-analyses/route.ts` — extended POST validation for amount, protein_g, carbs_g, fat_g
-- `src/components/__tests__/food-analyzer.test.tsx` — 2 new tests (timeout error + signal verification)
-- `src/components/__tests__/food-chat.test.tsx` — 1 new test (error path)
-- `src/components/__tests__/saved-food-detail.test.tsx` — 3 new tests (discard error, DELETE failure, signal verification)
-- `src/app/api/saved-analyses/__tests__/route.test.ts` — new file, 5 validation tests
-
-### Linear Updates
-- FOO-906: Todo → In Progress → Review
-- FOO-907: Todo → In Progress → Review
-- FOO-908: Todo → In Progress → Review
-- FOO-909: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Found 2 issues (dialog open on error, raw timeout message) — both fixed
-- verifier: All 2975 tests pass, zero warnings, build passes (52 routes)
-
-### Continuation Status
-All fix plan tasks completed. Status: COMPLETE
-
-### Review Findings
-
-Summary: 3 issue(s) found, fixed inline + 1 bug-hunter fix (single-agent review after Team: security, reliability, quality reviewers)
-- FIXED INLINE: 4 issue(s) — verified via TDD + bug-hunter
-
-**Issues fixed inline:**
-- [HIGH] BUG: DELETE exception masks successful Fitbit log (`src/components/saved-food-detail.tsx:122`) — wrapped post-log DELETE in nested try/catch so timeout doesn't mask success
-- [MEDIUM] BUG: Concurrent actions not prevented during save (`src/components/food-analyzer.tsx:909`, `src/components/food-chat.tsx:279`) — added `saving` checks to Log button disabled state and handleSend guard
-- [MEDIUM] TEST: GET /api/saved-analyses missing test coverage (`src/app/api/saved-analyses/__tests__/route.test.ts`) — added auth, success, and error path tests
-- [MEDIUM] BUG: handleDiscard leaks raw error message to UI (`src/components/saved-food-detail.tsx:153`) — added DOMException guard matching other handlers (found by bug-hunter)
-
-**Discarded findings (not bugs):**
-- [DISCARDED] EDGE CASE: Missing sessionId in savePendingSubmission (`saved-food-detail.tsx:106`) — saved-food-detail has no analyzer session to restore; sessionId is for FoodAnalyzer state restoration
-- [DISCARDED] TYPE: Confidence cast at food-chat.tsx:63 — data only contains valid values from Claude API; safe narrowing
-- [DISCARDED] TYPE: Widening cast pattern (food-analyzer.tsx:545, food-chat.tsx:759) — style-only, eslint-disable intentional
-- [DISCARDED] CONVENTION: Two import type statements from same module (saved-food-detail.tsx:29-30) — style-only, zero correctness impact
-- [DISCARDED] SECURITY: No security findings — all routes enforce session auth, IDOR prevention, input validation
-
-### Linear Updates
-- FOO-906: Review → Merge (original task)
-- FOO-907: Review → Merge (original task)
-- FOO-908: Review → Merge (original task)
-- FOO-909: Review → Merge (original task)
-- FOO-910: Created in Merge (Fix: DELETE exception masks successful log — fixed inline)
-- FOO-911: Created in Merge (Fix: concurrent actions not prevented during save — fixed inline)
-- FOO-912: Created in Merge (Fix: GET handler missing test coverage — fixed inline)
-- FOO-913: Created in Merge (Fix: handleDiscard raw error message leak — fixed inline)
-
-### Inline Fix Verification
-- Unit tests: all 2979 pass
-- Bug-hunter: 1 additional fix (handleDiscard error message), applied and verified
-
-<!-- REVIEW COMPLETE -->
+- [ ] All new pages have `loading.tsx` with Skeleton placeholders
+- [ ] All API routes use `getSession()` + `validateSession()` auth pattern
+- [ ] All API routes use `src/lib/api-response.ts` format with ErrorCode
+- [ ] All client data fetching uses SSE streaming pattern (no raw useState + fetch for reads)
+- [ ] All touch targets minimum 44×44px
+- [ ] `@/` path alias used for all imports
+- [ ] `interface` used over `type` for object shapes
+- [ ] No `console.log` in server code (use pino logger)
+- [ ] `console.error`/`console.warn` acceptable in client components
+- [ ] IndexedDB operations are best-effort (silently fail if unavailable)
+- [ ] Camera flow works on mobile (test with `<input capture="environment">`)
+- [ ] Capture session survives page refresh and app restart (localStorage + IndexedDB)
+- [ ] 7-day expiry cleanup runs on mount with toast notification
+- [ ] Blob URLs revoked on unmount (no memory leaks)
+- [ ] Rate limiting on triage endpoints (10/15min for process-captures, 30/15min for chat-captures)
+- [ ] Zero lint warnings, zero TypeScript errors
+- [ ] Update CLAUDE.md: add `capture_sessions` reference to relevant sections if needed
 
 ---
 
 ## Plan Summary
 
-**Objective:** Let the user analyze food at preparation time and save the result, then log it with one tap when they actually eat it.
-**Linear Issues:** FOO-900, FOO-901, FOO-902, FOO-903, FOO-904, FOO-905
-**Approach:** New `saved_analyses` DB table stores FoodAnalysis JSONB. Save triggers in food-analyzer (outline button) and food-chat (header icon). Dashboard shows "Saved for Later" section below meals on today's view only. Tapping a saved card navigates to a new detail page that re-runs match lookup against current food library, shows meal type/time selectors, and offers log/refine/discard actions. Logging always uses today's date and current time. Staging QA updated with seed data, dashboard visual check, and two new scenarios (save + log-saved).
-**Scope:** 6 tasks, ~15 files (7 create, 8 modify), ~20 test cases
-**Key Decisions:** (1) No images stored — only FoodAnalysis nutrition data. (2) Match lookup re-runs fresh at log time via `/api/search-foods`. (3) Dashboard section is today-only, items have no date. (4) Detail page is a full page (not bottom sheet), reusing AnalysisResult + FoodMatchCard + MealTypeSelector + FoodChat. (5) No quick-log shortcut — tapping card always goes to detail page. (6) `sourceCustomFoodId` stripped on save, re-determined at log time.
-**Risks:** Low — feature is additive with no changes to existing flows. All existing components (AnalysisResult, FoodMatchCard, FoodChat, FoodLogConfirmation) are reused, not modified. Main risk is the detail page being a large new component (~400 lines estimated), but it follows established patterns closely.
+| # | Task | Files | Depends On |
+|---|------|-------|------------|
+| 1 | Capture Storage Layer | `src/types/index.ts`, `src/lib/capture-session.ts`, `src/hooks/use-capture-session.ts` + tests | — |
+| 2 | Quick Capture UI | `src/app/app/capture/`, `src/components/quick-capture.tsx`, `src/components/capture-session-banner.tsx`, `src/components/daily-dashboard.tsx` + tests | Task 1 |
+| 3 | Claude Triage Tool & Functions | `src/lib/sse.ts`, `src/lib/claude.ts`, `src/types/index.ts` + tests | — |
+| 4 | Triage API Endpoints & Bulk Save | `src/app/api/process-captures/`, `src/app/api/chat-captures/`, `src/app/api/saved-analyses/bulk/`, `src/lib/saved-analyses.ts` + tests | Task 3 |
+| 5 | Triage Chat UI & Approval | `src/app/app/process-captures/`, `src/components/capture-triage.tsx`, `src/components/session-items-list.tsx` + tests | Tasks 1, 4 |
 
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+**Parallelizable:** Tasks 1 and 3 have no dependencies and can run in parallel. Task 2 depends on 1. Task 4 depends on 3. Task 5 depends on 1 and 4.
