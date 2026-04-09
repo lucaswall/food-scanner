@@ -6,6 +6,7 @@ export type StreamEvent =
   | { type: "tool_start"; tool: string }
   | { type: "analysis"; analysis: FoodAnalysis }
   | { type: "needs_chat"; message: string }
+  | { type: "session_items"; items: FoodAnalysis[] }
   | {
       type: "usage";
       data: {
