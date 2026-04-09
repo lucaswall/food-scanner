@@ -528,3 +528,17 @@ export interface BloodPressureReadingInput {
 export interface SavedAnalysisDetail extends SavedAnalysisListItem {
   foodAnalysis: FoodAnalysis;
 }
+
+export interface CaptureItem {
+  id: string;
+  imageCount: number;
+  note: string | null;
+  capturedAt: string;
+  order: number;
+}
+
+export interface CaptureSession {
+  id: string;
+  captures: CaptureItem[];
+  createdAt: string;
+}
