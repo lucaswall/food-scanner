@@ -12,11 +12,24 @@ beforeAll(() => {
   if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
     Element.prototype.scrollIntoView = () => {};
   }
+  global.URL.createObjectURL = vi.fn(() => "blob:mock-url");
+  global.URL.revokeObjectURL = vi.fn();
 });
 
 const mockPush = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
+}));
+
+// Mock next/image to render a plain <img> in tests
+vi.mock("next/image", () => ({
+  default: (props: React.ImgHTMLAttributes<HTMLImageElement> & { fill?: boolean; unoptimized?: boolean }) => {
+    const { fill, unoptimized, ...rest } = props;
+    void fill;
+    void unoptimized;
+    // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+    return <img {...rest} />;
+  },
 }));
 
 const mockActions = {
@@ -148,6 +161,32 @@ describe("QuickCapture", () => {
     fireEvent.click(screen.getByRole("button", { name: /clear all/i }));
     fireEvent.click(screen.getByRole("button", { name: /clear/i }));
     expect(mockActions.clearSession).toHaveBeenCalled();
+  });
+
+  it("continues loading thumbnails when getCaptureBlobs throws for one capture", async () => {
+    const captures = [
+      makeCapture({ id: "c1", note: "first", order: 0 }),
+      makeCapture({ id: "c2", note: "second", order: 1 }),
+    ];
+    mockActions.getCaptureBlobs
+      .mockRejectedValueOnce(new Error("IDB error"))
+      .mockResolvedValueOnce([new Blob(["img"], { type: "image/jpeg" })]);
+    setupMockHook(captures, "session-1");
+
+    render(<QuickCapture />);
+    await act(async () => {});
+
+    // Should still render both captures (thumbnail loading failure is silent)
+    expect(screen.getByText("first")).toBeInTheDocument();
+    expect(screen.getByText("second")).toBeInTheDocument();
+    // getCaptureBlobs was called for both captures despite first one failing
+    expect(mockActions.getCaptureBlobs).toHaveBeenCalledTimes(2);
+    // Thumbnail loaded for second capture (success path), not for first (IDB error)
+    await waitFor(() => {
+      const imgs = screen.getAllByAltText("Capture thumbnail");
+      expect(imgs).toHaveLength(1);
+      expect(imgs[0]).toHaveAttribute("src", "blob:mock-url");
+    });
   });
 
   // ─── Fix 5: handleSave error handling ────────────────────────────────────

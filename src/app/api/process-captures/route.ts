@@ -75,17 +75,21 @@ export async function POST(request: Request) {
       return errorResponse("VALIDATION_ERROR", "captureMetadata must be a JSON array", 400);
     }
     for (let i = 0; i < parsed.length; i++) {
-      const entry = parsed[i] as Record<string, unknown>;
-      if (typeof entry.captureId !== "string") {
+      const entry = parsed[i];
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}] must be an object`, 400);
+      }
+      const obj = entry as Record<string, unknown>;
+      if (typeof obj.captureId !== "string") {
         return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].captureId must be a string`, 400);
       }
-      if (!Number.isInteger(entry.imageCount) || (entry.imageCount as number) <= 0) {
+      if (!Number.isInteger(obj.imageCount) || (obj.imageCount as number) <= 0) {
         return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].imageCount must be a positive integer`, 400);
       }
-      if (typeof entry.capturedAt !== "string" || entry.capturedAt.length > 30) {
+      if (typeof obj.capturedAt !== "string" || obj.capturedAt.length > 30) {
         return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].capturedAt must be an ISO string (max 30 chars)`, 400);
       }
-      if (entry.note !== null && (typeof entry.note !== "string" || (entry.note as string).length > 500)) {
+      if (obj.note !== null && (typeof obj.note !== "string" || (obj.note as string).length > 500)) {
         return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].note must be a string (max 500 chars) or null`, 400);
       }
     }
@@ -163,7 +167,12 @@ export async function POST(request: Request) {
       note: entry.note,
       capturedAt: entry.capturedAt,
     };
-  });
+  }).filter((capture) => capture.imageIndices.length > 0);
+
+  const droppedCount = captureMetadataEntries.length - captureMetadata.length;
+  if (droppedCount > 0) {
+    log.warn({ action: "process_captures_dropped", droppedCount }, "captures dropped due to image processing failures");
+  }
 
   const generator = triageCaptures(
     imageInputs,

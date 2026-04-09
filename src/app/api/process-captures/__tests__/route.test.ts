@@ -361,6 +361,71 @@ describe("POST /api/process-captures", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  it("returns 400 when captureMetadata array contains null element", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    const images = [createMockFile("a.jpg", "image/jpeg")];
+    const metadata = [null];
+    const formData = {
+      getAll: (key: string) => (key === "images" ? images : []),
+      get: (key: string) => {
+        if (key === "captureMetadata") return JSON.stringify(metadata);
+        if (key === "clientDate") return "2026-04-09";
+        return null;
+      },
+    };
+    const response = await POST(createMockRequest(formData));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toContain("captureMetadata[0]");
+  });
+
+  it("filters out captures with empty imageIndices when all their images fail", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    // 2 captures: capture A (1 image, fails), capture B (1 image, succeeds)
+    const failingFile = {
+      name: "fail.jpg",
+      type: "image/jpeg",
+      size: 1000,
+      arrayBuffer: () => Promise.reject(new Error("disk error")),
+    };
+    const images = [failingFile, createMockFile("b.jpg", "image/jpeg")];
+    const metadata = [
+      { captureId: "cap-a", imageCount: 1, note: "failed capture", capturedAt: "2026-04-09T12:00:00" },
+      { captureId: "cap-b", imageCount: 1, note: null, capturedAt: "2026-04-09T13:00:00" },
+    ];
+
+    let capturedMetadata: unknown;
+    mockTriageCaptures.mockImplementation(async function* (
+      _imageInputs: unknown,
+      meta: unknown,
+    ) {
+      capturedMetadata = meta;
+      yield { type: "session_items", items: [] };
+      yield { type: "done" };
+    });
+
+    const formData = {
+      getAll: (key: string) => (key === "images" ? images : []),
+      get: (key: string) => {
+        if (key === "captureMetadata") return JSON.stringify(metadata);
+        if (key === "clientDate") return "2026-04-09";
+        return null;
+      },
+    };
+
+    const response = await POST(createMockRequest(formData));
+    expect(response.status).toBe(200);
+    await consumeSSEStream(response);
+
+    // capture A should be filtered out (all images failed, empty imageIndices)
+    const meta = capturedMetadata as Array<{ captureId: string; imageIndices: number[] }>;
+    expect(meta).toHaveLength(1);
+    expect(meta[0].captureId).toBe("cap-b");
+    expect(meta[0].imageIndices).toEqual([0]);
+  });
+
   // FOO-920: image index remapping when images fail allSettled
   it("remaps imageIndices correctly when one image fails processing", async () => {
     mockGetSession.mockResolvedValue(validSession);

@@ -100,11 +100,15 @@ export function QuickCapture() {
       if (!sessionId) return;
       const newThumbnails = new Map<string, string>();
       for (const capture of captures) {
-        const blobs = await actions.getCaptureBlobs(capture.id);
-        if (blobs.length > 0 && !cancelled) {
-          const url = URL.createObjectURL(blobs[0]);
-          blobUrls.push(url);
-          newThumbnails.set(capture.id, url);
+        try {
+          const blobs = await actions.getCaptureBlobs(capture.id);
+          if (blobs.length > 0 && !cancelled) {
+            const url = URL.createObjectURL(blobs[0]);
+            blobUrls.push(url);
+            newThumbnails.set(capture.id, url);
+          }
+        } catch {
+          // skip failed thumbnails — IDB may be unavailable
         }
       }
       if (!cancelled) {
