@@ -516,5 +516,112 @@ Follow `SavedForLaterSection` item styling. Cards in a `space-y-2` list.
 - Worker 2: auto-merge, no conflicts (types/index.ts merged cleanly)
 - Worker 3: 1 conflict in src/hooks/use-capture-session.ts (worker-3's stub vs worker-1's real impl — kept worker-1's), duplicate types/events removed from types/index.ts and sse.ts
 
+### Review Findings
+
+Summary: 9 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 9 issue(s) — Linear issues created
+- DISCARDED: 7 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: captureMetadata unsafe cast + missing captureId (`src/app/api/process-captures/route.ts:77`, `src/components/capture-triage.tsx:137-141`) — FOO-919
+- [MEDIUM] BUG: Image index corruption when images fail processing (`src/app/api/process-captures/route.ts:104-136`) — FOO-920
+- [MEDIUM] BUG: Missing stop_reason handling in triageCaptures/triageRefine (`src/lib/claude.ts:2259-2270, 2400-2410`) — FOO-921
+- [MEDIUM] BUG: capture.imageCount vs blobs.length mismatch (`src/components/capture-triage.tsx:138`) — FOO-922
+- [MEDIUM] BUG: handleSave missing error handling (`src/components/quick-capture.tsx:137-145`) — FOO-923
+- [MEDIUM] SECURITY: No rate limiting on bulk save endpoint (`src/app/api/saved-analyses/bulk/route.ts`) — FOO-924
+- [LOW] RESOURCE: Object URL leak in thumbnail loading (`src/components/capture-triage.tsx:44-68`) — FOO-925
+- [LOW] CONVENTION: Double-logging on bulk save success (`src/lib/saved-analyses.ts:94`) — FOO-926
+- [LOW] BUG: triageRefine missing recordUsage call (`src/lib/claude.ts:~2385`) — FOO-927
+
+**Discarded findings (not bugs):**
+- [DISCARDED] ASYNC: SSE batch event ordering in consumeSSEStream — accepted tradeoff, standard SSE behavior
+- [DISCARDED] ASYNC: clearSession fire-and-forget without await — IDB operations are best-effort per design
+- [DISCARDED] ASYNC: removeCapture orphaned blobs — cleaned by 7-day TTL expiry
+- [DISCARDED] ASYNC: Race condition in addCapture concurrent calls — impossible in practice (sequential mobile UX)
+- [DISCARDED] EDGE CASE: bulkSaveAnalyses no transaction wrapper — PostgreSQL multi-row INSERT is atomic
+- [DISCARDED] TYPE: Weak localStorage validation in isValidCaptureSession — same-origin data written by same code, corruption near-impossible
+- [DISCARDED] CONVENTION: eslint-disable for img tag in capture-triage — blob URLs can't use Next.js Image optimization
+- [DISCARDED] TEST: No test files added — false positive, all test files exist (capture-session, use-capture-session, claude-triage, capture-triage, session-items-list, quick-capture, capture-session-banner)
+
+### Linear Updates
+- FOO-914: Review → Merge
+- FOO-915: Review → Merge
+- FOO-916: Review → Merge
+- FOO-917: Review → Merge
+- FOO-918: Review → Merge
+- FOO-919: Created in Todo (Fix: captureMetadata unsafe cast + missing captureId)
+- FOO-920: Created in Todo (Fix: image index corruption)
+- FOO-921: Created in Todo (Fix: missing stop_reason handling)
+- FOO-922: Created in Todo (Fix: imageCount vs blobs.length mismatch)
+- FOO-923: Created in Todo (Fix: handleSave missing error handling)
+- FOO-924: Created in Todo (Fix: no rate limiting on bulk save)
+- FOO-925: Created in Todo (Fix: object URL leak in thumbnails)
+- FOO-926: Created in Todo (Fix: double-logging on bulk save)
+- FOO-927: Created in Todo (Fix: triageRefine missing recordUsage)
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
 All tasks completed.
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-919](https://linear.app/lw-claude/issue/FOO-919), [FOO-920](https://linear.app/lw-claude/issue/FOO-920), [FOO-921](https://linear.app/lw-claude/issue/FOO-921), [FOO-922](https://linear.app/lw-claude/issue/FOO-922), [FOO-923](https://linear.app/lw-claude/issue/FOO-923), [FOO-924](https://linear.app/lw-claude/issue/FOO-924), [FOO-925](https://linear.app/lw-claude/issue/FOO-925), [FOO-926](https://linear.app/lw-claude/issue/FOO-926), [FOO-927](https://linear.app/lw-claude/issue/FOO-927)
+
+### Fix 1: captureMetadata unsafe cast + missing captureId
+**Linear Issue:** [FOO-919](https://linear.app/lw-claude/issue/FOO-919)
+
+1. Write test in `src/app/api/__tests__/process-captures.test.ts` for field-level validation (invalid captureId, non-integer imageCount, missing fields)
+2. Client (`src/components/capture-triage.tsx`): include `capture.id` as `captureId` in captureMetadataArray
+3. Server (`src/app/api/process-captures/route.ts`): add per-entry validation — captureId must be string, imageCount must be positive integer, capturedAt must be ISO string (max 30 chars), note must be string|null (max 500 chars)
+
+### Fix 2: Image index corruption when images fail processing
+**Linear Issue:** [FOO-920](https://linear.app/lw-claude/issue/FOO-920)
+
+1. Write test in `src/app/api/__tests__/process-captures.test.ts` for scenario where one image fails allSettled — verify remaining images map to correct captures
+2. In `src/app/api/process-captures/route.ts`: build a success index map from allSettled results, then remap captureMetadata imageIndices using only successful positions
+
+### Fix 3: Missing stop_reason handling in triageCaptures and triageRefine
+**Linear Issue:** [FOO-921](https://linear.app/lw-claude/issue/FOO-921)
+
+1. Write tests in `src/lib/__tests__/claude-triage.test.ts` for refusal, max_tokens, and context_window_exceeded stop reasons
+2. In `src/lib/claude.ts` triageCaptures: add stop_reason checks after response (same pattern as analyzeFood), yield error events for refusal/max_tokens/context_window_exceeded
+3. In `src/lib/claude.ts` triageRefine: same stop_reason checks
+
+### Fix 4: capture.imageCount vs blobs.length mismatch
+**Linear Issue:** [FOO-922](https://linear.app/lw-claude/issue/FOO-922)
+
+1. Write test in `src/components/__tests__/capture-triage.test.tsx` for scenario where getCaptureBlobs returns fewer blobs than capture.imageCount
+2. In `src/components/capture-triage.tsx:138`: change `capture.imageCount` to `blobs.length`
+
+### Fix 5: handleSave missing error handling
+**Linear Issue:** [FOO-923](https://linear.app/lw-claude/issue/FOO-923)
+
+1. Write test in `src/components/__tests__/quick-capture.test.tsx` for addCapture failure — verify error state shown and isAdding reset
+2. In `src/components/quick-capture.tsx`: wrap handleSave body in try/catch, add error state, reset isAdding on failure
+
+### Fix 6: No rate limiting on bulk save endpoint
+**Linear Issue:** [FOO-924](https://linear.app/lw-claude/issue/FOO-924)
+
+1. Write test in `src/app/api/__tests__/saved-analyses-bulk.test.ts` for rate limiting (returns 429)
+2. In `src/app/api/saved-analyses/bulk/route.ts`: add `checkRateLimit` call with 30 req/15min limit
+
+### Fix 7: Object URL leak in capture-triage thumbnail loading
+**Linear Issue:** [FOO-925](https://linear.app/lw-claude/issue/FOO-925)
+
+1. Write test in `src/components/__tests__/capture-triage.test.tsx` verifying URL.revokeObjectURL called on cleanup
+2. In `src/components/capture-triage.tsx`: in the loadThumbnails cleanup function, revoke any URLs created in newThumbnails before cancellation
+
+### Fix 8: Double-logging on bulk save success
+**Linear Issue:** [FOO-926](https://linear.app/lw-claude/issue/FOO-926)
+
+1. In `src/lib/saved-analyses.ts:94`: remove the `logger.info` call (route handler already logs success)
+
+### Fix 9: triageRefine missing recordUsage call
+**Linear Issue:** [FOO-927](https://linear.app/lw-claude/issue/FOO-927)
+
+1. Write test in `src/lib/__tests__/claude-triage.test.ts` verifying recordUsage is called in triageRefine
+2. In `src/lib/claude.ts` triageRefine: add `recordUsage` call after yielding usage event, same pattern as triageCaptures (lines 2241-2252)
