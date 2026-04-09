@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Trash2, Plus, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,9 +39,11 @@ function CaptureCard({ capture, thumbnailUrl, onDelete }: CaptureCardProps) {
   return (
     <div className="flex items-center gap-3 rounded-lg border p-3 min-h-[44px]">
       {thumbnailUrl && (
-        <img
+        <Image
           src={thumbnailUrl}
           alt="Capture thumbnail"
+          width={48}
+          height={48}
           className="h-12 w-12 rounded object-cover shrink-0"
         />
       )}
@@ -85,7 +88,7 @@ export function QuickCapture() {
   // Auto-start session on mount
   useEffect(() => {
     actions.startSession();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [actions]);
 
   // Load thumbnails for captures
   useEffect(() => {
@@ -114,14 +117,14 @@ export function QuickCapture() {
       cancelled = true;
       blobUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [captures, sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [captures, sessionId, actions]);
 
   // Revoke all thumbnails on unmount
   useEffect(() => {
     return () => {
       thumbnails.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [thumbnails]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);

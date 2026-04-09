@@ -38,6 +38,21 @@ vi.mock("@/lib/saved-analyses", () => ({
   bulkSaveAnalyses: mockBulkSaveAnalyses,
 }));
 
+// Mock validateFoodAnalysis — pass through valid items, throw for invalid
+vi.mock("@/lib/claude", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/claude")>();
+  return {
+    ...actual,
+    validateFoodAnalysis: (input: unknown) => {
+      const obj = input as Record<string, unknown>;
+      if (typeof obj?.food_name !== "string" || !obj.food_name || typeof obj?.calories !== "number") {
+        throw new Error("Missing required fields");
+      }
+      return input;
+    },
+  };
+});
+
 const { POST } = await import("@/app/api/saved-analyses/bulk/route");
 
 const validSession: FullSession = {
@@ -142,7 +157,10 @@ describe("POST /api/saved-analyses/bulk", () => {
     expect(body.data.items[0].id).toBe(1);
     expect(body.data.items[1].id).toBe(2);
 
-    expect(mockBulkSaveAnalyses).toHaveBeenCalledWith("user-uuid-123", items);
+    expect(mockBulkSaveAnalyses).toHaveBeenCalledWith("user-uuid-123", expect.arrayContaining([
+      expect.objectContaining({ food_name: "Empanada de carne" }),
+      expect.objectContaining({ food_name: "Ensalada" }),
+    ]));
   });
 
   it("returns 400 when items is not an array", async () => {

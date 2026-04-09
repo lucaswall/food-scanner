@@ -23,6 +23,7 @@ export function CaptureTriage() {
   const [sessionItems, setSessionItems] = useState<FoodAnalysis[]>([]);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [narrative, setNarrative] = useState("");
+  const narrativeRef = useRef("");
   const [chatInput, setChatInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [successCount, setSuccessCount] = useState(0);
@@ -116,6 +117,7 @@ export function CaptureTriage() {
     setError(null);
     setTriageState("analyzing");
     setNarrative("");
+    narrativeRef.current = "";
 
     const formData = new FormData();
     const captureMetadataArray: Array<{
@@ -168,6 +170,7 @@ export function CaptureTriage() {
           setSessionItems(items);
         },
         (text) => {
+          narrativeRef.current += text;
           setNarrative((prev) => prev + text);
         }
       );
@@ -179,14 +182,14 @@ export function CaptureTriage() {
       }
 
       // Build initial conversation message
-      setMessages([{ role: "assistant", content: narrative, sessionItems: finalItems }]);
+      setMessages([{ role: "assistant", content: narrativeRef.current, sessionItems: finalItems }]);
       setTriageState("results");
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
       setError("Failed to analyze captures. Please try again.");
       setTriageState("preview");
     }
-  }, [captures, actions, consumeSSEStream, narrative]);
+  }, [captures, actions, consumeSSEStream]);
 
   const handleChatSend = useCallback(async () => {
     const text = chatInput.trim();

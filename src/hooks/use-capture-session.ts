@@ -97,7 +97,7 @@ export function useCaptureSession(): UseCaptureSessionReturn {
     return () => {
       cancelled = true;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const startSession = useCallback(() => {
     const existingId = getActiveCaptureSessionId();
@@ -132,7 +132,7 @@ export function useCaptureSession(): UseCaptureSessionReturn {
       imageCount: images.length,
       note,
       capturedAt: new Date().toISOString(),
-      order: captures.length,
+      order: captures.length === 0 ? 0 : Math.max(...captures.map((c) => c.order)) + 1,
     };
 
     // Save blobs to IDB

@@ -458,3 +458,63 @@ Follow `SavedForLaterSection` item styling. Cards in a `space-y-2` list.
 | 5 | Triage Chat UI & Approval | `src/app/app/process-captures/`, `src/components/capture-triage.tsx`, `src/components/session-items-list.tsx` + tests | Tasks 1, 4 |
 
 **Parallelizable:** Tasks 1 and 3 have no dependencies and can run in parallel. Task 2 depends on 1. Task 4 depends on 3. Task 5 depends on 1 and 4.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-04-09
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Capture Storage Layer — CaptureItem/CaptureSession types, IndexedDB module with 7-day TTL, useCaptureSession hook (worker-1)
+- Task 2: Quick Capture UI — Capture page with camera auto-trigger, QuickCapture component, CaptureSessionBanner, dashboard integration (worker-1)
+- Task 3: Claude Triage Tool & Functions — REPORT_SESSION_ITEMS_TOOL, TRIAGE_SYSTEM_PROMPT, validateSessionItems, triageCaptures, triageRefine (worker-2)
+- Task 4: Triage API Endpoints & Bulk Save — process-captures, chat-captures, saved-analyses/bulk routes, bulkSaveAnalyses (worker-2)
+- Task 5: Triage Chat UI & Approval — CaptureTriage orchestrator (preview→analyzing→results→saving→done), SessionItemsList, approval flow (worker-3)
+
+### Files Modified
+- `src/types/index.ts` — CaptureItem, CaptureSession, ChatCapturesRequest types; sessionItems on ConversationMessage
+- `src/lib/analysis-session.ts` — Bumped DB to v2 with capture-blobs store, exported getDB
+- `src/lib/capture-session.ts` — New IndexedDB storage module for multi-capture persistence
+- `src/hooks/use-capture-session.ts` — React hook wrapping capture storage
+- `src/app/app/capture/page.tsx` + `loading.tsx` — Capture page with skeleton
+- `src/components/quick-capture.tsx` — Camera flow with auto-re-trigger
+- `src/components/capture-session-banner.tsx` — Dashboard banner for pending captures
+- `src/components/daily-dashboard.tsx` — Added CaptureSessionBanner
+- `src/lib/sse.ts` — Added session_items StreamEvent variant
+- `src/lib/claude.ts` — REPORT_SESSION_ITEMS_TOOL, TRIAGE_SYSTEM_PROMPT, validateSessionItems, triageCaptures, triageRefine
+- `src/lib/saved-analyses.ts` — bulkSaveAnalyses function
+- `src/app/api/process-captures/route.ts` — Triage SSE endpoint (FormData, 10/15min rate limit)
+- `src/app/api/chat-captures/route.ts` — Triage refinement endpoint (JSON, 30/15min rate limit)
+- `src/app/api/saved-analyses/bulk/route.ts` — Bulk save endpoint (max 20 items)
+- `src/app/app/process-captures/page.tsx` + `loading.tsx` — Triage page with skeleton
+- `src/components/capture-triage.tsx` — Triage orchestrator with SSE streaming
+- `src/components/session-items-list.tsx` — Proposed items display with confidence badges
+
+### Linear Updates
+- FOO-914: Todo → In Progress → Review
+- FOO-915: Todo → In Progress → Review
+- FOO-916: Todo → In Progress → Review
+- FOO-917: Todo → In Progress → Review
+- FOO-918: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs (0 critical, 2 medium, 1 low), all fixed before proceeding
+  - Stale closure in narrative accumulation (capture-triage.tsx) — fixed with useRef
+  - Weak validation in bulk save endpoint — replaced with validateFoodAnalysis
+  - Duplicate order values after capture removal — fixed with Math.max-based ordering
+- verifier: All 3092 tests pass, zero warnings, build clean
+
+### Work Partition
+- Worker 1: Tasks 1, 2 (capture storage + quick capture UI)
+- Worker 2: Tasks 3, 4 (Claude triage tool + API endpoints)
+- Worker 3: Task 5 (triage chat UI + approval flow)
+
+### Merge Summary
+- Worker 1: fast-forward (first merge, no conflicts)
+- Worker 2: auto-merge, no conflicts (types/index.ts merged cleanly)
+- Worker 3: 1 conflict in src/hooks/use-capture-session.ts (worker-3's stub vs worker-1's real impl — kept worker-1's), duplicate types/events removed from types/index.ts and sse.ts
+
+### Continuation Status
+All tasks completed.
