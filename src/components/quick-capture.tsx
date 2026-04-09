@@ -83,6 +83,7 @@ export function QuickCapture() {
   const [note, setNote] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
 
   // Auto-start session on mount
@@ -136,12 +137,19 @@ export function QuickCapture() {
 
   const handleSave = async () => {
     if (pendingBlobs.length === 0) return;
-    await actions.addCapture(pendingBlobs, note.trim() || null);
-    setPendingBlobs([]);
-    setNote("");
-    setIsAdding(false);
-    // Auto-trigger camera again
-    fileInputRef.current?.click();
+    setError(null);
+    try {
+      await actions.addCapture(pendingBlobs, note.trim() || null);
+      setPendingBlobs([]);
+      setNote("");
+      setIsAdding(false);
+      // Auto-trigger camera again
+      fileInputRef.current?.click();
+    } catch (err) {
+      console.error(err);
+      setError("Failed to save capture. Please try again.");
+      setIsAdding(false);
+    }
   };
 
   const handleAddCapture = () => {
@@ -155,6 +163,16 @@ export function QuickCapture() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Error banner */}
+      {error && (
+        <div
+          aria-live="polite"
+          className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          {error}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Quick Capture</h1>

@@ -42,6 +42,7 @@ export function CaptureTriage() {
   useEffect(() => {
     if (triageState !== "preview") return;
     let cancelled = false;
+    const createdUrls: string[] = [];
 
     async function loadThumbnails() {
       const newThumbnails: Record<string, string> = {};
@@ -50,6 +51,7 @@ export function CaptureTriage() {
           const blobs = await actions.getCaptureBlobs(capture.id);
           if (blobs.length > 0 && !cancelled) {
             const url = URL.createObjectURL(blobs[0]);
+            createdUrls.push(url);
             newThumbnails[capture.id] = url;
           }
         } catch {
@@ -64,6 +66,7 @@ export function CaptureTriage() {
     loadThumbnails();
     return () => {
       cancelled = true;
+      createdUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, [captures, triageState, actions]);
 
@@ -137,7 +140,7 @@ export function CaptureTriage() {
       }
       captureMetadataArray.push({
         captureId: capture.id,
-        imageCount: capture.imageCount,
+        imageCount: blobs.length,
         note: capture.note,
         capturedAt: capture.capturedAt,
       });
