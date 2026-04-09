@@ -2251,6 +2251,23 @@ export async function* triageCaptures(
       );
     });
 
+    // Check for error stop_reasons
+    if ((response.stop_reason as string) === "model_context_window_exceeded") {
+      l.warn({ action: "triage_captures_context_window_exceeded" }, "model_context_window_exceeded on triageCaptures");
+      yield { type: "error", message: "The request exceeded the context window. Please try with fewer captures." };
+      return;
+    }
+    if (response.stop_reason === "refusal") {
+      l.warn({ action: "triage_captures_refusal" }, "Claude refused to process the captures");
+      yield { type: "error", message: "The request was flagged by our safety systems and cannot be processed." };
+      return;
+    }
+    if (response.stop_reason === "max_tokens") {
+      l.warn({ action: "triage_captures_max_tokens" }, "max_tokens on triageCaptures");
+      yield { type: "error", message: "The response exceeded the maximum length. Please try with fewer captures." };
+      return;
+    }
+
     // Find report_session_items tool call
     const reportBlock = response.content.find(
       (block) => block.type === "tool_use" && (block as Anthropic.ToolUseBlock).name === "report_session_items"
@@ -2336,6 +2353,7 @@ function convertTriageMessages(messages: ConversationMessage[]): Anthropic.Messa
  */
 export async function* triageRefine(
   messages: ConversationMessage[],
+  userId: string,
   initialItems?: FoodAnalysis[],
   signal?: AbortSignal,
   log?: Logger,
@@ -2391,6 +2409,36 @@ export async function* triageRefine(
         cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
       },
     };
+
+    // Record usage (fire-and-forget)
+    recordUsage(userId, response.model, "triage-refine", {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+      cacheCreationTokens: response.usage.cache_creation_input_tokens ?? 0,
+      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+    }).catch((error) => {
+      l.warn(
+        { action: "record_usage_failed", error: error instanceof Error ? error.message : String(error), userId },
+        "failed to record API usage"
+      );
+    });
+
+    // Check for error stop_reasons
+    if ((response.stop_reason as string) === "model_context_window_exceeded") {
+      l.warn({ action: "triage_refine_context_window_exceeded" }, "model_context_window_exceeded on triageRefine");
+      yield { type: "error", message: "The conversation is too long to process. Please start a new session." };
+      return;
+    }
+    if (response.stop_reason === "refusal") {
+      l.warn({ action: "triage_refine_refusal" }, "Claude refused to process the triage request");
+      yield { type: "error", message: "The request was flagged by our safety systems and cannot be processed." };
+      return;
+    }
+    if (response.stop_reason === "max_tokens") {
+      l.warn({ action: "triage_refine_max_tokens" }, "max_tokens on triageRefine");
+      yield { type: "error", message: "The response exceeded the maximum length. Please try again." };
+      return;
+    }
 
     // Find report_session_items tool call
     const reportBlock = response.content.find(

@@ -1,13 +1,24 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { StreamEvent } from "@/lib/sse";
 
 vi.stubEnv("ANTHROPIC_API_KEY", "test-api-key");
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
+
+const mockStream = vi.fn();
+vi.mock("@anthropic-ai/sdk", () => {
+  class MockAnthropic {
+    messages = { stream: mockStream };
+  }
+  return { default: MockAnthropic };
+});
 
 vi.mock("@/lib/logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   startTimer: vi.fn(() => () => 0),
 }));
-vi.mock("@/lib/claude-usage", () => ({ recordUsage: vi.fn() }));
+
+const mockRecordUsage = vi.fn();
+vi.mock("@/lib/claude-usage", () => ({ recordUsage: mockRecordUsage }));
 vi.mock("@/lib/user-profile", () => ({ buildUserProfile: vi.fn().mockResolvedValue(null) }));
 vi.mock("@/lib/chat-tools", () => ({
   executeTool: vi.fn(),
@@ -19,10 +30,42 @@ vi.mock("@/lib/chat-tools", () => ({
   MANAGE_NUTRITION_LABEL_TOOL: { name: "manage_nutrition_label", input_schema: { type: "object", properties: {} } },
 }));
 
+/** Creates a minimal mock stream with the given stop_reason in finalMessage(). */
+function makeMockStream(stopReason: string, content: unknown[] = []) {
+  return {
+    async *[Symbol.asyncIterator]() {
+      yield { type: "message_stop" };
+    },
+    finalMessage: vi.fn().mockResolvedValue({
+      model: "claude-sonnet-4-6",
+      stop_reason: stopReason,
+      content,
+      usage: {
+        input_tokens: 100,
+        output_tokens: 10,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    }),
+    on: vi.fn().mockReturnThis(),
+  };
+}
+
+/** Collects all events from an AsyncGenerator into an array. */
+async function collectEvents(gen: AsyncGenerator<StreamEvent>): Promise<StreamEvent[]> {
+  const events: StreamEvent[] = [];
+  for await (const event of gen) {
+    events.push(event);
+  }
+  return events;
+}
+
 const {
   validateSessionItems,
   REPORT_SESSION_ITEMS_TOOL,
   TRIAGE_SYSTEM_PROMPT,
+  triageCaptures,
+  triageRefine,
 } = await import("@/lib/claude");
 
 // Helper to build a valid item for validateSessionItems (as Claude would return it)
@@ -227,5 +270,136 @@ describe("TRIAGE_SYSTEM_PROMPT", () => {
 
   it("instructs to assign meal_type_id based on capture times", () => {
     expect(TRIAGE_SYSTEM_PROMPT).toContain("meal_type_id");
+  });
+});
+
+// =============================================================================
+// triageCaptures — stop_reason error handling (FOO-921)
+// =============================================================================
+
+describe("triageCaptures — stop_reason error handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordUsage.mockResolvedValue(undefined);
+  });
+
+  it("yields error event for refusal stop_reason", async () => {
+    mockStream.mockReturnValueOnce(makeMockStream("refusal"));
+
+    const events = await collectEvents(triageCaptures([], [], "user-123", "2026-04-09"));
+
+    const usageEvent = events.find((e) => e.type === "usage");
+    const errorEvent = events.find((e) => e.type === "error");
+    const doneEvent = events.find((e) => e.type === "done");
+
+    expect(usageEvent).toBeDefined();
+    expect(errorEvent).toBeDefined();
+    expect((errorEvent as { type: "error"; message: string }).message).toBeTruthy();
+    expect(doneEvent).toBeUndefined();
+  });
+
+  it("yields error event for max_tokens stop_reason", async () => {
+    mockStream.mockReturnValueOnce(makeMockStream("max_tokens"));
+
+    const events = await collectEvents(triageCaptures([], [], "user-123", "2026-04-09"));
+
+    const usageEvent = events.find((e) => e.type === "usage");
+    const errorEvent = events.find((e) => e.type === "error");
+    const doneEvent = events.find((e) => e.type === "done");
+
+    expect(usageEvent).toBeDefined();
+    expect(errorEvent).toBeDefined();
+    expect(doneEvent).toBeUndefined();
+  });
+
+  it("yields error event for model_context_window_exceeded stop_reason", async () => {
+    mockStream.mockReturnValueOnce(makeMockStream("model_context_window_exceeded"));
+
+    const events = await collectEvents(triageCaptures([], [], "user-123", "2026-04-09"));
+
+    const usageEvent = events.find((e) => e.type === "usage");
+    const errorEvent = events.find((e) => e.type === "error");
+    const doneEvent = events.find((e) => e.type === "done");
+
+    expect(usageEvent).toBeDefined();
+    expect(errorEvent).toBeDefined();
+    expect(doneEvent).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// triageRefine — stop_reason error handling + recordUsage (FOO-921, FOO-927)
+// =============================================================================
+
+describe("triageRefine — stop_reason error handling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordUsage.mockResolvedValue(undefined);
+  });
+
+  it("yields error event for refusal stop_reason", async () => {
+    mockStream.mockReturnValueOnce(makeMockStream("refusal"));
+
+    const events = await collectEvents(triageRefine([{ role: "user", content: "test" }], "user-123"));
+
+    const usageEvent = events.find((e) => e.type === "usage");
+    const errorEvent = events.find((e) => e.type === "error");
+    const doneEvent = events.find((e) => e.type === "done");
+
+    expect(usageEvent).toBeDefined();
+    expect(errorEvent).toBeDefined();
+    expect((errorEvent as { type: "error"; message: string }).message).toBeTruthy();
+    expect(doneEvent).toBeUndefined();
+  });
+
+  it("yields error event for max_tokens stop_reason", async () => {
+    mockStream.mockReturnValueOnce(makeMockStream("max_tokens"));
+
+    const events = await collectEvents(triageRefine([{ role: "user", content: "test" }], "user-123"));
+
+    const usageEvent = events.find((e) => e.type === "usage");
+    const errorEvent = events.find((e) => e.type === "error");
+    const doneEvent = events.find((e) => e.type === "done");
+
+    expect(usageEvent).toBeDefined();
+    expect(errorEvent).toBeDefined();
+    expect(doneEvent).toBeUndefined();
+  });
+
+  it("yields error event for model_context_window_exceeded stop_reason", async () => {
+    mockStream.mockReturnValueOnce(makeMockStream("model_context_window_exceeded"));
+
+    const events = await collectEvents(triageRefine([{ role: "user", content: "test" }], "user-123"));
+
+    const usageEvent = events.find((e) => e.type === "usage");
+    const errorEvent = events.find((e) => e.type === "error");
+    const doneEvent = events.find((e) => e.type === "done");
+
+    expect(usageEvent).toBeDefined();
+    expect(errorEvent).toBeDefined();
+    expect(doneEvent).toBeUndefined();
+  });
+});
+
+describe("triageRefine — recordUsage (FOO-927)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRecordUsage.mockResolvedValue(undefined);
+  });
+
+  it("calls recordUsage after successful response", async () => {
+    mockStream.mockReturnValueOnce(makeMockStream("end_turn"));
+
+    await collectEvents(triageRefine([{ role: "user", content: "test" }], "user-123"));
+
+    // Allow the fire-and-forget recordUsage promise to resolve
+    await vi.waitFor(() => {
+      expect(mockRecordUsage).toHaveBeenCalledWith(
+        "user-123",
+        "claude-sonnet-4-6",
+        "triage-refine",
+        expect.objectContaining({ inputTokens: 100, outputTokens: 10 }),
+      );
+    });
   });
 });

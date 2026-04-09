@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     "processing triage chat request"
   );
 
-  const generator = triageRefine(messages, initialItems, request.signal, log);
+  const generator = triageRefine(messages, session!.userId, initialItems, request.signal, log);
 
   log.info({ action: "chat_captures_streaming" }, "starting SSE stream for triage chat");
   return createSSEResponse(generator);
