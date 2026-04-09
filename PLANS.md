@@ -192,3 +192,43 @@
 - Claude model pinned to `claude-sonnet-4-6-20250514` (latest available snapshot)
 **Risks:**
 - Task 4 (model pin): verify the exact snapshot ID `claude-sonnet-4-6-20250514` is valid before deploying — check Anthropic docs if unsure
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-04-09
+**Method:** Single-agent (6 tasks across 6 units, effort score 7 — all S-sized surgical fixes except one M, worker overhead exceeds implementation time)
+
+### Tasks Completed This Iteration
+- Task 1: Remove contradictory strict:true test assertions — Removed entire redundant describe block (FOO-931)
+- Task 2: Fix rate limiter unbounded memory growth — Added periodic cleanup every 100 calls + hard cap with oldest-entry eviction, created test file (FOO-932)
+- Task 3: Add timeout to fire-and-forget updateCustomFoodMetadata — Wrapped in Promise.race with 5s timeout (FOO-934)
+- Task 4: Pin Claude model to snapshot ID — Changed to `claude-sonnet-4-6-20250514`, added snapshot format test (FOO-937)
+- Task 5: Add action field to SSE log statements — Added `sse_client_disconnect` and `sse_stream_error` action fields (FOO-942)
+- Task 6: Complete saved analysis body validation — Added unit_id, fiber_g, sodium_mg validation checks and tests (FOO-943)
+
+### Files Modified
+- `src/lib/__tests__/claude.test.ts` — Removed contradictory strict:true describe block, added CLAUDE_MODEL snapshot test
+- `src/lib/rate-limit.ts` — Added periodic cleanup, hard cap eviction, test-only exports
+- `src/lib/__tests__/rate-limit.test.ts` — Created with 5 tests for rate limiter behavior
+- `src/app/api/log-food/route.ts` — Wrapped updateCustomFoodMetadata in Promise.race with 5s timeout
+- `src/lib/claude.ts` — Pinned CLAUDE_MODEL to snapshot ID
+- `src/lib/sse.ts` — Added action fields to warn/error log statements
+- `src/app/api/saved-analyses/route.ts` — Added unit_id, fiber_g, sodium_mg validation
+- `src/app/api/saved-analyses/__tests__/route.test.ts` — Added 3 validation tests
+
+### Linear Updates
+- FOO-931: Todo → In Progress → Review
+- FOO-932: Todo → In Progress → Review
+- FOO-934: Todo → In Progress → Review
+- FOO-937: Todo → In Progress → Review
+- FOO-942: Todo → In Progress → Review
+- FOO-943: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — no bugs found
+- verifier: All 1,163 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

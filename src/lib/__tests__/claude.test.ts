@@ -289,6 +289,11 @@ describe("Anthropic SDK configuration", () => {
       expect.objectContaining({ maxRetries: 2 })
     );
   });
+
+  it("CLAUDE_MODEL is pinned to a snapshot ID (contains date suffix)", async () => {
+    const { CLAUDE_MODEL } = await import("@/lib/claude");
+    expect(CLAUDE_MODEL).toMatch(/\d{8}$/);
+  });
 });
 
 // =============================================================================
@@ -2889,19 +2894,6 @@ describe("Task 5: ANALYSIS_SYSTEM_PROMPT anti-confirmation rules (FOO-645)", () 
   });
 });
 
-describe("All Claude tool definitions have strict mode", () => {
-  afterEach(() => { vi.resetModules(); });
-
-  it("all tool definitions have strict: true", async () => {
-    const { REPORT_NUTRITION_TOOL } = await import("@/lib/claude");
-    const { SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FASTING_INFO_TOOL } = await import("@/lib/chat-tools");
-
-    expect(REPORT_NUTRITION_TOOL.strict).toBe(true);
-    expect(SEARCH_FOOD_LOG_TOOL.strict).toBe(true);
-    expect(GET_NUTRITION_SUMMARY_TOOL.strict).toBe(true);
-    expect(GET_FASTING_INFO_TOOL.strict).toBe(true);
-  });
-});
 
 // Helper to get the MockAPIError constructor from the mocked SDK
 type MockAPIErrorCtor = new (status: number, message: string, error?: unknown) => Error & { status: number; error: unknown };

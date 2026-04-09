@@ -41,9 +41,9 @@ export function createSSEResponse(
           err instanceof TypeError &&
           (err.message.includes("enqueue") || err.message.includes("Controller") || err.message.includes("closed"));
         if (isClientDisconnect) {
-          logger.warn({ err }, "SSE client disconnected during streaming");
+          logger.warn({ action: "sse_client_disconnect", err }, "SSE client disconnected during streaming");
         } else {
-          logger.error({ err }, "SSE generator threw an unexpected error");
+          logger.error({ action: "sse_stream_error", err }, "SSE generator threw an unexpected error");
         }
         try {
           const isOverloaded = err instanceof Error && err.name === "CLAUDE_API_ERROR" && err.message.includes("overloaded");

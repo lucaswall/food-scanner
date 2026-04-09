@@ -7,11 +7,33 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>();
 const MAX_STORE_SIZE = 1000;
+const CLEANUP_INTERVAL = 100;
+let callCount = 0;
 
 function cleanExpiredEntries(now: number): void {
   for (const [k, v] of store) {
     if (v.resetAt <= now) store.delete(k);
   }
+}
+
+function evictOldest(): void {
+  let oldestKey: string | null = null;
+  let oldestResetAt = Infinity;
+  for (const [k, v] of store) {
+    if (v.resetAt < oldestResetAt) {
+      oldestResetAt = v.resetAt;
+      oldestKey = k;
+    }
+  }
+  if (oldestKey) store.delete(oldestKey);
+}
+
+export function _getStoreSize(): number {
+  return store.size;
+}
+
+export function _getMaxStoreSize(): number {
+  return MAX_STORE_SIZE;
 }
 
 export function checkRateLimit(
@@ -21,8 +43,14 @@ export function checkRateLimit(
 ): { allowed: boolean; remaining: number } {
   const now = Date.now();
 
-  if (store.size > MAX_STORE_SIZE) {
+  callCount++;
+  if (callCount % CLEANUP_INTERVAL === 0 || store.size > MAX_STORE_SIZE) {
     cleanExpiredEntries(now);
+  }
+
+  // Hard cap: evict oldest entries if still over limit after cleanup
+  while (store.size >= MAX_STORE_SIZE) {
+    evictOldest();
   }
 
   const entry = store.get(key);

@@ -135,6 +135,27 @@ describe("POST /api/saved-analyses validation (FOO-908)", () => {
     expect(response.status).toBe(400);
   });
 
+  it("returns 400 when unit_id is missing", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { unit_id: _, ...noUnitId } = validFoodAnalysis;
+    const response = await POST(makePostRequest({ foodAnalysis: noUnitId }));
+    expect(response.status).toBe(400);
+  });
+
+  it("returns 400 when fiber_g is missing", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { fiber_g: _, ...noFiber } = validFoodAnalysis;
+    const response = await POST(makePostRequest({ foodAnalysis: noFiber }));
+    expect(response.status).toBe(400);
+  });
+
+  it("returns 400 when sodium_mg is missing", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { sodium_mg: _, ...noSodium } = validFoodAnalysis;
+    const response = await POST(makePostRequest({ foodAnalysis: noSodium }));
+    expect(response.status).toBe(400);
+  });
+
   it("returns 201 when all required fields are present", async () => {
     mockSaveAnalysis.mockResolvedValue({ id: 1, createdAt: new Date().toISOString() });
     const response = await POST(makePostRequest({ foodAnalysis: validFoodAnalysis }));

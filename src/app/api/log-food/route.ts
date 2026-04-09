@@ -292,10 +292,14 @@ export async function POST(request: Request) {
           if (body.newKeywords !== undefined) metadataUpdate.keywords = body.newKeywords as string[];
           if (body.newConfidence !== undefined) metadataUpdate.confidence = body.newConfidence as "high" | "medium" | "low";
 
-          updateCustomFoodMetadata(session!.userId, existingFood.id, metadataUpdate).catch((err) => {
-            log.error(
-              { action: "update_custom_food_metadata_failed", error: err instanceof Error ? err.message : String(err) },
-              "Failed to update custom food metadata (non-blocking)"
+          Promise.race([
+            updateCustomFoodMetadata(session!.userId, existingFood.id, metadataUpdate),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
+          ]).catch((err) => {
+            const isTimeout = err instanceof Error && err.message === "timeout";
+            log.warn(
+              { action: isTimeout ? "update_custom_food_metadata_timeout" : "update_custom_food_metadata_failed", error: err instanceof Error ? err.message : String(err) },
+              isTimeout ? "Custom food metadata update timed out (non-blocking)" : "Failed to update custom food metadata (non-blocking)"
             );
           });
         }
