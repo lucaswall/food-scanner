@@ -471,14 +471,28 @@ export interface ConversationMessage {
   isThinking?: boolean;
 }
 
-export interface ChatFoodRequest {
-  messages: ConversationMessage[];
-  initialAnalysis?: FoodAnalysis;
+export interface CaptureItem {
+  id: string;
+  imageCount: number;
+  note: string | null;
+  capturedAt: string;
+  order: number;
+}
+
+export interface CaptureSession {
+  id: string;
+  captures: CaptureItem[];
+  createdAt: string;
 }
 
 export interface ChatCapturesRequest {
   messages: ConversationMessage[];
   initialItems?: FoodAnalysis[];
+}
+
+export interface ChatFoodRequest {
+  messages: ConversationMessage[];
+  initialAnalysis?: FoodAnalysis;
 }
 
 export interface ChatFoodResponse {
@@ -533,18 +547,4 @@ export interface BloodPressureReadingInput {
 
 export interface SavedAnalysisDetail extends SavedAnalysisListItem {
   foodAnalysis: FoodAnalysis;
-}
-
-export interface CaptureItem {
-  id: string;
-  imageCount: number;
-  note: string | null;
-  capturedAt: string;
-  order: number;
-}
-
-export interface CaptureSession {
-  id: string;
-  captures: CaptureItem[];
-  createdAt: string;
 }
