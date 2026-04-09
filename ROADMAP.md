@@ -8,9 +8,6 @@
 | [Offline Queue with Background Sync](#offline-queue-with-background-sync) | Queue meals offline, analyze and log when back online |
 | [Food Log Push Notifications](#food-log-push-notifications) | Push nutrition data directly to Health Connect via a thin Android wrapper |
 | [Quick Capture Session](#quick-capture-session) | Snap photos and notes quickly at meals, process everything later at home |
-| [Save for Later](#save-for-later) | Analyze food now, save the result, log it when you actually eat it |
-
-
 
 ---
 
@@ -341,94 +338,6 @@ Claude's API supports up to 20 images per message. A restaurant session could ex
 6. Processing UI: single conversation with all captures, chat refinement
 7. Batch logging (Log All → multiple entries at once, session deleted on success)
 8. Image budget management for large sessions
-
----
-
-## Save for Later
-
-### Problem
-
-The current flow requires logging food immediately after analysis. But meals are often prepared in advance — packing lunch for work, cooking dinner early — and the user doesn't want to log food they haven't eaten yet. There's no way to save an analysis result and come back to log it later. Navigating away from the analysis screen loses all results.
-
-### Goal
-
-Let the user analyze food at preparation time and save the result, then log it with one tap when they actually eat it.
-
-### Design
-
-#### Save Triggers
-
-Two places to save an analysis for later:
-
-- **Post-analysis screen:** A secondary outline "Save for Later" button (with a Clock icon) below the primary "Log to Fitbit" button. Visible whenever an analysis result is displayed.
-- **Chat header:** A Clock icon button in the `FoodChat` header bar. Saves the latest `report_nutrition` result from the conversation. Covers the case where the user refined with chat and wants to defer logging.
-
-Both save the current `FoodAnalysis` data to the database and show a brief toast confirmation ("Saved — find it on your dashboard"). The user is returned to the dashboard or can continue navigating.
-
-#### Dashboard Section
-
-A "Saved for Later" section appears on the dashboard **only when viewing today's date** and only when there are saved items. Positioned above the meal breakdown section.
-
-**Section header:** "Saved for Later" with a count badge.
-
-**Cards:** Each saved item renders as a compact card:
-- **Left side:** Food name (truncated if long), calories, and relative time ("2h ago", "yesterday").
-- **Right side:** Two icon buttons side by side:
-  - **Check icon** — Quick-log: logs immediately using the current time and auto-selected meal type (based on `getDefaultMealType()`). Shows a toast with the result ("Logged Milanesa as Lunch"). One tap, no dialogs.
-  - **MessageSquare icon** — Refine: opens a chat session seeded with the saved analysis. Date and time are set to now when the chat opens. After refinement, the user logs from the chat as usual. On successful log, the saved item is deleted.
-
-**Tap card body** → opens a detail bottom sheet with:
-- Full nutrition breakdown (reuse `AnalysisResult` component).
-- **Meal type selector** + **time selector** (defaults to now and auto-selected meal type).
-- **"Log to Fitbit" button** — logs with the selected meal type and time.
-- **"Refine with Chat" button** — same as the MessageSquare icon action.
-- **"Discard" button** (destructive style, at the bottom) — requires a confirmation dialog before deleting.
-
-#### Multiple Items
-
-Users can save multiple analyses. Cards are ordered by creation time (newest first). No limit on count — practical usage is 1–3 items per day.
-
-#### Date and Time Handling
-
-The analysis timestamp is stored for display ("2h ago") but is **not** used for logging. When the user logs (via quick-log icon, detail sheet, or after chat refinement), the date and time are always set to the current moment. This matches the intent: "I'm eating this now."
-
-#### Lifecycle
-
-- **Created:** User taps "Save for Later" after analysis or from chat header.
-- **Logged:** User logs via any of the three paths (quick-log, detail sheet, chat refinement). The saved item is deleted. The food enters the normal `customFoods` + `foodLogEntries` pipeline.
-- **Discarded:** User taps Discard in the detail sheet and confirms. The saved item is permanently deleted.
-- **No expiration.** Items persist until explicitly logged or discarded. The dashboard section makes them impossible to forget.
-
-### Architecture
-
-- **New DB table:** `saved_analyses` — `id` (serial PK), `userId` (FK → users), `foodAnalysis` (JSONB, stores the full `FoodAnalysis` object), `description` (text, the food name for display), `calories` (integer, denormalized for card display without parsing JSONB), `createdAt` (timestamptz).
-- **No images stored.** The AI analysis is complete — only the structured nutrition result is saved. Images are not needed to log or refine.
-- **API routes:**
-  - `POST /api/saved-analyses` — save an analysis (accepts `FoodAnalysis` JSON).
-  - `GET /api/saved-analyses` — list all saved items for the user (ordered by `createdAt` desc).
-  - `DELETE /api/saved-analyses/:id` — discard a saved item.
-- **Chat refinement:** When refining a saved analysis, the existing `/api/chat-food` endpoint is used. The saved `FoodAnalysis` is passed as the seed analysis. On successful log via `/api/log-food`, the client calls `DELETE /api/saved-analyses/:id` to clean up.
-- **SWR integration:** New `useSWR('/api/saved-analyses')` call in the dashboard. Cache invalidated after save, log, or discard.
-- **No changes to Fitbit API integration.** Logging a saved analysis uses the exact same `/api/log-food` endpoint as immediate logging.
-
-### Edge Cases
-
-- **Save from chat with no analysis yet:** The chat header save button is disabled until Claude has called `report_nutrition` at least once.
-- **Duplicate saves:** If the user analyzes the same food twice and saves both, both entries are kept. They're independent — the user decides which to log or discard.
-- **Quick-log fails (Fitbit token expired):** Same error handling as regular logging — redirect to Fitbit OAuth with pending submission in sessionStorage. On return, the food is logged and the saved item is deleted.
-- **App opened after days with stale saved items:** Items remain visible on today's dashboard. The relative time ("3 days ago") makes staleness obvious. User can discard or log at any time.
-- **Refine chat modifies nutrition significantly:** The chat produces a new `FoodAnalysis` via `report_nutrition`. On log, the new analysis is what gets logged, not the original saved data. The saved item is still deleted since it served its purpose.
-
-### Implementation Order
-
-1. `saved_analyses` DB table (Drizzle schema + migration)
-2. API routes: save, list, delete
-3. "Save for Later" button in post-analysis UI (`food-analyzer.tsx`)
-4. "Save for Later" icon in chat header (`food-chat.tsx`)
-5. Dashboard "Saved for Later" section with compact cards and quick-log/refine icons
-6. Detail bottom sheet with full nutrition, meal type/time selector, log/refine/discard
-7. Chat refinement flow seeded from saved analysis
-8. Cleanup: delete saved item on successful log or discard
 
 ---
 
