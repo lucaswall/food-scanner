@@ -214,3 +214,17 @@ export const bloodPressureReadings = pgTable(
     userMeasuredAtUnique: unique("blood_pressure_readings_user_measured_at_uniq").on(table.userId, table.measuredAt),
   })
 );
+
+export const hydrationReadings = pgTable(
+  "hydration_readings",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    measuredAt: timestamp("measured_at", { withTimezone: true }).notNull(),
+    zoneOffset: varchar("zone_offset", { length: 6 }),
+    volumeMl: integer("volume_ml").notNull(),
+  },
+  (table) => ({
+    userMeasuredAtUnique: unique("hydration_readings_user_measured_at_uniq").on(table.userId, table.measuredAt),
+  })
+);

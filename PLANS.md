@@ -1,269 +1,334 @@
 # Implementation Plan
 
-**Status:** COMPLETE
 **Created:** 2026-04-10
-**Source:** Backlog: FOO-956, FOO-957, FOO-958, FOO-959, FOO-960, FOO-961
-**Linear Issues:** [FOO-956](https://linear.app/lw-claude/issue/FOO-956/staging-qa-scenario-1-saved-for-later-pass-criterion-fails-when), [FOO-957](https://linear.app/lw-claude/issue/FOO-957/staging-qa-scenario-4-visual-criteria-misrepresents-chat-architecture), [FOO-958](https://linear.app/lw-claude/issue/FOO-958/staging-qa-scenario-11-two-screenshots-contradicts-one-per-scenario), [FOO-959](https://linear.app/lw-claude/issue/FOO-959/staging-qa-coverage-gap-quick-capture-and-process-captures-untested), [FOO-960](https://linear.app/lw-claude/issue/FOO-960/staging-qa-scenarios-10-and-12-provide-minimal-regression-detection), [FOO-961](https://linear.app/lw-claude/issue/FOO-961/staging-qa-coverage-gap-log-sharedtoken-page-untested)
-**Branch:** fix/staging-qa-improvements
+**Source:** Inline request: Hydration data sync from Health Connect to Food Scanner via Health Helper
+**Linear Issues:** [FOO-963](https://linear.app/lw-claude/issue/FOO-963/hydration-readings-schema-types-and-data-access-layer), [FOO-964](https://linear.app/lw-claude/issue/FOO-964/hydration-readings-api-route-post-get-with-tests), [FOO-965](https://linear.app/lw-claude/issue/FOO-965/hydration-readings-apimd-and-claudemd-documentation), [HEA-195](https://linear.app/lw-claude/issue/HEA-195/read-hydration-data-from-health-connect), [HEA-196](https://linear.app/lw-claude/issue/HEA-196/push-hydration-readings-to-food-scanner-sync-integration)
+**Branch:** feat/hydration-readings
 
 ## Context Gathered
 
 ### Codebase Analysis
 
-- **Skill files:** `.claude/skills/staging-qa/SKILL.md` (main skill definition, 322 lines) and `.claude/skills/staging-qa/references/test-scenarios.md` (scenario definitions, 526 lines with 14 scenarios)
-- **Current scenario slugs (SKILL.md:129):** `dashboard`, `weekly`, `analyze`, `refine`, `log`, `delete`, `quick-select`, `food-detail`, `edit`, `labels`, `settings`, `chat`, `save`, `log-saved`
-- **Report table (SKILL.md:244-257):** Lists 12 scenarios (scenarios 13-14 `save` and `log-saved` are missing from the report template)
-- **Screenshot rule (SKILL.md:309):** "One visual assessment screenshot per scenario — minimize token waste, maximize QA value."
-- **Seeding failure rule (SKILL.md:110):** "If seeding fails: WARN but continue."
+**Food Scanner — Reference pattern (blood metrics):**
+- **Schema:** `src/db/schema.ts:175-216` — `glucoseReadings` and `bloodPressureReadings` tables with `(userId, measuredAt)` composite unique constraint, `zoneOffset` varchar(6), domain-specific fields
+- **Types:** `src/types/index.ts:503-546` — `GlucoseReading`/`GlucoseReadingInput` and `BloodPressureReading`/`BloodPressureReadingInput` interface pairs (output has `id`, input omits it)
+- **Lib:** `src/lib/health-readings.ts:1-140` — upsert with `onConflictDoUpdate` on composite key, date-range GET with UTC calendar day boundaries (`T00:00:00.000Z` to `T23:59:59.999Z`), `asc(measuredAt)` ordering
+- **API route:** `src/app/api/v1/blood-pressure-readings/route.ts:1-172` — POST (batch upsert with per-field validation, MAX_BATCH_SIZE=1000) and GET (single date or from/to range, ETag via `conditionalResponse`). Auth via `validateApiRequest()`, rate limit 60 req/min
+- **Tests:** `src/app/api/v1/blood-pressure-readings/__tests__/route.test.ts:1-525` — mocks for api-auth, logger, health-readings, rate-limit. Tests POST (valid, empty, auth, rate limit, missing fields, invalid enums, batch overflow, DB error) and GET (single date, range, empty, missing params, invalid dates, from>to, auth, rate limit, DB error, ETag, 304)
+- **API docs:** `API.md` — documents v1 endpoints but blood pressure/glucose not yet added to it
+- **No existing hydration/water code** in food-scanner
 
-**Referenced application code (verified existence):**
-- `src/components/food-analyzer.tsx:560` — Chat renders as `<div className="fixed inset-0 z-[60]">` (full-screen replacement, NOT an overlay)
-- `src/app/app/capture/page.tsx` — Quick Capture page, renders `<QuickCapture />` component
-- `src/app/app/process-captures/page.tsx` — Process Captures page, renders `<CaptureTriage />` with heading "Process Captures"
-- `src/components/quick-capture.tsx` — Camera input, note entry, capture list, IDB storage via `useCaptureSession`
-- `src/components/capture-triage.tsx` — States: preview → analyzing → results → saving → done. Redirects to `/app` when no captures.
-- `src/app/app/log-shared/[token]/page.tsx` — Shared food page, renders `<LogSharedContent token={token} />`
-- `src/app/app/log-shared/[token]/log-shared-content.tsx` — Fetches via `useSWR('/api/shared-food/${token}')`, displays nutrition card + meal type selector + log button
-- `src/app/api/shared-food/[token]/route.ts` — API for fetching shared food by token
-- `src/app/api/share/route.ts` — API for creating share tokens
-- `src/components/nutrition-labels.tsx` — Label list with search, delete dialog, detail sheet. Uses `useSWR('/api/nutrition-labels')`
-- `src/components/chat-page-client.tsx` — Standalone chat page with `<FoodChat>` component, height `h-[calc(100dvh-5rem)]`
+**Health Helper — Sync infrastructure:**
+- **Domain model:** `domain/model/GlucoseReading.kt`, `domain/model/BloodPressureReading.kt` — data classes with validation in `init` block
+- **Repository interface:** `domain/repository/BloodGlucoseRepository.kt:6-10` — `writeBloodGlucoseRecord()`, `getLastReading()`, `getReadings(start, end)`
+- **HC implementation:** `data/repository/HealthConnectBloodGlucoseRepository.kt` — paginated reads with 120s cumulative / 10s per-page timeout, `DataOrigin` filtering, watermark support
+- **Mapper:** `data/repository/BloodGlucoseRecordMapper.kt` — bidirectional mapping between domain model and HC record
+- **DTOs:** `data/api/dto/HealthReadingsDtos.kt:1-39` — `GlucoseReadingDto`, `GlucoseReadingRequest`, `BloodPressureReadingDto`, `BloodPressureReadingRequest`, `UpsertResponse`
+- **API client:** `data/api/FoodScannerApiClient.kt` — `postGlucoseReadings()`, `postBloodPressureReadings()` with retry on 5xx/429
+- **Push repo:** `data/repository/FoodScannerHealthRepositoryImpl.kt` — `pushGlucoseReadings()`, `pushBloodPressureReadings()` with DTO mapping
+- **Sync:** `domain/usecase/SyncHealthReadingsUseCase.kt` — generic `syncType()` with watermark, ledger dedup, exponential backoff retry
+- **Settings:** `domain/repository/SettingsRepository.kt` — per-type: watermark flow, count, caught-up, run timestamp, direct-push ledger
+- **DI:** `di/AppModule.kt:84-94` — `provideBloodPressureRepository()`, `provideBloodGlucoseRepository()` bindings
+- **Manifest:** `AndroidManifest.xml:17-21` — READ/WRITE permissions for blood_pressure, blood_glucose, nutrition, plus READ_HEALTH_DATA_HISTORY
+- **Tests:** `test/.../HealthConnectBloodGlucoseRepositoryTest.kt` — comprehensive tests for write, getLastReading, getReadings with pagination/timeout/error cases
+
+**Health Connect HydrationRecord (external research):**
+- `HydrationRecord` is an `IntervalRecord` (startTime + endTime), not an instant
+- Fields: `volume` (Volume class, ml/L/flOz), `startTime`, `endTime`, `startZoneOffset`, `endZoneOffset`, `metadata` (id, dataOrigin, etc.)
+- HidrateSpark writes per-drink records; no public API exists
+- Permission: `android.permission.health.READ_HYDRATION`
+- 30-day historical limit applies (existing watermark pattern handles this)
+- No fluid type field in Health Connect
 
 ### MCP Context
 
-- **Linear:** Food Scanner team confirmed. 6 Backlog issues, all staging-qa related. Canceled state UUID: `081ec407-33c9-4a50-894d-e5971f8beff4`.
+- **Linear:** Food Scanner team confirmed (ID: `3e498d7a-30d2-4c11-89b3-ed7bd8cb2031`), Health Helper team confirmed (ID: `7b911426-efe2-48cb-93a4-4d69cd4592a6`). No existing hydration-related issues.
 
-### Triage Results
+## Design Decisions
 
-**Planned:** FOO-956, FOO-957, FOO-958, FOO-959, FOO-960, FOO-961
-**Canceled:** None — all issues are valid and actionable.
-
-## Scope
-
-All changes are to `.claude/skills/staging-qa/` markdown files only. No application source code, no tests, no builds. These are skill definition edits that improve the staging QA automation accuracy and coverage.
-
-**Files modified:**
-- `.claude/skills/staging-qa/SKILL.md` (modify)
-- `.claude/skills/staging-qa/references/test-scenarios.md` (modify)
+- **Single `measuredAt` timestamp** mapped from HydrationRecord's `startTime` — endTime discarded (drinks are short intervals)
+- **All hydration sources** — no `dataOrigin` filtering in Health Helper; any HC hydration record counts
+- **`integer` volume in ml** — whole milliliters sufficient for water tracking
+- **API-only** — no UI in Food Scanner; data consumed by external sources via GET endpoint
+- **No fluid type field** — Health Connect doesn't provide it; table stores volume + time only
 
 ## Tasks
 
-### Task 1: Fix Scenario 1 "Saved for Later" seed-conditional pass criteria
-**Linear Issue:** [FOO-956](https://linear.app/lw-claude/issue/FOO-956/staging-qa-scenario-1-saved-for-later-pass-criterion-fails-when)
+### Task 1: Food Scanner — Schema, types, and data access layer
+**Linear Issue:** [FOO-963](https://linear.app/lw-claude/issue/FOO-963/hydration-readings-schema-types-and-data-access-layer)
 **Files:**
-- `.claude/skills/staging-qa/references/test-scenarios.md` (modify)
+- `src/db/schema.ts` (modify)
+- `src/types/index.ts` (modify)
+- `src/lib/health-readings.ts` (modify)
 
 **Steps:**
-1. In Scenario 1, step 6: Change from unconditional "Verify Saved for Later section" to conditional on seeding success. If seeding succeeded, verify the section shows saved items. If seeding failed or was skipped, verify the section renders correctly (either with existing data or empty state) — do NOT fail on missing seed data.
-2. In Scenario 1, pass criteria (line 32): Change `"Saved for Later" section visible with seed data (at least one saved item card)` to a conditional criterion: if seeding succeeded, at least one saved item card is required; if seeding failed, the section rendering at all (content or empty state) is a PASS with WARN.
-3. In Scenario 1, visual criteria: Similarly make the "Saved for Later section renders below meals" criterion conditional — when seeding failed, accept empty state rendering.
+1. Add `hydrationReadings` table to `src/db/schema.ts` following the `bloodPressureReadings` pattern:
+   - `id` serial PK, `userId` uuid FK to users, `measuredAt` timestamp with timezone notNull, `zoneOffset` varchar(6), `volumeMl` integer notNull
+   - Composite unique constraint on `(userId, measuredAt)` named `hydration_readings_user_measured_at_uniq`
+2. Add `HydrationReading` interface to `src/types/index.ts` (with `id`, `measuredAt`, `zoneOffset`, `volumeMl`) and `HydrationReadingInput` (without `id`). Follow the glucose/BP pattern with `string | null` for optional fields.
+3. Add `upsertHydrationReadings(userId, readings)` to `src/lib/health-readings.ts` following the `upsertBloodPressureReadings` pattern — `onConflictDoUpdate` on `(userId, measuredAt)`, update `zoneOffset` and `volumeMl` on conflict.
+4. Add `getHydrationReadings(userId, from, to)` to `src/lib/health-readings.ts` following the `getBloodPressureReadings` pattern — UTC calendar day boundaries, `asc(measuredAt)` ordering.
+5. Run `npx drizzle-kit generate` to create the migration file. Never hand-write migration files.
 
 **Notes:**
-- The key insight is that SKILL.md Phase 2 says "If seeding fails: WARN but continue", so downstream scenarios must not hard-FAIL on missing seed data.
-- The scenario should still FAIL if seeding succeeded but the section doesn't render — that indicates a real bug.
+- **Migration note:** New `hydration_readings` table created. No existing production data affected.
+- `volumeMl` uses `integer` (not `numeric` like glucose's `valueMgDl`) — no decimal precision needed.
 
-### Task 2: Fix Scenario 4 visual criteria to match actual chat architecture
-**Linear Issue:** [FOO-957](https://linear.app/lw-claude/issue/FOO-957/staging-qa-scenario-4-visual-criteria-misrepresents-chat-architecture)
+### Task 2: Food Scanner — API route with tests
+**Linear Issue:** [FOO-964](https://linear.app/lw-claude/issue/FOO-964/hydration-readings-api-route-post-get-with-tests)
 **Files:**
-- `.claude/skills/staging-qa/references/test-scenarios.md` (modify)
+- `src/app/api/v1/hydration-readings/route.ts` (create)
+- `src/app/api/v1/hydration-readings/__tests__/route.test.ts` (create)
 
 **Steps:**
-1. In Scenario 4, step 12 visual assessment (line 150): Replace "Chat overlay is properly layered over the analysis result" with description of a full-screen chat view (`fixed inset-0`). The chat completely replaces the analysis view — it is NOT layered on top.
-2. In Scenario 4, visual criteria section (line 162): Replace "Chat overlay renders cleanly over the result" with criteria about the full-screen chat rendering: back/close button visible, messages area fills the screen, input at the bottom.
-3. Keep "Messages are legible at mobile width" and "Input area accessible at bottom of screen" — these remain accurate.
+1. Write tests in `src/app/api/v1/hydration-readings/__tests__/route.test.ts` following the blood-pressure-readings test file exactly:
+   - Same mock setup pattern (api-auth, logger, health-readings, rate-limit)
+   - POST tests: valid batch → 200 with upserted count, empty array → 200 with 0, auth 401, rate limit 429, missing `readings` field 400, non-array readings 400, missing `measuredAt` 400, missing `volumeMl` 400, non-positive `volumeMl` 400, non-integer `volumeMl` 400, invalid ISO 8601 `measuredAt` 400, invalid `zoneOffset` format 400, batch exceeds 1000 → 400, DB error → 500, valid with optional `zoneOffset` → 200
+   - GET tests: single date → 200, date range → 200, empty result → 200 empty array, missing params → 400, from without to → 400, to without from → 400, invalid date format → 400, from > to → 400, auth 401, rate limit 429, DB error → 500, ETag header present, 304 on If-None-Match match
+2. Run verifier (expect fail — route doesn't exist yet)
+3. Implement `src/app/api/v1/hydration-readings/route.ts` following the blood-pressure-readings route pattern:
+   - POST: `validateApiRequest()` → `checkRateLimit()` (60 req/min, key `v1:hydration-readings:...`) → parse JSON body → validate `readings` array (max 1000) → per-reading validation: `measuredAt` (ISO_8601_RE), `volumeMl` (positive integer), optional `zoneOffset` (ZONE_OFFSET_RE) → call `upsertHydrationReadings()` → `successResponse({ upserted })`
+   - GET: `validateApiRequest()` → `checkRateLimit()` → parse `date` or `from`/`to` params → validate with `isValidDateFormat()` → call `getHydrationReadings()` → `conditionalResponse()` with ETag
+4. Run verifier (expect pass)
 
 **Notes:**
-- Verified in `src/components/food-analyzer.tsx:560`: `<div className="fixed inset-0 z-[60] flex flex-col bg-background">` — this is a full-screen replacement, not an overlay.
+- Simpler validation than blood pressure — only 3 fields (measuredAt, volumeMl, zoneOffset), no enum values to validate.
+- Follow the same import pattern: `validateApiRequest`, `hashForRateLimit` from `@/lib/api-auth`; `successResponse`, `conditionalResponse`, `errorResponse` from `@/lib/api-response`; `createRequestLogger` from `@/lib/logger`; `checkRateLimit` from `@/lib/rate-limit`; `isValidDateFormat` from `@/lib/date-utils`.
 
-### Task 3: Resolve Scenario 11 "two screenshots" contradiction
-**Linear Issue:** [FOO-958](https://linear.app/lw-claude/issue/FOO-958/staging-qa-scenario-11-two-screenshots-contradicts-one-per-scenario)
+### Task 3: Food Scanner — Documentation updates
+**Linear Issue:** [FOO-965](https://linear.app/lw-claude/issue/FOO-965/hydration-readings-apimd-and-claudemd-documentation)
 **Files:**
-- `.claude/skills/staging-qa/references/test-scenarios.md` (modify)
+- `API.md` (modify)
+- `CLAUDE.md` (modify)
 
 **Steps:**
-1. In Scenario 11 (Settings Page), step 8 (line 401): Change "take TWO screenshots (top and bottom after scrolling)" to take ONE screenshot after scrolling to the bottom of the page. The bottom view captures the API Keys and Claude Usage sections, which are the most likely to break. The top sections (session info, Fitbit status) are verified functionally in steps 4-6.
-2. This aligns with SKILL.md:309 rule "One visual assessment screenshot per scenario" without needing to add exception language.
+1. Add hydration-readings endpoint documentation to `API.md`:
+   - Add `POST /api/v1/hydration-readings` section with request/response schema, validation rules, and error codes
+   - Add `GET /api/v1/hydration-readings` section with query parameters (`date` or `from`/`to`), response schema, ETag support
+   - Add both endpoints to the Summary table (60/min rate limit, PostgreSQL data source)
+   - Also add the blood-pressure-readings and glucose-readings endpoints that are currently missing from API.md (POST+GET for each)
+2. Update `CLAUDE.md` DATABASE section: add `hydration_readings` to the tables list.
 
 **Notes:**
-- The Settings page is long and scrollable, but one screenshot (scrolled to show the bottom sections) is sufficient for visual regression detection. The top sections are already verified functionally by `find`/`read_page` in earlier steps.
+- Blood pressure and glucose endpoints were added after API.md was last updated — include them now for completeness.
 
-### Task 4: Enhance Scenarios 10 and 12 with interaction testing
-**Linear Issue:** [FOO-960](https://linear.app/lw-claude/issue/FOO-960/staging-qa-scenarios-10-and-12-provide-minimal-regression-detection)
+### Task 4: Health Helper — Read hydration from Health Connect
+**Linear Issue:** [HEA-195](https://linear.app/lw-claude/issue/HEA-195/read-hydration-data-from-health-connect)
 **Files:**
-- `.claude/skills/staging-qa/references/test-scenarios.md` (modify)
+- `app/src/main/kotlin/com/healthhelper/app/domain/model/HydrationReading.kt` (create)
+- `app/src/main/kotlin/com/healthhelper/app/domain/repository/HydrationRepository.kt` (create)
+- `app/src/main/kotlin/com/healthhelper/app/data/repository/HealthConnectHydrationRepository.kt` (create)
+- `app/src/main/kotlin/com/healthhelper/app/data/repository/HydrationRecordMapper.kt` (create)
+- `app/src/main/AndroidManifest.xml` (modify)
+- `app/src/test/kotlin/com/healthhelper/app/data/repository/HealthConnectHydrationRepositoryTest.kt` (create)
 
 **Steps:**
-
-**Scenario 10 (Labels Page) enhancements:**
-1. After step 4 (verify page renders), add: if label cards exist (not empty state), click one label card to open the `NutritionLabelDetailSheet` (verified in `nutrition-labels.tsx:19,29-30`). Verify the detail sheet opens with nutrition data (calories, macros). Close the sheet.
-2. Add: test the search input — type a search query using `computer` type action, verify the list filters (or shows no results). Clear the search.
-3. Update pass criteria: add "Label detail sheet opens on card click (if labels exist)" and "Search input filters labels".
-4. Update visual criteria: add "Label cards show food name and calorie values" and "Detail sheet overlays correctly".
-
-**Scenario 12 (Chat Page) enhancements:**
-1. After step 3 (verify input is interactive), add: verify the page has a title or heading (the `<FoodChat>` component renders with `title="Chat"` — look for "Chat" heading). Verify a close/back button exists (the `onClose` handler navigates to `/app`).
-2. Add a note explaining the intentional scope: "This scenario intentionally does NOT send a message — AI interaction is already covered by scenarios 3/4/5/9. This tests standalone chat page rendering and navigation."
-3. Update pass criteria: add "Chat heading is visible" and "Back/close button is present".
+1. Create `HydrationReading` domain model with: `volumeMl: Int` (validated > 0 in `init`), `timestamp: Instant`, `zoneOffset: java.time.ZoneOffset?`. Follow `BloodPressureReading.kt` pattern.
+2. Create `HydrationRepository` interface following `BloodGlucoseRepository.kt` pattern: `getReadings(start: Instant, end: Instant): List<HydrationReading>`. No `write` or `getLastReading` needed — this is read-only from Health Connect.
+3. Create `HydrationRecordMapper.kt` with `mapToHydrationReading(record: HydrationRecord): HydrationReading` — map `record.startTime` to `timestamp`, `record.volume.inMilliliters.toInt()` to `volumeMl`, `record.startZoneOffset` to `zoneOffset`. Follow `BloodGlucoseRecordMapper.kt` pattern. No reverse mapping needed (read-only).
+4. Create `HealthConnectHydrationRepository.kt` following `HealthConnectBloodGlucoseRepository.kt`:
+   - `getReadings(start, end)` with paginated reads, 120s cumulative / 10s per-page timeout
+   - No `DataOrigin` filtering — read all hydration sources
+   - No `writeHydrationRecord` — this is read-only
+   - No `getLastReading` — not needed for sync-only
+5. Write tests in `HealthConnectHydrationRepositoryTest.kt` following the glucose test pattern: null client returns empty, successful reads with mapping, pagination, timeout handling, SecurityException, CancellationException propagation.
+6. Add `android.permission.health.READ_HYDRATION` to `AndroidManifest.xml` alongside existing health permissions.
+7. Run verifier (health-helper tests)
 
 **Notes:**
-- `NutritionLabels` component uses `useSWR('/api/nutrition-labels')` and renders cards with `setSelectedLabel`/`setDetailOpen` for the detail sheet.
-- `ChatPageClient` renders `<FoodChat title="Chat" onClose={() => router.push("/app")} />`.
+- Key difference from glucose/BP: HydrationRecord is an IntervalRecord. Use `startTime` for the timestamp, ignore `endTime`.
+- No write capability needed — Health Helper only reads hydration from Health Connect (HidrateSpark writes it).
+- No `getLastReading()` — only `getReadings()` for sync watermark-based batch reads.
 
-### Task 5: Add Scenario 15 — Quick Capture page
-**Linear Issue:** [FOO-959](https://linear.app/lw-claude/issue/FOO-959/staging-qa-coverage-gap-quick-capture-and-process-captures-untested)
+### Task 5: Health Helper — Push hydration to Food Scanner + sync integration
+**Linear Issue:** [HEA-196](https://linear.app/lw-claude/issue/HEA-196/push-hydration-readings-to-food-scanner-sync-integration)
 **Files:**
-- `.claude/skills/staging-qa/references/test-scenarios.md` (modify)
-- `.claude/skills/staging-qa/SKILL.md` (modify — add slug to valid list and report table)
+- `app/src/main/kotlin/com/healthhelper/app/data/api/dto/HealthReadingsDtos.kt` (modify)
+- `app/src/main/kotlin/com/healthhelper/app/data/api/FoodScannerApiClient.kt` (modify)
+- `app/src/main/kotlin/com/healthhelper/app/domain/repository/FoodScannerHealthRepository.kt` (modify)
+- `app/src/main/kotlin/com/healthhelper/app/data/repository/FoodScannerHealthRepositoryImpl.kt` (modify)
+- `app/src/main/kotlin/com/healthhelper/app/domain/repository/SettingsRepository.kt` (modify)
+- `app/src/main/kotlin/com/healthhelper/app/data/repository/DataStoreSettingsRepository.kt` (modify)
+- `app/src/main/kotlin/com/healthhelper/app/domain/usecase/SyncHealthReadingsUseCase.kt` (modify)
+- `app/src/main/kotlin/com/healthhelper/app/di/AppModule.kt` (modify)
 
 **Steps:**
-1. Add new Scenario 15 at the end of `test-scenarios.md` with slug `capture`.
-2. Scenario structure:
-   - Navigate to `/app/capture`
-   - Verify the page loads — look for the capture UI elements (file input for photos, note input area)
-   - Verify the capture card list area exists (even if empty — no captures yet)
-   - Verify the "Process Captures" navigation or action button exists if applicable
-   - Visual assessment screenshot
-   - Check for console errors
-3. Pass criteria: page loads, capture UI elements visible (file input, note area), no console errors.
-4. Visual criteria: capture input area clearly visible, touch targets adequate, mobile layout correct.
-5. **Do NOT test Process Captures (`/app/process-captures`)** — it requires actual image data in IndexedDB and redirects to `/app` when no captures exist (`capture-triage.tsx:37-39`). Add a note explaining this limitation.
-6. In SKILL.md: add `capture` to the valid slugs list (line 129). Add "Quick Capture" row to the report table.
+1. Add `HydrationReadingDto` (measuredAt, volumeMl, zoneOffset) and `HydrationReadingRequest` (readings list) to `HealthReadingsDtos.kt`. Follow `BloodPressureReadingDto` pattern.
+2. Add `postHydrationReadings(baseUrl, apiKey, request)` to `FoodScannerApiClient.kt` following `postBloodPressureReadings` pattern — POST to `/api/v1/hydration-readings` with retry on 5xx/429.
+3. Add `pushHydrationReadings(readings: List<HydrationReading>): Result<Int>` to `FoodScannerHealthRepository` interface and implementation. Follow `pushBloodPressureReadings` pattern with `toHydrationReadingDto()` mapper.
+4. Add hydration sync settings to `SettingsRepository` interface and `DataStoreSettingsRepository`: watermark flow (`lastHydrationSyncTimestampFlow`), count, caught-up flag, run timestamp, direct-push ledger. Follow the glucose/BP pattern exactly.
+5. Add hydration `syncType()` call to `SyncHealthReadingsUseCase.invoke()` following the glucose/BP pattern — wire up `hydrationRepository::getReadings`, `foodScannerHealthRepository::pushHydrationReadings`, and all hydration settings flows.
+6. Update `pruneDirectPushedTimestamps()` call to include the hydration watermark.
+7. Add `provideHydrationRepository()` binding in `AppModule.kt` following `provideBloodGlucoseRepository` pattern — inject `HealthConnectClient?` and `ApplicationContext`, return `HealthConnectHydrationRepository`.
+8. Inject `HydrationRepository` into `SyncHealthReadingsUseCase` — update constructor and DI.
+9. Run verifier (health-helper tests)
 
 **Notes:**
-- `QuickCapture` component uses `useCaptureSession` hook for IDB storage. The page is primarily a camera/file capture interface.
-- `CaptureTriage` (`/app/process-captures`) redirects immediately when `captures.length === 0` (line 37-39). Cannot be meaningfully tested without pre-populated IDB data.
-
-### Task 6: Add Scenario 16 — Shared Food page
-**Linear Issue:** [FOO-961](https://linear.app/lw-claude/issue/FOO-961/staging-qa-coverage-gap-log-sharedtoken-page-untested)
-**Files:**
-- `.claude/skills/staging-qa/references/test-scenarios.md` (modify)
-- `.claude/skills/staging-qa/SKILL.md` (modify — add slug to valid list and report table)
-
-**Steps:**
-1. Add new Scenario 16 at the end of `test-scenarios.md` with slug `share`.
-2. Scenario structure:
-   - **Create share token:** Use `javascript_tool` to call the share API from the browser: `fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ food_log_entry_id: <id> }) })`. To get an entry ID, first query via `psql` against staging DB for a recent `food_log_entries` row (seed data or existing).
-   - If no food log entries exist, SKIP with reason "no food log entries available for sharing".
-   - Navigate to `/app/log-shared/<token>` with the generated token.
-   - Verify the page loads — look for a food name heading (`<h1>`) and "Shared food" subtitle.
-   - Verify nutrition data renders — look for the `NutritionFactsCard` content (calories, protein, carbs, fat).
-   - Verify the "Log to Fitbit" or "Log as new food" button is visible.
-   - Verify the `MealTypeSelector` is present (meal type dropdown/selector).
-   - Visual assessment screenshot.
-   - Check for console errors.
-   - **Do NOT click log** — this tests page rendering, not the logging flow (already tested in scenario 5).
-3. Pass criteria: share token created successfully, page loads with food name and nutrition data, log button visible, no console errors.
-4. Visual criteria: nutrition card readable, log button has adequate touch target, meal type selector visible, mobile layout correct.
-5. In SKILL.md: add `share` to the valid slugs list (line 129). Add "Shared Food" row to the report table.
-
-**Notes:**
-- `LogSharedContent` fetches via `useSWR('/api/shared-food/${token}')` and displays nutrition data + log button.
-- The share API (`/api/share`) creates a token from an existing food log entry ID.
-- This scenario depends on having at least one food log entry. If seeding failed and no prior scenarios created entries, it should SKIP gracefully.
-
-### Task 7: Update SKILL.md report template and slug list
-**Linear Issue:** All issues (comprehensive SKILL.md update)
-**Files:**
-- `.claude/skills/staging-qa/SKILL.md` (modify)
-
-**Steps:**
-1. **Slug list (line 129):** Add `capture` and `share` to the valid slugs. Updated list: `dashboard, weekly, analyze, refine, log, delete, quick-select, food-detail, edit, labels, settings, chat, save, log-saved, capture, share`.
-2. **Report table (lines 244-257):** Add missing rows for scenarios 13-14 (`save`, `log-saved`) and new scenarios 15-16 (`capture`, `share`). The table currently only lists 12 scenarios but there should be 16. Add rows:
-   - `| Save for Later | PASS/FAIL/SKIP | OK/WARN | |`
-   - `| Log saved food | PASS/FAIL/SKIP | OK/WARN | |`
-   - `| Quick Capture | PASS/FAIL/SKIP | OK/WARN | |`
-   - `| Shared Food | PASS/FAIL/SKIP | OK/WARN | |`
-3. Verify the summary line `**Summary:** X/Y passed` will correctly reflect 16 total scenarios.
-
-**Notes:**
-- This task consolidates all SKILL.md changes. If implementing sequentially, tasks 5 and 6 can skip their SKILL.md changes and defer to this task.
-- Depends on Tasks 5 and 6 being finalized (slug names confirmed).
+- The `SyncHealthReadingsUseCase.syncType()` generic function handles all the complexity (watermarks, ledger dedup, retry). Adding hydration is just wiring a new `syncType()` call.
+- No single-push method needed (`pushHydrationReading`) — hydration data only syncs via batch, never pushed directly from UI.
 
 ## Post-Implementation Checklist
-1. Run `bug-hunter` agent — Review changes for consistency between SKILL.md and test-scenarios.md
-2. Run `verifier` agent — Verify lint and build pass (ensure no application code was accidentally modified)
+1. Run `bug-hunter` agent — Review changes across both projects for consistency
+2. Run `verifier` agent — Verify all food-scanner tests pass, lint clean, build clean
+3. Run `verifier "e2e"` — NOT required (no UI changes, API-only feature)
+4. Verify health-helper builds and tests pass: `cd ../health-helper && ./gradlew test`
 
 ---
 
 ## Plan Summary
 
-**Objective:** Fix contradictions and coverage gaps in the staging-qa skill — 3 bug/accuracy fixes to existing scenarios, 1 enhancement to weak scenarios, and 2 new scenarios for untested pages.
-**Linear Issues:** FOO-956, FOO-957, FOO-958, FOO-959, FOO-960, FOO-961
-**Approach:** Edit `.claude/skills/staging-qa/SKILL.md` and `references/test-scenarios.md` to fix seed-conditional pass criteria (FOO-956), correct chat architecture description (FOO-957), resolve screenshot contradiction (FOO-958), enhance weak scenarios 10/12 with interactions (FOO-960), and add new scenarios for Quick Capture (FOO-959) and Shared Food (FOO-961) pages.
-**Scope:** 7 tasks, 2 files, 0 tests (skill markdown files only — no application code changes)
+**Objective:** Add hydration data sync pipeline — Health Helper reads from Health Connect, pushes to Food Scanner's new `/api/v1/hydration-readings` endpoint, stored in `hydration_readings` table.
+**Linear Issues:** FOO-963, FOO-964, FOO-965, HEA-195, HEA-196
+**Approach:** Copy the blood metrics pattern end-to-end. Food Scanner gets a new table, types, lib functions, and API route (POST+GET). Health Helper gets a read-only Health Connect repository for HydrationRecord and sync integration to push data to Food Scanner.
+**Scope:** 5 tasks, ~15 files (8 create, 7 modify), ~30 test cases
 **Key Decisions:**
-- Settings page: reduce to 1 screenshot (bottom-scrolled) rather than adding exception language
-- Quick Capture: test `/app/capture` only — `/app/process-captures` is impractical without IDB data injection
-- Shared Food: create share token via API during scenario, skip if no food log entries exist
-- Chat page (Scenario 12): keep as smoke test with enhanced checks, intentionally no AI interaction
+- Single `measuredAt` from HydrationRecord.startTime (endTime discarded)
+- All hydration sources (no dataOrigin filtering)
+- Integer volumeMl (whole milliliters)
+- Read-only on Health Helper side (no write to Health Connect)
+- No UI — API-only for external consumption
 **Risks:**
-- Share scenario (16) depends on food log entries existing — may SKIP if seeding failed and no prior scenarios created entries
-- Capture scenario (15) is limited to page-load + UI element verification since camera input can't be meaningfully automated
+- Health Connect HydrationRecord granularity from HidrateSpark is unknown — may be per-sip, per-drink, or per-sync. The upsert on `(userId, measuredAt)` handles dedup regardless.
+- If two different hydration records from different apps share the exact same startTime, only one will be stored (composite unique constraint). This is acceptable for single-user.
 
 ---
 
 ## Iteration 1
 
 **Implemented:** 2026-04-10
-**Method:** Single-agent (1 work unit — all tasks share the same 2 files, effort score 10)
+**Method:** Single-agent
 
 ### Tasks Completed This Iteration
-- Task 1: Fix Scenario 1 seed-conditional pass criteria (FOO-956) — made "Saved for Later" checks conditional on seeding success
-- Task 2: Fix Scenario 4 chat architecture (FOO-957) — replaced overlay language with full-screen replacement description
-- Task 3: Fix Scenario 11 screenshot contradiction (FOO-958) — changed TWO screenshots to ONE (scrolled to bottom)
-- Task 4: Enhance Scenarios 10 and 12 (FOO-960) — added label detail sheet interaction, search filtering, chat heading/navigation checks
-- Task 5: Add Scenario 15 — Quick Capture (FOO-959) — new scenario with slug `capture` for /app/capture page
-- Task 6: Add Scenario 16 — Shared Food (FOO-961) — new scenario with slug `share` for /app/log-shared/[token] page
-- Task 7: Update SKILL.md slug list and report table — added `capture`, `share` slugs and 4 missing report table rows (scenarios 13-16)
+- Task 1 (FOO-963): Schema, types, and data access layer — added `hydrationReadings` table, `HydrationReading`/`HydrationReadingInput` types, `upsertHydrationReadings`/`getHydrationReadings` functions, generated migration
+- Task 2 (FOO-964): API route (POST + GET) with tests — created `/api/v1/hydration-readings` route with 28 tests (TDD)
+- Task 3 (FOO-965): Documentation — added hydration, glucose, and blood pressure endpoints to API.md, updated CLAUDE.md tables list
+
+### Tasks Remaining
+- Task 4 (HEA-195): Health Helper — Read hydration from Health Connect (different repo: health-helper)
+- Task 5 (HEA-196): Health Helper — Push hydration to Food Scanner + sync integration (different repo: health-helper)
 
 ### Files Modified
-- `.claude/skills/staging-qa/references/test-scenarios.md` — fixed 3 existing scenarios, enhanced 2, added 2 new scenarios
-- `.claude/skills/staging-qa/SKILL.md` — added slugs to valid list, added 4 rows to report table
+- `src/db/schema.ts` — Added `hydrationReadings` table
+- `src/types/index.ts` — Added `HydrationReading` and `HydrationReadingInput` interfaces
+- `src/lib/health-readings.ts` — Added `upsertHydrationReadings` and `getHydrationReadings`
+- `src/app/api/v1/hydration-readings/route.ts` — Created POST and GET handlers
+- `src/app/api/v1/hydration-readings/__tests__/route.test.ts` — Created 28 test cases
+- `drizzle/0019_flowery_medusa.sql` — Generated migration for hydration_readings table
+- `API.md` — Added hydration, glucose, and blood pressure endpoint docs + updated summary table
+- `CLAUDE.md` — Added `hydration_readings` to tables list
+- `MIGRATIONS.md` — Logged new table creation
 
 ### Linear Updates
-- FOO-956: Todo → In Progress → Review
-- FOO-957: Todo → In Progress → Review
-- FOO-958: Todo → In Progress → Review
-- FOO-959: Todo → In Progress → Review
-- FOO-960: Todo → In Progress → Review
-- FOO-961: Todo → In Progress → Review
+- FOO-963: Todo → In Progress → Review
+- FOO-964: Todo → In Progress → Review
+- FOO-965: Todo → In Progress → Review
 
 ### Pre-commit Verification
-- bug-hunter: Found 3 bugs (1 critical, 1 medium, 1 low), all fixed before proceeding
-  - CRITICAL: Scenario 16 used wrong API endpoint (`/api/history` → `/api/food-history`) and wrong field name (`food_log_entry_id` → `customFoodId`)
-  - MEDIUM: Scenario 10 search step lacked conditional guard for empty state
-  - LOW: Scenario 16 had unnecessary dependency on `log` scenario (changed to `none`)
-- verifier: All 3193 tests pass, zero warnings, build clean
+- bug-hunter: Passed — zero bugs found
+- verifier: All 3221 tests pass (185 files), zero lint violations, build clean
+
+### Continuation Status
+All Food Scanner tasks (1-3) completed. Tasks 4-5 are Health Helper (Kotlin/Android) and must be implemented in the health-helper project.
 
 ### Review Findings
 
-Summary: 1 issue found, fixed inline (single-agent review)
-- FIXED INLINE: 1 issue — verified via bug-hunter + lint/typecheck
+Summary: 1 issue found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 1 issue — verified via TDD + bug-hunter
 
 **Issues fixed inline:**
-- [MEDIUM] BUG: Scenario 16 references wrong share token field name (`test-scenarios.md:597`) — `shareData.data.token` should be `shareData.data.shareToken` per `/api/share` response format
+- [MEDIUM] BUG: Semantically invalid ISO 8601 dates (e.g., `2026-99-99T25:61:61Z`) pass regex validation but cause DB error → 500 instead of 400 (`src/app/api/v1/hydration-readings/route.ts:62`) — added `isNaN(new Date().getTime())` check + test
 
 **Discarded findings (not bugs):**
-- None
+- [DISCARDED] No upper bound on volumeMl — no realistic scenario (no one sends 2B ml); PostgreSQL rejects gracefully
+- [DISCARDED] Zone offset semantic validation (+99:99 accepted) — value stored as-is, never parsed; no correctness impact
+- [DISCARDED] Unbounded GET date range — pre-existing pattern across all health routes, rate-limited, single-user app; performance concern, not correctness bug
+- [DISCARDED] Redundant `as unknown[]` cast after Array.isArray() — pre-existing consistency pattern across all health routes; style-only
+- [DISCARDED] Missing `success: false` assertion in 5 GET error tests — error code assertion validates the path; style-only
+- [DISCARDED] No test for non-object readings item (e.g., `[null]`) — code handles it correctly; missing coverage for working path is not a bug
 
-### Linear Updates
-- FOO-956: Review → Merge
-- FOO-957: Review → Merge
-- FOO-958: Review → Merge
-- FOO-959: Review → Merge
-- FOO-960: Review → Merge
-- FOO-961: Review → Merge
-- FOO-962: Created in Merge (Fix: wrong share token field name — fixed inline)
+### Linear Updates (Review)
+- FOO-963: Review → Merge
+- FOO-964: Review → Merge
+- FOO-965: Review → Merge
+- FOO-966: Created in Merge (Fix: semantically invalid ISO 8601 dates — fixed inline)
 
 ### Inline Fix Verification
+- Unit tests: all 3222 pass (185 files)
 - Bug-hunter: no new issues
-- Lint: clean
-- Typecheck: clean
 
 <!-- REVIEW COMPLETE -->
 
+---
+
+## Iteration 2
+
+**Implemented:** 2026-04-10
+**Method:** Single-agent (cross-project, Health Helper)
+
+### Tasks Completed This Iteration
+- Task 4 (HEA-195): Health Helper — Read hydration from Health Connect — domain model, repository interface, HC implementation with paginated reads, mapper, tests (8 test cases), AndroidManifest permission
+- Task 5 (HEA-196): Health Helper — Push hydration to Food Scanner + sync — DTOs, API client method, push repo, settings (watermark/count/caught-up/run-timestamp), sync use case wiring, DI binding
+
+### Files Modified (Health Helper)
+- `app/src/main/kotlin/.../domain/model/HydrationReading.kt` — Created domain model
+- `app/src/main/kotlin/.../domain/repository/HydrationRepository.kt` — Created repository interface
+- `app/src/main/kotlin/.../data/repository/HydrationRecordMapper.kt` — Created HC→domain mapper
+- `app/src/main/kotlin/.../data/repository/HealthConnectHydrationRepository.kt` — Created HC implementation
+- `app/src/test/kotlin/.../data/repository/HealthConnectHydrationRepositoryTest.kt` — Created 8 test cases
+- `app/src/main/AndroidManifest.xml` — Added READ_HYDRATION permission
+- `app/src/main/kotlin/.../data/api/dto/HealthReadingsDtos.kt` — Added HydrationReadingDto/Request
+- `app/src/main/kotlin/.../data/api/FoodScannerApiClient.kt` — Added postHydrationReadings()
+- `app/src/main/kotlin/.../domain/repository/FoodScannerHealthRepository.kt` — Added pushHydrationReadings()
+- `app/src/main/kotlin/.../data/repository/FoodScannerHealthRepositoryImpl.kt` — Implemented pushHydrationReadings()
+- `app/src/main/kotlin/.../domain/repository/SettingsRepository.kt` — Added hydration sync settings
+- `app/src/main/kotlin/.../data/repository/DataStoreSettingsRepository.kt` — Implemented hydration settings
+- `app/src/main/kotlin/.../domain/usecase/SyncHealthReadingsUseCase.kt` — Added hydration syncType() call
+- `app/src/main/kotlin/.../di/AppModule.kt` — Added provideHydrationRepository()
+- `app/src/test/kotlin/.../domain/usecase/SyncHealthReadingsUseCaseTest.kt` — Updated with hydration mocks
+
+### Linear Updates
+- HEA-195: Todo → In Progress → Review
+- HEA-196: Todo → In Progress → Review
+
+### Pre-commit Verification
+- Health Helper: BUILD SUCCESSFUL, all tests pass
+
 ### Continuation Status
-All tasks completed.
+All 5 tasks completed across both projects. Plan is complete.
+
+### Review Findings
+
+Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 3 issue(s) — Linear issues created
+- DISCARDED: 3 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: `toInt()` truncation in HydrationRecordMapper — sub-1mL values become 0, record silently dropped (`HydrationRecordMapper.kt:8`) (HEA-197)
+- [MEDIUM] TEST: Zero hydration sync test coverage in SyncHealthReadingsUseCaseTest — all tests stub hydration to emptyList, never exercise push/watermark/error-isolation (`SyncHealthReadingsUseCaseTest.kt`) (HEA-198)
+- [LOW] CONVENTION: Unused `@ApplicationContext context: Context` injection in HealthConnectHydrationRepository — dead code (`HealthConnectHydrationRepository.kt:19-20`) (HEA-199)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] Missing multi-page pagination happy path test — pagination logic exercised via timeout path; missing variant is not a bug
+- [DISCARDED] Hardcoded Sentry DSN in AndroidManifest.xml — pre-existing, Sentry DSNs are low-risk (event submission only, rate-limited)
+- [DISCARDED] Missing WRITE_HYDRATION permission — correct for current read-only design; speculative future concern
+
+### Linear Updates (Review)
+- HEA-195: Review → Merge (original task completed)
+- HEA-196: Review → Merge (original task completed)
+- HEA-197: Created in Todo (Fix: toInt truncation)
+- HEA-198: Created in Todo (Fix: missing hydration sync tests)
+- HEA-199: Created in Todo (Fix: unused context injection)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan — RESOLVED
+
+All 3 fix plan items resolved directly. Health Helper branch: `fix/hydration-review-bugs`
+- HEA-197: `toInt()` → `roundToInt()` + fractional volume tests
+- HEA-198: 5 hydration sync tests added
+- HEA-199: Removed unused context from constructor + DI
 
 ---
 

@@ -290,12 +290,219 @@ interface LumenGoals {
 
 ---
 
+### POST /api/v1/glucose-readings
+
+Batch upsert glucose readings. Uses composite unique constraint on `(userId, measuredAt)` — existing readings with the same timestamp are updated.
+
+**Data source:** PostgreSQL (60 req/min)
+
+**Request body:**
+
+```json
+{
+  "readings": [
+    {
+      "measuredAt": "2026-03-28T08:00:00.000Z",
+      "valueMgDl": 95.5,
+      "zoneOffset": "+05:30",
+      "relationToMeal": "fasting",
+      "mealType": "breakfast",
+      "specimenSource": "interstitial_fluid"
+    }
+  ]
+}
+```
+
+| Field | Type | Required | Validation |
+|---|---|---|---|
+| `measuredAt` | string | Yes | ISO 8601 datetime with timezone |
+| `valueMgDl` | number | Yes | Positive number |
+| `zoneOffset` | string | No | `±HH:MM` format |
+| `relationToMeal` | string | No | `general`, `fasting`, `before_meal`, `after_meal`, `unknown` |
+| `mealType` | string | No | `breakfast`, `lunch`, `dinner`, `snack`, `unknown` |
+| `specimenSource` | string | No | `capillary_blood`, `interstitial_fluid`, `plasma`, `serum`, `tears`, `whole_blood`, `unknown` |
+
+**Batch limit:** 1000 readings per request.
+
+**Response:** `{ "upserted": <count> }`
+
+---
+
+### GET /api/v1/glucose-readings
+
+Returns glucose readings for a date or date range.
+
+**Data source:** PostgreSQL (60 req/min)
+
+**Query parameters:**
+
+| Name | Required | Format | Description |
+|---|---|---|---|
+| `date` | One of `date` or `from`/`to` | `YYYY-MM-DD` | Single date query |
+| `from` | With `to` | `YYYY-MM-DD` | Range start (inclusive) |
+| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive) |
+
+**Response schema:**
+
+```typescript
+interface GlucoseReading {
+  id: number;
+  measuredAt: string;       // ISO 8601
+  zoneOffset: string | null;
+  valueMgDl: number;
+  relationToMeal: string | null;
+  mealType: string | null;
+  specimenSource: string | null;
+}
+```
+
+Results are ordered by `measuredAt` ascending.
+
+---
+
+### POST /api/v1/blood-pressure-readings
+
+Batch upsert blood pressure readings. Uses composite unique constraint on `(userId, measuredAt)` — existing readings with the same timestamp are updated.
+
+**Data source:** PostgreSQL (60 req/min)
+
+**Request body:**
+
+```json
+{
+  "readings": [
+    {
+      "measuredAt": "2026-03-28T08:00:00.000Z",
+      "systolic": 120,
+      "diastolic": 80,
+      "zoneOffset": "+05:30",
+      "bodyPosition": "sitting_down",
+      "measurementLocation": "left_upper_arm"
+    }
+  ]
+}
+```
+
+| Field | Type | Required | Validation |
+|---|---|---|---|
+| `measuredAt` | string | Yes | ISO 8601 datetime with timezone |
+| `systolic` | integer | Yes | Positive integer |
+| `diastolic` | integer | Yes | Positive integer |
+| `zoneOffset` | string | No | `±HH:MM` format |
+| `bodyPosition` | string | No | `standing_up`, `sitting_down`, `lying_down`, `reclining`, `unknown` |
+| `measurementLocation` | string | No | `left_upper_arm`, `right_upper_arm`, `left_wrist`, `right_wrist`, `unknown` |
+
+**Batch limit:** 1000 readings per request.
+
+**Response:** `{ "upserted": <count> }`
+
+---
+
+### GET /api/v1/blood-pressure-readings
+
+Returns blood pressure readings for a date or date range.
+
+**Data source:** PostgreSQL (60 req/min)
+
+**Query parameters:**
+
+| Name | Required | Format | Description |
+|---|---|---|---|
+| `date` | One of `date` or `from`/`to` | `YYYY-MM-DD` | Single date query |
+| `from` | With `to` | `YYYY-MM-DD` | Range start (inclusive) |
+| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive) |
+
+**Response schema:**
+
+```typescript
+interface BloodPressureReading {
+  id: number;
+  measuredAt: string;              // ISO 8601
+  zoneOffset: string | null;
+  systolic: number;
+  diastolic: number;
+  bodyPosition: string | null;
+  measurementLocation: string | null;
+}
+```
+
+Results are ordered by `measuredAt` ascending.
+
+---
+
+### POST /api/v1/hydration-readings
+
+Batch upsert hydration readings. Uses composite unique constraint on `(userId, measuredAt)` — existing readings with the same timestamp are updated.
+
+**Data source:** PostgreSQL (60 req/min)
+
+**Request body:**
+
+```json
+{
+  "readings": [
+    {
+      "measuredAt": "2026-03-28T08:00:00.000Z",
+      "volumeMl": 250,
+      "zoneOffset": "+05:30"
+    }
+  ]
+}
+```
+
+| Field | Type | Required | Validation |
+|---|---|---|---|
+| `measuredAt` | string | Yes | ISO 8601 datetime with timezone |
+| `volumeMl` | integer | Yes | Positive integer (milliliters) |
+| `zoneOffset` | string | No | `±HH:MM` format |
+
+**Batch limit:** 1000 readings per request.
+
+**Response:** `{ "upserted": <count> }`
+
+---
+
+### GET /api/v1/hydration-readings
+
+Returns hydration readings for a date or date range.
+
+**Data source:** PostgreSQL (60 req/min)
+
+**Query parameters:**
+
+| Name | Required | Format | Description |
+|---|---|---|---|
+| `date` | One of `date` or `from`/`to` | `YYYY-MM-DD` | Single date query |
+| `from` | With `to` | `YYYY-MM-DD` | Range start (inclusive) |
+| `to` | With `from` | `YYYY-MM-DD` | Range end (inclusive) |
+
+**Response schema:**
+
+```typescript
+interface HydrationReading {
+  id: number;
+  measuredAt: string;       // ISO 8601
+  zoneOffset: string | null;
+  volumeMl: number;
+}
+```
+
+Results are ordered by `measuredAt` ascending.
+
+---
+
 ## Summary
 
-| Method | Path | Rate Limit | Data Source | `date` Param |
+| Method | Path | Rate Limit | Data Source | Query Params |
 |---|---|---|---|---|
-| GET | `/api/v1/food-log` | 60/min | PostgreSQL | Required |
-| GET | `/api/v1/nutrition-summary` | 60/min | PostgreSQL | Required |
+| GET | `/api/v1/food-log` | 60/min | PostgreSQL | `date` |
+| GET | `/api/v1/nutrition-summary` | 60/min | PostgreSQL | `date` |
 | GET | `/api/v1/nutrition-goals` | 30/min | Fitbit API | None |
-| GET | `/api/v1/activity-summary` | 30/min | Fitbit API | Required |
-| GET | `/api/v1/lumen-goals` | 60/min | PostgreSQL | Required |
+| GET | `/api/v1/activity-summary` | 30/min | Fitbit API | `date` |
+| GET | `/api/v1/lumen-goals` | 60/min | PostgreSQL | `date` |
+| POST | `/api/v1/glucose-readings` | 60/min | PostgreSQL | Body: `readings[]` |
+| GET | `/api/v1/glucose-readings` | 60/min | PostgreSQL | `date` or `from`/`to` |
+| POST | `/api/v1/blood-pressure-readings` | 60/min | PostgreSQL | Body: `readings[]` |
+| GET | `/api/v1/blood-pressure-readings` | 60/min | PostgreSQL | `date` or `from`/`to` |
+| POST | `/api/v1/hydration-readings` | 60/min | PostgreSQL | Body: `readings[]` |
+| GET | `/api/v1/hydration-readings` | 60/min | PostgreSQL | `date` or `from`/`to` |
