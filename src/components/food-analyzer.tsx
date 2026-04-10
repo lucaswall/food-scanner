@@ -38,7 +38,6 @@ import { getLocalDateTime } from "@/lib/meal-type";
 import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
 import { parseSSEEvents } from "@/lib/sse";
-import { invalidateSavedAnalysesCaches } from "@/lib/swr";
 import { saveAnalysisForLater } from "@/lib/save-for-later";
 import type { FoodLogResponse, FoodMatch, ConversationMessage } from "@/types";
 

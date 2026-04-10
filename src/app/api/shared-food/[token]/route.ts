@@ -38,8 +38,8 @@ export async function GET(
     sugars_g: food.sugarsG != null ? Number(food.sugarsG) : null,
     calories_from_fat: food.caloriesFromFat != null ? Number(food.caloriesFromFat) : null,
     confidence: food.confidence,
-    notes: food.notes,
-    description: food.description,
-    keywords: food.keywords,
+    notes: food.notes ?? "",
+    description: food.description ?? "",
+    keywords: food.keywords ?? [],
   });
 }

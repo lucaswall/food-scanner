@@ -26,7 +26,10 @@ export async function saveAnalysisForLater(analysis: FoodAnalysis): Promise<{ id
     }
 
     await invalidateSavedAnalysesCaches();
-    return { id: result.data!.id };
+    if (!result.data?.id) {
+      throw new Error("Failed to save analysis: no ID returned");
+    }
+    return { id: result.data.id };
   } catch (err) {
     if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
       throw new Error("Request timed out. Please try again.");

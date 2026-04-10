@@ -15,7 +15,7 @@ import { ArrowLeft, Search } from "lucide-react";
 import { FoodEntryCard } from "@/components/food-entry-card";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import { useDebounce } from "@/hooks/use-debounce";
-import type { CommonFood, FoodAnalysis, FoodLogResponse } from "@/types";
+import type { CommonFood, FoodAnalysis } from "@/types";
 
 type TabType = "suggested" | "recent";
 

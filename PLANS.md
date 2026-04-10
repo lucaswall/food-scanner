@@ -334,3 +334,74 @@ All 7 issues validated against the codebase — all problems exist as described.
 **Risks:**
 - Task 5 is large (6 component refactors) — careful attention needed to preserve each component's unique success handling
 - Changing shared-food API response format is a breaking change, but log-shared-content.tsx is the only consumer
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-04-10
+**Method:** Agent team (3 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1: Add FitbitSetupGuard to chat and edit pages — wrapped ChatPageClient and EditFood in FitbitSetupGuard (worker-1)
+- Task 2: Extract shared food validation — created isValidFoodAnalysisFields in src/lib/food-validation.ts, moved isValidTimeFormat to date-utils.ts (worker-2)
+- Task 3: Change shared-food API to return FoodAnalysis format — snake_case fields, removed id, updated log-shared-content.tsx (worker-2)
+- Task 4: Create useLogToFitbit hook — 21 tests covering all error paths, reuse flow, match flow (worker-3)
+- Task 5: Refactor all logging components to use useLogToFitbit — food-analyzer, saved-food-detail, quick-select, food-chat, log-shared-content (worker-3)
+- Task 6: Extract shared save-for-later helper — saveAnalysisForLater in src/lib/save-for-later.ts, refactored both components (worker-1)
+- Task 7: Unify food matching in SavedFoodDetail — replaced /api/search-foods GET with /api/find-matches POST (worker-1)
+
+### Files Modified
+- `src/app/app/chat/page.tsx` — Added FitbitSetupGuard wrapper
+- `src/app/app/chat/__tests__/page.test.tsx` — Created (3 tests)
+- `src/app/app/edit/[id]/page.tsx` — Added FitbitSetupGuard wrapper
+- `src/app/app/edit/[id]/__tests__/page.test.tsx` — Created (3 tests)
+- `src/lib/food-validation.ts` — Created shared isValidFoodAnalysisFields
+- `src/lib/__tests__/food-validation.test.ts` — Created (validation tests)
+- `src/lib/date-utils.ts` — Added isValidTimeFormat
+- `src/lib/__tests__/date-utils.test.ts` — Added isValidTimeFormat tests
+- `src/lib/save-for-later.ts` — Created saveAnalysisForLater helper
+- `src/lib/__tests__/save-for-later.test.ts` — Created (10 tests)
+- `src/app/api/log-food/route.ts` — Replaced inline validation with shared module
+- `src/app/api/edit-food/route.ts` — Replaced inline validation with shared module
+- `src/app/api/shared-food/[token]/route.ts` — Changed to snake_case FoodAnalysis format, null-safe notes/description/keywords
+- `src/app/api/shared-food/[token]/__tests__/route.test.ts` — Updated for snake_case
+- `src/app/app/log-shared/[token]/log-shared-content.tsx` — Removed SharedFood type, uses FoodAnalysis + useLogToFitbit
+- `src/app/app/log-shared/[token]/__tests__/log-shared-content.test.tsx` — Updated for snake_case
+- `src/hooks/use-log-to-fitbit.ts` — Created hook (logToFitbit + logToFitbitWithMatch)
+- `src/hooks/__tests__/use-log-to-fitbit.test.ts` — Created (21 tests)
+- `src/components/food-analyzer.tsx` — Refactored to useLogToFitbit + saveAnalysisForLater
+- `src/components/food-chat.tsx` — Refactored to useLogToFitbit + saveAnalysisForLater
+- `src/components/saved-food-detail.tsx` — Refactored to useLogToFitbit + find-matches POST
+- `src/components/quick-select.tsx` — Refactored to useLogToFitbit
+- `src/components/__tests__/saved-food-detail.test.tsx` — Updated for find-matches
+
+### Linear Updates
+- FOO-946: Todo → In Progress → Review
+- FOO-947: Todo → In Progress → Review
+- FOO-948: Todo → In Progress → Review
+- FOO-949: Todo → In Progress → Review
+- FOO-950: Todo → In Progress → Review
+- FOO-951: Todo → In Progress → Review
+- FOO-952: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 4 bugs (1 HIGH, 2 MEDIUM, 1 LOW), all fixed before proceeding:
+  - HIGH: shared-food route returned null notes/description (fails validation) — added ?? "" fallback
+  - MEDIUM: onSuccess async callback not awaited — added await + Promise<void> type
+  - MEDIUM: Dead test parameters giving false coverage confidence — removed unused params
+  - LOW: Non-null assertion on result.data.id — replaced with null check + descriptive error
+- verifier: 3193 tests pass across 184 files, build clean, zero warnings
+
+### Work Partition
+- Worker 1: Tasks 1, 6, 7 (pages + save-for-later + food matching)
+- Worker 2: Tasks 2, 3 (API validation + shared-food API)
+- Worker 3: Tasks 4, 5 (useLogToFitbit hook + component refactoring)
+
+### Merge Summary
+- Worker 2: fast-forward (no conflicts)
+- Worker 1: merged cleanly (auto-merge)
+- Worker 3: 1 conflict in log-shared-content.tsx (worker-2 changed to snake_case, worker-3 added hook — resolved by using hook with FoodAnalysis data directly, removing redundant conversion)
+
+### Continuation Status
+All tasks completed.

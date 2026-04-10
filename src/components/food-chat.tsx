@@ -26,7 +26,6 @@ import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { savePendingSubmission } from "@/lib/pending-submission";
-import { invalidateSavedAnalysesCaches } from "@/lib/swr";
 import { saveAnalysisForLater } from "@/lib/save-for-later";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
 import type {

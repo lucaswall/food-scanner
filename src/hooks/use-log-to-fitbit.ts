@@ -13,7 +13,7 @@ interface UseLogToFitbitConfig {
   mealTypeId: number;
   selectedTime?: string | null;
   dateOverride?: string | null;
-  onSuccess?: (response: FoodLogResponse) => void;
+  onSuccess?: (response: FoodLogResponse) => void | Promise<void>;
   getSessionId?: () => string | undefined;
 }
 
@@ -38,7 +38,7 @@ async function handleLogResponse(
   response: Response,
   setLogError: (e: string | null) => void,
   setLogResponse: (r: FoodLogResponse) => void,
-  onSuccess: ((r: FoodLogResponse) => void) | undefined,
+  onSuccess: ((r: FoodLogResponse) => void | Promise<void>) | undefined,
   onTokenInvalid: () => void
 ): Promise<void> {
   const result = (await safeResponseJson(response)) as {
@@ -65,7 +65,7 @@ async function handleLogResponse(
 
   if (result.data) {
     setLogResponse(result.data);
-    onSuccess?.(result.data);
+    await onSuccess?.(result.data);
   }
 }
 

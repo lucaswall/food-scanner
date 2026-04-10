@@ -66,14 +66,14 @@ const mockLogResponse: FoodLogResponse = {
   fitbitLogId: 12345,
 };
 
-function makeSuccessResponse(data: FoodLogResponse = mockLogResponse) {
+function makeSuccessResponse() {
   return {
     ok: true,
     body: null,
   } as unknown as Response;
 }
 
-function makeErrorResponse(code: string, message: string) {
+function makeErrorResponse() {
   return {
     ok: false,
     body: null,
@@ -264,7 +264,7 @@ describe("useLogToFitbit", () => {
 
     describe("error handling — FITBIT_TOKEN_INVALID", () => {
       it("calls savePendingSubmission and redirects to /api/auth/fitbit", async () => {
-        mockFetch.mockResolvedValueOnce(makeErrorResponse("FITBIT_TOKEN_INVALID", "Token expired"));
+        mockFetch.mockResolvedValueOnce(makeErrorResponse());
         mockSafeResponseJson.mockResolvedValueOnce({
           success: false,
           error: { code: "FITBIT_TOKEN_INVALID", message: "Token expired" },
@@ -294,7 +294,7 @@ describe("useLogToFitbit", () => {
 
     describe("error handling — FITBIT_CREDENTIALS_MISSING", () => {
       it("sets logError to setup message and calls vibrateError", async () => {
-        mockFetch.mockResolvedValueOnce(makeErrorResponse("FITBIT_CREDENTIALS_MISSING", "Missing"));
+        mockFetch.mockResolvedValueOnce(makeErrorResponse());
         mockSafeResponseJson.mockResolvedValueOnce({
           success: false,
           error: { code: "FITBIT_CREDENTIALS_MISSING", message: "Missing credentials" },
@@ -317,7 +317,7 @@ describe("useLogToFitbit", () => {
 
     describe("error handling — FITBIT_NOT_CONNECTED", () => {
       it("sets same error message as FITBIT_CREDENTIALS_MISSING", async () => {
-        mockFetch.mockResolvedValueOnce(makeErrorResponse("FITBIT_NOT_CONNECTED", "Not connected"));
+        mockFetch.mockResolvedValueOnce(makeErrorResponse());
         mockSafeResponseJson.mockResolvedValueOnce({
           success: false,
           error: { code: "FITBIT_NOT_CONNECTED", message: "Not connected" },
@@ -340,7 +340,7 @@ describe("useLogToFitbit", () => {
 
     describe("error handling — generic error", () => {
       it("sets logError from response message and calls vibrateError", async () => {
-        mockFetch.mockResolvedValueOnce(makeErrorResponse("INTERNAL_ERROR", "Something went wrong"));
+        mockFetch.mockResolvedValueOnce(makeErrorResponse());
         mockSafeResponseJson.mockResolvedValueOnce({
           success: false,
           error: { code: "INTERNAL_ERROR", message: "Something went wrong" },
@@ -466,7 +466,7 @@ describe("useLogToFitbit", () => {
     });
 
     it("calls savePendingSubmission with correct args on FITBIT_TOKEN_INVALID", async () => {
-      mockFetch.mockResolvedValueOnce(makeErrorResponse("FITBIT_TOKEN_INVALID", "expired"));
+      mockFetch.mockResolvedValueOnce(makeErrorResponse());
       mockSafeResponseJson.mockResolvedValueOnce({
         success: false,
         error: { code: "FITBIT_TOKEN_INVALID", message: "expired" },
@@ -531,7 +531,7 @@ describe("useLogToFitbit", () => {
 
   describe("getSessionId", () => {
     it("includes sessionId in pending submission when getSessionId returns a value", async () => {
-      mockFetch.mockResolvedValueOnce(makeErrorResponse("FITBIT_TOKEN_INVALID", "expired"));
+      mockFetch.mockResolvedValueOnce(makeErrorResponse());
       mockSafeResponseJson.mockResolvedValueOnce({
         success: false,
         error: { code: "FITBIT_TOKEN_INVALID", message: "expired" },
