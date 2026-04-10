@@ -20,7 +20,14 @@ Review all frontend elements using an agent team with domain-specialized reviewe
    - Issue prefix (e.g., PROJ-xxx)
    - If LINEAR INTEGRATION section not found, call `mcp__linear__list_teams` to discover the team
 3. **Read CLAUDE.md** — Load project standards, tech stack, and conventions
-4. **Generate fresh screenshots** — Run E2E tests to produce up-to-date screenshots:
+4. **Generate fresh screenshots** — Ensure PostgreSQL is running, then run E2E tests to produce up-to-date screenshots:
+   ```bash
+   # Check if PostgreSQL is running; if not, start it
+   docker ps --filter name=postgres-e2e --format '{{.Status}}' | grep -q Up || \
+     (docker rm -f postgres-e2e 2>/dev/null; docker run -d --name postgres-e2e -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=food_scanner -p 5432:5432 postgres:latest && \
+      until docker exec postgres-e2e pg_isready -U postgres 2>/dev/null; do sleep 1; done)
+   ```
+   Then run E2E:
    ```
    Use Task tool with subagent_type "verifier" with prompt "e2e"
    ```

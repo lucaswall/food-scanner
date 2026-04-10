@@ -368,7 +368,19 @@ If there were no findings at all (clean review), a brief "No issues found" summa
   2. Inform user: "Review complete. Changes committed and pushed. Run `/plan-implement` to continue implementation."
 
 - **If all tasks complete and no fix plans needed** (includes iterations where all bugs were fixed inline) → Run E2E tests, update header status, append final status, then create PR:
-  1. **Run E2E tests** using the verifier agent in E2E mode (as a standalone subagent, NOT a teammate — do NOT pass `team_name`):
+  1. **Ensure PostgreSQL is running** before E2E tests. Run:
+     ```bash
+     docker ps --filter name=postgres-e2e --format '{{.Status}}' | grep -q Up
+     ```
+     If NOT running, start it:
+     ```bash
+     docker rm -f postgres-e2e 2>/dev/null; docker run -d --name postgres-e2e -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=food_scanner -p 5432:5432 postgres:latest
+     ```
+     Then wait for readiness:
+     ```bash
+     until docker exec postgres-e2e pg_isready -U postgres 2>/dev/null; do sleep 1; done
+     ```
+  2. **Run E2E tests** using the verifier agent in E2E mode (as a standalone subagent, NOT a teammate — do NOT pass `team_name`):
      ```
      Use Agent tool with subagent_type "verifier" with prompt "e2e"
      ```
