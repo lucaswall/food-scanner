@@ -11,8 +11,8 @@ import { executeTool, SEARCH_FOOD_LOG_TOOL, GET_NUTRITION_SUMMARY_TOOL, GET_FAST
 import { buildUserProfile } from "@/lib/user-profile";
 import type { StreamEvent } from "@/lib/sse";
 
-// Pinned to snapshot to prevent behavioral drift — update deliberately
-export const CLAUDE_MODEL = "claude-sonnet-4-6-20250514";
+// Using base model alias — dated snapshots may not be available yet
+export const CLAUDE_MODEL = "claude-sonnet-4-6";
 
 let _client: Anthropic | null = null;
 
