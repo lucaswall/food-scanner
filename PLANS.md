@@ -232,3 +232,37 @@
 
 ### Continuation Status
 All tasks completed.
+
+### Review Findings
+
+Summary: 1 issue found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 1 issue — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [MEDIUM] BUG: null body in POST /api/saved-analyses causes 500 instead of 400 (`src/app/api/saved-analyses/route.ts:37`) — added null/non-object guard + test
+
+**Discarded findings (not bugs):**
+- [DISCARDED] Missing rate limiting on POST /api/log-food — Single-user app behind ALLOWED_EMAILS allowlist; same reasoning as canceled FOO-933/FOO-939/FOO-940
+- [DISCARDED] Missing rate limiting on POST /api/saved-analyses — Same reasoning as above
+- [DISCARDED] No string length validation on saved-analyses POST — Single-user app; plan explicitly scoped numeric fields; user can only affect own DB
+- [DISCARDED] In-memory rate limit store not shared across instances — Known architectural decision, not a code bug
+- [DISCARDED] Mock tools have strict:true in claude.test.ts — Mocks test conversation flow, not tool config; correct assertions in chat-tools.test.ts
+- [DISCARDED] JSON.parse as StreamEvent unvalidated cast — Same-app, server controls format
+- [DISCARDED] expectedCalories undeclared in FoodLogRequest — Runtime typeof guard makes it safe; pre-existing pattern
+- [DISCARDED] maxRequests=0 allows first request through — Impossible in context; callers always pass positive values
+- [DISCARDED] "closed" string check in SSE too generic — Practically impossible scenario; code already acknowledges tradeoff
+
+### Linear Updates
+- FOO-931: Review → Merge
+- FOO-932: Review → Merge
+- FOO-934: Review → Merge
+- FOO-937: Review → Merge
+- FOO-942: Review → Merge
+- FOO-943: Review → Merge
+- FOO-945: Created in Merge (Fix: null body causes 500 — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 3117 pass
+- Bug-hunter: no new issues
+
+<!-- REVIEW COMPLETE -->

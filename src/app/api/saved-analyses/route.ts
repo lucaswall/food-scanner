@@ -35,6 +35,9 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("VALIDATION_ERROR", "Request body must be a JSON object", 400);
+    }
     const foodAnalysis = body.foodAnalysis as FoodAnalysis | undefined;
 
     if (

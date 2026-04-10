@@ -156,6 +156,13 @@ describe("POST /api/saved-analyses validation (FOO-908)", () => {
     expect(response.status).toBe(400);
   });
 
+  it("returns 400 when body is null", async () => {
+    const response = await POST(makePostRequest(null));
+    expect(response.status).toBe(400);
+    const data = await response.json();
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+  });
+
   it("returns 201 when all required fields are present", async () => {
     mockSaveAnalysis.mockResolvedValue({ id: 1, createdAt: new Date().toISOString() });
     const response = await POST(makePostRequest({ foodAnalysis: validFoodAnalysis }));
