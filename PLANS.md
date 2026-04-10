@@ -229,3 +229,41 @@
 
 ### Continuation Status
 All Food Scanner tasks (1-3) completed. Tasks 4-5 are Health Helper (Kotlin/Android) and must be implemented in the health-helper project.
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-04-10
+**Method:** Single-agent (cross-project, Health Helper)
+
+### Tasks Completed This Iteration
+- Task 4 (HEA-195): Health Helper — Read hydration from Health Connect — domain model, repository interface, HC implementation with paginated reads, mapper, tests (8 test cases), AndroidManifest permission
+- Task 5 (HEA-196): Health Helper — Push hydration to Food Scanner + sync — DTOs, API client method, push repo, settings (watermark/count/caught-up/run-timestamp), sync use case wiring, DI binding
+
+### Files Modified (Health Helper)
+- `app/src/main/kotlin/.../domain/model/HydrationReading.kt` — Created domain model
+- `app/src/main/kotlin/.../domain/repository/HydrationRepository.kt` — Created repository interface
+- `app/src/main/kotlin/.../data/repository/HydrationRecordMapper.kt` — Created HC→domain mapper
+- `app/src/main/kotlin/.../data/repository/HealthConnectHydrationRepository.kt` — Created HC implementation
+- `app/src/test/kotlin/.../data/repository/HealthConnectHydrationRepositoryTest.kt` — Created 8 test cases
+- `app/src/main/AndroidManifest.xml` — Added READ_HYDRATION permission
+- `app/src/main/kotlin/.../data/api/dto/HealthReadingsDtos.kt` — Added HydrationReadingDto/Request
+- `app/src/main/kotlin/.../data/api/FoodScannerApiClient.kt` — Added postHydrationReadings()
+- `app/src/main/kotlin/.../domain/repository/FoodScannerHealthRepository.kt` — Added pushHydrationReadings()
+- `app/src/main/kotlin/.../data/repository/FoodScannerHealthRepositoryImpl.kt` — Implemented pushHydrationReadings()
+- `app/src/main/kotlin/.../domain/repository/SettingsRepository.kt` — Added hydration sync settings
+- `app/src/main/kotlin/.../data/repository/DataStoreSettingsRepository.kt` — Implemented hydration settings
+- `app/src/main/kotlin/.../domain/usecase/SyncHealthReadingsUseCase.kt` — Added hydration syncType() call
+- `app/src/main/kotlin/.../di/AppModule.kt` — Added provideHydrationRepository()
+- `app/src/test/kotlin/.../domain/usecase/SyncHealthReadingsUseCaseTest.kt` — Updated with hydration mocks
+
+### Linear Updates
+- HEA-195: Todo → In Progress → Review
+- HEA-196: Todo → In Progress → Review
+
+### Pre-commit Verification
+- Health Helper: BUILD SUCCESSFUL, all tests pass
+
+### Continuation Status
+All 5 tasks completed across both projects. Plan is complete.
