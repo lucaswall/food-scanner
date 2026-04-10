@@ -79,7 +79,7 @@ function makeParams(token: string) {
 }
 
 describe("GET /api/shared-food/[token]", () => {
-  it("returns food nutrition data for valid token", async () => {
+  it("returns food nutrition data in snake_case FoodAnalysis format", async () => {
     mockGetCustomFoodByShareToken.mockResolvedValue(mockFood);
 
     const response = await GET(makeRequest("valid-token-12"), makeParams("valid-token-12"));
@@ -87,9 +87,51 @@ describe("GET /api/shared-food/[token]", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.success).toBe(true);
-    expect(body.data.foodName).toBe("Grilled Chicken");
+    expect(body.data.food_name).toBe("Grilled Chicken");
     expect(body.data.calories).toBe(250);
-    expect(body.data.proteinG).toBe(30);
+    expect(body.data.protein_g).toBe(30);
+    expect(body.data.carbs_g).toBe(5);
+    expect(body.data.fat_g).toBe(10);
+    expect(body.data.fiber_g).toBe(2);
+    expect(body.data.sodium_mg).toBe(400);
+    expect(body.data.unit_id).toBe(147);
+    expect(body.data.amount).toBe(150);
+    expect(body.data.saturated_fat_g).toBeNull();
+    expect(body.data.trans_fat_g).toBeNull();
+    expect(body.data.sugars_g).toBeNull();
+    expect(body.data.calories_from_fat).toBeNull();
+    expect(body.data.confidence).toBe("high");
+    expect(body.data.notes).toBe("Some notes");
+    expect(body.data.description).toBe("A grilled chicken breast");
+    expect(body.data.keywords).toEqual(["chicken", "protein"]);
+  });
+
+  it("does not return id field", async () => {
+    mockGetCustomFoodByShareToken.mockResolvedValue(mockFood);
+
+    const response = await GET(makeRequest("valid-token-12"), makeParams("valid-token-12"));
+    const body = await response.json();
+
+    expect(body.data.id).toBeUndefined();
+  });
+
+  it("does not use camelCase field names", async () => {
+    mockGetCustomFoodByShareToken.mockResolvedValue(mockFood);
+
+    const response = await GET(makeRequest("valid-token-12"), makeParams("valid-token-12"));
+    const body = await response.json();
+
+    expect(body.data.foodName).toBeUndefined();
+    expect(body.data.proteinG).toBeUndefined();
+    expect(body.data.carbsG).toBeUndefined();
+    expect(body.data.fatG).toBeUndefined();
+    expect(body.data.fiberG).toBeUndefined();
+    expect(body.data.sodiumMg).toBeUndefined();
+    expect(body.data.unitId).toBeUndefined();
+    expect(body.data.saturatedFatG).toBeUndefined();
+    expect(body.data.transFatG).toBeUndefined();
+    expect(body.data.sugarsG).toBeUndefined();
+    expect(body.data.caloriesFromFat).toBeUndefined();
   });
 
   it("returns 404 for invalid token", async () => {
@@ -127,8 +169,8 @@ describe("GET /api/shared-food/[token]", () => {
     const body = await response.json();
 
     // proteinG is stored as "30" string but should be returned as number
-    expect(typeof body.data.proteinG).toBe("number");
-    expect(body.data.proteinG).toBe(30);
+    expect(typeof body.data.protein_g).toBe("number");
+    expect(body.data.protein_g).toBe(30);
   });
 
   it("does not log the share token value", async () => {

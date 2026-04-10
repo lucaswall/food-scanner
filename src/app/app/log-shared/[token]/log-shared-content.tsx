@@ -9,29 +9,8 @@ import { FoodLogConfirmation } from "@/components/food-log-confirmation";
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
 import { FitbitMealType } from "@/types";
-import type { FoodLogResponse } from "@/types";
+import type { FoodAnalysis, FoodLogResponse } from "@/types";
 import { getLocalDateTime } from "@/lib/meal-type";
-
-interface SharedFood {
-  id: number;
-  foodName: string;
-  amount: number;
-  unitId: number;
-  calories: number;
-  proteinG: number;
-  carbsG: number;
-  fatG: number;
-  fiberG: number;
-  sodiumMg: number;
-  saturatedFatG: number | null;
-  transFatG: number | null;
-  sugarsG: number | null;
-  caloriesFromFat: number | null;
-  confidence: string;
-  notes: string | null;
-  description: string | null;
-  keywords: string[] | null;
-}
 
 interface LogSharedContentProps {
   token: string;
@@ -43,7 +22,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
   const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
   const [logError, setLogError] = useState<string | null>(null);
 
-  const { data, error, isLoading, mutate } = useSWR<SharedFood>(
+  const { data, error, isLoading, mutate } = useSWR<FoodAnalysis>(
     `/api/shared-food/${token}`,
     apiFetcher,
   );
@@ -86,7 +65,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
       <div className="max-w-md mx-auto p-4">
         <FoodLogConfirmation
           response={logResponse}
-          foodName={data.foodName}
+          foodName={data.food_name}
         />
       </div>
     );
@@ -104,20 +83,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          food_name: data.foodName,
-          amount: data.amount,
-          unit_id: data.unitId,
-          calories: data.calories,
-          protein_g: data.proteinG,
-          carbs_g: data.carbsG,
-          fat_g: data.fatG,
-          fiber_g: data.fiberG,
-          sodium_mg: data.sodiumMg,
-          saturated_fat_g: data.saturatedFatG,
-          trans_fat_g: data.transFatG,
-          sugars_g: data.sugarsG,
-          calories_from_fat: data.caloriesFromFat,
-          confidence: (data.confidence as "high" | "medium" | "low") || "high",
+          ...data,
           notes: data.notes ?? "",
           description: data.description ?? "",
           keywords: data.keywords ?? [],
@@ -149,25 +115,25 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
   return (
     <div className="max-w-md mx-auto p-4 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">{data.foodName}</h1>
+        <h1 className="text-2xl font-bold">{data.food_name}</h1>
         <p className="text-sm text-muted-foreground mt-1">Shared food</p>
       </div>
 
       <NutritionFactsCard
-        foodName={data.foodName}
+        foodName={data.food_name}
         calories={data.calories}
-        proteinG={data.proteinG}
-        carbsG={data.carbsG}
-        fatG={data.fatG}
-        fiberG={data.fiberG}
-        sodiumMg={data.sodiumMg}
-        unitId={data.unitId}
+        proteinG={data.protein_g}
+        carbsG={data.carbs_g}
+        fatG={data.fat_g}
+        fiberG={data.fiber_g}
+        sodiumMg={data.sodium_mg}
+        unitId={data.unit_id}
         amount={data.amount}
         mealTypeId={mealTypeId}
-        saturatedFatG={data.saturatedFatG}
-        transFatG={data.transFatG}
-        sugarsG={data.sugarsG}
-        caloriesFromFat={data.caloriesFromFat}
+        saturatedFatG={data.saturated_fat_g}
+        transFatG={data.trans_fat_g}
+        sugarsG={data.sugars_g}
+        caloriesFromFat={data.calories_from_fat}
       />
 
       <div className="space-y-2">

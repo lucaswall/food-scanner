@@ -149,6 +149,18 @@ export function formatTimeFromDate(date: Date): string {
 }
 
 /**
+ * Validate that a time string is in HH:MM or HH:MM:SS format and represents a valid time.
+ */
+export function isValidTimeFormat(time: string): boolean {
+  if (!/^\d{2}:\d{2}(:\d{2})?$/.test(time)) return false;
+  const parts = time.split(":").map(Number);
+  const hours = parts[0];
+  const minutes = parts[1];
+  const seconds = parts[2] ?? 0;
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 && seconds >= 0 && seconds <= 59;
+}
+
+/**
  * Validate that a date string is in YYYY-MM-DD format and represents a valid date.
  * Returns false for invalid formats, invalid months/days, or dates that don't exist (e.g., Feb 30).
  */
