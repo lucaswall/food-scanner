@@ -9,8 +9,8 @@ import { FoodLogConfirmation } from "@/components/food-log-confirmation";
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
 import { FitbitMealType } from "@/types";
-import type { FoodAnalysis, FoodLogResponse } from "@/types";
-import { getLocalDateTime } from "@/lib/meal-type";
+import type { FoodAnalysis } from "@/types";
+import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
 
 interface LogSharedContentProps {
   token: string;
@@ -18,14 +18,16 @@ interface LogSharedContentProps {
 
 export function LogSharedContent({ token }: LogSharedContentProps) {
   const [mealTypeId, setMealTypeId] = useState<number>(FitbitMealType.Anytime);
-  const [isLogging, setIsLogging] = useState(false);
-  const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
-  const [logError, setLogError] = useState<string | null>(null);
 
   const { data, error, isLoading, mutate } = useSWR<FoodAnalysis>(
     `/api/shared-food/${token}`,
     apiFetcher,
   );
+
+  const { logToFitbit, logging: isLogging, logError, logResponse } = useLogToFitbit({
+    analysis: data ?? null,
+    mealTypeId,
+  });
 
   if (isLoading) {
     return (
@@ -71,47 +73,6 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
     );
   }
 
-  async function handleLog() {
-    if (!data || isLogging) return;
-    setIsLogging(true);
-    setLogError(null);
-
-    const { date, time, zoneOffset } = getLocalDateTime();
-
-    try {
-      const response = await fetch("/api/log-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...data,
-          notes: data.notes ?? "",
-          description: data.description ?? "",
-          keywords: data.keywords ?? [],
-          mealTypeId,
-          date,
-          time,
-          zoneOffset,
-        }),
-      });
-
-      if (!response.ok) {
-        setLogError("Failed to log food. Please try again.");
-        return;
-      }
-
-      const result = await response.json();
-      if (result.success) {
-        setLogResponse(result.data as FoodLogResponse);
-      } else {
-        setLogError(result.error?.message ?? "Failed to log food. Please try again.");
-      }
-    } catch {
-      setLogError("Network error. Please check your connection and try again.");
-    } finally {
-      setIsLogging(false);
-    }
-  }
-
   return (
     <div className="max-w-md mx-auto p-4 space-y-6">
       <div>
@@ -150,7 +111,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
       )}
 
       <Button
-        onClick={handleLog}
+        onClick={logToFitbit}
         disabled={isLogging}
         className="w-full min-h-[44px]"
       >

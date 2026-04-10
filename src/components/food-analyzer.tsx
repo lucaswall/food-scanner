@@ -30,10 +30,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MessageSquare, RotateCcw, Clock } from "lucide-react";
 import {
-  savePendingSubmission,
   getPendingSubmission,
   clearPendingSubmission,
 } from "@/lib/pending-submission";
+import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
 import { getLocalDateTime } from "@/lib/meal-type";
 import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
@@ -79,9 +79,17 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState<string | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
-  const [logging, setLogging] = useState(false);
-  const [logError, setLogError] = useState<string | null>(null);
-  const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
+  const { logToFitbit, logToFitbitWithMatch, logging, logError: hookLogError, logResponse: hookLogResponse, clearLogError } = useLogToFitbit({
+    analysis,
+    mealTypeId,
+    selectedTime,
+    onSuccess: () => actions.clearPersistedSession(),
+    getSessionId: () => getActiveSessionId() ?? undefined,
+  });
+  const [externalLogResponse, setExternalLogResponse] = useState<FoodLogResponse | null>(null);
+  const [externalLogError, setExternalLogError] = useState<string | null>(null);
+  const logResponse = hookLogResponse ?? externalLogResponse;
+  const logError = hookLogError ?? externalLogError;
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
   const [streamingText, setStreamingText] = useState("");
@@ -133,8 +141,9 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     actions.setAnalysisNarrative(null);
     setStreamingText("");
     setError(null);
-    setLogError(null);
-    setLogResponse(null);
+    clearLogError();
+    setExternalLogError(null);
+    setExternalLogResponse(null);
     actions.setMatches([]);
     actions.setCompressedImages(null);
     setChatOpen(false);
@@ -154,7 +163,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     if (photos.length === 0 && convertedPhotoBlobs.length === 0 && !description.trim()) return;
 
     setError(null);
-    setLogError(null);
+    clearLogError();
 
     // Create AbortController early so Cancel works during compression
     const controller = new AbortController();
@@ -384,155 +393,13 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     handleAnalyze();
   };
 
-  const handleLogToFitbit = async () => {
-    if (!analysis) return;
-
-    setLogError(null);
-    setLogging(true);
-
-    try {
-      const localDateTime = getLocalDateTime();
-      const logTime = selectedTime ?? localDateTime.time;
-      const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
-        ? {
-            reuseCustomFoodId: analysis.sourceCustomFoodId,
-            mealTypeId,
-            date: localDateTime.date,
-            time: logTime,
-            zoneOffset: localDateTime.zoneOffset,
-            // Send analysis calories so server can cross-check against the reused food
-            expectedCalories: analysis.calories,
-          }
-        : {
-            ...analysis,
-            mealTypeId,
-            date: localDateTime.date,
-            time: logTime,
-            zoneOffset: localDateTime.zoneOffset,
-          };
-
-      const response = await fetch("/api/log-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(logBody),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data?: FoodLogResponse;
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success) {
-        const errorCode = result.error?.code;
-        if (errorCode === "FITBIT_TOKEN_INVALID") {
-          savePendingSubmission({
-            analysis: analysis,
-            mealTypeId,
-            foodName: analysis.food_name,
-            date: localDateTime.date,
-            time: logTime,
-            zoneOffset: localDateTime.zoneOffset,
-            sessionId: getActiveSessionId() ?? undefined,
-          });
-          window.location.href = "/api/auth/fitbit";
-          return;
-        }
-        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-          setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
-          vibrateError();
-          return;
-        }
-        setLogError(result.error?.message || "Failed to log food to Fitbit");
-        vibrateError();
-        return;
-      }
-
-      // Only set response after API confirms success
-      setLogResponse(result.data ?? null);
-      actions.clearPersistedSession();
-    } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setLogError("Request timed out. Please try again.");
-      } else {
-        setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
-      }
-      vibrateError();
-    } finally {
-      setLogging(false);
-    }
-  };
-
-  const handleUseExisting = async (match: FoodMatch) => {
-    setLogError(null);
-    setLogging(true);
-
-    try {
-      const requestBody: Record<string, unknown> = {
-        reuseCustomFoodId: match.customFoodId,
-        mealTypeId,
-        ...getLocalDateTime(),
-      };
-
-      // Include current analysis metadata if available
-      if (analysis) {
-        requestBody.newDescription = analysis.description;
-        requestBody.newNotes = analysis.notes;
-        requestBody.newKeywords = analysis.keywords;
-        requestBody.newConfidence = analysis.confidence;
-      }
-
-      const response = await fetch("/api/log-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data?: FoodLogResponse;
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success) {
-        const errorCode = result.error?.code;
-        if (errorCode === "FITBIT_TOKEN_INVALID") {
-          savePendingSubmission({
-            analysis: null,
-            mealTypeId,
-            foodName: match.foodName,
-            reuseCustomFoodId: match.customFoodId,
-            ...getLocalDateTime(),
-            sessionId: getActiveSessionId() ?? undefined,
-          });
-          window.location.href = "/api/auth/fitbit";
-          return;
-        }
-        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-          setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
-          vibrateError();
-          return;
-        }
-        setLogError(result.error?.message || "Failed to log food to Fitbit");
-        vibrateError();
-        return;
-      }
-
-      // Only set response after API confirms success
-      setLogResponse(result.data ?? null);
-      actions.clearPersistedSession();
-    } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setLogError("Request timed out. Please try again.");
-      } else {
-        setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
-      }
-      vibrateError();
-    } finally {
-      setLogging(false);
-    }
+  const handleUseExisting = (match: FoodMatch) => {
+    void logToFitbitWithMatch(match, {
+      description: analysis?.description,
+      notes: analysis?.notes,
+      keywords: analysis?.keywords,
+      confidence: analysis?.confidence,
+    });
   };
 
   const handleSaveForLater = async () => {
@@ -562,7 +429,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   // Register keyboard shortcuts
   useKeyboardShortcuts({
     onAnalyze: handleAnalyze,
-    onLogToFitbit: handleLogToFitbit,
+    onLogToFitbit: logToFitbit,
     canAnalyze,
     canLog,
   });
@@ -615,17 +482,17 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
         };
         clearPendingSubmission();
         if (result.success) {
-          setLogResponse(result.data ?? null);
+          setExternalLogResponse(result.data ?? null);
         } else {
-          setLogError(result.error?.message || "Failed to resubmit food log");
+          setExternalLogError(result.error?.message || "Failed to resubmit food log");
         }
       })
       .catch((err) => {
         clearPendingSubmission();
         if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-          setLogError("Request timed out. Please try again.");
+          setExternalLogError("Request timed out. Please try again.");
         } else {
-          setLogError("Failed to resubmit food log");
+          setExternalLogError("Failed to resubmit food log");
         }
       })
       .finally(() => {
@@ -697,7 +564,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
           onClose={() => setChatOpen(false)}
           onLogged={(response, refinedAnalysis, chatMealTypeId) => {
             actions.setAnalysis(refinedAnalysis);
-            setLogResponse(response);
+            setExternalLogResponse(response);
             actions.setMealTypeId(chatMealTypeId);
             actions.clearPersistedSession();
           }}
@@ -879,7 +746,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     >
       <div className={`mx-auto w-full max-w-md py-3 border-t ${keyboardHeight > 0 ? "bg-background border-b pb-4" : "bg-background/80 backdrop-blur-sm"}`}>
         <Button
-          onClick={analysis ? handleLogToFitbit : handleAnalyze}
+          onClick={analysis ? logToFitbit : handleAnalyze}
           disabled={analysis ? logging || saving : !canAnalyze}
           className="w-full min-h-[44px]"
         >

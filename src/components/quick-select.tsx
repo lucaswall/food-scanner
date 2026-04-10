@@ -4,8 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { apiFetcher } from "@/lib/swr";
-import { safeResponseJson } from "@/lib/safe-json";
 import { FoodLogConfirmation } from "./food-log-confirmation";
+import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
 import { MealTypeSelector } from "./meal-type-selector";
 import { NutritionFactsCard } from "./nutrition-facts-card";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Search } from "lucide-react";
 import { FoodEntryCard } from "@/components/food-entry-card";
-import { vibrateError } from "@/lib/haptics";
-import { savePendingSubmission } from "@/lib/pending-submission";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import { useDebounce } from "@/hooks/use-debounce";
 import type { CommonFood, FoodAnalysis, FoodLogResponse } from "@/types";
@@ -119,9 +117,11 @@ export function QuickSelect() {
 
   const [selectedFood, setSelectedFood] = useState<CommonFood | null>(null);
   const [mealTypeId, setMealTypeId] = useState(getDefaultMealType());
-  const [logging, setLogging] = useState(false);
-  const [logError, setLogError] = useState<string | null>(null);
-  const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
+
+  const { logToFitbitWithMatch, logging, logError, logResponse, clearLogError } = useLogToFitbit({
+    analysis: null,
+    mealTypeId,
+  });
 
   const handleToggleFavorite = async (food: CommonFood, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -136,73 +136,17 @@ export function QuickSelect() {
   const handleSelectFood = (food: CommonFood) => {
     setSelectedFood(food);
     setMealTypeId(getDefaultMealType());
-    setLogError(null);
+    clearLogError();
   };
 
   const handleBack = () => {
     setSelectedFood(null);
-    setLogError(null);
+    clearLogError();
   };
 
-  const handleLogToFitbit = async () => {
+  const handleLogClick = () => {
     if (!selectedFood) return;
-
-    setLogging(true);
-    setLogError(null);
-
-    try {
-      const response = await fetch("/api/log-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reuseCustomFoodId: selectedFood.customFoodId,
-          mealTypeId,
-          ...getLocalDateTime(),
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data: FoodLogResponse;
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success) {
-        const errorCode = result.error?.code;
-        if (errorCode === "FITBIT_TOKEN_INVALID") {
-          savePendingSubmission({
-            analysis: null,
-            mealTypeId,
-            foodName: selectedFood.foodName,
-            reuseCustomFoodId: selectedFood.customFoodId,
-            ...getLocalDateTime(),
-          });
-          window.location.href = "/api/auth/fitbit";
-          return;
-        }
-        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-          setLogError("Fitbit is not set up. Please configure your credentials in Settings.");
-          vibrateError();
-          return;
-        }
-        setLogError(result.error?.message || "Failed to log food");
-        vibrateError();
-        return;
-      }
-
-      // Only set response after API confirms success
-      setLogResponse(result.data);
-    } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setLogError("Request timed out. Please try again.");
-      } else {
-        setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
-      }
-      vibrateError();
-    } finally {
-      setLogging(false);
-    }
+    void logToFitbitWithMatch({ customFoodId: selectedFood.customFoodId, foodName: selectedFood.foodName });
   };
 
   // Success screen
@@ -274,7 +218,7 @@ export function QuickSelect() {
         )}
 
         <Button
-          onClick={handleLogToFitbit}
+          onClick={handleLogClick}
           disabled={logging}
           className="w-full min-h-[44px]"
         >
