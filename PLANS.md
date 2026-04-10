@@ -190,3 +190,42 @@
 **Risks:**
 - Health Connect HydrationRecord granularity from HidrateSpark is unknown — may be per-sip, per-drink, or per-sync. The upsert on `(userId, measuredAt)` handles dedup regardless.
 - If two different hydration records from different apps share the exact same startTime, only one will be stored (composite unique constraint). This is acceptable for single-user.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-04-10
+**Method:** Single-agent
+
+### Tasks Completed This Iteration
+- Task 1 (FOO-963): Schema, types, and data access layer — added `hydrationReadings` table, `HydrationReading`/`HydrationReadingInput` types, `upsertHydrationReadings`/`getHydrationReadings` functions, generated migration
+- Task 2 (FOO-964): API route (POST + GET) with tests — created `/api/v1/hydration-readings` route with 28 tests (TDD)
+- Task 3 (FOO-965): Documentation — added hydration, glucose, and blood pressure endpoints to API.md, updated CLAUDE.md tables list
+
+### Tasks Remaining
+- Task 4 (HEA-195): Health Helper — Read hydration from Health Connect (different repo: health-helper)
+- Task 5 (HEA-196): Health Helper — Push hydration to Food Scanner + sync integration (different repo: health-helper)
+
+### Files Modified
+- `src/db/schema.ts` — Added `hydrationReadings` table
+- `src/types/index.ts` — Added `HydrationReading` and `HydrationReadingInput` interfaces
+- `src/lib/health-readings.ts` — Added `upsertHydrationReadings` and `getHydrationReadings`
+- `src/app/api/v1/hydration-readings/route.ts` — Created POST and GET handlers
+- `src/app/api/v1/hydration-readings/__tests__/route.test.ts` — Created 28 test cases
+- `drizzle/0019_flowery_medusa.sql` — Generated migration for hydration_readings table
+- `API.md` — Added hydration, glucose, and blood pressure endpoint docs + updated summary table
+- `CLAUDE.md` — Added `hydration_readings` to tables list
+- `MIGRATIONS.md` — Logged new table creation
+
+### Linear Updates
+- FOO-963: Todo → In Progress → Review
+- FOO-964: Todo → In Progress → Review
+- FOO-965: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Passed — zero bugs found
+- verifier: All 3221 tests pass (185 files), zero lint violations, build clean
+
+### Continuation Status
+All Food Scanner tasks (1-3) completed. Tasks 4-5 are Health Helper (Kotlin/Android) and must be implemented in the health-helper project.

@@ -545,6 +545,19 @@ export interface BloodPressureReadingInput {
   measurementLocation: string | null;
 }
 
+export interface HydrationReading {
+  id: number;
+  measuredAt: string;
+  zoneOffset: string | null;
+  volumeMl: number;
+}
+
+export interface HydrationReadingInput {
+  measuredAt: string;
+  zoneOffset: string | null;
+  volumeMl: number;
+}
+
 export interface SavedAnalysisDetail extends SavedAnalysisListItem {
   foodAnalysis: FoodAnalysis;
 }
