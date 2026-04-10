@@ -26,6 +26,7 @@ import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { savePendingSubmission } from "@/lib/pending-submission";
 import { invalidateSavedAnalysesCaches } from "@/lib/swr";
+import { saveAnalysisForLater } from "@/lib/save-for-later";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
 import type {
   FoodAnalysis,
@@ -754,37 +755,11 @@ export function FoodChat({
     if (!latestAnalysis) return;
     setSaving(true);
 
-    // Strip transient context fields before saving
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { sourceCustomFoodId: _s, editingEntryId: _e, ...foodAnalysis } = latestAnalysis as typeof latestAnalysis & { sourceCustomFoodId?: unknown; editingEntryId?: unknown };
-
     try {
-      const response = await fetch("/api/saved-analyses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ foodAnalysis }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data?: { id: number };
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success) {
-        setError(result.error?.message || "Failed to save analysis");
-        return;
-      }
-
-      await invalidateSavedAnalysesCaches();
+      await saveAnalysisForLater(latestAnalysis);
       onClose?.();
     } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setError("Request timed out. Please try again.");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to save analysis");
-      }
+      setError(err instanceof Error ? err.message : "Failed to save analysis");
     } finally {
       setSaving(false);
     }

@@ -39,6 +39,7 @@ import { getActiveSessionId } from "@/lib/analysis-session";
 import { safeResponseJson } from "@/lib/safe-json";
 import { parseSSEEvents } from "@/lib/sse";
 import { invalidateSavedAnalysesCaches } from "@/lib/swr";
+import { saveAnalysisForLater } from "@/lib/save-for-later";
 import type { FoodLogResponse, FoodMatch, ConversationMessage } from "@/types";
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
@@ -540,40 +541,13 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
     setSaveError(null);
     setSaveSuccess(false);
 
-    // Strip transient context fields before saving
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { sourceCustomFoodId: _sourceCustomFoodId, editingEntryId: _editingEntryId, ...foodAnalysis } = analysis as typeof analysis & { sourceCustomFoodId?: unknown; editingEntryId?: unknown };
-
     try {
-      const response = await fetch("/api/saved-analyses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ foodAnalysis }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data?: { id: number };
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success) {
-        setSaveError(result.error?.message || "Failed to save analysis");
-        vibrateError();
-        return;
-      }
-
+      await saveAnalysisForLater(analysis);
       setSaveSuccess(true);
-      await invalidateSavedAnalysesCaches();
       actions.clearSession();
       router.push("/app");
     } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setSaveError("Request timed out. Please try again.");
-      } else {
-        setSaveError(err instanceof Error ? err.message : "Failed to save analysis");
-      }
+      setSaveError(err instanceof Error ? err.message : "Failed to save analysis");
       vibrateError();
     } finally {
       setSaving(false);
