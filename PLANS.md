@@ -1,179 +1,318 @@
 # Implementation Plan
 
-**Status:** COMPLETE
-**Created:** 2026-04-09
-**Source:** Backlog: FOO-931, FOO-932, FOO-934, FOO-937, FOO-942, FOO-943
-**Linear Issues:** [FOO-931](https://linear.app/lw-claude/issue/FOO-931), [FOO-932](https://linear.app/lw-claude/issue/FOO-932), [FOO-934](https://linear.app/lw-claude/issue/FOO-934), [FOO-937](https://linear.app/lw-claude/issue/FOO-937), [FOO-942](https://linear.app/lw-claude/issue/FOO-942), [FOO-943](https://linear.app/lw-claude/issue/FOO-943)
-**Branch:** fix/code-audit-fixes
+**Created:** 2026-04-10
+**Source:** Backlog: FOO-946, FOO-947, FOO-948, FOO-949, FOO-950, FOO-951, FOO-952
+**Linear Issues:** [FOO-946](https://linear.app/lw-claude/issue/FOO-946), [FOO-947](https://linear.app/lw-claude/issue/FOO-947), [FOO-948](https://linear.app/lw-claude/issue/FOO-948), [FOO-949](https://linear.app/lw-claude/issue/FOO-949), [FOO-950](https://linear.app/lw-claude/issue/FOO-950), [FOO-951](https://linear.app/lw-claude/issue/FOO-951), [FOO-952](https://linear.app/lw-claude/issue/FOO-952)
+**Branch:** refactor/dedup-and-consistency-fixes
 
 ## Context Gathered
 
 ### Codebase Analysis
+
 - **Related files:**
-  - `src/lib/__tests__/claude.test.ts` — test file with contradictory strict:true assertions at lines 2895-2903
-  - `src/lib/__tests__/chat-tools.test.ts` — correct non-strict assertions at lines 111, 138, 152
-  - `src/lib/rate-limit.ts` — 47-line module, in-memory Map with cleanup only on size threshold
-  - `src/app/api/log-food/route.ts:295` — fire-and-forget `updateCustomFoodMetadata` call
-  - `src/lib/claude.ts:14` — `CLAUDE_MODEL = "claude-sonnet-4-6"` alias
-  - `src/lib/sse.ts:44,46` — warn/error log calls missing `action` field
-  - `src/app/api/saved-analyses/route.ts:38-55` — partial FoodAnalysis validation
-  - `src/lib/saved-analyses.ts` — retrieves with `row.foodAnalysis as unknown as FoodAnalysis`
+  - `src/components/food-analyzer.tsx` — handleLogToFitbit (:386), handleUseExisting (:466), handleSaveForLater (:537)
+  - `src/components/food-chat.tsx` — handleLog (:512), handleSaveForLater (:753)
+  - `src/components/saved-food-detail.tsx` — handleLogToFitbit (:67)
+  - `src/components/quick-select.tsx` — handleLogToFitbit (:147)
+  - `src/app/app/log-shared/[token]/log-shared-content.tsx` — handleLog (:95), inline SharedFood type (:15-34), manual camelCase→snake_case mapping (:106-127)
+  - `src/app/api/log-food/route.ts` — isValidFoodLogRequest (:19-99), isValidTimeFormat (:102-109)
+  - `src/app/api/edit-food/route.ts` — isValidFoodAnalysis (:28-75), isValidTimeFormat (:19-26)
+  - `src/lib/claude.ts` — validateFoodAnalysis (:417-541) — coercion-based, fundamentally different purpose
+  - `src/app/api/find-matches/route.ts` — POST, full FoodAnalysis matching via `findMatchingFoods()`
+  - `src/app/api/search-foods/route.ts` — GET, text-only keyword search via `searchFoods()`
+  - `src/app/api/shared-food/[token]/route.ts` — returns camelCase fields (Drizzle convention)
+  - `src/app/app/chat/page.tsx` — missing FitbitSetupGuard
+  - `src/app/app/edit/[id]/page.tsx` — missing FitbitSetupGuard
+  - `src/app/app/analyze/page.tsx` — has FitbitSetupGuard (reference pattern)
+  - `src/components/fitbit-setup-guard.tsx` — checks `fitbitConnected` + `hasFitbitCredentials`
+  - `src/lib/date-utils.ts` — existing date utility module
+  - `src/lib/safe-json.ts` — safeResponseJson utility
+  - `src/lib/pending-submission.ts` — savePendingSubmission for token refresh flow
+  - `src/lib/haptics.ts` — vibrateError
+  - `src/types/index.ts` — FoodAnalysis (:55-82), FoodLogRequest (:96-107), FoodLogResponse (:109-117), ErrorCode (:128-147)
+
 - **Existing patterns:**
-  - Rate limiter: simple Map store, no external dependencies
-  - Logging: all server-side modules use pino `logger` with `{ action: "xxx" }` structured fields
-  - API validation: inline type guards (e.g., `isValidPostRequest` in api-keys/route.ts)
-  - Test conventions: colocated `__tests__/` directories, Vitest, `vi.mock` for db/logger
+  - Hooks in `src/hooks/` follow `use-*.ts` naming (8 existing hooks)
+  - All client logging uses the pattern: fetch → safeResponseJson → check error codes → handle FITBIT_TOKEN_INVALID → handle FITBIT_CREDENTIALS_MISSING → vibrateError → set error state
+  - `AbortSignal.timeout(15000)` is the standard timeout for client→API requests
+  - Components use `setLogError`/`setError` + `setLogging`/`setIsLogging` state pairs
+
 - **Test conventions:**
-  - `npx vitest run "pattern"` for targeted test runs
-  - Tests import directly from source modules
-  - `afterEach(() => { vi.resetModules(); })` pattern used in claude.test.ts
+  - Colocated `__tests__/` subdirectories (e.g., `src/hooks/__tests__/use-keyboard-shortcuts.test.ts`)
+  - Existing tests: `src/components/__tests__/fitbit-setup-guard.test.tsx`, `src/app/api/find-matches/__tests__/route.test.ts`, `src/app/api/search-foods/__tests__/route.test.ts`, `src/app/app/log-shared/[token]/__tests__/log-shared-content.test.tsx`
+  - Vitest + Testing Library for component tests
 
 ### MCP Context
-- **MCPs used:** Linear (issue tracking)
-- **Findings:** No existing Backlog issues — fresh audit. 8 of 14 audit issues canceled during triage.
+
+- **MCPs used:** Linear (issue management)
+- **Findings:** All 7 issues are in Backlog state. FOO-946 is High priority. FOO-947, FOO-948, FOO-949 are Medium. FOO-950, FOO-951, FOO-952 are Low.
 
 ### Triage Results
 
-**Planned:** FOO-931, FOO-932, FOO-934, FOO-937, FOO-942, FOO-943
+**Planned:** FOO-946, FOO-947, FOO-948, FOO-949, FOO-950, FOO-951, FOO-952
 
-**Canceled:**
-- FOO-933 — Single-user app; API key mgmt only accessible to authorized user
-- FOO-935 — No transaction; single INSERT...RETURNING with defensive guard
-- FOO-936 — MAX_MESSAGES=30 IS enforced (atLimit check at food-chat.tsx:162)
-- FOO-938 — API key validation is SQL-based (WHERE keyHash=?), not JS ===
-- FOO-939 — Single-user app; one-time-use OAuth state tokens
-- FOO-940 — Single-user app; user configures own Fitbit credentials
-- FOO-941 — No console.log found in current codebase
-- FOO-944 — Wrong file cited; invalidateFoodCaches not in daily-dashboard.tsx
+All 7 issues validated against the codebase — all problems exist as described.
+
+**Key relationships:**
+- FOO-947 (LogSharedContent missing error handling) is fully resolved by FOO-946 (shared logToFitbit helper) — once LogSharedContent adopts the shared hook, it inherits all error handling patterns.
+- FOO-952 (inline SharedFood type) is resolved by changing the shared-food API to return FoodAnalysis format (snake_case), eliminating the manual mapping. This is a prerequisite for FOO-946 so LogSharedContent can use the shared hook without field translation.
+
+**Canceled:** None
 
 ## Scope Boundaries
 
-**In Scope:** 6 surgical fixes from code audit findings. All are small, independent changes.
+### In Scope
+- Extract shared `useLogToFitbit` hook from 6 duplicated implementations
+- Extract shared food analysis validation from log-food and edit-food routes
+- Extract shared `saveAnalysisForLater` helper from FoodAnalyzer and FoodChat
+- Change shared-food API to return FoodAnalysis format (snake_case)
+- Add FitbitSetupGuard to chat and edit pages
+- Unify food matching to use `/api/find-matches` consistently
+- Extract `isValidTimeFormat` to `src/lib/date-utils.ts`
 
-**Out of Scope:** The 8 canceled issues listed above. Also out of scope: npm audit dependency vulnerabilities (serialize-javascript, rollup) — these are transitive dev dependencies and should be addressed via `npm audit fix` separately.
+### Out of Scope
+- `validateFoodAnalysis` in `src/lib/claude.ts` — this is a coercion-based validator for AI output with fundamentally different semantics (coerces missing confidence to "medium", derives keywords from food_name). It cannot share logic with the boolean validators in routes. Keeping it separate is correct.
+- Refactoring the shared-food API response shape beyond adding snake_case fields (the API still returns camelCase for backward compatibility of any cached responses)
 
 ## Tasks
 
-### Task 1: Remove contradictory strict:true test assertions
-**Linear Issue:** [FOO-931](https://linear.app/lw-claude/issue/FOO-931)
+### Task 1: Add FitbitSetupGuard to chat and edit pages
+**Linear Issue:** [FOO-951](https://linear.app/lw-claude/issue/FOO-951)
 **Effort:** S
 **Files:**
-- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/app/app/chat/page.tsx` (modify)
+- `src/app/app/edit/[id]/page.tsx` (modify)
 
 **Steps:**
-1. **RED**: The test at lines 2895-2903 currently asserts `SEARCH_FOOD_LOG_TOOL.strict`, `GET_NUTRITION_SUMMARY_TOOL.strict`, and `GET_FASTING_INFO_TOOL.strict` are all `true`. These tools intentionally omit `strict` to stay under the 16 union-typed parameter API limit. Run `npx vitest run "claude.test"` — the test at line 2900-2902 should currently be failing (or is passing because the tools happen to have strict — verify which).
-2. **GREEN**: Remove the three assertions for `SEARCH_FOOD_LOG_TOOL.strict`, `GET_NUTRITION_SUMMARY_TOOL.strict`, and `GET_FASTING_INFO_TOOL.strict` from the "all tool definitions have strict: true" test (lines 2900-2902). Keep the `REPORT_NUTRITION_TOOL.strict` assertion (line 2899) — that tool correctly has `strict: true`. If the test block becomes trivially duplicative of the earlier "has strict: true" test for REPORT_NUTRITION_TOOL at line 2754-2756, remove the entire describe block at lines 2892-2904 to avoid duplication.
-3. **VERIFY**: Run `npx vitest run "claude.test"` — all tests pass. Run `npx vitest run "chat-tools.test"` — the correct non-strict assertions at lines 111, 138, 152 still pass.
+1. **RED:** Write tests verifying FitbitSetupGuard renders around ChatPageClient in chat/page.tsx and around EditFood in edit/[id]/page.tsx. Follow the pattern in `src/components/__tests__/fitbit-setup-guard.test.tsx` for how FitbitSetupGuard is tested. Assert that the component tree includes FitbitSetupGuard wrapping the page content.
+2. **GREEN:** Import `FitbitSetupGuard` from `@/components/fitbit-setup-guard` in both pages. Wrap `ChatPageClient` in `<FitbitSetupGuard>` (follow the exact pattern in `src/app/app/analyze/page.tsx:25-27`). Wrap `EditFood` in `<FitbitSetupGuard>` similarly.
+3. Verify: `npx vitest run "chat|edit|fitbit-setup-guard"`
 
 **Notes:**
-- The correct behavior is already asserted in `chat-tools.test.ts` — this task only removes the contradictory assertions.
-- This has caused production incidents twice before (PR #90 and PR #113).
+- Follow pattern in `src/app/app/analyze/page.tsx` — FitbitSetupGuard wraps the main content component
+- The chat page currently only checks `if (!session)` — it should also use `validateSession()` like edit does, but that's a separate concern (not in scope)
 
 ---
 
-### Task 2: Fix rate limiter unbounded memory growth
-**Linear Issue:** [FOO-932](https://linear.app/lw-claude/issue/FOO-932)
+### Task 2: Extract shared food validation
+**Linear Issue:** [FOO-949](https://linear.app/lw-claude/issue/FOO-949)
 **Effort:** M
 **Files:**
-- `src/lib/rate-limit.ts` (modify)
-- `src/lib/__tests__/rate-limit.test.ts` (create)
-
-**Steps:**
-1. **RED**: Create `src/lib/__tests__/rate-limit.test.ts`. Write tests for:
-   - Basic rate limiting works (allow up to maxRequests, deny after)
-   - Expired entries are cleaned up when cleanup runs
-   - **Edge case**: When store reaches MAX_STORE_SIZE and all entries are still active (not expired), new entries beyond the cap should still be handled — either by evicting oldest entries or by enforcing a hard cap that rejects/overwrites
-   - **Edge case**: Under low traffic, expired entries should eventually be cleaned up (not accumulate indefinitely)
-   - Run `npx vitest run "rate-limit"` — new tests fail (no test file exists yet for rate-limit.ts).
-2. **GREEN**: Modify `src/lib/rate-limit.ts`:
-   - Add periodic cleanup: every N calls to `checkRateLimit` (e.g., every 100 calls), run `cleanExpiredEntries` regardless of store size
-   - Add hard cap enforcement: after cleanup, if `store.size` still exceeds `MAX_STORE_SIZE`, evict oldest entries (by `resetAt` timestamp) until under the cap
-   - The cleanup counter can be a module-level variable incremented on each `checkRateLimit` call
-3. **REFACTOR**: Ensure `cleanExpiredEntries` is efficient — the current loop iteration is O(n) which is acceptable for MAX_STORE_SIZE=1000.
-4. **VERIFY**: Run `npx vitest run "rate-limit"` — all tests pass.
-
-**Notes:**
-- Keep it simple — no external dependencies, no LRU library. A periodic sweep + hard cap is sufficient for this single-user app.
-- Follow the existing module structure: no classes, just exported functions and module-level state.
-
----
-
-### Task 3: Add timeout to fire-and-forget updateCustomFoodMetadata
-**Linear Issue:** [FOO-934](https://linear.app/lw-claude/issue/FOO-934)
-**Effort:** S
-**Files:**
+- `src/lib/food-validation.ts` (create)
+- `src/lib/__tests__/food-validation.test.ts` (create)
+- `src/lib/date-utils.ts` (modify — add `isValidTimeFormat`)
+- `src/lib/__tests__/date-utils.test.ts` (create if not exists, or modify)
 - `src/app/api/log-food/route.ts` (modify)
-- `src/app/api/log-food/__tests__/route.test.ts` (modify — if exists; otherwise skip test for this surgical fix)
+- `src/app/api/edit-food/route.ts` (modify)
 
 **Steps:**
-1. **RED**: Write a test (or verify existing test coverage) that the fire-and-forget `updateCustomFoodMetadata` call at line 295 has a timeout. If no test file exists for this route, the change is small enough (wrapping in `Promise.race`) that manual verification is acceptable.
-2. **GREEN**: At line 295 of `log-food/route.ts`, wrap the fire-and-forget call in `Promise.race` with a timeout of 5000ms. Replace:
-   ```
-   updateCustomFoodMetadata(...).catch(...)
-   ```
-   with a `Promise.race` between the metadata update and a timeout that resolves after 5s. Log a warning on timeout via the existing `log` logger with `{ action: "update_custom_food_metadata_timeout" }`.
-3. **VERIFY**: Run `npx vitest run "log-food"` if test file exists, otherwise `npm run typecheck` to verify no type errors.
+1. **RED:** Write tests for a new `isValidFoodAnalysisFields(body)` function in `src/lib/__tests__/food-validation.test.ts`. Test cases:
+   - Valid complete FoodAnalysis → returns true
+   - Missing food_name → false
+   - Empty food_name → false
+   - food_name > 500 chars → false
+   - Negative numeric fields (calories, protein_g, etc.) → false
+   - amount = 0 → false
+   - Invalid confidence value → false
+   - notes/description > 2000 chars → false
+   - Tier 1 nutrients: null → valid, positive number → valid, negative → false, non-number → false
+   - Keywords: array of strings → valid, empty array → valid, strings > 100 chars → false, > 20 elements → false
+   Also write tests for `isValidTimeFormat` moving to `src/lib/date-utils.ts`:
+   - "12:30" → true, "12:30:00" → true, "25:00" → false, "12:60" → false, "abc" → false
+2. **GREEN:** Create `src/lib/food-validation.ts` with `isValidFoodAnalysisFields(body: Record<string, unknown>): boolean` that validates the shared fields (food_name, amount, unit_id, all nutrition fields, notes, description, confidence, tier 1 nutrients, keywords as optional). Add `isValidTimeFormat` to `src/lib/date-utils.ts`.
+3. **REFACTOR:** Update `src/app/api/log-food/route.ts`:
+   - Import `isValidFoodAnalysisFields` from `@/lib/food-validation` and `isValidTimeFormat` from `@/lib/date-utils`
+   - Replace the inline new-food-flow validation (lines 46-96) with a call to `isValidFoodAnalysisFields`
+   - Keep the `reuseCustomFoodId` branch validation in-route (it's route-specific)
+   - Remove the local `isValidTimeFormat` function
+   Update `src/app/api/edit-food/route.ts`:
+   - Import `isValidFoodAnalysisFields` from `@/lib/food-validation` and `isValidTimeFormat` from `@/lib/date-utils`
+   - Replace the inline `isValidFoodAnalysis` with `isValidFoodAnalysisFields`
+   - Remove the local `isValidTimeFormat` function
+4. Verify: `npx vitest run "food-validation|date-utils|log-food|edit-food"`
 
 **Notes:**
-- This is a non-blocking "nice-to-have" metadata update — the food log entry is already saved. Timeout is a safety net, not a correctness requirement.
-- 5000ms is generous; the DB call should complete in <100ms under normal conditions.
+- Keywords validation: the shared function should treat keywords as **optional** (matching log-food behavior). edit-food currently requires non-empty keywords — add an additional `req.keywords.length > 0` check in the edit-food route after calling the shared validator.
+- The shared validator is a **boolean validator** (returns true/false). `src/lib/claude.ts:validateFoodAnalysis` is a **coercion function** (returns clean object, throws on invalid). They serve different purposes — do NOT merge them.
+- `isValidDateFormat` already exists in `date-utils.ts` — `isValidTimeFormat` is a natural addition alongside it.
 
 ---
 
-### Task 4: Pin Claude model to snapshot ID
-**Linear Issue:** [FOO-937](https://linear.app/lw-claude/issue/FOO-937)
+### Task 3: Change shared-food API to return FoodAnalysis format
+**Linear Issue:** [FOO-952](https://linear.app/lw-claude/issue/FOO-952)
 **Effort:** S
 **Files:**
-- `src/lib/claude.ts` (modify)
-- `src/lib/__tests__/claude.test.ts` (modify)
+- `src/app/api/shared-food/[token]/route.ts` (modify)
+- `src/app/api/shared-food/[token]/__tests__/route.test.ts` (modify)
+- `src/app/app/log-shared/[token]/log-shared-content.tsx` (modify)
+- `src/app/app/log-shared/[token]/__tests__/log-shared-content.test.tsx` (modify)
 
 **Steps:**
-1. **RED**: Check if any existing test asserts the exact value of `CLAUDE_MODEL`. If yes, update the expected value. If no test exists for this constant, add one in `claude.test.ts` that asserts `CLAUDE_MODEL` matches the pattern of a pinned snapshot ID (contains a date suffix like `YYYYMMDD`).
-2. **GREEN**: At `src/lib/claude.ts:14`, change `"claude-sonnet-4-6"` to the current pinned snapshot ID. The latest Sonnet 4.6 snapshot is `"claude-sonnet-4-6-20250514"`. Add a brief comment documenting the pin date.
-3. **VERIFY**: Run `npx vitest run "claude.test"` — all tests pass.
+1. **RED:** Update `src/app/api/shared-food/[token]/__tests__/route.test.ts` to expect snake_case field names in the response: `food_name`, `amount`, `unit_id`, `calories`, `protein_g`, `carbs_g`, `fat_g`, `fiber_g`, `sodium_mg`, `saturated_fat_g`, `trans_fat_g`, `sugars_g`, `calories_from_fat`, `confidence`, `notes`, `description`, `keywords`. Also expect the response to omit the `id` field (not part of FoodAnalysis).
+2. **GREEN:** Modify `src/app/api/shared-food/[token]/route.ts` to return snake_case fields matching the `FoodAnalysis` interface. Change field names: `foodName` → `food_name`, `unitId` → `unit_id`, `proteinG` → `protein_g`, etc. Remove the `id` field from the response (consumers don't need the DB id).
+3. **REFACTOR:** Update `src/app/app/log-shared/[token]/log-shared-content.tsx`:
+   - Remove the inline `SharedFood` interface (lines 15-34)
+   - Import `FoodAnalysis` from `@/types`
+   - Change the `useSWR<SharedFood>` to `useSWR<FoodAnalysis>`
+   - Remove the manual camelCase→snake_case mapping in handleLog (lines 106-127) — spread the data directly like other components do
+   - Update the JSX to use snake_case field names from FoodAnalysis (e.g., `data.food_name` instead of `data.foodName`, `data.protein_g` instead of `data.proteinG`, etc.)
+   - Update NutritionFactsCard props: `foodName={data.food_name}`, `proteinG={data.protein_g}`, etc.
+4. Update `log-shared-content.test.tsx` to use snake_case field names in mock data.
+5. Verify: `npx vitest run "shared-food|log-shared"`
 
 **Notes:**
-- Compare with `src/lib/lumen.ts:116` which correctly pins to `"claude-haiku-4-5-20251001"` as a pattern reference.
-- The pinned ID prevents behavioral drift in food analysis when Anthropic updates the alias target.
+- NutritionFactsCard props use camelCase (`proteinG`, `carbsG`, etc.) — the JSX needs to map `data.protein_g` → `proteinG={data.protein_g}`. This is a prop assignment, not a field mapping.
+- The `handleLog` function can now spread `...data` directly like FoodAnalyzer does, plus `mealTypeId`, `date`, `time`, `zoneOffset`.
 
 ---
 
-### Task 5: Add action field to SSE log statements
-**Linear Issue:** [FOO-942](https://linear.app/lw-claude/issue/FOO-942)
-**Effort:** S
+### Task 4: Create useLogToFitbit hook
+**Linear Issue:** [FOO-946](https://linear.app/lw-claude/issue/FOO-946)
+**Effort:** M
 **Files:**
-- `src/lib/sse.ts` (modify)
+- `src/hooks/use-log-to-fitbit.ts` (create)
+- `src/hooks/__tests__/use-log-to-fitbit.test.ts` (create)
 
 **Steps:**
-1. **RED**: No existing test for SSE log formatting. The change is trivial (adding a field to a structured log call), so no new test needed.
-2. **GREEN**: At `src/lib/sse.ts:44`, change `logger.warn({ err }, "SSE client disconnected during streaming")` to `logger.warn({ action: "sse_client_disconnect", err }, "SSE client disconnected during streaming")`. At line 46, change `logger.error({ err }, "SSE generator threw an unexpected error")` to `logger.error({ action: "sse_stream_error", err }, "SSE generator threw an unexpected error")`.
-3. **VERIFY**: Run `npm run typecheck` — no type errors.
+1. **RED:** Write tests for a new `useLogToFitbit` hook in `src/hooks/__tests__/use-log-to-fitbit.test.ts`. The hook should accept a config object and return `{ logToFitbit, logging, logError, logResponse, clearLogError }`. Test cases:
+   - Successful log: calls fetch with correct body, sets logResponse on success
+   - FITBIT_TOKEN_INVALID: calls savePendingSubmission with the right args and redirects to `/api/auth/fitbit`
+   - FITBIT_CREDENTIALS_MISSING: sets logError to "Fitbit is not set up. Please configure your credentials in Settings."
+   - FITBIT_NOT_CONNECTED: same error message as FITBIT_CREDENTIALS_MISSING
+   - Generic error: sets logError from response message
+   - Timeout (AbortSignal.timeout): sets logError to "Request timed out. Please try again."
+   - Network error: sets logError from error message
+   - Calls vibrateError on all failure paths (except FITBIT_TOKEN_INVALID which redirects)
+   - Uses safeResponseJson (not raw response.json())
+   - Uses AbortSignal.timeout(15000)
+   - Reuse flow: when analysis has `sourceCustomFoodId`, sends `reuseCustomFoodId` body format
+   - No-op when logging is already true (prevents double submission)
+2. **GREEN:** Create `src/hooks/use-log-to-fitbit.ts`:
+   - The hook accepts a config: `{ analysis, mealTypeId, selectedTime?, onSuccess?, getSessionId? }`
+   - Returns `{ logToFitbit, logging, logError, logResponse, clearLogError }`
+   - `logToFitbit()` implements the full pattern: build request body (handling reuse vs new food), fetch with AbortSignal.timeout(15000), safeResponseJson, error code handling (FITBIT_TOKEN_INVALID → savePendingSubmission + redirect, FITBIT_CREDENTIALS_MISSING/NOT_CONNECTED → specific message, generic → response message), vibrateError on all non-redirect failures, timeout/network error handling
+   - Import dependencies: `safeResponseJson` from `@/lib/safe-json`, `savePendingSubmission` from `@/lib/pending-submission`, `vibrateError` from `@/lib/haptics`, `getLocalDateTime` from `@/lib/meal-type`
+   - The hook also supports an optional `logToFitbitWithMatch(match: FoodMatch)` for the reuse-existing-match flow (used by food-analyzer's handleUseExisting)
+3. **REFACTOR:** Ensure the hook handles the date override pattern used by food-chat (`analysis.date ?? localDateTime.date`) — accept an optional `dateOverride` in the analysis or config.
+4. Verify: `npx vitest run "use-log-to-fitbit"`
 
 **Notes:**
-- Convention requires every log statement to include `action` for searchability and filtering.
-- Follow the `{ action: "snake_case_name" }` pattern used throughout the codebase (e.g., `src/lib/api-auth.ts`).
+- Follow the naming convention in `src/hooks/` (e.g., `use-delete-food-entry.ts`)
+- The hook must handle two body formats: (1) reuse flow (`reuseCustomFoodId` + metadata), (2) new food flow (`...analysis` + mealTypeId/date/time/zoneOffset). See `src/components/food-analyzer.tsx:395-411` for the pattern.
+- `getSessionId` callback is optional — only FoodAnalyzer passes `getActiveSessionId()` to savePendingSubmission. Other components pass undefined for sessionId.
+- The food-chat component also has a separate `handleSave` (edit existing entry) and `handleSaveExisting` (save + reuseCustomFoodId). These are **edit** flows, not log flows — they call different APIs (`/api/edit-food`). They are NOT in scope for this hook.
 
 ---
 
-### Task 6: Complete saved analysis body validation
-**Linear Issue:** [FOO-943](https://linear.app/lw-claude/issue/FOO-943)
-**Effort:** S
+### Task 5: Refactor all logging components to use useLogToFitbit
+**Linear Issue:** [FOO-946](https://linear.app/lw-claude/issue/FOO-946), [FOO-947](https://linear.app/lw-claude/issue/FOO-947)
+**Effort:** L
+**Depends on:** Task 3 (shared-food API returns FoodAnalysis), Task 4 (hook exists)
 **Files:**
-- `src/app/api/saved-analyses/route.ts` (modify)
-- `src/lib/__tests__/saved-analyses.test.ts` (modify)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/saved-food-detail.tsx` (modify)
+- `src/components/quick-select.tsx` (modify)
+- `src/components/food-chat.tsx` (modify)
+- `src/app/app/log-shared/[token]/log-shared-content.tsx` (modify)
+- All corresponding test files (modify as needed)
 
 **Steps:**
-1. **RED**: Add tests in `src/lib/__tests__/saved-analyses.test.ts` (or create `src/app/api/saved-analyses/__tests__/route.test.ts` if better colocated) for:
-   - POST with missing `unit_id` field returns 400
-   - POST with missing `fiber_g` field returns 400
-   - POST with valid complete FoodAnalysis succeeds
-   - Run `npx vitest run "saved-analyses"` — new validation tests fail.
-2. **GREEN**: At `src/app/api/saved-analyses/route.ts:40-48`, expand the validation to also check `unit_id` (number), `fiber_g` (number), and `sodium_mg` (number). These are the fields used in downstream rendering (nutrition cards, food detail page). Leave optional fields (`saturated_fat_g`, `trans_fat_g`, `sugars_g`, `calories_from_fat`, `keywords`, `confidence`, `description`) as not required — they have safe defaults or are nullable in the UI.
-3. **VERIFY**: Run `npx vitest run "saved-analyses"` — all tests pass.
+1. **RED:** For each component, write or update tests asserting that the component uses the hook's returned values (logError, logging state, logResponse) rather than managing its own state. Test that error handling behavior matches the canonical pattern (FITBIT_TOKEN_INVALID redirects, FITBIT_CREDENTIALS_MISSING shows specific message, timeouts handled).
+2. **GREEN:** Refactor each component:
+
+   **food-analyzer.tsx:**
+   - Replace `handleLogToFitbit` (lines 386-464) with hook usage: `const { logToFitbit, logging, logError, logResponse, clearLogError } = useLogToFitbit({ analysis, mealTypeId, selectedTime, onSuccess: actions.clearPersistedSession, getSessionId: getActiveSessionId })`
+   - Replace `handleUseExisting` (lines 466-534) with the hook's match-reuse capability
+   - Remove local `logging`, `logError`, `logResponse` state (now from hook)
+   - Remove imports: `safeResponseJson`, `savePendingSubmission`, `vibrateError` (now encapsulated in hook)
+
+   **saved-food-detail.tsx:**
+   - Replace `handleLogToFitbit` (lines 67-145) with hook usage
+   - This component was missing `vibrateError` and `FITBIT_CREDENTIALS_MISSING` handling — the hook adds both
+
+   **quick-select.tsx:**
+   - Replace `handleLogToFitbit` (lines 147-206) with hook usage
+
+   **food-chat.tsx:**
+   - Replace `handleLog` (lines 512-596) with hook usage
+   - This component was missing `vibrateError` — the hook adds it
+   - Keep `handleSave` and `handleSaveExisting` unchanged (they're edit flows, not log flows)
+
+   **log-shared-content.tsx:**
+   - Replace `handleLog` (lines 95-147) with hook usage
+   - This resolves FOO-947: the component inherits safeResponseJson, AbortSignal.timeout, vibrateError, FITBIT_TOKEN_INVALID handling, FITBIT_CREDENTIALS_MISSING handling — all previously missing
+   - Note: this component needs savePendingSubmission support from the hook. For the shared food path, the pending submission should include the analysis data so it can be re-logged after re-auth.
+
+3. **REFACTOR:** Remove now-unused imports from each component. Verify each component's success callback is preserved (food-analyzer clears persisted session, food-chat calls onLogged, etc.).
+4. Verify: `npx vitest run "food-analyzer|saved-food-detail|quick-select|food-chat|log-shared"`
 
 **Notes:**
-- Follow the existing inline validation pattern at lines 40-48 (simple typeof checks, no validation library).
-- The FoodAnalysis type is defined in `src/types/index.ts` — check which fields are required vs optional there.
+- Each component has a slightly different success handler: food-analyzer calls `actions.clearPersistedSession()` + sets `logResponse`, saved-food-detail sets `logResponse` + `loggedFoodName`, food-chat calls `onLogged?.()`, quick-select navigates to success screen, log-shared-content sets `logResponse`. The hook's `onSuccess` callback must receive the `FoodLogResponse` so each component can handle post-success differently.
+- food-chat's `handleLog` uses `analysis.date ?? localDateTime.date` (date override from AI). The hook must support this pattern.
+- The hook should expose `setLogResponse` or accept `onSuccess(response)` callback — components need to control their own success UI state.
+
+---
+
+### Task 6: Extract shared save-for-later helper
+**Linear Issue:** [FOO-950](https://linear.app/lw-claude/issue/FOO-950)
+**Effort:** S
+**Files:**
+- `src/lib/save-for-later.ts` (create)
+- `src/lib/__tests__/save-for-later.test.ts` (create)
+- `src/components/food-analyzer.tsx` (modify)
+- `src/components/food-chat.tsx` (modify)
+
+**Steps:**
+1. **RED:** Write tests for a new `saveAnalysisForLater(analysis: FoodAnalysis)` function in `src/lib/__tests__/save-for-later.test.ts`. Test cases:
+   - Strips `sourceCustomFoodId` and `editingEntryId` before sending
+   - POSTs to `/api/saved-analyses` with correct body
+   - Uses `AbortSignal.timeout(15000)`
+   - Uses `safeResponseJson`
+   - Returns `{ success: true, id: number }` on success
+   - Throws descriptive error on API failure (using error message from response)
+   - Throws "Request timed out" on timeout
+   - Calls `invalidateSavedAnalysesCaches()` on success
+2. **GREEN:** Create `src/lib/save-for-later.ts` with `saveAnalysisForLater(analysis: FoodAnalysis): Promise<{ id: number }>`. The function handles: strip transient fields, POST, safeResponseJson, error handling, cache invalidation. It throws on failure so the caller can catch and display errors.
+3. **REFACTOR:** Update both components:
+
+   **food-analyzer.tsx:**
+   - Replace `handleSaveForLater` (lines 537-581) with a call to `saveAnalysisForLater(analysis)`
+   - Keep component-specific post-success logic: `setSaveSuccess(true)`, `actions.clearSession()`, `router.push("/app")`
+
+   **food-chat.tsx:**
+   - Replace `handleSaveForLater` (lines 753-791) with a call to `saveAnalysisForLater(latestAnalysis)`
+   - Keep component-specific post-success logic: `onClose?.()`
+
+4. Verify: `npx vitest run "save-for-later|food-analyzer|food-chat"`
+
+**Notes:**
+- Both components currently handle `vibrateError` on failure. The helper should NOT call vibrateError (it's a lib function, not a UI concern). Components should call vibrateError in their catch blocks.
+- `invalidateSavedAnalysesCaches` is imported from `@/lib/swr` — the helper should import and call it on success since both components do this.
+- The function should NOT manage React state (saving, saveError, saveSuccess) — that stays in components.
+
+---
+
+### Task 7: Unify food matching in SavedFoodDetail
+**Linear Issue:** [FOO-948](https://linear.app/lw-claude/issue/FOO-948)
+**Effort:** S
+**Files:**
+- `src/components/saved-food-detail.tsx` (modify)
+- `src/components/__tests__/saved-food-detail.test.tsx` (create or modify)
+
+**Steps:**
+1. **RED:** Write tests for SavedFoodDetail verifying it calls `/api/find-matches` (POST) instead of `/api/search-foods` (GET). Assert that the request body includes the full FoodAnalysis fields (keywords, food_name, amount, unit_id, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg). Assert that matches are displayed correctly from the `{ data: { matches: FoodMatch[] } }` response shape.
+2. **GREEN:** Modify `src/components/saved-food-detail.tsx`:
+   - Replace the current `useSWR` GET call to `/api/search-foods?q=...` (lines 45-49) with a POST-based fetch to `/api/find-matches`
+   - Since `useSWR` is designed for GET requests, use `useSWR` with a custom fetcher that POSTs the FoodAnalysis body to `/api/find-matches`. The SWR key should encode the savedAnalysis id to ensure proper caching/deduplication.
+   - Extract matches from `result.data.matches` (the find-matches response shape) instead of the top-level `foods` array
+   - The saved analysis has the full `FoodAnalysis` object in `savedAnalysis.foodAnalysis` — pass the required fields (keywords, food_name, amount, unit_id, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg) in the POST body
+3. **REFACTOR:** Remove the keyword derivation logic (`const keywords = savedAnalysis?.foodAnalysis.food_name?.trim() ?? null`) since find-matches uses the full analysis, not just the food name.
+4. Verify: `npx vitest run "saved-food-detail|find-matches"`
+
+**Notes:**
+- Follow the POST-with-SWR pattern: use a fetcher function that sends a POST request. The SWR key should be a stable string like `find-matches-${savedId}` to avoid refetching on every render.
+- The find-matches API requires auth (`getSession()` + `validateSession()`), which is already available since the user is logged in on the saved food detail page.
+- This change means SavedFoodDetail shows the same matches as FoodAnalyzer for the same food — consistent UX across paths.
 
 ## Post-Implementation Checklist
 1. Run `bug-hunter` agent — Review changes for bugs
@@ -183,93 +322,15 @@
 
 ## Plan Summary
 
-**Objective:** Fix 6 code audit findings — contradictory test, rate limiter memory leak, fire-and-forget timeout, model alias pinning, logging convention, and input validation.
-**Linear Issues:** FOO-931, FOO-932, FOO-934, FOO-937, FOO-942, FOO-943
-**Approach:** All 6 fixes are small, independent surgical changes. Task 1 fixes a dangerous contradictory test that has caused two prior production incidents. Task 2 adds periodic cleanup and hard cap to the rate limiter. Tasks 3-6 are minor improvements to reliability, convention compliance, and input validation.
-**Scope:** 6 tasks, ~8 files, ~4 new/modified tests
+**Objective:** Eliminate code duplication across food logging, validation, and save-for-later paths, and fix consistency gaps in error handling, food matching, and Fitbit setup guards.
+**Linear Issues:** FOO-946, FOO-947, FOO-948, FOO-949, FOO-950, FOO-951, FOO-952
+**Approach:** Extract three shared abstractions (useLogToFitbit hook, food validation module, save-for-later helper), normalize the shared-food API to FoodAnalysis format, add missing FitbitSetupGuard wrappers, and unify food matching to use the richer find-matches API consistently. FOO-947 and FOO-952 are resolved as side effects of FOO-946 and the API normalization respectively.
+**Scope:** 7 tasks, ~20 files, ~15 test files
 **Key Decisions:**
-- Rate limiter fix uses periodic sweep + hard cap (no LRU library) — sufficient for single-user app
-- Saved analysis validation adds 3 required numeric fields (unit_id, fiber_g, sodium_mg) — optional fields remain optional
-- Claude model pinned to `claude-sonnet-4-6-20250514` (latest available snapshot)
+- `validateFoodAnalysis` in claude.ts stays separate — it's a coercion function, not a boolean validator
+- shared-food API changes to snake_case (FoodAnalysis format) to eliminate the manual mapping layer
+- useLogToFitbit is a hook (not a plain function) because it manages React state (logging, logError, logResponse)
+- save-for-later helper is a plain async function (not a hook) because components manage their own state differently
 **Risks:**
-- Task 4 (model pin): verify the exact snapshot ID `claude-sonnet-4-6-20250514` is valid before deploying — check Anthropic docs if unsure
-
----
-
-## Iteration 1
-
-**Implemented:** 2026-04-09
-**Method:** Single-agent (6 tasks across 6 units, effort score 7 — all S-sized surgical fixes except one M, worker overhead exceeds implementation time)
-
-### Tasks Completed This Iteration
-- Task 1: Remove contradictory strict:true test assertions — Removed entire redundant describe block (FOO-931)
-- Task 2: Fix rate limiter unbounded memory growth — Added periodic cleanup every 100 calls + hard cap with oldest-entry eviction, created test file (FOO-932)
-- Task 3: Add timeout to fire-and-forget updateCustomFoodMetadata — Wrapped in Promise.race with 5s timeout (FOO-934)
-- Task 4: Pin Claude model to snapshot ID — Changed to `claude-sonnet-4-6-20250514`, added snapshot format test (FOO-937)
-- Task 5: Add action field to SSE log statements — Added `sse_client_disconnect` and `sse_stream_error` action fields (FOO-942)
-- Task 6: Complete saved analysis body validation — Added unit_id, fiber_g, sodium_mg validation checks and tests (FOO-943)
-
-### Files Modified
-- `src/lib/__tests__/claude.test.ts` — Removed contradictory strict:true describe block, added CLAUDE_MODEL snapshot test
-- `src/lib/rate-limit.ts` — Added periodic cleanup, hard cap eviction, test-only exports
-- `src/lib/__tests__/rate-limit.test.ts` — Created with 5 tests for rate limiter behavior
-- `src/app/api/log-food/route.ts` — Wrapped updateCustomFoodMetadata in Promise.race with 5s timeout
-- `src/lib/claude.ts` — Pinned CLAUDE_MODEL to snapshot ID
-- `src/lib/sse.ts` — Added action fields to warn/error log statements
-- `src/app/api/saved-analyses/route.ts` — Added unit_id, fiber_g, sodium_mg validation
-- `src/app/api/saved-analyses/__tests__/route.test.ts` — Added 3 validation tests
-
-### Linear Updates
-- FOO-931: Todo → In Progress → Review
-- FOO-932: Todo → In Progress → Review
-- FOO-934: Todo → In Progress → Review
-- FOO-937: Todo → In Progress → Review
-- FOO-942: Todo → In Progress → Review
-- FOO-943: Todo → In Progress → Review
-
-### Pre-commit Verification
-- bug-hunter: Passed — no bugs found
-- verifier: All 1,163 tests pass, zero warnings, build clean
-
-### Continuation Status
-All tasks completed.
-
-### Review Findings
-
-Summary: 1 issue found, fixed inline (Team: security, reliability, quality reviewers)
-- FIXED INLINE: 1 issue — verified via TDD + bug-hunter
-
-**Issues fixed inline:**
-- [MEDIUM] BUG: null body in POST /api/saved-analyses causes 500 instead of 400 (`src/app/api/saved-analyses/route.ts:37`) — added null/non-object guard + test
-
-**Discarded findings (not bugs):**
-- [DISCARDED] Missing rate limiting on POST /api/log-food — Single-user app behind ALLOWED_EMAILS allowlist; same reasoning as canceled FOO-933/FOO-939/FOO-940
-- [DISCARDED] Missing rate limiting on POST /api/saved-analyses — Same reasoning as above
-- [DISCARDED] No string length validation on saved-analyses POST — Single-user app; plan explicitly scoped numeric fields; user can only affect own DB
-- [DISCARDED] In-memory rate limit store not shared across instances — Known architectural decision, not a code bug
-- [DISCARDED] Mock tools have strict:true in claude.test.ts — Mocks test conversation flow, not tool config; correct assertions in chat-tools.test.ts
-- [DISCARDED] JSON.parse as StreamEvent unvalidated cast — Same-app, server controls format
-- [DISCARDED] expectedCalories undeclared in FoodLogRequest — Runtime typeof guard makes it safe; pre-existing pattern
-- [DISCARDED] maxRequests=0 allows first request through — Impossible in context; callers always pass positive values
-- [DISCARDED] "closed" string check in SSE too generic — Practically impossible scenario; code already acknowledges tradeoff
-
-### Linear Updates
-- FOO-931: Review → Merge
-- FOO-932: Review → Merge
-- FOO-934: Review → Merge
-- FOO-937: Review → Merge
-- FOO-942: Review → Merge
-- FOO-943: Review → Merge
-- FOO-945: Created in Merge (Fix: null body causes 500 — fixed inline)
-
-### Inline Fix Verification
-- Unit tests: all 3117 pass
-- Bug-hunter: no new issues
-
-<!-- REVIEW COMPLETE -->
-
----
-
-## Status: COMPLETE
-
-All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Task 5 is large (6 component refactors) — careful attention needed to preserve each component's unique success handling
+- Changing shared-food API response format is a breaking change, but log-shared-content.tsx is the only consumer
