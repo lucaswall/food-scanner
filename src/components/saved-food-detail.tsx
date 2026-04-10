@@ -41,12 +41,20 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
     apiFetcher,
   );
 
-  // Derive keywords from food name for match lookup
-  const keywords = savedAnalysis?.foodAnalysis.food_name?.trim() ?? null;
-  const searchKey = keywords
-    ? `/api/search-foods?q=${encodeURIComponent(keywords)}&limit=3`
-    : null;
-  const { data: matchesData } = useSWR<FoodMatch[]>(searchKey, apiFetcher);
+  const matchesKey = savedAnalysis ? `find-matches-${savedId}` : null;
+  const { data: matchesData } = useSWR<FoodMatch[]>(
+    matchesKey,
+    async () => {
+      const { keywords, food_name, amount, unit_id, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg } = savedAnalysis!.foodAnalysis;
+      const response = await fetch("/api/find-matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords, food_name, amount, unit_id, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg }),
+      });
+      const result = (await response.json()) as { success: boolean; data?: { matches: FoodMatch[] }; error?: { message: string } };
+      return result.data?.matches ?? [];
+    },
+  );
   const matches = matchesData ?? [];
 
   const [mealTypeId, setMealTypeId] = useState(() => getDefaultMealType());
