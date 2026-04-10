@@ -13,7 +13,9 @@
 3. Verify the **Daily/Weekly tab buttons** are visible — use `find` to look for "Daily" and "Weekly" buttons.
 4. Verify **calorie/nutrition data renders** — use `find` to check for numeric content in the nutrition summary area (any number followed by "cal" or "kcal"). With seeded data, expect non-zero calorie values for today.
 5. **Test date navigation** — find and click the **previous day arrow** (left arrow / "Previous day" button). Verify the date label changes (no longer says "Today"). Then click the **next day arrow** (right arrow / "Next day" button) to return. Verify "Today" is shown again.
-6. **Verify "Saved for Later" section** — use `find` to look for text "Saved for Later". With seed data, expect a section showing 2 saved items with food names and calorie values. Verify at least one card is visible (e.g., containing "chicken" or "banana" text).
+6. **Verify "Saved for Later" section** — use `find` to look for text "Saved for Later".
+   - **If seeding succeeded:** Expect a section showing 2 saved items with food names and calorie values. Verify at least one card is visible (e.g., containing "chicken" or "banana" text). If the section doesn't render or has no items → FAIL.
+   - **If seeding failed/skipped:** The section may not render at all (it only appears when items exist). If the section is absent or shows an empty state → PASS with WARN ("seed data unavailable — Saved for Later not verified"). If it renders with pre-existing data → PASS.
 7. **Visual assessment screenshot** — take a screenshot and evaluate:
    - Calorie ring/progress indicator renders with data (not empty/zero if seed data is present)
    - Macro bars (protein, carbs, fat) are visible with values
@@ -29,14 +31,14 @@
 - Daily and Weekly tabs are visible and clickable
 - Nutrition data renders (at least one calorie value displayed)
 - Date navigation works (previous/next day arrows change the displayed date)
-- "Saved for Later" section visible with seed data (at least one saved item card)
+- "Saved for Later" section: if seeding succeeded, at least one saved item card visible (FAIL if missing); if seeding failed, section absent or empty state is acceptable (PASS with WARN)
 - No unexpected console errors
 
 ### Visual Criteria
 
 - Calorie ring shows progress (if seed data present)
 - Macro progress bars render correctly
-- Saved for Later section renders below meals with food names and calorie values
+- Saved for Later section renders below meals with food names and calorie values (if seeding succeeded; accept absent/empty if seeding failed)
 - Page fits mobile viewport without horizontal scroll
 - Bottom nav bar fully visible with all 5 items
 
@@ -147,10 +149,10 @@
 10. **Wait for AI response** — SSE polling, 90-second budget, poll every 8 seconds looking for an updated calorie value or a new message from the assistant.
 11. Verify the AI responded — a new message appeared in the chat, or the nutrition values updated.
 12. **Visual assessment screenshot** — take a screenshot and evaluate:
-    - Chat overlay is properly layered over the analysis result
+    - Full-screen chat view renders correctly (`fixed inset-0` — completely replaces the analysis view, NOT an overlay)
+    - Back/close button is visible at the top for returning to the analysis
     - Messages are readable (user message and AI response both visible)
     - Chat input is visible at the bottom and not covered by the keyboard or other elements
-    - Nutrition values area still visible or accessible
 ### Pass Criteria
 
 - Analysis completes and shows nutrition result
@@ -161,7 +163,8 @@
 
 ### Visual Criteria
 
-- Chat overlay renders cleanly over the result
+- Full-screen chat fills the viewport (not layered over analysis — it replaces it entirely)
+- Back/close button visible at the top
 - Messages are legible at mobile width
 - Input area accessible at bottom of screen
 
@@ -363,21 +366,30 @@
 2. Verify the **"Nutrition Labels" heading** is visible.
 3. Wait for page content to load (2 seconds).
 4. Verify the page renders content — use `read_page` to check for any nutrition label cards or an empty state message. Either is acceptable (depends on whether labels have been saved).
-5. **Visual assessment screenshot** — take a screenshot and evaluate:
+5. **If label cards exist** (not empty state):
+   a. Click one label card to open the `NutritionLabelDetailSheet`. Verify the detail sheet opens with nutrition data (calories, macros visible).
+   b. Close the detail sheet (click outside or find a close button).
+6. **Test search input** (if label cards exist — skip if empty state) — use `find` to locate the search input. Type a search query using `computer` type action (e.g., "chicken"). Verify the list filters (fewer cards or "no results" message). Clear the search input.
+7. **Visual assessment screenshot** — take a screenshot and evaluate:
    - Heading is properly styled
+   - Label cards show food name and calorie values (if labels exist)
    - Content or empty state renders cleanly
    - No broken layout or unstyled elements
    - Navigation bar is visible at bottom
-6. Check for console errors.
+8. Check for console errors.
 
 ### Pass Criteria
 
 - "Nutrition Labels" heading is visible
 - Page renders without errors (content or empty state)
+- Label detail sheet opens on card click (if labels exist)
+- Search input filters labels (skip if empty state)
 - No unexpected console errors
 
 ### Visual Criteria
 
+- Label cards show food name and calorie values (if labels exist)
+- Detail sheet overlays correctly (if opened)
 - Page layout is clean (content or empty state)
 - Navigation bar visible
 
@@ -398,12 +410,12 @@
 5. Verify **Fitbit status** is displayed — look for text containing "Fitbit:" or "Fitbit" followed by a connection status.
 6. Verify **Fitbit App Credentials** section is visible.
 7. Scroll down and verify the **API Keys** section and **Claude Usage** section are present.
-8. **Visual assessment screenshot** — take TWO screenshots (top and bottom after scrolling) and evaluate:
-   - Session info card is well-structured
-   - Fitbit connection badge/status is clearly visible
+8. **Visual assessment screenshot** — scroll to the bottom of the page first, then take ONE screenshot and evaluate:
+   - API Keys section renders with key management UI
+   - Claude Usage section renders with usage data or empty state
    - Sections are properly separated and labeled
-   - Form fields (credentials) are properly laid out
-   - API Keys and Claude Usage sections render at the bottom
+   - Form fields are properly laid out for mobile
+   - Top sections (session info, Fitbit status) are already verified functionally in steps 4-6
 9. Check for console errors.
 
 ### Pass Criteria
@@ -432,27 +444,34 @@
 
 1. Navigate to `/app/chat`.
 2. Verify the page loads — use `find` to look for a chat input (placeholder "Type a message..." or similar).
-3. Verify the page is functional — the input should be interactive and ready for typing.
-4. **Visual assessment screenshot** — take a screenshot and evaluate:
+3. Verify the **"Chat" heading** is visible — the `FoodChat` component renders with `title="Chat"`.
+4. Verify a **back/close button** exists — use `find` to look for a back button or close button (the `onClose` handler navigates to `/app`).
+5. Verify the page is functional — the input should be interactive and ready for typing.
+6. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Chat heading is visible at the top
+   - Back/close button is accessible
    - Chat input is positioned at the bottom of the screen
    - Page has appropriate empty state or welcome message
    - Input area has adequate touch target
    - No broken layout elements
-5. Check for console errors.
+7. Check for console errors.
 
 ### Pass Criteria
 
 - Chat page loads
+- Chat heading is visible
+- Back/close button is present
 - Chat input is visible and interactive
 - No unexpected console errors
 
 ### Visual Criteria
 
+- Chat heading and navigation controls visible
 - Chat input properly positioned
 - Empty state or welcome content renders
 - Mobile-friendly layout
 
-**Note:** This scenario only verifies the standalone chat page loads. It does NOT send a message (that would require a 90s AI wait for low additional coverage over the analyze/refine/edit scenarios that already test AI interaction).
+**Note:** This scenario intentionally does NOT send a message — AI interaction is already covered by scenarios 3/4/5/9. This tests standalone chat page rendering and navigation.
 
 ---
 
@@ -523,3 +542,84 @@
 - Detail page layout is clean: nutrition card readable, action buttons visible
 - Meal type and time selectors are present
 - Sticky bottom CTA button is fully visible
+
+---
+
+## Scenario 15: Quick Capture
+
+- **Slug:** `capture`
+- **Depends on:** none
+- **Expected timing:** <10 seconds
+
+### Steps
+
+1. Navigate to `/app/capture`.
+2. Verify the page loads — use `find` to look for the capture UI elements: a file input or camera button for adding photos.
+3. Verify a **note input area** exists — use `find` to look for a textarea or text input for adding notes to captures.
+4. Verify the **capture list area** exists — use `read_page` to check that the page has a section for displaying captures (even if empty — no captures exist yet).
+5. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Capture input area (file/camera button) is clearly visible with adequate touch target
+   - Note input area is present and properly sized
+   - Page layout is correct for mobile (no overflow, elements properly stacked)
+   - Navigation bar is visible at bottom
+6. Check for console errors.
+
+### Pass Criteria
+
+- Quick Capture page loads without errors
+- File input / camera button is visible
+- Note input area is present
+- No unexpected console errors
+
+### Visual Criteria
+
+- Capture input area clearly visible with adequate touch target
+- Note input properly sized for mobile
+- Mobile layout correct (no horizontal scroll)
+- Navigation bar visible
+
+**Note:** This scenario does NOT test Process Captures (`/app/process-captures`) — that page requires actual image data in IndexedDB and redirects to `/app` when no captures exist. Camera input automation is also impractical, so this scenario verifies page rendering and UI element presence only.
+
+---
+
+## Scenario 16: Shared Food
+
+- **Slug:** `share`
+- **Depends on:** none (uses seed data or existing entries)
+- **Expected timing:** <15 seconds
+
+### Steps
+
+1. **Create a share token** — Use `javascript_tool` to find a custom food ID and create a share token:
+   - First, fetch entries: `const res = await fetch('/api/food-history?limit=1'); const data = await res.json();`
+   - If no entries exist (`data.data.entries` is empty), SKIP with reason "no food log entries available for sharing".
+   - Extract the first entry's `customFoodId`, then create a share token: `const shareRes = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customFoodId: data.data.entries[0].customFoodId }) }); const shareData = await shareRes.json();`
+   - Extract the token from `shareData.data.shareToken`.
+2. Navigate to `/app/log-shared/<token>` with the generated token.
+3. Verify the page loads — use `find` to look for a food name heading and "Shared food" subtitle or similar.
+4. Verify **nutrition data renders** — use `find` to look for calorie, protein, carbs, fat values (the `NutritionFactsCard` content).
+5. Verify the **log button** is visible — use `find` to look for "Log to Fitbit" or "Log as new food" button.
+6. Verify the **meal type selector** is present — use `find` to look for a meal type dropdown or selector.
+7. **Visual assessment screenshot** — take a screenshot and evaluate:
+   - Food name heading is legible
+   - Nutrition card is readable with calorie and macro values
+   - Log button has adequate touch target
+   - Meal type selector is visible and accessible
+   - Mobile layout is correct
+8. Check for console errors.
+9. **Do NOT click log** — this tests page rendering, not the logging flow (already tested in scenario 5).
+
+### Pass Criteria
+
+- Share token created successfully via API (or SKIP if no entries exist)
+- Shared food page loads with food name and nutrition data
+- Log button is visible
+- Meal type selector is present
+- No unexpected console errors
+
+### Visual Criteria
+
+- Nutrition card readable with calorie and macro values
+- Log button has adequate touch target
+- Meal type selector visible
+- Mobile layout correct
