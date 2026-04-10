@@ -22,7 +22,7 @@ describe("isValidFoodAnalysisFields", () => {
   });
 
   it("returns false when food_name is missing", () => {
-    const { food_name: _, ...body } = validBody;
+    const { food_name: _, ...body } = validBody; // eslint-disable-line @typescript-eslint/no-unused-vars
     expect(isValidFoodAnalysisFields(body)).toBe(false);
   });
 
@@ -150,7 +150,7 @@ describe("isValidFoodAnalysisFields", () => {
     });
 
     it("returns true when keywords is undefined (optional)", () => {
-      const { keywords: _, ...body } = { ...validBody, keywords: ["tag"] };
+      const { keywords: _, ...body } = { ...validBody, keywords: ["tag"] }; // eslint-disable-line @typescript-eslint/no-unused-vars
       expect(isValidFoodAnalysisFields(body)).toBe(true);
     });
   });

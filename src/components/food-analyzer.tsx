@@ -91,6 +91,7 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   const logError = hookLogError ?? externalLogError;
   const [resubmitting, setResubmitting] = useState(false);
   const [resubmitFoodName, setResubmitFoodName] = useState<string | null>(null);
+  const resubmitInFlightRef = useRef(false);
   const [streamingText, setStreamingText] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
   const [seedMessages, setSeedMessages] = useState<ConversationMessage[] | null>(null);
@@ -451,6 +452,8 @@ export function FoodAnalyzer({ autoCapture }: FoodAnalyzerProps) {
   useEffect(() => {
     const pending = getPendingSubmission();
     if (!pending) return;
+    if (resubmitInFlightRef.current) return;
+    resubmitInFlightRef.current = true;
 
     setResubmitting(true);
     setResubmitFoodName(pending.foodName);

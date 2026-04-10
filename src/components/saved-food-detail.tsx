@@ -23,6 +23,7 @@ import { FoodMatchCard } from "@/components/food-match-card";
 import { FoodLogConfirmation } from "@/components/food-log-confirmation";
 import { FoodChat } from "@/components/food-chat";
 import { apiFetcher, invalidateFoodCaches, invalidateSavedAnalysesCaches } from "@/lib/swr";
+import { safeResponseJson } from "@/lib/safe-json";
 import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
 import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
 import type { FoodLogResponse, FoodMatch } from "@/types";
@@ -49,8 +50,9 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keywords, food_name, amount, unit_id, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg }),
+        signal: AbortSignal.timeout(15000),
       });
-      const result = (await response.json()) as { success: boolean; data?: { matches: FoodMatch[] }; error?: { message: string } };
+      const result = (await safeResponseJson(response)) as { success: boolean; data?: { matches: FoodMatch[] }; error?: { message: string } };
       return result.data?.matches ?? [];
     },
   );

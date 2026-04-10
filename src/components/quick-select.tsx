@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import useSWR from "swr";
 import useSWRInfinite from "swr/infinite";
 import { apiFetcher } from "@/lib/swr";
@@ -99,7 +99,10 @@ export function QuickSelect() {
   // Infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
   const isValidatingRef = useRef(false);
-  isValidatingRef.current = isValidating;
+
+  useLayoutEffect(() => {
+    isValidatingRef.current = isValidating;
+  }, [isValidating]);
 
   useEffect(() => {
     if (!sentinelRef.current || !hasMore || isSearchActive) return;

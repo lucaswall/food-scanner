@@ -358,9 +358,10 @@ describe("SavedFoodDetail", () => {
       render(<SavedFoodDetail savedId={42} />);
       expect(capturedFetcher).not.toBeNull();
 
+      const matchesBody = JSON.stringify({ success: true, data: { matches: [mockMatch] } });
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: vi.fn().mockResolvedValue({ success: true, data: { matches: [mockMatch] } }),
+        text: vi.fn().mockResolvedValue(matchesBody),
       });
 
       const result = await capturedFetcher!();
@@ -381,7 +382,8 @@ describe("SavedFoodDetail", () => {
       expect(body.fiber_g).toBe(3);
       expect(body.sodium_mg).toBe(800);
       // Result is FoodMatch[] extracted from result.data.matches
-      expect(result).toEqual([mockMatch]);
+      // Date objects become strings after JSON serialization through safeResponseJson
+      expect(result).toEqual([{ ...mockMatch, lastLoggedAt: mockMatch.lastLoggedAt.toISOString() }]);
     });
   });
 

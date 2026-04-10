@@ -1,5 +1,6 @@
 # Implementation Plan
 
+**Status:** COMPLETE
 **Created:** 2026-04-10
 **Source:** Backlog: FOO-946, FOO-947, FOO-948, FOO-949, FOO-950, FOO-951, FOO-952
 **Linear Issues:** [FOO-946](https://linear.app/lw-claude/issue/FOO-946), [FOO-947](https://linear.app/lw-claude/issue/FOO-947), [FOO-948](https://linear.app/lw-claude/issue/FOO-948), [FOO-949](https://linear.app/lw-claude/issue/FOO-949), [FOO-950](https://linear.app/lw-claude/issue/FOO-950), [FOO-951](https://linear.app/lw-claude/issue/FOO-951), [FOO-952](https://linear.app/lw-claude/issue/FOO-952)
@@ -403,5 +404,52 @@ All 7 issues validated against the codebase — all problems exist as described.
 - Worker 1: merged cleanly (auto-merge)
 - Worker 3: 1 conflict in log-shared-content.tsx (worker-2 changed to snake_case, worker-3 added hook — resolved by using hook with FoodAnalysis data directly, removing redundant conversion)
 
+### Review Findings
+
+Summary: 3 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [MEDIUM] BUG: Auto-resubmit useEffect double-fire due to unstable `actions` reference (`src/components/food-analyzer.tsx:452`) — added `resubmitInFlightRef` guard
+- [MEDIUM] BUG: SavedFoodDetail SWR fetcher missing `AbortSignal.timeout(15000)` and uses `response.json()` instead of `safeResponseJson` (`src/components/saved-food-detail.tsx:48-53`) — added timeout + safeResponseJson
+- [MEDIUM] BUG: use-log-to-fitbit test leaks unhandled async TypeError from unresolved mock (`src/hooks/__tests__/use-log-to-fitbit.test.ts:258-263`) — added proper mock setup + act() cleanup
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: No token format validation on shared-food route — parameterized Drizzle query, no injection risk, null return is cheap
+- [DISCARDED] CONVENTION: Chat page uses bare `!session` vs `validateSession()` — pre-existing, explicitly noted as out of scope in plan, API routes enforce auth independently
+- [DISCARDED] RESOURCE: Promise.race timer not cleared in log-food route — reject is a no-op on settled promise, negligible memory
+- [DISCARDED] EDGE CASE: use-log-to-fitbit `result.data` undefined guard — impossible given internal API contract always returns `data` with `success: true`
+- [DISCARDED] BUG: Falsy check on `reuseCustomFoodId` in log-food route — validator blocks 0 upstream, no real-world impact
+- [DISCARDED] CONVENTION: Chat/edit page tests missing redirect test cases — coverage preference, not production bugs
+- [DISCARDED] TYPE: `expectedCalories` double cast in log-food route — working code, type improvement not a bug
+- [DISCARDED] TYPE: Redundant `(k as string)` cast in food-validation — style-only, harmless
+- [DISCARDED] CONVENTION: Log-shared-content test timezone scenario not exercised — test runs and asserts correctly, component is correct, comment is misleading but not a bug
+
+### Linear Updates
+- FOO-946: Review → Merge (original task)
+- FOO-947: Review → Merge (original task)
+- FOO-948: Review → Merge (original task)
+- FOO-949: Review → Merge (original task)
+- FOO-950: Review → Merge (original task)
+- FOO-951: Review → Merge (original task)
+- FOO-952: Review → Merge (original task)
+- FOO-953: Created in Merge (Fix: auto-resubmit double-fire — fixed inline)
+- FOO-954: Created in Merge (Fix: missing timeout + safeResponseJson — fixed inline)
+- FOO-955: Created in Merge (Fix: test async leak — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 3193 pass across 184 files
+- Lint + typecheck: clean, zero warnings
+- Build: clean
+- Bug-hunter: found 1 additional issue (useLayoutEffect for ref sync in quick-select.tsx) — fixed
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
 All tasks completed.
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.

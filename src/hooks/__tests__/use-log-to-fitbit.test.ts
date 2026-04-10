@@ -258,8 +258,11 @@ describe("useLogToFitbit", () => {
       // Only one fetch call despite two logToFitbit calls
       expect(mockFetch).toHaveBeenCalledTimes(1);
 
-      // Resolve first
-      resolveFirst({ ok: true, body: null });
+      // Resolve first fetch cleanly to avoid unhandled async errors
+      mockSafeResponseJson.mockResolvedValueOnce({ success: true, data: mockLogResponse });
+      await act(async () => {
+        resolveFirst({ ok: true });
+      });
     });
 
     describe("error handling — FITBIT_TOKEN_INVALID", () => {
