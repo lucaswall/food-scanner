@@ -198,3 +198,41 @@ All changes are to `.claude/skills/staging-qa/` markdown files only. No applicat
 **Risks:**
 - Share scenario (16) depends on food log entries existing — may SKIP if seeding failed and no prior scenarios created entries
 - Capture scenario (15) is limited to page-load + UI element verification since camera input can't be meaningfully automated
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-04-10
+**Method:** Single-agent (1 work unit — all tasks share the same 2 files, effort score 10)
+
+### Tasks Completed This Iteration
+- Task 1: Fix Scenario 1 seed-conditional pass criteria (FOO-956) — made "Saved for Later" checks conditional on seeding success
+- Task 2: Fix Scenario 4 chat architecture (FOO-957) — replaced overlay language with full-screen replacement description
+- Task 3: Fix Scenario 11 screenshot contradiction (FOO-958) — changed TWO screenshots to ONE (scrolled to bottom)
+- Task 4: Enhance Scenarios 10 and 12 (FOO-960) — added label detail sheet interaction, search filtering, chat heading/navigation checks
+- Task 5: Add Scenario 15 — Quick Capture (FOO-959) — new scenario with slug `capture` for /app/capture page
+- Task 6: Add Scenario 16 — Shared Food (FOO-961) — new scenario with slug `share` for /app/log-shared/[token] page
+- Task 7: Update SKILL.md slug list and report table — added `capture`, `share` slugs and 4 missing report table rows (scenarios 13-16)
+
+### Files Modified
+- `.claude/skills/staging-qa/references/test-scenarios.md` — fixed 3 existing scenarios, enhanced 2, added 2 new scenarios
+- `.claude/skills/staging-qa/SKILL.md` — added slugs to valid list, added 4 rows to report table
+
+### Linear Updates
+- FOO-956: Todo → In Progress → Review
+- FOO-957: Todo → In Progress → Review
+- FOO-958: Todo → In Progress → Review
+- FOO-959: Todo → In Progress → Review
+- FOO-960: Todo → In Progress → Review
+- FOO-961: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 3 bugs (1 critical, 1 medium, 1 low), all fixed before proceeding
+  - CRITICAL: Scenario 16 used wrong API endpoint (`/api/history` → `/api/food-history`) and wrong field name (`food_log_entry_id` → `customFoodId`)
+  - MEDIUM: Scenario 10 search step lacked conditional guard for empty state
+  - LOW: Scenario 16 had unnecessary dependency on `log` scenario (changed to `none`)
+- verifier: All 3193 tests pass, zero warnings, build clean
+
+### Continuation Status
+All tasks completed.

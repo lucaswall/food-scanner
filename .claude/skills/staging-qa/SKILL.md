@@ -126,7 +126,7 @@ Apply these rules throughout ALL browser interactions:
 
 1. **Load scenarios** — Read `references/test-scenarios.md` for scenario definitions.
 
-2. **Parse arguments** — If `$ARGUMENTS` is provided, split on whitespace. Extract the `gif` keyword (enables GIF recording). Remaining tokens are scenario slug names to filter. Valid slugs: `dashboard`, `weekly`, `analyze`, `refine`, `log`, `delete`, `quick-select`, `food-detail`, `edit`, `labels`, `settings`, `chat`, `save`, `log-saved`. If no slug tokens, run all scenarios in order.
+2. **Parse arguments** — If `$ARGUMENTS` is provided, split on whitespace. Extract the `gif` keyword (enables GIF recording). Remaining tokens are scenario slug names to filter. Valid slugs: `dashboard`, `weekly`, `analyze`, `refine`, `log`, `delete`, `quick-select`, `food-detail`, `edit`, `labels`, `settings`, `chat`, `save`, `log-saved`, `capture`, `share`. If no slug tokens, run all scenarios in order.
 
 3. **For each scenario:**
 
@@ -254,6 +254,10 @@ Output a markdown summary to the conversation (NOT to a file):
 | Labels page | PASS/FAIL/SKIP | OK/WARN | |
 | Settings page | PASS/FAIL/SKIP | OK/WARN | |
 | Chat page | PASS/FAIL/SKIP | OK/WARN | |
+| Save for Later | PASS/FAIL/SKIP | OK/WARN | |
+| Log saved food | PASS/FAIL/SKIP | OK/WARN | |
+| Quick Capture | PASS/FAIL/SKIP | OK/WARN | |
+| Shared Food | PASS/FAIL/SKIP | OK/WARN | |
 
 **Summary:** X/Y passed, N failed, M skipped
 **Visual warnings:** [None / list of visual issues per scenario]
