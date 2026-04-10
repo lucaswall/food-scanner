@@ -9,8 +9,7 @@ import { FoodLogConfirmation } from "@/components/food-log-confirmation";
 import { Button } from "@/components/ui/button";
 import { AlertCircle } from "lucide-react";
 import { FitbitMealType } from "@/types";
-import type { FoodLogResponse } from "@/types";
-import { getLocalDateTime } from "@/lib/meal-type";
+import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
 
 interface SharedFood {
   id: number;
@@ -39,14 +38,39 @@ interface LogSharedContentProps {
 
 export function LogSharedContent({ token }: LogSharedContentProps) {
   const [mealTypeId, setMealTypeId] = useState<number>(FitbitMealType.Anytime);
-  const [isLogging, setIsLogging] = useState(false);
-  const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
-  const [logError, setLogError] = useState<string | null>(null);
 
   const { data, error, isLoading, mutate } = useSWR<SharedFood>(
     `/api/shared-food/${token}`,
     apiFetcher,
   );
+
+  // Convert SharedFood (camelCase) to FoodAnalysis (snake_case) for the hook
+  const sharedFoodAnalysis = data
+    ? {
+        food_name: data.foodName,
+        amount: data.amount,
+        unit_id: data.unitId,
+        calories: data.calories,
+        protein_g: data.proteinG,
+        carbs_g: data.carbsG,
+        fat_g: data.fatG,
+        fiber_g: data.fiberG,
+        sodium_mg: data.sodiumMg,
+        saturated_fat_g: data.saturatedFatG,
+        trans_fat_g: data.transFatG,
+        sugars_g: data.sugarsG,
+        calories_from_fat: data.caloriesFromFat,
+        confidence: (data.confidence as "high" | "medium" | "low") || "high",
+        notes: data.notes ?? "",
+        description: data.description ?? "",
+        keywords: data.keywords ?? [],
+      }
+    : null;
+
+  const { logToFitbit, logging: isLogging, logError, logResponse } = useLogToFitbit({
+    analysis: sharedFoodAnalysis,
+    mealTypeId,
+  });
 
   if (isLoading) {
     return (
@@ -92,60 +116,6 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
     );
   }
 
-  async function handleLog() {
-    if (!data || isLogging) return;
-    setIsLogging(true);
-    setLogError(null);
-
-    const { date, time, zoneOffset } = getLocalDateTime();
-
-    try {
-      const response = await fetch("/api/log-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          food_name: data.foodName,
-          amount: data.amount,
-          unit_id: data.unitId,
-          calories: data.calories,
-          protein_g: data.proteinG,
-          carbs_g: data.carbsG,
-          fat_g: data.fatG,
-          fiber_g: data.fiberG,
-          sodium_mg: data.sodiumMg,
-          saturated_fat_g: data.saturatedFatG,
-          trans_fat_g: data.transFatG,
-          sugars_g: data.sugarsG,
-          calories_from_fat: data.caloriesFromFat,
-          confidence: (data.confidence as "high" | "medium" | "low") || "high",
-          notes: data.notes ?? "",
-          description: data.description ?? "",
-          keywords: data.keywords ?? [],
-          mealTypeId,
-          date,
-          time,
-          zoneOffset,
-        }),
-      });
-
-      if (!response.ok) {
-        setLogError("Failed to log food. Please try again.");
-        return;
-      }
-
-      const result = await response.json();
-      if (result.success) {
-        setLogResponse(result.data as FoodLogResponse);
-      } else {
-        setLogError(result.error?.message ?? "Failed to log food. Please try again.");
-      }
-    } catch {
-      setLogError("Network error. Please check your connection and try again.");
-    } finally {
-      setIsLogging(false);
-    }
-  }
-
   return (
     <div className="max-w-md mx-auto p-4 space-y-6">
       <div>
@@ -184,7 +154,7 @@ export function LogSharedContent({ token }: LogSharedContentProps) {
       )}
 
       <Button
-        onClick={handleLog}
+        onClick={logToFitbit}
         disabled={isLogging}
         className="w-full min-h-[44px]"
       >
