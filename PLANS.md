@@ -323,29 +323,15 @@ Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
 
 ---
 
-## Fix Plan
+## Fix Plan — RESOLVED
 
-**Source:** Review findings from Iteration 2
-**Linear Issues:** [HEA-197](https://linear.app/lw-claude/issue/HEA-197/fix-hydrationrecordmapper-truncates-fractional-ml-values-instead-of), [HEA-198](https://linear.app/lw-claude/issue/HEA-198/fix-missing-hydration-sync-test-coverage-in), [HEA-199](https://linear.app/lw-claude/issue/HEA-199/fix-remove-unused-context-injection-from)
+All 3 fix plan items resolved directly. Health Helper branch: `fix/hydration-review-bugs`
+- HEA-197: `toInt()` → `roundToInt()` + fractional volume tests
+- HEA-198: 5 hydration sync tests added
+- HEA-199: Removed unused context from constructor + DI
 
-### Fix 1: HydrationRecordMapper truncates fractional mL values
-**Linear Issue:** [HEA-197](https://linear.app/lw-claude/issue/HEA-197/fix-hydrationrecordmapper-truncates-fractional-ml-values-instead-of)
+---
 
-1. Write test in `HealthConnectHydrationRepositoryTest.kt` for fractional volume mapping (e.g., 250.9mL → 251mL, 0.4mL → filtered/dropped)
-2. Change `toInt()` to `roundToInt()` in `HydrationRecordMapper.kt:8`
-3. Add `coerceAtLeast(1)` or filter sub-0.5mL records before mapping
+## Status: COMPLETE
 
-### Fix 2: Missing hydration sync test coverage
-**Linear Issue:** [HEA-198](https://linear.app/lw-claude/issue/HEA-198/fix-missing-hydration-sync-test-coverage-in)
-
-1. Add tests in `SyncHealthReadingsUseCaseTest.kt` following the glucose/BP test patterns:
-   - Successful hydration push calls `pushHydrationReadings` and advances watermark
-   - Push failure does NOT advance watermark
-   - Hydration exception does not block glucose/BP sync (error isolation)
-   - caughtUp flag set when < 100 readings returned
-
-### Fix 3: Remove unused Context injection
-**Linear Issue:** [HEA-199](https://linear.app/lw-claude/issue/HEA-199/fix-remove-unused-context-injection-from)
-
-1. Remove `@ApplicationContext private val context: Context` from `HealthConnectHydrationRepository.kt` constructor
-2. Update `AppModule.kt` DI binding to stop passing context to hydration repository
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
