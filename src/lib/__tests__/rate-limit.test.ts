@@ -1,63 +1,82 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Need to reset module between tests to clear the in-memory store
-let checkRateLimit: typeof import("@/lib/rate-limit").checkRateLimit;
-
-beforeEach(async () => {
-  vi.resetModules();
-  const mod = await import("@/lib/rate-limit");
-  checkRateLimit = mod.checkRateLimit;
-});
+vi.mock("@/lib/logger", () => ({
+  logger: { debug: vi.fn(), warn: vi.fn() },
+}));
 
 describe("checkRateLimit", () => {
-  it("returns allowed: true when under limit", () => {
-    const result = checkRateLimit("test-ip", 5, 60000);
-    expect(result.allowed).toBe(true);
-    expect(result.remaining).toBe(4);
+  beforeEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
   });
 
-  it("returns allowed: false when limit exceeded", () => {
+  it("allows requests up to maxRequests", async () => {
+    const { checkRateLimit } = await import("@/lib/rate-limit");
     for (let i = 0; i < 5; i++) {
-      checkRateLimit("test-ip", 5, 60000);
+      const result = checkRateLimit("test-key", 5, 60_000);
+      expect(result.allowed).toBe(true);
     }
-    const result = checkRateLimit("test-ip", 5, 60000);
+  });
+
+  it("denies requests beyond maxRequests", async () => {
+    const { checkRateLimit } = await import("@/lib/rate-limit");
+    for (let i = 0; i < 5; i++) {
+      checkRateLimit("test-key", 5, 60_000);
+    }
+    const result = checkRateLimit("test-key", 5, 60_000);
     expect(result.allowed).toBe(false);
     expect(result.remaining).toBe(0);
   });
 
-  it("tracks by key independently", () => {
+  it("resets after window expires", async () => {
+    const { checkRateLimit } = await import("@/lib/rate-limit");
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now);
+
     for (let i = 0; i < 5; i++) {
-      checkRateLimit("ip-1", 5, 60000);
+      checkRateLimit("test-key", 5, 1000);
     }
-    // ip-1 is exhausted
-    expect(checkRateLimit("ip-1", 5, 60000).allowed).toBe(false);
-    // ip-2 still has capacity
-    expect(checkRateLimit("ip-2", 5, 60000).allowed).toBe(true);
+    expect(checkRateLimit("test-key", 5, 1000).allowed).toBe(false);
+
+    vi.spyOn(Date, "now").mockReturnValue(now + 1001);
+    const result = checkRateLimit("test-key", 5, 1000);
+    expect(result.allowed).toBe(true);
+    expect(result.remaining).toBe(4);
   });
 
-  it("resets after window expires", () => {
-    vi.useFakeTimers();
-    try {
-      for (let i = 0; i < 5; i++) {
-        checkRateLimit("test-ip", 5, 60000);
-      }
-      expect(checkRateLimit("test-ip", 5, 60000).allowed).toBe(false);
+  it("cleans expired entries periodically even under low traffic", async () => {
+    const { checkRateLimit, _getStoreSize } = await import("@/lib/rate-limit");
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now);
 
-      // Advance past the window
-      vi.advanceTimersByTime(60001);
-
-      const result = checkRateLimit("test-ip", 5, 60000);
-      expect(result.allowed).toBe(true);
-      expect(result.remaining).toBe(4);
-    } finally {
-      vi.useRealTimers();
+    // Create entries that will expire
+    for (let i = 0; i < 50; i++) {
+      checkRateLimit(`key-${i}`, 10, 1000);
     }
+    expect(_getStoreSize()).toBe(50);
+
+    // Advance past expiration, trigger enough calls for periodic cleanup
+    vi.spyOn(Date, "now").mockReturnValue(now + 2000);
+    for (let i = 0; i < 100; i++) {
+      checkRateLimit("cleanup-trigger", 10000, 60_000);
+    }
+
+    // Expired entries should have been cleaned up
+    // Store should have cleanup-trigger + no expired keys
+    expect(_getStoreSize()).toBeLessThanOrEqual(2);
   });
 
-  it("decrements remaining correctly", () => {
-    expect(checkRateLimit("test-ip", 3, 60000).remaining).toBe(2);
-    expect(checkRateLimit("test-ip", 3, 60000).remaining).toBe(1);
-    expect(checkRateLimit("test-ip", 3, 60000).remaining).toBe(0);
-    expect(checkRateLimit("test-ip", 3, 60000).allowed).toBe(false);
+  it("enforces hard cap by evicting oldest entries when all are active", async () => {
+    const { checkRateLimit, _getStoreSize, _getMaxStoreSize } = await import("@/lib/rate-limit");
+
+    const maxSize = _getMaxStoreSize();
+
+    // Fill store beyond max with active (non-expired) entries
+    for (let i = 0; i < maxSize + 100; i++) {
+      checkRateLimit(`flood-${i}`, 10, 60_000);
+    }
+
+    // Store should be capped at MAX_STORE_SIZE
+    expect(_getStoreSize()).toBeLessThanOrEqual(maxSize);
   });
 });

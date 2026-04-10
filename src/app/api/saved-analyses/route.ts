@@ -35,6 +35,9 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return errorResponse("VALIDATION_ERROR", "Request body must be a JSON object", 400);
+    }
     const foodAnalysis = body.foodAnalysis as FoodAnalysis | undefined;
 
     if (
@@ -43,13 +46,16 @@ export async function POST(request: Request) {
       !foodAnalysis.food_name ||
       typeof foodAnalysis.calories !== "number" ||
       typeof foodAnalysis.amount !== "number" ||
+      typeof foodAnalysis.unit_id !== "number" ||
       typeof foodAnalysis.protein_g !== "number" ||
       typeof foodAnalysis.carbs_g !== "number" ||
-      typeof foodAnalysis.fat_g !== "number"
+      typeof foodAnalysis.fat_g !== "number" ||
+      typeof foodAnalysis.fiber_g !== "number" ||
+      typeof foodAnalysis.sodium_mg !== "number"
     ) {
       return errorResponse(
         "VALIDATION_ERROR",
-        "foodAnalysis must include food_name, calories, amount, protein_g, carbs_g, and fat_g",
+        "foodAnalysis must include food_name, calories, amount, unit_id, protein_g, carbs_g, fat_g, fiber_g, and sodium_mg",
         400,
       );
     }

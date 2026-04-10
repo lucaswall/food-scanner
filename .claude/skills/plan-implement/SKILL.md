@@ -355,6 +355,13 @@ If failures → fix directly, then re-run until all tests pass.
 
 ### 7. Run E2E Tests (if workers wrote E2E specs)
 
+Ensure PostgreSQL is running before E2E tests:
+```bash
+docker ps --filter name=postgres-e2e --format '{{.Status}}' | grep -q Up || \
+  (docker rm -f postgres-e2e 2>/dev/null; docker run -d --name postgres-e2e -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=food_scanner -p 5432:5432 postgres:latest && \
+   until docker exec postgres-e2e pg_isready -U postgres 2>/dev/null; do sleep 1; done)
+```
+
 Run the `verifier` agent in E2E mode:
 ```
 Task tool with subagent_type "verifier" and prompt "e2e"
