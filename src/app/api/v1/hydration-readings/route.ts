@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     }
     const r = item as Record<string, unknown>;
 
-    if (typeof r.measuredAt !== "string" || !ISO_8601_RE.test(r.measuredAt)) {
+    if (typeof r.measuredAt !== "string" || !ISO_8601_RE.test(r.measuredAt) || isNaN(new Date(r.measuredAt).getTime())) {
       return errorResponse("VALIDATION_ERROR", `Reading at index ${i}: measuredAt must be a valid ISO 8601 string`, 400);
     }
     if (typeof r.volumeMl !== "number" || !Number.isInteger(r.volumeMl) || r.volumeMl <= 0) {

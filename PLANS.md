@@ -230,6 +230,34 @@
 ### Continuation Status
 All Food Scanner tasks (1-3) completed. Tasks 4-5 are Health Helper (Kotlin/Android) and must be implemented in the health-helper project.
 
+### Review Findings
+
+Summary: 1 issue found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 1 issue — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [MEDIUM] BUG: Semantically invalid ISO 8601 dates (e.g., `2026-99-99T25:61:61Z`) pass regex validation but cause DB error → 500 instead of 400 (`src/app/api/v1/hydration-readings/route.ts:62`) — added `isNaN(new Date().getTime())` check + test
+
+**Discarded findings (not bugs):**
+- [DISCARDED] No upper bound on volumeMl — no realistic scenario (no one sends 2B ml); PostgreSQL rejects gracefully
+- [DISCARDED] Zone offset semantic validation (+99:99 accepted) — value stored as-is, never parsed; no correctness impact
+- [DISCARDED] Unbounded GET date range — pre-existing pattern across all health routes, rate-limited, single-user app; performance concern, not correctness bug
+- [DISCARDED] Redundant `as unknown[]` cast after Array.isArray() — pre-existing consistency pattern across all health routes; style-only
+- [DISCARDED] Missing `success: false` assertion in 5 GET error tests — error code assertion validates the path; style-only
+- [DISCARDED] No test for non-object readings item (e.g., `[null]`) — code handles it correctly; missing coverage for working path is not a bug
+
+### Linear Updates (Review)
+- FOO-963: Review → Merge
+- FOO-964: Review → Merge
+- FOO-965: Review → Merge
+- FOO-966: Created in Merge (Fix: semantically invalid ISO 8601 dates — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: all 3222 pass (185 files)
+- Bug-hunter: no new issues
+
+<!-- REVIEW COMPLETE -->
+
 ---
 
 ## Iteration 2
@@ -267,3 +295,57 @@ All Food Scanner tasks (1-3) completed. Tasks 4-5 are Health Helper (Kotlin/Andr
 
 ### Continuation Status
 All 5 tasks completed across both projects. Plan is complete.
+
+### Review Findings
+
+Summary: 3 issue(s) found (Team: security, reliability, quality reviewers)
+- FIX: 3 issue(s) — Linear issues created
+- DISCARDED: 3 finding(s) — false positives / not applicable
+
+**Issues requiring fix:**
+- [MEDIUM] BUG: `toInt()` truncation in HydrationRecordMapper — sub-1mL values become 0, record silently dropped (`HydrationRecordMapper.kt:8`) (HEA-197)
+- [MEDIUM] TEST: Zero hydration sync test coverage in SyncHealthReadingsUseCaseTest — all tests stub hydration to emptyList, never exercise push/watermark/error-isolation (`SyncHealthReadingsUseCaseTest.kt`) (HEA-198)
+- [LOW] CONVENTION: Unused `@ApplicationContext context: Context` injection in HealthConnectHydrationRepository — dead code (`HealthConnectHydrationRepository.kt:19-20`) (HEA-199)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] Missing multi-page pagination happy path test — pagination logic exercised via timeout path; missing variant is not a bug
+- [DISCARDED] Hardcoded Sentry DSN in AndroidManifest.xml — pre-existing, Sentry DSNs are low-risk (event submission only, rate-limited)
+- [DISCARDED] Missing WRITE_HYDRATION permission — correct for current read-only design; speculative future concern
+
+### Linear Updates (Review)
+- HEA-195: Review → Merge (original task completed)
+- HEA-196: Review → Merge (original task completed)
+- HEA-197: Created in Todo (Fix: toInt truncation)
+- HEA-198: Created in Todo (Fix: missing hydration sync tests)
+- HEA-199: Created in Todo (Fix: unused context injection)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 2
+**Linear Issues:** [HEA-197](https://linear.app/lw-claude/issue/HEA-197/fix-hydrationrecordmapper-truncates-fractional-ml-values-instead-of), [HEA-198](https://linear.app/lw-claude/issue/HEA-198/fix-missing-hydration-sync-test-coverage-in), [HEA-199](https://linear.app/lw-claude/issue/HEA-199/fix-remove-unused-context-injection-from)
+
+### Fix 1: HydrationRecordMapper truncates fractional mL values
+**Linear Issue:** [HEA-197](https://linear.app/lw-claude/issue/HEA-197/fix-hydrationrecordmapper-truncates-fractional-ml-values-instead-of)
+
+1. Write test in `HealthConnectHydrationRepositoryTest.kt` for fractional volume mapping (e.g., 250.9mL → 251mL, 0.4mL → filtered/dropped)
+2. Change `toInt()` to `roundToInt()` in `HydrationRecordMapper.kt:8`
+3. Add `coerceAtLeast(1)` or filter sub-0.5mL records before mapping
+
+### Fix 2: Missing hydration sync test coverage
+**Linear Issue:** [HEA-198](https://linear.app/lw-claude/issue/HEA-198/fix-missing-hydration-sync-test-coverage-in)
+
+1. Add tests in `SyncHealthReadingsUseCaseTest.kt` following the glucose/BP test patterns:
+   - Successful hydration push calls `pushHydrationReadings` and advances watermark
+   - Push failure does NOT advance watermark
+   - Hydration exception does not block glucose/BP sync (error isolation)
+   - caughtUp flag set when < 100 readings returned
+
+### Fix 3: Remove unused Context injection
+**Linear Issue:** [HEA-199](https://linear.app/lw-claude/issue/HEA-199/fix-remove-unused-context-injection-from)
+
+1. Remove `@ApplicationContext private val context: Context` from `HealthConnectHydrationRepository.kt` constructor
+2. Update `AppModule.kt` DI binding to stop passing context to hydration repository

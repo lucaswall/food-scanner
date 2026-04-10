@@ -224,6 +224,21 @@ describe("POST /api/v1/hydration-readings", () => {
     expect(data.error.message).toMatch(/measuredAt/i);
   });
 
+  it("returns 400 for semantically invalid ISO 8601 measuredAt", async () => {
+    const request = createPostRequest(
+      "http://localhost:3000/api/v1/hydration-readings",
+      { readings: [{ measuredAt: "2026-99-99T25:61:61Z", volumeMl: 250 }] },
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.error.code).toBe("VALIDATION_ERROR");
+    expect(data.error.message).toMatch(/measuredAt/i);
+  });
+
   it("returns 400 for invalid zoneOffset format", async () => {
     const request = createPostRequest(
       "http://localhost:3000/api/v1/hydration-readings",
