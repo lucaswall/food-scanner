@@ -594,7 +594,7 @@
    - First, fetch entries: `const res = await fetch('/api/food-history?limit=1'); const data = await res.json();`
    - If no entries exist (`data.data.entries` is empty), SKIP with reason "no food log entries available for sharing".
    - Extract the first entry's `customFoodId`, then create a share token: `const shareRes = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customFoodId: data.data.entries[0].customFoodId }) }); const shareData = await shareRes.json();`
-   - Extract the token from `shareData.data.token`.
+   - Extract the token from `shareData.data.shareToken`.
 2. Navigate to `/app/log-shared/<token>` with the generated token.
 3. Verify the page loads — use `find` to look for a food name heading and "Shared food" subtitle or similar.
 4. Verify **nutrition data renders** — use `find` to look for calorie, protein, carbs, fat values (the `NutritionFactsCard` content).

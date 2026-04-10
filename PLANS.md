@@ -1,5 +1,6 @@
 # Implementation Plan
 
+**Status:** COMPLETE
 **Created:** 2026-04-10
 **Source:** Backlog: FOO-956, FOO-957, FOO-958, FOO-959, FOO-960, FOO-961
 **Linear Issues:** [FOO-956](https://linear.app/lw-claude/issue/FOO-956/staging-qa-scenario-1-saved-for-later-pass-criterion-fails-when), [FOO-957](https://linear.app/lw-claude/issue/FOO-957/staging-qa-scenario-4-visual-criteria-misrepresents-chat-architecture), [FOO-958](https://linear.app/lw-claude/issue/FOO-958/staging-qa-scenario-11-two-screenshots-contradicts-one-per-scenario), [FOO-959](https://linear.app/lw-claude/issue/FOO-959/staging-qa-coverage-gap-quick-capture-and-process-captures-untested), [FOO-960](https://linear.app/lw-claude/issue/FOO-960/staging-qa-scenarios-10-and-12-provide-minimal-regression-detection), [FOO-961](https://linear.app/lw-claude/issue/FOO-961/staging-qa-coverage-gap-log-sharedtoken-page-untested)
@@ -234,5 +235,38 @@ All changes are to `.claude/skills/staging-qa/` markdown files only. No applicat
   - LOW: Scenario 16 had unnecessary dependency on `log` scenario (changed to `none`)
 - verifier: All 3193 tests pass, zero warnings, build clean
 
+### Review Findings
+
+Summary: 1 issue found, fixed inline (single-agent review)
+- FIXED INLINE: 1 issue — verified via bug-hunter + lint/typecheck
+
+**Issues fixed inline:**
+- [MEDIUM] BUG: Scenario 16 references wrong share token field name (`test-scenarios.md:597`) — `shareData.data.token` should be `shareData.data.shareToken` per `/api/share` response format
+
+**Discarded findings (not bugs):**
+- None
+
+### Linear Updates
+- FOO-956: Review → Merge
+- FOO-957: Review → Merge
+- FOO-958: Review → Merge
+- FOO-959: Review → Merge
+- FOO-960: Review → Merge
+- FOO-961: Review → Merge
+- FOO-962: Created in Merge (Fix: wrong share token field name — fixed inline)
+
+### Inline Fix Verification
+- Bug-hunter: no new issues
+- Lint: clean
+- Typecheck: clean
+
+<!-- REVIEW COMPLETE -->
+
 ### Continuation Status
 All tasks completed.
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
