@@ -2,20 +2,19 @@ import { test, expect } from '@playwright/test';
 import { captureScreenshots } from '../fixtures/screenshots';
 
 const MOCK_SHARED_FOOD = {
-  id: 1,
-  foodName: 'Grilled Salmon with Vegetables',
+  food_name: 'Grilled Salmon with Vegetables',
   amount: 350,
-  unitId: 147,
+  unit_id: 147,
   calories: 420,
-  proteinG: 38,
-  carbsG: 22,
-  fatG: 18,
-  fiberG: 5,
-  sodiumMg: 380,
-  saturatedFatG: 3.2,
-  transFatG: 0,
-  sugarsG: 4,
-  caloriesFromFat: 162,
+  protein_g: 38,
+  carbs_g: 22,
+  fat_g: 18,
+  fiber_g: 5,
+  sodium_mg: 380,
+  saturated_fat_g: 3.2,
+  trans_fat_g: 0,
+  sugars_g: 4,
+  calories_from_fat: 162,
   confidence: 'high',
   notes: 'Portion includes approximately 200g salmon fillet and 100g steamed vegetables.',
   description: 'Grilled salmon with steamed vegetables',
@@ -39,7 +38,7 @@ test.describe('Log Shared Food Page', () => {
     await page.waitForLoadState('networkidle');
 
     // Verify food name heading is visible
-    await expect(page.getByRole('heading', { name: MOCK_SHARED_FOOD.foodName })).toBeVisible({
+    await expect(page.getByRole('heading', { name: MOCK_SHARED_FOOD.food_name })).toBeVisible({
       timeout: 10000,
     });
 
@@ -109,7 +108,7 @@ test.describe('Log Shared Food Page', () => {
     await page.waitForLoadState('networkidle');
 
     // Wait for food to load
-    await expect(page.getByRole('heading', { name: MOCK_SHARED_FOOD.foodName })).toBeVisible({
+    await expect(page.getByRole('heading', { name: MOCK_SHARED_FOOD.food_name })).toBeVisible({
       timeout: 10000,
     });
 

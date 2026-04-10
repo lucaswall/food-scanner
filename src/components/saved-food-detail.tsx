@@ -23,9 +23,9 @@ import { FoodMatchCard } from "@/components/food-match-card";
 import { FoodLogConfirmation } from "@/components/food-log-confirmation";
 import { FoodChat } from "@/components/food-chat";
 import { apiFetcher, invalidateFoodCaches, invalidateSavedAnalysesCaches } from "@/lib/swr";
-import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
-import { savePendingSubmission } from "@/lib/pending-submission";
 import { safeResponseJson } from "@/lib/safe-json";
+import { getDefaultMealType, getLocalDateTime } from "@/lib/meal-type";
+import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
 import type { FoodLogResponse, FoodMatch } from "@/types";
 import type { SavedAnalysisDetail } from "@/types";
 
@@ -41,106 +41,63 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
     apiFetcher,
   );
 
-  // Derive keywords from food name for match lookup
-  const keywords = savedAnalysis?.foodAnalysis.food_name?.trim() ?? null;
-  const searchKey = keywords
-    ? `/api/search-foods?q=${encodeURIComponent(keywords)}&limit=3`
-    : null;
-  const { data: matchesData } = useSWR<FoodMatch[]>(searchKey, apiFetcher);
+  const matchesKey = savedAnalysis ? `find-matches-${savedId}` : null;
+  const { data: matchesData } = useSWR<FoodMatch[]>(
+    matchesKey,
+    async () => {
+      const { keywords, food_name, amount, unit_id, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg } = savedAnalysis!.foodAnalysis;
+      const response = await fetch("/api/find-matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords, food_name, amount, unit_id, calories, protein_g, carbs_g, fat_g, fiber_g, sodium_mg }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const result = (await safeResponseJson(response)) as { success: boolean; data?: { matches: FoodMatch[] }; error?: { message: string } };
+      return result.data?.matches ?? [];
+    },
+  );
   const matches = matchesData ?? [];
 
   const [mealTypeId, setMealTypeId] = useState(() => getDefaultMealType());
   const [selectedTime, setSelectedTime] = useState<string | null>(() => getLocalDateTime().time);
   const [selectedMatch, setSelectedMatch] = useState<number | null>(null);
-  const [logging, setLogging] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
-  const [logError, setLogError] = useState<string | null>(null);
-  const [logResponse, setLogResponse] = useState<FoodLogResponse | null>(null);
+  const [discardError, setDiscardError] = useState<string | null>(null);
   const [loggedFoodName, setLoggedFoodName] = useState<string | null>(null);
   const [loggedAnalysis, setLoggedAnalysis] = useState<SavedAnalysisDetail["foodAnalysis"] | null>(null);
 
-  const handleSelectMatch = (match: FoodMatch) => {
-    setSelectedMatch(match.customFoodId);
-  };
-
-  const handleLogToFitbit = async () => {
-    if (!savedAnalysis) return;
-    setLogError(null);
-    setLogging(true);
-
-    try {
-      const localDateTime = getLocalDateTime();
-      const logTime = selectedTime ?? localDateTime.time;
-
-      const logBody: Record<string, unknown> = selectedMatch
-        ? {
-            reuseCustomFoodId: selectedMatch,
-            mealTypeId,
-            date: localDateTime.date,
-            time: logTime,
-            zoneOffset: localDateTime.zoneOffset,
-          }
-        : {
-            ...savedAnalysis.foodAnalysis,
-            mealTypeId,
-            date: localDateTime.date,
-            time: logTime,
-            zoneOffset: localDateTime.zoneOffset,
-          };
-
-      const response = await fetch("/api/log-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(logBody),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data?: FoodLogResponse;
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success) {
-        const errorCode = result.error?.code;
-        if (errorCode === "FITBIT_TOKEN_INVALID") {
-          savePendingSubmission({
-            analysis: savedAnalysis.foodAnalysis,
-            mealTypeId,
-            foodName: savedAnalysis.foodAnalysis.food_name,
-            date: localDateTime.date,
-            time: logTime,
-            zoneOffset: localDateTime.zoneOffset,
-          });
-          window.location.href = "/api/auth/fitbit";
-          return;
-        }
-        setLogError(result.error?.message || "Failed to log food to Fitbit");
-        return;
-      }
-
-      // Delete saved analysis on success (non-blocking — log already succeeded)
+  const { logToFitbit, logToFitbitWithMatch, logging, logError, logResponse, clearLogError } = useLogToFitbit({
+    analysis: savedAnalysis?.foodAnalysis ?? null,
+    mealTypeId,
+    selectedTime,
+    onSuccess: async () => {
+      // Delete saved analysis on success (non-blocking)
       try {
         const deleteRes = await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE", signal: AbortSignal.timeout(15000) });
-        if (!deleteRes.ok) {
-          console.warn("Failed to delete saved analysis after logging:", deleteRes.status);
-        }
+        if (!deleteRes.ok) console.warn("Failed to delete saved analysis after logging:", deleteRes.status);
       } catch (deleteErr) {
         console.warn("Failed to delete saved analysis after logging:", deleteErr);
       }
-      setLoggedFoodName(savedAnalysis.foodAnalysis.food_name);
-      setLoggedAnalysis(savedAnalysis.foodAnalysis);
-      setLogResponse(result.data ?? null);
+      setLoggedFoodName(savedAnalysis!.foodAnalysis.food_name);
+      setLoggedAnalysis(savedAnalysis!.foodAnalysis);
       await Promise.all([invalidateFoodCaches(), invalidateSavedAnalysesCaches()]);
-    } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setLogError("Request timed out. Please try again.");
-      } else {
-        setLogError(err instanceof Error ? err.message : "An unexpected error occurred");
+    },
+  });
+
+  const handleSelectMatch = (match: FoodMatch) => {
+    setSelectedMatch(match.customFoodId);
+    clearLogError();
+  };
+
+  const handleLogClick = () => {
+    if (selectedMatch) {
+      const match = matches.find(m => m.customFoodId === selectedMatch);
+      if (match) {
+        void logToFitbitWithMatch({ customFoodId: selectedMatch, foodName: match.foodName });
       }
-    } finally {
-      setLogging(false);
+    } else {
+      void logToFitbit();
     }
   };
 
@@ -149,7 +106,7 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
       const response = await fetch(`/api/saved-analyses/${savedId}`, { method: "DELETE", signal: AbortSignal.timeout(15000) });
       if (!response.ok) {
         setShowDiscardConfirm(false);
-        setLogError("Failed to discard saved food");
+        setDiscardError("Failed to discard saved food");
         return;
       }
       await invalidateSavedAnalysesCaches();
@@ -157,9 +114,9 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
     } catch (err) {
       setShowDiscardConfirm(false);
       if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setLogError("Request timed out. Please try again.");
+        setDiscardError("Request timed out. Please try again.");
       } else {
-        setLogError("Failed to discard saved food");
+        setDiscardError("Failed to discard saved food");
       }
     }
   };
@@ -322,14 +279,14 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
           </div>
         )}
 
-        {/* Log error */}
-        {logError && (
+        {/* Log / discard error */}
+        {(logError ?? discardError) && (
           <div
             data-testid="log-error"
             className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg"
             aria-live="polite"
           >
-            <p className="text-sm text-destructive">{logError}</p>
+            <p className="text-sm text-destructive">{logError ?? discardError}</p>
           </div>
         )}
       </div>
@@ -341,7 +298,7 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
       >
         <div className="mx-auto w-full max-w-md py-3 border-t bg-background/80 backdrop-blur-sm">
           <Button
-            onClick={handleLogToFitbit}
+            onClick={handleLogClick}
             disabled={logging}
             className="w-full min-h-[44px]"
           >

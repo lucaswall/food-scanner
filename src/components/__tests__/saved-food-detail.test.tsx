@@ -255,7 +255,8 @@ function setupSWR(opts: {
     if (key && typeof key === "string" && key.startsWith("/api/saved-analyses/")) {
       return { data: savedLoading ? undefined : savedError ? undefined : savedAnalysis, isLoading: savedLoading, error: savedError };
     }
-    if (key && typeof key === "string" && key.startsWith("/api/search-foods")) {
+    // New: find-matches-${savedId} key for POST-based food matching
+    if (key && typeof key === "string" && key.startsWith("find-matches-")) {
       return { data: matchesLoading ? undefined : matches, isLoading: matchesLoading, error: null };
     }
     return { data: undefined, isLoading: false, error: null };
@@ -314,29 +315,75 @@ describe("SavedFoodDetail", () => {
   });
 
   describe("Match lookup", () => {
-    it("calls /api/search-foods with the saved food's name keywords", () => {
+    it("uses find-matches-${savedId} as the SWR key (not a search-foods URL)", () => {
       setupSWR();
       render(<SavedFoodDetail savedId={42} />);
-      // useSWR should have been called with a search-foods URL containing the food name
       const calls = mockUseSWR.mock.calls;
-      const searchCall = calls.find(
+      const matchesCall = calls.find(
+        ([key]) => key === "find-matches-42"
+      );
+      expect(matchesCall).toBeDefined();
+      // Must NOT use search-foods
+      const searchFoodsCall = calls.find(
         ([key]) => typeof key === "string" && key.startsWith("/api/search-foods")
       );
-      expect(searchCall).toBeDefined();
-      expect(searchCall![0]).toContain("Chicken");
+      expect(searchFoodsCall).toBeUndefined();
     });
 
     it("uses null key (no fetch) until saved analysis loads", () => {
       setupSWR({ savedLoading: true });
       render(<SavedFoodDetail savedId={42} />);
       const calls = mockUseSWR.mock.calls;
-      const searchCall = calls.find(
-        ([key]) => typeof key === "string" && key.startsWith("/api/search-foods")
+      // The second useSWR call (for matches) should be null while loading
+      const matchesCall = calls.find(
+        ([key]) => typeof key === "string" && key.startsWith("find-matches-")
       );
-      // Either no search-foods call or called with null key
-      if (searchCall) {
-        expect(searchCall[0]).toBeNull();
-      }
+      expect(matchesCall).toBeUndefined();
+    });
+
+    it("custom fetcher POSTs to /api/find-matches with required FoodAnalysis fields", async () => {
+      let capturedFetcher: (() => Promise<unknown>) | null = null;
+
+      mockUseSWR.mockImplementation((key: unknown, fetcher?: unknown) => {
+        if (key && typeof key === "string" && key.startsWith("/api/saved-analyses/")) {
+          return { data: mockSavedAnalysis, isLoading: false, error: null };
+        }
+        if (key === "find-matches-42" && fetcher) {
+          capturedFetcher = fetcher as () => Promise<unknown>;
+          return { data: undefined, isLoading: false, error: null };
+        }
+        return { data: undefined, isLoading: false, error: null };
+      });
+
+      render(<SavedFoodDetail savedId={42} />);
+      expect(capturedFetcher).not.toBeNull();
+
+      const matchesBody = JSON.stringify({ success: true, data: { matches: [mockMatch] } });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        text: vi.fn().mockResolvedValue(matchesBody),
+      });
+
+      const result = await capturedFetcher!();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api/find-matches",
+        expect.objectContaining({ method: "POST", headers: { "Content-Type": "application/json" } }),
+      );
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body as string) as Record<string, unknown>;
+      expect(body.keywords).toEqual(["chicken", "rice", "bowl"]);
+      expect(body.food_name).toBe("Chicken Rice Bowl");
+      expect(body.amount).toBe(1);
+      expect(body.unit_id).toBe(304);
+      expect(body.calories).toBe(500);
+      expect(body.protein_g).toBe(30);
+      expect(body.carbs_g).toBe(60);
+      expect(body.fat_g).toBe(10);
+      expect(body.fiber_g).toBe(3);
+      expect(body.sodium_mg).toBe(800);
+      // Result is FoodMatch[] extracted from result.data.matches
+      // Date objects become strings after JSON serialization through safeResponseJson
+      expect(result).toEqual([{ ...mockMatch, lastLoggedAt: mockMatch.lastLoggedAt.toISOString() }]);
     });
   });
 

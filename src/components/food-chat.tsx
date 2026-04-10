@@ -22,10 +22,11 @@ import {
 } from "lucide-react";
 import { safeResponseJson } from "@/lib/safe-json";
 import { parseSSEEvents } from "@/lib/sse";
+import { useLogToFitbit } from "@/hooks/use-log-to-fitbit";
 import { compressImage } from "@/lib/image";
 import { getLocalDateTime, getDefaultMealType } from "@/lib/meal-type";
 import { savePendingSubmission } from "@/lib/pending-submission";
-import { invalidateSavedAnalysesCaches } from "@/lib/swr";
+import { saveAnalysisForLater } from "@/lib/save-for-later";
 import { MiniNutritionCard } from "@/components/mini-nutrition-card";
 import type {
   FoodAnalysis,
@@ -122,7 +123,7 @@ export function FoodChat({
   );
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [logging, setLogging] = useState(false);
+  const [savingEntry, setSavingEntry] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mealTypeId, setMealTypeId] = useState(
     isEditMode && editEntry ? editEntry.mealTypeId : (initialMealTypeId ?? getDefaultMealType())
@@ -152,6 +153,14 @@ export function FoodChat({
   const latestAnalysis = messages.slice().reverse().find((msg) => msg.analysis)?.analysis;
   // True when Claude identified an existing entry to edit via editingEntryId (chat-initiated edit).
   const isEditingExisting = !isEditMode && latestAnalysis?.editingEntryId != null;
+
+  const { logToFitbit, logging, logError, clearLogError } = useLogToFitbit({
+    analysis: latestAnalysis ?? null,
+    mealTypeId,
+    selectedTime,
+    dateOverride: latestAnalysis?.date,
+    onSuccess: (response) => onLogged?.(response, latestAnalysis!, mealTypeId),
+  });
 
   // Count user-initiated chat messages for limit tracking
   // In seeded mode, ALL messages are sent to server (no offset needed)
@@ -509,94 +518,17 @@ export function FoodChat({
     }
   };
 
-  const handleLog = async () => {
-    if (logging) return;
+  const handleLog = () => {
     if (!latestAnalysis) {
       setError("No food analysis available to log.");
       return;
     }
-    const analysis = latestAnalysis;
-
-    setLogging(true);
     setError(null);
-
-    try {
-      const localDateTime = getLocalDateTime();
-      const logDate = analysis.date ?? localDateTime.date;
-      const logTime = selectedTime ?? localDateTime.time;
-      const logBody: Record<string, unknown> = analysis.sourceCustomFoodId
-        ? {
-            reuseCustomFoodId: analysis.sourceCustomFoodId,
-            mealTypeId,
-            date: logDate,
-            time: logTime,
-            zoneOffset: localDateTime.zoneOffset,
-          }
-        : {
-            ...analysis,
-            mealTypeId,
-            date: logDate,
-            time: logTime,
-            zoneOffset: localDateTime.zoneOffset,
-          };
-
-      const response = await fetch("/api/log-food", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(logBody),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data?: FoodLogResponse;
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success || !result.data) {
-        const errorCode = result.error?.code;
-
-        // Handle token expiration - save pending and redirect to re-auth
-        if (errorCode === "FITBIT_TOKEN_INVALID") {
-          savePendingSubmission({
-            analysis: analysis,
-            mealTypeId,
-            foodName: analysis.food_name,
-            date: logDate,
-            time: logTime,
-            zoneOffset: localDateTime.zoneOffset,
-          });
-          window.location.href = "/api/auth/fitbit";
-          return;
-        }
-
-        // Handle missing credentials - show specific error
-        if (errorCode === "FITBIT_CREDENTIALS_MISSING" || errorCode === "FITBIT_NOT_CONNECTED") {
-          setError("Fitbit is not set up. Please configure your credentials in Settings.");
-          return;
-        }
-
-        setError(result.error?.message || "Failed to log food to Fitbit");
-        return;
-      }
-
-      onLogged?.(result.data, analysis, mealTypeId);
-    } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setError("Request timed out. Please try again.");
-      } else {
-        Sentry.captureException(err);
-        setError(
-          err instanceof Error ? err.message : "An unexpected error occurred"
-        );
-      }
-    } finally {
-      setLogging(false);
-    }
+    void logToFitbit();
   };
 
   const handleSave = async () => {
-    if (logging) return;
+    if (logging || savingEntry) return;
     if (!latestAnalysis) {
       setError("No food analysis available to save.");
       return;
@@ -607,7 +539,7 @@ export function FoodChat({
     }
 
     const analysis = latestAnalysis;
-    setLogging(true);
+    setSavingEntry(true);
     setError(null);
 
     try {
@@ -668,12 +600,12 @@ export function FoodChat({
         setError(err instanceof Error ? err.message : "An unexpected error occurred");
       }
     } finally {
-      setLogging(false);
+      setSavingEntry(false);
     }
   };
 
   const handleSaveExisting = async () => {
-    if (logging) return;
+    if (logging || savingEntry) return;
     if (!latestAnalysis) {
       setError("No food analysis available to save.");
       return;
@@ -685,7 +617,7 @@ export function FoodChat({
     }
 
     const analysis = latestAnalysis;
-    setLogging(true);
+    setSavingEntry(true);
     setError(null);
 
     try {
@@ -746,7 +678,7 @@ export function FoodChat({
         setError(err instanceof Error ? err.message : "An unexpected error occurred");
       }
     } finally {
-      setLogging(false);
+      setSavingEntry(false);
     }
   };
 
@@ -754,37 +686,11 @@ export function FoodChat({
     if (!latestAnalysis) return;
     setSaving(true);
 
-    // Strip transient context fields before saving
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { sourceCustomFoodId: _s, editingEntryId: _e, ...foodAnalysis } = latestAnalysis as typeof latestAnalysis & { sourceCustomFoodId?: unknown; editingEntryId?: unknown };
-
     try {
-      const response = await fetch("/api/saved-analyses", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ foodAnalysis }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      const result = (await safeResponseJson(response)) as {
-        success: boolean;
-        data?: { id: number };
-        error?: { code: string; message: string };
-      };
-
-      if (!response.ok || !result.success) {
-        setError(result.error?.message || "Failed to save analysis");
-        return;
-      }
-
-      await invalidateSavedAnalysesCaches();
+      await saveAnalysisForLater(latestAnalysis);
       onClose?.();
     } catch (err) {
-      if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        setError("Request timed out. Please try again.");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to save analysis");
-      }
+      setError(err instanceof Error ? err.message : "Failed to save analysis");
     } finally {
       setSaving(false);
     }
@@ -844,10 +750,10 @@ export function FoodChat({
               <span className="flex-1" />
               <Button
                 onClick={isEditMode ? handleSave : isEditingExisting ? handleSaveExisting : handleLog}
-                disabled={logging}
+                disabled={logging || savingEntry}
                 className="shrink-0 min-h-[44px]"
               >
-                {logging ? (
+                {(logging || savingEntry) ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
                     {isEditMode || isEditingExisting ? "Saving..." : "Logging..."}
@@ -936,11 +842,11 @@ export function FoodChat({
           </div>
         )}
 
-        {error && (
+        {(logError ?? error) && (
           <div className="flex items-start gap-2 px-3 py-2 bg-destructive/10 dark:bg-destructive/20 border border-destructive/20 rounded-2xl">
-            <p className="flex-1 text-sm text-destructive">{error}</p>
+            <p className="flex-1 text-sm text-destructive">{logError ?? error}</p>
             <button
-              onClick={() => setError(null)}
+              onClick={() => { clearLogError(); setError(null); }}
               aria-label="Dismiss error"
               className="shrink-0 flex items-center justify-center size-11 rounded-full hover:bg-destructive/10"
             >

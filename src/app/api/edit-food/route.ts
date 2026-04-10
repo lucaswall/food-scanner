@@ -3,7 +3,8 @@ import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, findOrCreateFood, logFood, deleteFoodLog } from "@/lib/fitbit";
 import { getFoodLogEntryDetail, updateFoodLogEntry, updateFoodLogEntryMetadata, updateCustomFoodMetadata } from "@/lib/food-log";
-import { isValidDateFormat } from "@/lib/date-utils";
+import { isValidDateFormat, isValidTimeFormat } from "@/lib/date-utils";
+import { isValidFoodAnalysisFields } from "@/lib/food-validation";
 import type { FoodAnalysis, FoodLogEntryDetail } from "@/types";
 import { FitbitMealType } from "@/types";
 
@@ -16,63 +17,6 @@ const VALID_MEAL_TYPE_IDS = [
   FitbitMealType.Anytime,
 ];
 
-function isValidTimeFormat(time: string): boolean {
-  if (!/^\d{2}:\d{2}(:\d{2})?$/.test(time)) return false;
-  const parts = time.split(":").map(Number);
-  const hours = parts[0];
-  const minutes = parts[1];
-  const seconds = parts[2] ?? 0;
-  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 && seconds >= 0 && seconds <= 59;
-}
-
-function isValidFoodAnalysis(req: Record<string, unknown>): boolean {
-  if (
-    typeof req.food_name !== "string" ||
-    req.food_name.length === 0 ||
-    req.food_name.length > 500 ||
-    typeof req.amount !== "number" ||
-    req.amount <= 0 ||
-    typeof req.unit_id !== "number" ||
-    typeof req.calories !== "number" ||
-    req.calories < 0 ||
-    typeof req.protein_g !== "number" ||
-    req.protein_g < 0 ||
-    typeof req.carbs_g !== "number" ||
-    req.carbs_g < 0 ||
-    typeof req.fat_g !== "number" ||
-    req.fat_g < 0 ||
-    typeof req.fiber_g !== "number" ||
-    req.fiber_g < 0 ||
-    typeof req.sodium_mg !== "number" ||
-    req.sodium_mg < 0 ||
-    typeof req.notes !== "string" ||
-    req.notes.length > 2000 ||
-    typeof req.description !== "string" ||
-    req.description.length > 2000 ||
-    (req.confidence !== "high" && req.confidence !== "medium" && req.confidence !== "low")
-  ) {
-    return false;
-  }
-
-  if (
-    !Array.isArray(req.keywords) ||
-    req.keywords.length === 0 ||
-    req.keywords.length > 20 ||
-    !req.keywords.every((k: unknown) => typeof k === "string" && (k as string).length <= 100)
-  ) {
-    return false;
-  }
-
-  const tier1Fields = ["saturated_fat_g", "trans_fat_g", "sugars_g", "calories_from_fat"] as const;
-  for (const field of tier1Fields) {
-    const value = req[field];
-    if (value !== undefined && value !== null) {
-      if (typeof value !== "number" || value < 0) return false;
-    }
-  }
-
-  return true;
-}
 
 export function isNutritionUnchanged(analysis: FoodAnalysis, entry: FoodLogEntryDetail): boolean {
   return (
@@ -118,8 +62,14 @@ export async function POST(request: Request) {
   }
 
   // Validate FoodAnalysis fields
-  if (!isValidFoodAnalysis(data)) {
+  if (!isValidFoodAnalysisFields(data)) {
     log.warn({ action: "edit_food_validation" }, "invalid FoodAnalysis fields");
+    return errorResponse("VALIDATION_ERROR", "Missing or invalid required fields", 400);
+  }
+
+  // edit-food requires non-empty keywords (shared validator allows empty arrays)
+  if (!Array.isArray(data.keywords) || data.keywords.length === 0) {
+    log.warn({ action: "edit_food_validation" }, "keywords must be a non-empty array");
     return errorResponse("VALIDATION_ERROR", "Missing or invalid required fields", 400);
   }
 

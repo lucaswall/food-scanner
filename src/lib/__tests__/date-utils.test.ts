@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { getTodayDate, formatDisplayDate, addDays, isToday, getWeekBounds, formatWeekRange, addWeeks, isValidDateFormat, formatTime, formatTimeFromDate } from "@/lib/date-utils";
+import { getTodayDate, formatDisplayDate, addDays, isToday, getWeekBounds, formatWeekRange, addWeeks, isValidDateFormat, isValidTimeFormat, formatTime, formatTimeFromDate } from "@/lib/date-utils";
 
 describe("getTodayDate", () => {
   it("returns today's date in YYYY-MM-DD format", () => {
@@ -278,6 +278,44 @@ describe("isValidDateFormat", () => {
   it("returns false for day 0", () => {
     const result = isValidDateFormat("2026-02-00");
     expect(result).toBe(false);
+  });
+});
+
+describe("isValidTimeFormat", () => {
+  it("returns true for HH:MM format", () => {
+    expect(isValidTimeFormat("12:30")).toBe(true);
+  });
+
+  it("returns true for HH:MM:SS format", () => {
+    expect(isValidTimeFormat("12:30:00")).toBe(true);
+  });
+
+  it("returns false for hour 25", () => {
+    expect(isValidTimeFormat("25:00")).toBe(false);
+  });
+
+  it("returns false for minute 60", () => {
+    expect(isValidTimeFormat("12:60")).toBe(false);
+  });
+
+  it("returns false for non-numeric string", () => {
+    expect(isValidTimeFormat("abc")).toBe(false);
+  });
+
+  it("returns true for midnight 00:00", () => {
+    expect(isValidTimeFormat("00:00")).toBe(true);
+  });
+
+  it("returns true for end of day 23:59:59", () => {
+    expect(isValidTimeFormat("23:59:59")).toBe(true);
+  });
+
+  it("returns false for invalid seconds 12:30:60", () => {
+    expect(isValidTimeFormat("12:30:60")).toBe(false);
+  });
+
+  it("returns false for partial format like 1:30", () => {
+    expect(isValidTimeFormat("1:30")).toBe(false);
   });
 });
 
