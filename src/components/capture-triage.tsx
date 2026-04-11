@@ -254,6 +254,8 @@ export function CaptureTriage() {
 
       let assistantText = "";
       let hadSessionItems = false;
+      setNarrative("");
+      narrativeRef.current = "";
 
       const result = await consumeSSEStream(
         response,
@@ -265,11 +267,13 @@ export function CaptureTriage() {
             if (last?.role === "assistant") {
               return [...prev.slice(0, -1), { ...last, sessionItems: items }];
             }
-            return [...prev, { role: "assistant", content: assistantText, sessionItems: items }];
+            return [...prev, { role: "assistant", content: narrativeRef.current, sessionItems: items }];
           });
         },
         (text) => {
           assistantText += text;
+          narrativeRef.current += text;
+          setNarrative((prev) => prev + text);
         }
       );
 
@@ -283,6 +287,10 @@ export function CaptureTriage() {
           return prev;
         });
       }
+
+      // Clear streaming narrative once finalized into messages
+      setNarrative("");
+      narrativeRef.current = "";
 
       if (!result.ok) {
         setError(result.error || "Failed to process message");
@@ -451,6 +459,34 @@ export function CaptureTriage() {
       {/* Results state */}
       {triageState === "results" && (
         <div className="flex flex-col gap-4">
+          {/* Conversation log */}
+          {messages.length > 0 && (
+            <div data-testid="conversation-log" className="flex flex-col gap-2">
+              {messages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`text-sm rounded-lg px-3 py-2 ${
+                    msg.role === "user"
+                      ? "bg-primary/10 text-primary ml-8"
+                      : "bg-muted text-muted-foreground mr-8"
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Streaming refinement indicator */}
+          {isChatSending && (
+            <div data-testid="refine-loading" className="flex items-start gap-2 mr-8">
+              <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0 mt-0.5" />
+              <p className="text-sm text-muted-foreground">
+                {narrative || "Thinking\u2026"}
+              </p>
+            </div>
+          )}
+
           <SessionItemsList
             items={sessionItems}
             onRemoveItem={(index) => {
@@ -470,8 +506,9 @@ export function CaptureTriage() {
                   handleChatSend();
                 }
               }}
-              placeholder="Refine the items…"
+              placeholder="Refine the items\u2026"
               className="flex-1"
+              disabled={isChatSending}
             />
             <Button
               data-testid="chat-send-btn"
@@ -480,14 +517,18 @@ export function CaptureTriage() {
               size="icon"
               aria-label="Send"
             >
-              <Send className="w-4 h-4" aria-hidden="true" />
+              {isChatSending ? (
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="w-4 h-4" aria-hidden="true" />
+              )}
             </Button>
           </div>
 
           <Button
             data-testid="approve-save-btn"
             onClick={handleApproveAndSave}
-            disabled={sessionItems.length === 0}
+            disabled={sessionItems.length === 0 || isChatSending}
             className="w-full"
           >
             Approve &amp; Save
