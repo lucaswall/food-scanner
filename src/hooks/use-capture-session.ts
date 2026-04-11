@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { compressImage } from "@/lib/image";
 import {
   getActiveCaptureSessionId,
@@ -188,15 +188,17 @@ export function useCaptureSession(): UseCaptureSessionReturn {
     return loadCaptureBlobs(sessionId, captureId);
   }, []);
 
+  const actions = useMemo(() => ({
+    startSession,
+    addCapture,
+    removeCapture,
+    clearSession,
+    getCaptureBlobs,
+  }), [startSession, addCapture, removeCapture, clearSession, getCaptureBlobs]);
+
   return {
     state,
-    actions: {
-      startSession,
-      addCapture,
-      removeCapture,
-      clearSession,
-      getCaptureBlobs,
-    },
+    actions,
     isRestoring,
     expiredCount,
   };

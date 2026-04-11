@@ -133,12 +133,14 @@ export function QuickCapture() {
     };
   }, [captures, sessionId, actions]);
 
-  // Cleanup pending previews when they change
+  // Cleanup pending preview URLs on unmount
+  const pendingPreviewsRef = useRef<string[]>([]);
+  pendingPreviewsRef.current = pendingPreviews;
   useEffect(() => {
     return () => {
-      pendingPreviews.forEach((url) => URL.revokeObjectURL(url));
+      pendingPreviewsRef.current.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [pendingPreviews]);
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
