@@ -2101,7 +2101,8 @@ Session analysis rules:
 - Captures are organized chronologically with timestamps and optional notes
 - Identify each distinct food item across all captures in the session
 - A menu photo provides context (dish names, prices) — use it to identify dishes in plate photos
-- Notes provide portion/sharing context (e.g., "shared appetizer, had about half") — incorporate these into your estimates
+- Notes provide context: portion/sharing info (e.g., "shared appetizer, had about half"), or food descriptions for text-only captures (e.g., "I had a black coffee") — incorporate these into your estimates
+- Text-only captures (no photos) describe food the user consumed — treat the note as the food description and estimate nutrition from it
 - Group by logical food item, not by capture — one capture may contain multiple items, and multiple captures may show the same item from different angles
 - Assign the time field from the capture timestamp (HH:mm format) of the most relevant photo for each item
 - Assign the date field from the capture date (YYYY-MM-DD format) of the most relevant photo for each item

@@ -269,7 +269,7 @@ describe("POST /api/process-captures", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("returns 400 when imageCount is not a positive integer", async () => {
+  it("returns 400 when imageCount is not a non-negative integer", async () => {
     mockGetSession.mockResolvedValue(validSession);
     const images = [createMockFile("a.jpg", "image/jpeg")];
     const metadata = [{ captureId: "cap-1", imageCount: "one", note: null, capturedAt: "2026-04-09T12:00:00" }];
@@ -392,7 +392,7 @@ describe("POST /api/process-captures", () => {
     };
     const images = [failingFile, createMockFile("b.jpg", "image/jpeg")];
     const metadata = [
-      { captureId: "cap-a", imageCount: 1, note: "failed capture", capturedAt: "2026-04-09T12:00:00" },
+      { captureId: "cap-a", imageCount: 1, note: null, capturedAt: "2026-04-09T12:00:00" },
       { captureId: "cap-b", imageCount: 1, note: null, capturedAt: "2026-04-09T13:00:00" },
     ];
 

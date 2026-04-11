@@ -45,10 +45,6 @@ export async function POST(request: Request) {
     return errorResponse("VALIDATION_ERROR", "Invalid image data", 400);
   }
 
-  if (images.length === 0) {
-    return errorResponse("VALIDATION_ERROR", "At least one image is required", 400);
-  }
-
   if (images.length > MAX_TRIAGE_IMAGES) {
     return errorResponse("VALIDATION_ERROR", `Maximum ${MAX_TRIAGE_IMAGES} images allowed`, 400);
   }
@@ -83,8 +79,12 @@ export async function POST(request: Request) {
       if (typeof obj.captureId !== "string") {
         return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].captureId must be a string`, 400);
       }
-      if (!Number.isInteger(obj.imageCount) || (obj.imageCount as number) <= 0) {
-        return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].imageCount must be a positive integer`, 400);
+      if (!Number.isInteger(obj.imageCount) || (obj.imageCount as number) < 0) {
+        return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].imageCount must be a non-negative integer`, 400);
+      }
+      // Text-only captures (imageCount=0) must have a note
+      if ((obj.imageCount as number) === 0 && (!obj.note || typeof obj.note !== "string" || (obj.note as string).trim().length === 0)) {
+        return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}] must have either images or a note`, 400);
       }
       if (typeof obj.capturedAt !== "string" || obj.capturedAt.length > 30) {
         return errorResponse("VALIDATION_ERROR", `captureMetadata[${i}].capturedAt must be an ISO string (max 30 chars)`, 400);
@@ -120,33 +120,37 @@ export async function POST(request: Request) {
   );
 
   // Convert images to base64
-  const imageResults = await Promise.allSettled(
-    images.map(async (image) => {
-      const buffer = await image.arrayBuffer();
-      return { base64: Buffer.from(buffer).toString("base64"), mimeType: image.type };
-    })
-  );
-
-  const imageInputs = imageResults
-    .map((result, index) => {
-      if (result.status === "rejected") {
-        log.warn({ action: "process_captures_image_error", imageIndex: index }, `Failed to process image ${index}`);
-        return null;
-      }
-      return result.value;
-    })
-    .filter((v): v is { base64: string; mimeType: string } => v !== null);
-
-  if (imageInputs.length === 0) {
-    return errorResponse("VALIDATION_ERROR", "Failed to process images. Please try again.", 400);
-  }
-
-  // Build success index map: original position → compressed position in imageInputs
+  let imageInputs: { base64: string; mimeType: string }[] = [];
   const successIndexMap = new Map<number, number>();
-  let compressedIndex = 0;
-  for (let i = 0; i < imageResults.length; i++) {
-    if (imageResults[i].status === "fulfilled") {
-      successIndexMap.set(i, compressedIndex++);
+
+  if (images.length > 0) {
+    const imageResults = await Promise.allSettled(
+      images.map(async (image) => {
+        const buffer = await image.arrayBuffer();
+        return { base64: Buffer.from(buffer).toString("base64"), mimeType: image.type };
+      })
+    );
+
+    imageInputs = imageResults
+      .map((result, index) => {
+        if (result.status === "rejected") {
+          log.warn({ action: "process_captures_image_error", imageIndex: index }, `Failed to process image ${index}`);
+          return null;
+        }
+        return result.value;
+      })
+      .filter((v): v is { base64: string; mimeType: string } => v !== null);
+
+    if (imageInputs.length === 0 && captureMetadataEntries.every((e) => e.imageCount > 0)) {
+      return errorResponse("VALIDATION_ERROR", "Failed to process images. Please try again.", 400);
+    }
+
+    // Build success index map: original position → compressed position in imageInputs
+    let compressedIndex = 0;
+    for (let i = 0; i < imageResults.length; i++) {
+      if (imageResults[i].status === "fulfilled") {
+        successIndexMap.set(i, compressedIndex++);
+      }
     }
   }
 
@@ -167,11 +171,15 @@ export async function POST(request: Request) {
       note: entry.note,
       capturedAt: entry.capturedAt,
     };
-  }).filter((capture) => capture.imageIndices.length > 0);
+  }).filter((capture) => capture.imageIndices.length > 0 || (capture.note && capture.note.trim().length > 0));
 
   const droppedCount = captureMetadataEntries.length - captureMetadata.length;
   if (droppedCount > 0) {
     log.warn({ action: "process_captures_dropped", droppedCount }, "captures dropped due to image processing failures");
+  }
+
+  if (captureMetadata.length === 0) {
+    return errorResponse("VALIDATION_ERROR", "No valid captures to process", 400);
   }
 
   const generator = triageCaptures(

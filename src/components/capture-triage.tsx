@@ -131,12 +131,20 @@ export function CaptureTriage() {
       capturedAt: string;
     }> = [];
 
-    // Load blobs for each capture in order, skip captures with no blobs (evicted by browser)
+    // Load blobs for each capture in order
     const sortedCaptures = [...captures].sort((a, b) => a.order - b.order);
     let skippedCount = 0;
     for (const capture of sortedCaptures) {
-      const blobs = await actions.getCaptureBlobs(capture.id);
-      if (blobs.length === 0) {
+      const blobs = capture.imageCount > 0
+        ? await actions.getCaptureBlobs(capture.id)
+        : [];
+      // Skip captures with expected images but missing blobs (evicted by browser)
+      // Keep text-only captures (imageCount=0 with a note)
+      if (blobs.length === 0 && capture.imageCount > 0) {
+        skippedCount++;
+        continue;
+      }
+      if (blobs.length === 0 && !capture.note) {
         skippedCount++;
         continue;
       }
@@ -154,6 +162,12 @@ export function CaptureTriage() {
 
     if (skippedCount > 0) {
       console.warn(`Skipped ${skippedCount} capture(s) with missing images`);
+    }
+
+    if (captureMetadataArray.length === 0) {
+      setError("No valid captures to analyze.");
+      setTriageState("preview");
+      return;
     }
 
     formData.append("captureMetadata", JSON.stringify(captureMetadataArray));
@@ -376,21 +390,27 @@ export function CaptureTriage() {
                 data-testid={`capture-card-${capture.id}`}
                 className="flex gap-3 rounded-lg border p-3"
               >
-                {thumbnails[capture.id] && (
+                {thumbnails[capture.id] ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={thumbnails[capture.id]}
                     alt={capture.note ?? "Captured food"}
                     className="w-16 h-16 rounded object-cover shrink-0"
                   />
-                )}
+                ) : capture.imageCount === 0 ? (
+                  <div className="w-16 h-16 rounded bg-muted shrink-0 flex items-center justify-center">
+                    <span className="text-xs text-muted-foreground">Text</span>
+                  </div>
+                ) : null}
                 <div className="flex-1 min-w-0">
                   {capture.note && (
                     <p className="text-sm font-medium truncate">{capture.note}</p>
                   )}
-                  <p className="text-xs text-muted-foreground">
-                    {capture.imageCount} photo{capture.imageCount !== 1 ? "s" : ""}
-                  </p>
+                  {capture.imageCount > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {capture.imageCount} photo{capture.imageCount !== 1 ? "s" : ""}
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     {new Date(capture.capturedAt).toLocaleTimeString([], {
                       hour: "numeric",

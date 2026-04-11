@@ -123,8 +123,10 @@ export function useCaptureSession(): UseCaptureSessionReturn {
     const { sessionId, captures } = stateRef.current;
     if (!sessionId) return;
 
-    // Compress all images
-    const compressed = await Promise.all(images.map((img) => compressImage(img)));
+    // Compress images (skip if text-only capture)
+    const compressed = images.length > 0
+      ? await Promise.all(images.map((img) => compressImage(img)))
+      : [];
 
     const captureId = crypto.randomUUID();
     const newCapture: CaptureItem = {
@@ -135,8 +137,10 @@ export function useCaptureSession(): UseCaptureSessionReturn {
       order: captures.length === 0 ? 0 : Math.max(...captures.map((c) => c.order)) + 1,
     };
 
-    // Save blobs to IDB
-    await saveCaptureBlobs(sessionId, captureId, compressed);
+    // Save blobs to IDB (skip if text-only capture)
+    if (compressed.length > 0) {
+      await saveCaptureBlobs(sessionId, captureId, compressed);
+    }
 
     // Update metadata
     const updatedCaptures = [...captures, newCapture];

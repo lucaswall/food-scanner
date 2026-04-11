@@ -21,17 +21,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }));
 
-// Mock next/image to render a plain <img> in tests
-vi.mock("next/image", () => ({
-  default: (props: React.ImgHTMLAttributes<HTMLImageElement> & { fill?: boolean; unoptimized?: boolean }) => {
-    const { fill, unoptimized, ...rest } = props;
-    void fill;
-    void unoptimized;
-    // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
-    return <img {...rest} />;
-  },
-}));
-
 const mockActions = {
   startSession: vi.fn(),
   addCapture: vi.fn(),
@@ -189,40 +178,140 @@ describe("QuickCapture", () => {
     });
   });
 
-  // ─── Fix 5: handleSave error handling ────────────────────────────────────
+  // ─── Add capture form ──────────────────────────────────────────────────
 
-  describe("Fix 5: handleSave error handling", () => {
-    it("shows error banner and resets isAdding when addCapture throws", async () => {
+  describe("Add capture form", () => {
+    it("shows form with photo and note inputs when Add Capture is clicked", async () => {
+      setupMockHook([], "session-1");
+      render(<QuickCapture />);
+      await act(async () => {});
+
+      fireEvent.click(screen.getByRole("button", { name: /add capture/i }));
+
+      expect(screen.getByRole("button", { name: /add photos/i })).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/add a note/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /save capture/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
+    });
+
+    it("Save is disabled when no photos and no note", async () => {
+      setupMockHook([], "session-1");
+      render(<QuickCapture />);
+      await act(async () => {});
+
+      fireEvent.click(screen.getByRole("button", { name: /add capture/i }));
+
+      expect(screen.getByRole("button", { name: /save capture/i })).toBeDisabled();
+    });
+
+    it("allows text-only capture when note is entered", async () => {
+      setupMockHook([], "session-1");
+      render(<QuickCapture />);
+      await act(async () => {});
+
+      fireEvent.click(screen.getByRole("button", { name: /add capture/i }));
+      fireEvent.change(screen.getByPlaceholderText(/add a note/i), {
+        target: { value: "black coffee" },
+      });
+
+      const saveBtn = screen.getByRole("button", { name: /save capture/i });
+      expect(saveBtn).not.toBeDisabled();
+
+      await act(async () => {
+        fireEvent.click(saveBtn);
+      });
+
+      expect(mockActions.addCapture).toHaveBeenCalledWith([], "black coffee");
+    });
+
+    it("Cancel resets form and returns to capture list", async () => {
+      setupMockHook([], "session-1");
+      render(<QuickCapture />);
+      await act(async () => {});
+
+      fireEvent.click(screen.getByRole("button", { name: /add capture/i }));
+      fireEvent.change(screen.getByPlaceholderText(/add a note/i), {
+        target: { value: "some note" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+
+      // Back to main view
+      expect(screen.getByRole("button", { name: /add capture/i })).toBeInTheDocument();
+      expect(screen.queryByPlaceholderText(/add a note/i)).not.toBeInTheDocument();
+    });
+
+    it("does not auto-reopen camera after save", async () => {
+      setupMockHook([], "session-1");
+      render(<QuickCapture />);
+      await act(async () => {});
+
+      fireEvent.click(screen.getByRole("button", { name: /add capture/i }));
+      fireEvent.change(screen.getByPlaceholderText(/add a note/i), {
+        target: { value: "test" },
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /save capture/i }));
+      });
+
+      // Should return to capture list, not reopen camera
+      expect(screen.getByRole("button", { name: /add capture/i })).toBeInTheDocument();
+    });
+  });
+
+  // ─── Text-only capture display ─────────────────────────────────────────
+
+  describe("Text-only capture display", () => {
+    it("shows note as primary text for text-only captures", async () => {
+      const captures = [
+        makeCapture({ id: "c1", imageCount: 0, note: "black coffee", order: 0 }),
+      ];
+      setupMockHook(captures, "session-1");
+      render(<QuickCapture />);
+      await act(async () => {});
+
+      expect(screen.getByText("black coffee")).toBeInTheDocument();
+      // Should not show "0 photos"
+      expect(screen.queryByText(/0 photo/i)).not.toBeInTheDocument();
+    });
+
+    it("does not attempt to load blobs for text-only captures", async () => {
+      const captures = [
+        makeCapture({ id: "c1", imageCount: 0, note: "text only", order: 0 }),
+      ];
+      setupMockHook(captures, "session-1");
+      render(<QuickCapture />);
+      await act(async () => {});
+
+      expect(mockActions.getCaptureBlobs).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Error handling ────────────────────────────────────────────────────
+
+  describe("handleSave error handling", () => {
+    it("shows error banner when addCapture throws", async () => {
       setupMockHook([], "session-1");
       mockActions.addCapture.mockRejectedValue(new Error("Storage error"));
 
       render(<QuickCapture />);
       await act(async () => {});
 
-      // Simulate file selection → isAdding = true
-      const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!;
-      const file = new File(["content"], "test.jpg", { type: "image/jpeg" });
-      Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
-
-      await act(async () => {
-        fireEvent.change(fileInput);
+      // Open form and enter text
+      fireEvent.click(screen.getByRole("button", { name: /add capture/i }));
+      fireEvent.change(screen.getByPlaceholderText(/add a note/i), {
+        target: { value: "test" },
       });
-
-      // isAdding = true → Save button is visible
-      expect(screen.getByRole("button", { name: /^save$/i })).toBeInTheDocument();
 
       // Click Save → addCapture rejects
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+        fireEvent.click(screen.getByRole("button", { name: /save capture/i }));
       });
 
       // Error banner should appear
       await waitFor(() => {
         expect(screen.getByText(/failed to save/i)).toBeInTheDocument();
       });
-
-      // isAdding should be reset (Save button is gone)
-      expect(screen.queryByRole("button", { name: /^save$/i })).not.toBeInTheDocument();
     });
   });
 });

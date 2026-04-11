@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
-import { Trash2, Plus, CheckCircle } from "lucide-react";
+import { Trash2, Plus, Camera, FileText, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -36,28 +35,35 @@ function getRelativeTime(iso: string): string {
 }
 
 function CaptureCard({ capture, thumbnailUrl, onDelete }: CaptureCardProps) {
+  const isTextOnly = capture.imageCount === 0;
+
   return (
     <div className="flex items-center gap-3 rounded-lg border p-3 min-h-[44px]">
       {thumbnailUrl && (
-        <Image
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
           src={thumbnailUrl}
           alt="Capture thumbnail"
-          width={48}
-          height={48}
           className="h-12 w-12 rounded object-cover shrink-0"
         />
       )}
       {!thumbnailUrl && (
         <div className="h-12 w-12 rounded bg-muted shrink-0 flex items-center justify-center">
-          <Plus className="h-4 w-4 text-muted-foreground" />
+          {isTextOnly ? (
+            <FileText className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <Camera className="h-4 w-4 text-muted-foreground" />
+          )}
         </div>
       )}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">
-          {capture.imageCount} {capture.imageCount === 1 ? "photo" : "photos"}
-        </p>
+        {capture.imageCount > 0 && (
+          <p className="text-sm font-medium truncate">
+            {capture.imageCount} {capture.imageCount === 1 ? "photo" : "photos"}
+          </p>
+        )}
         {capture.note && (
-          <p className="text-xs text-muted-foreground truncate">
+          <p className={`text-xs truncate ${capture.imageCount === 0 ? "text-sm font-medium" : "text-muted-foreground"}`}>
             {capture.note.length > 50 ? capture.note.slice(0, 49) + "…" : capture.note}
           </p>
         )}
@@ -80,8 +86,10 @@ export function QuickCapture() {
   const { captures, sessionId } = state;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingBlobs, setPendingBlobs] = useState<File[]>([]);
+  const [pendingPreviews, setPendingPreviews] = useState<string[]>([]);
   const [note, setNote] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
@@ -100,6 +108,7 @@ export function QuickCapture() {
       if (!sessionId) return;
       const newThumbnails = new Map<string, string>();
       for (const capture of captures) {
+        if (capture.imageCount === 0) continue;
         try {
           const blobs = await actions.getCaptureBlobs(capture.id);
           if (blobs.length > 0 && !cancelled) {
@@ -124,40 +133,63 @@ export function QuickCapture() {
     };
   }, [captures, sessionId, actions]);
 
-  // Revoke all thumbnails on unmount
+  // Cleanup pending previews when they change
   useEffect(() => {
     return () => {
-      thumbnails.forEach((url) => URL.revokeObjectURL(url));
+      pendingPreviews.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [thumbnails]);
+  }, [pendingPreviews]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
-    setPendingBlobs(files);
-    setIsAdding(true);
+    // Append to existing pending blobs
+    setPendingBlobs((prev) => [...prev, ...files]);
+    // Create preview URLs for the new files
+    const newPreviews = files.map((f) => URL.createObjectURL(f));
+    setPendingPreviews((prev) => [...prev, ...newPreviews]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const handleRemovePendingPhoto = (index: number) => {
+    URL.revokeObjectURL(pendingPreviews[index]);
+    setPendingBlobs((prev) => prev.filter((_, i) => i !== index));
+    setPendingPreviews((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const canSave = pendingBlobs.length > 0 || note.trim().length > 0;
+
   const handleSave = async () => {
-    if (pendingBlobs.length === 0) return;
+    if (!canSave) return;
     setError(null);
+    setIsSaving(true);
     try {
       await actions.addCapture(pendingBlobs, note.trim() || null);
+      // Cleanup preview URLs
+      pendingPreviews.forEach((url) => URL.revokeObjectURL(url));
       setPendingBlobs([]);
+      setPendingPreviews([]);
       setNote("");
       setIsAdding(false);
-      // Auto-trigger camera again
-      fileInputRef.current?.click();
     } catch (err) {
       console.error(err);
       setError("Failed to save capture. Please try again.");
-      setIsAdding(false);
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleAddCapture = () => {
-    fileInputRef.current?.click();
+  const handleStartAdding = () => {
+    setIsAdding(true);
+    setError(null);
+  };
+
+  const handleCancelAdding = () => {
+    pendingPreviews.forEach((url) => URL.revokeObjectURL(url));
+    setPendingBlobs([]);
+    setPendingPreviews([]);
+    setNote("");
+    setIsAdding(false);
   };
 
   const handleClearConfirm = () => {
@@ -188,7 +220,7 @@ export function QuickCapture() {
       </div>
 
       {/* Capture list */}
-      {captures.length > 0 && (
+      {captures.length > 0 && !isAdding && (
         <div className="flex flex-col gap-2">
           {captures.map((capture) => (
             <CaptureCard
@@ -201,18 +233,67 @@ export function QuickCapture() {
         </div>
       )}
 
-      {/* Note input while adding */}
+      {/* Add capture form */}
       {isAdding && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3 rounded-lg border p-4">
+          {/* Photo previews */}
+          {pendingPreviews.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {pendingPreviews.map((url, i) => (
+                <div key={url} className="relative">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={url}
+                    alt={`Selected photo ${i + 1}`}
+                    className="h-16 w-16 rounded object-cover"
+                  />
+                  <button
+                    aria-label={`Remove photo ${i + 1}`}
+                    onClick={() => handleRemovePendingPhoto(i)}
+                    className="absolute -top-1.5 -right-1.5 rounded-full bg-destructive text-destructive-foreground w-5 h-5 flex items-center justify-center"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add photos button */}
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full min-h-[44px]"
+          >
+            <Camera className="h-4 w-4 mr-2" />
+            {pendingBlobs.length > 0 ? "Add More Photos" : "Add Photos"}
+          </Button>
+
+          {/* Note input */}
           <Input
             placeholder="Add a note (optional)"
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
-          <Button onClick={handleSave} className="w-full min-h-[44px]">
-            <CheckCircle className="h-4 w-4 mr-2" />
-            Save
-          </Button>
+
+          {/* Save / Cancel */}
+          <div className="flex gap-3">
+            <Button
+              variant="ghost"
+              onClick={handleCancelAdding}
+              className="flex-1 min-h-[44px]"
+              disabled={isSaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={!canSave || isSaving}
+              className="flex-1 min-h-[44px]"
+            >
+              Save Capture
+            </Button>
+          </div>
         </div>
       )}
 
@@ -230,7 +311,7 @@ export function QuickCapture() {
       {/* Action buttons */}
       {!isAdding && (
         <Button
-          onClick={handleAddCapture}
+          onClick={handleStartAdding}
           variant="outline"
           className="w-full min-h-[44px]"
         >
@@ -239,7 +320,7 @@ export function QuickCapture() {
         </Button>
       )}
 
-      {captures.length > 0 && (
+      {captures.length > 0 && !isAdding && (
         <div className="flex gap-3">
           <Button
             variant="ghost"
@@ -258,13 +339,15 @@ export function QuickCapture() {
         </div>
       )}
 
-      <Button
-        variant="secondary"
-        onClick={() => router.push("/app")}
-        className="w-full min-h-[44px]"
-      >
-        Done
-      </Button>
+      {!isAdding && (
+        <Button
+          variant="secondary"
+          onClick={() => router.push("/app")}
+          className="w-full min-h-[44px]"
+        >
+          Done
+        </Button>
+      )}
 
       {/* Clear All confirmation */}
       <AlertDialog open={showClearDialog} onOpenChange={setShowClearDialog}>
