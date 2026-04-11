@@ -25,7 +25,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Loader2, ScanEye, ListChecks, Settings, Clock } from "lucide-react";
+import { RefreshCw, Loader2, ScanEye, ListChecks, Settings, Clock, Camera } from "lucide-react";
 import type { NutritionSummary, NutritionGoals, LumenGoalsResponse, MealEntry, FoodLogHistoryEntry, SavedAnalysisListItem } from "@/types";
 import { useDeleteFoodEntry } from "@/hooks/use-delete-food-entry";
 import { SavedForLaterSection } from "@/components/saved-for-later-section";
@@ -451,6 +451,17 @@ export function DailyDashboard() {
           items={savedAnalysesData!.items}
           onItemClick={(id) => router.push(`/app/saved/${id}`)}
         />
+      )}
+
+      {/* Quick Capture entry point — today only, hidden when session banner is active */}
+      {selectedDate === getTodayDate() && captureState.captures.length === 0 && (
+        <Link
+          href="/app/capture"
+          className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-11 px-4 py-2 w-full min-h-[44px] text-muted-foreground"
+        >
+          <Camera className="h-4 w-4" />
+          Quick Capture
+        </Link>
       )}
 
       {/* Update Lumen goals button */}
