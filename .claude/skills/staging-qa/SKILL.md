@@ -160,6 +160,7 @@ When waiting for AI results (analyze, refine, edit scenarios):
 - **Each poll doubles as a heartbeat** — keeps the Chrome service worker alive.
 - **Never use a single long `computer` wait** — the 30s max would kill the connection.
 - **Check for error states** in the DOM (error messages, error toasts) at each poll — fail fast if the analysis errored.
+- **On "internal error":** Immediately pull Railway staging logs via `mcp__Railway__get-logs` (filter: `error`, last 20 lines) to diagnose the root cause. Include the server error in the scenario FAIL details. If the error is fixable (e.g., bad model ID, missing env var), fix it, push, wait for redeploy, then retry the scenario — don't just mark it as FAIL and move on.
 
 ### Screenshot Budget
 
@@ -291,6 +292,7 @@ For server errors, include:
 | AI analysis timeout (>90s) | FAIL the scenario, continue to next |
 | Element not found | Retry once after 3s, then FAIL |
 | Unexpected page state | Take screenshot, FAIL with description |
+| Internal server error in UI | Pull Railway logs (`get-logs`, filter: error, 20 lines), diagnose, fix+push+redeploy if fixable, then retry |
 | DB seeding fails | WARN but continue (less visual data) |
 | DB cleanup fails | WARN, fall back to UI cleanup |
 | Railway logs unavailable | WARN, skip server health check |
