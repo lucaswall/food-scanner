@@ -10,6 +10,7 @@ import { SessionItemsList } from "@/components/session-items-list";
 import { parseSSEEvents } from "@/lib/sse";
 import { invalidateSavedAnalysesCaches } from "@/lib/swr";
 import { safeResponseJson } from "@/lib/safe-json";
+import { ChatMarkdown } from "@/components/chat-markdown";
 import type { FoodAnalysis, ConversationMessage } from "@/types";
 
 type TriageState = "preview" | "analyzing" | "results" | "saving" | "done";
@@ -152,11 +153,14 @@ export function CaptureTriage() {
         const file = new File([blob], `capture-${capture.id}.jpg`, { type: blob.type || "image/jpeg" });
         formData.append("images", file);
       }
+      // Format capturedAt in local timezone so Claude uses local time for HH:mm
+      const localDate = new Date(capture.capturedAt);
+      const localIso = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}T${String(localDate.getHours()).padStart(2, "0")}:${String(localDate.getMinutes()).padStart(2, "0")}:${String(localDate.getSeconds()).padStart(2, "0")}`;
       captureMetadataArray.push({
         captureId: capture.id,
         imageCount: blobs.length,
         note: capture.note,
-        capturedAt: capture.capturedAt,
+        capturedAt: localIso,
       });
     }
 
@@ -449,9 +453,9 @@ export function CaptureTriage() {
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
           <p className="text-sm font-medium">Analyzing your captures…</p>
           {narrative && (
-            <p className="text-xs text-muted-foreground text-center max-w-xs">
-              {narrative}
-            </p>
+            <div className="text-muted-foreground text-center max-w-xs">
+              <ChatMarkdown content={narrative} />
+            </div>
           )}
         </div>
       )}
@@ -465,13 +469,17 @@ export function CaptureTriage() {
               {messages.map((msg, i) => (
                 <div
                   key={i}
-                  className={`text-sm rounded-lg px-3 py-2 ${
+                  className={`rounded-lg px-3 py-2 ${
                     msg.role === "user"
-                      ? "bg-primary/10 text-primary ml-8"
+                      ? "text-sm bg-primary/10 text-primary ml-8"
                       : "bg-muted text-muted-foreground mr-8"
                   }`}
                 >
-                  {msg.content}
+                  {msg.role === "assistant" ? (
+                    <ChatMarkdown content={msg.content} />
+                  ) : (
+                    msg.content
+                  )}
                 </div>
               ))}
             </div>
@@ -481,9 +489,13 @@ export function CaptureTriage() {
           {isChatSending && (
             <div data-testid="refine-loading" className="flex items-start gap-2 mr-8">
               <Loader2 className="w-4 h-4 animate-spin text-muted-foreground shrink-0 mt-0.5" />
-              <p className="text-sm text-muted-foreground">
-                {narrative || "Thinking\u2026"}
-              </p>
+              <div className="text-muted-foreground">
+                {narrative ? (
+                  <ChatMarkdown content={narrative} />
+                ) : (
+                  <p className="text-sm">Thinking&#8230;</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -506,7 +518,7 @@ export function CaptureTriage() {
                   handleChatSend();
                 }
               }}
-              placeholder="Refine the items\u2026"
+              placeholder="Refine the items…"
               className="flex-1"
               disabled={isChatSending}
             />
