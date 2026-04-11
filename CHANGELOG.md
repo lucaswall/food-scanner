@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-04-10
+
+### Added
+
+- Save for Later — analyze food now and log it when you actually eat it
+- Quick Capture Session — take multiple photos in batch, then triage and log them all at once
+- Hydration readings API for HealthHelper water intake sync
+
+### Fixed
+
+- Shared food links now show the log confirmation screen correctly after logging
+- Food validation and matching consistency improvements
+- Minor bug fixes from code audit
+
 ## [1.24.1] - 2026-04-04
 
 ### Fixed
@@ -474,7 +488,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.24.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.25.0...HEAD
+[1.25.0]: https://github.com/lucaswall/food-scanner/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/lucaswall/food-scanner/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/lucaswall/food-scanner/compare/v1.23.0...v1.24.0
 [1.23.0]: https://github.com/lucaswall/food-scanner/compare/v1.22.0...v1.23.0

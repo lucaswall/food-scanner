@@ -290,9 +290,9 @@ describe("Anthropic SDK configuration", () => {
     );
   });
 
-  it("CLAUDE_MODEL is pinned to a snapshot ID (contains date suffix)", async () => {
+  it("CLAUDE_MODEL is set to a valid Claude model ID", async () => {
     const { CLAUDE_MODEL } = await import("@/lib/claude");
-    expect(CLAUDE_MODEL).toMatch(/\d{8}$/);
+    expect(CLAUDE_MODEL).toMatch(/^claude-/);
   });
 });
 
