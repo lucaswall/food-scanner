@@ -34,9 +34,7 @@ interface SavedFoodDetailProps {
 }
 
 export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
-  const router = useRouter();
-
-  const { data: savedAnalysis, isLoading, error } = useSWR<SavedAnalysisDetail>(
+  const { data: savedAnalysis, isLoading } = useSWR<SavedAnalysisDetail>(
     `/api/saved-analyses/${savedId}`,
     apiFetcher,
   );
@@ -56,10 +54,62 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
       return result.data?.matches ?? [];
     },
   );
-  const matches = matchesData ?? [];
 
-  const [mealTypeId, setMealTypeId] = useState(() => getDefaultMealType());
-  const [selectedTime, setSelectedTime] = useState<string | null>(() => getLocalDateTime().time);
+  if (isLoading) {
+    return (
+      <div data-testid="saved-detail-skeleton" className="space-y-4 pb-24">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-9 w-9 rounded-md" />
+          <Skeleton className="h-7 w-48" />
+        </div>
+        <Skeleton className="h-48 w-full rounded-xl" />
+        <Skeleton className="h-11 w-full rounded-md" />
+        <Skeleton className="h-11 w-full rounded-md" />
+        <div className="flex gap-2">
+          <Skeleton className="h-11 flex-1 rounded-md" />
+          <Skeleton className="h-11 flex-1 rounded-md" />
+        </div>
+        <Skeleton className="h-14 w-full rounded-md" />
+      </div>
+    );
+  }
+
+  if (!savedAnalysis) {
+    return (
+      <div data-testid="saved-not-found" className="flex flex-col items-center justify-center py-12 space-y-4 text-center">
+        <p className="text-muted-foreground">This saved analysis was not found.</p>
+        <Button variant="outline" asChild className="min-h-[44px]">
+          <a href="/app">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </a>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <SavedFoodDetailLoaded
+      savedId={savedId}
+      savedAnalysis={savedAnalysis}
+      matches={matchesData ?? []}
+    />
+  );
+}
+
+interface SavedFoodDetailLoadedProps {
+  savedId: number;
+  savedAnalysis: SavedAnalysisDetail;
+  matches: FoodMatch[];
+}
+
+function SavedFoodDetailLoaded({ savedId, savedAnalysis, matches }: SavedFoodDetailLoadedProps) {
+  const router = useRouter();
+  const fa = savedAnalysis.foodAnalysis;
+
+  const [mealTypeId, setMealTypeId] = useState(() => fa.mealTypeId ?? getDefaultMealType());
+  const [selectedTime, setSelectedTime] = useState<string | null>(() => fa.time ?? getLocalDateTime().time);
+  const [selectedDate] = useState<string | null>(() => fa.date ?? null);
   const [selectedMatch, setSelectedMatch] = useState<number | null>(null);
   const [showChat, setShowChat] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
@@ -68,9 +118,10 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
   const [loggedAnalysis, setLoggedAnalysis] = useState<SavedAnalysisDetail["foodAnalysis"] | null>(null);
 
   const { logToFitbit, logToFitbitWithMatch, logging, logError, logResponse, clearLogError } = useLogToFitbit({
-    analysis: savedAnalysis?.foodAnalysis ?? null,
+    analysis: fa,
     mealTypeId,
     selectedTime,
+    dateOverride: selectedDate,
     onSuccess: async () => {
       // Delete saved analysis on success (non-blocking)
       try {
@@ -79,8 +130,8 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
       } catch (deleteErr) {
         console.warn("Failed to delete saved analysis after logging:", deleteErr);
       }
-      setLoggedFoodName(savedAnalysis!.foodAnalysis.food_name);
-      setLoggedAnalysis(savedAnalysis!.foodAnalysis);
+      setLoggedFoodName(fa.food_name);
+      setLoggedAnalysis(fa);
       await Promise.all([invalidateFoodCaches(), invalidateSavedAnalysesCaches()]);
     },
   });
@@ -135,52 +186,17 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
     }
   };
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <div data-testid="saved-detail-skeleton" className="space-y-4 pb-24">
-        <div className="flex items-center gap-3">
-          <Skeleton className="h-9 w-9 rounded-md" />
-          <Skeleton className="h-7 w-48" />
-        </div>
-        <Skeleton className="h-48 w-full rounded-xl" />
-        <Skeleton className="h-11 w-full rounded-md" />
-        <Skeleton className="h-11 w-full rounded-md" />
-        <div className="flex gap-2">
-          <Skeleton className="h-11 flex-1 rounded-md" />
-          <Skeleton className="h-11 flex-1 rounded-md" />
-        </div>
-        <Skeleton className="h-14 w-full rounded-md" />
-      </div>
-    );
-  }
-
-  // Success confirmation (checked before error — SWR may 404 after the saved analysis is deleted on log)
+  // Success confirmation (checked before other states — SWR may 404 after the saved analysis is deleted on log)
   if (logResponse) {
     return (
       <div className="space-y-6">
         <FoodLogConfirmation
           response={logResponse}
-          foodName={loggedFoodName ?? savedAnalysis?.foodAnalysis.food_name ?? "Food"}
-          analysis={loggedAnalysis ?? savedAnalysis?.foodAnalysis}
+          foodName={loggedFoodName ?? fa.food_name}
+          analysis={loggedAnalysis ?? fa}
           mealTypeId={mealTypeId}
           onDone={() => router.push("/app")}
         />
-      </div>
-    );
-  }
-
-  // Error / not found state
-  if (error || !savedAnalysis) {
-    return (
-      <div data-testid="saved-not-found" className="flex flex-col items-center justify-center py-12 space-y-4 text-center">
-        <p className="text-muted-foreground">This saved analysis was not found.</p>
-        <Button variant="outline" asChild className="min-h-[44px]">
-          <a href="/app">
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </a>
-        </Button>
       </div>
     );
   }
@@ -190,7 +206,7 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
     return (
       <div className="fixed inset-0 z-[60] flex flex-col bg-background pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <FoodChat
-          initialAnalysis={savedAnalysis.foodAnalysis}
+          initialAnalysis={fa}
           initialMealTypeId={mealTypeId}
           mode="analyze"
           onClose={() => setShowChat(false)}
@@ -223,12 +239,12 @@ export function SavedFoodDetail({ savedId }: SavedFoodDetailProps) {
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <h1 className="text-xl font-semibold truncate">{savedAnalysis.foodAnalysis.food_name}</h1>
+          <h1 className="text-xl font-semibold truncate">{fa.food_name}</h1>
         </div>
 
         {/* Analysis result */}
         <AnalysisResult
-          analysis={savedAnalysis.foodAnalysis}
+          analysis={fa}
           loading={false}
           error={null}
           onRetry={() => {}}
