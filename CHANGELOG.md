@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.25.1] - 2026-04-11
+
+### Fixed
+
+- Quick Capture: reworked form-based flow with text-only captures, thumbnail previews, and dashboard entry point
+- Quick Capture triage: added conversation log, loading spinner during refinement, and markdown rendering for Claude responses
+- Quick Capture triage: food items now use local time instead of UTC
+- Saved for Later: time, date, and meal type from triage are now preserved when confirming (previously defaulted to current time)
+
 ## [1.25.0] - 2026-04-10
 
 ### Added
@@ -488,7 +497,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.25.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.25.1...HEAD
+[1.25.1]: https://github.com/lucaswall/food-scanner/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/lucaswall/food-scanner/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/lucaswall/food-scanner/compare/v1.24.0...v1.24.1
 [1.24.0]: https://github.com/lucaswall/food-scanner/compare/v1.23.0...v1.24.0
