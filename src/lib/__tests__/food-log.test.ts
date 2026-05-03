@@ -95,14 +95,9 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-const mockGetCalorieGoalsByDateRange = vi.fn();
+const mockGetDailyGoalsByDateRange = vi.fn();
 vi.mock("@/lib/nutrition-goals", () => ({
-  getCalorieGoalsByDateRange: (...args: unknown[]) => mockGetCalorieGoalsByDateRange(...args),
-}));
-
-const mockGetLumenGoalsByDateRange = vi.fn();
-vi.mock("@/lib/lumen", () => ({
-  getLumenGoalsByDateRange: (...args: unknown[]) => mockGetLumenGoalsByDateRange(...args),
+  getDailyGoalsByDateRange: (...args: unknown[]) => mockGetDailyGoalsByDateRange(...args),
 }));
 
 const {
@@ -2151,7 +2146,7 @@ describe("getDateRangeNutritionSummary", () => {
     mockFrom.mockReturnValue({ where: mockWhere, innerJoin: mockInnerJoin });
     mockInnerJoin.mockReturnValue({ where: mockWhere });
     mockWhere.mockReturnValue({ orderBy: mockOrderBy });
-    mockGetLumenGoalsByDateRange.mockResolvedValue([]);
+    mockGetDailyGoalsByDateRange.mockResolvedValue([]);
   });
 
   it("returns daily nutrition totals for date range", async () => {
@@ -2191,9 +2186,9 @@ describe("getDateRangeNutritionSummary", () => {
       },
     ]);
 
-    mockGetCalorieGoalsByDateRange.mockResolvedValue([
-      { date: "2026-02-08", calorieGoal: 2000 },
-      { date: "2026-02-09", calorieGoal: 2200 },
+    mockGetDailyGoalsByDateRange.mockResolvedValue([
+      { date: "2026-02-08", calorieGoal: 2000, proteinGoal: null, carbsGoal: null, fatGoal: null },
+      { date: "2026-02-09", calorieGoal: 2200, proteinGoal: null, carbsGoal: null, fatGoal: null },
     ]);
 
     const result = await getDateRangeNutritionSummary("user-123", "2026-02-08", "2026-02-09");
@@ -2230,14 +2225,14 @@ describe("getDateRangeNutritionSummary", () => {
 
   it("returns empty array when no entries in range", async () => {
     mockOrderBy.mockResolvedValue([]);
-    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+    mockGetDailyGoalsByDateRange.mockResolvedValue([]);
 
     const result = await getDateRangeNutritionSummary("user-123", "2026-02-08", "2026-02-10");
 
     expect(result).toEqual([]);
   });
 
-  it("handles days with no calorie goal (null)", async () => {
+  it("handles days with no goals (null)", async () => {
     mockOrderBy.mockResolvedValue([
       {
         food_log_entries: { date: "2026-02-08" },
@@ -2252,7 +2247,7 @@ describe("getDateRangeNutritionSummary", () => {
       },
     ]);
 
-    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+    mockGetDailyGoalsByDateRange.mockResolvedValue([]);
 
     const result = await getDateRangeNutritionSummary("user-123", "2026-02-08", "2026-02-08");
 
@@ -2275,7 +2270,7 @@ describe("getDateRangeNutritionSummary", () => {
 
   it("queries with correct userId and date range", async () => {
     mockOrderBy.mockResolvedValue([]);
-    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+    mockGetDailyGoalsByDateRange.mockResolvedValue([]);
 
     await getDateRangeNutritionSummary("user-456", "2026-02-01", "2026-02-05");
 
@@ -2284,10 +2279,10 @@ describe("getDateRangeNutritionSummary", () => {
     expect(mockInnerJoin).toHaveBeenCalled();
     expect(mockWhere).toHaveBeenCalled();
     expect(mockOrderBy).toHaveBeenCalled();
-    expect(mockGetCalorieGoalsByDateRange).toHaveBeenCalledWith("user-456", "2026-02-01", "2026-02-05");
+    expect(mockGetDailyGoalsByDateRange).toHaveBeenCalledWith("user-456", "2026-02-01", "2026-02-05");
   });
 
-  it("includes macro goals from lumen data", async () => {
+  it("includes macro goals from daily_calorie_goals", async () => {
     mockOrderBy.mockResolvedValue([
       {
         food_log_entries: { date: "2026-02-08" },
@@ -2313,13 +2308,9 @@ describe("getDateRangeNutritionSummary", () => {
       },
     ]);
 
-    mockGetCalorieGoalsByDateRange.mockResolvedValue([
-      { date: "2026-02-08", calorieGoal: 2000 },
-    ]);
-
-    mockGetLumenGoalsByDateRange.mockResolvedValue([
-      { date: "2026-02-08", proteinGoal: 120, carbsGoal: 200, fatGoal: 60 },
-      { date: "2026-02-09", proteinGoal: 130, carbsGoal: 180, fatGoal: 70 },
+    mockGetDailyGoalsByDateRange.mockResolvedValue([
+      { date: "2026-02-08", calorieGoal: 2000, proteinGoal: 120, carbsGoal: 200, fatGoal: 60 },
+      { date: "2026-02-09", calorieGoal: null, proteinGoal: 130, carbsGoal: 180, fatGoal: 70 },
     ]);
 
     const result = await getDateRangeNutritionSummary("user-123", "2026-02-08", "2026-02-09");
@@ -2353,7 +2344,7 @@ describe("getDateRangeNutritionSummary", () => {
       },
     ]);
 
-    expect(mockGetLumenGoalsByDateRange).toHaveBeenCalledWith("user-123", "2026-02-08", "2026-02-09");
+    expect(mockGetDailyGoalsByDateRange).toHaveBeenCalledWith("user-123", "2026-02-08", "2026-02-09");
   });
 });
 

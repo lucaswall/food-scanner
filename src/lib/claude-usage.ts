@@ -84,7 +84,7 @@ export function computeCost(usage: UsageTokens, pricing: Pricing): string {
  *
  * @param userId User ID
  * @param model Claude model identifier (e.g., "claude-sonnet-4-20250514")
- * @param operation Operation type (e.g., "food-analysis", "lumen-parsing")
+ * @param operation Operation type (e.g., "food-analysis")
  * @param usage Token counts from the API response
  */
 export async function recordUsage(
