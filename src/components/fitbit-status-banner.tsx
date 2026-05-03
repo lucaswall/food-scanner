@@ -23,7 +23,7 @@ export function FitbitStatusBanner() {
       <Alert variant="default" className="border-warning bg-warning/10">
         <AlertCircle className="h-4 w-4 text-warning" />
         <AlertDescription className="flex items-center justify-between gap-4">
-          <span className="text-sm text-warning-foreground">
+          <span className="text-sm text-foreground">
             Set up Fitbit to start logging food
           </span>
           <Button variant="outline" size="sm" asChild className="shrink-0">
@@ -39,7 +39,7 @@ export function FitbitStatusBanner() {
       <Alert variant="default" className="border-warning bg-warning/10">
         <AlertCircle className="h-4 w-4 text-warning" />
         <AlertDescription className="flex items-center justify-between gap-4">
-          <span className="text-sm text-warning-foreground">
+          <span className="text-sm text-foreground">
             Reconnect Fitbit to grant new permissions
           </span>
           <form action="/api/auth/fitbit" method="POST">
@@ -57,7 +57,7 @@ export function FitbitStatusBanner() {
     <Alert variant="default" className="border-warning bg-warning/10">
       <AlertCircle className="h-4 w-4 text-warning" />
       <AlertDescription className="flex items-center justify-between gap-4">
-        <span className="text-sm text-warning-foreground">
+        <span className="text-sm text-foreground">
           Fitbit disconnected
         </span>
         <form action="/api/auth/fitbit" method="POST">
