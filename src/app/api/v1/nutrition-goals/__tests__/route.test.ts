@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { NutritionGoals } from "@/types";
+import type { FitbitFoodGoals } from "@/types";
 
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
 
@@ -45,7 +45,7 @@ describe("GET /api/v1/nutrition-goals", () => {
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
     mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
 
-    const mockGoals: NutritionGoals = {
+    const mockGoals: FitbitFoodGoals = {
       calories: 2000,
     };
 

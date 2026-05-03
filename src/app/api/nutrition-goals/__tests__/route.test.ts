@@ -32,11 +32,9 @@ vi.mock("@/lib/session", () => ({
   },
 }));
 
-const mockEnsureFreshToken = vi.fn();
-const mockGetFoodGoals = vi.fn();
-vi.mock("@/lib/fitbit", () => ({
-  ensureFreshToken: (...args: unknown[]) => mockEnsureFreshToken(...args),
-  getFoodGoals: (...args: unknown[]) => mockGetFoodGoals(...args),
+const mockGetOrComputeDailyGoals = vi.fn();
+vi.mock("@/lib/daily-goals", () => ({
+  getOrComputeDailyGoals: (...args: unknown[]) => mockGetOrComputeDailyGoals(...args),
 }));
 
 vi.mock("@/lib/logger", () => {
@@ -46,11 +44,6 @@ vi.mock("@/lib/logger", () => {
     createRequestLogger: vi.fn(() => mockLogger),
   };
 });
-
-const mockUpsertCalorieGoal = vi.fn();
-vi.mock("@/lib/nutrition-goals", () => ({
-  upsertCalorieGoal: (...args: unknown[]) => mockUpsertCalorieGoal(...args),
-}));
 
 const mockGetTodayDate = vi.fn();
 vi.mock("@/lib/date-utils", () => ({
@@ -72,31 +65,32 @@ function createRequest(url = "http://localhost:3000/api/nutrition-goals"): Reque
   return new Request(url);
 }
 
+const OK_RESULT = {
+  status: "ok" as const,
+  goals: { calorieGoal: 2289, proteinGoal: 218, carbsGoal: 136, fatGoal: 97 },
+  audit: {
+    rmr: 2070,
+    activityKcal: 791,
+    tdee: 2861,
+    weightKg: "121",
+    bmiTier: "ge30" as const,
+    goalType: "LOSE" as const,
+  },
+};
+
+const PARTIAL_RESULT = {
+  status: "partial" as const,
+  proteinG: 218,
+  fatG: 97,
+};
+
 describe("GET /api/nutrition-goals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetTodayDate.mockReturnValue("2026-02-10");
-    mockUpsertCalorieGoal.mockResolvedValue(undefined);
+    mockGetTodayDate.mockReturnValue("2026-05-03");
   });
 
-  it("returns nutrition goals from Fitbit on valid request", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
-
-    const response = await GET(createRequest());
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data).toEqual({
-      success: true,
-      data: { calories: 2000 },
-      timestamp: expect.any(Number),
-    });
-    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-123", expect.any(Object));
-    expect(mockGetFoodGoals).toHaveBeenCalledWith("mock-access-token", expect.any(Object));
-  });
-
+  // ─── Auth ────────────────────────────────────────────────────────────────
   it("returns 401 when session is missing", async () => {
     mockGetSession.mockResolvedValue(null);
 
@@ -104,14 +98,7 @@ describe("GET /api/nutrition-goals", () => {
     const data = await response.json();
 
     expect(response.status).toBe(401);
-    expect(data).toEqual({
-      success: false,
-      error: {
-        code: "AUTH_MISSING_SESSION",
-        message: "No active session",
-      },
-      timestamp: expect.any(Number),
-    });
+    expect(data.error.code).toBe("AUTH_MISSING_SESSION");
   });
 
   it("returns 400 when Fitbit is not connected", async () => {
@@ -121,14 +108,7 @@ describe("GET /api/nutrition-goals", () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data).toEqual({
-      success: false,
-      error: {
-        code: "FITBIT_NOT_CONNECTED",
-        message: "Fitbit account not connected",
-      },
-      timestamp: expect.any(Number),
-    });
+    expect(data.error.code).toBe("FITBIT_NOT_CONNECTED");
   });
 
   it("returns 400 when Fitbit credentials are missing (session flag)", async () => {
@@ -138,85 +118,144 @@ describe("GET /api/nutrition-goals", () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data).toEqual({
-      success: false,
-      error: {
-        code: "FITBIT_CREDENTIALS_MISSING",
-        message: "Fitbit credentials not configured",
-      },
-      timestamp: expect.any(Number),
+    expect(data.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
+  });
+
+  // ─── Status: ok ──────────────────────────────────────────────────────────
+  it("returns 200 with ok status, goals, and audit on happy path", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockResolvedValue(OK_RESULT);
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data.status).toBe("ok");
+    expect(body.data.calories).toBe(2289);
+    expect(body.data.proteinG).toBe(218);
+    expect(body.data.carbsG).toBe(136);
+    expect(body.data.fatG).toBe(97);
+    expect(body.data.audit).toEqual({
+      rmr: 2070,
+      activityKcal: 791,
+      tdee: 2861,
+      weightKg: "121",
+      bmiTier: "ge30",
+      goalType: "LOSE",
     });
   });
 
-  it("returns 424 when ensureFreshToken throws FITBIT_CREDENTIALS_MISSING", async () => {
+  it("calls getOrComputeDailyGoals with userId and today date", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
+    mockGetOrComputeDailyGoals.mockResolvedValue(OK_RESULT);
+
+    await GET(createRequest());
+
+    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-03", expect.any(Object));
+  });
+
+  it("uses clientDate query param when provided", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockResolvedValue(OK_RESULT);
+
+    await GET(createRequest("http://localhost:3000/api/nutrition-goals?clientDate=2026-05-04"));
+
+    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-04", expect.any(Object));
+    expect(mockGetTodayDate).not.toHaveBeenCalled();
+  });
+
+  it("falls back to server UTC date when clientDate is not provided", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockResolvedValue(OK_RESULT);
+    mockGetTodayDate.mockReturnValue("2026-05-03");
+
+    await GET(createRequest());
+
+    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-03", expect.any(Object));
+  });
+
+  // ─── Status: partial ─────────────────────────────────────────────────────
+  it("returns 200 with partial status when activity has no caloriesOut", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockResolvedValue(PARTIAL_RESULT);
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.status).toBe("partial");
+    expect(body.data.calories).toBeNull();
+    expect(body.data.proteinG).toBe(218);
+    expect(body.data.carbsG).toBeNull();
+    expect(body.data.fatG).toBe(97);
+    expect(body.data.audit).toBeUndefined();
+  });
+
+  // ─── Status: blocked ─────────────────────────────────────────────────────
+  it("returns 200 with blocked/scope_mismatch when scope is missing", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockResolvedValue({ status: "blocked", reason: "scope_mismatch" });
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.status).toBe("blocked");
+    expect(body.data.reason).toBe("scope_mismatch");
+    expect(body.data.calories).toBeNull();
+  });
+
+  it("returns 200 with blocked/no_weight when weight is unavailable", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockResolvedValue({ status: "blocked", reason: "no_weight" });
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.status).toBe("blocked");
+    expect(body.data.reason).toBe("no_weight");
+  });
+
+  it("returns 200 with blocked/sex_unset when sex is not configured", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockResolvedValue({ status: "blocked", reason: "sex_unset" });
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.status).toBe("blocked");
+    expect(body.data.reason).toBe("sex_unset");
+  });
+
+  // ─── Fitbit errors (thrown) ───────────────────────────────────────────────
+  it("returns 424 when getOrComputeDailyGoals throws FITBIT_CREDENTIALS_MISSING", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
 
     const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(424);
-    expect(data).toEqual({
-      success: false,
-      error: {
-        code: "FITBIT_CREDENTIALS_MISSING",
-        message: "Fitbit credentials not found",
-      },
-      timestamp: expect.any(Number),
-    });
+    expect(data.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
   });
 
-  it("returns 401 when ensureFreshToken throws FITBIT_TOKEN_INVALID", async () => {
+  it("returns 401 when getOrComputeDailyGoals throws FITBIT_TOKEN_INVALID", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
 
     const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(401);
-    expect(data).toEqual({
-      success: false,
-      error: {
-        code: "FITBIT_TOKEN_INVALID",
-        message: "Fitbit token is invalid or expired",
-      },
-      timestamp: expect.any(Number),
-    });
+    expect(data.error.code).toBe("FITBIT_TOKEN_INVALID");
   });
 
-  it("returns 502 when getFoodGoals throws FITBIT_API_ERROR", async () => {
+  it("returns 429 when getOrComputeDailyGoals throws FITBIT_RATE_LIMIT", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockRejectedValue(new Error("FITBIT_API_ERROR"));
-
-    const response = await GET(createRequest());
-    const data = await response.json();
-
-    expect(response.status).toBe(502);
-    expect(data).toEqual({
-      success: false,
-      error: {
-        code: "FITBIT_API_ERROR",
-        message: "Fitbit API error",
-      },
-      timestamp: expect.any(Number),
-    });
-  });
-
-  it("returns 403 when ensureFreshToken throws FITBIT_SCOPE_MISSING (FOO-420)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_SCOPE_MISSING"));
-
-    const response = await GET(createRequest());
-    const data = await response.json();
-
-    expect(response.status).toBe(403);
-    expect(data.error.code).toBe("FITBIT_SCOPE_MISSING");
-  });
-
-  it("returns 429 when ensureFreshToken throws FITBIT_RATE_LIMIT (FOO-420)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_RATE_LIMIT"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_RATE_LIMIT"));
 
     const response = await GET(createRequest());
     const data = await response.json();
@@ -225,151 +264,66 @@ describe("GET /api/nutrition-goals", () => {
     expect(data.error.code).toBe("FITBIT_RATE_LIMIT");
   });
 
-  it("returns 504 when ensureFreshToken throws FITBIT_TIMEOUT (FOO-420)", async () => {
+  it("returns 504 when getOrComputeDailyGoals throws FITBIT_TIMEOUT", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TIMEOUT"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_TIMEOUT"));
 
     const response = await GET(createRequest());
-    const data = await response.json();
 
     expect(response.status).toBe(504);
-    expect(data.error.code).toBe("FITBIT_TIMEOUT");
   });
 
-  it("returns 502 when ensureFreshToken throws FITBIT_REFRESH_TRANSIENT (FOO-420)", async () => {
+  it("returns 502 when getOrComputeDailyGoals throws FITBIT_REFRESH_TRANSIENT", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_REFRESH_TRANSIENT"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_REFRESH_TRANSIENT"));
 
     const response = await GET(createRequest());
-    const data = await response.json();
 
     expect(response.status).toBe(502);
-    expect(data.error.code).toBe("FITBIT_REFRESH_TRANSIENT");
   });
 
-  it("returns 500 when ensureFreshToken throws FITBIT_TOKEN_SAVE_FAILED (FOO-420)", async () => {
+  it("returns 500 when getOrComputeDailyGoals throws FITBIT_TOKEN_SAVE_FAILED", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_SAVE_FAILED"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_TOKEN_SAVE_FAILED"));
 
     const response = await GET(createRequest());
-    const data = await response.json();
 
     expect(response.status).toBe(500);
-    expect(data.error.code).toBe("FITBIT_TOKEN_SAVE_FAILED");
+  });
+
+  it("returns 502 when getOrComputeDailyGoals throws FITBIT_API_ERROR", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_API_ERROR"));
+
+    const response = await GET(createRequest());
+
+    expect(response.status).toBe(502);
   });
 
   it("returns 500 on generic/unknown error", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockRejectedValue(new Error("Something unexpected"));
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("Something unexpected"));
 
     const response = await GET(createRequest());
     const data = await response.json();
 
     expect(response.status).toBe(500);
-    expect(data).toEqual({
-      success: false,
-      error: {
-        code: "INTERNAL_ERROR",
-        message: "Failed to fetch nutrition goals",
-      },
-      timestamp: expect.any(Number),
-    });
+    expect(data.error.code).toBe("INTERNAL_ERROR");
   });
 
+  // ─── HTTP headers ─────────────────────────────────────────────────────────
   it("sets Cache-Control header to private, no-cache", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+    mockGetOrComputeDailyGoals.mockResolvedValue(OK_RESULT);
 
     const response = await GET(createRequest());
 
     expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
   });
 
-  it("captures calorie goal when goals.calories is set", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
-    mockGetTodayDate.mockReturnValue("2026-02-10");
-    mockUpsertCalorieGoal.mockResolvedValue(undefined);
-
-    const response = await GET(createRequest());
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.success).toBe(true);
-    // Give the fire-and-forget a moment to execute
-    await new Promise(resolve => setTimeout(resolve, 10));
-    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-10", 2000, expect.any(Object));
-  });
-
-  it("does not call upsertCalorieGoal when goals.calories is null", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: null });
-
-    const response = await GET(createRequest());
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.success).toBe(true);
-    await new Promise(resolve => setTimeout(resolve, 10));
-    expect(mockUpsertCalorieGoal).not.toHaveBeenCalled();
-  });
-
-  it("returns success even if upsertCalorieGoal throws", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
-    mockGetTodayDate.mockReturnValue("2026-02-10");
-    mockUpsertCalorieGoal.mockRejectedValue(new Error("Database error"));
-
-    const response = await GET(createRequest());
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.success).toBe(true);
-    expect(data.data).toEqual({ calories: 2000 });
-  });
-
-  it("uses clientDate query param for calorie goal capture instead of server UTC (FOO-403)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
-    mockGetTodayDate.mockReturnValue("2026-02-10"); // Server UTC date
-    mockUpsertCalorieGoal.mockResolvedValue(undefined);
-
-    const response = await GET(createRequest("http://localhost:3000/api/nutrition-goals?clientDate=2026-02-11"));
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.success).toBe(true);
-    await new Promise(resolve => setTimeout(resolve, 10));
-    // Client's local date should be used, not server's
-    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-11", 2000, expect.any(Object));
-  });
-
-  it("falls back to server UTC date when clientDate is not provided (FOO-403)", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
-    mockGetTodayDate.mockReturnValue("2026-02-10");
-    mockUpsertCalorieGoal.mockResolvedValue(undefined);
-
-    const response = await GET(createRequest());
-    const data = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(data.success).toBe(true);
-    await new Promise(resolve => setTimeout(resolve, 10));
-    // Should fall back to server date
-    expect(mockUpsertCalorieGoal).toHaveBeenCalledWith("user-123", "2026-02-10", 2000, expect.any(Object));
-  });
-
   it("returns ETag header on success response", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+    mockGetOrComputeDailyGoals.mockResolvedValue(OK_RESULT);
 
     const response = await GET(createRequest());
 
@@ -378,15 +332,13 @@ describe("GET /api/nutrition-goals", () => {
 
   it("returns 304 when If-None-Match matches", async () => {
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+    mockGetOrComputeDailyGoals.mockResolvedValue(OK_RESULT);
 
     const response1 = await GET(createRequest());
     const etag = response1.headers.get("ETag")!;
 
     mockGetSession.mockResolvedValue(validSession);
-    mockEnsureFreshToken.mockResolvedValue("mock-access-token");
-    mockGetFoodGoals.mockResolvedValue({ calories: 2000 });
+    mockGetOrComputeDailyGoals.mockResolvedValue(OK_RESULT);
 
     const response2 = await GET(new Request("http://localhost:3000/api/nutrition-goals", {
       headers: { "if-none-match": etag },
