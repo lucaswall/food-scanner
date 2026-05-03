@@ -45,14 +45,17 @@ describe("DashboardPrefetch", () => {
     expect(mockPreload).toHaveBeenCalledWith("/api/nutrition-goals?clientDate=2026-01-15", expect.any(Function));
   });
 
-  it("calls preload for /api/lumen-goals with today's date on mount", () => {
-    render(<DashboardPrefetch />);
-    expect(mockPreload).toHaveBeenCalledWith("/api/lumen-goals?date=2026-01-15", expect.any(Function));
-  });
-
   it("calls preload for /api/earliest-entry on mount", () => {
     render(<DashboardPrefetch />);
     expect(mockPreload).toHaveBeenCalledWith("/api/earliest-entry", expect.any(Function));
+  });
+
+  it("does not preload /api/lumen-goals (removed)", () => {
+    render(<DashboardPrefetch />);
+    const lumenCall = mockPreload.mock.calls.find((call) =>
+      typeof call[0] === "string" && call[0].includes("lumen-goals")
+    );
+    expect(lumenCall).toBeUndefined();
   });
 
   it("renders nothing", () => {

@@ -32,16 +32,10 @@ vi.mock("@/lib/fasting", () => ({
   getFastingWindows: (...args: unknown[]) => mockGetFastingWindows(...args),
 }));
 
-// Mock lumen functions
-const mockGetLumenGoalsByDate = vi.fn();
-vi.mock("@/lib/lumen", () => ({
-  getLumenGoalsByDate: (...args: unknown[]) => mockGetLumenGoalsByDate(...args),
-}));
-
-// Mock nutrition-goals functions
-const mockGetCalorieGoalsByDateRange = vi.fn();
-vi.mock("@/lib/nutrition-goals", () => ({
-  getCalorieGoalsByDateRange: (...args: unknown[]) => mockGetCalorieGoalsByDateRange(...args),
+// Mock daily-goals functions
+const mockGetDailyGoalsByDate = vi.fn();
+vi.mock("@/lib/daily-goals", () => ({
+  getDailyGoalsByDate: (...args: unknown[]) => mockGetDailyGoalsByDate(...args),
 }));
 
 // Mock nutrition-labels functions
@@ -599,17 +593,12 @@ describe("executeTool - get_nutrition_summary", () => {
       },
     });
 
-    mockGetLumenGoalsByDate.mockResolvedValue({
-      date: "2026-02-15",
-      dayType: "High Carb",
+    mockGetDailyGoalsByDate.mockResolvedValue({
+      calorieGoal: 2000,
       proteinGoal: 100,
       carbsGoal: 250,
       fatGoal: 50,
     });
-
-    mockGetCalorieGoalsByDateRange.mockResolvedValue([
-      { date: "2026-02-15", calorieGoal: 2000 },
-    ]);
 
     const result = await executeTool(
       "get_nutrition_summary",
@@ -619,8 +608,7 @@ describe("executeTool - get_nutrition_summary", () => {
     );
 
     expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
-    expect(mockGetLumenGoalsByDate).toHaveBeenCalledWith("user-123", "2026-02-15");
-    expect(mockGetCalorieGoalsByDateRange).toHaveBeenCalledWith("user-123", "2026-02-15", "2026-02-15");
+    expect(mockGetDailyGoalsByDate).toHaveBeenCalledWith("user-123", "2026-02-15");
     expect(result).toContain("1800 cal");
     expect(result).toContain("2000 cal");
     expect(result).toContain("90%");
@@ -826,8 +814,7 @@ describe("executeTool - error handling", () => {
       },
     });
 
-    mockGetLumenGoalsByDate.mockResolvedValue(null);
-    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+    mockGetDailyGoalsByDate.mockResolvedValue(null);
 
     // date provided, from_date and to_date null - should work
     const result = await executeTool(
@@ -885,10 +872,7 @@ describe("executeTool - division-by-zero protection", () => {
       },
     });
 
-    mockGetLumenGoalsByDate.mockResolvedValue(null);
-    mockGetCalorieGoalsByDateRange.mockResolvedValue([
-      { date: "2026-02-15", calorieGoal: 0 },
-    ]);
+    mockGetDailyGoalsByDate.mockResolvedValue({ calorieGoal: 0, proteinGoal: null, carbsGoal: null, fatGoal: null });
 
     const result = await executeTool(
       "get_nutrition_summary",
@@ -918,15 +902,7 @@ describe("executeTool - division-by-zero protection", () => {
       },
     });
 
-    mockGetLumenGoalsByDate.mockResolvedValue({
-      date: "2026-02-15",
-      dayType: "Low Carb",
-      proteinGoal: 0,
-      carbsGoal: 0,
-      fatGoal: 0,
-    });
-
-    mockGetCalorieGoalsByDateRange.mockResolvedValue([]);
+    mockGetDailyGoalsByDate.mockResolvedValue({ calorieGoal: null, proteinGoal: 0, carbsGoal: 0, fatGoal: 0 });
 
     const result = await executeTool(
       "get_nutrition_summary",

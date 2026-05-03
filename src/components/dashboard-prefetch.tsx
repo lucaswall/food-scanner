@@ -13,7 +13,6 @@ export function DashboardPrefetch() {
     preload("/api/food-history?limit=20", apiFetcher).catch(swallow);
     preload(`/api/nutrition-summary?date=${today}`, apiFetcher).catch(swallow);
     preload(`/api/nutrition-goals?clientDate=${today}`, apiFetcher).catch(swallow);
-    preload(`/api/lumen-goals?date=${today}`, apiFetcher).catch(swallow);
     preload("/api/earliest-entry", apiFetcher).catch(swallow);
   }, []);
   return null;

@@ -125,6 +125,12 @@ export enum FitbitMealType {
   Anytime = 7,
 }
 
+export type FitbitHealthStatus =
+  | { status: "needs_setup" }
+  | { status: "needs_reconnect" }
+  | { status: "scope_mismatch"; missingScopes: string[] }
+  | { status: "healthy" };
+
 export type ErrorCode =
   | "AUTH_INVALID_EMAIL"
   | "AUTH_SESSION_EXPIRED"
@@ -143,7 +149,6 @@ export type ErrorCode =
   | "FITBIT_API_ERROR"
   | "VALIDATION_ERROR"
   | "RATE_LIMIT_EXCEEDED"
-  | "LUMEN_PARSE_ERROR"
   | "INTERNAL_ERROR";
 
 export interface ApiSuccessResponse<T> {
@@ -339,24 +344,9 @@ export interface NutritionSummary {
   };
 }
 
-export interface NutritionGoals {
-  calories: number | null;
-}
-
 export interface ActivitySummary {
-  caloriesOut: number;
-}
-
-export interface LumenGoals {
-  date: string;
-  dayType: string;
-  proteinGoal: number;
-  carbsGoal: number;
-  fatGoal: number;
-}
-
-export interface LumenGoalsResponse {
-  goals: LumenGoals | null;
+  /** May be null when Fitbit hasn't recorded activity yet (e.g., earliest minutes after midnight) — drives the macro engine's "partial" status. */
+  caloriesOut: number | null;
 }
 
 export interface ClaudeUsageRecord {
@@ -560,4 +550,75 @@ export interface HydrationReadingInput {
 
 export interface SavedAnalysisDetail extends SavedAnalysisListItem {
   foodAnalysis: FoodAnalysis;
+}
+
+export interface FitbitProfileData {
+  ageYears: number;
+  sex: "MALE" | "FEMALE" | "NA";
+  heightCm: number;
+  weightKg: number | null;
+  weightLoggedDate: string | null;
+  goalType: "LOSE" | "MAINTAIN" | "GAIN" | null;
+  lastSyncedAt: number;
+}
+
+export interface FitbitProfile {
+  ageYears: number;
+  sex: "MALE" | "FEMALE" | "NA";
+  heightCm: number;
+}
+
+export interface FitbitWeightLog {
+  weightKg: number;
+  loggedDate: string;
+}
+
+export interface FitbitWeightGoal {
+  goalType: "LOSE" | "MAINTAIN" | "GAIN";
+}
+
+/** Fitbit food-log calorie goal — returned by getFoodGoals() and the v1 external API */
+export interface FitbitFoodGoals {
+  calories: number | null;
+}
+
+export type MacroGoalType = "LOSE" | "MAINTAIN" | "GAIN";
+
+export interface MacroEngineInputs {
+  ageYears: number;
+  sex: "MALE" | "FEMALE" | "NA";
+  heightCm: number;
+  weightKg: number;
+  caloriesOut: number;
+  goalType: MacroGoalType;
+}
+
+export interface MacroEngineOutputs {
+  targetKcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  rmr: number;
+  activityKcal: number;
+  tdee: number;
+  bmiTier: "lt25" | "25to30" | "ge30";
+}
+
+export interface NutritionGoalsAudit {
+  rmr: number;
+  activityKcal: number;
+  tdee: number;
+  weightKg: string;
+  bmiTier: "lt25" | "25to30" | "ge30";
+  goalType: MacroGoalType;
+}
+
+export interface NutritionGoals {
+  calories: number | null;
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
+  status: "ok" | "partial" | "blocked";
+  reason?: "no_weight" | "sex_unset" | "scope_mismatch" | "invalid_profile";
+  audit?: NutritionGoalsAudit;
 }

@@ -37,6 +37,7 @@ export const fitbitTokens = pgTable("fitbit_tokens", {
   accessToken: text("access_token").notNull(),
   refreshToken: text("refresh_token").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  scope: text("scope"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -88,24 +89,6 @@ export const foodLogEntries = pgTable("food_log_entries", {
   zoneOffset: varchar("zone_offset", { length: 6 }),
   loggedAt: timestamp("logged_at", { withTimezone: true }).defaultNow().notNull(),
 });
-
-export const lumenGoals = pgTable(
-  "lumen_goals",
-  {
-    id: serial("id").primaryKey(),
-    userId: uuid("user_id").notNull().references(() => users.id),
-    date: date("date").notNull(),
-    dayType: text("day_type").notNull(),
-    proteinGoal: integer("protein_goal").notNull(),
-    carbsGoal: integer("carbs_goal").notNull(),
-    fatGoal: integer("fat_goal").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => ({
-    userDateUnique: unique("lumen_goals_user_date_uniq").on(table.userId, table.date),
-  })
-);
 
 export const apiKeys = pgTable("api_keys", {
   id: serial("id").primaryKey(),
@@ -164,6 +147,13 @@ export const dailyCalorieGoals = pgTable(
     userId: uuid("user_id").notNull().references(() => users.id),
     date: date("date").notNull(),
     calorieGoal: integer("calorie_goal").notNull(),
+    proteinGoal: integer("protein_goal"),
+    carbsGoal: integer("carbs_goal"),
+    fatGoal: integer("fat_goal"),
+    weightKg: numeric("weight_kg"),
+    caloriesOut: integer("calories_out"),
+    rmr: integer("rmr"),
+    activityKcal: integer("activity_kcal"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

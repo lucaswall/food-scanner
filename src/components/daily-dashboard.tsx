@@ -11,7 +11,7 @@ import { CalorieRing } from "@/components/calorie-ring";
 import { MacroBars } from "@/components/macro-bars";
 import { MealBreakdown } from "@/components/meal-breakdown";
 import { FastingCard } from "@/components/fasting-card";
-import { LumenBanner } from "@/components/lumen-banner";
+import { TargetsCard } from "@/components/targets-card";
 import { FoodEntryDetailSheet } from "@/components/food-entry-detail-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -25,8 +25,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Loader2, ScanEye, ListChecks, Settings, Clock, Camera } from "lucide-react";
-import type { NutritionSummary, NutritionGoals, LumenGoalsResponse, MealEntry, FoodLogHistoryEntry, SavedAnalysisListItem } from "@/types";
+import { RefreshCw, ScanEye, ListChecks, Settings, Clock, Camera } from "lucide-react";
+import type { NutritionSummary, NutritionGoals, MealEntry, FoodLogHistoryEntry, SavedAnalysisListItem } from "@/types";
 import { useDeleteFoodEntry } from "@/hooks/use-delete-food-entry";
 import { SavedForLaterSection } from "@/components/saved-for-later-section";
 import { CaptureSessionBanner } from "@/components/capture-session-banner";
@@ -66,9 +66,6 @@ function DashboardSkeleton() {
 export function DailyDashboard() {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(getTodayDate());
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isUploadingLumen, setIsUploadingLumen] = useState(false);
-  const [lumenUploadError, setLumenUploadError] = useState<string | null>(null);
   const { mutate: globalMutate } = useSWRConfig();
   const lastActiveRef = useRef({ date: getTodayDate(), timestamp: Date.now() });
 
@@ -103,7 +100,6 @@ export function DailyDashboard() {
               typeof key === "string" &&
               (key.startsWith("/api/nutrition-summary") ||
                 key.startsWith("/api/nutrition-goals") ||
-                key.startsWith("/api/lumen-goals") ||
                 key.startsWith("/api/fasting") ||
                 key === "/api/earliest-entry")
           );
@@ -133,11 +129,6 @@ export function DailyDashboard() {
   const {
     data: goals,
   } = useSWR<NutritionGoals>(`/api/nutrition-goals?clientDate=${selectedDate}`, apiFetcher);
-
-  const {
-    data: lumenGoals,
-    mutate: mutateLumenGoals,
-  } = useSWR<LumenGoalsResponse>(`/api/lumen-goals?date=${selectedDate}`, apiFetcher);
 
   const {
     data: savedAnalysesData,
@@ -236,50 +227,6 @@ export function DailyDashboard() {
     }
   };
 
-  const handleUpdateLumenGoals = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleLumenFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setIsUploadingLumen(true);
-    setLumenUploadError(null);
-
-    try {
-      const formData = new FormData();
-      formData.append("image", file);
-      formData.append("date", selectedDate);
-
-      const response = await fetch("/api/lumen-goals", {
-        method: "POST",
-        body: formData,
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || "Upload failed");
-      }
-
-      // Mutate SWR cache on success
-      await mutateLumenGoals();
-    } catch (error) {
-      if (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) {
-        setLumenUploadError("Upload timed out. Please try again.");
-      } else {
-        setLumenUploadError(error instanceof Error ? error.message : "Upload failed");
-      }
-    } finally {
-      // Reset file input
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-      setIsUploadingLumen(false);
-    }
-  };
-
   // Loading state (only wait for summary - goals can load in background)
   if (summaryLoading) {
     return <DashboardSkeleton />;
@@ -338,30 +285,25 @@ export function DailyDashboard() {
         earliestDate={earliestEntry?.date ?? null}
         isLoading={earliestLoading}
       />
-      {/* Calorie Ring or Plain Display */}
-      <div className="flex flex-col items-center gap-2">
-        {/* Day type badge */}
-        {lumenGoals?.goals && (
-          <span className="text-sm text-muted-foreground">
-            {lumenGoals.goals.dayType} day
-          </span>
-        )}
 
-        <div className="flex justify-center">
-          {goals?.calories != null ? (
-            <CalorieRing
-              calories={totals.calories}
-              goal={goals.calories}
-            />
-          ) : (
-            <div className="flex flex-col items-center gap-2">
-              <span className="text-4xl font-bold tabular-nums">
-                {formatNumber(totals.calories)}
-              </span>
-              <span className="text-sm text-muted-foreground">cal</span>
-            </div>
-          )}
-        </div>
+      {/* Targets Card */}
+      <TargetsCard date={selectedDate} />
+
+      {/* Calorie Ring or Plain Display */}
+      <div className="flex justify-center">
+        {goals?.calories != null ? (
+          <CalorieRing
+            calories={totals.calories}
+            goal={goals.calories}
+          />
+        ) : (
+          <div className="flex flex-col items-center gap-2">
+            <span className="text-4xl font-bold tabular-nums">
+              {formatNumber(totals.calories)}
+            </span>
+            <span className="text-sm text-muted-foreground">cal</span>
+          </div>
+        )}
       </div>
 
       {/* Macro Bars */}
@@ -369,15 +311,10 @@ export function DailyDashboard() {
         proteinG={totals.proteinG}
         carbsG={totals.carbsG}
         fatG={totals.fatG}
-        proteinGoal={lumenGoals?.goals?.proteinGoal}
-        carbsGoal={lumenGoals?.goals?.carbsGoal}
-        fatGoal={lumenGoals?.goals?.fatGoal}
+        proteinGoal={goals?.proteinG ?? undefined}
+        carbsGoal={goals?.carbsG ?? undefined}
+        fatGoal={goals?.fatG ?? undefined}
       />
-
-      {/* Lumen CTA Banner — only show when viewing today and no goals set */}
-      {selectedDate === getTodayDate() && lumenGoals && !lumenGoals.goals && (
-        <LumenBanner />
-      )}
 
       {/* Quick Capture Banner — only show on today's view */}
       {selectedDate === getTodayDate() && (
@@ -464,26 +401,6 @@ export function DailyDashboard() {
         </Link>
       )}
 
-      {/* Update Lumen goals button */}
-      <div className="flex flex-col gap-2">
-        <Button
-          variant="secondary"
-          onClick={handleUpdateLumenGoals}
-          disabled={isUploadingLumen}
-          className="w-full min-h-[44px]"
-        >
-          {isUploadingLumen ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          Update Lumen goals
-        </Button>
-        {lumenUploadError && (
-          <p className="text-sm text-destructive">{lumenUploadError}</p>
-        )}
-      </div>
-
       {/* Settings link */}
       <Link
         href="/settings"
@@ -501,14 +418,6 @@ export function DailyDashboard() {
         <Clock className="h-4 w-4" />
         History
       </Link>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        style={{ display: "none" }}
-        onChange={handleLumenFileChange}
-      />
 
       {/* Entry detail sheet */}
       <FoodEntryDetailSheet

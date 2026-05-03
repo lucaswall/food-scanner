@@ -37,6 +37,9 @@ const {
   deleteFoodLog,
   getFoodGoals,
   getActivitySummary,
+  getFitbitProfile,
+  getFitbitLatestWeightKg,
+  getFitbitWeightGoal,
 } = await import("@/lib/fitbit");
 const { logger } = await import("@/lib/logger");
 
@@ -103,6 +106,54 @@ describe("buildFitbitAuthUrl", () => {
       ),
     );
     expect(url.searchParams.get("scope")).toContain("activity");
+  });
+
+  it("includes profile and weight in scope parameter", () => {
+    const url = new URL(
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
+      ),
+    );
+    const scope = url.searchParams.get("scope");
+    expect(scope).toContain("profile");
+    expect(scope).toContain("weight");
+  });
+
+  it("does not include prompt=consent by default", () => {
+    const url = new URL(
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
+      ),
+    );
+    expect(url.searchParams.get("prompt")).toBeNull();
+  });
+
+  it("adds prompt=consent when forceConsent is true", () => {
+    const url = new URL(
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
+        { forceConsent: true },
+      ),
+    );
+    expect(url.searchParams.get("prompt")).toBe("consent");
+  });
+
+  it("does not add prompt=consent when forceConsent is false", () => {
+    const url = new URL(
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
+        { forceConsent: false },
+      ),
+    );
+    expect(url.searchParams.get("prompt")).toBeNull();
   });
 
   it("uses response_type=code", () => {
@@ -195,6 +246,41 @@ describe("ensureFreshToken", () => {
         accessToken: "new-token",
         refreshToken: "new-refresh",
         fitbitUserId: "user-123",
+      }),
+      expect.anything(),
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("preserves the existing scope when refreshing tokens", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000),
+      scope: "nutrition activity profile weight",
+    });
+    mockUpsertFitbitTokens.mockResolvedValue(undefined);
+
+    await ensureFreshToken("user-uuid-123");
+    expect(mockUpsertFitbitTokens).toHaveBeenCalledWith(
+      "user-uuid-123",
+      expect.objectContaining({
+        scope: "nutrition activity profile weight",
       }),
       expect.anything(),
     );
@@ -498,6 +584,40 @@ describe("exchangeFitbitCode", () => {
 
     vi.restoreAllMocks();
   });
+
+  it("returns scope from response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        access_token: "at",
+        refresh_token: "rt",
+        user_id: "uid",
+        expires_in: 3600,
+        scope: "nutrition activity profile weight",
+      }), { status: 200 }),
+    );
+
+    const result = await exchangeFitbitCode("code", "http://localhost:3000/callback", testCredentials);
+    expect(result.scope).toBe("nutrition activity profile weight");
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws when response is missing scope", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        access_token: "at",
+        refresh_token: "rt",
+        user_id: "uid",
+        expires_in: 3600,
+      }), { status: 200 }),
+    );
+
+    await expect(
+      exchangeFitbitCode("code", "http://localhost:3000/callback", testCredentials),
+    ).rejects.toThrow("Invalid Fitbit token response: missing scope");
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe("refreshFitbitToken", () => {
@@ -621,6 +741,23 @@ describe("refreshFitbitToken", () => {
     );
 
     await expect(refreshFitbitToken("refresh-token", testCredentials)).rejects.toThrow("FITBIT_REFRESH_TRANSIENT");
+
+    vi.restoreAllMocks();
+  });
+
+  it("does not include scope in return value", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        access_token: "at",
+        refresh_token: "rt",
+        user_id: "uid",
+        expires_in: 3600,
+        scope: "nutrition activity profile weight",
+      }), { status: 200 }),
+    );
+
+    const result = await refreshFitbitToken("refresh-token", testCredentials);
+    expect("scope" in result).toBe(false);
 
     vi.restoreAllMocks();
   });
@@ -1496,14 +1633,13 @@ describe("getActivitySummary", () => {
     vi.restoreAllMocks();
   });
 
-  it("throws FITBIT_API_ERROR when response is missing summary.caloriesOut", async () => {
+  it("returns caloriesOut: null when response is missing summary.caloriesOut (drives partial macro state)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ summary: {} }), { status: 200 }),
     );
 
-    await expect(getActivitySummary("test-token", "2024-01-15")).rejects.toThrow(
-      "FITBIT_API_ERROR",
-    );
+    const result = await getActivitySummary("test-token", "2024-01-15");
+    expect(result).toEqual({ caloriesOut: null });
 
     vi.restoreAllMocks();
   });
@@ -1544,6 +1680,348 @@ describe("getActivitySummary", () => {
     expect(result.caloriesOut).toBe(2345);
 
     vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("getFitbitProfile", () => {
+  it("parses profile live shape correctly", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ user: { age: 34, gender: "MALE", height: 180.0 } }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await getFitbitProfile("test-token");
+
+    expect(result).toEqual({ ageYears: 34, sex: "MALE", heightCm: 180.0 });
+    vi.restoreAllMocks();
+  });
+
+  it("sends Accept-Language: en_US header", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ user: { age: 30, gender: "MALE", height: 170.0 } }),
+        { status: 200 },
+      ),
+    );
+
+    await getFitbitProfile("test-token");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.fitbit.com/1/user/-/profile.json",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          "Accept-Language": "en_US",
+        }),
+      }),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("gender NA propagates as sex NA", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ user: { age: 25, gender: "NA", height: 165.0 } }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await getFitbitProfile("test-token");
+
+    expect(result.sex).toBe("NA");
+    vi.restoreAllMocks();
+  });
+
+  it("throws validation error when user.age is missing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ user: { gender: "MALE", height: 175.0 } }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(getFitbitProfile("test-token")).rejects.toThrow(
+      "Invalid Fitbit profile response: missing user.age",
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("throws validation error when user.gender is missing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ user: { age: 30, height: 175.0 } }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(getFitbitProfile("test-token")).rejects.toThrow(
+      "Invalid Fitbit profile response: missing user.gender",
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("throws validation error when user.height is missing", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ user: { age: 30, gender: "FEMALE" } }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(getFitbitProfile("test-token")).rejects.toThrow(
+      "Invalid Fitbit profile response: missing user.height",
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID on 401", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(getFitbitProfile("bad-token")).rejects.toThrow("FITBIT_TOKEN_INVALID");
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_API_ERROR on non-ok response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: [] }), { status: 400 }),
+    );
+
+    await expect(getFitbitProfile("test-token")).rejects.toThrow("FITBIT_API_ERROR");
+    vi.restoreAllMocks();
+  });
+});
+
+describe("getFitbitLatestWeightKg", () => {
+  it("parses weight log live shape correctly", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ weight: [{ weight: 121.6, date: "2024-01-15", time: "06:00:00", logId: 1234 }] }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    expect(result).toEqual({ weightKg: 121.6, loggedDate: "2024-01-15" });
+    vi.restoreAllMocks();
+  });
+
+  it("sends Accept-Language: en_US header", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ weight: [{ weight: 80.0, date: "2024-01-15" }] }),
+        { status: 200 },
+      ),
+    );
+
+    await getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/body/log/weight/date/"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ "Accept-Language": "en_US" }),
+      }),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to day -1 when day 0 has empty array", async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(new Response(JSON.stringify({ weight: [] }), { status: 200 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ weight: [{ weight: 90.5, date: "2024-01-14" }] }), { status: 200 }),
+      );
+    });
+
+    const result = await getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    expect(callCount).toBe(2);
+    expect(result).toEqual({ weightKg: 90.5, loggedDate: "2024-01-14" });
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("2024-01-15"),
+      expect.anything(),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("2024-01-14"),
+      expect.anything(),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("returns null after 7 empty days", async () => {
+    // Each call needs a fresh Response (body can only be read once)
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ weight: [] }), { status: 200 })),
+    );
+
+    const result = await getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    expect(result).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(7);
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID on 401", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(getFitbitLatestWeightKg("bad-token", "2024-01-15")).rejects.toThrow("FITBIT_TOKEN_INVALID");
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to day -1 when day 0 surfaces a non-ok response", async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(new Response(JSON.stringify({ errors: [] }), { status: 400 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ weight: [{ weight: 88.5, date: "2024-01-14" }] }), { status: 200 }),
+      );
+    });
+
+    const result = await getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    expect(callCount).toBe(2);
+    expect(result).toEqual({ weightKg: 88.5, loggedDate: "2024-01-14" });
+    vi.restoreAllMocks();
+  });
+
+  it("returns null when all 7 days surface non-ok responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ errors: [] }), { status: 400 })),
+    );
+
+    const result = await getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    expect(result).toBeNull();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("getFitbitWeightGoal", () => {
+  it("returns goalType LOSE for valid LOSE goal", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ goal: { goalType: "LOSE", weight: 85.0 } }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await getFitbitWeightGoal("test-token");
+
+    expect(result).toEqual({ goalType: "LOSE" });
+    vi.restoreAllMocks();
+  });
+
+  it("returns goalType MAINTAIN", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ goal: { goalType: "MAINTAIN", weight: 80.0 } }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await getFitbitWeightGoal("test-token");
+
+    expect(result).toEqual({ goalType: "MAINTAIN" });
+    vi.restoreAllMocks();
+  });
+
+  it("returns goalType GAIN", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ goal: { goalType: "GAIN", weight: 95.0 } }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await getFitbitWeightGoal("test-token");
+
+    expect(result).toEqual({ goalType: "GAIN" });
+    vi.restoreAllMocks();
+  });
+
+  it("returns null when goal field is empty (no goalType)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ goal: {} }), { status: 200 }),
+    );
+
+    const result = await getFitbitWeightGoal("test-token");
+
+    expect(result).toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it("returns null when goal field is missing from response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({}), { status: 200 }),
+    );
+
+    const result = await getFitbitWeightGoal("test-token");
+
+    expect(result).toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it("throws validation error for unknown goalType", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ goal: { goalType: "UNKNOWN_TYPE" } }),
+        { status: 200 },
+      ),
+    );
+
+    await expect(getFitbitWeightGoal("test-token")).rejects.toThrow(
+      /unknown goalType/,
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("sends Accept-Language: en_US header", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ goal: { goalType: "LOSE" } }), { status: 200 }),
+    );
+
+    await getFitbitWeightGoal("test-token");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.fitbit.com/1/user/-/body/log/weight/goal.json",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "Accept-Language": "en_US" }),
+      }),
+    );
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_TOKEN_INVALID on 401", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 401 }),
+    );
+
+    await expect(getFitbitWeightGoal("bad-token")).rejects.toThrow("FITBIT_TOKEN_INVALID");
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_API_ERROR on non-ok response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ errors: [] }), { status: 400 }),
+    );
+
+    await expect(getFitbitWeightGoal("test-token")).rejects.toThrow("FITBIT_API_ERROR");
     vi.restoreAllMocks();
   });
 });

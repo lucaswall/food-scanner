@@ -323,14 +323,25 @@ export interface FitbitClientCredentials {
   clientSecret: string;
 }
 
-export function buildFitbitAuthUrl(state: string, redirectUri: string, clientId: string): string {
+export const FITBIT_REQUIRED_SCOPES = ["nutrition", "activity", "profile", "weight"] as const;
+
+export function buildFitbitAuthUrl(
+  state: string,
+  redirectUri: string,
+  clientId: string,
+  options?: { forceConsent?: boolean },
+): string {
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: "nutrition activity",
+    scope: FITBIT_REQUIRED_SCOPES.join(" "),
     state,
   });
+
+  if (options?.forceConsent) {
+    params.set("prompt", "consent");
+  }
 
   return `https://www.fitbit.com/oauth2/authorize?${params.toString()}`;
 }
@@ -345,6 +356,7 @@ export async function exchangeFitbitCode(
   refresh_token: string;
   user_id: string;
   expires_in: number;
+  scope: string;
 }> {
   const l = log ?? logger;
   const authHeader = Buffer.from(
@@ -390,7 +402,10 @@ export async function exchangeFitbitCode(
     if (typeof data.expires_in !== "number") {
       throw new Error("Invalid Fitbit token response: missing expires_in");
     }
-    return { access_token: data.access_token, refresh_token: data.refresh_token, user_id: data.user_id, expires_in: data.expires_in };
+    if (typeof data.scope !== "string") {
+      throw new Error("Invalid Fitbit token response: missing scope");
+    }
+    return { access_token: data.access_token, refresh_token: data.refresh_token, user_id: data.user_id, expires_in: data.expires_in, scope: data.scope };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -492,6 +507,7 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+          scope: tokenRow.scope,
         };
 
         // Try to save tokens with retry logic (FOO-430)
@@ -530,7 +546,7 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
 export async function getFoodGoals(
   accessToken: string,
   log?: Logger,
-): Promise<import("@/types").NutritionGoals> {
+): Promise<import("@/types").FitbitFoodGoals> {
   const l = log ?? logger;
   const elapsed = startTimer();
   l.debug(
@@ -570,6 +586,163 @@ export async function getFoodGoals(
   return { calories: goals.calories };
 }
 
+function subtractDays(dateStr: string, days: number): string {
+  const date = new Date(dateStr + "T00:00:00Z");
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+export async function getFitbitProfile(
+  accessToken: string,
+  log?: Logger,
+): Promise<import("@/types").FitbitProfile> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug({ action: "fitbit_get_profile" }, "fetching Fitbit profile");
+
+  const response = await fetchWithRetry(
+    `${FITBIT_API_BASE}/1/user/-/profile.json`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Accept-Language": "en_US",
+      },
+    },
+    0, Date.now(), l,
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    l.error({ action: "fitbit_get_profile_failed", status: response.status, errorBody }, "profile fetch failed");
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const user = data.user as Record<string, unknown> | undefined;
+
+  if (typeof user?.age !== "number") {
+    throw new Error("Invalid Fitbit profile response: missing user.age");
+  }
+  if (typeof user?.gender !== "string") {
+    throw new Error("Invalid Fitbit profile response: missing user.gender");
+  }
+  if (typeof user?.height !== "number") {
+    throw new Error("Invalid Fitbit profile response: missing user.height");
+  }
+
+  const validSexValues = ["MALE", "FEMALE", "NA"] as const;
+  if (!validSexValues.includes(user.gender as "MALE" | "FEMALE" | "NA")) {
+    throw new Error(`Invalid Fitbit profile response: unknown gender "${user.gender}"`);
+  }
+
+  l.debug({ action: "fitbit_get_profile_success", durationMs: elapsed() }, "profile fetched");
+  return {
+    ageYears: user.age,
+    sex: user.gender as "MALE" | "FEMALE" | "NA",
+    heightCm: user.height,
+  };
+}
+
+export async function getFitbitLatestWeightKg(
+  accessToken: string,
+  targetDate: string,
+  log?: Logger,
+): Promise<import("@/types").FitbitWeightLog | null> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug({ action: "fitbit_get_weight", targetDate }, "fetching latest weight");
+
+  for (let daysBack = 0; daysBack < 7; daysBack++) {
+    const date = subtractDays(targetDate, daysBack);
+
+    const response = await fetchWithRetry(
+      `${FITBIT_API_BASE}/1/user/-/body/log/weight/date/${date}.json`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Accept-Language": "en_US",
+        },
+      },
+      0, Date.now(), l,
+    );
+
+    if (!response.ok) {
+      const rawBody = await parseErrorBody(response);
+      const errorBody = sanitizeErrorBody(rawBody);
+      l.warn(
+        { action: "fitbit_get_weight_day_failed", status: response.status, errorBody, date },
+        "weight fetch failed for date, continuing walk-back",
+      );
+      continue;
+    }
+
+    const data = await jsonWithTimeout<Record<string, unknown>>(response);
+    const weights = data.weight as Array<Record<string, unknown>> | undefined;
+
+    if (Array.isArray(weights) && weights.length > 0) {
+      const entry = weights[0];
+      if (typeof entry.weight !== "number") {
+        throw new Error("Invalid Fitbit weight response: missing weight value");
+      }
+      if (typeof entry.date !== "string") {
+        throw new Error("Invalid Fitbit weight response: missing date");
+      }
+      l.debug({ action: "fitbit_get_weight_success", date, durationMs: elapsed() }, "weight fetched");
+      return { weightKg: entry.weight, loggedDate: entry.date };
+    }
+  }
+
+  l.debug({ action: "fitbit_get_weight_not_found", targetDate, durationMs: elapsed() }, "no weight found in past 7 days");
+  return null;
+}
+
+export async function getFitbitWeightGoal(
+  accessToken: string,
+  log?: Logger,
+): Promise<import("@/types").FitbitWeightGoal | null> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug({ action: "fitbit_get_weight_goal" }, "fetching weight goal");
+
+  const response = await fetchWithRetry(
+    `${FITBIT_API_BASE}/1/user/-/body/log/weight/goal.json`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Accept-Language": "en_US",
+      },
+    },
+    0, Date.now(), l,
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    l.error({ action: "fitbit_get_weight_goal_failed", status: response.status, errorBody }, "weight goal fetch failed");
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const goal = data.goal as Record<string, unknown> | undefined;
+
+  if (!goal || typeof goal.goalType !== "string") {
+    l.debug({ action: "fitbit_get_weight_goal_not_set", durationMs: elapsed() }, "weight goal not set");
+    return null;
+  }
+
+  const validGoalTypes = ["LOSE", "MAINTAIN", "GAIN"] as const;
+  if (!validGoalTypes.includes(goal.goalType as "LOSE" | "MAINTAIN" | "GAIN")) {
+    throw new Error(`Invalid Fitbit weight goal response: unknown goalType "${goal.goalType}"`);
+  }
+
+  l.debug({ action: "fitbit_get_weight_goal_success", durationMs: elapsed() }, "weight goal fetched");
+  return { goalType: goal.goalType as "LOSE" | "MAINTAIN" | "GAIN" };
+}
+
 export async function getActivitySummary(
   accessToken: string,
   date: string,
@@ -606,7 +779,8 @@ export async function getActivitySummary(
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
   const summary = data.summary as Record<string, unknown> | undefined;
   if (typeof summary?.caloriesOut !== "number") {
-    throw new Error("FITBIT_API_ERROR");
+    l.debug({ action: "fitbit_get_activity_summary_no_calories_out", durationMs: elapsed() }, "activity summary fetched (no caloriesOut yet)");
+    return { caloriesOut: null };
   }
 
   l.debug({ action: "fitbit_get_activity_summary_success", durationMs: elapsed() }, "activity summary fetched");

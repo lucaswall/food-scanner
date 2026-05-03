@@ -1,8 +1,9 @@
-import { buildFitbitAuthUrl } from "@/lib/fitbit";
+import { buildFitbitAuthUrl, FITBIT_REQUIRED_SCOPES } from "@/lib/fitbit";
 import { buildUrl } from "@/lib/url";
 import { createRequestLogger } from "@/lib/logger";
 import { getSession, validateSession, getRawSession } from "@/lib/session";
 import { getFitbitCredentials } from "@/lib/fitbit-credentials";
+import { getFitbitTokens } from "@/lib/fitbit-tokens";
 
 async function initiateFitbitAuth(method: string) {
   const log = createRequestLogger(method, "/api/auth/fitbit");
@@ -22,9 +23,17 @@ async function initiateFitbitAuth(method: string) {
     });
   }
 
+  // Check if existing token row has all required scopes; if not, force re-consent
+  const existingTokens = await getFitbitTokens(session!.userId, log);
+  let forceConsent = false;
+  if (existingTokens) {
+    const grantedScopes = new Set((existingTokens.scope ?? "").split(/\s+/).filter(Boolean));
+    forceConsent = FITBIT_REQUIRED_SCOPES.some((s) => !grantedScopes.has(s));
+  }
+
   const state = crypto.randomUUID();
   const redirectUri = buildUrl("/api/auth/fitbit/callback");
-  const authUrl = buildFitbitAuthUrl(state, redirectUri, credentials.clientId);
+  const authUrl = buildFitbitAuthUrl(state, redirectUri, credentials.clientId, { forceConsent });
 
   // Store state in iron-session (encrypted cookie) instead of plain cookie
   const rawSession = await getRawSession();

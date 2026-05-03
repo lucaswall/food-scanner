@@ -12,6 +12,7 @@ export interface FitbitTokenRow {
   accessToken: string;
   refreshToken: string;
   expiresAt: Date;
+  scope: string | null;
   updatedAt: Date;
 }
 
@@ -37,6 +38,7 @@ export async function upsertFitbitTokens(
     accessToken: string;
     refreshToken: string;
     expiresAt: Date;
+    scope?: string | null;
   },
   log?: Logger,
 ): Promise<void> {
@@ -45,6 +47,7 @@ export async function upsertFitbitTokens(
   const now = new Date();
   const encryptedAccessToken = encryptToken(data.accessToken);
   const encryptedRefreshToken = encryptToken(data.refreshToken);
+  const scope = data.scope ?? null;
   await db
     .insert(fitbitTokens)
     .values({
@@ -53,6 +56,7 @@ export async function upsertFitbitTokens(
       accessToken: encryptedAccessToken,
       refreshToken: encryptedRefreshToken,
       expiresAt: data.expiresAt,
+      scope,
       updatedAt: now,
     })
     .onConflictDoUpdate({
@@ -62,6 +66,7 @@ export async function upsertFitbitTokens(
         accessToken: encryptedAccessToken,
         refreshToken: encryptedRefreshToken,
         expiresAt: data.expiresAt,
+        scope,
         updatedAt: now,
       },
     });
