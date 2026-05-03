@@ -521,3 +521,129 @@
 - **External `/api/v1/lumen-goals`:** Removal is hard-stop. If any external integration was reading it, it 404s. Mitigation: documented in PR; project memory confirms only the user consumes it.
 - **Mifflin-St Jeor + 0.85 multiplier accuracy:** Engineering choice, not science. If the user's 14-day weight trend diverges from expected, the multiplier becomes the lever to tune. Constants exposed in `macro-engine.ts` for future adjustment.
 - **Backfill ordering:** Lumen archival SQL must run BEFORE the Drizzle DROP. push-to-production's "Data-only" migration handling owns this; documented in MIGRATIONS.md.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-05-03
+**Method:** Agent team (4 workers, worktree-isolated) + lead-only foundation/cleanup work
+
+### Tasks Completed This Iteration
+
+- Task 1: Schema — `fitbit_tokens.scope` + `daily_calorie_goals` macro/audit columns (FOO-967, lead pre-workers)
+- Task 2: Persist Fitbit OAuth scope; `FITBIT_REQUIRED_SCOPES`; `prompt=consent` on scope-upgrade reconnect (FOO-968, worker-1)
+- Task 3: Fitbit `getFitbitProfile` / `getFitbitLatestWeightKg` (7-day walk-back) / `getFitbitWeightGoal` fetchers (FOO-969, worker-2)
+- Task 4: `checkFitbitHealth` lib + `GET /api/fitbit/health` route + `FitbitStatusBanner` `scope_mismatch` 5th state (FOO-970, worker-1)
+- Task 5: `src/lib/fitbit-cache.ts` — process-level TTL cache with in-flight Promise dedupe (FOO-971, worker-2)
+- Task 6: `src/lib/macro-engine.ts` — pure Mifflin-St Jeor + BMI-tiered macro compute (FOO-972, worker-3)
+- Task 7: `src/lib/daily-goals.ts` — idempotent compute service with INSERT…ON CONFLICT + in-flight dedupe (FOO-973, worker-3)
+- Task 8: `GET /api/nutrition-goals` returns calories + macros + status + audit (FOO-974, worker-3)
+- Task 9: `chat-tools.executeGetNutritionSummary` + `food-log.getDateRangeNutritionSummary` switched to `daily_calorie_goals` macro source (FOO-975, worker-4)
+- Task 10: `user-profile.buildUserProfile` switched to `getDailyGoalsByDate` (FOO-976, worker-4)
+- Task 11: `TargetsCard` component + `daily-dashboard.tsx` cleanup (Lumen banner/upload/state removed; TargetsCard inserted) (FOO-977, worker-4)
+- Task 12: `GET /api/fitbit/profile` route + `FitbitProfileCard` settings card (FOO-978, worker-2)
+- Task 13: Drop `lumen_goals` table; backfill SQL documented in MIGRATIONS.md (FOO-979, lead post-workers)
+- Task 14: Delete all Lumen code — lumen.ts, lumen-banner.tsx, /api/lumen-goals, /api/v1/lumen-goals, types, claude-usage entry (FOO-980, worker-4)
+- Task 15: E2E smoke spec for scope-mismatch banner + TargetsCard + FitbitProfileCard render paths (FOO-981, lead)
+
+### Files Modified
+
+**Schema / migrations:**
+- `src/db/schema.ts` — added `scope` to `fitbit_tokens`; added macro+audit cols to `daily_calorie_goals`; removed `lumenGoals` table.
+- `drizzle/0020_motionless_vindicator.sql` — additive ALTER TABLE migrations (auto-runs).
+- `drizzle/0021_mushy_madripoor.sql` — `DROP TABLE lumen_goals` (must be preceded by manual data-only backfill — see `MIGRATIONS.md`).
+- `MIGRATIONS.md` — two new entries documenting both migrations and the backfill SQL.
+
+**Library code (created):**
+- `src/lib/macro-engine.ts` — pure compute (Mifflin-St Jeor RMR + BMI-tiered protein + activity-derived TDEE + carb floor)
+- `src/lib/daily-goals.ts` — `getOrComputeDailyGoals`, `getDailyGoalsByDate`, `getDailyGoalsByDateRange` (in-flight Promise dedupe + INSERT/UPDATE)
+- `src/lib/fitbit-cache.ts` — TTL cache (24h profile/goal, 1h weight, 5min activity) with per-key in-flight dedupe
+- `src/lib/fitbit-health.ts` — `checkFitbitHealth` (local DB read; classifies as needs_setup / needs_reconnect / scope_mismatch / healthy)
+
+**Library code (modified):**
+- `src/lib/fitbit.ts` — added `FITBIT_REQUIRED_SCOPES`, `getFitbitProfile`, `getFitbitLatestWeightKg`, `getFitbitWeightGoal`, `subtractDays`; `buildFitbitAuthUrl` accepts `forceConsent`; `exchangeFitbitCode` returns `scope`; `getActivitySummary` returns `caloriesOut: null` when missing instead of throwing
+- `src/lib/fitbit-tokens.ts` — `upsertFitbitTokens` accepts/persists `scope?`
+- `src/lib/chat-tools.ts` — `executeGetNutritionSummary` reads `getDailyGoalsByDate`; dropped `dayType`
+- `src/lib/food-log.ts` — `getDateRangeNutritionSummary` reads macros from `daily_calorie_goals`
+- `src/lib/user-profile.ts` — `buildUserProfile` reads daily-goals row directly
+- `src/lib/claude-usage.ts` — removed `lumen-parsing` operation entry
+
+**API routes (created):**
+- `src/app/api/fitbit/health/route.ts` — GET, session-auth-guarded
+- `src/app/api/fitbit/profile/route.ts` — GET (with `?refresh=1` invalidation)
+
+**API routes (modified):**
+- `src/app/api/nutrition-goals/route.ts` — uses `getOrComputeDailyGoals`; validates `clientDate` format
+- `src/app/api/auth/fitbit/route.ts` — computes `forceConsent` from existing token's scope vs required
+- `src/app/api/auth/fitbit/callback/route.ts` — passes `tokens.scope` into `upsertFitbitTokens`
+
+**API routes (deleted):**
+- `src/app/api/lumen-goals/route.ts` (+ tests)
+- `src/app/api/v1/lumen-goals/route.ts` (+ tests)
+
+**Components (created):**
+- `src/components/targets-card.tsx` — SWR-driven TargetsCard with collapsible audit
+- `src/components/fitbit-profile-card.tsx` — read-only profile card with refresh
+
+**Components (modified):**
+- `src/components/fitbit-status-banner.tsx` — switched SWR to `/api/fitbit/health`; added scope_mismatch branch
+- `src/components/daily-dashboard.tsx` — removed Lumen banner/upload/handlers/dayType badge/Update Lumen button; renders `<TargetsCard>`; MacroBars sources goals from `/api/nutrition-goals`
+- `src/components/dashboard-prefetch.tsx` — removed `/api/lumen-goals` preload
+- `src/components/settings-content.tsx` — renders `<FitbitProfileCard>` below Fitbit App Credentials
+
+**Components (deleted):**
+- `src/components/lumen-banner.tsx` (+ test)
+- `src/lib/lumen.ts` (+ test)
+
+**Types (`src/types/index.ts`):**
+- Added: `FitbitProfile`, `FitbitProfileData`, `FitbitWeightLog`, `FitbitWeightGoal`, `FitbitFoodGoals`, `FitbitHealthStatus`, `MacroGoalType`, `MacroEngineInputs`, `MacroEngineOutputs`, `NutritionGoalsAudit`
+- Modified: `NutritionGoals` extended with `proteinG`, `carbsG`, `fatG`, `status`, `reason?`, `audit?`; `ActivitySummary.caloriesOut` now `number | null`
+- Removed: `LumenGoals`, `LumenGoalsResponse`, `LUMEN_PARSE_ERROR`
+
+**E2E:**
+- `e2e/tests/macro-engine.spec.ts` (new) — scope-mismatch banner, TargetsCard render, FitbitProfileCard render
+- `e2e/tests/api-v1.spec.ts` — dropped lumen-goals endpoint test
+- `e2e/fixtures/db.ts` — dropped `lumenGoals` from truncation list
+- `src/db/__tests__/schema.test.ts` — removed `lumenGoals` block; added "does not export lumenGoals" assertion
+
+### Linear Updates
+
+- FOO-967, FOO-968, FOO-969, FOO-970, FOO-971, FOO-972, FOO-973, FOO-974, FOO-975, FOO-976, FOO-977, FOO-978, FOO-979, FOO-980, FOO-981 — all moved Todo → In Progress → Review
+
+### Pre-commit Verification
+
+- bug-hunter: Found 4 real issues (HIGH×2, MEDIUM×1, LOW×1) — all fixed before completion:
+  - HIGH: `clientDate` was passed to DB/Fitbit unvalidated → added `isValidDateFormat` check
+  - HIGH: Fast-path in `daily-goals.ts` defaulted `weightKg` to 0 when DB col was NULL → causing wrong BMI tier; tightened `hasMacros` to require non-null weightKg
+  - MEDIUM: Partial-state path in `daily-goals.ts` was unreachable because `getActivitySummary` threw on missing `caloriesOut` → changed `getActivitySummary` to return `caloriesOut: null` instead, making the partial path actually reach
+  - LOW: `FitbitProfileCard` rendered raw `error.message` → replaced with static "Could not load Fitbit profile"
+- verifier (full mode): 189 test files, 3327 unit/integration tests pass; lint clean (zero warnings); production build clean
+- verifier (e2e mode): 145 E2E tests pass
+
+### Work Partition
+
+- Pre-workers (lead): Task 1 — schema modification + `npx drizzle-kit generate` + MIGRATIONS.md entry
+- Worker 1 (auth/health domain): Tasks 2, 4 — `fitbit.ts` scope + `fitbit-tokens.ts` + auth routes + `fitbit-health.ts` + health route + `FitbitStatusBanner`
+- Worker 2 (Fitbit data + profile UI): Tasks 3, 5, 12 — `fitbit.ts` fetchers + `fitbit-cache.ts` + `/api/fitbit/profile` route + `FitbitProfileCard`
+- Worker 3 (compute pipeline): Tasks 6, 7, 8 — `macro-engine.ts` + `daily-goals.ts` + `/api/nutrition-goals` route
+- Worker 4 (consumers + dashboard + Lumen removal): Tasks 9, 10, 11, 14 — `chat-tools.ts` + `food-log.ts` + `user-profile.ts` + `daily-dashboard.tsx` + `targets-card.tsx` + delete all Lumen code
+- Post-workers (lead): Task 13 (drop `lumen_goals` migration + backfill SQL); Task 15 (E2E spec); bug-hunter fixes
+
+### Merge Summary
+
+Foundation-first order: worker-1 → worker-2 → worker-3 → worker-4.
+
+- Worker 1: clean merge (no conflicts).
+- Worker 2: auto-resolved by `ort` strategy on `src/lib/fitbit.ts`, `src/lib/__tests__/fitbit.test.ts`, `src/types/index.ts`.
+- Worker 3: 2 conflicts resolved by lead:
+  - `src/lib/fitbit-cache.ts` — Worker 3 had stubbed it (Worker 2 not merged at write time); kept Worker 2's full implementation (HEAD).
+  - `src/types/index.ts` — combined Worker 2's Fitbit types with Worker 3's macro engine + extended NutritionGoals types.
+  - Post-merge fix: `daily-goals.ts` expected `getCachedFitbitWeightKg` to return a `number`, but Worker 2's actual signature returns `FitbitWeightLog | null`; unwrapped `.weightKg`. Test mocks updated to wrapped shape.
+- Worker 4: 2 conflicts resolved by lead:
+  - `src/lib/daily-goals.ts` — Worker 4 had stubbed it (Worker 3 not merged at write time); kept Worker 3's full implementation (HEAD).
+  - `src/types/index.ts` — kept Worker 3's canonical NutritionGoals (the one at the bottom of the file extended with macros/status/audit) and dropped Worker 4's duplicate definition.
+
+### Continuation Status
+
+All tasks completed.
