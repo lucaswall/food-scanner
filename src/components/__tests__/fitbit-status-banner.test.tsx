@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import type { FitbitHealthStatus } from "@/types";
 
 const mockUseSWR = vi.fn();
 vi.mock("swr", () => ({
@@ -16,46 +17,38 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+function mockHealth(data: FitbitHealthStatus | undefined, opts?: { isLoading?: boolean; error?: Error }) {
+  mockUseSWR.mockReturnValue({
+    data,
+    error: opts?.error,
+    isLoading: opts?.isLoading ?? false,
+  });
+}
+
 describe("FitbitStatusBanner", () => {
-  it("renders nothing when Fitbit is fully connected", () => {
-    mockUseSWR.mockReturnValue({
-      data: { fitbitConnected: true, hasFitbitCredentials: true, email: "test@example.com", expiresAt: Date.now() + 86400000 },
-      error: undefined,
-      isLoading: false,
-    });
+  it("renders nothing when status is healthy", () => {
+    mockHealth({ status: "healthy" });
 
     const { container } = render(<FitbitStatusBanner />);
     expect(container.innerHTML).toBe("");
   });
 
   it("renders nothing when loading", () => {
-    mockUseSWR.mockReturnValue({
-      data: undefined,
-      error: undefined,
-      isLoading: true,
-    });
+    mockHealth(undefined, { isLoading: true });
 
     const { container } = render(<FitbitStatusBanner />);
     expect(container.innerHTML).toBe("");
   });
 
   it("renders nothing when there is an error", () => {
-    mockUseSWR.mockReturnValue({
-      data: undefined,
-      error: new Error("fetch failed"),
-      isLoading: false,
-    });
+    mockHealth(undefined, { error: new Error("fetch failed") });
 
     const { container } = render(<FitbitStatusBanner />);
     expect(container.innerHTML).toBe("");
   });
 
-  it("shows 'Set up Fitbit' banner with link to /app/setup-fitbit when no credentials", () => {
-    mockUseSWR.mockReturnValue({
-      data: { fitbitConnected: false, hasFitbitCredentials: false, email: "test@example.com", expiresAt: Date.now() + 86400000 },
-      error: undefined,
-      isLoading: false,
-    });
+  it("shows 'Set up Fitbit' banner with link to /app/setup-fitbit when status is needs_setup", () => {
+    mockHealth({ status: "needs_setup" });
 
     render(<FitbitStatusBanner />);
     expect(screen.getByText("Set up Fitbit to start logging food")).toBeInTheDocument();
@@ -63,28 +56,31 @@ describe("FitbitStatusBanner", () => {
     expect(link).toHaveAttribute("href", "/app/setup-fitbit");
   });
 
-  it("shows warning banner in transitional state (connected but no credentials)", () => {
-    mockUseSWR.mockReturnValue({
-      data: { fitbitConnected: true, hasFitbitCredentials: false, email: "test@example.com", expiresAt: Date.now() + 86400000 },
-      error: undefined,
-      isLoading: false,
-    });
-
-    render(<FitbitStatusBanner />);
-    expect(screen.getByText("Set up Fitbit credentials to keep logging food")).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: /set up now/i });
-    expect(link).toHaveAttribute("href", "/app/setup-fitbit");
-  });
-
-  it("shows 'Reconnect' banner when credentials exist but not connected", () => {
-    mockUseSWR.mockReturnValue({
-      data: { fitbitConnected: false, hasFitbitCredentials: true, email: "test@example.com", expiresAt: Date.now() + 86400000 },
-      error: undefined,
-      isLoading: false,
-    });
+  it("shows 'Reconnect' banner when status is needs_reconnect", () => {
+    mockHealth({ status: "needs_reconnect" });
 
     render(<FitbitStatusBanner />);
     expect(screen.getByText("Fitbit disconnected")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /reconnect/i })).toBeInTheDocument();
+  });
+
+  it("shows scope-mismatch banner with form POST to /api/auth/fitbit when status is scope_mismatch", () => {
+    mockHealth({ status: "scope_mismatch", missingScopes: ["profile", "weight"] });
+
+    render(<FitbitStatusBanner />);
+    expect(screen.getByText("Reconnect Fitbit to grant new permissions")).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: /reconnect/i });
+    expect(button).toBeInTheDocument();
+    // The form should POST to /api/auth/fitbit
+    const form = button.closest("form");
+    expect(form).toHaveAttribute("action", "/api/auth/fitbit");
+    expect(form).toHaveAttribute("method", "POST");
+  });
+
+  it("SWR fetches from /api/fitbit/health", () => {
+    mockHealth({ status: "healthy" });
+    render(<FitbitStatusBanner />);
+    const swrCall = mockUseSWR.mock.calls[0];
+    expect(swrCall[0]).toBe("/api/fitbit/health");
   });
 });

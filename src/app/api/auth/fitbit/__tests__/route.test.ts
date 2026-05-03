@@ -23,6 +23,11 @@ vi.mock("@/lib/fitbit-credentials", () => ({
   getFitbitCredentials: (...args: unknown[]) => mockGetFitbitCredentials(...args),
 }));
 
+const mockGetFitbitTokens = vi.fn();
+vi.mock("@/lib/fitbit-tokens", () => ({
+  getFitbitTokens: (...args: unknown[]) => mockGetFitbitTokens(...args),
+}));
+
 vi.mock("@/lib/logger", () => {
   const mockLogger = {
     info: vi.fn(),
@@ -58,6 +63,7 @@ beforeEach(() => {
     clientId: "test-fitbit-client-id",
     clientSecret: "test-fitbit-client-secret",
   });
+  mockGetFitbitTokens.mockResolvedValue(null); // no token row by default
   Object.keys(mockRawSession).forEach((key) => {
     if (key !== "save" && key !== "sessionId") delete mockRawSession[key];
   });
@@ -166,5 +172,55 @@ describe("POST /api/auth/fitbit", () => {
     const response = await POST();
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toContain("/app/setup-fitbit");
+  });
+});
+
+describe("scope-upgrade reconnect (forceConsent)", () => {
+  it("does not add prompt=consent when no token row exists", async () => {
+    mockGetFitbitTokens.mockResolvedValue(null);
+
+    const response = await POST();
+    const location = response.headers.get("location")!;
+    expect(location).not.toContain("prompt=consent");
+  });
+
+  it("does not add prompt=consent when all required scopes are present", async () => {
+    mockGetFitbitTokens.mockResolvedValue({
+      scope: "nutrition activity profile weight",
+    });
+
+    const response = await POST();
+    const location = response.headers.get("location")!;
+    expect(location).not.toContain("prompt=consent");
+  });
+
+  it("adds prompt=consent when existing token row is missing required scopes", async () => {
+    mockGetFitbitTokens.mockResolvedValue({
+      scope: "nutrition activity",
+    });
+
+    const response = await POST();
+    const location = response.headers.get("location")!;
+    expect(location).toContain("prompt=consent");
+  });
+
+  it("adds prompt=consent when token row has null scope (legacy — treated as missing all new scopes)", async () => {
+    mockGetFitbitTokens.mockResolvedValue({
+      scope: null,
+    });
+
+    const response = await POST();
+    const location = response.headers.get("location")!;
+    expect(location).toContain("prompt=consent");
+  });
+
+  it("adds prompt=consent when token row is missing only one required scope", async () => {
+    mockGetFitbitTokens.mockResolvedValue({
+      scope: "nutrition activity profile",
+    });
+
+    const response = await POST();
+    const location = response.headers.get("location")!;
+    expect(location).toContain("prompt=consent");
   });
 });

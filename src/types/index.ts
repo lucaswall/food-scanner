@@ -125,6 +125,12 @@ export enum FitbitMealType {
   Anytime = 7,
 }
 
+export type FitbitHealthStatus =
+  | { status: "needs_setup" }
+  | { status: "needs_reconnect" }
+  | { status: "scope_mismatch"; missingScopes: string[] }
+  | { status: "healthy" };
+
 export type ErrorCode =
   | "AUTH_INVALID_EMAIL"
   | "AUTH_SESSION_EXPIRED"

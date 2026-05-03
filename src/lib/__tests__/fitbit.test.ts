@@ -105,6 +105,54 @@ describe("buildFitbitAuthUrl", () => {
     expect(url.searchParams.get("scope")).toContain("activity");
   });
 
+  it("includes profile and weight in scope parameter", () => {
+    const url = new URL(
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
+      ),
+    );
+    const scope = url.searchParams.get("scope");
+    expect(scope).toContain("profile");
+    expect(scope).toContain("weight");
+  });
+
+  it("does not include prompt=consent by default", () => {
+    const url = new URL(
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
+      ),
+    );
+    expect(url.searchParams.get("prompt")).toBeNull();
+  });
+
+  it("adds prompt=consent when forceConsent is true", () => {
+    const url = new URL(
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
+        { forceConsent: true },
+      ),
+    );
+    expect(url.searchParams.get("prompt")).toBe("consent");
+  });
+
+  it("does not add prompt=consent when forceConsent is false", () => {
+    const url = new URL(
+      buildFitbitAuthUrl(
+        "test-state",
+        "http://localhost:3000/api/auth/fitbit/callback",
+        "test-client-id",
+        { forceConsent: false },
+      ),
+    );
+    expect(url.searchParams.get("prompt")).toBeNull();
+  });
+
   it("uses response_type=code", () => {
     const url = new URL(
       buildFitbitAuthUrl(
@@ -498,6 +546,40 @@ describe("exchangeFitbitCode", () => {
 
     vi.restoreAllMocks();
   });
+
+  it("returns scope from response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        access_token: "at",
+        refresh_token: "rt",
+        user_id: "uid",
+        expires_in: 3600,
+        scope: "nutrition activity profile weight",
+      }), { status: 200 }),
+    );
+
+    const result = await exchangeFitbitCode("code", "http://localhost:3000/callback", testCredentials);
+    expect(result.scope).toBe("nutrition activity profile weight");
+
+    vi.restoreAllMocks();
+  });
+
+  it("throws when response is missing scope", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        access_token: "at",
+        refresh_token: "rt",
+        user_id: "uid",
+        expires_in: 3600,
+      }), { status: 200 }),
+    );
+
+    await expect(
+      exchangeFitbitCode("code", "http://localhost:3000/callback", testCredentials),
+    ).rejects.toThrow("Invalid Fitbit token response: missing scope");
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe("refreshFitbitToken", () => {
@@ -621,6 +703,23 @@ describe("refreshFitbitToken", () => {
     );
 
     await expect(refreshFitbitToken("refresh-token", testCredentials)).rejects.toThrow("FITBIT_REFRESH_TRANSIENT");
+
+    vi.restoreAllMocks();
+  });
+
+  it("does not include scope in return value", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({
+        access_token: "at",
+        refresh_token: "rt",
+        user_id: "uid",
+        expires_in: 3600,
+        scope: "nutrition activity profile weight",
+      }), { status: 200 }),
+    );
+
+    const result = await refreshFitbitToken("refresh-token", testCredentials);
+    expect("scope" in result).toBe(false);
 
     vi.restoreAllMocks();
   });

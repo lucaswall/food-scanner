@@ -82,6 +82,7 @@ describe("getFitbitTokens", () => {
       accessToken: "encrypted:my-access-token",
       refreshToken: "encrypted:my-refresh-token",
       expiresAt: new Date("2026-12-01"),
+      scope: null,
       updatedAt: new Date(),
     }]);
 
@@ -103,12 +104,47 @@ describe("getFitbitTokens", () => {
       accessToken: "corrupted-data",
       refreshToken: "corrupted-data",
       expiresAt: new Date("2026-12-01"),
+      scope: null,
       updatedAt: new Date(),
     }]);
 
-    mockDecryptToken.mockImplementation(() => { throw new Error("Invalid token format"); });
+    mockDecryptToken.mockImplementationOnce(() => { throw new Error("Invalid token format"); });
 
     await expect(getFitbitTokens("user-uuid-123")).rejects.toThrow("Invalid token format");
+  });
+
+  it("returns scope from DB row", async () => {
+    const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
+    mockWhere.mockResolvedValue([{
+      id: 1,
+      userId: "user-uuid-123",
+      fitbitUserId: "user-123",
+      accessToken: "encrypted:my-access-token",
+      refreshToken: "encrypted:my-refresh-token",
+      expiresAt: new Date("2026-12-01"),
+      scope: "nutrition activity profile weight",
+      updatedAt: new Date(),
+    }]);
+
+    const result = await getFitbitTokens("user-uuid-123");
+    expect(result!.scope).toBe("nutrition activity profile weight");
+  });
+
+  it("returns null scope when not set in DB", async () => {
+    const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
+    mockWhere.mockResolvedValue([{
+      id: 1,
+      userId: "user-uuid-123",
+      fitbitUserId: "user-123",
+      accessToken: "encrypted:my-access-token",
+      refreshToken: "encrypted:my-refresh-token",
+      expiresAt: new Date("2026-12-01"),
+      scope: null,
+      updatedAt: new Date(),
+    }]);
+
+    const result = await getFitbitTokens("user-uuid-123");
+    expect(result!.scope).toBeNull();
   });
 });
 
@@ -131,6 +167,39 @@ describe("upsertFitbitTokens", () => {
         userId: "user-uuid-123",
         accessToken: "encrypted:my-access-token",
         refreshToken: "encrypted:my-refresh-token",
+      }),
+    );
+  });
+
+  it("persists scope when provided", async () => {
+    const { upsertFitbitTokens } = await import("@/lib/fitbit-tokens");
+    await upsertFitbitTokens("user-uuid-123", {
+      fitbitUserId: "user-123",
+      accessToken: "my-access-token",
+      refreshToken: "my-refresh-token",
+      expiresAt: new Date("2026-12-01"),
+      scope: "nutrition activity profile weight",
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "nutrition activity profile weight",
+      }),
+    );
+  });
+
+  it("persists null scope when not provided", async () => {
+    const { upsertFitbitTokens } = await import("@/lib/fitbit-tokens");
+    await upsertFitbitTokens("user-uuid-123", {
+      fitbitUserId: "user-123",
+      accessToken: "my-access-token",
+      refreshToken: "my-refresh-token",
+      expiresAt: new Date("2026-12-01"),
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: null,
       }),
     );
   });

@@ -323,14 +323,25 @@ export interface FitbitClientCredentials {
   clientSecret: string;
 }
 
-export function buildFitbitAuthUrl(state: string, redirectUri: string, clientId: string): string {
+export const FITBIT_REQUIRED_SCOPES = ["nutrition", "activity", "profile", "weight"] as const;
+
+export function buildFitbitAuthUrl(
+  state: string,
+  redirectUri: string,
+  clientId: string,
+  options?: { forceConsent?: boolean },
+): string {
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
-    scope: "nutrition activity",
+    scope: FITBIT_REQUIRED_SCOPES.join(" "),
     state,
   });
+
+  if (options?.forceConsent) {
+    params.set("prompt", "consent");
+  }
 
   return `https://www.fitbit.com/oauth2/authorize?${params.toString()}`;
 }
@@ -345,6 +356,7 @@ export async function exchangeFitbitCode(
   refresh_token: string;
   user_id: string;
   expires_in: number;
+  scope: string;
 }> {
   const l = log ?? logger;
   const authHeader = Buffer.from(
@@ -390,7 +402,10 @@ export async function exchangeFitbitCode(
     if (typeof data.expires_in !== "number") {
       throw new Error("Invalid Fitbit token response: missing expires_in");
     }
-    return { access_token: data.access_token, refresh_token: data.refresh_token, user_id: data.user_id, expires_in: data.expires_in };
+    if (typeof data.scope !== "string") {
+      throw new Error("Invalid Fitbit token response: missing scope");
+    }
+    return { access_token: data.access_token, refresh_token: data.refresh_token, user_id: data.user_id, expires_in: data.expires_in, scope: data.scope };
   } finally {
     clearTimeout(timeoutId);
   }

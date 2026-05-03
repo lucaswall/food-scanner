@@ -6,46 +6,19 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-
-interface SessionResponse {
-  email: string | null;
-  fitbitConnected: boolean;
-  hasFitbitCredentials: boolean;
-  expiresAt: number;
-}
+import type { FitbitHealthStatus } from "@/types";
 
 export function FitbitStatusBanner() {
-  const { data, error, isLoading } = useSWR<SessionResponse>(
-    "/api/auth/session",
+  const { data, error, isLoading } = useSWR<FitbitHealthStatus>(
+    "/api/fitbit/health",
     apiFetcher,
   );
 
   if (isLoading || error || !data) return null;
 
-  const { fitbitConnected, hasFitbitCredentials } = data;
+  if (data.status === "healthy") return null;
 
-  // Transitional state: tokens exist but no credentials → will break on refresh
-  if (fitbitConnected && !hasFitbitCredentials) {
-    return (
-      <Alert variant="default" className="border-warning bg-warning/10">
-        <AlertCircle className="h-4 w-4 text-warning" />
-        <AlertDescription className="flex items-center justify-between gap-4">
-          <span className="text-sm text-warning-foreground">
-            Set up Fitbit credentials to keep logging food
-          </span>
-          <Button variant="outline" size="sm" asChild className="shrink-0">
-            <Link href="/app/setup-fitbit">Set up now</Link>
-          </Button>
-        </AlertDescription>
-      </Alert>
-    );
-  }
-
-  // If everything is connected, don't show the banner
-  if (fitbitConnected) return null;
-
-  // Case 1: No credentials at all → redirect to setup page
-  if (!hasFitbitCredentials) {
+  if (data.status === "needs_setup") {
     return (
       <Alert variant="default" className="border-warning bg-warning/10">
         <AlertCircle className="h-4 w-4 text-warning" />
@@ -61,7 +34,25 @@ export function FitbitStatusBanner() {
     );
   }
 
-  // Case 2: Has credentials but not connected → reconnect flow
+  if (data.status === "scope_mismatch") {
+    return (
+      <Alert variant="default" className="border-warning bg-warning/10">
+        <AlertCircle className="h-4 w-4 text-warning" />
+        <AlertDescription className="flex items-center justify-between gap-4">
+          <span className="text-sm text-warning-foreground">
+            Reconnect Fitbit to grant new permissions
+          </span>
+          <form action="/api/auth/fitbit" method="POST">
+            <Button variant="outline" size="sm" type="submit" className="shrink-0">
+              Reconnect
+            </Button>
+          </form>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  // status === "needs_reconnect"
   return (
     <Alert variant="default" className="border-warning bg-warning/10">
       <AlertCircle className="h-4 w-4 text-warning" />

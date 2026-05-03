@@ -103,6 +103,7 @@ describe("GET /api/auth/fitbit/callback", () => {
       refresh_token: "fitbit-refresh-token",
       user_id: "fitbit-user-123",
       expires_in: 28800,
+      scope: "nutrition activity profile weight",
     });
 
     const response = await GET(makeCallbackRequest("valid-fitbit-code", "test-state"));
@@ -126,6 +127,7 @@ describe("GET /api/auth/fitbit/callback", () => {
       refresh_token: "refresh",
       user_id: "user1",
       expires_in: 28800,
+      scope: "nutrition activity profile weight",
     });
 
     // State in URL matches session state
@@ -146,6 +148,7 @@ describe("GET /api/auth/fitbit/callback", () => {
       refresh_token: "refresh",
       user_id: "user1",
       expires_in: 28800,
+      scope: "nutrition activity profile weight",
     });
 
     await GET(makeCallbackRequest("valid-code", "test-state"));
@@ -160,6 +163,7 @@ describe("GET /api/auth/fitbit/callback", () => {
       refresh_token: "fitbit-refresh-token",
       user_id: "fitbit-user-123",
       expires_in: 28800,
+      scope: "nutrition activity profile weight",
     });
 
     const url = new URL("http://internal:8080/api/auth/fitbit/callback");
@@ -216,6 +220,7 @@ describe("GET /api/auth/fitbit/callback", () => {
       refresh_token: "refresh",
       user_id: "user1",
       expires_in: 28800,
+      scope: "nutrition activity profile weight",
     });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
@@ -232,6 +237,7 @@ describe("GET /api/auth/fitbit/callback", () => {
       refresh_token: "refresh",
       user_id: "user1",
       expires_in: 28800,
+      scope: "nutrition activity profile weight",
     });
 
     const response = await GET(makeCallbackRequest("valid-code", "test-state"));
@@ -255,6 +261,7 @@ describe("GET /api/auth/fitbit/callback", () => {
       refresh_token: "refresh",
       user_id: "user1",
       expires_in: 28800,
+      scope: "nutrition activity profile weight",
     });
     await GET(makeCallbackRequest("code", "test-state"));
     expect(logger.info).toHaveBeenCalledWith(
@@ -272,6 +279,26 @@ describe("GET /api/auth/fitbit/callback", () => {
     expect(body.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
   });
 
+  it("passes scope from exchangeFitbitCode to upsertFitbitTokens", async () => {
+    mockExchangeFitbitCode.mockResolvedValue({
+      access_token: "fitbit-access-token",
+      refresh_token: "fitbit-refresh-token",
+      user_id: "fitbit-user-123",
+      expires_in: 28800,
+      scope: "nutrition activity profile weight",
+    });
+
+    await GET(makeCallbackRequest("valid-code", "test-state"));
+
+    expect(mockUpsertFitbitTokens).toHaveBeenCalledWith(
+      "user-uuid-123",
+      expect.objectContaining({
+        scope: "nutrition activity profile weight",
+      }),
+      expect.anything(),
+    );
+  });
+
   it("consumes OAuth state before token exchange", async () => {
     let stateAtExchangeTime: string | undefined;
     let saveCallCount = 0;
@@ -285,6 +312,7 @@ describe("GET /api/auth/fitbit/callback", () => {
         refresh_token: "fitbit-refresh-token",
         user_id: "fitbit-user-123",
         expires_in: 28800,
+        scope: "nutrition activity profile weight",
       };
     });
 

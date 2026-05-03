@@ -51,6 +51,7 @@ export async function GET(request: Request) {
     refresh_token: string;
     user_id: string;
     expires_in: number;
+    scope: string;
   };
   try {
     tokens = await exchangeFitbitCode(code, redirectUri, credentials, log);
@@ -72,6 +73,7 @@ export async function GET(request: Request) {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token,
     expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+    scope: tokens.scope,
   }, log);
 
   log.info({ action: "fitbit_connect_success" }, "fitbit connected successfully");
