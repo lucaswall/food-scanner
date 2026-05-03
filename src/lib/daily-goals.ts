@@ -56,7 +56,8 @@ function hasMacros(row: DbRow): boolean {
     row.carbsGoal !== null &&
     row.fatGoal !== null &&
     row.rmr !== null &&
-    row.activityKcal !== null
+    row.activityKcal !== null &&
+    row.weightKg !== null
   );
 }
 
@@ -90,7 +91,8 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
         getCachedFitbitProfile(userId, l),
         getCachedFitbitWeightGoal(userId, l),
       ]);
-      const wKg = existing.weightKg ? parseFloat(existing.weightKg) : 0;
+      // hasMacros guarantees existing.weightKg is non-null, so parseFloat is safe.
+      const wKg = parseFloat(existing.weightKg!);
       const bmiTier = getBmiTier(wKg, profile.heightCm);
       const tdee = (existing.rmr ?? 0) + (existing.activityKcal ?? 0);
 
@@ -106,7 +108,7 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
           rmr: existing.rmr!,
           activityKcal: existing.activityKcal!,
           tdee,
-          weightKg: existing.weightKg ?? String(wKg),
+          weightKg: existing.weightKg!,
           bmiTier,
           goalType: weightGoal?.goalType ?? "MAINTAIN",
         },

@@ -2,7 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { getOrComputeDailyGoals } from "@/lib/daily-goals";
-import { getTodayDate } from "@/lib/date-utils";
+import { getTodayDate, isValidDateFormat } from "@/lib/date-utils";
 import type { NutritionGoals } from "@/types";
 import type { ComputeResult } from "@/lib/daily-goals";
 
@@ -46,6 +46,10 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const clientDate = searchParams.get("clientDate");
+
+  if (clientDate && !isValidDateFormat(clientDate)) {
+    return errorResponse("VALIDATION_ERROR", "Invalid clientDate format. Use YYYY-MM-DD", 400);
+  }
 
   try {
     const date = clientDate ?? getTodayDate();

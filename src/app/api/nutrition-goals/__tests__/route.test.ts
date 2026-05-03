@@ -48,6 +48,7 @@ vi.mock("@/lib/logger", () => {
 const mockGetTodayDate = vi.fn();
 vi.mock("@/lib/date-utils", () => ({
   getTodayDate: () => mockGetTodayDate(),
+  isValidDateFormat: (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date),
 }));
 
 const { GET } = await import("@/app/api/nutrition-goals/route");

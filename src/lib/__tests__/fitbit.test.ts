@@ -1598,14 +1598,13 @@ describe("getActivitySummary", () => {
     vi.restoreAllMocks();
   });
 
-  it("throws FITBIT_API_ERROR when response is missing summary.caloriesOut", async () => {
+  it("returns caloriesOut: null when response is missing summary.caloriesOut (drives partial macro state)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ summary: {} }), { status: 200 }),
     );
 
-    await expect(getActivitySummary("test-token", "2024-01-15")).rejects.toThrow(
-      "FITBIT_API_ERROR",
-    );
+    const result = await getActivitySummary("test-token", "2024-01-15");
+    expect(result).toEqual({ caloriesOut: null });
 
     vi.restoreAllMocks();
   });

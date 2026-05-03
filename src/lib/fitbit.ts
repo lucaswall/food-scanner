@@ -775,7 +775,8 @@ export async function getActivitySummary(
   const data = await jsonWithTimeout<Record<string, unknown>>(response);
   const summary = data.summary as Record<string, unknown> | undefined;
   if (typeof summary?.caloriesOut !== "number") {
-    throw new Error("FITBIT_API_ERROR");
+    l.debug({ action: "fitbit_get_activity_summary_no_calories_out", durationMs: elapsed() }, "activity summary fetched (no caloriesOut yet)");
+    return { caloriesOut: null };
   }
 
   l.debug({ action: "fitbit_get_activity_summary_success", durationMs: elapsed() }, "activity summary fetched");

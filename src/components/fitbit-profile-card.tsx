@@ -56,7 +56,7 @@ export function FitbitProfileCard() {
     return (
       <div className="flex flex-col gap-4 rounded-xl border bg-card p-6" role="alert">
         <h2 className="text-lg font-semibold">Fitbit Profile</h2>
-        <p className="text-sm text-destructive">{error.message}</p>
+        <p className="text-sm text-destructive">Could not load Fitbit profile</p>
         <Button
           variant="outline"
           className="min-h-[44px]"

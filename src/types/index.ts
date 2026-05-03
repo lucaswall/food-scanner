@@ -345,7 +345,8 @@ export interface NutritionSummary {
 }
 
 export interface ActivitySummary {
-  caloriesOut: number;
+  /** May be null when Fitbit hasn't recorded activity yet (e.g., earliest minutes after midnight) — drives the macro engine's "partial" status. */
+  caloriesOut: number | null;
 }
 
 export interface ClaudeUsageRecord {
