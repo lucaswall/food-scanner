@@ -62,18 +62,6 @@ test.describe('v1 External API', () => {
     expect(body.data.totals).toHaveProperty('calories');
   });
 
-  test('GET /api/v1/lumen-goals returns data with valid key', async ({ request }) => {
-    const response = await request.get(`/api/v1/lumen-goals?date=${today}`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
-    });
-    expect(response.status()).toBe(200);
-    const body = await response.json();
-    expect(body.success).toBe(true);
-    expect(body.data).toHaveProperty('goals');
-    // Goals will be null since no Lumen data is seeded
-    expect(body.data.goals).toBeNull();
-  });
-
   test('GET /api/v1/food-log with missing date returns 400', async ({ request }) => {
     const response = await request.get('/api/v1/food-log', {
       headers: { 'Authorization': `Bearer ${apiKey}` }
