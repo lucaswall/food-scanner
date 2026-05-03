@@ -37,6 +37,7 @@ export const fitbitTokens = pgTable("fitbit_tokens", {
   accessToken: text("access_token").notNull(),
   refreshToken: text("refresh_token").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  scope: text("scope"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -164,6 +165,13 @@ export const dailyCalorieGoals = pgTable(
     userId: uuid("user_id").notNull().references(() => users.id),
     date: date("date").notNull(),
     calorieGoal: integer("calorie_goal").notNull(),
+    proteinGoal: integer("protein_goal"),
+    carbsGoal: integer("carbs_goal"),
+    fatGoal: integer("fat_goal"),
+    weightKg: numeric("weight_kg"),
+    caloriesOut: integer("calories_out"),
+    rmr: integer("rmr"),
+    activityKcal: integer("activity_kcal"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

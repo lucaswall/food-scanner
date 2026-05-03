@@ -141,6 +141,13 @@
       "when": 1775859140759,
       "tag": "0019_flowery_medusa",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1777837358668,
+      "tag": "0020_motionless_vindicator",
+      "breakpoints": true
     }
   ]
 }
