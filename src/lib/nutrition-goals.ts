@@ -50,3 +50,28 @@ export async function getCalorieGoalsByDateRange(
 
   return rows;
 }
+
+export async function getDailyGoalsByDateRange(
+  userId: string,
+  fromDate: string,
+  toDate: string
+): Promise<Array<{ date: string; calorieGoal: number | null; proteinGoal: number | null; carbsGoal: number | null; fatGoal: number | null }>> {
+  const rows = await getDb()
+    .select({
+      date: dailyCalorieGoals.date,
+      calorieGoal: dailyCalorieGoals.calorieGoal,
+      proteinGoal: dailyCalorieGoals.proteinGoal,
+      carbsGoal: dailyCalorieGoals.carbsGoal,
+      fatGoal: dailyCalorieGoals.fatGoal,
+    })
+    .from(dailyCalorieGoals)
+    .where(
+      and(
+        eq(dailyCalorieGoals.userId, userId),
+        between(dailyCalorieGoals.date, fromDate, toDate)
+      )
+    )
+    .orderBy(asc(dailyCalorieGoals.date));
+
+  return rows;
+}

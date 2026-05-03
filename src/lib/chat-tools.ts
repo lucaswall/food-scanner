@@ -1,8 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { searchFoods, getDailyNutritionSummary, getDateRangeNutritionSummary, getFoodLogHistory } from "@/lib/food-log";
 import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
-import { getLumenGoalsByDate } from "@/lib/lumen";
-import { getCalorieGoalsByDateRange } from "@/lib/nutrition-goals";
+import { getDailyGoalsByDate } from "@/lib/daily-goals";
 import { searchLabels, insertLabel, updateLabel, deleteLabel, findDuplicateLabel } from "@/lib/nutrition-labels";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import { logger } from "@/lib/logger";
@@ -223,9 +222,8 @@ async function executeGetNutritionSummary(
   // Case 1: single date
   if (date && typeof date === "string" && !from_date) {
     const summary = await getDailyNutritionSummary(userId, date, log);
-    const goals = await getLumenGoalsByDate(userId, date);
-    const calorieGoals = await getCalorieGoalsByDateRange(userId, date, date);
-    const calorieGoal = calorieGoals.length > 0 ? calorieGoals[0].calorieGoal : null;
+    const goals = await getDailyGoalsByDate(userId, date);
+    const calorieGoal = goals?.calorieGoal ?? null;
 
     const lines: string[] = [];
     lines.push(`Nutrition summary for ${date}:`);
@@ -236,11 +234,11 @@ async function executeGetNutritionSummary(
       lines.push(`Calorie goal: ${calorieGoal} cal (${pct}% of goal)`);
     }
 
-    if (goals) {
+    if (goals?.proteinGoal != null && goals?.carbsGoal != null && goals?.fatGoal != null) {
       const proteinPct = goals.proteinGoal > 0 ? Math.round((summary.totals.proteinG / goals.proteinGoal) * 100) : 0;
       const carbsPct = goals.carbsGoal > 0 ? Math.round((summary.totals.carbsG / goals.carbsGoal) * 100) : 0;
       const fatPct = goals.fatGoal > 0 ? Math.round((summary.totals.fatG / goals.fatGoal) * 100) : 0;
-      lines.push(`Macro goals (${goals.dayType}): P:${goals.proteinGoal}g (${proteinPct}%) C:${goals.carbsGoal}g (${carbsPct}%) F:${goals.fatGoal}g (${fatPct}%)`);
+      lines.push(`Macro goals: P:${goals.proteinGoal}g (${proteinPct}%) C:${goals.carbsGoal}g (${carbsPct}%) F:${goals.fatGoal}g (${fatPct}%)`);
     }
 
     // Add per-meal breakdown
