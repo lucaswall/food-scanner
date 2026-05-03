@@ -567,3 +567,28 @@ export interface HydrationReadingInput {
 export interface SavedAnalysisDetail extends SavedAnalysisListItem {
   foodAnalysis: FoodAnalysis;
 }
+
+export interface FitbitProfileData {
+  ageYears: number;
+  sex: "MALE" | "FEMALE" | "NA";
+  heightCm: number;
+  weightKg: number | null;
+  weightLoggedDate: string | null;
+  goalType: "LOSE" | "MAINTAIN" | "GAIN" | null;
+  lastSyncedAt: number;
+}
+
+export interface FitbitProfile {
+  ageYears: number;
+  sex: "MALE" | "FEMALE" | "NA";
+  heightCm: number;
+}
+
+export interface FitbitWeightLog {
+  weightKg: number;
+  loggedDate: string;
+}
+
+export interface FitbitWeightGoal {
+  goalType: "LOSE" | "MAINTAIN" | "GAIN";
+}

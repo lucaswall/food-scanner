@@ -585,6 +585,160 @@ export async function getFoodGoals(
   return { calories: goals.calories };
 }
 
+function subtractDays(dateStr: string, days: number): string {
+  const date = new Date(dateStr + "T00:00:00Z");
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+export async function getFitbitProfile(
+  accessToken: string,
+  log?: Logger,
+): Promise<import("@/types").FitbitProfile> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug({ action: "fitbit_get_profile" }, "fetching Fitbit profile");
+
+  const response = await fetchWithRetry(
+    `${FITBIT_API_BASE}/1/user/-/profile.json`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Accept-Language": "en_US",
+      },
+    },
+    0, Date.now(), l,
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    l.error({ action: "fitbit_get_profile_failed", status: response.status, errorBody }, "profile fetch failed");
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const user = data.user as Record<string, unknown> | undefined;
+
+  if (typeof user?.age !== "number") {
+    throw new Error("Invalid Fitbit profile response: missing user.age");
+  }
+  if (typeof user?.gender !== "string") {
+    throw new Error("Invalid Fitbit profile response: missing user.gender");
+  }
+  if (typeof user?.height !== "number") {
+    throw new Error("Invalid Fitbit profile response: missing user.height");
+  }
+
+  const validSexValues = ["MALE", "FEMALE", "NA"] as const;
+  if (!validSexValues.includes(user.gender as "MALE" | "FEMALE" | "NA")) {
+    throw new Error(`Invalid Fitbit profile response: unknown gender "${user.gender}"`);
+  }
+
+  l.debug({ action: "fitbit_get_profile_success", durationMs: elapsed() }, "profile fetched");
+  return {
+    ageYears: user.age,
+    sex: user.gender as "MALE" | "FEMALE" | "NA",
+    heightCm: user.height,
+  };
+}
+
+export async function getFitbitLatestWeightKg(
+  accessToken: string,
+  targetDate: string,
+  log?: Logger,
+): Promise<import("@/types").FitbitWeightLog | null> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug({ action: "fitbit_get_weight", targetDate }, "fetching latest weight");
+
+  for (let daysBack = 0; daysBack < 7; daysBack++) {
+    const date = subtractDays(targetDate, daysBack);
+
+    const response = await fetchWithRetry(
+      `${FITBIT_API_BASE}/1/user/-/body/log/weight/date/${date}.json`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Accept-Language": "en_US",
+        },
+      },
+      0, Date.now(), l,
+    );
+
+    if (!response.ok) {
+      const rawBody = await parseErrorBody(response);
+      const errorBody = sanitizeErrorBody(rawBody);
+      l.error({ action: "fitbit_get_weight_failed", status: response.status, errorBody, date }, "weight fetch failed");
+      throw new Error("FITBIT_API_ERROR");
+    }
+
+    const data = await jsonWithTimeout<Record<string, unknown>>(response);
+    const weights = data.weight as Array<Record<string, unknown>> | undefined;
+
+    if (Array.isArray(weights) && weights.length > 0) {
+      const entry = weights[0];
+      if (typeof entry.weight !== "number") {
+        throw new Error("Invalid Fitbit weight response: missing weight value");
+      }
+      if (typeof entry.date !== "string") {
+        throw new Error("Invalid Fitbit weight response: missing date");
+      }
+      l.debug({ action: "fitbit_get_weight_success", date, durationMs: elapsed() }, "weight fetched");
+      return { weightKg: entry.weight, loggedDate: entry.date };
+    }
+  }
+
+  l.debug({ action: "fitbit_get_weight_not_found", targetDate, durationMs: elapsed() }, "no weight found in past 7 days");
+  return null;
+}
+
+export async function getFitbitWeightGoal(
+  accessToken: string,
+  log?: Logger,
+): Promise<import("@/types").FitbitWeightGoal | null> {
+  const l = log ?? logger;
+  const elapsed = startTimer();
+  l.debug({ action: "fitbit_get_weight_goal" }, "fetching weight goal");
+
+  const response = await fetchWithRetry(
+    `${FITBIT_API_BASE}/1/user/-/body/log/weight/goal.json`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Accept-Language": "en_US",
+      },
+    },
+    0, Date.now(), l,
+  );
+
+  if (!response.ok) {
+    const rawBody = await parseErrorBody(response);
+    const errorBody = sanitizeErrorBody(rawBody);
+    l.error({ action: "fitbit_get_weight_goal_failed", status: response.status, errorBody }, "weight goal fetch failed");
+    throw new Error("FITBIT_API_ERROR");
+  }
+
+  const data = await jsonWithTimeout<Record<string, unknown>>(response);
+  const goal = data.goal as Record<string, unknown> | undefined;
+
+  if (!goal || typeof goal.goalType !== "string") {
+    l.debug({ action: "fitbit_get_weight_goal_not_set", durationMs: elapsed() }, "weight goal not set");
+    return null;
+  }
+
+  const validGoalTypes = ["LOSE", "MAINTAIN", "GAIN"] as const;
+  if (!validGoalTypes.includes(goal.goalType as "LOSE" | "MAINTAIN" | "GAIN")) {
+    throw new Error(`Invalid Fitbit weight goal response: unknown goalType "${goal.goalType}"`);
+  }
+
+  l.debug({ action: "fitbit_get_weight_goal_success", durationMs: elapsed() }, "weight goal fetched");
+  return { goalType: goal.goalType as "LOSE" | "MAINTAIN" | "GAIN" };
+}
+
 export async function getActivitySummary(
   accessToken: string,
   date: string,
