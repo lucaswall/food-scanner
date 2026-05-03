@@ -345,10 +345,6 @@ export interface NutritionSummary {
   };
 }
 
-export interface NutritionGoals {
-  calories: number | null;
-}
-
 export interface ActivitySummary {
   caloriesOut: number;
 }
@@ -591,4 +587,50 @@ export interface FitbitWeightLog {
 
 export interface FitbitWeightGoal {
   goalType: "LOSE" | "MAINTAIN" | "GAIN";
+}
+
+/** Fitbit food-log calorie goal — returned by getFoodGoals() and the v1 external API */
+export interface FitbitFoodGoals {
+  calories: number | null;
+}
+
+export type MacroGoalType = "LOSE" | "MAINTAIN" | "GAIN";
+
+export interface MacroEngineInputs {
+  ageYears: number;
+  sex: "MALE" | "FEMALE" | "NA";
+  heightCm: number;
+  weightKg: number;
+  caloriesOut: number;
+  goalType: MacroGoalType;
+}
+
+export interface MacroEngineOutputs {
+  targetKcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  rmr: number;
+  activityKcal: number;
+  tdee: number;
+  bmiTier: "lt25" | "25to30" | "ge30";
+}
+
+export interface NutritionGoalsAudit {
+  rmr: number;
+  activityKcal: number;
+  tdee: number;
+  weightKg: string;
+  bmiTier: "lt25" | "25to30" | "ge30";
+  goalType: MacroGoalType;
+}
+
+export interface NutritionGoals {
+  calories: number | null;
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
+  status: "ok" | "partial" | "blocked";
+  reason?: "no_weight" | "sex_unset" | "scope_mismatch";
+  audit?: NutritionGoalsAudit;
 }

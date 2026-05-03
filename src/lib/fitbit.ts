@@ -545,7 +545,7 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
 export async function getFoodGoals(
   accessToken: string,
   log?: Logger,
-): Promise<import("@/types").NutritionGoals> {
+): Promise<import("@/types").FitbitFoodGoals> {
   const l = log ?? logger;
   const elapsed = startTimer();
   l.debug(
