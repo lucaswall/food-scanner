@@ -1,0 +1,1 @@
+DROP TABLE "lumen_goals" CASCADE;
