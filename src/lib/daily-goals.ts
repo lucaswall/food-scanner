@@ -114,7 +114,7 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     }
 
     // Fetch from Fitbit (uses process-level TTL cache internally)
-    const [profile, weightKg, weightGoal, activity] = await Promise.all([
+    const [profile, weightLog, weightGoal, activity] = await Promise.all([
       getCachedFitbitProfile(userId, l),
       getCachedFitbitWeightKg(userId, date, l),
       getCachedFitbitWeightGoal(userId, l),
@@ -124,10 +124,11 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     if (profile.sex === "NA") {
       return { status: "blocked", reason: "sex_unset" };
     }
-    if (weightKg === null) {
+    if (weightLog === null) {
       return { status: "blocked", reason: "no_weight" };
     }
 
+    const weightKg = weightLog.weightKg;
     const goalType: MacroGoalType = weightGoal?.goalType ?? "MAINTAIN";
     const bmiTier = getBmiTier(weightKg, profile.heightCm);
 
