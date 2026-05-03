@@ -99,7 +99,7 @@ describe("getOrComputeDailyGoals", () => {
       mockSelectOnce([COMPUTED_ROW]); // read-back
       // Cache-hit path re-fetches profile/goal for bmiTier/goalType
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
 
@@ -113,7 +113,7 @@ describe("getOrComputeDailyGoals", () => {
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
 
@@ -132,7 +132,7 @@ describe("getOrComputeDailyGoals", () => {
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
 
@@ -153,7 +153,7 @@ describe("getOrComputeDailyGoals", () => {
       const { onConflictDoNothing } = mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
 
@@ -177,7 +177,7 @@ describe("getOrComputeDailyGoals", () => {
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       // Activity is deferred
       mockGetCachedActivitySummary.mockReturnValue(activityPromise);
@@ -208,7 +208,7 @@ describe("getOrComputeDailyGoals", () => {
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockReturnValue(activityPromise);
 
@@ -286,7 +286,7 @@ describe("getOrComputeDailyGoals", () => {
     it("returns blocked/sex_unset when profile sex is NA", async () => {
       mockSelectOnce([]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_NA);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(70);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 70, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
 
@@ -324,7 +324,7 @@ describe("getOrComputeDailyGoals", () => {
     it("returns partial with proteinG and fatG", async () => {
       mockSelectOnce([]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_NULL);
 
@@ -342,7 +342,7 @@ describe("getOrComputeDailyGoals", () => {
     it("does NOT call INSERT for partial result", async () => {
       mockSelectOnce([]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_NULL);
 
@@ -354,7 +354,7 @@ describe("getOrComputeDailyGoals", () => {
     it("uses default MAINTAIN goalType for partial when weight goal is unavailable", async () => {
       mockSelectOnce([]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_FEMALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(65);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 65, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(null); // goal not available
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_NULL);
 
@@ -386,7 +386,7 @@ describe("getOrComputeDailyGoals", () => {
       mockSelectOnce([lumenRow]); // read-back: returns Lumen row (null macros)
       mockUpdateOnce(); // UPDATE macro+audit columns
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
 
@@ -412,7 +412,7 @@ describe("getOrComputeDailyGoals", () => {
       mockSelectOnce([lumenRow]);
       mockUpdateOnce();
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
 
@@ -429,7 +429,7 @@ describe("getOrComputeDailyGoals", () => {
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]); // read-back has macros populated
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(121);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
 
@@ -457,7 +457,7 @@ describe("getOrComputeDailyGoals", () => {
       mockInsertOnce();
       mockSelectOnce([FEMALE_COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_FEMALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue(65);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 65, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
       mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2200 });
 
