@@ -20,6 +20,10 @@ vi.mock("@/hooks/use-theme", () => ({
   useTheme: () => ({ theme: "system", setTheme: vi.fn() }),
 }));
 
+vi.mock("@/components/fitbit-profile-card", () => ({
+  FitbitProfileCard: () => <div data-testid="fitbit-profile-card" />,
+}));
+
 // Create a mockable useSWR function
 const mockUseSWRImplementation = vi.fn();
 vi.mock("swr", () => ({

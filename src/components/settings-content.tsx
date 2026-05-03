@@ -9,6 +9,7 @@ import { Sun, Moon, Monitor } from "lucide-react";
 import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import type { NutritionLabel } from "@/types";
+import { FitbitProfileCard } from "@/components/fitbit-profile-card";
 
 interface SessionInfo {
   email: string | null;
@@ -297,6 +298,8 @@ export function SettingsContent() {
           </div>
         )}
       </div>
+
+      <FitbitProfileCard />
 
       <NutritionLabelsSection />
 
