@@ -75,9 +75,6 @@ export async function GET(request: Request) {
       if (error.message === "FITBIT_TOKEN_INVALID") {
         return errorResponse("FITBIT_TOKEN_INVALID", "Fitbit token is invalid or expired", 401);
       }
-      if (error.message === "FITBIT_SCOPE_MISSING") {
-        return errorResponse("FITBIT_SCOPE_MISSING", "Fitbit permissions need updating. Please reconnect your Fitbit account in Settings.", 403);
-      }
       if (error.message === "FITBIT_RATE_LIMIT") {
         return errorResponse("FITBIT_RATE_LIMIT", "Fitbit API rate limited. Please try again later.", 429);
       }

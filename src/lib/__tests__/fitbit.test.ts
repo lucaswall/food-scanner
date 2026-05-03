@@ -253,6 +253,41 @@ describe("ensureFreshToken", () => {
     vi.restoreAllMocks();
   });
 
+  it("preserves the existing scope when refreshing tokens", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000),
+      scope: "nutrition activity profile weight",
+    });
+    mockUpsertFitbitTokens.mockResolvedValue(undefined);
+
+    await ensureFreshToken("user-uuid-123");
+    expect(mockUpsertFitbitTokens).toHaveBeenCalledWith(
+      "user-uuid-123",
+      expect.objectContaining({
+        scope: "nutrition activity profile weight",
+      }),
+      expect.anything(),
+    );
+
+    vi.restoreAllMocks();
+  });
+
   it("does not upsert tokens when token is still fresh", async () => {
     mockGetFitbitCredentials.mockResolvedValue({
       clientId: "test-client-id",
@@ -1846,12 +1881,33 @@ describe("getFitbitLatestWeightKg", () => {
     vi.restoreAllMocks();
   });
 
-  it("throws FITBIT_API_ERROR on non-ok response (400, no retry)", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ errors: [] }), { status: 400 }),
+  it("falls back to day -1 when day 0 surfaces a non-ok response", async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(new Response(JSON.stringify({ errors: [] }), { status: 400 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ weight: [{ weight: 88.5, date: "2024-01-14" }] }), { status: 200 }),
+      );
+    });
+
+    const result = await getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    expect(callCount).toBe(2);
+    expect(result).toEqual({ weightKg: 88.5, loggedDate: "2024-01-14" });
+    vi.restoreAllMocks();
+  });
+
+  it("returns null when all 7 days surface non-ok responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ errors: [] }), { status: 400 })),
     );
 
-    await expect(getFitbitLatestWeightKg("test-token", "2024-01-15")).rejects.toThrow("FITBIT_API_ERROR");
+    const result = await getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    expect(result).toBeNull();
     vi.restoreAllMocks();
   });
 });

@@ -299,6 +299,20 @@ describe("getOrComputeDailyGoals", () => {
   });
 
   // ─── Status: blocked — scope_mismatch ────────────────────────────────────
+  describe("blocked: invalid_profile", () => {
+    it("returns blocked/invalid_profile when computeMacroTargets throws INVALID_PROFILE_DATA", async () => {
+      mockSelectOnce([]); // no existing row
+      mockGetCachedFitbitProfile.mockResolvedValue({ sex: "MALE", ageYears: 30, heightCm: 0 });
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 70, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      const result = await getOrComputeDailyGoals("user-bad-profile", "2026-05-03");
+
+      expect(result).toEqual({ status: "blocked", reason: "invalid_profile" });
+    });
+  });
+
   describe("blocked: scope_mismatch", () => {
     it("returns blocked/scope_mismatch when FITBIT_SCOPE_MISSING is thrown", async () => {
       mockSelectOnce([]);
@@ -436,6 +450,38 @@ describe("getOrComputeDailyGoals", () => {
       await getOrComputeDailyGoals("user-nomacro", "2026-05-03");
 
       expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("uses engine targetKcal when existing row has calorieGoal=0 placeholder", async () => {
+      const placeholderRow = {
+        calorieGoal: 0, // backfill placeholder for days with no daily_calorie_goals row
+        proteinGoal: null,
+        carbsGoal: null,
+        fatGoal: null,
+        weightKg: null,
+        caloriesOut: null,
+        rmr: null,
+        activityKcal: null,
+      };
+      mockSelectOnce([]);
+      mockInsertOnce();
+      mockSelectOnce([placeholderRow]);
+      const updateMock = mockUpdateOnce();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      const result = await getOrComputeDailyGoals("user-placeholder", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(COMPUTED_ROW.calorieGoal);
+      expect(result.goals.calorieGoal).toBeGreaterThan(0);
+      // The recompute UPDATE should also overwrite the placeholder calorieGoal
+      expect(updateMock.set).toHaveBeenCalledWith(
+        expect.objectContaining({ calorieGoal: COMPUTED_ROW.calorieGoal }),
+      );
     });
   });
 

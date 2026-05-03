@@ -56,6 +56,53 @@ describe("computeMacroTargets", () => {
     });
   });
 
+  describe("invalid profile data — throws INVALID_PROFILE_DATA", () => {
+    const baseInputs = {
+      ageYears: 30,
+      sex: "MALE" as const,
+      heightCm: 175,
+      weightKg: 70,
+      caloriesOut: 2500,
+      goalType: "MAINTAIN" as const,
+    };
+
+    it("throws when heightCm is 0", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, heightCm: 0 })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws when heightCm is negative", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, heightCm: -10 })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws when weightKg is 0", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, weightKg: 0 })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws when weightKg is negative", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, weightKg: -5 })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws when ageYears is 0", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, ageYears: 0 })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws when ageYears is negative", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, ageYears: -1 })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
+  });
+
   describe("activity_kcal clamps to 0 when caloriesOut <= RMR", () => {
     it("returns activityKcal = 0 when caloriesOut is 0", () => {
       const result = computeMacroTargets({

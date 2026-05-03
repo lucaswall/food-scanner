@@ -33,6 +33,10 @@ export function computeMacroTargets(inputs: MacroEngineInputs): MacroEngineOutpu
     throw new Error("SEX_UNSET");
   }
 
+  if (heightCm <= 0 || weightKg <= 0 || ageYears <= 0) {
+    throw new Error("INVALID_PROFILE_DATA");
+  }
+
   // Mifflin-St Jeor RMR
   const rmrRaw =
     sex === "MALE"

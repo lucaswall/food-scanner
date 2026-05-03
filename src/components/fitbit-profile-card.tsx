@@ -29,12 +29,17 @@ export function FitbitProfileCard() {
     apiFetcher,
   );
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
 
   async function handleRefresh() {
     setRefreshing(true);
+    setRefreshError(null);
     try {
-      await fetch("/api/fitbit/profile?refresh=1");
+      const res = await fetch("/api/fitbit/profile?refresh=1");
+      if (!res.ok) throw new Error("refresh_failed");
       await mutate();
+    } catch {
+      setRefreshError("Could not refresh from Fitbit. Try again.");
     } finally {
       setRefreshing(false);
     }
@@ -82,6 +87,10 @@ export function FitbitProfileCard() {
           {refreshing ? "Refreshing..." : "Refresh from Fitbit"}
         </Button>
       </div>
+
+      {refreshError && (
+        <p className="text-sm text-red-600" role="alert">{refreshError}</p>
+      )}
 
       {data && (
         <div className="flex flex-col gap-2 text-sm">

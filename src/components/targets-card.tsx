@@ -20,6 +20,8 @@ function getBlockedMessage(reason?: string): string {
       return "Set your biological sex in Fitbit profile to enable macro targets.";
     case "scope_mismatch":
       return "Reconnect Fitbit to enable macro targets.";
+    case "invalid_profile":
+      return "Your Fitbit profile has invalid values (height, weight, or age). Update it in the Fitbit app.";
     default:
       return "Macro targets unavailable.";
   }

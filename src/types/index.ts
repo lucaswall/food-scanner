@@ -619,6 +619,6 @@ export interface NutritionGoals {
   carbsG: number | null;
   fatG: number | null;
   status: "ok" | "partial" | "blocked";
-  reason?: "no_weight" | "sex_unset" | "scope_mismatch";
+  reason?: "no_weight" | "sex_unset" | "scope_mismatch" | "invalid_profile";
   audit?: NutritionGoalsAudit;
 }

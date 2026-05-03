@@ -3,11 +3,20 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SWRConfig } from "swr";
 import { TargetsCard } from "../targets-card";
+import type { NutritionGoals } from "@/types";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 const TEST_DATE = "2026-05-03";
+
+// Strictly-typed fixture builder — TS rejects invalid bmiTier/goalType/status literals at compile time.
+function goalsResponse(data: NutritionGoals) {
+  return {
+    ok: true,
+    json: () => Promise.resolve({ success: true, data }),
+  };
+}
 
 function renderTargetsCard(date = TEST_DATE) {
   return render(
@@ -40,28 +49,21 @@ describe("TargetsCard", () => {
   });
 
   it("renders calorie + macro targets when status is ok", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: 2200,
-            proteinG: 140,
-            carbsG: 220,
-            fatG: 80,
-            status: "ok",
-            audit: {
-              rmr: 1600,
-              activityKcal: 450,
-              tdee: 2050,
-              weightKg: 75,
-              bmiTier: "normal",
-              goalType: "maintenance",
-            },
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: 2200,
+      proteinG: 140,
+      carbsG: 220,
+      fatG: 80,
+      status: "ok",
+      audit: {
+        rmr: 1600,
+        activityKcal: 450,
+        tdee: 2050,
+        weightKg: "75",
+        bmiTier: "25to30",
+        goalType: "MAINTAIN",
+      },
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
@@ -72,21 +74,14 @@ describe("TargetsCard", () => {
   });
 
   it("audit math is collapsed by default", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: 2200,
-            proteinG: 140,
-            carbsG: 220,
-            fatG: 80,
-            status: "ok",
-            audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: 75, bmiTier: "normal", goalType: "maintenance" },
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: 2200,
+      proteinG: 140,
+      carbsG: 220,
+      fatG: 80,
+      status: "ok",
+      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN" },
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
@@ -98,21 +93,14 @@ describe("TargetsCard", () => {
 
   it("expand toggle shows audit math details", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: 2200,
-            proteinG: 140,
-            carbsG: 220,
-            fatG: 80,
-            status: "ok",
-            audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: 75, bmiTier: "normal", goalType: "maintenance" },
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: 2200,
+      proteinG: 140,
+      carbsG: 220,
+      fatG: 80,
+      status: "ok",
+      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN" },
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
@@ -122,23 +110,16 @@ describe("TargetsCard", () => {
     expect(screen.getByText(/RMR: 1600 kcal/)).toBeInTheDocument();
     expect(screen.getByText(/Activity: 450 kcal/)).toBeInTheDocument();
     expect(screen.getByText(/TDEE: 2050 kcal/)).toBeInTheDocument();
-    expect(screen.getByText(/Weight: 75kg \(normal\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Goal: maintenance/)).toBeInTheDocument();
+    expect(screen.getByText(/Weight: 75kg \(25to30\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Goal: MAINTAIN/)).toBeInTheDocument();
   });
 
   it("expand toggle has at least 44px touch target", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
-            status: "ok",
-            audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: 75, bmiTier: "normal", goalType: "maintenance" },
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
+      status: "ok",
+      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN" },
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
@@ -149,18 +130,11 @@ describe("TargetsCard", () => {
 
   it("collapse toggle hides audit math details after expand", async () => {
     const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
-            status: "ok",
-            audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: 75, bmiTier: "normal", goalType: "maintenance" },
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
+      status: "ok",
+      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN" },
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
@@ -172,17 +146,10 @@ describe("TargetsCard", () => {
   });
 
   it("renders pending message when status is partial", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: null, proteinG: null, carbsG: null, fatG: null,
-            status: "partial",
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: null, proteinG: null, carbsG: null, fatG: null,
+      status: "partial",
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText(/targets pending — waiting for fitbit activity/i)).toBeInTheDocument();
@@ -190,17 +157,10 @@ describe("TargetsCard", () => {
   });
 
   it("renders no_weight blocked message", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: null, proteinG: null, carbsG: null, fatG: null,
-            status: "blocked", reason: "no_weight",
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: null, proteinG: null, carbsG: null, fatG: null,
+      status: "blocked", reason: "no_weight",
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText(/log your weight in fitbit/i)).toBeInTheDocument();
@@ -208,17 +168,10 @@ describe("TargetsCard", () => {
   });
 
   it("renders sex_unset blocked message", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: null, proteinG: null, carbsG: null, fatG: null,
-            status: "blocked", reason: "sex_unset",
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: null, proteinG: null, carbsG: null, fatG: null,
+      status: "blocked", reason: "sex_unset",
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText(/biological sex/i)).toBeInTheDocument();
@@ -226,17 +179,10 @@ describe("TargetsCard", () => {
   });
 
   it("renders scope_mismatch blocked message", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: null, proteinG: null, carbsG: null, fatG: null,
-            status: "blocked", reason: "scope_mismatch",
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: null, proteinG: null, carbsG: null, fatG: null,
+      status: "blocked", reason: "scope_mismatch",
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText(/reconnect fitbit/i)).toBeInTheDocument();
@@ -265,18 +211,11 @@ describe("TargetsCard", () => {
         ok: false,
         json: () => Promise.resolve({ success: false, error: { code: "INTERNAL_ERROR", message: "Error" } }),
       })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: {
-              calories: 2000, proteinG: 130, carbsG: 200, fatG: 70,
-              status: "ok",
-              audit: { rmr: 1500, activityKcal: 400, tdee: 1900, weightKg: 70, bmiTier: "normal", goalType: "maintenance" },
-            },
-          }),
-      });
+      .mockResolvedValueOnce(goalsResponse({
+        calories: 2000, proteinG: 130, carbsG: 200, fatG: 70,
+        status: "ok",
+        audit: { rmr: 1500, activityKcal: 400, tdee: 1900, weightKg: "70", bmiTier: "25to30", goalType: "MAINTAIN" },
+      }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
@@ -300,18 +239,11 @@ describe("TargetsCard", () => {
   });
 
   it("does not render expand button when audit is absent", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          success: true,
-          data: {
-            calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
-            status: "ok",
-            // no audit block
-          },
-        }),
-    });
+    mockFetch.mockResolvedValueOnce(goalsResponse({
+      calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
+      status: "ok",
+      // no audit block
+    }));
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();

@@ -507,6 +507,7 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
           expiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+          scope: tokenRow.scope,
         };
 
         // Try to save tokens with retry logic (FOO-430)
@@ -671,8 +672,11 @@ export async function getFitbitLatestWeightKg(
     if (!response.ok) {
       const rawBody = await parseErrorBody(response);
       const errorBody = sanitizeErrorBody(rawBody);
-      l.error({ action: "fitbit_get_weight_failed", status: response.status, errorBody, date }, "weight fetch failed");
-      throw new Error("FITBIT_API_ERROR");
+      l.warn(
+        { action: "fitbit_get_weight_day_failed", status: response.status, errorBody, date },
+        "weight fetch failed for date, continuing walk-back",
+      );
+      continue;
     }
 
     const data = await jsonWithTimeout<Record<string, unknown>>(response);

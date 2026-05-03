@@ -276,6 +276,50 @@ describe("FitbitProfileCard", () => {
     });
   });
 
+  it("shows error message and does not call mutate when refresh returns 500", async () => {
+    const user = userEvent.setup();
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+
+    mockUseSWRImplementation.mockImplementation((key: string) => {
+      if (key === "/api/fitbit/profile") {
+        return { data: mockProfileData, error: null, isLoading: false, mutate: mockMutate };
+      }
+      return { data: null, error: null, isLoading: false, mutate: vi.fn() };
+    });
+
+    const { FitbitProfileCard } = await import("@/components/fitbit-profile-card");
+    render(<FitbitProfileCard />);
+
+    await user.click(screen.getByRole("button", { name: /refresh from fitbit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/could not refresh from fitbit/i)).toBeInTheDocument();
+    });
+    expect(mockMutate).not.toHaveBeenCalled();
+  });
+
+  it("shows error message when refresh fetch rejects (no unhandled rejection)", async () => {
+    const user = userEvent.setup();
+    mockFetch.mockRejectedValueOnce(new Error("network down"));
+
+    mockUseSWRImplementation.mockImplementation((key: string) => {
+      if (key === "/api/fitbit/profile") {
+        return { data: mockProfileData, error: null, isLoading: false, mutate: mockMutate };
+      }
+      return { data: null, error: null, isLoading: false, mutate: vi.fn() };
+    });
+
+    const { FitbitProfileCard } = await import("@/components/fitbit-profile-card");
+    render(<FitbitProfileCard />);
+
+    await user.click(screen.getByRole("button", { name: /refresh from fitbit/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/could not refresh from fitbit/i)).toBeInTheDocument();
+    });
+    expect(mockMutate).not.toHaveBeenCalled();
+  });
+
   it("renders last synced timestamp", async () => {
     mockUseSWRImplementation.mockImplementation((key: string) => {
       if (key === "/api/fitbit/profile") {

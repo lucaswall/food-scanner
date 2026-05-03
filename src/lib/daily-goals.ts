@@ -39,7 +39,7 @@ export type ComputeResult =
       };
     }
   | { status: "partial"; proteinG: number; fatG: number }
-  | { status: "blocked"; reason: "no_weight" | "sex_unset" | "scope_mismatch" };
+  | { status: "blocked"; reason: "no_weight" | "sex_unset" | "scope_mismatch" | "invalid_profile" };
 
 // In-flight Promise Map keyed `${userId}:${date}` — delete on settle (success or error)
 const computeInFlight = new Map<string, Promise<ComputeResult>>();
@@ -134,7 +134,7 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     const goalType: MacroGoalType = weightGoal?.goalType ?? "MAINTAIN";
     const bmiTier = getBmiTier(weightKg, profile.heightCm);
 
-    if (activity === null || activity.caloriesOut === null || activity.caloriesOut === undefined) {
+    if (activity === null || activity.caloriesOut === null) {
       // Partial: compute protein/fat without a full calorie target (no caloriesOut yet)
       const proteinG = Math.round(weightKg * PROTEIN_COEFFICIENTS[bmiTier][goalType]);
       const fatG = Math.round(weightKg * 0.8);
@@ -172,11 +172,14 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     const row = await queryRow(userId, date);
 
     // If the read-back row is missing macros (Lumen-backfilled or pre-feature row),
-    // update only macro+audit columns — keep the existing calorieGoal intact
+    // update macro+audit columns. Preserve a real existing calorieGoal, but overwrite
+    // the `0` placeholder produced by the Lumen backfill (rows that had no prior
+    // daily_calorie_goals entry).
     if (row && !hasMacros(row)) {
       await getDb()
         .update(dailyCalorieGoals)
         .set({
+          calorieGoal: row.calorieGoal > 0 ? row.calorieGoal : engineOut.targetKcal,
           proteinGoal: engineOut.proteinG,
           carbsGoal: engineOut.carbsG,
           fatGoal: engineOut.fatG,
@@ -197,7 +200,7 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     return {
       status: "ok",
       goals: {
-        calorieGoal: row?.calorieGoal ?? engineOut.targetKcal,
+        calorieGoal: row && row.calorieGoal > 0 ? row.calorieGoal : engineOut.targetKcal,
         proteinGoal: engineOut.proteinG,
         carbsGoal: engineOut.carbsG,
         fatGoal: engineOut.fatG,
@@ -214,6 +217,9 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
   } catch (error) {
     if (error instanceof Error && error.message === "FITBIT_SCOPE_MISSING") {
       return { status: "blocked", reason: "scope_mismatch" };
+    }
+    if (error instanceof Error && error.message === "INVALID_PROFILE_DATA") {
+      return { status: "blocked", reason: "invalid_profile" };
     }
     throw error;
   }

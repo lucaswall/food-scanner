@@ -766,3 +766,65 @@ Summary: 13 raw findings → 9 FIX (after deduplication) + 1 DISCARD.
 
 1. Remove the `FITBIT_SCOPE_MISSING` branch (`src/app/api/nutrition-goals/route.ts:78-81`).
 2. Run vitest (existing tests still pass — the scope_mismatch case is covered by the `status: "blocked"` response from `getOrComputeDailyGoals`).
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-05-03
+**Method:** Single-agent (9 surgical fixes, 8 effort points across 7 work units — sub-threshold for worker overhead)
+
+### Tasks Completed This Iteration
+
+- Fix 1: `ensureFreshToken` passes `scope: tokenRow.scope` so refresh preserves stored scope (FOO-982)
+- Fix 2: `computeMacroTargets` throws `INVALID_PROFILE_DATA` on non-positive heightCm/weightKg/ageYears (FOO-983)
+- Fix 3: `getFitbitLatestWeightKg` per-day non-ok response logs warn + continues to next day instead of aborting walk-back (FOO-984)
+- Fix 4: `daily-goals.ts` treats existing `calorieGoal = 0` (Lumen-backfill placeholder) as missing — recompute UPDATE overwrites it; final return uses `row.calorieGoal > 0 ? row.calorieGoal : engineOut.targetKcal` (FOO-985)
+- Fix 5: `FitbitProfileCard.handleRefresh` wraps fetch in try/catch, checks `res.ok`, surfaces inline `refreshError` message (FOO-986)
+- Fix 6: `targets-card.test.tsx` fixtures fixed to valid union literals (`"25to30"`/`"MAINTAIN"`) and `weightKg` strings; new typed `goalsResponse(data: NutritionGoals)` helper rejects future invalid literals at compile time (FOO-987)
+- Fix 7: `CLAUDE.md` Tables list updated — removed `lumen_goals`, added missing `nutrition_labels` (FOO-988)
+- Fix 8: Removed dead `activity.caloriesOut === undefined` clause in `daily-goals.ts:137` (FOO-989)
+- Fix 9: Removed dead `FITBIT_SCOPE_MISSING` handler from nutrition-goals route catch block (FOO-990)
+
+### Files Modified
+
+**Library code:**
+- `src/lib/fitbit.ts` — `ensureFreshToken` preserves scope; `getFitbitLatestWeightKg` per-day failure → continue
+- `src/lib/macro-engine.ts` — added `INVALID_PROFILE_DATA` guard
+- `src/lib/daily-goals.ts` — `calorieGoal = 0` coalesce; recompute UPDATE overwrites placeholder calorieGoal; new `INVALID_PROFILE_DATA` catch → `{ status: "blocked", reason: "invalid_profile" }`; dropped dead undefined clause; reason union extended
+
+**API routes:**
+- `src/app/api/nutrition-goals/route.ts` — removed dead FITBIT_SCOPE_MISSING handler
+
+**Components:**
+- `src/components/fitbit-profile-card.tsx` — try/catch + `refreshError` UI
+- `src/components/targets-card.tsx` — `getBlockedMessage` adds `invalid_profile` case
+
+**Types (`src/types/index.ts`):**
+- `NutritionGoals.reason` union extended with `"invalid_profile"`
+
+**Tests:**
+- `src/lib/__tests__/fitbit.test.ts` — scope preservation test; walk-back resilience tests (replaced single throw test with day-0-fail/day-1-succeed and all-7-days-fail/null cases)
+- `src/lib/__tests__/macro-engine.test.ts` — 6 new `INVALID_PROFILE_DATA` tests
+- `src/lib/__tests__/daily-goals.test.ts` — calorieGoal=0 placeholder test; `invalid_profile` blocked-state test
+- `src/components/__tests__/fitbit-profile-card.test.tsx` — refresh-rejects + refresh-500 tests
+- `src/components/__tests__/targets-card.test.tsx` — fixtures retyped through `goalsResponse` helper; bmiTier/goalType/weightKg literals fixed
+
+**Docs:**
+- `CLAUDE.md` — DATABASE Tables list corrected
+
+### Linear Updates
+
+- FOO-982 .. FOO-990 (9 issues): all moved Todo → In Progress → Review
+
+### Pre-commit Verification
+
+- bug-hunter: Found 1 MEDIUM issue (`INVALID_PROFILE_DATA` throw was unhandled → would surface as 500 instead of `blocked`). Fixed by catching in `daily-goals.ts` and adding `"invalid_profile"` to the `reason` union + UI message in `TargetsCard`. Added a regression test.
+- verifier (full mode): 189 test files / 3339 tests pass; lint clean (zero warnings); production build clean (58 routes).
+
+### Continuation Status
+
+All Fix Plan items completed. No remaining tasks for this plan.
+
+<!-- ITERATION COMPLETE -->
+
