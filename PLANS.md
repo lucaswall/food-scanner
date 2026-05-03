@@ -647,3 +647,122 @@ Foundation-first order: worker-1 → worker-2 → worker-3 → worker-4.
 ### Continuation Status
 
 All tasks completed.
+
+### Review Findings
+
+**Reviewed:** 2026-05-03
+**Method:** Agent team — security, reliability, quality reviewers (Sonnet 4.6) on the 40+ changed files; lead synthesized findings.
+
+Summary: 13 raw findings → 9 FIX (after deduplication) + 1 DISCARD.
+- FIX: 9 issues — Linear issues created in Todo (FOO-982..FOO-990)
+- DISCARDED: 1 — false positive / not a bug
+
+**Issues requiring fix (Fix Plan below):**
+
+- [HIGH] BUG: Token refresh wipes `fitbit_tokens.scope` to NULL (`src/lib/fitbit.ts:502-510` + `src/lib/fitbit-tokens.ts:50, 64-70`) — every overnight refresh forces all users into `scope_mismatch` until they reconnect. (FOO-982)
+- [MEDIUM] EDGE CASE: `computeMacroTargets` has no input guards — `heightCm = 0` → `BMI = Infinity` → silent miscompute; `weightKg ≤ 0` → 0g protein/fat (`src/lib/macro-engine.ts:29, 52-55`). (FOO-983)
+- [MEDIUM] BUG: `getFitbitLatestWeightKg` 7-day walk-back aborts on first per-day error (`src/lib/fitbit.ts:656-692`) — single transient Fitbit hiccup → 502 to user instead of falling back to a slightly older weight. (FOO-984)
+- [MEDIUM] BUG: `daily-goals.ts:200` uses `??` to coalesce `calorieGoal` — does not coalesce `0` from Lumen backfill placeholder rows → CalorieRing renders "0 cal/day" on historical Lumen-backfilled days. (FOO-985)
+- [MEDIUM] ERROR: `fitbit-profile-card.tsx:33-41` `handleRefresh` has no try/catch and no `res.ok` check → unhandled promise rejection on network failure; silent stale-data return on HTTP error. Combines findings from reliability and quality reviewers. (FOO-986)
+- [MEDIUM] TYPE: `targets-card.test.tsx` (lines 59, 86, 112, 138, 160, 276) uses invalid `bmiTier: "normal"` and `goalType: "maintenance"` literals — not in production union types `"lt25" | "25to30" | "ge30"` and `"LOSE" | "MAINTAIN" | "GAIN"`. SWR mock is too loose. (FOO-987)
+- [MEDIUM] CONVENTION: `CLAUDE.md:120` still lists removed `lumen_goals` in DATABASE Tables. (FOO-988)
+- [LOW] TYPE: `daily-goals.ts:137` checks `activity.caloriesOut === undefined` — unreachable (type is `number | null`, never undefined). (FOO-989)
+- [LOW] CONVENTION: `nutrition-goals/route.ts:78-81` has dead `FITBIT_SCOPE_MISSING` handler — `getOrComputeDailyGoals` already catches it internally. (FOO-990)
+
+**Discarded findings (not bugs):**
+
+- [DISCARDED] [low] [security] `missingScopes` array exposed in `/api/fitbit/health` response (`src/lib/fitbit-health.ts:28-31`, `src/types/index.ts:131`) — values are public OAuth scope names ("profile", "weight"), already visible in the OAuth authorization URL; the field shape is explicitly part of the Task 4 spec (plan line 154); banner doesn't render it but storing it costs nothing. Style-only with zero correctness/security impact.
+
+**Inline Fix Assessment:** 9 FIX findings — exceeds the ≤3 inline threshold. Fix Plan created.
+
+### Linear Updates
+- FOO-967..FOO-981 (15 issues): Review → Merge (all original tasks completed)
+- FOO-982: Created in Todo (Fix: token refresh wipes scope)
+- FOO-983: Created in Todo (Fix: macro-engine input guards)
+- FOO-984: Created in Todo (Fix: weight walk-back resilience)
+- FOO-985: Created in Todo (Fix: calorieGoal=0 backfill rendering)
+- FOO-986: Created in Todo (Fix: profile-card refresh error handling)
+- FOO-987: Created in Todo (Fix: targets-card test fixture types)
+- FOO-988: Created in Todo (Fix: CLAUDE.md outdated table list)
+- FOO-989: Created in Todo (Fix: dead `=== undefined` check)
+- FOO-990: Created in Todo (Fix: dead `FITBIT_SCOPE_MISSING` handler)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-982](https://linear.app/lw-claude/issue/FOO-982), [FOO-983](https://linear.app/lw-claude/issue/FOO-983), [FOO-984](https://linear.app/lw-claude/issue/FOO-984), [FOO-985](https://linear.app/lw-claude/issue/FOO-985), [FOO-986](https://linear.app/lw-claude/issue/FOO-986), [FOO-987](https://linear.app/lw-claude/issue/FOO-987), [FOO-988](https://linear.app/lw-claude/issue/FOO-988), [FOO-989](https://linear.app/lw-claude/issue/FOO-989), [FOO-990](https://linear.app/lw-claude/issue/FOO-990)
+
+### Fix 1: Token refresh wipes `fitbit_tokens.scope` to NULL
+**Linear Issue:** [FOO-982](https://linear.app/lw-claude/issue/FOO-982)
+
+1. Add test in `src/lib/__tests__/fitbit.test.ts`: when `ensureFreshToken` triggers a refresh on a token row with `scope = "nutrition activity profile weight"`, the persisted scope is preserved (not overwritten to NULL).
+2. Run vitest (expect fail).
+3. In `src/lib/fitbit.ts:505-510`, add `scope: tokenRow.scope` to the `tokenData` object passed to `upsertFitbitTokens`.
+4. Run vitest (expect pass).
+
+### Fix 2: macro-engine missing input guards
+**Linear Issue:** [FOO-983](https://linear.app/lw-claude/issue/FOO-983)
+
+1. Add tests in `src/lib/__tests__/macro-engine.test.ts`: `computeMacroTargets` throws `INVALID_PROFILE_DATA` when any of `heightCm <= 0`, `weightKg <= 0`, or `ageYears <= 0`.
+2. Run vitest (expect fail).
+3. Add a guard at the top of `computeMacroTargets` in `src/lib/macro-engine.ts` that throws on non-positive inputs.
+4. Run vitest (expect pass).
+
+### Fix 3: getFitbitLatestWeightKg walk-back aborts on first per-day error
+**Linear Issue:** [FOO-984](https://linear.app/lw-claude/issue/FOO-984)
+
+1. Add tests in `src/lib/__tests__/fitbit.test.ts`:
+   - 502 on day 0, valid weight on day -1 → returns day -1 weight.
+   - 502 on all 7 days → returns null.
+2. Run vitest (expect fail).
+3. In `src/lib/fitbit.ts:671-676`, replace `throw new Error("FITBIT_API_ERROR")` with: log a warning and `continue` to the next iteration. Keep the existing `return null` after the loop for the "no day succeeded" case.
+4. Run vitest (expect pass).
+
+### Fix 4: calorieGoal=0 from Lumen backfill renders as "0 cal/day"
+**Linear Issue:** [FOO-985](https://linear.app/lw-claude/issue/FOO-985)
+
+1. Add test in `src/lib/__tests__/daily-goals.test.ts`: existing row with `calorieGoal = 0` and NULL audit columns → `getOrComputeDailyGoals` returns `{ goals: { calorieGoal: <engine value>, ... } }`, NOT 0.
+2. Run vitest (expect fail).
+3. In `src/lib/daily-goals.ts:200`, change `row?.calorieGoal ?? engineOut.targetKcal` to `row && row.calorieGoal > 0 ? row.calorieGoal : engineOut.targetKcal`. Also update the recompute UPDATE branch (lines 178-189) to set `calorieGoal: engineOut.targetKcal` when the existing value is 0.
+4. Run vitest (expect pass).
+
+### Fix 5: fitbit-profile-card handleRefresh missing try/catch + res.ok check
+**Linear Issue:** [FOO-986](https://linear.app/lw-claude/issue/FOO-986)
+
+1. Add tests in `src/components/__tests__/fitbit-profile-card.test.tsx`:
+   - When `?refresh=1` fetch rejects, the component shows a user-visible error message (no unhandled rejection).
+   - When `?refresh=1` returns 500, the component shows an error message and does NOT call `mutate()`.
+2. Run vitest (expect fail).
+3. Add `refreshError` state, wrap fetch in try/catch, check `res.ok`, render error message inline (`text-sm text-red-600`).
+4. Run vitest (expect pass).
+
+### Fix 6: targets-card test fixtures use invalid union members
+**Linear Issue:** [FOO-987](https://linear.app/lw-claude/issue/FOO-987)
+
+1. Update all 6 audit fixtures in `src/components/__tests__/targets-card.test.tsx` (lines 59, 86, 112, 138, 160, 276): replace `bmiTier: "normal"` → `bmiTier: "25to30"`, replace `goalType: "maintenance"` → `goalType: "MAINTAIN"`.
+2. Tighten the SWR mock typing — type the audit object as `NutritionGoals["audit"]` (or equivalent strict shape) so future invalid literals fail at compile time.
+3. Run `npm run typecheck` — verify it now reports an error if invalid literals are reintroduced.
+4. Run vitest (expect pass).
+
+### Fix 7: CLAUDE.md still lists removed lumen_goals table
+**Linear Issue:** [FOO-988](https://linear.app/lw-claude/issue/FOO-988)
+
+1. Remove `lumen_goals,` from the inline table list at `CLAUDE.md:120`.
+2. Verify table count remains accurate (10 tables).
+3. No code tests; lint/build still passes.
+
+### Fix 8: Remove dead `=== undefined` check in daily-goals.ts
+**Linear Issue:** [FOO-989](https://linear.app/lw-claude/issue/FOO-989)
+
+1. In `src/lib/daily-goals.ts:137`, drop the `|| activity.caloriesOut === undefined` clause.
+2. Run vitest (existing tests still pass).
+
+### Fix 9: Remove dead FITBIT_SCOPE_MISSING handler in nutrition-goals route
+**Linear Issue:** [FOO-990](https://linear.app/lw-claude/issue/FOO-990)
+
+1. Remove the `FITBIT_SCOPE_MISSING` branch (`src/app/api/nutrition-goals/route.ts:78-81`).
+2. Run vitest (existing tests still pass — the scope_mismatch case is covered by the `status: "blocked"` response from `getOrComputeDailyGoals`).
