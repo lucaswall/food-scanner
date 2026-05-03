@@ -101,6 +101,30 @@ describe("computeMacroTargets", () => {
         computeMacroTargets({ ...baseInputs, ageYears: -1 })
       ).toThrow("INVALID_PROFILE_DATA");
     });
+
+    it("throws when heightCm is NaN", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, heightCm: Number.NaN })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws when weightKg is NaN", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, weightKg: Number.NaN })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws when ageYears is NaN", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, ageYears: Number.NaN })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws when heightCm is Infinity", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, heightCm: Number.POSITIVE_INFINITY })
+      ).toThrow("INVALID_PROFILE_DATA");
+    });
   });
 
   describe("activity_kcal clamps to 0 when caloriesOut <= RMR", () => {

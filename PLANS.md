@@ -828,3 +828,37 @@ All Fix Plan items completed. No remaining tasks for this plan.
 
 <!-- ITERATION COMPLETE -->
 
+### Review Findings
+
+**Reviewed:** 2026-05-03
+**Method:** Agent team — security, reliability, quality reviewers (Sonnet 4.6) on the 13 changed files; lead synthesized findings.
+
+Summary: 5 raw findings (security 0, reliability 2, quality 3) → 1 FIX (deduplicated) + 3 DISCARD.
+- FIXED INLINE: 1 issue — verified via TDD + bug-hunter
+- DISCARDED: 3 — style-only / misdiagnosed
+
+**Issues fixed inline:**
+- [LOW] EDGE CASE: `computeMacroTargets` `INVALID_PROFILE_DATA` guard let NaN/Infinity slip through (`<= 0` is false for NaN), allowing malformed Fitbit `dateOfBirth` (computed `ageYears`) to cascade as all-NaN macro outputs (`src/lib/macro-engine.ts:36`) — strengthened guard with `Number.isFinite` checks; added 4 tests covering NaN heightCm/weightKg/ageYears and POSITIVE_INFINITY heightCm.
+
+**Discarded findings (not bugs):**
+- [DISCARDED] [test] walk-back tests don't assert `logger.warn` was called (`src/lib/__tests__/fitbit.test.ts` for Fix 3) — Style-only. The two new tests already assert the user-visible return-value behavior (day -1 fallback and null after 7 fails). The `logger.warn` call is observability, not behavior; missing the structured-log assertion is defensive-test rigor, not a behavior gap. Production code emits the correct structured log.
+- [DISCARDED] [test] no `targets-card` render test for `reason: "invalid_profile"` blocked state (`src/components/__tests__/targets-card.test.tsx`) — Style-only. The new `getBlockedMessage` `invalid_profile` branch is structurally identical to the other reason branches (each renders the message string verbatim) and is exercised end-to-end via the `daily-goals.ts` invalid_profile path which IS tested. The component-level render assertion would be redundant.
+- [DISCARDED] [bug] `FitbitProfileCard.handleRefresh` shows "Could not refresh from Fitbit. Try again." when `fetch` succeeds but subsequent `mutate()` rejects (`src/components/fitbit-profile-card.tsx:40`) — Misdiagnosed. From the user's perspective the screen did not refresh (SWR revalidation failed → no fresh data on screen), so the "Try again" message is correct UX. The fact that the server-side cache was refreshed is invisible to the user. Splitting the try would just hide a failure the user actually wants to see.
+
+### Linear Updates
+- FOO-982 .. FOO-990 (9 issues): Review → Merge (all Fix Plan tasks completed)
+- FOO-991: Created in Merge (Fix: macro-engine NaN/Infinity guard — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: 35/35 macro-engine, 3343/3343 full suite pass
+- Bug-hunter: no new issues
+- E2E: 145/145 pass
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+

@@ -33,7 +33,14 @@ export function computeMacroTargets(inputs: MacroEngineInputs): MacroEngineOutpu
     throw new Error("SEX_UNSET");
   }
 
-  if (heightCm <= 0 || weightKg <= 0 || ageYears <= 0) {
+  if (
+    !Number.isFinite(heightCm) ||
+    !Number.isFinite(weightKg) ||
+    !Number.isFinite(ageYears) ||
+    heightCm <= 0 ||
+    weightKg <= 0 ||
+    ageYears <= 0
+  ) {
     throw new Error("INVALID_PROFILE_DATA");
   }
 
