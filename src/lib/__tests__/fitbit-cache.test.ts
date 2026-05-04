@@ -462,6 +462,38 @@ describe("fitbit-cache", () => {
       expect(mockGetFitbitProfile).not.toHaveBeenCalled();
     });
 
+    it("invalidating one user does not suppress cache writes for another user's in-flight fetch", async () => {
+      // The orphan-write guard must be per-user. Otherwise user-A pressing
+      // refresh transiently degrades cache hit rate for everyone — user-B's
+      // unrelated in-flight fetch resolves but gets denied a cache write,
+      // forcing the next read to re-hit Fitbit.
+      let resolveB!: (v: FitbitProfile) => void;
+      const bPromise = new Promise<FitbitProfile>((resolve) => {
+        resolveB = resolve;
+      });
+      mockGetFitbitProfile.mockImplementation((_t, _l, userId) => {
+        if (userId === "user-b") return bPromise;
+        return Promise.resolve(mockProfile);
+      });
+
+      const bFetch = getCachedFitbitProfile("user-b");
+      // Let user-b's IIFE register and snapshot its generation.
+      await new Promise((r) => setImmediate(r));
+
+      // Unrelated invalidation on user-a — must not affect user-b's write.
+      invalidateFitbitProfileCache("user-a");
+
+      const bProfile: FitbitProfile = { ageYears: 42, sex: "MALE", heightCm: 175 };
+      resolveB(bProfile);
+      await bFetch;
+
+      // Subsequent read for user-b must hit cache (not re-fetch).
+      mockGetFitbitProfile.mockClear();
+      const cached = await getCachedFitbitProfile("user-b");
+      expect(cached).toEqual(bProfile);
+      expect(mockGetFitbitProfile).not.toHaveBeenCalled();
+    });
+
     it("clears in-flight dedup entries so a refresh after a pending fetch triggers a new call", async () => {
       // If an in-flight fetch was running when invalidate was called, the next
       // call must NOT dedup with the (now-stale) in-flight promise — it must

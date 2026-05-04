@@ -19,12 +19,18 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-// Bumped on every invalidation. Each fetcher snapshots this when it starts;
-// if the value has changed by the time its underlying fetch resolves, the
-// resolved value belongs to a pre-invalidation request and must not be
-// written to the cache (otherwise an orphan write can overwrite fresh data
-// from a refresh-triggered fetch that finished earlier).
-let cacheGeneration = 0;
+// Per-user generation, bumped on each invalidation. Each fetcher snapshots
+// the user's current generation when it starts; if it has changed by the
+// time the underlying fetch resolves, the resolved value belongs to a
+// pre-invalidation request and must not be written to cache (otherwise an
+// orphan write can overwrite fresh data from a refresh-triggered fetch that
+// finished earlier). Per-user — invalidating one user must not suppress
+// cache writes for unrelated users' in-flight fetches.
+const userCacheGeneration = new Map<string, number>();
+
+function getUserGeneration(userId: string): number {
+  return userCacheGeneration.get(userId) ?? 0;
+}
 
 // ─── Profile cache ─────────────────────────────────────────────────────────
 
@@ -47,12 +53,12 @@ export async function getCachedFitbitProfile(
   const existing = profileInFlight.get(inflightKey);
   if (existing) return existing;
 
-  const generationAtStart = cacheGeneration;
+  const generationAtStart = getUserGeneration(userId);
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const profile = await getFitbitProfile(accessToken, l, userId, criticality);
-      if (cacheGeneration === generationAtStart) {
+      if (getUserGeneration(userId) === generationAtStart) {
         profileCache.set(userId, { value: profile, expiresAt: Date.now() + TTL_24H });
       }
       return profile;
@@ -88,12 +94,12 @@ export async function getCachedFitbitWeightKg(
   const existing = weightInFlight.get(inflightKey);
   if (existing) return existing;
 
-  const generationAtStart = cacheGeneration;
+  const generationAtStart = getUserGeneration(userId);
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const weight = await getFitbitLatestWeightKg(accessToken, targetDate, l, userId, criticality);
-      if (cacheGeneration === generationAtStart) {
+      if (getUserGeneration(userId) === generationAtStart) {
         weightCache.set(key, { value: weight, expiresAt: Date.now() + TTL_1H });
       }
       return weight;
@@ -127,12 +133,12 @@ export async function getCachedFitbitWeightGoal(
   const existing = weightGoalInFlight.get(inflightKey);
   if (existing) return existing;
 
-  const generationAtStart = cacheGeneration;
+  const generationAtStart = getUserGeneration(userId);
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const goal = await getFitbitWeightGoal(accessToken, l, userId, criticality);
-      if (cacheGeneration === generationAtStart) {
+      if (getUserGeneration(userId) === generationAtStart) {
         weightGoalCache.set(userId, { value: goal, expiresAt: Date.now() + TTL_24H });
       }
       return goal;
@@ -168,12 +174,12 @@ export async function getCachedActivitySummary(
   const existing = activityInFlight.get(inflightKey);
   if (existing) return existing;
 
-  const generationAtStart = cacheGeneration;
+  const generationAtStart = getUserGeneration(userId);
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const activity = await getActivitySummary(accessToken, targetDate, l, userId, criticality);
-      if (cacheGeneration === generationAtStart) {
+      if (getUserGeneration(userId) === generationAtStart) {
         activityCache.set(key, { value: activity, expiresAt: Date.now() + TTL_5MIN });
       }
       return activity;
@@ -194,7 +200,7 @@ export async function getCachedActivitySummary(
  * Called by the settings "Refresh from Fitbit" button.
  */
 export function invalidateFitbitProfileCache(userId: string): void {
-  cacheGeneration++;
+  userCacheGeneration.set(userId, getUserGeneration(userId) + 1);
   profileCache.delete(userId);
   weightGoalCache.delete(userId);
 
