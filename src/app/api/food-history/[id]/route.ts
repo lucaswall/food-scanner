@@ -72,7 +72,7 @@ export async function DELETE(
     // Delete from Fitbit first (if applicable), then local DB
     if (entry.fitbitLogId && !isDryRun) {
       const accessToken = await ensureFreshToken(session!.userId, log);
-      await deleteFoodLog(accessToken, entry.fitbitLogId, log);
+      await deleteFoodLog(accessToken, entry.fitbitLogId, log, session!.userId);
     }
 
     try {

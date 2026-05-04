@@ -27,10 +27,12 @@ export async function GET(request: Request) {
   try {
     const todayDate = getTodayDate();
 
+    // User-explicit fetch (settings page, refresh button) — mark `important` so
+    // the breaker only blocks when budget is critically low.
     const [profile, weightLog, weightGoal] = await Promise.all([
-      getCachedFitbitProfile(session!.userId, log),
-      getCachedFitbitWeightKg(session!.userId, todayDate, log),
-      getCachedFitbitWeightGoal(session!.userId, log),
+      getCachedFitbitProfile(session!.userId, log, "important"),
+      getCachedFitbitWeightKg(session!.userId, todayDate, log, "important"),
+      getCachedFitbitWeightGoal(session!.userId, log, "important"),
     ]);
 
     const data: FitbitProfileData = {
@@ -76,6 +78,13 @@ export async function GET(request: Request) {
       }
       if (error.message === "FITBIT_RATE_LIMIT") {
         return errorResponse("FITBIT_RATE_LIMIT", "Fitbit API rate limited. Please try again later.", 429);
+      }
+      if (error.message === "FITBIT_RATE_LIMIT_LOW") {
+        return errorResponse(
+          "FITBIT_RATE_LIMIT_LOW",
+          "Fitbit rate-limit headroom is low. Please try again in a few minutes.",
+          503,
+        );
       }
       if (error.message === "FITBIT_TIMEOUT") {
         return errorResponse("FITBIT_TIMEOUT", "Request to Fitbit timed out. Please try again.", 504);

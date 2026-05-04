@@ -63,7 +63,7 @@ describe("GET /api/v1/nutrition-goals", () => {
     expect(data.data).toEqual(mockGoals);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
     expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-123", expect.any(Object));
-    expect(mockGetFoodGoals).toHaveBeenCalledWith("fitbit-access-token", expect.any(Object));
+    expect(mockGetFoodGoals).toHaveBeenCalledWith("fitbit-access-token", expect.any(Object), "user-123", "important");
   });
 
   it("returns 401 for invalid API key", async () => {
@@ -129,6 +129,23 @@ describe("GET /api/v1/nutrition-goals", () => {
 
     expect(response.status).toBe(403);
     expect(data.error.code).toBe("FITBIT_SCOPE_MISSING");
+  });
+
+  it("returns 503 when Fitbit rate-limit headroom is low", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
+    mockGetFoodGoals.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/nutrition-goals",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(data.error.code).toBe("FITBIT_RATE_LIMIT_LOW");
   });
 
   it("returns 502 when Fitbit API returns an error", async () => {

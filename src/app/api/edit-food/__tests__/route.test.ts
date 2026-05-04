@@ -234,8 +234,24 @@ describe("POST /api/edit-food", () => {
   it("deletes old Fitbit log and creates new one on success", async () => {
     const response = await POST(createMockRequest(validBody));
     expect(response.status).toBe(200);
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("access-token-abc", 12345, expect.anything());
-    expect(mockLogFood).toHaveBeenCalled();
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("access-token-abc", 12345, expect.anything(), "user-uuid-123");
+    expect(mockFindOrCreateFood).toHaveBeenCalledWith(
+      "access-token-abc",
+      expect.anything(),
+      expect.anything(),
+      "user-uuid-123",
+    );
+    expect(mockLogFood).toHaveBeenCalledWith(
+      "access-token-abc",
+      9000,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      "user-uuid-123",
+    );
     expect(mockUpdateFoodLogEntry).toHaveBeenCalled();
   });
 
@@ -291,7 +307,7 @@ describe("POST /api/edit-food", () => {
     const response = await POST(createMockRequest(validBody));
     expect(response.status).toBe(500);
     // Compensation: delete new Fitbit log
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("access-token-abc", 99999, expect.anything());
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("access-token-abc", 99999, expect.anything(), "user-uuid-123");
   });
 });
 
@@ -448,7 +464,7 @@ describe("POST /api/edit-food (fast path)", () => {
 
   it("fast path: deletes old Fitbit log and re-logs with same fitbitFoodId", async () => {
     await POST(createMockRequest(unchangedNutritionBody));
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("access-token-abc", 12345, expect.anything());
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("access-token-abc", 12345, expect.anything(), "user-uuid-123");
     expect(mockLogFood).toHaveBeenCalledWith(
       "access-token-abc",
       5555, // existing fitbitFoodId
@@ -458,6 +474,7 @@ describe("POST /api/edit-food (fast path)", () => {
       "2026-02-16",
       "12:00:00",
       expect.anything(),
+      "user-uuid-123",
     );
   });
 
@@ -513,6 +530,7 @@ describe("POST /api/edit-food (fast path)", () => {
       expect.anything(),
       expect.anything(),
       expect.anything(),
+      "user-uuid-123",
     );
     // Fix 4: compensation logFood result used to update DB fitbitLogId
     expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalledWith(
