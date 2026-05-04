@@ -865,4 +865,78 @@ Two real bugs caught and fixed before commit:
 
 ### Tasks Remaining
 
-None. Plan is COMPLETE.
+None. Implementation phase complete.
+
+### Review Findings
+
+Summary: 11 findings raised by 3-reviewer team (security, reliability, quality) on 33 changed files.
+- FIX: 5 issues — Linear issues created (FOO-1023, 1024, 1025, 1026, 1027)
+- DISCARDED: 6 findings — false positives or non-bugs (reasoning below)
+
+**Issues requiring fix (Fix Plan below):**
+- [HIGH] BUG: `hasMacros()` doesn't enforce non-null `caloriesOut` — latent null deref via `existing.caloriesOut!` at `src/lib/daily-goals.ts:371` could crash `targets-card.tsx:144`. (FOO-1023)
+- [MEDIUM] TYPE: `"not_computed"` reason emitted by `/api/v1/nutrition-goals` range mode but missing from `NutritionGoals.reason` union in `src/types/index.ts:624-629`. (FOO-1024)
+- [MEDIUM] CONVENTION: Cache-Control + ETag tests on `/api/v1/nutrition-goals` removed during FOO-1008 rewrite without replacement. (FOO-1025)
+- [MEDIUM] CONVENTION: 5 Fitbit error-code mapping tests on `/api/v1/nutrition-goals` removed during FOO-1008 rewrite (FITBIT_CREDENTIALS_MISSING, FITBIT_TOKEN_INVALID, FITBIT_SCOPE_MISSING, FITBIT_RATE_LIMIT, FITBIT_API_ERROR). (FOO-1026)
+- [MEDIUM] TEST: FOO-996 version-mismatch test uses `toHaveBeenCalled()` — cache-hit path also calls the same mock, so the test passes both paths. (FOO-1027)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] [reliability] Race window in `tryRatchetRecompute` (`daily-goals.ts:108`) — reviewer themselves noted "Functionally safe... no action needed unless transaction desired." The version-check correctly catches the case on the next read; design is intentional non-transactional read-then-recompute with version mismatch as the safety net.
+- [DISCARDED] [reliability] `invalidateUserDailyGoalsForProfileChange` doesn't reset F1 audit columns (`daily-goals.ts:602-621`) — reviewer says "Functionally safe but inconsistent." `hasMacros=false` forces full recompute (which overwrites F1 columns); version-check guard prevents any cache-hit from reading stale F1 data. Pure code-cleanliness with zero correctness impact.
+- [DISCARDED] [reliability] NaN slips past `< rmrThreshold` guard at `daily-goals.ts:411` — reviewer notes "the result is correct... readability suggestion." Caught downstream by `computeMacroTargets` → INVALID_ACTIVITY_DATA → blocked. The current path produces correct behavior.
+- [DISCARDED] [quality] `mapComputeResultToNutritionGoals` reimplemented inline as a mock — stylistic choice; the mock matches current behavior. Migrating to `vi.importActual` is a maintenance preference, not a bug.
+- [DISCARDED] [quality] No boundary test at exactly 7 days for `computeWeightStale` — coverage gap, not a bug. The 8-day and 3-day tests bracket the boundary; semantics (`> 7`, strict greater-than) are clear from the implementation.
+- [DISCARDED] [quality] No boundary test at exactly 90 days for the v1 range cap — coverage gap, not a bug. The `> 90 days` rejection is tested.
+
+### Linear Updates
+- FOO-992, 993, 995, 996, 997, 998, 999, 1000, 1001, 1002, 1003, 1005, 1006, 1007, 1008, 1009, 1010 → Review → Merge (originals)
+- FOO-1023, 1024, 1025, 1026, 1027 → Created in Todo (Fix Plan)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Review findings from Iteration 1
+**Linear Issues:** [FOO-1023](https://linear.app/lw-claude/issue/FOO-1023), [FOO-1024](https://linear.app/lw-claude/issue/FOO-1024), [FOO-1025](https://linear.app/lw-claude/issue/FOO-1025), [FOO-1026](https://linear.app/lw-claude/issue/FOO-1026), [FOO-1027](https://linear.app/lw-claude/issue/FOO-1027)
+
+### Fix 1: `hasMacros()` should require non-null `caloriesOut`
+**Linear Issue:** [FOO-1023](https://linear.app/lw-claude/issue/FOO-1023)
+
+1. **RED:** In `src/lib/__tests__/daily-goals.test.ts`, add test "cache-hit bypassed when stored row has null caloriesOut": pre-queue a stored row with `proteinGoal/carbsGoal/fatGoal/rmr/activityKcal/weightKg` populated but `caloriesOut: null`. Mock the full-compute Fitbit fetches. Assert `mockGetCachedActivitySummary` called with criticality `"important"` (slow path).
+2. **GREEN:** In `src/lib/daily-goals.ts:183-192`, add `row.caloriesOut !== null` to the `hasMacros()` check.
+3. Run `npx vitest run "daily-goals"` + `npm run typecheck`.
+
+### Fix 2: Add `"not_computed"` to `NutritionGoals.reason` union
+**Linear Issue:** [FOO-1024](https://linear.app/lw-claude/issue/FOO-1024)
+
+1. **GREEN:** In `src/types/index.ts:624-629`, extend the `NutritionGoals.reason` union to include `"not_computed"`.
+2. **REFACTOR:** In `src/app/api/v1/nutrition-goals/route.ts:115-126`, define a typed entry shape (e.g. `type RangeEntry = Pick<NutritionGoals, "calories" | "proteinG" | "carbsG" | "fatG" | "status" | "reason"> & { date: string }`) and assert the `entries` array conforms. This makes future drift on the reason union a compile error.
+3. Run `npm run typecheck` (no behavioral test needed — pure type tightening). Run `npx vitest run "v1/nutrition-goals"` to confirm no regression.
+
+### Fix 3: Restore Cache-Control + ETag tests on `/api/v1/nutrition-goals`
+**Linear Issue:** [FOO-1025](https://linear.app/lw-claude/issue/FOO-1025)
+
+1. **RED→GREEN:** In `src/app/api/v1/nutrition-goals/__tests__/route.test.ts`, add two tests:
+   - `it("sets Cache-Control: private, no-cache on success", …)`: mock `getOrComputeDailyGoals` to return `status: "ok"`, call GET, assert `response.headers.get("Cache-Control") === "private, no-cache"`.
+   - `it("returns ETag header on success", …)`: same setup, assert `response.headers.get("ETag")` matches `/^"[a-f0-9]{16}"$/`.
+2. Run `npx vitest run "v1/nutrition-goals"`.
+
+### Fix 4: Restore Fitbit error-code mapping tests on `/api/v1/nutrition-goals`
+**Linear Issue:** [FOO-1026](https://linear.app/lw-claude/issue/FOO-1026)
+
+1. **RED→GREEN:** In `src/app/api/v1/nutrition-goals/__tests__/route.test.ts`, add 5 tests, one per error code:
+   - "returns 424 when Fitbit credentials are missing" — mock `getOrComputeDailyGoals` to reject with `new Error("FITBIT_CREDENTIALS_MISSING")`, assert status 424 + `data.error.code === "FITBIT_CREDENTIALS_MISSING"`.
+   - "returns 401 when Fitbit token is invalid" — `FITBIT_TOKEN_INVALID` → 401.
+   - "returns 403 when Fitbit scope is missing" — `FITBIT_SCOPE_MISSING` → 403.
+   - "returns 429 when Fitbit rate-limit is hit" — `FITBIT_RATE_LIMIT` → 429.
+   - "returns 502 when Fitbit API errors" — `FITBIT_API_ERROR` → 502.
+2. Run `npx vitest run "v1/nutrition-goals"`.
+
+### Fix 5: Strengthen FOO-996 version-mismatch test
+**Linear Issue:** [FOO-1027](https://linear.app/lw-claude/issue/FOO-1027)
+
+1. In `src/lib/__tests__/daily-goals.test.ts`, locate the FOO-996 test "cache-hit falls through to full compute when stored profile_version mismatches user version". Replace `expect(mockGetCachedActivitySummary).toHaveBeenCalled()` with `expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), "important")` (full-compute criticality).
+2. Sanity-check by temporarily inverting the version-check comparison in `daily-goals.ts:267-268` and re-running the test — it should fail. Revert the inversion.
+3. Run `npx vitest run "daily-goals"` + `npm run typecheck`.
