@@ -25,11 +25,12 @@ Log potential production data migrations here during development. These notes ar
 
 **Affected rows:** Engine-computed rows have non-NULL `weight_kg` AND non-NULL `rmr` AND non-NULL `activity_kcal`. Lumen-backfilled rows (which have those columns NULL) are NOT affected and must be preserved.
 
-**Recovery:** Null out the macro/audit columns on engine-computed rows so `daily-goals.ts` re-derives them from corrected Fitbit data on next read. Do NOT delete the row (would lose `calorie_goal` for any historical day that had a pre-existing value).
+**Recovery:** Null out the macro/audit columns AND zero the `calorie_goal` on engine-computed rows so `daily-goals.ts` re-derives the entire row from corrected Fitbit data on next read. `calorie_goal` is `NOT NULL` so we use `0` (the same sentinel `daily-goals.ts:182` uses to mean "no real calorie goal — overwrite me"). Lumen-backfilled rows are excluded by the `weight_kg/rmr/activity_kcal IS NOT NULL` guard, so their calorie_goal is preserved.
 
 ```sql
 UPDATE daily_calorie_goals
-SET protein_goal  = NULL,
+SET calorie_goal  = 0,
+    protein_goal  = NULL,
     carbs_goal    = NULL,
     fat_goal      = NULL,
     weight_kg     = NULL,
@@ -44,8 +45,9 @@ WHERE weight_kg IS NOT NULL
 
 **Notes:**
 - Both Lucas and Mariana need to load the dashboard once after the migration so `getOrComputeDailyGoals` re-derives today's row from corrected Fitbit data.
-- Historical days that still have a non-zero `calorie_goal` keep that column intact (it's not nulled). Macros for historical days will be re-derived only when next requested for that date.
+- Past-date rows that were engine-computed will be re-derived only when next accessed for that date — that's fine; they were wrong, the new derivation will be correct.
 - The `Accept-Language` regression test added in `src/lib/__tests__/fitbit.test.ts` prevents this from re-occurring.
+- Already executed on staging on 2026-05-03 (1 row affected for Lucas, today). Production push must execute this for both Lucas and Mariana.
 
 ## 2026-05-03 — Macro engine: backfill lumen_goals → daily_calorie_goals macros, then DROP lumen_goals
 
