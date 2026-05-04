@@ -57,6 +57,7 @@ export async function getCachedFitbitProfile(
   // `let !` so the IIFE's `finally` can compare against the bound promise:
   // by the time finally runs (after both awaits), assignment has completed.
   let promise!: Promise<FitbitProfile>;
+  // eslint-disable-next-line prefer-const
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
@@ -101,6 +102,7 @@ export async function getCachedFitbitWeightKg(
 
   const generationAtStart = getUserGeneration(userId);
   let promise!: Promise<FitbitWeightLog | null>;
+  // eslint-disable-next-line prefer-const
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
@@ -143,6 +145,7 @@ export async function getCachedFitbitWeightGoal(
 
   const generationAtStart = getUserGeneration(userId);
   let promise!: Promise<FitbitWeightGoal | null>;
+  // eslint-disable-next-line prefer-const
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
@@ -187,6 +190,7 @@ export async function getCachedActivitySummary(
 
   const generationAtStart = getUserGeneration(userId);
   let promise!: Promise<ActivitySummary>;
+  // eslint-disable-next-line prefer-const
   promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
