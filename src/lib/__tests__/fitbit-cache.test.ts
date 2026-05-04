@@ -141,6 +141,34 @@ describe("fitbit-cache", () => {
 
       expect(mockGetFitbitProfile).toHaveBeenCalledTimes(2);
     });
+
+    it("isolates in-flight by criticality so a rejected lower-tier call does not propagate to a higher-tier call", async () => {
+      // Bug: when in-flight dedup ignored criticality, a concurrent `important` call
+      // arriving while an `optional` call was in flight would inherit the optional
+      // call's `FITBIT_RATE_LIMIT_LOW` rejection from the breaker — defeating the
+      // whole point of tiered criticality.
+      let rejectOptional: ((err: Error) => void) | undefined;
+      const optionalHanging = new Promise<FitbitProfile>((_, reject) => {
+        rejectOptional = reject;
+      });
+
+      mockGetFitbitProfile.mockImplementation((_token, _log, _userId, criticality) => {
+        if (criticality === "optional") return optionalHanging;
+        return Promise.resolve(mockProfile);
+      });
+
+      const optionalPromise = getCachedFitbitProfile("user-1", undefined, "optional");
+      // Flush microtasks so optional's IIFE reaches `await getFitbitProfile(...)`
+      await new Promise((r) => setImmediate(r));
+      const importantPromise = getCachedFitbitProfile("user-1", undefined, "important");
+
+      rejectOptional!(new Error("FITBIT_RATE_LIMIT_LOW"));
+
+      await expect(optionalPromise).rejects.toThrow("FITBIT_RATE_LIMIT_LOW");
+      await expect(importantPromise).resolves.toEqual(mockProfile);
+      // Both tiers triggered their own underlying fetch — no cross-tier dedup.
+      expect(mockGetFitbitProfile).toHaveBeenCalledTimes(2);
+    });
   });
 
   // ─── getCachedFitbitWeightKg ──────────────────────────────────────────────
@@ -398,6 +426,34 @@ describe("fitbit-cache", () => {
       // user-1's cache should be gone
       await getCachedFitbitProfile("user-1");
       expect(mockGetFitbitProfile).toHaveBeenCalledTimes(1);
+    });
+
+    it("clears in-flight dedup entries so a refresh after a pending fetch triggers a new call", async () => {
+      // If an in-flight fetch was running when invalidate was called, the next
+      // call must NOT dedup with the (now-stale) in-flight promise — it must
+      // start a fresh fetch.
+      let resolveFirst!: (v: FitbitProfile) => void;
+      const firstFetchPromise = new Promise<FitbitProfile>((resolve) => {
+        resolveFirst = resolve;
+      });
+      mockGetFitbitProfile.mockReturnValueOnce(firstFetchPromise);
+
+      const inflight = getCachedFitbitProfile("user-1");
+      // Let the IIFE register itself in profileInFlight.
+      await new Promise((r) => setImmediate(r));
+
+      invalidateFitbitProfileCache("user-1");
+
+      // Subsequent call must trigger a NEW fetch — not dedup with the orphan in-flight.
+      mockGetFitbitProfile.mockResolvedValueOnce(mockProfile);
+      const refresh = getCachedFitbitProfile("user-1");
+
+      // Resolve the orphan; both promises settle.
+      resolveFirst({ ageYears: 99, sex: "FEMALE", heightCm: 100 });
+      await Promise.all([inflight, refresh]);
+
+      // Two distinct fetches happened — invalidation broke the in-flight dedup.
+      expect(mockGetFitbitProfile).toHaveBeenCalledTimes(2);
     });
   });
 });

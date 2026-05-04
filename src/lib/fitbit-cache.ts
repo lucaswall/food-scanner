@@ -36,7 +36,8 @@ export async function getCachedFitbitProfile(
     return cached.value;
   }
 
-  const existing = profileInFlight.get(userId);
+  const inflightKey = `${userId}:${criticality}`;
+  const existing = profileInFlight.get(inflightKey);
   if (existing) return existing;
 
   const promise = (async () => {
@@ -46,11 +47,11 @@ export async function getCachedFitbitProfile(
       profileCache.set(userId, { value: profile, expiresAt: Date.now() + TTL_24H });
       return profile;
     } finally {
-      profileInFlight.delete(userId);
+      profileInFlight.delete(inflightKey);
     }
   })();
 
-  profileInFlight.set(userId, promise);
+  profileInFlight.set(inflightKey, promise);
   return promise;
 }
 
@@ -73,7 +74,8 @@ export async function getCachedFitbitWeightKg(
     return cached.value;
   }
 
-  const existing = weightInFlight.get(key);
+  const inflightKey = `${key}:${criticality}`;
+  const existing = weightInFlight.get(inflightKey);
   if (existing) return existing;
 
   const promise = (async () => {
@@ -83,11 +85,11 @@ export async function getCachedFitbitWeightKg(
       weightCache.set(key, { value: weight, expiresAt: Date.now() + TTL_1H });
       return weight;
     } finally {
-      weightInFlight.delete(key);
+      weightInFlight.delete(inflightKey);
     }
   })();
 
-  weightInFlight.set(key, promise);
+  weightInFlight.set(inflightKey, promise);
   return promise;
 }
 
@@ -108,7 +110,8 @@ export async function getCachedFitbitWeightGoal(
     return cached.value;
   }
 
-  const existing = weightGoalInFlight.get(userId);
+  const inflightKey = `${userId}:${criticality}`;
+  const existing = weightGoalInFlight.get(inflightKey);
   if (existing) return existing;
 
   const promise = (async () => {
@@ -118,11 +121,11 @@ export async function getCachedFitbitWeightGoal(
       weightGoalCache.set(userId, { value: goal, expiresAt: Date.now() + TTL_24H });
       return goal;
     } finally {
-      weightGoalInFlight.delete(userId);
+      weightGoalInFlight.delete(inflightKey);
     }
   })();
 
-  weightGoalInFlight.set(userId, promise);
+  weightGoalInFlight.set(inflightKey, promise);
   return promise;
 }
 
@@ -145,7 +148,8 @@ export async function getCachedActivitySummary(
     return cached.value;
   }
 
-  const existing = activityInFlight.get(key);
+  const inflightKey = `${key}:${criticality}`;
+  const existing = activityInFlight.get(inflightKey);
   if (existing) return existing;
 
   const promise = (async () => {
@@ -155,11 +159,11 @@ export async function getCachedActivitySummary(
       activityCache.set(key, { value: activity, expiresAt: Date.now() + TTL_5MIN });
       return activity;
     } finally {
-      activityInFlight.delete(key);
+      activityInFlight.delete(inflightKey);
     }
   })();
 
-  activityInFlight.set(key, promise);
+  activityInFlight.set(inflightKey, promise);
   return promise;
 }
 
@@ -167,21 +171,30 @@ export async function getCachedActivitySummary(
 
 /**
  * Clears all profile, weight, weight-goal, and activity cache entries for the
- * given user. Called by the settings "Refresh from Fitbit" button.
+ * given user, plus any in-flight dedup entries across all criticality tiers.
+ * Called by the settings "Refresh from Fitbit" button.
  */
 export function invalidateFitbitProfileCache(userId: string): void {
   profileCache.delete(userId);
   weightGoalCache.delete(userId);
 
-  // Clear all weight and activity entries that start with this userId
+  const userPrefix = `${userId}:`;
   for (const key of weightCache.keys()) {
-    if (key.startsWith(`${userId}:`)) {
-      weightCache.delete(key);
-    }
+    if (key.startsWith(userPrefix)) weightCache.delete(key);
   }
   for (const key of activityCache.keys()) {
-    if (key.startsWith(`${userId}:`)) {
-      activityCache.delete(key);
-    }
+    if (key.startsWith(userPrefix)) activityCache.delete(key);
+  }
+  for (const key of profileInFlight.keys()) {
+    if (key.startsWith(userPrefix)) profileInFlight.delete(key);
+  }
+  for (const key of weightGoalInFlight.keys()) {
+    if (key.startsWith(userPrefix)) weightGoalInFlight.delete(key);
+  }
+  for (const key of weightInFlight.keys()) {
+    if (key.startsWith(userPrefix)) weightInFlight.delete(key);
+  }
+  for (const key of activityInFlight.keys()) {
+    if (key.startsWith(userPrefix)) activityInFlight.delete(key);
   }
 }
