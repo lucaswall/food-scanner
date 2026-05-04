@@ -4,7 +4,14 @@ import {
   getUnitById,
   getUnitLabel,
 } from "@/types";
-import type { FitbitUnitKey } from "@/types";
+import type { ErrorCode, FitbitUnitKey } from "@/types";
+
+describe("ErrorCode", () => {
+  it("includes FITBIT_RATE_LIMIT_LOW (circuit-breaker rejection)", () => {
+    const code: ErrorCode = "FITBIT_RATE_LIMIT_LOW";
+    expect(code).toBe("FITBIT_RATE_LIMIT_LOW");
+  });
+});
 
 describe("FITBIT_UNITS", () => {
   it("contains all expected unit keys", () => {

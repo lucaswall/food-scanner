@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 
   try {
     const accessToken = await ensureFreshToken(authResult.userId, log);
-    const goals = await getFoodGoals(accessToken, log);
+    const goals = await getFoodGoals(accessToken, log, authResult.userId, "important");
 
     log.debug(
       {
@@ -57,6 +57,13 @@ export async function GET(request: Request) {
       }
       if (error.message === "FITBIT_SCOPE_MISSING") {
         return errorResponse("FITBIT_SCOPE_MISSING", "Fitbit permissions need updating. Please reconnect your Fitbit account in Settings.", 403);
+      }
+      if (error.message === "FITBIT_RATE_LIMIT_LOW") {
+        return errorResponse(
+          "FITBIT_RATE_LIMIT_LOW",
+          "Fitbit rate-limit headroom is low. Please try again in a few minutes.",
+          503,
+        );
       }
       if (error.message === "FITBIT_API_ERROR") {
         return errorResponse("FITBIT_API_ERROR", "Fitbit API error", 502);

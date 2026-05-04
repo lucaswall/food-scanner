@@ -8,6 +8,7 @@
 | [Offline Queue with Background Sync](#offline-queue-with-background-sync) | Queue meals offline, analyze and log when back online |
 | [Food Log Push Notifications](#food-log-push-notifications) | Push nutrition data directly to Health Connect via a thin Android wrapper |
 | [Automated Lumen RQ Ingestion](#automated-lumen-rq-ingestion) | Pull daily RQ readings from Lumen's private API as an independent trend metric |
+| [Calorie Target Formula Review](#calorie-target-formula-review) | Reassess deficit/surplus model — currently flat ±20% / +10%, ignores Fitbit's target weight |
 
 ---
 
@@ -285,6 +286,51 @@ A small RQ trend card on the dashboard shows the last 7 and 30 days as a sparkli
 5. Settings UI: token input, last-sync, resync button
 6. Dashboard: RQ trend sparkline card (hidden when no token)
 7. Operator doc for mitmproxy token capture
+
+---
+
+## Calorie Target Formula Review
+
+### Problem
+
+The calorie target is computed as `TDEE × {0.80 LOSE / 1.00 MAINTAIN / 1.10 GAIN}`. The multiplier depends only on Fitbit's `goalType` *direction* — the user's actual target weight (`goal.weight`), starting weight (`goal.startWeight`), and any timeline are ignored. A user with 2 kg to lose gets the same 20% deficit as a user with 50 kg to lose. The flat coefficients are not derived from any per-user input beyond direction, and there is no surfacing of how aggressive the deficit/surplus is.
+
+### Goal
+
+A calorie target whose deficit or surplus is *informed by* the user's target weight and a sensible weekly rate, with the model and assumptions visible in the audit so the user can sanity-check the math.
+
+### Design
+
+To be fleshed out. Open questions to resolve:
+
+- Should deficit derive from `(currentWeight − targetWeight)` over a default weekly rate (e.g., 0.5 kg/week ≈ 500 kcal/day deficit), capped at sane bounds (e.g., never below RMR × 1.0)?
+- Should the user be able to override the deficit aggressiveness (conservative / moderate / aggressive) per macro profile, or globally?
+- For GAIN, what's the analogous rate (e.g., +0.25 kg/week)?
+- How does the model handle "MAINTAIN at a target weight different from current weight" (Fitbit allows this)?
+- How are floors enforced (never below RMR, never below sex-specific minimums)?
+- What does the audit display so the user understands the chosen deficit?
+
+### Architecture
+
+- Engine module: `src/lib/macro-engine.ts` — replace `GOAL_MULTIPLIERS` with a richer derivation that takes target weight + timeline into account.
+- Engine inputs: `MacroEngineInputs` extended with `targetWeightKg` and possibly `weeklyRateKg`.
+- Fitbit weight-goal client: `src/lib/fitbit.ts:703-747` already fetches the goal but extracts only `goalType`. Extend `FitbitWeightGoal` to include `weight` and `startWeight` (already returned by the API; just unused).
+- Audit: include the chosen deficit/surplus delta and rate so the formula is transparent.
+
+### Edge Cases
+
+- User has no target weight set in Fitbit → fall back to current direction-only model.
+- Target weight equals current weight + LOSE direction → contradictory; treat as MAINTAIN.
+- Implausible rate (>1 kg/week sustained) → clamp and surface a warning in the audit.
+- Goal type mid-day changes → next compute picks up the new model; existing row's audit may need a `model_version` field to avoid mixing old/new logic.
+
+### Implementation Order
+
+1. Extend `FitbitWeightGoal` and `getFitbitWeightGoal` to read `weight` and `startWeight`.
+2. Define the deficit/surplus model (likely 500 kcal default per 0.5 kg/week, with clamps).
+3. Update `computeMacroTargets` and `MacroEngineInputs`; remove or deprecate `GOAL_MULTIPLIERS` constants.
+4. Surface the chosen deficit and rate in the audit response and TargetsCard expanded view.
+5. Decide on user-facing override (likely a simple "rate: gentle / standard / aggressive" toggle) — design before building.
 
 ---
 

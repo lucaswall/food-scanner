@@ -100,14 +100,39 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     // Fast path: row already fully computed — re-use from DB
     const existing = await queryRow(userId, date);
     if (existing && hasMacros(existing)) {
-      // Re-fetch profile + weight goal from process-level cache (no real API call)
-      const [profile, weightGoal] = await Promise.all([
-        getCachedFitbitProfile(userId, l),
-        getCachedFitbitWeightGoal(userId, l),
+      // Re-fetch profile + weight goal from process-level cache. These are
+      // explicitly "optional" — when the breaker rejects (low headroom), fall
+      // back to a degraded audit so the user still sees their stored goals.
+      const [profileRes, weightGoalRes] = await Promise.allSettled([
+        getCachedFitbitProfile(userId, l, "optional"),
+        getCachedFitbitWeightGoal(userId, l, "optional"),
       ]);
+
+      // Re-throw any non-breaker rejection from the profile fetch (the only
+      // call that contributes to bmiTier — weightGoal has a safe MAINTAIN default).
+      if (
+        profileRes.status === "rejected" &&
+        !(profileRes.reason instanceof Error && profileRes.reason.message === "FITBIT_RATE_LIMIT_LOW")
+      ) {
+        throw profileRes.reason;
+      }
+      if (
+        weightGoalRes.status === "rejected" &&
+        !(weightGoalRes.reason instanceof Error && weightGoalRes.reason.message === "FITBIT_RATE_LIMIT_LOW")
+      ) {
+        throw weightGoalRes.reason;
+      }
+
       // hasMacros guarantees existing.weightKg is non-null, so parseFloat is safe.
       const wKg = parseFloat(existing.weightKg!);
-      const bmiTier = getBmiTier(wKg, profile.heightCm);
+      const bmiTier =
+        profileRes.status === "fulfilled"
+          ? getBmiTier(wKg, profileRes.value.heightCm)
+          : "lt25";
+      const goalType =
+        weightGoalRes.status === "fulfilled"
+          ? weightGoalRes.value?.goalType ?? "MAINTAIN"
+          : "MAINTAIN";
       const tdee = (existing.rmr ?? 0) + (existing.activityKcal ?? 0);
 
       return {
@@ -124,17 +149,20 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
           tdee,
           weightKg: existing.weightKg!,
           bmiTier,
-          goalType: weightGoal?.goalType ?? "MAINTAIN",
+          goalType,
         },
       };
     }
 
-    // Fetch from Fitbit (uses process-level TTL cache internally)
+    // Fetch from Fitbit (uses process-level TTL cache internally). This is the
+    // first compute of the day for this user — mark it `important` so the breaker
+    // does not reject; if FITBIT_RATE_LIMIT_LOW *does* propagate (remaining < 5),
+    // the caller maps it to a 503.
     const [profile, weightLog, weightGoal, activity] = await Promise.all([
-      getCachedFitbitProfile(userId, l),
-      getCachedFitbitWeightKg(userId, date, l),
-      getCachedFitbitWeightGoal(userId, l),
-      getCachedActivitySummary(userId, date, l),
+      getCachedFitbitProfile(userId, l, "important"),
+      getCachedFitbitWeightKg(userId, date, l, "important"),
+      getCachedFitbitWeightGoal(userId, l, "important"),
+      getCachedActivitySummary(userId, date, l, "important"),
     ]);
 
     if (profile.sex === "NA") {

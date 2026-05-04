@@ -194,6 +194,7 @@ export async function POST(request: Request) {
           date,
           time,
           log,
+          session!.userId,
         );
         fitbitLogId = logResult.foodLog.logId;
       }
@@ -250,7 +251,7 @@ export async function POST(request: Request) {
         if (fitbitLogId && !isDryRun) {
           try {
             const accessToken = await ensureFreshToken(session!.userId, log);
-            await deleteFoodLog(accessToken, fitbitLogId, log);
+            await deleteFoodLog(accessToken, fitbitLogId, log, session!.userId);
             log.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
           } catch (compensationErr) {
             log.error(
@@ -294,7 +295,7 @@ export async function POST(request: Request) {
 
     if (!isDryRun) {
       const accessToken = await ensureFreshToken(session!.userId, log);
-      const createResult = await findOrCreateFood(accessToken, body, log);
+      const createResult = await findOrCreateFood(accessToken, body, log, session!.userId);
       fitbitFoodId = createResult.foodId;
       reused = createResult.reused;
 
@@ -307,6 +308,7 @@ export async function POST(request: Request) {
         date,
         time,
         log,
+        session!.userId,
       );
       fitbitLogId = logResult.foodLog.logId;
     }
@@ -352,7 +354,7 @@ export async function POST(request: Request) {
       if (fitbitLogId && !isDryRun) {
         try {
           const accessToken = await ensureFreshToken(session!.userId, log);
-          await deleteFoodLog(accessToken, fitbitLogId, log);
+          await deleteFoodLog(accessToken, fitbitLogId, log, session!.userId);
           log.info({ action: "food_log_compensation", fitbitLogId }, "Fitbit log rolled back after DB failure");
         } catch (compensationErr) {
           log.error(

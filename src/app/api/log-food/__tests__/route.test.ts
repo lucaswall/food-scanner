@@ -330,6 +330,7 @@ describe("POST /api/log-food", () => {
       "2024-01-15",
       "20:30:00",
       expect.any(Object),
+      "user-uuid-123",
     );
   });
 
@@ -462,6 +463,7 @@ describe("POST /api/log-food", () => {
       "2024-01-15",
       "12:30:00",
       expect.any(Object),
+      "user-uuid-123",
     );
   });
 
@@ -490,6 +492,7 @@ describe("POST /api/log-food", () => {
       "2024-01-15",
       "12:30",
       expect.any(Object),
+      "user-uuid-123",
     );
   });
 
@@ -571,7 +574,7 @@ describe("POST /api/log-food", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456, expect.any(Object));
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 456, expect.any(Object), "user-uuid-123");
   });
 
   it("returns PARTIAL_ERROR when DB fails and compensation also fails in new food flow", async () => {
@@ -624,7 +627,7 @@ describe("POST /api/log-food", () => {
     expect(response.status).toBe(500);
     const body = await response.json();
     expect(body.error.code).toBe("INTERNAL_ERROR");
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object));
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object), "user-uuid-123");
   });
 
   it("returns error without compensation in dry-run mode when DB fails", async () => {
@@ -708,6 +711,7 @@ describe("POST /api/log-food", () => {
         "2026-02-07",
         "12:30:00",
         expect.any(Object),
+        "user-uuid-123",
       );
     });
 

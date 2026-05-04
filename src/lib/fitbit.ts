@@ -1,13 +1,42 @@
+import * as Sentry from "@sentry/nextjs";
 import type { FoodAnalysis } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getFitbitTokens, upsertFitbitTokens } from "@/lib/fitbit-tokens";
 import { getFitbitCredentials } from "@/lib/fitbit-credentials";
+import {
+  assertRateLimitAllowed,
+  getRateLimitSnapshot,
+  recordRateLimitHeaders,
+  type FitbitCallCriticality,
+} from "@/lib/fitbit-rate-limit";
+
+export type { FitbitCallCriticality } from "@/lib/fitbit-rate-limit";
 
 const FITBIT_API_BASE = "https://api.fitbit.com";
 const MAX_RETRIES = 3;
 const REQUEST_TIMEOUT_MS = 10000;
 const DEADLINE_MS = 30000;
+const RATE_LIMIT_NO_HEADER_DELAY_MS = 1000;
+
+/**
+ * Parse a Fitbit `Retry-After` header value (RFC 7231 — integer seconds OR HTTP-date)
+ * into milliseconds. Returns null if the value is missing or malformed.
+ */
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+
+  // Integer seconds
+  if (/^\d+$/.test(trimmed)) {
+    return Number.parseInt(trimmed, 10) * 1000;
+  }
+
+  // HTTP-date — Date.parse returns NaN for invalid input
+  const dateMs = Date.parse(trimmed);
+  if (Number.isNaN(dateMs)) return null;
+  return Math.max(0, Math.ceil(dateMs - Date.now()));
+}
 
 interface CreateFoodResponse {
   food: {
@@ -68,10 +97,19 @@ async function fetchWithRetry(
   retryCount = 0,
   startTime = Date.now(),
   l: Logger = logger,
+  userId?: string,
+  criticality: FitbitCallCriticality = "optional",
 ): Promise<Response> {
   const elapsed = Date.now() - startTime;
   if (elapsed > DEADLINE_MS) {
     throw new Error("FITBIT_TIMEOUT");
+  }
+
+  // Circuit breaker: reject before burning a request when budget is too low.
+  // Only check on the FIRST attempt (retryCount === 0) — once we've already
+  // committed to a 429-retry sleep, the headroom decision was made.
+  if (userId && retryCount === 0) {
+    assertRateLimitAllowed(userId, criticality, l);
   }
 
   const controller = new AbortController();
@@ -83,6 +121,24 @@ async function fetchWithRetry(
       signal: controller.signal,
     });
 
+    // Always parse rate-limit headers first so even error responses (including 429)
+    // update the per-user headroom snapshot.
+    recordRateLimitHeaders(userId, response, l);
+
+    if (userId) {
+      const snap = getRateLimitSnapshot(userId);
+      Sentry.addBreadcrumb({
+        category: "fitbit",
+        level: "info",
+        message: "fitbit api call",
+        data: {
+          url,
+          status: response.status,
+          remaining: snap?.remaining ?? null,
+        },
+      });
+    }
+
     if (response.status === 401) {
       throw new Error("FITBIT_TOKEN_INVALID");
     }
@@ -92,16 +148,42 @@ async function fetchWithRetry(
     }
 
     if (response.status === 429) {
-      if (retryCount >= MAX_RETRIES) {
+      // Allow at most 1 retry on 429 (per FOO-1011). Each retry burns budget,
+      // so amplifying retries during a rate-limit event makes things worse.
+      if (retryCount >= 1) {
         throw new Error("FITBIT_RATE_LIMIT");
       }
-      const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
-      l.warn(
-        { action: "fitbit_rate_limit", retryCount, delay },
-        "rate limited, retrying",
-      );
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      return fetchWithRetry(url, options, retryCount + 1, startTime, l);
+
+      const retryAfterMs = parseRetryAfter(response.headers.get("Retry-After"));
+      const deadlineRemaining = DEADLINE_MS - (Date.now() - startTime);
+
+      if (retryAfterMs !== null) {
+        if (retryAfterMs > deadlineRemaining) {
+          l.warn(
+            {
+              action: "fitbit_rate_limit_no_retry",
+              retryAfterMs,
+              deadlineRemaining,
+            },
+            "rate limited; Retry-After exceeds deadline, giving up",
+          );
+          throw new Error("FITBIT_RATE_LIMIT");
+        }
+
+        l.warn(
+          { action: "fitbit_rate_limit", retryAfterMs, source: "header" },
+          "rate limited, sleeping per Retry-After header",
+        );
+        await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+      } else {
+        l.warn(
+          { action: "fitbit_rate_limit", retryAfterMs: RATE_LIMIT_NO_HEADER_DELAY_MS, source: "default" },
+          "rate limited (no Retry-After), brief retry",
+        );
+        await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_NO_HEADER_DELAY_MS));
+      }
+
+      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality);
     }
 
     if (response.status >= 500) {
@@ -114,7 +196,7 @@ async function fetchWithRetry(
         "server error, retrying",
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
-      return fetchWithRetry(url, options, retryCount + 1, startTime, l);
+      return fetchWithRetry(url, options, retryCount + 1, startTime, l, userId, criticality);
     }
 
     return response;
@@ -127,6 +209,7 @@ export async function createFood(
   accessToken: string,
   food: FoodAnalysis,
   log?: Logger,
+  userId?: string,
 ): Promise<CreateFoodResponse> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -173,7 +256,7 @@ export async function createFood(
       },
       body: params.toString(),
     },
-    0, Date.now(), l,
+    0, Date.now(), l, userId, "critical",
   );
 
   if (!response.ok) {
@@ -204,6 +287,7 @@ export async function logFood(
   date: string,
   time?: string,
   log?: Logger,
+  userId?: string,
 ): Promise<LogFoodResponse> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -234,7 +318,7 @@ export async function logFood(
       },
       body: params.toString(),
     },
-    0, Date.now(), l,
+    0, Date.now(), l, userId, "critical",
   );
 
   if (!response.ok) {
@@ -260,6 +344,7 @@ export async function deleteFoodLog(
   accessToken: string,
   fitbitLogId: number,
   log?: Logger,
+  userId?: string,
 ): Promise<void> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -276,7 +361,7 @@ export async function deleteFoodLog(
         Authorization: `Bearer ${accessToken}`,
       },
     },
-    0, Date.now(), l,
+    0, Date.now(), l, userId, "critical",
   );
 
   if (response.status === 404) {
@@ -303,6 +388,7 @@ export async function findOrCreateFood(
   accessToken: string,
   food: FoodAnalysis,
   log?: Logger,
+  userId?: string,
 ): Promise<FindOrCreateResult> {
   const l = log ?? logger;
   l.debug(
@@ -310,7 +396,7 @@ export async function findOrCreateFood(
     "creating food entry",
   );
 
-  const createResult = await createFood(accessToken, food, l);
+  const createResult = await createFood(accessToken, food, l, userId);
   l.info(
     { action: "fitbit_food_created", foodId: createResult.food.foodId },
     "created new food",
@@ -515,7 +601,10 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
           await upsertFitbitTokens(userId, tokenData, l);
         } catch (upsertError) {
           l.warn(
-            { error: upsertError instanceof Error ? upsertError.message : String(upsertError) },
+            {
+              action: "fitbit_token_upsert_warn",
+              error: upsertError instanceof Error ? upsertError.message : String(upsertError),
+            },
             "fitbit token upsert failed, retrying once",
           );
           // Retry once
@@ -523,7 +612,10 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
             await upsertFitbitTokens(userId, tokenData, l);
           } catch (retryError) {
             l.error(
-              { error: retryError instanceof Error ? retryError.message : String(retryError) },
+              {
+                action: "fitbit_token_upsert_failed",
+                error: retryError instanceof Error ? retryError.message : String(retryError),
+              },
               "fitbit token upsert retry failed",
             );
             throw new Error("FITBIT_TOKEN_SAVE_FAILED");
@@ -546,6 +638,8 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
 export async function getFoodGoals(
   accessToken: string,
   log?: Logger,
+  userId?: string,
+  criticality: FitbitCallCriticality = "optional",
 ): Promise<import("@/types").FitbitFoodGoals> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -562,7 +656,7 @@ export async function getFoodGoals(
         Authorization: `Bearer ${accessToken}`,
       },
     },
-    0, Date.now(), l,
+    0, Date.now(), l, userId, criticality,
   );
 
   if (!response.ok) {
@@ -595,6 +689,8 @@ function subtractDays(dateStr: string, days: number): string {
 export async function getFitbitProfile(
   accessToken: string,
   log?: Logger,
+  userId?: string,
+  criticality: FitbitCallCriticality = "optional",
 ): Promise<import("@/types").FitbitProfile> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -610,7 +706,7 @@ export async function getFitbitProfile(
         Authorization: `Bearer ${accessToken}`,
       },
     },
-    0, Date.now(), l,
+    0, Date.now(), l, userId, criticality,
   );
 
   if (!response.ok) {
@@ -650,10 +746,16 @@ export async function getFitbitLatestWeightKg(
   accessToken: string,
   targetDate: string,
   log?: Logger,
+  userId?: string,
+  criticality: FitbitCallCriticality = "optional",
 ): Promise<import("@/types").FitbitWeightLog | null> {
   const l = log ?? logger;
   const elapsed = startTimer();
   l.debug({ action: "fitbit_get_weight", targetDate }, "fetching latest weight");
+
+  // Single shared deadline across all 7 walk-back days — without this, each
+  // iteration would get its own 30s budget (210s worst case).
+  const walkbackStart = Date.now();
 
   for (let daysBack = 0; daysBack < 7; daysBack++) {
     const date = subtractDays(targetDate, daysBack);
@@ -667,7 +769,7 @@ export async function getFitbitLatestWeightKg(
           Authorization: `Bearer ${accessToken}`,
         },
       },
-      0, Date.now(), l,
+      0, walkbackStart, l, userId, criticality,
     );
 
     if (!response.ok) {
@@ -703,6 +805,8 @@ export async function getFitbitLatestWeightKg(
 export async function getFitbitWeightGoal(
   accessToken: string,
   log?: Logger,
+  userId?: string,
+  criticality: FitbitCallCriticality = "optional",
 ): Promise<import("@/types").FitbitWeightGoal | null> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -719,7 +823,7 @@ export async function getFitbitWeightGoal(
         Authorization: `Bearer ${accessToken}`,
       },
     },
-    0, Date.now(), l,
+    0, Date.now(), l, userId, criticality,
   );
 
   if (!response.ok) {
@@ -750,6 +854,8 @@ export async function getActivitySummary(
   accessToken: string,
   date: string,
   log?: Logger,
+  userId?: string,
+  criticality: FitbitCallCriticality = "optional",
 ): Promise<import("@/types").ActivitySummary> {
   const l = log ?? logger;
   const elapsed = startTimer();
@@ -766,7 +872,7 @@ export async function getActivitySummary(
         Authorization: `Bearer ${accessToken}`,
       },
     },
-    0, Date.now(), l,
+    0, Date.now(), l, userId, criticality,
   );
 
   if (!response.ok) {

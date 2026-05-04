@@ -14,6 +14,19 @@ vi.mock("@/lib/logger", () => ({
   startTimer: () => () => 42,
 }));
 
+vi.mock("@sentry/nextjs", () => ({
+  addBreadcrumb: vi.fn(),
+}));
+
+const mockRecordRateLimitHeaders = vi.fn();
+const mockGetRateLimitSnapshot = vi.fn().mockReturnValue(null);
+const mockAssertRateLimitAllowed = vi.fn();
+vi.mock("@/lib/fitbit-rate-limit", () => ({
+  recordRateLimitHeaders: (...args: unknown[]) => mockRecordRateLimitHeaders(...args),
+  getRateLimitSnapshot: (...args: unknown[]) => mockGetRateLimitSnapshot(...args),
+  assertRateLimitAllowed: (...args: unknown[]) => mockAssertRateLimitAllowed(...args),
+}));
+
 const mockGetFitbitTokens = vi.fn();
 const mockUpsertFitbitTokens = vi.fn();
 vi.mock("@/lib/fitbit-tokens", () => ({
@@ -469,6 +482,43 @@ describe("ensureFreshToken", () => {
     vi.restoreAllMocks();
   });
 
+  it("warn-logs with action=fitbit_token_upsert_warn on first upsert failure (FOO-1016)", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000),
+    });
+    mockUpsertFitbitTokens
+      .mockRejectedValueOnce(new Error("DB write failed"))
+      .mockResolvedValueOnce(undefined);
+
+    await ensureFreshToken("user-uuid-123");
+
+    const warnCall = (logger.warn as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => (c[0] as { action?: string }).action === "fitbit_token_upsert_warn",
+    );
+    expect(warnCall).toBeDefined();
+    expect(warnCall![0]).toMatchObject({
+      action: "fitbit_token_upsert_warn",
+      error: "DB write failed",
+    });
+
+    vi.restoreAllMocks();
+  });
+
   it("throws FITBIT_TOKEN_SAVE_FAILED when upsert retry also fails (FOO-430)", async () => {
     mockGetFitbitCredentials.mockResolvedValue({
       clientId: "test-client-id",
@@ -496,6 +546,43 @@ describe("ensureFreshToken", () => {
       .mockRejectedValueOnce(new Error("Database connection error"));
 
     await expect(ensureFreshToken("user-uuid-123")).rejects.toThrow("FITBIT_TOKEN_SAVE_FAILED");
+
+    vi.restoreAllMocks();
+  });
+
+  it("error-logs with action=fitbit_token_upsert_failed when retry also fails (FOO-1016)", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000),
+    });
+    mockUpsertFitbitTokens
+      .mockRejectedValueOnce(new Error("DB write failed"))
+      .mockRejectedValueOnce(new Error("DB still failing"));
+
+    await expect(ensureFreshToken("user-uuid-123")).rejects.toThrow("FITBIT_TOKEN_SAVE_FAILED");
+
+    const errorCall = (logger.error as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => (c[0] as { action?: string }).action === "fitbit_token_upsert_failed",
+    );
+    expect(errorCall).toBeDefined();
+    expect(errorCall![0]).toMatchObject({
+      action: "fitbit_token_upsert_failed",
+      error: "DB still failing",
+    });
 
     vi.restoreAllMocks();
   });
@@ -1328,6 +1415,34 @@ describe("fetchWithRetry deadline", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
+
+  it("getFitbitLatestWeightKg shares a single 30s deadline across all 7 walk-back days", async () => {
+    vi.useFakeTimers();
+
+    // Each fetch resolves with 404 after 9s (no weight on this day → continues walk-back).
+    // With a SHARED deadline: 9s × 4 = 36s → the 4th call's deadline check exceeds 30s
+    //                          → throws FITBIT_TIMEOUT.
+    // With per-iteration deadline (the bug): 9s × 7 = 63s, all 7 iterations succeed.
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      return new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(new Response(JSON.stringify({ weight: [] }), { status: 200 })), 9000);
+      });
+    });
+
+    const promise = getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    const rejection = expect(promise).rejects.toThrow("FITBIT_TIMEOUT");
+    await vi.advanceTimersByTimeAsync(70000);
+    await rejection;
+
+    // With shared deadline, we expect ≤ 4 calls (after which deadline is exceeded).
+    expect(callCount).toBeLessThanOrEqual(4);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 });
 
 describe("parseErrorBody", () => {
@@ -2066,6 +2181,413 @@ describe("findOrCreateFood", () => {
     await expect(findOrCreateFood("bad-token", mockFoodAnalysis)).rejects.toThrow(
       "FITBIT_TOKEN_INVALID",
     );
+
+    vi.restoreAllMocks();
+  });
+});
+
+describe("fetchWithRetry Retry-After honoring (FOO-1011)", () => {
+  it("sleeps the duration of Retry-After (integer seconds) and retries once on 429", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(
+          new Response(null, {
+            status: 429,
+            headers: { "Retry-After": "5" }, // 5 seconds, within 30s deadline
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ summary: { caloriesOut: 1234 } }), { status: 200 }),
+      );
+    });
+
+    const promise = getActivitySummary("test-token", "2024-01-15");
+    await vi.advanceTimersByTimeAsync(5000); // exact Retry-After duration
+    const result = await promise;
+
+    expect(callCount).toBe(2);
+    expect(result.caloriesOut).toBe(1234);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("calls assertRateLimitAllowed only on the initial attempt, not on the Retry-After retry (FOO-1022)", async () => {
+    vi.useFakeTimers();
+    mockAssertRateLimitAllowed.mockReset();
+
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(
+          new Response(null, {
+            status: 429,
+            headers: { "Retry-After": "3" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ summary: { caloriesOut: 555 } }), { status: 200 }),
+      );
+    });
+
+    const promise = getActivitySummary("test-token", "2024-01-15", undefined, "user-retry");
+    await vi.advanceTimersByTimeAsync(3000);
+    await promise;
+
+    expect(callCount).toBe(2);
+    // Breaker check is gated on retryCount === 0, so only the first attempt invokes it.
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledTimes(1);
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledWith("user-retry", "optional", expect.any(Object));
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("throws FITBIT_RATE_LIMIT immediately when Retry-After exceeds deadline (no retry)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, {
+        status: 429,
+        headers: { "Retry-After": "3600" }, // 1h, well over 30s deadline
+      }),
+    );
+
+    await expect(
+      getActivitySummary("test-token", "2024-01-15"),
+    ).rejects.toThrow("FITBIT_RATE_LIMIT");
+
+    expect(fetch).toHaveBeenCalledTimes(1); // no retry attempted
+
+    vi.restoreAllMocks();
+  });
+
+  it("on 429 without Retry-After: retries once with 1s delay then throws if still 429", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 429 }),
+    );
+
+    const promise = getActivitySummary("test-token", "2024-01-15");
+    const rejection = expect(promise).rejects.toThrow("FITBIT_RATE_LIMIT");
+    await vi.advanceTimersByTimeAsync(1000);
+    await rejection;
+
+    expect(fetch).toHaveBeenCalledTimes(2); // initial + 1 retry
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("parses Retry-After in HTTP-date format", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
+
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(
+          new Response(null, {
+            status: 429,
+            headers: {
+              // 7 seconds in the future
+              "Retry-After": new Date(
+                Date.parse("2026-05-04T12:00:07Z"),
+              ).toUTCString(),
+            },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ summary: { caloriesOut: 999 } }), { status: 200 }),
+      );
+    });
+
+    const promise = getActivitySummary("test-token", "2024-01-15");
+    await vi.advanceTimersByTimeAsync(7000);
+    const result = await promise;
+
+    expect(callCount).toBe(2);
+    expect(result.caloriesOut).toBe(999);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("treats Retry-After: 0 as immediate retry", async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(
+          new Response(null, {
+            status: 429,
+            headers: { "Retry-After": "0" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ summary: { caloriesOut: 111 } }), { status: 200 }),
+      );
+    });
+
+    const result = await getActivitySummary("test-token", "2024-01-15");
+
+    expect(callCount).toBe(2);
+    expect(result.caloriesOut).toBe(111);
+
+    vi.restoreAllMocks();
+  });
+
+  it("treats Retry-After with a past HTTP-date as immediate retry (clamped to 0ms)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-04T12:00:00Z"));
+
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(
+          new Response(null, {
+            status: 429,
+            // 1 minute IN THE PAST relative to system time
+            headers: { "Retry-After": new Date("2026-05-04T11:59:00Z").toUTCString() },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ summary: { caloriesOut: 222 } }), { status: 200 }),
+      );
+    });
+
+    const promise = getActivitySummary("test-token", "2024-01-15");
+    await vi.advanceTimersByTimeAsync(0);
+    const result = await promise;
+
+    expect(callCount).toBe(2);
+    expect(result.caloriesOut).toBe(222);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("falls back to default 1s delay when Retry-After is malformed", async () => {
+    vi.useFakeTimers();
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(
+          new Response(null, {
+            status: 429,
+            headers: { "Retry-After": "not-a-valid-value" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ summary: { caloriesOut: 555 } }), { status: 200 }),
+      );
+    });
+
+    const promise = getActivitySummary("test-token", "2024-01-15");
+    await vi.advanceTimersByTimeAsync(1000);
+    const result = await promise;
+
+    expect(callCount).toBe(2);
+    expect(result.caloriesOut).toBe(555);
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("fetchWithRetry rate-limit header recording (FOO-1013)", () => {
+  beforeEach(() => {
+    mockRecordRateLimitHeaders.mockClear();
+    mockGetRateLimitSnapshot.mockReset().mockReturnValue(null);
+  });
+
+  it("calls recordRateLimitHeaders with userId and the response when userId is provided", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ summary: { caloriesOut: 1234 } }), {
+        status: 200,
+        headers: {
+          "Fitbit-Rate-Limit-Limit": "150",
+          "Fitbit-Rate-Limit-Remaining": "120",
+          "Fitbit-Rate-Limit-Reset": "1800",
+        },
+      }),
+    );
+
+    await getActivitySummary("test-token", "2024-01-15", undefined, "user-a");
+
+    expect(mockRecordRateLimitHeaders).toHaveBeenCalledTimes(1);
+    const args = mockRecordRateLimitHeaders.mock.calls[0]!;
+    expect(args[0]).toBe("user-a");
+    // args[1] is a Response object
+    expect(args[1]).toBeInstanceOf(Response);
+
+    vi.restoreAllMocks();
+  });
+
+  it("still calls recordRateLimitHeaders when userId is undefined (the helper itself no-ops)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ summary: { caloriesOut: 1234 } }), { status: 200 }),
+    );
+
+    await getActivitySummary("test-token", "2024-01-15");
+
+    expect(mockRecordRateLimitHeaders).toHaveBeenCalledTimes(1);
+    expect(mockRecordRateLimitHeaders.mock.calls[0]![0]).toBeUndefined();
+
+    vi.restoreAllMocks();
+  });
+
+  it("threads userId through to fetchWithRetry from createFood (write path)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ food: { foodId: 1 } }), { status: 201 }),
+    );
+
+    const food = {
+      food_name: "Test",
+      amount: 100,
+      unit_id: 147,
+      calories: 200,
+      protein_g: 10,
+      carbs_g: 20,
+      fat_g: 5,
+      fiber_g: 3,
+      sodium_mg: 100,
+      saturated_fat_g: null,
+      trans_fat_g: null,
+      sugars_g: null,
+      calories_from_fat: null,
+      confidence: "high" as const,
+      notes: "Test",
+      description: "",
+      keywords: ["test"],
+    };
+
+    await createFood("test-token", food, undefined, "user-write");
+
+    expect(mockRecordRateLimitHeaders.mock.calls[0]![0]).toBe("user-write");
+
+    vi.restoreAllMocks();
+  });
+});
+
+describe("fetchWithRetry circuit breaker plumbing (FOO-1014)", () => {
+  const mockFood = {
+    food_name: "Test",
+    amount: 100,
+    unit_id: 147,
+    calories: 200,
+    protein_g: 10,
+    carbs_g: 20,
+    fat_g: 5,
+    fiber_g: 3,
+    sodium_mg: 100,
+    saturated_fat_g: null,
+    trans_fat_g: null,
+    sugars_g: null,
+    calories_from_fat: null,
+    confidence: "high" as const,
+    notes: "",
+    description: "",
+    keywords: ["test"],
+  };
+
+  beforeEach(() => {
+    mockAssertRateLimitAllowed.mockReset();
+  });
+
+  it("calls assertRateLimitAllowed with default 'optional' when read function has no override", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ summary: { caloriesOut: 1234 } }), { status: 200 }),
+    );
+
+    await getActivitySummary("test-token", "2024-01-15", undefined, "user-a");
+
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledTimes(1);
+    expect(mockAssertRateLimitAllowed.mock.calls[0]![0]).toBe("user-a");
+    expect(mockAssertRateLimitAllowed.mock.calls[0]![1]).toBe("optional");
+
+    vi.restoreAllMocks();
+  });
+
+  it("calls assertRateLimitAllowed with caller-overridden 'important' for read functions", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ summary: { caloriesOut: 1234 } }), { status: 200 }),
+    );
+
+    await getActivitySummary("test-token", "2024-01-15", undefined, "user-a", "important");
+
+    expect(mockAssertRateLimitAllowed.mock.calls[0]![1]).toBe("important");
+
+    vi.restoreAllMocks();
+  });
+
+  it("hardcodes 'critical' for createFood (write path)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ food: { foodId: 1 } }), { status: 201 }),
+    );
+
+    await createFood("test-token", mockFood, undefined, "user-write");
+
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledWith("user-write", "critical", expect.any(Object));
+
+    vi.restoreAllMocks();
+  });
+
+  it("hardcodes 'critical' for logFood", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ foodLog: { logId: 1, loggedFood: { foodId: 1 } } }), { status: 201 }),
+    );
+
+    await logFood("test-token", 1, 1, 100, 147, "2024-01-15", undefined, undefined, "user-write");
+
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledWith("user-write", "critical", expect.any(Object));
+
+    vi.restoreAllMocks();
+  });
+
+  it("hardcodes 'critical' for deleteFoodLog", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, { status: 204 }),
+    );
+
+    await deleteFoodLog("test-token", 12345, undefined, "user-write");
+
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledWith("user-write", "critical", expect.any(Object));
+
+    vi.restoreAllMocks();
+  });
+
+  it("propagates FITBIT_RATE_LIMIT_LOW thrown by the breaker", async () => {
+    mockAssertRateLimitAllowed.mockImplementation(() => {
+      throw new Error("FITBIT_RATE_LIMIT_LOW");
+    });
+
+    await expect(
+      getActivitySummary("test-token", "2024-01-15", undefined, "user-a"),
+    ).rejects.toThrow("FITBIT_RATE_LIMIT_LOW");
+  });
+
+  it("does NOT call the breaker when userId is undefined (defensive default)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ user: { age: 30, gender: "MALE", height: 180.0 } }), {
+        status: 200,
+      }),
+    );
+
+    await getFitbitProfile("test-token");
+
+    expect(mockAssertRateLimitAllowed).not.toHaveBeenCalled();
 
     vi.restoreAllMocks();
   });
