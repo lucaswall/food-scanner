@@ -482,6 +482,43 @@ describe("ensureFreshToken", () => {
     vi.restoreAllMocks();
   });
 
+  it("warn-logs with action=fitbit_token_upsert_warn on first upsert failure (FOO-1016)", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000),
+    });
+    mockUpsertFitbitTokens
+      .mockRejectedValueOnce(new Error("DB write failed"))
+      .mockResolvedValueOnce(undefined);
+
+    await ensureFreshToken("user-uuid-123");
+
+    const warnCall = (logger.warn as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => (c[0] as { action?: string }).action === "fitbit_token_upsert_warn",
+    );
+    expect(warnCall).toBeDefined();
+    expect(warnCall![0]).toMatchObject({
+      action: "fitbit_token_upsert_warn",
+      error: "DB write failed",
+    });
+
+    vi.restoreAllMocks();
+  });
+
   it("throws FITBIT_TOKEN_SAVE_FAILED when upsert retry also fails (FOO-430)", async () => {
     mockGetFitbitCredentials.mockResolvedValue({
       clientId: "test-client-id",
@@ -509,6 +546,43 @@ describe("ensureFreshToken", () => {
       .mockRejectedValueOnce(new Error("Database connection error"));
 
     await expect(ensureFreshToken("user-uuid-123")).rejects.toThrow("FITBIT_TOKEN_SAVE_FAILED");
+
+    vi.restoreAllMocks();
+  });
+
+  it("error-logs with action=fitbit_token_upsert_failed when retry also fails (FOO-1016)", async () => {
+    mockGetFitbitCredentials.mockResolvedValue({
+      clientId: "test-client-id",
+      clientSecret: "test-client-secret",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        access_token: "new-token",
+        refresh_token: "new-refresh",
+        user_id: "user-123",
+        expires_in: 28800,
+      })),
+    );
+    mockGetFitbitTokens.mockResolvedValue({
+      accessToken: "old-token",
+      refreshToken: "old-refresh",
+      fitbitUserId: "user-123",
+      expiresAt: new Date(Date.now() - 1000),
+    });
+    mockUpsertFitbitTokens
+      .mockRejectedValueOnce(new Error("DB write failed"))
+      .mockRejectedValueOnce(new Error("DB still failing"));
+
+    await expect(ensureFreshToken("user-uuid-123")).rejects.toThrow("FITBIT_TOKEN_SAVE_FAILED");
+
+    const errorCall = (logger.error as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => (c[0] as { action?: string }).action === "fitbit_token_upsert_failed",
+    );
+    expect(errorCall).toBeDefined();
+    expect(errorCall![0]).toMatchObject({
+      action: "fitbit_token_upsert_failed",
+      error: "DB still failing",
+    });
 
     vi.restoreAllMocks();
   });
@@ -2142,6 +2216,39 @@ describe("fetchWithRetry Retry-After honoring (FOO-1011)", () => {
     vi.restoreAllMocks();
   });
 
+  it("calls assertRateLimitAllowed only on the initial attempt, not on the Retry-After retry (FOO-1022)", async () => {
+    vi.useFakeTimers();
+    mockAssertRateLimitAllowed.mockReset();
+
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve(
+          new Response(null, {
+            status: 429,
+            headers: { "Retry-After": "3" },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ summary: { caloriesOut: 555 } }), { status: 200 }),
+      );
+    });
+
+    const promise = getActivitySummary("test-token", "2024-01-15", undefined, "user-retry");
+    await vi.advanceTimersByTimeAsync(3000);
+    await promise;
+
+    expect(callCount).toBe(2);
+    // Breaker check is gated on retryCount === 0, so only the first attempt invokes it.
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledTimes(1);
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledWith("user-retry", "optional", expect.any(Object));
+
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("throws FITBIT_RATE_LIMIT immediately when Retry-After exceeds deadline (no retry)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, {
@@ -2432,7 +2539,7 @@ describe("fetchWithRetry circuit breaker plumbing (FOO-1014)", () => {
 
     await createFood("test-token", mockFood, undefined, "user-write");
 
-    expect(mockAssertRateLimitAllowed.mock.calls[0]![1]).toBe("critical");
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledWith("user-write", "critical", expect.any(Object));
 
     vi.restoreAllMocks();
   });
@@ -2444,7 +2551,7 @@ describe("fetchWithRetry circuit breaker plumbing (FOO-1014)", () => {
 
     await logFood("test-token", 1, 1, 100, 147, "2024-01-15", undefined, undefined, "user-write");
 
-    expect(mockAssertRateLimitAllowed.mock.calls[0]![1]).toBe("critical");
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledWith("user-write", "critical", expect.any(Object));
 
     vi.restoreAllMocks();
   });
@@ -2456,7 +2563,7 @@ describe("fetchWithRetry circuit breaker plumbing (FOO-1014)", () => {
 
     await deleteFoodLog("test-token", 12345, undefined, "user-write");
 
-    expect(mockAssertRateLimitAllowed.mock.calls[0]![1]).toBe("critical");
+    expect(mockAssertRateLimitAllowed).toHaveBeenCalledWith("user-write", "critical", expect.any(Object));
 
     vi.restoreAllMocks();
   });

@@ -327,17 +327,32 @@ describe("getOrComputeDailyGoals", () => {
   });
 
   describe("full-compute breaker propagation (FOO-1014)", () => {
-    it("propagates FITBIT_RATE_LIMIT_LOW from any of the 4 fan-out fetches", async () => {
-      mockSelectOnce([]); // no existing row → take the full-compute path
-      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
-      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
-      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+    it.each([
+      ["getCachedFitbitProfile", "profile"],
+      ["getCachedFitbitWeightKg", "weight"],
+      ["getCachedFitbitWeightGoal", "weightGoal"],
+      ["getCachedActivitySummary", "activity"],
+    ] as const)(
+      "propagates FITBIT_RATE_LIMIT_LOW thrown by %s",
+      async (_name, which) => {
+        mockSelectOnce([]); // no existing row → take the full-compute path
 
-      await expect(getOrComputeDailyGoals("user-low", "2026-05-04")).rejects.toThrow(
-        "FITBIT_RATE_LIMIT_LOW",
-      );
-    });
+        const lowError = new Error("FITBIT_RATE_LIMIT_LOW");
+        mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+        mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 80, loggedDate: "2026-05-04" });
+        mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
+        mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+        if (which === "profile") mockGetCachedFitbitProfile.mockRejectedValue(lowError);
+        if (which === "weight") mockGetCachedFitbitWeightKg.mockRejectedValue(lowError);
+        if (which === "weightGoal") mockGetCachedFitbitWeightGoal.mockRejectedValue(lowError);
+        if (which === "activity") mockGetCachedActivitySummary.mockRejectedValue(lowError);
+
+        await expect(getOrComputeDailyGoals(`user-low-${which}`, "2026-05-04")).rejects.toThrow(
+          "FITBIT_RATE_LIMIT_LOW",
+        );
+      },
+    );
 
     it("uses 'important' criticality on the full-compute fan-out", async () => {
       mockSelectOnce([]);

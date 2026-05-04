@@ -364,12 +364,28 @@ describe("fitbit-rate-limit", () => {
       );
     });
 
+    it("allows all criticalities at remaining=20 (boundary: optional floor inclusive)", () => {
+      seedRemaining("user-a", 20);
+      expect(() => assertRateLimitAllowed("user-a", "critical", fakeLog)).not.toThrow();
+      expect(() => assertRateLimitAllowed("user-a", "important", fakeLog)).not.toThrow();
+      expect(() => assertRateLimitAllowed("user-a", "optional", fakeLog)).not.toThrow();
+    });
+
     it("rejects important and optional but allows critical when remaining < 5", () => {
       seedRemaining("user-a", 4);
       expect(() => assertRateLimitAllowed("user-a", "critical", fakeLog)).not.toThrow();
       expect(() => assertRateLimitAllowed("user-a", "important", fakeLog)).toThrow(
         "FITBIT_RATE_LIMIT_LOW",
       );
+      expect(() => assertRateLimitAllowed("user-a", "optional", fakeLog)).toThrow(
+        "FITBIT_RATE_LIMIT_LOW",
+      );
+    });
+
+    it("allows critical+important but rejects optional at remaining=5 (boundary: important floor inclusive)", () => {
+      seedRemaining("user-a", 5);
+      expect(() => assertRateLimitAllowed("user-a", "critical", fakeLog)).not.toThrow();
+      expect(() => assertRateLimitAllowed("user-a", "important", fakeLog)).not.toThrow();
       expect(() => assertRateLimitAllowed("user-a", "optional", fakeLog)).toThrow(
         "FITBIT_RATE_LIMIT_LOW",
       );

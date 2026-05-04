@@ -601,7 +601,10 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
           await upsertFitbitTokens(userId, tokenData, l);
         } catch (upsertError) {
           l.warn(
-            { error: upsertError instanceof Error ? upsertError.message : String(upsertError) },
+            {
+              action: "fitbit_token_upsert_warn",
+              error: upsertError instanceof Error ? upsertError.message : String(upsertError),
+            },
             "fitbit token upsert failed, retrying once",
           );
           // Retry once
@@ -609,7 +612,10 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
             await upsertFitbitTokens(userId, tokenData, l);
           } catch (retryError) {
             l.error(
-              { error: retryError instanceof Error ? retryError.message : String(retryError) },
+              {
+                action: "fitbit_token_upsert_failed",
+                error: retryError instanceof Error ? retryError.message : String(retryError),
+              },
               "fitbit token upsert retry failed",
             );
             throw new Error("FITBIT_TOKEN_SAVE_FAILED");

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { FitbitProfile, FitbitWeightLog, FitbitWeightGoal, ActivitySummary } from "@/types";
 import type { Logger } from "@/lib/logger";
+import type { FitbitCallCriticality } from "@/lib/fitbit-rate-limit";
 
 vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
 vi.stubEnv("SESSION_SECRET", "a-test-secret-that-is-at-least-32-characters-long");
@@ -37,10 +38,28 @@ const mockActivity: ActivitySummary = { caloriesOut: 2345 };
 
 describe("fitbit-cache", () => {
   // Re-import module in each test to get fresh Map state
-  let getCachedFitbitProfile: (userId: string, log?: Logger) => Promise<FitbitProfile>;
-  let getCachedFitbitWeightKg: (userId: string, targetDate: string, log?: Logger) => Promise<FitbitWeightLog | null>;
-  let getCachedFitbitWeightGoal: (userId: string, log?: Logger) => Promise<FitbitWeightGoal | null>;
-  let getCachedActivitySummary: (userId: string, targetDate: string, log?: Logger) => Promise<ActivitySummary>;
+  let getCachedFitbitProfile: (
+    userId: string,
+    log?: Logger,
+    criticality?: FitbitCallCriticality,
+  ) => Promise<FitbitProfile>;
+  let getCachedFitbitWeightKg: (
+    userId: string,
+    targetDate: string,
+    log?: Logger,
+    criticality?: FitbitCallCriticality,
+  ) => Promise<FitbitWeightLog | null>;
+  let getCachedFitbitWeightGoal: (
+    userId: string,
+    log?: Logger,
+    criticality?: FitbitCallCriticality,
+  ) => Promise<FitbitWeightGoal | null>;
+  let getCachedActivitySummary: (
+    userId: string,
+    targetDate: string,
+    log?: Logger,
+    criticality?: FitbitCallCriticality,
+  ) => Promise<ActivitySummary>;
   let invalidateFitbitProfileCache: (userId: string) => void;
 
   beforeEach(async () => {

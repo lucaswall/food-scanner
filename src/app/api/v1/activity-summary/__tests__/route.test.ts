@@ -60,7 +60,12 @@ describe("GET /api/v1/activity-summary", () => {
     expect(data.success).toBe(true);
     expect(data.data).toEqual(mockActivity);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
-    expect(mockGetCachedActivitySummary).toHaveBeenCalledWith("user-123", "2026-02-11", expect.any(Object));
+    expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+      "user-123",
+      "2026-02-11",
+      expect.any(Object),
+      "important",
+    );
   });
 
   it("returns 401 for invalid API key", async () => {
@@ -111,7 +116,7 @@ describe("GET /api/v1/activity-summary", () => {
     expect(data.error.message).toBe("Invalid date format. Use YYYY-MM-DD");
   });
 
-  it("returns 404 when Fitbit credentials are missing", async () => {
+  it("returns 424 when Fitbit credentials are missing", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
     mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));

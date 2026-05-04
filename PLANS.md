@@ -638,3 +638,60 @@ Summary: 16 findings raised by the team (security, reliability, quality reviewer
 
 1. Add `expect(mockAssertRateLimitAllowed).toHaveBeenCalledTimes(1)` to the existing 429-retry test (Retry-After path) in `src/lib/__tests__/fitbit.test.ts`. Confirms the breaker check fires only on `retryCount === 0`.
 2. Verify with `npx vitest run src/lib/__tests__/fitbit.test.ts`.
+
+---
+
+## Iteration 2
+
+**Date:** 2026-05-04
+**Status:** COMPLETE
+**Method:** single-agent (8 surgical S-tasks across 4 file-domains; effort score 8 with skewed distribution — Unit A held 4 fixes, others 1-2; worker overhead would have exceeded actual fix work)
+
+### Tasks Completed
+
+- [x] Fix 1 (FOO-1015): Added boundary tests at `remaining=20` (all criticalities allowed) and `remaining=5` (critical+important allowed, optional rejected) in `src/lib/__tests__/fitbit-rate-limit.test.ts`. Confirms inclusive `>=` semantics on both `BREAKER_OPTIONAL_FLOOR` and `BREAKER_IMPORTANT_FLOOR`.
+- [x] Fix 2 (FOO-1016): Added `action: "fitbit_token_upsert_warn"` and `action: "fitbit_token_upsert_failed"` to the two log calls in `ensureFreshToken`'s upsert retry path (`src/lib/fitbit.ts`). Added two unit tests asserting the action fields are present in `logger.warn`/`logger.error` calls.
+- [x] Fix 3 (FOO-1017): Pass `criticality: "important"` from the v1 activity-summary route to `getCachedActivitySummary` (`src/app/api/v1/activity-summary/route.ts`). External API GETs are user-driven explicit reads. Updated the existing happy-path test to assert the criticality argument.
+- [x] Fix 4 (FOO-1018): Renamed test from `"returns 404 when Fitbit credentials are missing"` to `"returns 424 when Fitbit credentials are missing"` to match its assertion.
+- [x] Fix 5 (FOO-1019): Updated local function-type annotations in `src/lib/__tests__/fitbit-cache.test.ts` to include the optional `criticality?: FitbitCallCriticality` parameter, matching the real signatures.
+- [x] Fix 6 (FOO-1020): Replaced the single `weight`-only fan-out propagation test with a parameterized `it.each` covering all 4 fetches (`getCachedFitbitProfile`, `getCachedFitbitWeightKg`, `getCachedFitbitWeightGoal`, `getCachedActivitySummary`).
+- [x] Fix 7 (FOO-1021): Strengthened the three "hardcodes 'critical' for [createFood/logFood/deleteFoodLog]" tests to use `toHaveBeenCalledWith("user-write", "critical", expect.any(Object))` rather than checking `mock.calls[0]![1]`. Now asserts userId too.
+- [x] Fix 8 (FOO-1022): Added a new test alongside the existing Retry-After test that passes a userId and asserts `mockAssertRateLimitAllowed` was called exactly once across initial-attempt + retry. Confirms the `retryCount === 0` gate.
+
+### Notes
+
+- Fix 7's stronger `toHaveBeenCalledWith` form initially failed because the breaker is invoked with three args (`userId, criticality, log`), not two — added `expect.any(Object)` for the log parameter. Same adjustment in the new Fix 8 assertion.
+- No code-only changes for Fixes 1, 4, 5, 6, 7, 8 — they are test-quality improvements. Fix 2 added log fields. Fix 3 changed one route argument and one test argument.
+
+### Verification
+
+- `npm test`: 3,394 tests pass (191 files) — was 3,386 in Iteration 1; +8 new tests added by these fixes.
+- `npm run lint`: clean.
+- `npm run build`: clean (zero warnings, 59 static pages generated).
+- Bug-hunter: clean — no bugs found.
+
+### Files Modified
+
+- `src/lib/fitbit.ts` — added `action` fields to two upsert-retry log calls
+- `src/lib/__tests__/fitbit-rate-limit.test.ts` — 2 boundary tests
+- `src/lib/__tests__/fitbit.test.ts` — 2 log-action tests, 1 retry-bypass test, strengthened 3 write-op assertions
+- `src/app/api/v1/activity-summary/route.ts` — `"important"` criticality
+- `src/app/api/v1/activity-summary/__tests__/route.test.ts` — criticality assertion + test description fix
+- `src/lib/__tests__/fitbit-cache.test.ts` — type annotations include `criticality?`
+- `src/lib/__tests__/daily-goals.test.ts` — parameterized fan-out propagation across all 4 fetches
+
+### Linear
+
+All eight fix issues moved Todo → In Progress → Review:
+- FOO-1015 (boundary tests)
+- FOO-1016 (action field on upsert logs)
+- FOO-1017 (v1 activity-summary criticality)
+- FOO-1018 (test description "404"→"424")
+- FOO-1019 (fitbit-cache test type annotations)
+- FOO-1020 (daily-goals fan-out coverage)
+- FOO-1021 (write-op criticality assertions)
+- FOO-1022 (breaker bypassed on retry)
+
+### Tasks Remaining
+
+None. Plan complete pending review.

@@ -42,7 +42,12 @@ export async function GET(request: Request) {
   }
 
   try {
-    const activitySummary = await getCachedActivitySummary(authResult.userId, date, log);
+    const activitySummary = await getCachedActivitySummary(
+      authResult.userId,
+      date,
+      log,
+      "important",
+    );
 
     log.debug(
       {
