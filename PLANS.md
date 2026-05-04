@@ -1,7 +1,7 @@
 # Implementation Plan
 
 **Created:** 2026-05-04
-**Status:** IN_PROGRESS
+**Status:** COMPLETE
 **Source:** Backlog: FOO-1011, FOO-1013, FOO-1014, FOO-1012
 **Linear Issues:** [FOO-1011](https://linear.app/lw-claude/issue/FOO-1011), [FOO-1013](https://linear.app/lw-claude/issue/FOO-1013), [FOO-1014](https://linear.app/lw-claude/issue/FOO-1014), [FOO-1012](https://linear.app/lw-claude/issue/FOO-1012)
 **Branch:** feat/fitbit-rate-limit-hardening
@@ -695,3 +695,33 @@ All eight fix issues moved Todo → In Progress → Review:
 ### Tasks Remaining
 
 None. Plan complete pending review.
+
+### Review Findings
+
+Files reviewed: 7 (Team: security, reliability, quality reviewers)
+Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, Test Quality
+
+No issues found - all 8 fixes (FOO-1015 through FOO-1022) are correctly implemented and follow project conventions. Boundary tests establish inclusive `>=` semantics; parameterized fan-out covers all 4 daily-goals fetch paths; retry-bypass test correctly asserts the `retryCount === 0` gate; write-op assertions strengthened to verify userId + criticality together; log action fields and v1 route criticality applied as specified.
+
+**Discarded findings (not bugs):**
+
+- [DISCARDED] CONVENTION: `src/lib/__tests__/fitbit.test.ts:510,578` — Quality reviewer noted the double-cast `(logger.warn as unknown as ReturnType<typeof vi.fn>).mock.calls.find(...)` could use the more idiomatic `vi.mocked(logger.warn).mock.calls.find(...)`. Reviewer's own classification: "Minor inconsistency; not a bug." Pure style preference; the `.find()`-by-action approach itself is correct and arguably more robust than `toHaveBeenCalledWith` for searching among multiple log calls.
+
+### Linear Updates
+
+- FOO-1015: Review → Merge (boundary tests for breaker thresholds)
+- FOO-1016: Review → Merge (action field on upsert logs)
+- FOO-1017: Review → Merge (v1 activity-summary criticality)
+- FOO-1018: Review → Merge (test description "404"→"424")
+- FOO-1019: Review → Merge (fitbit-cache test type annotations)
+- FOO-1020: Review → Merge (daily-goals fan-out coverage)
+- FOO-1021: Review → Merge (write-op criticality assertions)
+- FOO-1022: Review → Merge (breaker bypassed on retry)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
