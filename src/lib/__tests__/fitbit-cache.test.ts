@@ -428,6 +428,40 @@ describe("fitbit-cache", () => {
       expect(mockGetFitbitProfile).toHaveBeenCalledTimes(1);
     });
 
+    it("orphan in-flight fetch from before invalidation does not overwrite fresh post-invalidation cache", async () => {
+      // Race: request A starts → invalidate → request B starts and resolves
+      // first with fresh data → request A resolves last with stale data.
+      // The cache must end up holding B's value, not A's.
+      let resolveOrphan!: (v: FitbitProfile) => void;
+      const orphanPromise = new Promise<FitbitProfile>((resolve) => {
+        resolveOrphan = resolve;
+      });
+      mockGetFitbitProfile.mockReturnValueOnce(orphanPromise);
+
+      const orphan = getCachedFitbitProfile("user-1");
+      // Let the orphan IIFE register itself in profileInFlight.
+      await new Promise((r) => setImmediate(r));
+
+      invalidateFitbitProfileCache("user-1");
+
+      // Refresh-triggered fetch resolves immediately with the fresh profile.
+      const freshProfile: FitbitProfile = { ageYears: 35, sex: "MALE", heightCm: 181 };
+      mockGetFitbitProfile.mockResolvedValueOnce(freshProfile);
+      await getCachedFitbitProfile("user-1");
+
+      // Now resolve the orphan with stale data — its write must be suppressed.
+      const staleProfile: FitbitProfile = { ageYears: 99, sex: "FEMALE", heightCm: 100 };
+      resolveOrphan(staleProfile);
+      await orphan;
+
+      // A subsequent read should hit the cache and return the fresh value,
+      // not the stale orphan value.
+      mockGetFitbitProfile.mockClear();
+      const cached = await getCachedFitbitProfile("user-1");
+      expect(cached).toEqual(freshProfile);
+      expect(mockGetFitbitProfile).not.toHaveBeenCalled();
+    });
+
     it("clears in-flight dedup entries so a refresh after a pending fetch triggers a new call", async () => {
       // If an in-flight fetch was running when invalidate was called, the next
       // call must NOT dedup with the (now-stale) in-flight promise — it must

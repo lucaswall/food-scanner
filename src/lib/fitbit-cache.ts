@@ -19,6 +19,13 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
+// Bumped on every invalidation. Each fetcher snapshots this when it starts;
+// if the value has changed by the time its underlying fetch resolves, the
+// resolved value belongs to a pre-invalidation request and must not be
+// written to the cache (otherwise an orphan write can overwrite fresh data
+// from a refresh-triggered fetch that finished earlier).
+let cacheGeneration = 0;
+
 // ─── Profile cache ─────────────────────────────────────────────────────────
 
 const profileCache = new Map<string, CacheEntry<FitbitProfile>>();
@@ -40,11 +47,14 @@ export async function getCachedFitbitProfile(
   const existing = profileInFlight.get(inflightKey);
   if (existing) return existing;
 
+  const generationAtStart = cacheGeneration;
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const profile = await getFitbitProfile(accessToken, l, userId, criticality);
-      profileCache.set(userId, { value: profile, expiresAt: Date.now() + TTL_24H });
+      if (cacheGeneration === generationAtStart) {
+        profileCache.set(userId, { value: profile, expiresAt: Date.now() + TTL_24H });
+      }
       return profile;
     } finally {
       profileInFlight.delete(inflightKey);
@@ -78,11 +88,14 @@ export async function getCachedFitbitWeightKg(
   const existing = weightInFlight.get(inflightKey);
   if (existing) return existing;
 
+  const generationAtStart = cacheGeneration;
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const weight = await getFitbitLatestWeightKg(accessToken, targetDate, l, userId, criticality);
-      weightCache.set(key, { value: weight, expiresAt: Date.now() + TTL_1H });
+      if (cacheGeneration === generationAtStart) {
+        weightCache.set(key, { value: weight, expiresAt: Date.now() + TTL_1H });
+      }
       return weight;
     } finally {
       weightInFlight.delete(inflightKey);
@@ -114,11 +127,14 @@ export async function getCachedFitbitWeightGoal(
   const existing = weightGoalInFlight.get(inflightKey);
   if (existing) return existing;
 
+  const generationAtStart = cacheGeneration;
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const goal = await getFitbitWeightGoal(accessToken, l, userId, criticality);
-      weightGoalCache.set(userId, { value: goal, expiresAt: Date.now() + TTL_24H });
+      if (cacheGeneration === generationAtStart) {
+        weightGoalCache.set(userId, { value: goal, expiresAt: Date.now() + TTL_24H });
+      }
       return goal;
     } finally {
       weightGoalInFlight.delete(inflightKey);
@@ -152,11 +168,14 @@ export async function getCachedActivitySummary(
   const existing = activityInFlight.get(inflightKey);
   if (existing) return existing;
 
+  const generationAtStart = cacheGeneration;
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const activity = await getActivitySummary(accessToken, targetDate, l, userId, criticality);
-      activityCache.set(key, { value: activity, expiresAt: Date.now() + TTL_5MIN });
+      if (cacheGeneration === generationAtStart) {
+        activityCache.set(key, { value: activity, expiresAt: Date.now() + TTL_5MIN });
+      }
       return activity;
     } finally {
       activityInFlight.delete(inflightKey);
@@ -175,6 +194,7 @@ export async function getCachedActivitySummary(
  * Called by the settings "Refresh from Fitbit" button.
  */
 export function invalidateFitbitProfileCache(userId: string): void {
+  cacheGeneration++;
   profileCache.delete(userId);
   weightGoalCache.delete(userId);
 
