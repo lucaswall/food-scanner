@@ -600,13 +600,14 @@ export async function getFitbitProfile(
   const elapsed = startTimer();
   l.debug({ action: "fitbit_get_profile" }, "fetching Fitbit profile");
 
+  // No Accept-Language header — Fitbit defaults to METRIC (cm, kg). Sending
+  // en_US would return inches/pounds, which we'd then mislabel as cm/kg.
   const response = await fetchWithRetry(
     `${FITBIT_API_BASE}/1/user/-/profile.json`,
     {
       method: "GET",
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Accept-Language": "en_US",
       },
     },
     0, Date.now(), l,
@@ -657,13 +658,13 @@ export async function getFitbitLatestWeightKg(
   for (let daysBack = 0; daysBack < 7; daysBack++) {
     const date = subtractDays(targetDate, daysBack);
 
+    // No Accept-Language header — Fitbit defaults to METRIC (kg). en_US would return pounds.
     const response = await fetchWithRetry(
       `${FITBIT_API_BASE}/1/user/-/body/log/weight/date/${date}.json`,
       {
         method: "GET",
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          "Accept-Language": "en_US",
         },
       },
       0, Date.now(), l,
@@ -707,13 +708,15 @@ export async function getFitbitWeightGoal(
   const elapsed = startTimer();
   l.debug({ action: "fitbit_get_weight_goal" }, "fetching weight goal");
 
+  // No Accept-Language header — keeps weight units consistent with profile/weight-log
+  // calls (defaults to METRIC). We currently only read goalType, but staying metric
+  // future-proofs any future reads of startWeight/weight/goal.
   const response = await fetchWithRetry(
     `${FITBIT_API_BASE}/1/user/-/body/log/weight/goal.json`,
     {
       method: "GET",
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Accept-Language": "en_US",
       },
     },
     0, Date.now(), l,

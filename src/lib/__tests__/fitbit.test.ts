@@ -1699,7 +1699,7 @@ describe("getFitbitProfile", () => {
     vi.restoreAllMocks();
   });
 
-  it("sends Accept-Language: en_US header", async () => {
+  it("does not send Accept-Language: en_US (would force imperial response)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({ user: { age: 30, gender: "MALE", height: 170.0 } }),
@@ -1709,15 +1709,10 @@ describe("getFitbitProfile", () => {
 
     await getFitbitProfile("test-token");
 
-    expect(fetch).toHaveBeenCalledWith(
-      "https://api.fitbit.com/1/user/-/profile.json",
-      expect.objectContaining({
-        method: "GET",
-        headers: expect.objectContaining({
-          "Accept-Language": "en_US",
-        }),
-      }),
-    );
+    const call = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const init = call[1] as RequestInit;
+    const headers = (init.headers ?? {}) as Record<string, string>;
+    expect(headers["Accept-Language"]).toBeUndefined();
     vi.restoreAllMocks();
   });
 
@@ -1811,7 +1806,7 @@ describe("getFitbitLatestWeightKg", () => {
     vi.restoreAllMocks();
   });
 
-  it("sends Accept-Language: en_US header", async () => {
+  it("does not send Accept-Language: en_US (would force imperial response)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({ weight: [{ weight: 80.0, date: "2024-01-15" }] }),
@@ -1821,12 +1816,10 @@ describe("getFitbitLatestWeightKg", () => {
 
     await getFitbitLatestWeightKg("test-token", "2024-01-15");
 
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining("/body/log/weight/date/"),
-      expect.objectContaining({
-        headers: expect.objectContaining({ "Accept-Language": "en_US" }),
-      }),
-    );
+    const call = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const init = call[1] as RequestInit;
+    const headers = (init.headers ?? {}) as Record<string, string>;
+    expect(headers["Accept-Language"]).toBeUndefined();
     vi.restoreAllMocks();
   });
 
@@ -1991,19 +1984,17 @@ describe("getFitbitWeightGoal", () => {
     vi.restoreAllMocks();
   });
 
-  it("sends Accept-Language: en_US header", async () => {
+  it("does not send Accept-Language: en_US (keeps body endpoints metric-by-default)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ goal: { goalType: "LOSE" } }), { status: 200 }),
     );
 
     await getFitbitWeightGoal("test-token");
 
-    expect(fetch).toHaveBeenCalledWith(
-      "https://api.fitbit.com/1/user/-/body/log/weight/goal.json",
-      expect.objectContaining({
-        headers: expect.objectContaining({ "Accept-Language": "en_US" }),
-      }),
-    );
+    const call = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    const init = call[1] as RequestInit;
+    const headers = (init.headers ?? {}) as Record<string, string>;
+    expect(headers["Accept-Language"]).toBeUndefined();
     vi.restoreAllMocks();
   });
 

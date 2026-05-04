@@ -15,6 +15,38 @@ Log potential production data migrations here during development. These notes ar
 
 **Migration handling:** Standard Drizzle migration — auto-runs at startup. No backfill required for this step.
 
+## 2026-05-03 — Invalidate engine-computed daily_calorie_goals rows (Fitbit unit-system bug)
+
+**Type:** Data-only migration. Run AFTER deploy of the Accept-Language fix.
+
+**Why:** Before this fix, `getFitbitProfile` / `getFitbitLatestWeightKg` sent `Accept-Language: en_US`, which caused Fitbit to return `user.height` in inches and `weight[].weight` in pounds. The macro engine (PR #137 / commit `393dff4`) treated those values as cm/kg, so every engine-computed row in `daily_calorie_goals` since that release contains:
+- `weight_kg` storing pounds (≈ 2.2× the real kg value)
+- `rmr` / `activity_kcal` / `calorie_goal` / `protein_goal` / `carbs_goal` / `fat_goal` derived from imperial-as-metric inputs (calorieGoal overstated by hundreds of kcal, protein roughly 2.2× too high)
+
+**Affected rows:** Engine-computed rows have non-NULL `weight_kg` AND non-NULL `rmr` AND non-NULL `activity_kcal`. Lumen-backfilled rows (which have those columns NULL) are NOT affected and must be preserved.
+
+**Recovery:** Null out the macro/audit columns on engine-computed rows so `daily-goals.ts` re-derives them from corrected Fitbit data on next read. Do NOT delete the row (would lose `calorie_goal` for any historical day that had a pre-existing value).
+
+```sql
+UPDATE daily_calorie_goals
+SET protein_goal  = NULL,
+    carbs_goal    = NULL,
+    fat_goal      = NULL,
+    weight_kg     = NULL,
+    calories_out  = NULL,
+    rmr           = NULL,
+    activity_kcal = NULL,
+    updated_at    = NOW()
+WHERE weight_kg IS NOT NULL
+  AND rmr IS NOT NULL
+  AND activity_kcal IS NOT NULL;
+```
+
+**Notes:**
+- Both Lucas and Mariana need to load the dashboard once after the migration so `getOrComputeDailyGoals` re-derives today's row from corrected Fitbit data.
+- Historical days that still have a non-zero `calorie_goal` keep that column intact (it's not nulled). Macros for historical days will be re-derived only when next requested for that date.
+- The `Accept-Language` regression test added in `src/lib/__tests__/fitbit.test.ts` prevents this from re-occurring.
+
 ## 2026-05-03 — Macro engine: backfill lumen_goals → daily_calorie_goals macros, then DROP lumen_goals
 
 **Type:** Data-only migration (must run BEFORE the auto-generated `DROP TABLE lumen_goals`).
