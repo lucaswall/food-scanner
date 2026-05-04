@@ -63,7 +63,7 @@ describe("GET /api/v1/nutrition-goals", () => {
     expect(data.data).toEqual(mockGoals);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
     expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-123", expect.any(Object));
-    expect(mockGetFoodGoals).toHaveBeenCalledWith("fitbit-access-token", expect.any(Object));
+    expect(mockGetFoodGoals).toHaveBeenCalledWith("fitbit-access-token", expect.any(Object), "user-123", "important");
   });
 
   it("returns 401 for invalid API key", async () => {

@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 
   try {
     const accessToken = await ensureFreshToken(authResult.userId, log);
-    const goals = await getFoodGoals(accessToken, log);
+    const goals = await getFoodGoals(accessToken, log, authResult.userId, "important");
 
     log.debug(
       {

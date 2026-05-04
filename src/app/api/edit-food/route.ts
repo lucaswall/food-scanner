@@ -128,7 +128,7 @@ export async function POST(request: Request) {
       // Delete old Fitbit log if exists
       if (entry.fitbitLogId) {
         try {
-          await deleteFoodLog(accessToken, entry.fitbitLogId, log);
+          await deleteFoodLog(accessToken, entry.fitbitLogId, log, session!.userId);
         } catch (deleteErr) {
           const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
           log.error({ action: "edit_food_fast_path_delete_failed", error: errMsg }, "failed to delete old Fitbit log");
@@ -138,7 +138,7 @@ export async function POST(request: Request) {
 
       // Re-log with existing fitbitFoodId
       try {
-        const logResult = await logFood(accessToken, entry.fitbitFoodId, mealTypeId, analysis.amount, analysis.unit_id, date, time, log);
+        const logResult = await logFood(accessToken, entry.fitbitFoodId, mealTypeId, analysis.amount, analysis.unit_id, date, time, log, session!.userId);
         fastPathFitbitLogId = logResult.foodLog.logId;
       } catch (logErr) {
         const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
@@ -148,7 +148,7 @@ export async function POST(request: Request) {
         if (entry.fitbitLogId) {
           try {
             const freshToken = await ensureFreshToken(session!.userId, log);
-            const compensationResult = await logFood(freshToken, entry.fitbitFoodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
+            const compensationResult = await logFood(freshToken, entry.fitbitFoodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log, session!.userId);
             const compensationLogId = compensationResult.foodLog.logId;
             try {
               await updateFoodLogEntryMetadata(session!.userId, entryId, {
@@ -215,8 +215,8 @@ export async function POST(request: Request) {
       if (!isDryRun && entry.fitbitFoodId !== null && fastPathFitbitLogId !== null) {
         try {
           const freshToken = await ensureFreshToken(session!.userId, log);
-          await deleteFoodLog(freshToken, fastPathFitbitLogId, log);
-          const compensationResult = await logFood(freshToken, entry.fitbitFoodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
+          await deleteFoodLog(freshToken, fastPathFitbitLogId, log, session!.userId);
+          const compensationResult = await logFood(freshToken, entry.fitbitFoodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log, session!.userId);
           const compensationLogId = compensationResult.foodLog.logId;
           try {
             await updateFoodLogEntryMetadata(session!.userId, entryId, {
@@ -253,7 +253,7 @@ export async function POST(request: Request) {
     // Delete old Fitbit log if exists
     if (entry.fitbitLogId) {
       try {
-        await deleteFoodLog(accessToken, entry.fitbitLogId, log);
+        await deleteFoodLog(accessToken, entry.fitbitLogId, log, session!.userId);
         log.info({ action: "edit_food_old_fitbit_deleted", fitbitLogId: entry.fitbitLogId }, "old Fitbit log deleted");
       } catch (deleteErr) {
         const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
@@ -264,7 +264,7 @@ export async function POST(request: Request) {
 
     // Create new Fitbit food + log
     try {
-      const createResult = await findOrCreateFood(accessToken, { ...analysis, calories }, log);
+      const createResult = await findOrCreateFood(accessToken, { ...analysis, calories }, log, session!.userId);
       fitbitFoodId = createResult.foodId;
       const logResult = await logFood(
         accessToken,
@@ -275,6 +275,7 @@ export async function POST(request: Request) {
         date,
         time,
         log,
+        session!.userId,
       );
       newFitbitLogId = logResult.foodLog.logId;
     } catch (logErr) {
@@ -303,8 +304,8 @@ export async function POST(request: Request) {
             notes: entry.notes ?? "",
             description: entry.description ?? "",
             keywords: entry.keywords,
-          }, log);
-          const compensationLogResult = await logFood(freshToken, origCreate.foodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log);
+          }, log, session!.userId);
+          const compensationLogResult = await logFood(freshToken, origCreate.foodId, entry.mealTypeId, entry.amount, entry.unitId, entry.date, entry.time ?? time, log, session!.userId);
           const compensationLogId = compensationLogResult.foodLog.logId;
           try {
             await updateFoodLogEntryMetadata(session!.userId, entryId, {
@@ -389,7 +390,7 @@ export async function POST(request: Request) {
     if (newFitbitLogId !== undefined && !isDryRun) {
       try {
         const freshToken = await ensureFreshToken(session!.userId, log);
-        await deleteFoodLog(freshToken, newFitbitLogId, log);
+        await deleteFoodLog(freshToken, newFitbitLogId, log, session!.userId);
         log.info({ action: "edit_food_db_compensation", fitbitLogId: newFitbitLogId }, "new Fitbit log deleted after DB failure");
       } catch (compensationErr) {
         log.error(

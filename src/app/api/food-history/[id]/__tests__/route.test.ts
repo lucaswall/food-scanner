@@ -176,7 +176,7 @@ describe("DELETE /api/food-history/[id]", () => {
     const body = await response.json();
     expect(body.data.deleted).toBe(true);
     expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123", expect.any(Object));
-    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object));
+    expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object), "user-uuid-123");
     expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
   });
 
@@ -333,7 +333,7 @@ describe("DELETE /api/food-history/[id]", () => {
       expect(body.success).toBe(true);
       expect(body.data.deleted).toBe(true);
       expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-uuid-123", expect.any(Object));
-      expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object));
+      expect(mockDeleteFoodLog).toHaveBeenCalledWith("fresh-token", 789, expect.any(Object), "user-uuid-123");
       expect(mockDeleteFoodLogEntry).toHaveBeenCalledWith("user-uuid-123", 42, expect.anything());
     });
   });
