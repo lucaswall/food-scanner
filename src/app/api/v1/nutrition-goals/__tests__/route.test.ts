@@ -294,6 +294,7 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       { error: "FITBIT_TOKEN_INVALID", status: 401, code: "FITBIT_TOKEN_INVALID" },
       { error: "FITBIT_SCOPE_MISSING", status: 403, code: "FITBIT_SCOPE_MISSING" },
       { error: "FITBIT_RATE_LIMIT", status: 429, code: "FITBIT_RATE_LIMIT" },
+      { error: "FITBIT_TIMEOUT", status: 504, code: "FITBIT_TIMEOUT" },
       { error: "FITBIT_API_ERROR", status: 502, code: "FITBIT_API_ERROR" },
     ];
 

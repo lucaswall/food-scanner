@@ -1,7 +1,7 @@
 # Implementation Plan
 
 **Created:** 2026-05-04
-**Status:** ACTIVE
+**Status:** COMPLETE
 **Source:** Backlog: FOO-992, FOO-993, FOO-995, FOO-996, FOO-997, FOO-998, FOO-999, FOO-1000, FOO-1001, FOO-1002, FOO-1003, FOO-1005, FOO-1006, FOO-1007, FOO-1008, FOO-1009, FOO-1010
 **Linear Issues:**
 - [FOO-992](https://linear.app/lw-claude/issue/FOO-992) — "Refresh from Fitbit" doesn't recompute daily macro targets
@@ -985,3 +985,33 @@ None. Fix Plan complete.
 
 ### Linear Updates
 - FOO-1023, 1024, 1025, 1026, 1027 → Todo → In Progress → Review
+
+### Review Findings
+
+Summary: 4 findings raised by 3-reviewer team (security, reliability, quality) on 5 changed files.
+- FIXED INLINE: 1 issue — verified via test pass + bug-hunter SHIP
+- DISCARDED: 3 findings — defensive suggestion / impossible state / style-only
+
+**Issues fixed inline:**
+- [MEDIUM] TEST: `FITBIT_TIMEOUT → 504` mapping untested (`src/app/api/v1/nutrition-goals/__tests__/route.test.ts:296`) — added row to parametric Fitbit error-mapping table; closes coverage gap left by FOO-1026 (which restored only the 5 originally-deleted codes). (FOO-1028)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] [low] [security] API key re-extracted from Authorization header for rate-limit hashing in `src/app/api/v1/nutrition-goals/route.ts:64-65` — reviewer themselves noted "no current security impact." `validateApiRequest()` and the rate-limit hash both read the same Bearer header; current code is correct. The refactoring suggestion (have `validateApiRequest` return the hash) is defensive future-proofing, not a bug.
+- [DISCARDED] [low] [bug] `computed` flag in v1 range mode (`src/app/api/v1/nutrition-goals/route.ts:124`) checks `proteinGoal !== null` but not `carbsGoal`/`fatGoal` — described row state is impossible in current code. All write paths set proteinGoal/carbsGoal/fatGoal atomically (full compute, ratchet UPDATE) or all to null (invalidation). Schema permits the state but no code path produces it.
+- [DISCARDED] [low] [convention] `type RangeEntry` should be `interface` per CLAUDE.md (`src/app/api/v1/nutrition-goals/route.ts:20-23`) — reviewer themselves said "borderline — `type` is idiomatic for Pick-based derivations." `interface` extending `Pick<...>` is awkward; `type` is the conventional pattern for derived shapes. Style-only with zero correctness impact.
+
+### Linear Updates (Review)
+- FOO-1023, 1024, 1025, 1026, 1027: Review → Merge (Fix Plan items completed)
+- FOO-1028: Created in Merge (Fix: FITBIT_TIMEOUT mapping test — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: 3443 pass (+1 vs prior 3442)
+- Bug-hunter: SHIP (no new issues)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
