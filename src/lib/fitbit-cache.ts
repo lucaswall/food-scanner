@@ -54,7 +54,10 @@ export async function getCachedFitbitProfile(
   if (existing) return existing;
 
   const generationAtStart = getUserGeneration(userId);
-  const promise = (async () => {
+  // `let !` so the IIFE's `finally` can compare against the bound promise:
+  // by the time finally runs (after both awaits), assignment has completed.
+  let promise!: Promise<FitbitProfile>;
+  promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const profile = await getFitbitProfile(accessToken, l, userId, criticality);
@@ -63,7 +66,9 @@ export async function getCachedFitbitProfile(
       }
       return profile;
     } finally {
-      profileInFlight.delete(inflightKey);
+      if (profileInFlight.get(inflightKey) === promise) {
+        profileInFlight.delete(inflightKey);
+      }
     }
   })();
 
@@ -95,7 +100,8 @@ export async function getCachedFitbitWeightKg(
   if (existing) return existing;
 
   const generationAtStart = getUserGeneration(userId);
-  const promise = (async () => {
+  let promise!: Promise<FitbitWeightLog | null>;
+  promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const weight = await getFitbitLatestWeightKg(accessToken, targetDate, l, userId, criticality);
@@ -104,7 +110,9 @@ export async function getCachedFitbitWeightKg(
       }
       return weight;
     } finally {
-      weightInFlight.delete(inflightKey);
+      if (weightInFlight.get(inflightKey) === promise) {
+        weightInFlight.delete(inflightKey);
+      }
     }
   })();
 
@@ -134,7 +142,8 @@ export async function getCachedFitbitWeightGoal(
   if (existing) return existing;
 
   const generationAtStart = getUserGeneration(userId);
-  const promise = (async () => {
+  let promise!: Promise<FitbitWeightGoal | null>;
+  promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const goal = await getFitbitWeightGoal(accessToken, l, userId, criticality);
@@ -143,7 +152,9 @@ export async function getCachedFitbitWeightGoal(
       }
       return goal;
     } finally {
-      weightGoalInFlight.delete(inflightKey);
+      if (weightGoalInFlight.get(inflightKey) === promise) {
+        weightGoalInFlight.delete(inflightKey);
+      }
     }
   })();
 
@@ -175,7 +186,8 @@ export async function getCachedActivitySummary(
   if (existing) return existing;
 
   const generationAtStart = getUserGeneration(userId);
-  const promise = (async () => {
+  let promise!: Promise<ActivitySummary>;
+  promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
       const activity = await getActivitySummary(accessToken, targetDate, l, userId, criticality);
@@ -184,7 +196,9 @@ export async function getCachedActivitySummary(
       }
       return activity;
     } finally {
-      activityInFlight.delete(inflightKey);
+      if (activityInFlight.get(inflightKey) === promise) {
+        activityInFlight.delete(inflightKey);
+      }
     }
   })();
 

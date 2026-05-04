@@ -462,6 +462,50 @@ describe("fitbit-cache", () => {
       expect(mockGetFitbitProfile).not.toHaveBeenCalled();
     });
 
+    it("orphan settling after invalidation does not delete the newer in-flight entry", async () => {
+      // After invalidate clears the in-flight key, a refresh-triggered fetch
+      // can register a new promise under the same key. When the original
+      // (orphan) promise later settles, its finally block must NOT delete
+      // that newer entry — otherwise concurrent reads during the refresh
+      // window would miss dedup and burn extra Fitbit calls.
+      let resolveOrphan!: (v: FitbitProfile) => void;
+      const orphanPromise = new Promise<FitbitProfile>((resolve) => {
+        resolveOrphan = resolve;
+      });
+      let resolveRefresh!: (v: FitbitProfile) => void;
+      const refreshPromise = new Promise<FitbitProfile>((resolve) => {
+        resolveRefresh = resolve;
+      });
+      mockGetFitbitProfile
+        .mockReturnValueOnce(orphanPromise)
+        .mockReturnValueOnce(refreshPromise);
+
+      const orphan = getCachedFitbitProfile("user-1");
+      await new Promise((r) => setImmediate(r)); // orphan registers in-flight
+
+      invalidateFitbitProfileCache("user-1");
+
+      const refresh = getCachedFitbitProfile("user-1");
+      await new Promise((r) => setImmediate(r)); // refresh registers in-flight
+
+      // Settle orphan — its finally must skip the delete.
+      resolveOrphan({ ageYears: 99, sex: "FEMALE", heightCm: 100 });
+      await orphan;
+
+      // A concurrent third call must dedup with the newer in-flight entry,
+      // not start its own fetch. If finally clobbered the entry, this third
+      // call would trigger getFitbitProfile a third time.
+      const concurrent = getCachedFitbitProfile("user-1");
+
+      const freshProfile: FitbitProfile = { ageYears: 35, sex: "MALE", heightCm: 181 };
+      resolveRefresh(freshProfile);
+      const [r1, r2] = await Promise.all([refresh, concurrent]);
+
+      expect(r1).toEqual(freshProfile);
+      expect(r2).toEqual(freshProfile);
+      expect(mockGetFitbitProfile).toHaveBeenCalledTimes(2);
+    });
+
     it("invalidating one user does not suppress cache writes for another user's in-flight fetch", async () => {
       // The orphan-write guard must be per-user. Otherwise user-A pressing
       // refresh transiently degrades cache hit rate for everyone — user-B's
