@@ -11,7 +11,6 @@ import { CalorieRing } from "@/components/calorie-ring";
 import { MacroBars } from "@/components/macro-bars";
 import { MealBreakdown } from "@/components/meal-breakdown";
 import { FastingCard } from "@/components/fasting-card";
-import { TargetsCard } from "@/components/targets-card";
 import { FoodEntryDetailSheet } from "@/components/food-entry-detail-sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -285,9 +284,6 @@ export function DailyDashboard() {
         earliestDate={earliestEntry?.date ?? null}
         isLoading={earliestLoading}
       />
-
-      {/* Targets Card */}
-      <TargetsCard date={selectedDate} />
 
       {/* Calorie Ring or Plain Display */}
       <div className="flex justify-center">

@@ -1,7 +1,12 @@
 import { getDb } from "@/db/index";
-import { dailyCalorieGoals } from "@/db/schema";
+import { dailyCalorieGoals, users } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import { computeMacroTargets, PROTEIN_COEFFICIENTS } from "@/lib/macro-engine";
+import {
+  computeMacroTargets,
+  getMacroProfile,
+  isMacroProfileKey,
+  type MacroProfile,
+} from "@/lib/macro-engine";
 import {
   getCachedFitbitProfile,
   getCachedFitbitWeightKg,
@@ -59,6 +64,15 @@ function hasMacros(row: DbRow): boolean {
     row.activityKcal !== null &&
     row.weightKg !== null
   );
+}
+
+async function loadUserMacroProfile(userId: string): Promise<MacroProfile> {
+  const rows = await getDb()
+    .select({ macroProfile: users.macroProfile })
+    .from(users)
+    .where(eq(users.id, userId));
+  const key = rows[0]?.macroProfile;
+  return getMacroProfile(isMacroProfileKey(key) ? key : null);
 }
 
 async function queryRow(userId: string, date: string): Promise<DbRow | null> {
@@ -134,22 +148,31 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     const goalType: MacroGoalType = weightGoal?.goalType ?? "MAINTAIN";
     const bmiTier = getBmiTier(weightKg, profile.heightCm);
 
+    // Profile is needed for both partial and full compute paths — load it now,
+    // after the blocked-state guards above so blocked-state tests don't need to mock it.
+    const macroProfile = await loadUserMacroProfile(userId);
+
     if (activity === null || activity.caloriesOut === null) {
-      // Partial: compute protein/fat without a full calorie target (no caloriesOut yet)
-      const proteinG = Math.round(weightKg * PROTEIN_COEFFICIENTS[bmiTier][goalType]);
-      const fatG = Math.round(weightKg * 0.8);
+      // Partial: compute protein/fat per the active profile without a full calorie target.
+      const proteinG = Math.round(
+        weightKg * macroProfile.proteinCoefficients[bmiTier][goalType],
+      );
+      const fatG = Math.round(weightKg * macroProfile.fatPerKgFactor);
       return { status: "partial", proteinG, fatG };
     }
 
     // Full compute
-    const engineOut = computeMacroTargets({
-      ageYears: profile.ageYears,
-      sex: profile.sex,
-      heightCm: profile.heightCm,
-      weightKg,
-      caloriesOut: activity.caloriesOut,
-      goalType,
-    });
+    const engineOut = computeMacroTargets(
+      {
+        ageYears: profile.ageYears,
+        sex: profile.sex,
+        heightCm: profile.heightCm,
+        weightKg,
+        caloriesOut: activity.caloriesOut,
+        goalType,
+      },
+      macroProfile,
+    );
 
     // INSERT … ON CONFLICT (userId, date) DO NOTHING
     await getDb()
@@ -238,6 +261,40 @@ export function getOrComputeDailyGoals(
   const promise = doCompute(userId, date, log).finally(() => computeInFlight.delete(key));
   computeInFlight.set(key, promise);
   return promise;
+}
+
+/**
+ * Reset macro/audit columns and zero calorie_goal for the user's rows so the
+ * engine re-derives them under the (possibly new) macro profile on next read.
+ * Called from the macro-profile API after a profile change.
+ *
+ * Also drops any in-flight compute promises for this user so a subsequent request
+ * doesn't get back the old-profile result via the dedup cache. There is still a
+ * narrow window where an in-flight compute that captured the old profile lands
+ * its INSERT *after* this invalidate — if the user notices stale numbers on the
+ * dashboard, toggling the profile again forces another fresh compute.
+ */
+export async function invalidateUserDailyGoalsForProfileChange(userId: string): Promise<void> {
+  for (const key of computeInFlight.keys()) {
+    if (key.startsWith(`${userId}:`)) {
+      computeInFlight.delete(key);
+    }
+  }
+
+  await getDb()
+    .update(dailyCalorieGoals)
+    .set({
+      calorieGoal: 0,
+      proteinGoal: null,
+      carbsGoal: null,
+      fatGoal: null,
+      weightKg: null,
+      caloriesOut: null,
+      rmr: null,
+      activityKcal: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(dailyCalorieGoals.userId, userId));
 }
 
 export async function getDailyGoalsByDate(

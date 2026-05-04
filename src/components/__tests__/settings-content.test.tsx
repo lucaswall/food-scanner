@@ -24,6 +24,16 @@ vi.mock("@/components/fitbit-profile-card", () => ({
   FitbitProfileCard: () => <div data-testid="fitbit-profile-card" />,
 }));
 
+vi.mock("@/components/macro-profile-card", () => ({
+  MacroProfileCard: () => <div data-testid="macro-profile-card" />,
+}));
+
+vi.mock("@/components/targets-card", () => ({
+  TargetsCard: ({ date }: { date: string }) => (
+    <div data-testid="targets-card" data-date={date} />
+  ),
+}));
+
 // Create a mockable useSWR function
 const mockUseSWRImplementation = vi.fn();
 vi.mock("swr", () => ({
@@ -61,6 +71,19 @@ describe("SettingsContent", () => {
   it("does not render back arrow link", () => {
     render(<SettingsContent />);
     expect(screen.queryByRole("link", { name: /back to food scanner/i })).not.toBeInTheDocument();
+  });
+
+  it("renders the macro profile card", () => {
+    render(<SettingsContent />);
+    expect(screen.getByTestId("macro-profile-card")).toBeInTheDocument();
+  });
+
+  it("renders the daily targets section with today's date", () => {
+    render(<SettingsContent />);
+    expect(screen.getByRole("heading", { name: /today.s targets/i })).toBeInTheDocument();
+    const card = screen.getByTestId("targets-card");
+    // YYYY-MM-DD pattern from getTodayDate()
+    expect(card.getAttribute("data-date")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   describe("accessibility - form labels", () => {

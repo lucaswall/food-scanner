@@ -49,6 +49,14 @@ WHERE weight_kg IS NOT NULL
 - The `Accept-Language` regression test added in `src/lib/__tests__/fitbit.test.ts` prevents this from re-occurring.
 - Already executed on staging on 2026-05-03 (1 row affected for Lucas, today). Production push must execute this for both Lucas and Mariana.
 
+## 2026-05-03 — Per-user macro profile (users.macro_profile)
+
+**Type:** Schema-only migration. Drizzle migration `0022_reflective_multiple_man.sql` runs at startup (`ALTER TABLE users ADD COLUMN macro_profile text DEFAULT 'muscle_preserve' NOT NULL`).
+
+**Why:** Users can now choose between two macro-derivation philosophies (`muscle_preserve` — high protein with carb floor; `metabolic_flex` — moderate protein with low fixed carbs and fat residual). Default `muscle_preserve` preserves prior engine behaviour for every existing user — no behavioural drift on deploy.
+
+**Migration handling:** Auto-runs at startup. No backfill required. Engine reads each user's setting at compute time; the API endpoint at `PATCH /api/macro-profile` writes the column and also invalidates that user's `daily_calorie_goals` rows so they re-derive under the chosen profile on next dashboard load (calorie_goal=0, macros/audit NULL — same sentinel pattern as the unit-fix recovery above).
+
 ## 2026-05-03 — Macro engine: backfill lumen_goals → daily_calorie_goals macros, then DROP lumen_goals
 
 **Type:** Data-only migration (must run BEFORE the auto-generated `DROP TABLE lumen_goals`).

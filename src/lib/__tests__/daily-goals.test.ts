@@ -54,6 +54,15 @@ function mockUpdateOnce() {
   return { where, set };
 }
 
+/**
+ * Queue the macro-profile lookup that doCompute performs after the no_weight /
+ * sex_unset guards but before computing macros. Defaults to muscle_preserve so
+ * existing scenario assertions (which use muscle-preserve coefficients) hold.
+ */
+function mockMacroProfileSelect(key: string = "muscle_preserve") {
+  return mockSelectOnce([{ macroProfile: key }]);
+}
+
 // ─── Sample data ─────────────────────────────────────────────────────────────
 const PROFILE_MALE = { sex: "MALE" as const, ageYears: 49, heightCm: 176 };
 const PROFILE_FEMALE = { sex: "FEMALE" as const, ageYears: 44, heightCm: 162 };
@@ -95,6 +104,7 @@ describe("getOrComputeDailyGoals", () => {
   describe("first call — writes row and returns ok", () => {
     it("returns status: ok with goals and audit", async () => {
       mockSelectOnce([]); // no existing row
+      mockMacroProfileSelect();
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]); // read-back
       // Cache-hit path re-fetches profile/goal for bmiTier/goalType
@@ -110,6 +120,7 @@ describe("getOrComputeDailyGoals", () => {
 
     it("returns correct goals from computed row", async () => {
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
@@ -129,6 +140,7 @@ describe("getOrComputeDailyGoals", () => {
 
     it("returns audit with rmr, activityKcal, tdee, bmiTier, goalType", async () => {
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
@@ -150,6 +162,7 @@ describe("getOrComputeDailyGoals", () => {
 
     it("calls INSERT with ON CONFLICT DO NOTHING", async () => {
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       const { onConflictDoNothing } = mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
@@ -174,6 +187,7 @@ describe("getOrComputeDailyGoals", () => {
       });
 
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
@@ -205,6 +219,7 @@ describe("getOrComputeDailyGoals", () => {
       });
 
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
@@ -302,6 +317,7 @@ describe("getOrComputeDailyGoals", () => {
   describe("blocked: invalid_profile", () => {
     it("returns blocked/invalid_profile when computeMacroTargets throws INVALID_PROFILE_DATA", async () => {
       mockSelectOnce([]); // no existing row
+      mockMacroProfileSelect();
       mockGetCachedFitbitProfile.mockResolvedValue({ sex: "MALE", ageYears: 30, heightCm: 0 });
       mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 70, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
@@ -337,6 +353,7 @@ describe("getOrComputeDailyGoals", () => {
   describe("partial: activity has no caloriesOut", () => {
     it("returns partial with proteinG and fatG", async () => {
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
@@ -355,6 +372,7 @@ describe("getOrComputeDailyGoals", () => {
 
     it("does NOT call INSERT for partial result", async () => {
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
@@ -367,6 +385,7 @@ describe("getOrComputeDailyGoals", () => {
 
     it("uses default MAINTAIN goalType for partial when weight goal is unavailable", async () => {
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_FEMALE);
       mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 65, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(null); // goal not available
@@ -396,6 +415,7 @@ describe("getOrComputeDailyGoals", () => {
         activityKcal: null,
       };
       mockSelectOnce([]); // initial check: no row with macros
+      mockMacroProfileSelect();
       mockInsertOnce(); // ON CONFLICT DO NOTHING (Lumen row exists, no-op)
       mockSelectOnce([lumenRow]); // read-back: returns Lumen row (null macros)
       mockUpdateOnce(); // UPDATE macro+audit columns
@@ -422,6 +442,7 @@ describe("getOrComputeDailyGoals", () => {
         activityKcal: null,
       };
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockInsertOnce();
       mockSelectOnce([lumenRow]);
       mockUpdateOnce();
@@ -440,6 +461,7 @@ describe("getOrComputeDailyGoals", () => {
 
     it("does NOT UPDATE when macros are already populated", async () => {
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]); // read-back has macros populated
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
@@ -464,6 +486,7 @@ describe("getOrComputeDailyGoals", () => {
         activityKcal: null,
       };
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockInsertOnce();
       mockSelectOnce([placeholderRow]);
       const updateMock = mockUpdateOnce();
@@ -500,6 +523,7 @@ describe("getOrComputeDailyGoals", () => {
 
     it("returns correct goals and audit for female scenario", async () => {
       mockSelectOnce([]);
+      mockMacroProfileSelect();
       mockInsertOnce();
       mockSelectOnce([FEMALE_COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_FEMALE);

@@ -10,6 +10,9 @@ import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import type { NutritionLabel } from "@/types";
 import { FitbitProfileCard } from "@/components/fitbit-profile-card";
+import { MacroProfileCard } from "@/components/macro-profile-card";
+import { TargetsCard } from "@/components/targets-card";
+import { getTodayDate } from "@/lib/date-utils";
 
 interface SessionInfo {
   email: string | null;
@@ -301,6 +304,10 @@ export function SettingsContent() {
 
       <FitbitProfileCard />
 
+      <MacroProfileCard />
+
+      <DailyTargetsSection />
+
       <NutritionLabelsSection />
 
       <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
@@ -335,6 +342,15 @@ export function SettingsContent() {
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DailyTargetsSection() {
+  return (
+    <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
+      <h2 className="text-lg font-semibold">Today&apos;s Targets</h2>
+      <TargetsCard date={getTodayDate()} />
     </div>
   );
 }

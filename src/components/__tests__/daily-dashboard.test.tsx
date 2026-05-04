@@ -49,13 +49,6 @@ vi.mock("@/lib/date-utils", async () => {
 // Mock Date.now
 vi.spyOn(Date, "now").mockImplementation(() => mockDateState.now);
 
-// Mock TargetsCard (tested separately)
-vi.mock("@/components/targets-card", () => ({
-  TargetsCard: ({ date }: { date: string }) => (
-    <div data-testid="targets-card" data-date={date}>TargetsCard</div>
-  ),
-}));
-
 // Mock SavedForLaterSection for isolation
 vi.mock("@/components/saved-for-later-section", () => ({
   SavedForLaterSection: ({
@@ -1221,30 +1214,6 @@ describe("DailyDashboard", () => {
         // selectedDate should still be yesterday — NOT reset to today
         expect(screen.getByText("Yesterday")).toBeInTheDocument();
       });
-    });
-  });
-
-  it("renders TargetsCard with selected date", async () => {
-    mockFetch.mockImplementation((url: string) => {
-      if (url.includes("/api/nutrition-summary")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockSummary }),
-        });
-      }
-      if (url.includes("/api/nutrition-goals")) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve({ success: true, data: mockGoals }),
-        });
-      }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: null }) });
-    });
-
-    renderDailyDashboard();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("targets-card")).toBeInTheDocument();
     });
   });
 

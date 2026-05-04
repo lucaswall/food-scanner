@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "macro_profile" text DEFAULT 'muscle_preserve' NOT NULL;
