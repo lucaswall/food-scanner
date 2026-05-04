@@ -98,6 +98,20 @@ Do NOT flag these in code reviews:
 
 ---
 
+## FITBIT RATE-LIMIT CRITICALITY
+
+All Fitbit reads/writes route through `fetchWithRetry` in `src/lib/fitbit.ts`. Each call carries a `FitbitCallCriticality` (`"critical"` / `"important"` / `"optional"`) that gates execution against the per-user rate-limit headroom snapshot maintained in `src/lib/fitbit-rate-limit.ts`.
+
+| Criticality | When | Breaker behavior |
+|---|---|---|
+| `critical` | Writes (`createFood`, `logFood`, `deleteFoodLog`) and OAuth refresh | Always proceed; warn-log when remaining < 5 |
+| `important` | User-driven explicit reads (settings refresh, today's first goals compute) | Proceed unless remaining < 5 |
+| `optional` | Background revalidations (cache-hit fast path re-fetches, periodic polls) | Proceed only when remaining ≥ 20 |
+
+When the breaker rejects, it throws `FITBIT_RATE_LIMIT_LOW`. Route handlers map this to **HTTP 503** with the typed error code so clients can back off.
+
+---
+
 ## SECURITY
 
 - **Authorized users only** — `ALLOWED_EMAILS` allowlist enforced at Google OAuth callback

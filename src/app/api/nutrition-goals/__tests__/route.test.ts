@@ -265,6 +265,17 @@ describe("GET /api/nutrition-goals", () => {
     expect(data.error.code).toBe("FITBIT_RATE_LIMIT");
   });
 
+  it("returns 503 when getOrComputeDailyGoals throws FITBIT_RATE_LIMIT_LOW (FOO-1014)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(data.error.code).toBe("FITBIT_RATE_LIMIT_LOW");
+  });
+
   it("returns 504 when getOrComputeDailyGoals throws FITBIT_TIMEOUT", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetOrComputeDailyGoals.mockRejectedValue(new Error("FITBIT_TIMEOUT"));

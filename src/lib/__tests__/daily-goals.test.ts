@@ -277,6 +277,87 @@ describe("getOrComputeDailyGoals", () => {
 
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
+
+    it("falls back to degraded audit when breaker rejects optional re-fetches (FOO-1014)", async () => {
+      mockSelectOnce([COMPUTED_ROW]);
+      // Both optional re-fetches are blocked by the breaker.
+      mockGetCachedFitbitProfile.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+      mockGetCachedFitbitWeightGoal.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+
+      const result = await getOrComputeDailyGoals("user-breaker", "2026-04-30");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      // Stored macros are still served
+      expect(result.goals.proteinGoal).toBe(218);
+      expect(result.goals.calorieGoal).toBe(2289);
+      // Audit is degraded — bmiTier defaults to "lt25", goalType to "MAINTAIN"
+      expect(result.audit.bmiTier).toBe("lt25");
+      expect(result.audit.goalType).toBe("MAINTAIN");
+    });
+
+    it("re-throws non-breaker errors from the cache-hit re-fetch", async () => {
+      mockSelectOnce([COMPUTED_ROW]);
+      mockGetCachedFitbitProfile.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+
+      await expect(getOrComputeDailyGoals("user-fail", "2026-04-30")).rejects.toThrow(
+        "FITBIT_TOKEN_INVALID",
+      );
+    });
+
+    it("uses 'optional' criticality on the cache-hit re-fetch", async () => {
+      mockSelectOnce([COMPUTED_ROW]);
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+
+      await getOrComputeDailyGoals("user-cache4", "2026-04-30");
+
+      expect(mockGetCachedFitbitProfile).toHaveBeenCalledWith(
+        "user-cache4",
+        expect.any(Object),
+        "optional",
+      );
+      expect(mockGetCachedFitbitWeightGoal).toHaveBeenCalledWith(
+        "user-cache4",
+        expect.any(Object),
+        "optional",
+      );
+    });
+  });
+
+  describe("full-compute breaker propagation (FOO-1014)", () => {
+    it("propagates FITBIT_RATE_LIMIT_LOW from any of the 4 fan-out fetches", async () => {
+      mockSelectOnce([]); // no existing row → take the full-compute path
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      await expect(getOrComputeDailyGoals("user-low", "2026-05-04")).rejects.toThrow(
+        "FITBIT_RATE_LIMIT_LOW",
+      );
+    });
+
+    it("uses 'important' criticality on the full-compute fan-out", async () => {
+      mockSelectOnce([]);
+      mockMacroProfileSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 80, loggedDate: "2026-05-04" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+      mockInsertOnce();
+      mockSelectOnce([{ ...COMPUTED_ROW, weightKg: "80" }]);
+
+      await getOrComputeDailyGoals("user-imp", "2026-05-04");
+
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+        "user-imp",
+        "2026-05-04",
+        expect.any(Object),
+        "important",
+      );
+    });
   });
 
   // ─── Status: blocked — no_weight ─────────────────────────────────────────

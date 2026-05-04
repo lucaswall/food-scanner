@@ -17,11 +17,9 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
-const mockEnsureFreshToken = vi.fn();
-const mockGetActivitySummary = vi.fn();
-vi.mock("@/lib/fitbit", () => ({
-  ensureFreshToken: (...args: unknown[]) => mockEnsureFreshToken(...args),
-  getActivitySummary: (...args: unknown[]) => mockGetActivitySummary(...args),
+const mockGetCachedActivitySummary = vi.fn();
+vi.mock("@/lib/fitbit-cache", () => ({
+  getCachedActivitySummary: (...args: unknown[]) => mockGetCachedActivitySummary(...args),
 }));
 
 const mockCheckRateLimit = vi.fn();
@@ -43,13 +41,13 @@ describe("GET /api/v1/activity-summary", () => {
   it("returns activity summary for valid API key and date", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
+    
 
     const mockActivity: ActivitySummary = {
       caloriesOut: 2500,
     };
 
-    mockGetActivitySummary.mockResolvedValue(mockActivity);
+    mockGetCachedActivitySummary.mockResolvedValue(mockActivity);
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -62,8 +60,7 @@ describe("GET /api/v1/activity-summary", () => {
     expect(data.success).toBe(true);
     expect(data.data).toEqual(mockActivity);
     expect(mockValidateApiRequest).toHaveBeenCalledWith(request);
-    expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-123", expect.any(Object));
-    expect(mockGetActivitySummary).toHaveBeenCalledWith("fitbit-access-token", "2026-02-11", expect.any(Object));
+    expect(mockGetCachedActivitySummary).toHaveBeenCalledWith("user-123", "2026-02-11", expect.any(Object));
   });
 
   it("returns 401 for invalid API key", async () => {
@@ -117,7 +114,7 @@ describe("GET /api/v1/activity-summary", () => {
   it("returns 404 when Fitbit credentials are missing", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
+    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_CREDENTIALS_MISSING"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -133,7 +130,7 @@ describe("GET /api/v1/activity-summary", () => {
   it("returns 401 when Fitbit token is invalid", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockEnsureFreshToken.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
+    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -149,8 +146,8 @@ describe("GET /api/v1/activity-summary", () => {
   it("returns 403 when Fitbit scope is missing", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
-    mockGetActivitySummary.mockRejectedValue(new Error("FITBIT_SCOPE_MISSING"));
+    
+    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_SCOPE_MISSING"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -166,8 +163,8 @@ describe("GET /api/v1/activity-summary", () => {
   it("returns 502 when Fitbit API returns an error", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
-    mockGetActivitySummary.mockRejectedValue(new Error("FITBIT_API_ERROR"));
+
+    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_API_ERROR"));
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -180,11 +177,75 @@ describe("GET /api/v1/activity-summary", () => {
     expect(data.error.code).toBe("FITBIT_API_ERROR");
   });
 
+  it("returns 429 when Fitbit returns FITBIT_RATE_LIMIT", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_RATE_LIMIT"));
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(data.error.code).toBe("FITBIT_RATE_LIMIT");
+  });
+
+  it("returns 503 when breaker rejects with FITBIT_RATE_LIMIT_LOW (FOO-1014)", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(data.error.code).toBe("FITBIT_RATE_LIMIT_LOW");
+  });
+
+  it("returns 504 when getCachedActivitySummary throws FITBIT_TIMEOUT", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_TIMEOUT"));
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(504);
+    expect(data.error.code).toBe("FITBIT_TIMEOUT");
+  });
+
+  it("returns 502 when getCachedActivitySummary throws FITBIT_REFRESH_TRANSIENT", async () => {
+    mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
+    mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_REFRESH_TRANSIENT"));
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(data.error.code).toBe("FITBIT_REFRESH_TRANSIENT");
+  });
+
   it("sets Cache-Control header to private, no-cache", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
-    mockGetActivitySummary.mockResolvedValue({
+    
+    mockGetCachedActivitySummary.mockResolvedValue({
       caloriesOut: 2500,
     });
 
@@ -217,8 +278,8 @@ describe("GET /api/v1/activity-summary", () => {
   it("uses API key as rate limit key with 30 req/min for Fitbit API route", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
-    mockGetActivitySummary.mockResolvedValue({ caloriesOut: 2500 });
+    
+    mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2500 });
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -236,8 +297,8 @@ describe("GET /api/v1/activity-summary", () => {
   it("returns ETag header on success response", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
-    mockGetActivitySummary.mockResolvedValue({ caloriesOut: 2500 });
+    
+    mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2500 });
 
     const request = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
@@ -251,8 +312,8 @@ describe("GET /api/v1/activity-summary", () => {
   it("returns 304 when If-None-Match matches", async () => {
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockEnsureFreshToken.mockResolvedValue("fitbit-access-token");
-    mockGetActivitySummary.mockResolvedValue({ caloriesOut: 2500 });
+    
+    mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2500 });
 
     const firstRequest = createRequest(
       "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",

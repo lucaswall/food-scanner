@@ -104,7 +104,12 @@ describe("GET /api/fitbit/profile", () => {
 
     await GET(createRequest());
 
-    expect(mockGetCachedFitbitWeightKg).toHaveBeenCalledWith("user-123", "2026-01-15", expect.anything());
+    expect(mockGetCachedFitbitWeightKg).toHaveBeenCalledWith(
+      "user-123",
+      "2026-01-15",
+      expect.anything(),
+      "important",
+    );
   });
 
   it("handles null weight gracefully", async () => {
@@ -219,6 +224,17 @@ describe("GET /api/fitbit/profile", () => {
 
     expect(response.status).toBe(429);
     expect(data.error.code).toBe("FITBIT_RATE_LIMIT");
+  });
+
+  it("returns 503 on FITBIT_RATE_LIMIT_LOW error (FOO-1014)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetCachedFitbitProfile.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+
+    const response = await GET(createRequest());
+    const data = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(data.error.code).toBe("FITBIT_RATE_LIMIT_LOW");
   });
 
   it("returns 504 on FITBIT_TIMEOUT error", async () => {

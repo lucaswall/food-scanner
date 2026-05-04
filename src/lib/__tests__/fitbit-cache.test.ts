@@ -68,7 +68,7 @@ describe("fitbit-cache", () => {
       const result = await getCachedFitbitProfile("user-1");
 
       expect(mockEnsureFreshToken).toHaveBeenCalledWith("user-1", expect.any(Object));
-      expect(mockGetFitbitProfile).toHaveBeenCalledWith("test-access-token", expect.any(Object));
+      expect(mockGetFitbitProfile).toHaveBeenCalledWith("test-access-token", expect.any(Object), "user-1", "optional");
       expect(result).toEqual(mockProfile);
     });
 
@@ -132,7 +132,7 @@ describe("fitbit-cache", () => {
 
       const result = await getCachedFitbitWeightKg("user-1", "2024-01-15");
 
-      expect(mockGetFitbitLatestWeightKg).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object));
+      expect(mockGetFitbitLatestWeightKg).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional");
       expect(result).toEqual(mockWeightLog);
     });
 
@@ -208,7 +208,7 @@ describe("fitbit-cache", () => {
 
       const result = await getCachedFitbitWeightGoal("user-1");
 
-      expect(mockGetFitbitWeightGoal).toHaveBeenCalledWith("test-access-token", expect.any(Object));
+      expect(mockGetFitbitWeightGoal).toHaveBeenCalledWith("test-access-token", expect.any(Object), "user-1", "optional");
       expect(result).toEqual(mockWeightGoal);
     });
 
@@ -262,7 +262,7 @@ describe("fitbit-cache", () => {
 
       const result = await getCachedActivitySummary("user-1", "2024-01-15");
 
-      expect(mockGetActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object));
+      expect(mockGetActivitySummary).toHaveBeenCalledWith("test-access-token", "2024-01-15", expect.any(Object), "user-1", "optional");
       expect(result).toEqual(mockActivity);
     });
 

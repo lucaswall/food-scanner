@@ -1,7 +1,7 @@
 # Implementation Plan
 
 **Created:** 2026-05-04
-**Status:** ACTIVE
+**Status:** COMPLETE
 **Source:** Backlog: FOO-1011, FOO-1013, FOO-1014, FOO-1012
 **Linear Issues:** [FOO-1011](https://linear.app/lw-claude/issue/FOO-1011), [FOO-1013](https://linear.app/lw-claude/issue/FOO-1013), [FOO-1014](https://linear.app/lw-claude/issue/FOO-1014), [FOO-1012](https://linear.app/lw-claude/issue/FOO-1012)
 **Branch:** feat/fitbit-rate-limit-hardening
@@ -467,3 +467,72 @@ Make Fitbit API usage architecturally bounded by the per-user 150-req/hour quota
 **Sequence note:** Tasks must run roughly in order; Task 3 introduces the userId param that Task 4 then propagates. Task 5 (Retry-After) is independent of the breaker work and could be parallelized in a worker pool, but the test files overlap with Task 3's, so single-track is safer.
 
 **Risk:** the userId-threading change in Task 3 ripples through every public function in `fitbit.ts` and every caller. Carefully count the call sites before starting and lean on TypeScript to catch missed sites — `tsc --noEmit` after each pass.
+
+---
+
+## Iteration 1
+
+**Date:** 2026-05-04
+**Status:** COMPLETE
+**Method:** single-agent (23 effort points, but one tightly-coupled work unit — `fitbit.ts` signature changes ripple through every caller; plan author explicitly recommended single-track due to overlapping test files)
+
+### Tasks Completed
+
+- [x] Task 1: Added `FITBIT_RATE_LIMIT_LOW` to `ErrorCode` union (`src/types/index.ts`).
+- [x] Task 2: Created `src/lib/fitbit-rate-limit.ts` with `recordRateLimitHeaders`, `getRateLimitSnapshot`, threshold-tier warn logging (ok/low/critical), `_resetForTests`. Tests cover header parsing, missing/NaN headers, per-user isolation, stale snapshots, and tier-transition warns.
+- [x] Task 3: Threaded `userId?: string` through `fetchWithRetry` and every public function in `src/lib/fitbit.ts` (`createFood`, `logFood`, `deleteFoodLog`, `findOrCreateFood`, `getFoodGoals`, `getFitbitProfile`, `getFitbitLatestWeightKg`, `getFitbitWeightGoal`, `getActivitySummary`). Added `recordRateLimitHeaders` call after every fetch and a Sentry breadcrumb with `{url, status, remaining}`.
+- [x] Task 4: Updated `src/lib/fitbit-cache.ts` to thread `userId` (and later `criticality`) to underlying fetch helpers.
+- [x] Task 5: Replaced 429 branch in `fetchWithRetry`. Now honors `Retry-After` (RFC 7231 — integer seconds OR HTTP-date). Rejects immediately if header value exceeds remaining deadline. Caps retries at 1 (down from 3) for both header-present and header-absent paths. Added `parseRetryAfter` helper.
+- [x] Task 6: Extended `fitbit-rate-limit.ts` with `FitbitCallCriticality` type and `assertRateLimitAllowed`. Thresholds: `optional` blocked when `<20`, `important` blocked when `<5`, `critical` always proceeds (with warn-log when `<5`). Cold-start and stale snapshots allow all.
+- [x] Task 7: Wired the breaker into `fetchWithRetry` (called when `userId && retryCount === 0`). Public read functions now accept `criticality?: FitbitCallCriticality` (default `"optional"`). Write functions and OAuth refresh hardcode `"critical"`.
+- [x] Task 8: Marked internal call sites in `src/lib/daily-goals.ts`. Cache-hit fast path uses `Promise.allSettled` and degrades gracefully on `FITBIT_RATE_LIMIT_LOW` (bmiTier defaults to `"lt25"`, goalType to `"MAINTAIN"`). Full-compute fan-out uses `"important"`. `src/app/api/fitbit/profile/route.ts` uses `"important"`. Cache wrappers accept and pass through `criticality` (default `"optional"`).
+- [x] Task 9: Added `FITBIT_RATE_LIMIT_LOW` → 503 mapping in `src/app/api/nutrition-goals/route.ts`, `src/app/api/fitbit/profile/route.ts`, and `src/app/api/v1/activity-summary/route.ts`.
+- [x] Task 10: Routed `/api/v1/activity-summary` through `getCachedActivitySummary` (removed direct `ensureFreshToken`/`getActivitySummary` calls).
+- [x] Task 11: Added integration-style cache-dedup test (`route.cache-integration.test.ts`) verifying two sequential GETs invoke the underlying `getActivitySummary` exactly once.
+- [x] Task 12: Documented criticality classification in `CLAUDE.md` under new "FITBIT RATE-LIMIT CRITICALITY" section. No `MIGRATIONS.md` entry needed (no schema/env changes).
+
+### Bugs Found & Fixed (bug-hunter pass)
+
+- **HIGH** — `getFitbitLatestWeightKg` was passing a fresh `Date.now()` to `fetchWithRetry` on each loop iteration, giving each of 7 walk-back days its own 30s deadline (210s worst case). **Fix:** captured `walkbackStart` once before the loop and shared it across all 7 calls. New test verifies the shared deadline kicks in around iteration 4.
+- **MEDIUM** — `/api/v1/activity-summary` was missing `FITBIT_TIMEOUT` and `FITBIT_REFRESH_TRANSIENT` error mappings. Both can now reach the route via `getCachedActivitySummary` → `ensureFreshToken`/`fetchWithRetry`. **Fix:** added the two missing branches; new tests cover 504 and 502 cases.
+- **LOW** — Test gap for `Retry-After: 0` and past HTTP-date values. **Fix:** added two new tests in `fetchWithRetry Retry-After honoring`.
+- **LOW** — Test gap for tier re-warn after a fresh window with replenished budget. **Fix:** added regression test in `fitbit-rate-limit.test.ts`.
+
+### Verification
+
+- `npm test`: 3,386 tests pass (191 files).
+- `npm run lint`: clean.
+- `npm run build`: clean (zero warnings).
+
+### Files Modified
+
+- `src/types/index.ts` — new ErrorCode literal
+- `src/types/__tests__/index.test.ts` — type assertion test
+- `src/lib/fitbit-rate-limit.ts` (new) — snapshot store + circuit breaker
+- `src/lib/__tests__/fitbit-rate-limit.test.ts` (new) — 18 tests
+- `src/lib/fitbit.ts` — userId/criticality threading, Retry-After honoring, Sentry breadcrumbs, walk-back deadline fix
+- `src/lib/__tests__/fitbit.test.ts` — 16 new tests (Retry-After, header recording, breaker plumbing, walk-back deadline)
+- `src/lib/fitbit-cache.ts` — criticality pass-through
+- `src/lib/__tests__/fitbit-cache.test.ts` — updated assertions
+- `src/lib/daily-goals.ts` — Promise.allSettled + breaker fallback for cache-hit; "important" criticality on full-compute
+- `src/lib/__tests__/daily-goals.test.ts` — 5 new tests for breaker fallback / criticality
+- `src/app/api/fitbit/profile/route.ts` — "important" criticality + 503 mapping
+- `src/app/api/fitbit/profile/__tests__/route.test.ts` — 503 test + criticality assertion
+- `src/app/api/nutrition-goals/route.ts` — 503 mapping
+- `src/app/api/nutrition-goals/__tests__/route.test.ts` — 503 test
+- `src/app/api/v1/activity-summary/route.ts` — cache layer + 503/504/502 mappings
+- `src/app/api/v1/activity-summary/__tests__/route.test.ts` — re-mocked cache layer; 503/504/502 tests
+- `src/app/api/v1/activity-summary/__tests__/route.cache-integration.test.ts` (new) — cache dedup verification
+- `CLAUDE.md` — criticality classification doc
+
+### Linear
+
+All four issues moved from Backlog → Todo (via plan-backlog) → In Progress → Review:
+- FOO-1011 (Honor Retry-After)
+- FOO-1012 (v1 caching)
+- FOO-1013 (Read rate-limit headers)
+- FOO-1014 (Circuit breaker)
+
+### Tasks Remaining
+
+None. Plan COMPLETE.

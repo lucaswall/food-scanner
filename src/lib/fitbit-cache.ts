@@ -7,6 +7,7 @@ import {
   getFitbitLatestWeightKg,
   getFitbitWeightGoal,
   getActivitySummary,
+  type FitbitCallCriticality,
 } from "@/lib/fitbit";
 
 const TTL_24H = 24 * 60 * 60 * 1000;
@@ -23,7 +24,11 @@ interface CacheEntry<T> {
 const profileCache = new Map<string, CacheEntry<FitbitProfile>>();
 const profileInFlight = new Map<string, Promise<FitbitProfile>>();
 
-export async function getCachedFitbitProfile(userId: string, log?: Logger): Promise<FitbitProfile> {
+export async function getCachedFitbitProfile(
+  userId: string,
+  log?: Logger,
+  criticality: FitbitCallCriticality = "optional",
+): Promise<FitbitProfile> {
   const l = log ?? logger;
 
   const cached = profileCache.get(userId);
@@ -37,7 +42,7 @@ export async function getCachedFitbitProfile(userId: string, log?: Logger): Prom
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      const profile = await getFitbitProfile(accessToken, l);
+      const profile = await getFitbitProfile(accessToken, l, userId, criticality);
       profileCache.set(userId, { value: profile, expiresAt: Date.now() + TTL_24H });
       return profile;
     } finally {
@@ -58,6 +63,7 @@ export async function getCachedFitbitWeightKg(
   userId: string,
   targetDate: string,
   log?: Logger,
+  criticality: FitbitCallCriticality = "optional",
 ): Promise<FitbitWeightLog | null> {
   const l = log ?? logger;
   const key = `${userId}:${targetDate}`;
@@ -73,7 +79,7 @@ export async function getCachedFitbitWeightKg(
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      const weight = await getFitbitLatestWeightKg(accessToken, targetDate, l);
+      const weight = await getFitbitLatestWeightKg(accessToken, targetDate, l, userId, criticality);
       weightCache.set(key, { value: weight, expiresAt: Date.now() + TTL_1H });
       return weight;
     } finally {
@@ -93,6 +99,7 @@ const weightGoalInFlight = new Map<string, Promise<FitbitWeightGoal | null>>();
 export async function getCachedFitbitWeightGoal(
   userId: string,
   log?: Logger,
+  criticality: FitbitCallCriticality = "optional",
 ): Promise<FitbitWeightGoal | null> {
   const l = log ?? logger;
 
@@ -107,7 +114,7 @@ export async function getCachedFitbitWeightGoal(
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      const goal = await getFitbitWeightGoal(accessToken, l);
+      const goal = await getFitbitWeightGoal(accessToken, l, userId, criticality);
       weightGoalCache.set(userId, { value: goal, expiresAt: Date.now() + TTL_24H });
       return goal;
     } finally {
@@ -128,6 +135,7 @@ export async function getCachedActivitySummary(
   userId: string,
   targetDate: string,
   log?: Logger,
+  criticality: FitbitCallCriticality = "optional",
 ): Promise<ActivitySummary> {
   const l = log ?? logger;
   const key = `${userId}:${targetDate}`;
@@ -143,7 +151,7 @@ export async function getCachedActivitySummary(
   const promise = (async () => {
     try {
       const accessToken = await ensureFreshToken(userId, l);
-      const activity = await getActivitySummary(accessToken, targetDate, l);
+      const activity = await getActivitySummary(accessToken, targetDate, l, userId, criticality);
       activityCache.set(key, { value: activity, expiresAt: Date.now() + TTL_5MIN });
       return activity;
     } finally {

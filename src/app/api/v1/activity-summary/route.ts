@@ -1,7 +1,7 @@
 import { validateApiRequest, hashForRateLimit } from "@/lib/api-auth";
 import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
-import { ensureFreshToken, getActivitySummary } from "@/lib/fitbit";
+import { getCachedActivitySummary } from "@/lib/fitbit-cache";
 import { isValidDateFormat } from "@/lib/date-utils";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -42,8 +42,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const accessToken = await ensureFreshToken(authResult.userId, log);
-    const activitySummary = await getActivitySummary(accessToken, date, log);
+    const activitySummary = await getCachedActivitySummary(authResult.userId, date, log);
 
     log.debug(
       {
@@ -70,6 +69,22 @@ export async function GET(request: Request) {
       }
       if (error.message === "FITBIT_SCOPE_MISSING") {
         return errorResponse("FITBIT_SCOPE_MISSING", "Fitbit permissions need updating. Please reconnect your Fitbit account in Settings.", 403);
+      }
+      if (error.message === "FITBIT_RATE_LIMIT") {
+        return errorResponse("FITBIT_RATE_LIMIT", "Fitbit API rate limited. Please try again later.", 429);
+      }
+      if (error.message === "FITBIT_RATE_LIMIT_LOW") {
+        return errorResponse(
+          "FITBIT_RATE_LIMIT_LOW",
+          "Fitbit rate-limit headroom is low. Please try again in a few minutes.",
+          503,
+        );
+      }
+      if (error.message === "FITBIT_TIMEOUT") {
+        return errorResponse("FITBIT_TIMEOUT", "Request to Fitbit timed out. Please try again.", 504);
+      }
+      if (error.message === "FITBIT_REFRESH_TRANSIENT") {
+        return errorResponse("FITBIT_REFRESH_TRANSIENT", "Temporary Fitbit error. Please try again.", 502);
       }
       if (error.message === "FITBIT_API_ERROR") {
         return errorResponse("FITBIT_API_ERROR", "Fitbit API error", 502);
