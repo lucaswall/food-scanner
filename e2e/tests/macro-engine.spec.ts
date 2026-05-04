@@ -72,24 +72,25 @@ test.describe('Macro Engine — scope-mismatch banner', () => {
   });
 });
 
-test.describe('Macro Engine — TargetsCard renders on dashboard', () => {
+test.describe('Macro Engine — TargetsCard renders on settings page', () => {
   test.beforeEach(async () => {
     await setTokenScope(FULL_SCOPE);
   });
 
   test('TargetsCard is rendered (loading, error, or data state)', async ({ page }) => {
-    await page.goto('/app');
+    await page.goto('/settings');
     await page.waitForLoadState('networkidle');
 
     // TargetsCard always renders something — at minimum a Skeleton or an error/blocked message.
     // We check that one of the expected text fragments appears, indicating the card mounted.
     const possibleTexts = [
-      "Today's Targets",            // ok header
+      "cal/day",                     // ok header
       "Targets pending",             // partial
       "Add a weight in Fitbit",      // blocked: no_weight
       "Set your sex",                // blocked: sex_unset
       "Reconnect Fitbit",            // blocked: scope_mismatch (also in banner)
       "Could not load targets",      // SWR error
+      "Macro targets unavailable",   // blocked: default
     ];
     const cardTextRegex = new RegExp(possibleTexts.join('|'), 'i');
     await expect(page.getByText(cardTextRegex).first()).toBeVisible({ timeout: 10000 });
