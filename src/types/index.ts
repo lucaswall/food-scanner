@@ -626,7 +626,8 @@ export interface NutritionGoals {
     | "sex_unset"
     | "scope_mismatch"
     | "invalid_profile"
-    | "invalid_activity";
+    | "invalid_activity"
+    | "not_computed";
   audit?: NutritionGoalsAudit;
   /** True when the Fitbit weight log used was logged > 7 days before the target date (FOO-1010). */
   weightStale?: boolean;

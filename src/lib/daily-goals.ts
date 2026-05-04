@@ -187,7 +187,8 @@ function hasMacros(row: DbRow): boolean {
     row.fatGoal !== null &&
     row.rmr !== null &&
     row.activityKcal !== null &&
-    row.weightKg !== null
+    row.weightKg !== null &&
+    row.caloriesOut !== null
   );
 }
 

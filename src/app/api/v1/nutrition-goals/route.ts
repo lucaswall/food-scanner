@@ -9,10 +9,18 @@ import {
 import { getDailyGoalsByDateRange } from "@/lib/nutrition-goals";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getTodayDate, isValidDateFormat } from "@/lib/date-utils";
+import type { NutritionGoals } from "@/types";
 
 const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const MAX_RANGE_DAYS = 90;
+
+// Range-mode entry shape — pinned to the public `NutritionGoals` contract so
+// any drift on the `reason` union (FOO-1024) becomes a compile error here.
+type RangeEntry = Pick<
+  NutritionGoals,
+  "calories" | "proteinG" | "carbsG" | "fatG" | "status" | "reason"
+> & { date: string };
 
 function mapFitbitError(error: unknown): Response | null {
   if (!(error instanceof Error)) return null;
@@ -112,7 +120,7 @@ export async function GET(request: Request) {
         loadUserMacroProfileKey(authResult.userId),
       ]);
 
-      const entries = rows.map((row) => {
+      const entries: RangeEntry[] = rows.map((row) => {
         const computed = row.calorieGoal !== null && row.calorieGoal > 0 && row.proteinGoal !== null;
         return {
           date: row.date,
@@ -121,7 +129,7 @@ export async function GET(request: Request) {
           carbsG: row.carbsGoal,
           fatG: row.fatGoal,
           status: computed ? "ok" : "blocked",
-          ...(computed ? {} : { reason: "not_computed" as const }),
+          ...(computed ? {} : { reason: "not_computed" }),
         };
       });
 

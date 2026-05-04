@@ -940,3 +940,48 @@ Summary: 11 findings raised by 3-reviewer team (security, reliability, quality) 
 1. In `src/lib/__tests__/daily-goals.test.ts`, locate the FOO-996 test "cache-hit falls through to full compute when stored profile_version mismatches user version". Replace `expect(mockGetCachedActivitySummary).toHaveBeenCalled()` with `expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(expect.anything(), expect.anything(), expect.anything(), "important")` (full-compute criticality).
 2. Sanity-check by temporarily inverting the version-check comparison in `daily-goals.ts:267-268` and re-running the test — it should fail. Revert the inversion.
 3. Run `npx vitest run "daily-goals"` + `npm run typecheck`.
+
+---
+
+## Iteration 2 — 2026-05-04
+
+**Status:** COMPLETE
+**Method:** single-agent (effective scope = 5 S-sized fixes across 2 independent units = 5 effort points; below the 6-point worker threshold)
+
+### Tasks Completed (5/5)
+
+All Fix Plan items landed.
+
+| ID | Task | Linear | Status |
+|----|------|--------|--------|
+| Fix 1 | `hasMacros()` requires non-null `caloriesOut` (+ regression test) | FOO-1023 | ✅ Review |
+| Fix 2 | `"not_computed"` added to `NutritionGoals.reason` union; v1 range entries pinned to `RangeEntry = Pick<NutritionGoals, …> & { date: string }` | FOO-1024 | ✅ Review |
+| Fix 3 | Restored Cache-Control: private, no-cache + ETag tests on `/api/v1/nutrition-goals` (2 tests) | FOO-1025 | ✅ Review |
+| Fix 4 | Restored Fitbit error-code mapping tests on `/api/v1/nutrition-goals` (5 tests covering 424/401/403/429/502) | FOO-1026 | ✅ Review |
+| Fix 5 | Strengthened FOO-996 version-mismatch assertion to discriminate slow-path criticality `"important"` from cache-hit ratchet `"optional"` | FOO-1027 | ✅ Review |
+
+### Files Modified
+
+- `src/lib/daily-goals.ts` — one-line guard added to `hasMacros()`.
+- `src/lib/__tests__/daily-goals.test.ts` — 1 new test (FOO-1023); FOO-996 assertion strengthened (FOO-1027).
+- `src/types/index.ts` — `"not_computed"` added to `NutritionGoals.reason` union.
+- `src/app/api/v1/nutrition-goals/route.ts` — typed `RangeEntry` introduced; entries array pinned to it.
+- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` — 7 new tests (2 Cache-Control/ETag + 5 Fitbit error mappings).
+
+### Verification
+
+- **Unit/integration:** 3442 tests across 191 files — all passing (+8 new tests vs Iteration 1's 3434).
+- **Lint:** zero warnings.
+- **Build:** production build successful (59 routes).
+- **bug-hunter:** 0 bugs found — verdict SHIP.
+
+### Migrations
+
+None — no schema changes in this iteration.
+
+### Tasks Remaining
+
+None. Fix Plan complete.
+
+### Linear Updates
+- FOO-1023, 1024, 1025, 1026, 1027 → Todo → In Progress → Review

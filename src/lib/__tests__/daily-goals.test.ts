@@ -497,9 +497,45 @@ describe("getOrComputeDailyGoals", () => {
 
       await getOrComputeDailyGoals("user-version-mismatch", "2026-05-03");
 
-      // Full-compute path was taken — getCachedActivitySummary called (cache-hit fast
-      // path doesn't call it).
-      expect(mockGetCachedActivitySummary).toHaveBeenCalled();
+      // Full-compute path was taken — getCachedActivitySummary called with the
+      // slow-path "important" criticality (cache-hit fast path uses "optional").
+      // FOO-1027: discriminates the slow path; toHaveBeenCalled() alone passes
+      // both paths because the ratchet on cache-hit also fetches activity.
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        "important",
+      );
+    });
+
+    // ─── FOO-1023: cache-hit guarded against null caloriesOut ───────────────
+    it("cache-hit bypassed when stored row has null caloriesOut", async () => {
+      // Row has macros populated but caloriesOut is null — hasMacros() must
+      // reject it so the cache-hit fast path doesn't return audit.caloriesOut!
+      // as a number (latent null deref in TargetsCard).
+      const nullCaloriesOutRow = { ...COMPUTED_ROW, caloriesOut: null };
+      mockSelectOnce([nullCaloriesOutRow]); // queryRow — hasMacros returns false
+      // No FOO-996 version select queued: hasMacros=false short-circuits the
+      // cacheHit && check before loadUserMacroProfileVersion runs.
+      mockMacroProfileSelect(); // slow-path loadUserMacroProfile
+      mockInsertOnce();
+      mockSelectOnce([COMPUTED_ROW]); // read-back
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      await getOrComputeDailyGoals("user-null-cout", "2026-05-03");
+
+      // Slow path takes "important" criticality; cache-hit ratchet uses "optional".
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+        "user-null-cout",
+        "2026-05-03",
+        expect.any(Object),
+        "important",
+      );
     });
 
     // ─── FOO-1010: weight staleness ─────────────────────────────────────────

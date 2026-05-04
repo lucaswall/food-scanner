@@ -255,4 +255,62 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       expect(response.status).toBe(400);
     });
   });
+
+  // ─── FOO-1025: response headers ─────────────────────────────────────────
+  describe("response headers", () => {
+    beforeEach(() => {
+      mockGetOrComputeDailyGoals.mockResolvedValue({
+        status: "ok",
+        goals: { calorieGoal: 2289, proteinGoal: 218, carbsGoal: 136, fatGoal: 97 },
+        audit: { rmr: 2070 },
+      });
+    });
+
+    it("sets Cache-Control: private, no-cache on success", async () => {
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?date=2026-05-04",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+
+      expect(response.headers.get("Cache-Control")).toBe("private, no-cache");
+    });
+
+    it("returns ETag header on success", async () => {
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?date=2026-05-04",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+
+      expect(response.headers.get("ETag")).toMatch(/^"[a-f0-9]{16}"$/);
+    });
+  });
+
+  // ─── FOO-1026: Fitbit error-code mapping ────────────────────────────────
+  describe("Fitbit error mapping", () => {
+    const cases: { error: string; status: number; code: string }[] = [
+      { error: "FITBIT_CREDENTIALS_MISSING", status: 424, code: "FITBIT_CREDENTIALS_MISSING" },
+      { error: "FITBIT_TOKEN_INVALID", status: 401, code: "FITBIT_TOKEN_INVALID" },
+      { error: "FITBIT_SCOPE_MISSING", status: 403, code: "FITBIT_SCOPE_MISSING" },
+      { error: "FITBIT_RATE_LIMIT", status: 429, code: "FITBIT_RATE_LIMIT" },
+      { error: "FITBIT_API_ERROR", status: 502, code: "FITBIT_API_ERROR" },
+    ];
+
+    for (const { error, status, code } of cases) {
+      it(`maps ${error} → ${status}`, async () => {
+        mockGetOrComputeDailyGoals.mockRejectedValue(new Error(error));
+
+        const request = createRequest(
+          "http://localhost:3000/api/v1/nutrition-goals?date=2026-05-04",
+          { Authorization: "Bearer valid-key" },
+        );
+        const response = await GET(request);
+        const body = await response.json();
+
+        expect(response.status).toBe(status);
+        expect(body.error.code).toBe(code);
+      });
+    }
+  });
 });
