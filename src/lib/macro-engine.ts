@@ -1,4 +1,8 @@
-import type { MacroEngineInputs, MacroEngineOutputs, MacroGoalType } from "@/types";
+import type { BmiTier, MacroEngineInputs, MacroEngineOutputs, MacroGoalType } from "@/types";
+import { logger as defaultLogger } from "@/lib/logger";
+import type { Logger } from "@/lib/logger";
+
+export type { BmiTier };
 
 /** Fitbit caloriesOut overestimate haircut — wrist-device validations show ~23–27% overshoot */
 export const ACTIVITY_MULTIPLIER = 0.85;
@@ -8,8 +12,6 @@ export const GOAL_MULTIPLIERS: Record<MacroGoalType, number> = {
   MAINTAIN: 1.00,
   GAIN:     1.10,
 };
-
-export type BmiTier = "lt25" | "25to30" | "ge30";
 
 export interface MacroProfile {
   /** Display name for UI */
@@ -73,9 +75,55 @@ export function isMacroProfileKey(value: unknown): value is MacroProfileKey {
   return typeof value === "string" && value in MACRO_PROFILES_BY_KEY;
 }
 
-export function getMacroProfile(key: MacroProfileKey | null | undefined): MacroProfile {
-  if (key && key in MACRO_PROFILES_BY_KEY) return MACRO_PROFILES_BY_KEY[key];
+/**
+ * Render a human-readable description of a macro profile, derived from its
+ * coefficients. Surfaces in `MacroProfileCard` so the description stays in
+ * sync if engine constants change (FOO-1006).
+ */
+export function describeProfile(profile: MacroProfile): string {
+  const allCoeffs = Object.values(profile.proteinCoefficients).flatMap((tier) =>
+    Object.values(tier),
+  );
+  const minProtein = Math.min(...allCoeffs).toFixed(1);
+  const maxProtein = Math.max(...allCoeffs).toFixed(1);
+  const carbDescriptor =
+    profile.residualMacro === "carbs"
+      ? `${profile.carbGrams} g carb floor`
+      : `${profile.carbGrams} g carbs`;
+  const school =
+    profile.residualMacro === "carbs"
+      ? "Sports-nutrition / muscle-preservation"
+      : "Lumen / metabolic-flexibility";
+  return `Protein ${minProtein}–${maxProtein} g/kg with a ${carbDescriptor}. ${school} school.`;
+}
+
+export function getMacroProfile(
+  key: MacroProfileKey | string | null | undefined,
+  log: Logger = defaultLogger,
+): MacroProfile {
+  if (key === null || key === undefined) return DEFAULT_MACRO_PROFILE;
+  if (key in MACRO_PROFILES_BY_KEY) {
+    return MACRO_PROFILES_BY_KEY[key as MacroProfileKey];
+  }
+  log.warn(
+    { action: "macro_profile_invalid_key", key },
+    "users.macro_profile holds an unknown key — falling back to default. CHECK constraint should prevent this.",
+  );
   return DEFAULT_MACRO_PROFILE;
+}
+
+/** Mifflin-St Jeor RMR. Inputs MUST be finite and positive (caller validates). */
+export function computeRmr(
+  sex: "MALE" | "FEMALE",
+  ageYears: number,
+  heightCm: number,
+  weightKg: number,
+): number {
+  const rmrRaw =
+    sex === "MALE"
+      ? 10 * weightKg + 6.25 * heightCm - 5 * ageYears + 5
+      : 10 * weightKg + 6.25 * heightCm - 5 * ageYears - 161;
+  return Math.round(rmrRaw);
 }
 
 /**
@@ -106,12 +154,13 @@ export function computeMacroTargets(
     throw new Error("INVALID_PROFILE_DATA");
   }
 
-  // Mifflin-St Jeor RMR
-  const rmrRaw =
-    sex === "MALE"
-      ? 10 * weightKg + 6.25 * heightCm - 5 * ageYears + 5
-      : 10 * weightKg + 6.25 * heightCm - 5 * ageYears - 161;
-  const rmr = Math.round(rmrRaw);
+  // 30000 kcal/day is well above the documented Tour-de-France ceiling (~9000),
+  // so anything above that is bogus Fitbit data. Negative/NaN/Infinity always bogus.
+  if (!Number.isFinite(caloriesOut) || caloriesOut < 0 || caloriesOut > 30000) {
+    throw new Error("INVALID_ACTIVITY_DATA");
+  }
+
+  const rmr = computeRmr(sex, ageYears, heightCm, weightKg);
 
   // Activity calories with overshoot haircut
   const rawActivityKcal = Math.max(0, caloriesOut - rmr) * ACTIVITY_MULTIPLIER;

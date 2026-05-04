@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { apiFetcher } from "@/lib/swr";
+import { apiFetcher, FITBIT_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
@@ -22,6 +22,8 @@ function getBlockedMessage(reason?: string): string {
       return "Reconnect Fitbit to enable macro targets.";
     case "invalid_profile":
       return "Your Fitbit profile has invalid values (height, weight, or age). Update it in the Fitbit app.";
+    case "invalid_activity":
+      return "Fitbit returned invalid activity data. Try again later or check the Fitbit app.";
     default:
       return "Macro targets unavailable.";
   }
@@ -37,7 +39,8 @@ export function TargetsCard({ date }: TargetsCardProps) {
     mutate,
   } = useSWR<NutritionGoals>(
     `/api/nutrition-goals?clientDate=${date}`,
-    apiFetcher
+    apiFetcher,
+    FITBIT_BACKED_SWR_CONFIG,
   );
 
   if (isLoading) {
@@ -78,15 +81,33 @@ export function TargetsCard({ date }: TargetsCardProps) {
 
   if (goals.status === "partial") {
     return (
-      <div className="p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground">
-        Targets pending — waiting for Fitbit activity
+      <div className="rounded-lg border p-3 space-y-1">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+          {goals.proteinG != null && <span>P:{goals.proteinG}g</span>}
+          {goals.fatG != null && <span>F:{goals.fatG}g</span>}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Calories and carbs pending Fitbit activity sync.
+        </p>
       </div>
     );
   }
 
   // status === "ok"
+  const weightAgeDays =
+    goals.audit?.weightLoggedDate != null
+      ? Math.floor(
+          (Date.parse(date) - Date.parse(goals.audit.weightLoggedDate)) / 86_400_000,
+        )
+      : null;
+
   return (
     <div className="rounded-lg border p-3 space-y-2">
+      {goals.weightStale && weightAgeDays != null && (
+        <p className="text-xs text-amber-600 dark:text-amber-500">
+          ⚠ Weight log is {weightAgeDays} days old — log a recent weight in Fitbit.
+        </p>
+      )}
       <div className="flex items-center justify-between gap-2">
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
           <span className="font-medium">
@@ -120,11 +141,14 @@ export function TargetsCard({ date }: TargetsCardProps) {
       {expanded && goals.audit && (
         <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t">
           <p>RMR: {goals.audit.rmr} kcal</p>
-          <p>Activity: {goals.audit.activityKcal} kcal</p>
+          <p>Fitbit calories burned: {goals.audit.caloriesOut.toLocaleString("en-US")} kcal</p>
+          <p>Activity (after 0.85× haircut): {goals.audit.activityKcal} kcal</p>
           <p>TDEE: {goals.audit.tdee} kcal</p>
           <p>
-            Weight: {goals.audit.weightKg}kg ({goals.audit.bmiTier})
+            Weight: {goals.audit.weightKg}kg
+            {goals.audit.weightLoggedDate ? ` (logged ${goals.audit.weightLoggedDate})` : ""}
           </p>
+          <p>BMI tier: {goals.audit.bmiTier}</p>
           <p>Goal: {goals.audit.goalType}</p>
         </div>
       )}

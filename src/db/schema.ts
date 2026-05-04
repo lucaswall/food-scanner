@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -8,6 +9,7 @@ import {
   integer,
   bigint,
   boolean,
+  check,
   date,
   time,
   unique,
@@ -15,14 +17,24 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  email: text("email").notNull().unique(),
-  name: text("name"),
-  macroProfile: text("macro_profile").default("muscle_preserve").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    email: text("email").notNull().unique(),
+    name: text("name"),
+    macroProfile: text("macro_profile").default("muscle_preserve").notNull(),
+    macroProfileVersion: integer("macro_profile_version").default(1).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    macroProfileCheck: check(
+      "users_macro_profile_chk",
+      sql`${table.macroProfile} IN ('muscle_preserve', 'metabolic_flex')`,
+    ),
+  }),
+);
 
 export const sessions = pgTable("sessions", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -155,6 +167,10 @@ export const dailyCalorieGoals = pgTable(
     caloriesOut: integer("calories_out"),
     rmr: integer("rmr"),
     activityKcal: integer("activity_kcal"),
+    goalType: text("goal_type"),
+    bmiTier: text("bmi_tier"),
+    profileVersion: integer("profile_version"),
+    weightLoggedDate: date("weight_logged_date"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

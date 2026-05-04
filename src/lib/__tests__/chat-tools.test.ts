@@ -34,8 +34,10 @@ vi.mock("@/lib/fasting", () => ({
 
 // Mock daily-goals functions
 const mockGetDailyGoalsByDate = vi.fn();
+const mockGetOrComputeDailyGoals = vi.fn();
 vi.mock("@/lib/daily-goals", () => ({
   getDailyGoalsByDate: (...args: unknown[]) => mockGetDailyGoalsByDate(...args),
+  getOrComputeDailyGoals: (...args: unknown[]) => mockGetOrComputeDailyGoals(...args),
 }));
 
 // Mock nutrition-labels functions
@@ -593,11 +595,10 @@ describe("executeTool - get_nutrition_summary", () => {
       },
     });
 
-    mockGetDailyGoalsByDate.mockResolvedValue({
-      calorieGoal: 2000,
-      proteinGoal: 100,
-      carbsGoal: 250,
-      fatGoal: 50,
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2000, proteinGoal: 100, carbsGoal: 250, fatGoal: 50 },
+      audit: {},
     });
 
     const result = await executeTool(
@@ -608,10 +609,47 @@ describe("executeTool - get_nutrition_summary", () => {
     );
 
     expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
-    expect(mockGetDailyGoalsByDate).toHaveBeenCalledWith("user-123", "2026-02-15");
+    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
     expect(result).toContain("1800 cal");
     expect(result).toContain("2000 cal");
     expect(result).toContain("90%");
+  });
+
+  it("get_nutrition_summary surfaces partial protein/fat goals when calorie goal is pending (FOO-1002)", async () => {
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-05-04",
+      meals: [],
+      totals: {
+        calories: 800,
+        proteinG: 60,
+        carbsG: 80,
+        fatG: 30,
+        fiberG: 10,
+        sodiumMg: 800,
+        saturatedFatG: 0,
+        transFatG: 0,
+        sugarsG: 0,
+        caloriesFromFat: 0,
+      },
+    });
+
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "partial",
+      proteinG: 218,
+      fatG: 97,
+    });
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { date: "2026-05-04" },
+      "user-123",
+      "2026-05-04",
+    );
+
+    expect(result).toContain("Protein goal: 218g");
+    expect(result).toMatch(/calorie goal pending Fitbit activity/i);
+    expect(result).toContain("Fat goal: 97g");
+    expect(result).not.toContain("Calorie goal:");
   });
 
   it("executes date range summary", async () => {
@@ -814,7 +852,10 @@ describe("executeTool - error handling", () => {
       },
     });
 
-    mockGetDailyGoalsByDate.mockResolvedValue(null);
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "blocked",
+      reason: "no_weight",
+    });
 
     // date provided, from_date and to_date null - should work
     const result = await executeTool(
@@ -872,7 +913,12 @@ describe("executeTool - division-by-zero protection", () => {
       },
     });
 
-    mockGetDailyGoalsByDate.mockResolvedValue({ calorieGoal: 0, proteinGoal: null, carbsGoal: null, fatGoal: null });
+    // ok status with zero calorieGoal — division-by-zero protection
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 0, proteinGoal: 100, carbsGoal: 200, fatGoal: 50 },
+      audit: {},
+    });
 
     const result = await executeTool(
       "get_nutrition_summary",
@@ -902,7 +948,11 @@ describe("executeTool - division-by-zero protection", () => {
       },
     });
 
-    mockGetDailyGoalsByDate.mockResolvedValue({ calorieGoal: null, proteinGoal: 0, carbsGoal: 0, fatGoal: 0 });
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2000, proteinGoal: 0, carbsGoal: 0, fatGoal: 0 },
+      audit: {},
+    });
 
     const result = await executeTool(
       "get_nutrition_summary",

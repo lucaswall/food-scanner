@@ -1,11 +1,13 @@
 import { getDb } from "@/db/index";
 import { dailyCalorieGoals, users } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gte } from "drizzle-orm";
 import {
   computeMacroTargets,
+  computeRmr,
   getMacroProfile,
   isMacroProfileKey,
   type MacroProfile,
+  type MacroProfileKey,
 } from "@/lib/macro-engine";
 import {
   getCachedFitbitProfile,
@@ -15,9 +17,7 @@ import {
 } from "@/lib/fitbit-cache";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
-import type { MacroGoalType } from "@/types";
-
-type BmiTier = "lt25" | "25to30" | "ge30";
+import type { BmiTier, MacroGoalType, NutritionGoals } from "@/types";
 
 interface DbRow {
   calorieGoal: number;
@@ -28,6 +28,10 @@ interface DbRow {
   caloriesOut: number | null;
   rmr: number | null;
   activityKcal: number | null;
+  goalType: string | null;
+  bmiTier: string | null;
+  profileVersion: number | null;
+  weightLoggedDate: string | null;
 }
 
 export type ComputeResult =
@@ -41,10 +45,131 @@ export type ComputeResult =
         weightKg: string;
         bmiTier: BmiTier;
         goalType: MacroGoalType;
+        caloriesOut: number;
+        weightLoggedDate: string | null;
       };
+      /** True when the weight log used is > 7 days older than the target date (FOO-1010). */
+      weightStale?: boolean;
     }
   | { status: "partial"; proteinG: number; fatG: number }
-  | { status: "blocked"; reason: "no_weight" | "sex_unset" | "scope_mismatch" | "invalid_profile" };
+  | {
+      status: "blocked";
+      reason: "no_weight" | "sex_unset" | "scope_mismatch" | "invalid_profile" | "invalid_activity";
+    };
+
+/** Result shape from a successful ratchet recompute. */
+interface RatchetResult {
+  targetKcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  rmr: number;
+  activityKcal: number;
+  tdee: number;
+  caloriesOut: number;
+}
+
+/**
+ * FOO-1009 ratchet-up: re-evaluate today's calorie target with live
+ * `caloriesOut` and UPDATE the row only when the new target EXCEEDS the stored
+ * one. Returns the recomputed values when a ratchet UPDATE was applied;
+ * returns null when the ratchet was skipped (no live activity, breaker, below
+ * RMR×1.05 threshold, or new target ≤ stored).
+ */
+async function tryRatchetRecompute(args: {
+  userId: string;
+  date: string;
+  existing: DbRow;
+  liveActivity: { caloriesOut: number | null } | null;
+  liveProfile: { ageYears: number; sex: "MALE" | "FEMALE" | "NA"; heightCm: number } | null;
+  wKg: number;
+  goalType: MacroGoalType;
+  log: Logger;
+}): Promise<RatchetResult | null> {
+  const { userId, date, existing, liveActivity, liveProfile, wKg, goalType, log } = args;
+
+  // Need a usable profile (non-NA) and a non-null caloriesOut to recompute.
+  if (
+    liveProfile === null ||
+    liveProfile.sex === "NA" ||
+    liveActivity === null ||
+    liveActivity.caloriesOut === null
+  ) {
+    return null;
+  }
+
+  // Apply the FOO-999 below-RMR threshold — too noisy to anchor a target.
+  const rmrThreshold =
+    computeRmr(liveProfile.sex, liveProfile.ageYears, liveProfile.heightCm, wKg) * 1.05;
+  if (liveActivity.caloriesOut < rmrThreshold) return null;
+
+  let engineOut: ReturnType<typeof computeMacroTargets>;
+  try {
+    const macroProfile = (await loadUserMacroProfile(userId, log)).profile;
+    engineOut = computeMacroTargets(
+      {
+        ageYears: liveProfile.ageYears,
+        sex: liveProfile.sex,
+        heightCm: liveProfile.heightCm,
+        weightKg: wKg,
+        caloriesOut: liveActivity.caloriesOut,
+        goalType,
+      },
+      macroProfile,
+    );
+  } catch {
+    // Don't disrupt cache-hit if recompute fails; serve stored values.
+    return null;
+  }
+
+  if (engineOut.targetKcal <= existing.calorieGoal) {
+    return null;
+  }
+
+  // Ratchet UP. Don't touch goalType/bmiTier/profileVersion/weightLoggedDate —
+  // those are stable identity fields, not activity-derived.
+  await getDb()
+    .update(dailyCalorieGoals)
+    .set({
+      calorieGoal: engineOut.targetKcal,
+      proteinGoal: engineOut.proteinG,
+      carbsGoal: engineOut.carbsG,
+      fatGoal: engineOut.fatG,
+      caloriesOut: liveActivity.caloriesOut,
+      activityKcal: engineOut.activityKcal,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
+
+  log.info(
+    {
+      action: "daily_goals_ratchet_up",
+      userId,
+      date,
+      from: existing.calorieGoal,
+      to: engineOut.targetKcal,
+    },
+    "calorie target ratcheted up",
+  );
+
+  return {
+    targetKcal: engineOut.targetKcal,
+    proteinG: engineOut.proteinG,
+    carbsG: engineOut.carbsG,
+    fatG: engineOut.fatG,
+    rmr: engineOut.rmr,
+    activityKcal: engineOut.activityKcal,
+    tdee: engineOut.tdee,
+    caloriesOut: liveActivity.caloriesOut,
+  };
+}
+
+/** Compute weightStale flag from target date and weight log date. */
+function computeWeightStale(targetDate: string, weightLoggedDate: string | null): boolean {
+  if (weightLoggedDate === null) return false;
+  const ageMs = Date.parse(targetDate) - Date.parse(weightLoggedDate);
+  return ageMs / 86_400_000 > 7;
+}
 
 // In-flight Promise Map keyed `${userId}:${date}` — delete on settle (success or error)
 const computeInFlight = new Map<string, Promise<ComputeResult>>();
@@ -66,13 +191,42 @@ function hasMacros(row: DbRow): boolean {
   );
 }
 
-async function loadUserMacroProfile(userId: string): Promise<MacroProfile> {
+/** Just the version — used in the cache-hit FOO-996 race-safety check. */
+async function loadUserMacroProfileVersion(userId: string): Promise<number> {
   const rows = await getDb()
-    .select({ macroProfile: users.macroProfile })
+    .select({ macroProfileVersion: users.macroProfileVersion })
+    .from(users)
+    .where(eq(users.id, userId));
+  return rows[0]?.macroProfileVersion ?? 1;
+}
+
+async function loadUserMacroProfile(
+  userId: string,
+  log?: Logger,
+): Promise<{ profile: MacroProfile; version: number }> {
+  const rows = await getDb()
+    .select({
+      macroProfile: users.macroProfile,
+      macroProfileVersion: users.macroProfileVersion,
+    })
     .from(users)
     .where(eq(users.id, userId));
   const key = rows[0]?.macroProfile;
-  return getMacroProfile(isMacroProfileKey(key) ? key : null);
+  const version = rows[0]?.macroProfileVersion ?? 1;
+  // Pass the raw stored key — getMacroProfile logs a warning for unknown
+  // values so DB drift (FOO-1001) is observable.
+  return {
+    profile: getMacroProfile(key, log ?? logger),
+    version,
+  };
+}
+
+function isBmiTier(value: unknown): value is BmiTier {
+  return value === "lt25" || value === "25to30" || value === "ge30";
+}
+
+function isMacroGoalType(value: unknown): value is MacroGoalType {
+  return value === "LOSE" || value === "MAINTAIN" || value === "GAIN";
 }
 
 async function queryRow(userId: string, date: string): Promise<DbRow | null> {
@@ -86,6 +240,10 @@ async function queryRow(userId: string, date: string): Promise<DbRow | null> {
       caloriesOut: dailyCalorieGoals.caloriesOut,
       rmr: dailyCalorieGoals.rmr,
       activityKcal: dailyCalorieGoals.activityKcal,
+      goalType: dailyCalorieGoals.goalType,
+      bmiTier: dailyCalorieGoals.bmiTier,
+      profileVersion: dailyCalorieGoals.profileVersion,
+      weightLoggedDate: dailyCalorieGoals.weightLoggedDate,
     })
     .from(dailyCalorieGoals)
     .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
@@ -99,13 +257,24 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
   try {
     // Fast path: row already fully computed — re-use from DB
     const existing = await queryRow(userId, date);
-    if (existing && hasMacros(existing)) {
-      // Re-fetch profile + weight goal from process-level cache. These are
-      // explicitly "optional" — when the breaker rejects (low headroom), fall
-      // back to a degraded audit so the user still sees their stored goals.
-      const [profileRes, weightGoalRes] = await Promise.allSettled([
+    const cacheHit =
+      existing !== null &&
+      hasMacros(existing) &&
+      // FOO-996 race-safety: stored profile_version must match the user's
+      // current version. A mismatch means a profile change landed AFTER this
+      // row was written by an older in-flight compute — recompute.
+      // Legacy rows (profile_version null, pre-F1) are accepted as-is.
+      (existing.profileVersion === null ||
+        existing.profileVersion === (await loadUserMacroProfileVersion(userId)));
+
+    if (cacheHit && existing) {
+      // Re-fetch profile + weight goal + activity from process-level cache.
+      // All "optional" — when the breaker rejects (low headroom), gracefully
+      // degrade to stored values. Activity is needed for FOO-1009 ratchet-up.
+      const [profileRes, weightGoalRes, activityRes] = await Promise.allSettled([
         getCachedFitbitProfile(userId, l, "optional"),
         getCachedFitbitWeightGoal(userId, l, "optional"),
+        getCachedActivitySummary(userId, date, l, "optional"),
       ]);
 
       // Re-throw any non-breaker rejection from the profile fetch (the only
@@ -122,35 +291,87 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
       ) {
         throw weightGoalRes.reason;
       }
+      // Activity rejection (any reason) → skip ratchet, serve stored goals.
+      // The ratchet (FOO-1009) is an optional enhancement; if Fitbit errors,
+      // the stored row is self-sufficient — never break the cache-hit path
+      // over an activity fetch.
 
       // hasMacros guarantees existing.weightKg is non-null, so parseFloat is safe.
       const wKg = parseFloat(existing.weightKg!);
+
+      // Prefer stored audit columns (FOO-993). Stored values reflect the goal
+      // and BMI tier that PRODUCED the stored macros — never re-derive from
+      // current Fitbit state, which could have drifted since the row was written.
+      // Fall back to the live re-fetch only for legacy rows (pre-F1 columns null).
+      const storedGoalType = isMacroGoalType(existing.goalType) ? existing.goalType : null;
+      const storedBmiTier = isBmiTier(existing.bmiTier) ? existing.bmiTier : null;
+
       const bmiTier =
-        profileRes.status === "fulfilled"
-          ? getBmiTier(wKg, profileRes.value.heightCm)
-          : "lt25";
-      const goalType =
-        weightGoalRes.status === "fulfilled"
+        storedBmiTier ??
+        (profileRes.status === "fulfilled" ? getBmiTier(wKg, profileRes.value.heightCm) : "lt25");
+      const goalType: MacroGoalType =
+        storedGoalType ??
+        (weightGoalRes.status === "fulfilled"
           ? weightGoalRes.value?.goalType ?? "MAINTAIN"
-          : "MAINTAIN";
-      const tdee = (existing.rmr ?? 0) + (existing.activityKcal ?? 0);
+          : "MAINTAIN");
+
+      if (storedGoalType === null || storedBmiTier === null) {
+        l.warn(
+          { action: "daily_goals_legacy_audit", userId, date },
+          "audit reconstructed from current Fitbit state (legacy row pre-F1)",
+        );
+      }
+
+      // FOO-1009 ratchet-up: re-evaluate the calorie target against the live
+      // caloriesOut. Only UPDATE the row when the new target EXCEEDS the stored
+      // one — meal-planning stability + credit for late-day exercise. Skip
+      // when the live snapshot is too noisy (below RMR×1.05) or unavailable.
+      const liveActivity =
+        activityRes.status === "fulfilled" ? activityRes.value : null;
+      const liveProfile =
+        profileRes.status === "fulfilled" ? profileRes.value : null;
+
+      const ratchet = await tryRatchetRecompute({
+        userId,
+        date,
+        existing,
+        liveActivity,
+        liveProfile,
+        wKg,
+        goalType,
+        log: l,
+      });
+
+      const tdee = ratchet
+        ? ratchet.tdee
+        : (existing.rmr ?? 0) + (existing.activityKcal ?? 0);
 
       return {
         status: "ok",
-        goals: {
-          calorieGoal: existing.calorieGoal,
-          proteinGoal: existing.proteinGoal!,
-          carbsGoal: existing.carbsGoal!,
-          fatGoal: existing.fatGoal!,
-        },
+        goals: ratchet
+          ? {
+              calorieGoal: ratchet.targetKcal,
+              proteinGoal: ratchet.proteinG,
+              carbsGoal: ratchet.carbsG,
+              fatGoal: ratchet.fatG,
+            }
+          : {
+              calorieGoal: existing.calorieGoal,
+              proteinGoal: existing.proteinGoal!,
+              carbsGoal: existing.carbsGoal!,
+              fatGoal: existing.fatGoal!,
+            },
         audit: {
           rmr: existing.rmr!,
-          activityKcal: existing.activityKcal!,
+          activityKcal: ratchet ? ratchet.activityKcal : existing.activityKcal!,
           tdee,
           weightKg: existing.weightKg!,
           bmiTier,
           goalType,
+          caloriesOut: ratchet ? ratchet.caloriesOut : existing.caloriesOut!,
+          weightLoggedDate: existing.weightLoggedDate,
         },
+        weightStale: computeWeightStale(date, existing.weightLoggedDate),
       };
     }
 
@@ -178,9 +399,20 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
 
     // Profile is needed for both partial and full compute paths — load it now,
     // after the blocked-state guards above so blocked-state tests don't need to mock it.
-    const macroProfile = await loadUserMacroProfile(userId);
+    const { profile: macroProfile, version: profileVersion } = await loadUserMacroProfile(userId, l);
 
-    if (activity === null || activity.caloriesOut === null) {
+    // FOO-999: 5% headroom above RMR — caloriesOut below this is too noisy
+    // (early-morning Fitbit reports before tracking begins) to anchor a target,
+    // and below RMR would yield an unsafe sub-RMR calorie goal for LOSE/MAINTAIN.
+    // sex === "NA" is already filtered out by the blocked guard above.
+    const rmrThreshold =
+      computeRmr(profile.sex, profile.ageYears, profile.heightCm, weightKg) * 1.05;
+
+    if (
+      activity === null ||
+      activity.caloriesOut === null ||
+      activity.caloriesOut < rmrThreshold
+    ) {
       // Partial: compute protein/fat per the active profile without a full calorie target.
       const proteinG = Math.round(
         weightKg * macroProfile.proteinCoefficients[bmiTier][goalType],
@@ -216,6 +448,10 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
         caloriesOut: activity.caloriesOut,
         rmr: engineOut.rmr,
         activityKcal: engineOut.activityKcal,
+        goalType,
+        bmiTier: engineOut.bmiTier,
+        profileVersion,
+        weightLoggedDate: weightLog.loggedDate,
       })
       .onConflictDoNothing();
 
@@ -238,6 +474,10 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
           caloriesOut: activity.caloriesOut,
           rmr: engineOut.rmr,
           activityKcal: engineOut.activityKcal,
+          goalType,
+          bmiTier: engineOut.bmiTier,
+          profileVersion,
+          weightLoggedDate: weightLog.loggedDate,
           updatedAt: new Date(),
         })
         .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
@@ -263,7 +503,10 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
         weightKg: String(weightKg),
         bmiTier: engineOut.bmiTier,
         goalType,
+        caloriesOut: activity.caloriesOut,
+        weightLoggedDate: weightLog.loggedDate,
       },
+      weightStale: computeWeightStale(date, weightLog.loggedDate),
     };
   } catch (error) {
     if (error instanceof Error && error.message === "FITBIT_SCOPE_MISSING") {
@@ -271,6 +514,9 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     }
     if (error instanceof Error && error.message === "INVALID_PROFILE_DATA") {
       return { status: "blocked", reason: "invalid_profile" };
+    }
+    if (error instanceof Error && error.message === "INVALID_ACTIVITY_DATA") {
+      return { status: "blocked", reason: "invalid_activity" };
     }
     throw error;
   }
@@ -292,20 +538,64 @@ export function getOrComputeDailyGoals(
 }
 
 /**
- * Reset macro/audit columns and zero calorie_goal for the user's rows so the
+ * Reset macro/audit columns for ONE specific (userId, date) row, scoped to a
+ * Fitbit-side data refresh (FOO-992). Drops the in-flight compute key for that
+ * date and zeroes the row so the next read forces a fresh compute under
+ * up-to-date Fitbit inputs. Distinct from `invalidateUserDailyGoalsForProfileChange`:
+ * Fitbit refresh implies "the upstream inputs changed for this date" rather
+ * than "the user changed their profile choice" — does NOT bump the version
+ * counter and does NOT touch other dates.
+ */
+export async function invalidateUserDailyGoalsForDate(
+  userId: string,
+  date: string,
+): Promise<void> {
+  computeInFlight.delete(`${userId}:${date}`);
+
+  await getDb()
+    .update(dailyCalorieGoals)
+    .set({
+      calorieGoal: 0,
+      proteinGoal: null,
+      carbsGoal: null,
+      fatGoal: null,
+      weightKg: null,
+      caloriesOut: null,
+      rmr: null,
+      activityKcal: null,
+      goalType: null,
+      bmiTier: null,
+      profileVersion: null,
+      weightLoggedDate: null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
+}
+
+/**
+ * Reset macro/audit columns for the user's rows from `fromDate` forward so the
  * engine re-derives them under the (possibly new) macro profile on next read.
  * Called from the macro-profile API after a profile change.
  *
- * Also drops any in-flight compute promises for this user so a subsequent request
- * doesn't get back the old-profile result via the dedup cache. There is still a
- * narrow window where an in-flight compute that captured the old profile lands
- * its INSERT *after* this invalidate — if the user notices stale numbers on the
- * dashboard, toggling the profile again forces another fresh compute.
+ * **Scope (FOO-995):** today + future dates only. Historical days reflect the
+ * goal/profile context active at the time the row was written and stay stable —
+ * avoids the rate-limit storm of N Fitbit recomputes when a user scrolls through
+ * history after toggling the profile. The profile-version counter (FOO-996) is
+ * the actual race-safety mechanism; this row clear is for UX (immediate visible
+ * refresh on the dashboard's next read).
+ *
+ * Also drops in-flight compute promises for this user at `fromDate` and after.
  */
-export async function invalidateUserDailyGoalsForProfileChange(userId: string): Promise<void> {
+export async function invalidateUserDailyGoalsForProfileChange(
+  userId: string,
+  fromDate: string,
+): Promise<void> {
   for (const key of computeInFlight.keys()) {
     if (key.startsWith(`${userId}:`)) {
-      computeInFlight.delete(key);
+      const dateSuffix = key.slice(userId.length + 1);
+      if (dateSuffix >= fromDate) {
+        computeInFlight.delete(key);
+      }
     }
   }
 
@@ -322,7 +612,12 @@ export async function invalidateUserDailyGoalsForProfileChange(userId: string): 
       activityKcal: null,
       updatedAt: new Date(),
     })
-    .where(eq(dailyCalorieGoals.userId, userId));
+    .where(
+      and(
+        eq(dailyCalorieGoals.userId, userId),
+        gte(dailyCalorieGoals.date, fromDate),
+      ),
+    );
 }
 
 export async function getDailyGoalsByDate(
@@ -355,4 +650,50 @@ export async function getDailyGoalsByDate(
     .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
 
   return (rows[0] as typeof rows[0] | undefined) ?? null;
+}
+
+/**
+ * Map a `ComputeResult` to the public `NutritionGoals` API response shape.
+ * Shared by `/api/nutrition-goals` (internal) and `/api/v1/nutrition-goals`
+ * (external). Extracted from the internal route handler in A1 (FOO-1008).
+ */
+export function mapComputeResultToNutritionGoals(result: ComputeResult): NutritionGoals {
+  if (result.status === "ok") {
+    return {
+      calories: result.goals.calorieGoal,
+      proteinG: result.goals.proteinGoal,
+      carbsG: result.goals.carbsGoal,
+      fatG: result.goals.fatGoal,
+      status: "ok",
+      audit: result.audit,
+      ...(result.weightStale ? { weightStale: true } : {}),
+    };
+  }
+  if (result.status === "partial") {
+    return {
+      calories: null,
+      proteinG: result.proteinG,
+      carbsG: null,
+      fatG: result.fatG,
+      status: "partial",
+    };
+  }
+  return {
+    calories: null,
+    proteinG: null,
+    carbsG: null,
+    fatG: null,
+    status: "blocked",
+    reason: result.reason,
+  };
+}
+
+/** Look up the user's stored macro-profile key (defaulting to muscle_preserve). */
+export async function loadUserMacroProfileKey(userId: string): Promise<MacroProfileKey> {
+  const rows = await getDb()
+    .select({ macroProfile: users.macroProfile })
+    .from(users)
+    .where(eq(users.id, userId));
+  const stored = rows[0]?.macroProfile;
+  return isMacroProfileKey(stored) ? stored : "muscle_preserve";
 }

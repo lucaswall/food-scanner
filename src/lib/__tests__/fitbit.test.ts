@@ -48,7 +48,6 @@ const {
   logFood,
   findOrCreateFood,
   deleteFoodLog,
-  getFoodGoals,
   getActivitySummary,
   getFitbitProfile,
   getFitbitLatestWeightKg,
@@ -1416,13 +1415,13 @@ describe("fetchWithRetry deadline", () => {
     vi.restoreAllMocks();
   });
 
-  it("getFitbitLatestWeightKg shares a single 30s deadline across all 7 walk-back days", async () => {
+  it("getFitbitLatestWeightKg shares a single 30s deadline across all 14 walk-back days", async () => {
     vi.useFakeTimers();
 
     // Each fetch resolves with 404 after 9s (no weight on this day → continues walk-back).
     // With a SHARED deadline: 9s × 4 = 36s → the 4th call's deadline check exceeds 30s
     //                          → throws FITBIT_TIMEOUT.
-    // With per-iteration deadline (the bug): 9s × 7 = 63s, all 7 iterations succeed.
+    // With per-iteration deadline (the bug): 9s × 14 = 126s, all 14 iterations succeed.
     let callCount = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(() => {
       callCount++;
@@ -1648,44 +1647,6 @@ describe("deleteFoodLog", () => {
       }),
       expect.any(String),
     );
-
-    vi.restoreAllMocks();
-  });
-});
-
-describe("getFoodGoals", () => {
-  it("returns { calories: null } when Fitbit response has no goals.calories", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ goals: {} }), { status: 200 }),
-    );
-
-    const result = await getFoodGoals("test-token");
-
-    expect(result).toEqual({ calories: null });
-
-    vi.restoreAllMocks();
-  });
-
-  it("returns { calories: null } when goals.calories is not a number", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ goals: { calories: "not-a-number" } }), { status: 200 }),
-    );
-
-    const result = await getFoodGoals("test-token");
-
-    expect(result).toEqual({ calories: null });
-
-    vi.restoreAllMocks();
-  });
-
-  it("returns calorie goal when present", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ goals: { calories: 2500 } }), { status: 200 }),
-    );
-
-    const result = await getFoodGoals("test-token");
-
-    expect(result).toEqual({ calories: 2500 });
 
     vi.restoreAllMocks();
   });
@@ -1967,7 +1928,7 @@ describe("getFitbitLatestWeightKg", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns null after 7 empty days", async () => {
+  it("returns null after 14 empty days (FOO-1010)", async () => {
     // Each call needs a fresh Response (body can only be read once)
     vi.spyOn(globalThis, "fetch").mockImplementation(() =>
       Promise.resolve(new Response(JSON.stringify({ weight: [] }), { status: 200 })),
@@ -1976,7 +1937,27 @@ describe("getFitbitLatestWeightKg", () => {
     const result = await getFitbitLatestWeightKg("test-token", "2024-01-15");
 
     expect(result).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(7);
+    expect(fetch).toHaveBeenCalledTimes(14);
+    vi.restoreAllMocks();
+  });
+
+  it("walk-back returns weight on day 12 (FOO-1010)", async () => {
+    let callCount = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      callCount++;
+      // First 12 calls (days 0..11) return empty, 13th call (day 12) returns a log.
+      if (callCount <= 12) {
+        return Promise.resolve(new Response(JSON.stringify({ weight: [] }), { status: 200 }));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ weight: [{ weight: 75.0, date: "2024-01-03" }] }), { status: 200 }),
+      );
+    });
+
+    const result = await getFitbitLatestWeightKg("test-token", "2024-01-15");
+
+    expect(callCount).toBe(13);
+    expect(result).toEqual({ weightKg: 75.0, loggedDate: "2024-01-03" });
     vi.restoreAllMocks();
   });
 
@@ -2008,7 +1989,7 @@ describe("getFitbitLatestWeightKg", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns null when all 7 days surface non-ok responses", async () => {
+  it("returns null when all 14 days surface non-ok responses", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(() =>
       Promise.resolve(new Response(JSON.stringify({ errors: [] }), { status: 400 })),
     );

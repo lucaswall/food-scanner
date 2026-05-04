@@ -805,3 +805,64 @@ Foundation tasks (F*) come first because Engine/Cache/UI/API tasks depend on the
 - FOO-1004 (BMI tier coefficient cliff smoothing) — needs interpolation strategy.
 - FOO-1003's "graceful 429 countdown banner" sub-criterion — separate UX feature.
 - 7-day caloriesOut projection seed mentioned in FOO-1009's hints — superseded by E2's below-RMR guard for this iteration.
+
+---
+
+## Iteration 1 — 2026-05-04
+
+**Status:** COMPLETE
+**Method:** single-agent (effective scope = 1 work unit; `src/lib/daily-goals.ts` touched by 11/17 tasks; foundation→cascade dependency chain prevents parallelism)
+
+### Tasks Completed (17/17)
+
+All foundation, engine, cache/invalidation, UI, and API tasks landed.
+
+| ID | Task | Linear | Status |
+|----|------|--------|--------|
+| F1 | Audit columns + macro_profile_version (migration 0023) | FOO-993 | ✅ Review |
+| F2 | Consolidate `BmiTier` to `src/types/index.ts` | FOO-1005 | ✅ Review |
+| F3 | Raw `caloriesOut` in audit + UI display | FOO-1000 | ✅ Review |
+| F4 | DB CHECK constraint on `users.macro_profile` (migration 0024) + warn-log | FOO-1001 | ✅ Review |
+| E1 | Validate `caloriesOut` input (NaN/∞/<0/>30000 → INVALID_ACTIVITY_DATA) | FOO-998 | ✅ Review |
+| E2 | `caloriesOut < rmr×1.05` → partial; extracted `computeRmr` | FOO-999 | ✅ Review |
+| E3 | 14-day weight walk-back; `weightStale` flag; UI staleness warnings; null TTL split | FOO-1010 | ✅ Review |
+| C1 | Profile-change invalidation scoped to today + forward | FOO-995 | ✅ Review |
+| C2 | Profile-version counter (atomic increment in PATCH; mismatch triggers recompute) | FOO-996 | ✅ Review |
+| C3 | Refresh from Fitbit invalidates today's daily-goals row | FOO-992 | ✅ Review |
+| C4 | Ratchet-up recompute on read (`tryRatchetRecompute` helper) | FOO-1009 | ✅ Review |
+| U1 | TargetsCard renders partial protein/fat with footnote | FOO-997 | ✅ Review |
+| U2 | Settings TargetsCard refreshes date on visibility change | FOO-1007 | ✅ Review |
+| U3 | Macro profile descriptions derived from engine constants (`describeProfile`) | FOO-1006 | ✅ Review |
+| U4 | `FITBIT_BACKED_SWR_CONFIG` (no revalidateOnFocus, 30-min dedupe) | FOO-1003 | ✅ Review |
+| A1 | Unify `/api/v1/nutrition-goals` to engine-computed; deleted `getFoodGoals`/`FitbitFoodGoals` | FOO-1008 | ✅ Review |
+| A2 | Chat tools surface partial macros via `getOrComputeDailyGoals` | FOO-1002 | ✅ Review |
+
+### Migrations
+
+- **`drizzle/0023_young_doctor_faustus.sql`** — adds `goal_type`, `bmi_tier`, `profile_version`, `weight_logged_date` (nullable) to `daily_calorie_goals` and `macro_profile_version integer NOT NULL DEFAULT 1` to `users`.
+- **`drizzle/0024_far_roland_deschain.sql`** — adds `users_macro_profile_chk` CHECK constraint constraining `users.macro_profile` to `('muscle_preserve', 'metabolic_flex')`.
+
+Both documented in `MIGRATIONS.md` with pre-flight checks.
+
+### Inline Fixes (post-bug-hunter)
+
+Two real bugs caught and fixed before commit:
+
+- **High** — Cache-hit path was re-throwing non-breaker errors from the new ratchet activity fetch (e.g. `FITBIT_API_ERROR`, `FITBIT_TOKEN_INVALID`), breaking the cache-hit even though stored macros are self-sufficient. Removed the activity re-throw; activity errors now silently skip the ratchet. Regression test added: "ratchet-up: serves stored row when activity fetch fails with non-breaker error."
+- **Medium** — `/api/v1/nutrition-goals` silently fell through to single-date mode when only `?from=` (or only `?to=`) was provided, returning a structurally different response shape with no error signal. Added explicit XOR validation rejecting partial range params with HTTP 400. Two regression tests added.
+
+### Verification
+
+- **Unit/integration:** 3434 tests across 191 files — all passing.
+- **Lint:** zero warnings (initial React-19 purity violation in `useRef({ ..., timestamp: Date.now() })` fixed by lazy-init inside `useEffect`).
+- **Build:** production build successful (59 routes).
+- **bug-hunter:** 2 bugs found, both fixed (above).
+
+### Documentation
+
+- `MIGRATIONS.md`: 4 entries (F1, F4, C1 behavior change, A1 API contract change).
+- No new files created.
+
+### Tasks Remaining
+
+None. Plan is COMPLETE.

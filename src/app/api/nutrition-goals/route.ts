@@ -1,41 +1,11 @@
 import { getSession, validateSession } from "@/lib/session";
 import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
-import { getOrComputeDailyGoals } from "@/lib/daily-goals";
+import {
+  getOrComputeDailyGoals,
+  mapComputeResultToNutritionGoals,
+} from "@/lib/daily-goals";
 import { getTodayDate, isValidDateFormat } from "@/lib/date-utils";
-import type { NutritionGoals } from "@/types";
-import type { ComputeResult } from "@/lib/daily-goals";
-
-function mapResult(result: ComputeResult): NutritionGoals {
-  if (result.status === "ok") {
-    return {
-      calories: result.goals.calorieGoal,
-      proteinG: result.goals.proteinGoal,
-      carbsG: result.goals.carbsGoal,
-      fatG: result.goals.fatGoal,
-      status: "ok",
-      audit: result.audit,
-    };
-  }
-  if (result.status === "partial") {
-    return {
-      calories: null,
-      proteinG: result.proteinG,
-      carbsG: null,
-      fatG: result.fatG,
-      status: "partial",
-    };
-  }
-  // blocked
-  return {
-    calories: null,
-    proteinG: null,
-    carbsG: null,
-    fatG: null,
-    status: "blocked",
-    reason: result.reason,
-  };
-}
 
 export async function GET(request: Request) {
   const log = createRequestLogger("GET", "/api/nutrition-goals");
@@ -54,7 +24,7 @@ export async function GET(request: Request) {
   try {
     const date = clientDate ?? getTodayDate();
     const result = await getOrComputeDailyGoals(session!.userId, date, log);
-    const goals = mapResult(result);
+    const goals = mapComputeResultToNutritionGoals(result);
 
     log.info(
       { action: "nutrition_goals_success", status: result.status },

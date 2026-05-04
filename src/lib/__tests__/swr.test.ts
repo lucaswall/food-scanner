@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { apiFetcher, ApiError, invalidateFoodCaches } from "@/lib/swr";
+import {
+  apiFetcher,
+  ApiError,
+  invalidateFoodCaches,
+  FITBIT_BACKED_SWR_CONFIG,
+} from "@/lib/swr";
 
 // Mock SWR at the top level using vi.hoisted()
 const { mockMutate } = vi.hoisted(() => ({
@@ -192,5 +197,13 @@ describe("invalidateFoodCaches", () => {
     await invalidateFoodCaches();
 
     expect(mockMutate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("FITBIT_BACKED_SWR_CONFIG (FOO-1003)", () => {
+  it("disables revalidateOnFocus and sets dedupe to 30 minutes", () => {
+    expect(FITBIT_BACKED_SWR_CONFIG.revalidateOnFocus).toBe(false);
+    expect(FITBIT_BACKED_SWR_CONFIG.revalidateOnReconnect).toBe(true);
+    expect(FITBIT_BACKED_SWR_CONFIG.dedupingInterval).toBe(30 * 60 * 1000);
   });
 });

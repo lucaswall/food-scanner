@@ -578,12 +578,9 @@ export interface FitbitWeightGoal {
   goalType: "LOSE" | "MAINTAIN" | "GAIN";
 }
 
-/** Fitbit food-log calorie goal — returned by getFoodGoals() and the v1 external API */
-export interface FitbitFoodGoals {
-  calories: number | null;
-}
-
 export type MacroGoalType = "LOSE" | "MAINTAIN" | "GAIN";
+
+export type BmiTier = "lt25" | "25to30" | "ge30";
 
 export interface MacroEngineInputs {
   ageYears: number;
@@ -602,7 +599,7 @@ export interface MacroEngineOutputs {
   rmr: number;
   activityKcal: number;
   tdee: number;
-  bmiTier: "lt25" | "25to30" | "ge30";
+  bmiTier: BmiTier;
 }
 
 export interface NutritionGoalsAudit {
@@ -610,8 +607,12 @@ export interface NutritionGoalsAudit {
   activityKcal: number;
   tdee: number;
   weightKg: string;
-  bmiTier: "lt25" | "25to30" | "ge30";
+  bmiTier: BmiTier;
   goalType: MacroGoalType;
+  /** Raw caloriesOut from Fitbit before the 0.85× haircut. Surfaces the math in the UI. */
+  caloriesOut: number;
+  /** Date of the Fitbit weight log used to compute these targets (YYYY-MM-DD). */
+  weightLoggedDate: string | null;
 }
 
 export interface NutritionGoals {
@@ -620,6 +621,13 @@ export interface NutritionGoals {
   carbsG: number | null;
   fatG: number | null;
   status: "ok" | "partial" | "blocked";
-  reason?: "no_weight" | "sex_unset" | "scope_mismatch" | "invalid_profile";
+  reason?:
+    | "no_weight"
+    | "sex_unset"
+    | "scope_mismatch"
+    | "invalid_profile"
+    | "invalid_activity";
   audit?: NutritionGoalsAudit;
+  /** True when the Fitbit weight log used was logged > 7 days before the target date (FOO-1010). */
+  weightStale?: boolean;
 }

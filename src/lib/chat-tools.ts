@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { searchFoods, getDailyNutritionSummary, getDateRangeNutritionSummary, getFoodLogHistory } from "@/lib/food-log";
 import { getFastingWindow, getFastingWindows } from "@/lib/fasting";
-import { getDailyGoalsByDate } from "@/lib/daily-goals";
+import { getOrComputeDailyGoals } from "@/lib/daily-goals";
 import { searchLabels, insertLabel, updateLabel, deleteLabel, findDuplicateLabel } from "@/lib/nutrition-labels";
 import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
 import { logger } from "@/lib/logger";
@@ -222,23 +222,45 @@ async function executeGetNutritionSummary(
   // Case 1: single date
   if (date && typeof date === "string" && !from_date) {
     const summary = await getDailyNutritionSummary(userId, date, log);
-    const goals = await getDailyGoalsByDate(userId, date);
-    const calorieGoal = goals?.calorieGoal ?? null;
+    // FOO-1002: use getOrComputeDailyGoals so partial protein/fat targets surface
+    // even when Fitbit hasn't reported caloriesOut yet (no row written for partial).
+    const result = await getOrComputeDailyGoals(userId, date, log);
 
     const lines: string[] = [];
     lines.push(`Nutrition summary for ${date}:`);
     lines.push(`Total: ${summary.totals.calories} cal, P:${summary.totals.proteinG}g C:${summary.totals.carbsG}g F:${summary.totals.fatG}g, Fiber:${summary.totals.fiberG}g, Sodium:${summary.totals.sodiumMg}mg`);
 
-    if (calorieGoal !== null && calorieGoal > 0) {
-      const pct = Math.round((summary.totals.calories / calorieGoal) * 100);
-      lines.push(`Calorie goal: ${calorieGoal} cal (${pct}% of goal)`);
-    }
-
-    if (goals?.proteinGoal != null && goals?.carbsGoal != null && goals?.fatGoal != null) {
-      const proteinPct = goals.proteinGoal > 0 ? Math.round((summary.totals.proteinG / goals.proteinGoal) * 100) : 0;
-      const carbsPct = goals.carbsGoal > 0 ? Math.round((summary.totals.carbsG / goals.carbsGoal) * 100) : 0;
-      const fatPct = goals.fatGoal > 0 ? Math.round((summary.totals.fatG / goals.fatGoal) * 100) : 0;
-      lines.push(`Macro goals: P:${goals.proteinGoal}g (${proteinPct}%) C:${goals.carbsGoal}g (${carbsPct}%) F:${goals.fatGoal}g (${fatPct}%)`);
+    if (result.status === "ok") {
+      const calorieGoal = result.goals.calorieGoal;
+      if (calorieGoal > 0) {
+        const pct = Math.round((summary.totals.calories / calorieGoal) * 100);
+        lines.push(`Calorie goal: ${calorieGoal} cal (${pct}% of goal)`);
+      }
+      const proteinPct = result.goals.proteinGoal > 0
+        ? Math.round((summary.totals.proteinG / result.goals.proteinGoal) * 100)
+        : 0;
+      const carbsPct = result.goals.carbsGoal > 0
+        ? Math.round((summary.totals.carbsG / result.goals.carbsGoal) * 100)
+        : 0;
+      const fatPct = result.goals.fatGoal > 0
+        ? Math.round((summary.totals.fatG / result.goals.fatGoal) * 100)
+        : 0;
+      lines.push(
+        `Macro goals: P:${result.goals.proteinGoal}g (${proteinPct}%) C:${result.goals.carbsGoal}g (${carbsPct}%) F:${result.goals.fatGoal}g (${fatPct}%)`,
+      );
+    } else if (result.status === "partial") {
+      const proteinPct = result.proteinG > 0
+        ? Math.round((summary.totals.proteinG / result.proteinG) * 100)
+        : 0;
+      const fatPct = result.fatG > 0
+        ? Math.round((summary.totals.fatG / result.fatG) * 100)
+        : 0;
+      lines.push(
+        `Protein goal: ${result.proteinG}g (${proteinPct}%) — calorie goal pending Fitbit activity sync`,
+      );
+      lines.push(`Fat goal: ${result.fatG}g (${fatPct}%)`);
+    } else {
+      lines.push(`Goal status: blocked (${result.reason})`);
     }
 
     // Add per-meal breakdown
