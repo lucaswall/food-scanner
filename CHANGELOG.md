@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-05-03
+
+### Added
+
+- Automatic macro target calculation derived from Fitbit profile, weight, weight-goal, and daily activity data — replaces the Lumen screenshot upload flow
+- Per-user macro profile selector in settings: **Muscle Preserve** (high protein with a carb floor) and **Metabolic Flex** (moderate protein, low fixed carbs, fat residual)
+- Today's Targets card on settings page showing calories and macros, with an expandable audit panel (RMR, activity, TDEE, weight, BMI tier, goal type)
+- Fitbit Profile card on settings page (read-only view of name, date of birth, sex, height)
+- Banner prompting users to reconnect Fitbit when their saved permissions are missing the new profile/weight scopes
+
+### Changed
+
+- Daily macro targets now refresh automatically each day from Fitbit data — no manual screenshot upload required
+- Fitbit reconnect prompt now requests the new profile and weight permissions in addition to nutrition and activity
+
+### Removed
+
+- Lumen screenshot upload flow and Lumen banner — superseded by the automatic macro engine
+- Public `/api/v1/lumen-goals` endpoint (BREAKING: external integrations relying on this endpoint must migrate to `/api/v1/nutrition-goals`)
+
+### Fixed
+
+- Fitbit status banner text is now readable in dark mode
+
 ## [1.25.1] - 2026-04-11
 
 ### Fixed
@@ -497,7 +521,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v1.25.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/lucaswall/food-scanner/compare/v1.25.1...v2.0.0
 [1.25.1]: https://github.com/lucaswall/food-scanner/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/lucaswall/food-scanner/compare/v1.24.1...v1.25.0
 [1.24.1]: https://github.com/lucaswall/food-scanner/compare/v1.24.0...v1.24.1
