@@ -26,6 +26,8 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => `eq:${val}`),
   and: vi.fn((...args: unknown[]) => `and:(${args.join(",")})`),
   gte: vi.fn((_col: unknown, val: unknown) => `gte:${val}`),
+  lt: vi.fn((_col: unknown, val: unknown) => `lt:${val}`),
+  desc: vi.fn((col: unknown) => `desc:${String(col)}`),
 }));
 
 vi.mock("@/lib/logger", () => {
@@ -60,6 +62,19 @@ function mockUpdateOnce() {
   const set = vi.fn().mockReturnValue({ where });
   mockDb.update.mockReturnValueOnce({ set });
   return { where, set };
+}
+
+/**
+ * Queue the seed-resolver lookback select: `.from().where().orderBy().limit()`.
+ * Used by `resolveTdeeSeed` (FOO-1036) to pull the prior-7-day live caloriesOut sample.
+ */
+function mockSeedSelectOnce(rows: Record<string, unknown>[] = []) {
+  const limit = vi.fn().mockResolvedValueOnce(rows);
+  const orderBy = vi.fn().mockReturnValue({ limit });
+  const where = vi.fn().mockReturnValue({ orderBy });
+  const from = vi.fn().mockReturnValue({ where });
+  mockDb.select.mockReturnValueOnce({ from });
+  return { where, orderBy, limit };
 }
 
 /**
@@ -99,10 +114,123 @@ const COMPUTED_ROW = {
   bmiTier: "ge30" as const,
   profileVersion: 1,
   weightLoggedDate: "2026-05-03",
+  tdeeSource: "live" as const,
 };
 
 // ─── Module import (after mocks set up) ─────────────────────────────────────
-const { getOrComputeDailyGoals, getDailyGoalsByDate } = await import("@/lib/daily-goals");
+const {
+  getOrComputeDailyGoals,
+  getDailyGoalsByDate,
+  resolveTdeeSeed,
+  DEFAULT_ACTIVITY_MULTIPLIER,
+} = await import("@/lib/daily-goals");
+
+describe("resolveTdeeSeed (FOO-1036)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReset();
+  });
+
+  it("returns history median when ≥ 1 prior 'live' row exists in last 7 days", async () => {
+    // Three live rows in lookback window — median over [2400, 2800, 3200] = 2800.
+    mockSeedSelectOnce([
+      { tdeeSource: "live", caloriesOut: 3200 },
+      { tdeeSource: "live", caloriesOut: 2800 },
+      { tdeeSource: "live", caloriesOut: 2400 },
+    ]);
+
+    const result = await resolveTdeeSeed("user-1", "2026-05-03", 2070, logger);
+
+    expect(result).toEqual({ source: "history", value: 2800 });
+  });
+
+  it("returns history median over a single prior live row", async () => {
+    mockSeedSelectOnce([{ tdeeSource: "live", caloriesOut: 2900 }]);
+
+    const result = await resolveTdeeSeed("user-2", "2026-05-03", 2070, logger);
+
+    expect(result).toEqual({ source: "history", value: 2900 });
+  });
+
+  it("for an even count, picks the LOWER of the two middle values (no float arithmetic)", async () => {
+    // Sorted [2200, 2600, 2800, 3000] → middle two are 2600, 2800 → lower = 2600.
+    mockSeedSelectOnce([
+      { tdeeSource: "live", caloriesOut: 3000 },
+      { tdeeSource: "live", caloriesOut: 2200 },
+      { tdeeSource: "live", caloriesOut: 2800 },
+      { tdeeSource: "live", caloriesOut: 2600 },
+    ]);
+
+    const result = await resolveTdeeSeed("user-3", "2026-05-03", 2070, logger);
+
+    expect(result).toEqual({ source: "history", value: 2600 });
+    // Pure integer (caller never gets a half-step value).
+    expect(Number.isInteger(result.value)).toBe(true);
+  });
+
+  it("excludes non-'live' rows: 'history', 'default', and NULL with null caloriesOut", async () => {
+    // Only the one 'live' row + the legacy NULL-with-caloriesOut row qualify.
+    mockSeedSelectOnce([
+      { tdeeSource: "history", caloriesOut: 9999 }, // skipped
+      { tdeeSource: "default", caloriesOut: 9999 }, // skipped
+      { tdeeSource: null, caloriesOut: null },       // skipped
+      { tdeeSource: "live", caloriesOut: 2700 },
+      { tdeeSource: null, caloriesOut: 2900 },        // legacy → treated as 'live'
+    ]);
+
+    const result = await resolveTdeeSeed("user-4", "2026-05-03", 2070, logger);
+
+    // Sorted [2700, 2900] → lower of two middle = 2700.
+    expect(result).toEqual({ source: "history", value: 2700 });
+  });
+
+  it("returns default fallback (round(rmr * 1.4)) when zero qualifying history rows", async () => {
+    mockSeedSelectOnce([]);
+
+    const result = await resolveTdeeSeed("user-5", "2026-05-03", 2070, logger);
+
+    expect(result).toEqual({ source: "default", value: Math.round(2070 * 1.4) });
+    expect(result.value).toBe(2898);
+  });
+
+  it("default fallback also fires when all rows are non-qualifying", async () => {
+    mockSeedSelectOnce([
+      { tdeeSource: "history", caloriesOut: 9999 },
+      { tdeeSource: "default", caloriesOut: 9999 },
+      { tdeeSource: null, caloriesOut: null },
+    ]);
+
+    const result = await resolveTdeeSeed("user-6", "2026-05-03", 2070, logger);
+
+    expect(result.source).toBe("default");
+    expect(result.value).toBe(2898);
+  });
+
+  it("queries with strict-< target date AND inclusive-from (target - 7 days), ORDER BY date DESC LIMIT 7", async () => {
+    const seed = mockSeedSelectOnce([{ tdeeSource: "live", caloriesOut: 2800 }]);
+
+    await resolveTdeeSeed("user-7", "2026-05-03", 2070, logger);
+
+    // The where clause must combine eq:user-7, gte:2026-04-26 (7 days back, inclusive),
+    // and lt:2026-05-03 (strictly before target — so today's own row never contributes).
+    const whereCall = String(seed.where.mock.calls[0][0]);
+    expect(whereCall).toContain("eq:user-7");
+    expect(whereCall).toContain("gte:2026-04-26");
+    expect(whereCall).toContain("lt:2026-05-03");
+    // Ordering and limit are part of the SQL surface — verify both were applied.
+    expect(seed.orderBy).toHaveBeenCalled();
+    expect(seed.limit).toHaveBeenCalledWith(7);
+  });
+
+  it("DEFAULT_ACTIVITY_MULTIPLIER is exported as 1.4", () => {
+    expect(DEFAULT_ACTIVITY_MULTIPLIER).toBe(1.4);
+  });
+});
+
+// Local logger reference for resolveTdeeSeed tests above. Cast to Logger to
+// match the resolveTdeeSeed signature — only debug() is invoked at runtime.
+import type { Logger } from "@/lib/logger";
+const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
 
 describe("getOrComputeDailyGoals", () => {
   beforeEach(() => {
@@ -937,85 +1065,90 @@ describe("getOrComputeDailyGoals", () => {
     });
   });
 
-  // ─── Status: partial — activity has no caloriesOut ───────────────────────
-  describe("partial: activity has no caloriesOut", () => {
-    it("returns partial with proteinG and fatG", async () => {
-      mockSelectOnce([]);
+  // ─── Seeded compute (FOO-1036): activity null OR below RMR threshold ─────
+  describe("seeded compute: activity unavailable or below RMR×1.05 threshold", () => {
+    it("first-day cold start → seed via 'default' fallback (RMR×1.4) and INSERT row", async () => {
+      mockSelectOnce([]); // queryRow — no existing row
       mockMacroProfileSelect();
+      mockSeedSelectOnce([]); // resolveTdeeSeed — empty history → default
+      const insert = mockInsertOnce();
+      // Read-back row reflects what was just inserted (seed value used as caloriesOut).
+      mockSelectOnce([{ ...COMPUTED_ROW, tdeeSource: "default", caloriesOut: Math.round(2070 * 1.4) }]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_NULL);
 
-      const result = await getOrComputeDailyGoals("user-partial", "2026-05-03");
+      const result = await getOrComputeDailyGoals("user-cold-start", "2026-05-03");
 
-      expect(result.status).toBe("partial");
-      if (result.status !== "partial") return;
-      // BMI = 39 → "ge30", LOSE → coeff 1.8
-      // protein_g = round(121 * 1.8) = 218
-      expect(result.proteinG).toBe(218);
-      // fat_g = round(121 * 0.8) = 97
-      expect(result.fatG).toBe(97);
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.isSeeded).toBe(true);
+      expect(insert.values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tdeeSource: "default",
+          // Engine input was the default seed (RMR × 1.4 = 2898), not the absent live value.
+          caloriesOut: Math.round(2070 * 1.4),
+        }),
+      );
     });
 
-    it("does NOT call INSERT for partial result", async () => {
+    it("history-median path → seed via 'history' and INSERT row with tdeeSource='history'", async () => {
       mockSelectOnce([]);
       mockMacroProfileSelect();
+      // Three prior live rows → median of [2400, 2800, 3200] = 2800.
+      mockSeedSelectOnce([
+        { tdeeSource: "live", caloriesOut: 3200 },
+        { tdeeSource: "live", caloriesOut: 2800 },
+        { tdeeSource: "live", caloriesOut: 2400 },
+      ]);
+      const insert = mockInsertOnce();
+      mockSelectOnce([{ ...COMPUTED_ROW, tdeeSource: "history", caloriesOut: 2800 }]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_NULL);
 
-      await getOrComputeDailyGoals("user-partial2", "2026-05-03");
+      const result = await getOrComputeDailyGoals("user-hist", "2026-05-03");
 
-      expect(mockDb.insert).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.isSeeded).toBe(true);
+      expect(insert.values).toHaveBeenCalledWith(
+        expect.objectContaining({ tdeeSource: "history", caloriesOut: 2800 }),
+      );
     });
 
-    // ─── FOO-999: below-RMR caloriesOut → partial ────────────────────────────
-    // For 49y/M/176cm/121kg, RMR = 2070. Threshold = 2070 * 1.05 = 2173.5
-    it("returns partial when caloriesOut === 0 (FOO-999)", async () => {
+    it("caloriesOut just under RMR×1.05 threshold → seeded compute, NOT live (engine fed seed value)", async () => {
+      // Threshold = 2070 * 1.05 = 2173.5 → just under = 2150.
       mockSelectOnce([]);
       mockMacroProfileSelect();
+      // Empty history → default seed (RMR × 1.4 = 2898).
+      mockSeedSelectOnce([]);
+      const insert = mockInsertOnce();
+      mockSelectOnce([{ ...COMPUTED_ROW, tdeeSource: "default", caloriesOut: 2898 }]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
-      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 0 });
-
-      const result = await getOrComputeDailyGoals("user-zero-co", "2026-05-03");
-
-      expect(result.status).toBe("partial");
-    });
-
-    it("returns partial when caloriesOut equals RMR exactly (FOO-999)", async () => {
-      mockSelectOnce([]);
-      mockMacroProfileSelect();
-      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
-      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
-      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2070 });
-
-      const result = await getOrComputeDailyGoals("user-eq-rmr", "2026-05-03");
-
-      expect(result.status).toBe("partial");
-    });
-
-    it("returns partial when caloriesOut just below 1.05 × RMR (FOO-999)", async () => {
-      mockSelectOnce([]);
-      mockMacroProfileSelect();
-      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
-      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
-      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
-      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: Math.floor(2070 * 1.04) });
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2150 });
 
       const result = await getOrComputeDailyGoals("user-below-thresh", "2026-05-03");
 
-      expect(result.status).toBe("partial");
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.isSeeded).toBe(true);
+      // Critical: engine was NOT fed the live 2150 (which would yield a sub-RMR target).
+      // INSERT.caloriesOut reflects the seed (2898), not the live value.
+      expect(insert.values).toHaveBeenCalledWith(
+        expect.objectContaining({ tdeeSource: "default", caloriesOut: 2898 }),
+      );
     });
 
-    it("returns ok when caloriesOut at 1.05 × RMR (FOO-999)", async () => {
+    it("caloriesOut clears RMR×1.05 threshold → live path, tdeeSource='live', NOT seeded", async () => {
+      // Threshold = 2070 * 1.05 = 2173.5 → at threshold = ceil(2173.5) = 2174.
       mockSelectOnce([]);
       mockMacroProfileSelect();
-      mockInsertOnce();
+      const insert = mockInsertOnce();
       mockSelectOnce([COMPUTED_ROW]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
@@ -1025,23 +1158,288 @@ describe("getOrComputeDailyGoals", () => {
       const result = await getOrComputeDailyGoals("user-at-thresh", "2026-05-03");
 
       expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.isSeeded).toBeFalsy();
+      // INSERT writes tdeeSource='live' and the live caloriesOut value.
+      expect(insert.values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tdeeSource: "live",
+          caloriesOut: Math.ceil(2070 * 1.05),
+        }),
+      );
     });
 
-    it("uses default MAINTAIN goalType for partial when weight goal is unavailable", async () => {
+    it("ok with isSeeded propagates audit.caloriesOut as the seed value (not Fitbit's null/below-threshold)", async () => {
       mockSelectOnce([]);
       mockMacroProfileSelect();
+      mockSeedSelectOnce([{ tdeeSource: "live", caloriesOut: 2700 }]);
+      mockInsertOnce();
+      mockSelectOnce([{ ...COMPUTED_ROW, tdeeSource: "history", caloriesOut: 2700 }]);
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_NULL);
+
+      const result = await getOrComputeDailyGoals("user-audit-seed", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      // Audit reflects what produced these targets — the seed, not Fitbit's null.
+      expect(result.audit.caloriesOut).toBe(2700);
+    });
+
+    it("seeded path uses default MAINTAIN goalType when weight goal is unavailable", async () => {
+      mockSelectOnce([]);
+      mockMacroProfileSelect();
+      mockSeedSelectOnce([]); // empty history → default
+      mockInsertOnce();
+      // Read-back uses computed row for FEMALE/MAINTAIN (different audit values).
+      mockSelectOnce([{
+        ...COMPUTED_ROW,
+        weightKg: "65",
+        rmr: 1282,
+        proteinGoal: 104,
+        bmiTier: "lt25" as const,
+        goalType: "MAINTAIN" as const,
+        tdeeSource: "default",
+      }]);
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_FEMALE);
       mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 65, loggedDate: "2026-05-03" });
       mockGetCachedFitbitWeightGoal.mockResolvedValue(null); // goal not available
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_NULL);
 
-      const result = await getOrComputeDailyGoals("user-partial3", "2026-05-03");
+      const result = await getOrComputeDailyGoals("user-seed-default-goal", "2026-05-03");
 
-      expect(result.status).toBe("partial");
-      if (result.status !== "partial") return;
-      // BMI = 65/(1.62^2) ≈ 24.77 → "lt25", MAINTAIN → coeff 1.6
-      // protein_g = round(65 * 1.6) = 104
-      expect(result.proteinG).toBe(104);
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.isSeeded).toBe(true);
+      expect(result.audit.goalType).toBe("MAINTAIN");
+      // BMI ≈ 24.77 → "lt25", MAINTAIN → protein_g = round(65 * 1.6) = 104
+      expect(result.goals.proteinGoal).toBe(104);
+    });
+
+    it("invalid_activity (FOO-1030) takes precedence over seed path — negative caloriesOut still blocks", async () => {
+      // The FOO-1030 explicit gate runs BEFORE the seed-vs-live decision.
+      // Negative caloriesOut must NOT be silently masked by the seed fallback.
+      mockSelectOnce([]);
+      mockMacroProfileSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: -100 });
+
+      const result = await getOrComputeDailyGoals("user-neg-no-seed", "2026-05-03");
+
+      expect(result).toEqual({ status: "blocked", reason: "invalid_activity" });
+      // Critical: the seed lookback MUST NOT have run — invalid_activity is terminal.
+      // (No mockSeedSelectOnce was queued; if the seed path ran, the test would error out.)
+    });
+  });
+
+  // ─── Promotion (FOO-1036): seeded row → live when threshold clears ───────
+  describe("promotion: seeded row promoted to live when caloriesOut clears threshold", () => {
+    it("promotion overrides DOWNWARD: seeded calorieGoal=2400 → live engineOut<2400 (UPDATE fires)", async () => {
+      // Stored: seeded 'history' row with calorieGoal=2400 (an over-estimate).
+      // Today's live caloriesOut=2200 is just above threshold (2173.5) and
+      // computes to engineOut.targetKcal=1745 (LOSE). Promotion must overwrite
+      // regardless of direction — ratchet's UP-only rule is bypassed for seeds.
+      const seededRow = { ...COMPUTED_ROW, tdeeSource: "history" as const, calorieGoal: 2400 };
+      mockSelectOnce([seededRow]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect(); // promotion's loadUserMacroProfile
+      const promotionUpdate = mockUpdateOnce();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2200 });
+
+      const result = await getOrComputeDailyGoals("user-promote-down", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      // engineOut for caloriesOut=2200/MALE/49y/176cm/121kg/LOSE:
+      // activityKcal = round(max(0, 2200-2070)*0.85) = round(110.5) = 111;
+      // tdee = 2070+111 = 2181; target = round(2181*0.80) = 1745.
+      expect(result.goals.calorieGoal).toBe(1745);
+      // isSeeded must be false post-promotion — the row is now live.
+      expect(result.isSeeded).toBeFalsy();
+      // UPDATE writes tdeeSource='live' and the live caloriesOut.
+      expect(promotionUpdate.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          calorieGoal: 1745,
+          tdeeSource: "live",
+          caloriesOut: 2200,
+        }),
+      );
+    });
+
+    it("promotion overrides UPWARD: seeded calorieGoal=2400 → live engineOut>2400", async () => {
+      const seededRow = { ...COMPUTED_ROW, tdeeSource: "default" as const, calorieGoal: 2400 };
+      mockSelectOnce([seededRow]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect();
+      const promotionUpdate = mockUpdateOnce();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Live caloriesOut=4500 → engineOut.targetKcal=3309.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      const result = await getOrComputeDailyGoals("user-promote-up", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(3309);
+      expect(result.isSeeded).toBeFalsy();
+      expect(promotionUpdate.set).toHaveBeenCalledWith(
+        expect.objectContaining({ calorieGoal: 3309, tdeeSource: "live" }),
+      );
+    });
+
+    it("seeded row, live caloriesOut still below threshold → NO promotion, return cached seeded values", async () => {
+      const seededRow = { ...COMPUTED_ROW, tdeeSource: "history" as const, calorieGoal: 2400 };
+      mockSelectOnce([seededRow]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Below RMR*1.05 = 2173.5 — promotion must NOT fire.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 1800 });
+
+      const result = await getOrComputeDailyGoals("user-no-promote", "2026-05-03");
+
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(2400); // cached seeded value preserved
+      expect(result.isSeeded).toBe(true);
+    });
+
+    it("seeded row, no live activity (breaker rejection) → NO promotion, return cached seeded values", async () => {
+      const seededRow = { ...COMPUTED_ROW, tdeeSource: "default" as const, calorieGoal: 2400 };
+      mockSelectOnce([seededRow]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+
+      const result = await getOrComputeDailyGoals("user-no-activity", "2026-05-03");
+
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(2400);
+      expect(result.isSeeded).toBe(true);
+    });
+
+    it("seeded row on HISTORICAL date → never promotes (stays cached)", async () => {
+      const seededHistoricalRow = {
+        ...COMPUTED_ROW,
+        tdeeSource: "history" as const,
+        calorieGoal: 2400,
+        profileVersion: 1,
+      };
+      mockSelectOnce([seededHistoricalRow]);
+      // No mockMacroProfileVersionSelect: FOO-1032 short-circuits version check on past dates.
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Activity is not fetched on historical dates per FOO-1034.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      const result = await getOrComputeDailyGoals("user-historical-seeded", "2020-01-01");
+
+      // No UPDATE — historical seeded rows stay frozen.
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(mockGetCachedActivitySummary).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(2400);
+      expect(result.isSeeded).toBe(true);
+    });
+
+    it("legacy NULL tdeeSource row → ratchets UP only (no re-seed, no promotion)", async () => {
+      // A pre-FOO-1036 row treated as 'live' must follow the FOO-1009 ratchet
+      // path, never the promotion path. Live caloriesOut high → ratchet UP.
+      const legacyRow = { ...COMPUTED_ROW, tdeeSource: null, calorieGoal: 1500 };
+      mockSelectOnce([legacyRow]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect(); // ratchet's loadUserMacroProfile
+      const ratchetUpdate = mockUpdateOnce();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      const result = await getOrComputeDailyGoals("user-legacy-ratchet", "2026-05-03");
+
+      // Ratchet fired (calorieGoal raised), but UPDATE must NOT touch tdeeSource
+      // (legacy NULL stays NULL — ratchet doesn't promote).
+      expect(mockDb.update).toHaveBeenCalled();
+      const setCall = ratchetUpdate.set.mock.calls[0][0];
+      expect(setCall.calorieGoal).toBe(3309);
+      expect(setCall.tdeeSource).toBeUndefined();
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(3309);
+      expect(result.isSeeded).toBeFalsy();
+    });
+
+    it("legacy NULL tdeeSource row, live caloriesOut at SAME level → no ratchet (regression)", async () => {
+      // Same as the existing 'ratchet-up: does NOT update when new target equals stored'
+      // test, but using a NULL-tdeeSource row to confirm legacy handling.
+      const legacyRow = { ...COMPUTED_ROW, tdeeSource: null };
+      mockSelectOnce([legacyRow]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 3000 });
+
+      await getOrComputeDailyGoals("user-legacy-equal", "2026-05-03");
+
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ─── Cache-hit return: stored row's tdeeSource decides isSeeded ───────────
+  describe("cache-hit isSeeded propagation (FOO-1036)", () => {
+    it("isSeeded=true when stored row has tdeeSource='history'", async () => {
+      const seededRow = { ...COMPUTED_ROW, tdeeSource: "history" as const };
+      mockSelectOnce([seededRow]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // No live activity (so the promotion check is a no-op; ratchet doesn't apply).
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_NULL);
+
+      const result = await getOrComputeDailyGoals("user-cache-seeded", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.isSeeded).toBe(true);
+    });
+
+    it("isSeeded falsy when stored row has tdeeSource='live'", async () => {
+      mockSelectOnce([COMPUTED_ROW]); // tdeeSource: 'live'
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+
+      const result = await getOrComputeDailyGoals("user-cache-live", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.isSeeded).toBeFalsy();
+    });
+
+    it("isSeeded falsy when stored row has legacy NULL tdeeSource (treated as 'live')", async () => {
+      const legacyRow = { ...COMPUTED_ROW, tdeeSource: null };
+      mockSelectOnce([legacyRow]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+
+      const result = await getOrComputeDailyGoals("user-cache-legacy", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.isSeeded).toBeFalsy();
     });
   });
 

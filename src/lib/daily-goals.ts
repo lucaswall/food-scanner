@@ -1,6 +1,6 @@
 import { getDb } from "@/db/index";
 import { dailyCalorieGoals, users } from "@/db/schema";
-import { eq, and, gte } from "drizzle-orm";
+import { eq, and, gte, lt, desc } from "drizzle-orm";
 import { getTodayDate } from "@/lib/date-utils";
 import {
   computeMacroTargets,
@@ -33,6 +33,7 @@ interface DbRow {
   bmiTier: string | null;
   profileVersion: number | null;
   weightLoggedDate: string | null;
+  tdeeSource: string | null;
 }
 
 export type ComputeResult =
@@ -51,8 +52,13 @@ export type ComputeResult =
       };
       /** True when the weight log used is > 7 days older than the target date (FOO-1010). */
       weightStale?: boolean;
+      /**
+       * FOO-1036: true when the engine's `caloriesOut` input was a seed (history
+       * median or RMR×1.4 default) rather than today's live Fitbit value. The UI
+       * does not surface this — present for clients/telemetry only.
+       */
+      isSeeded?: boolean;
     }
-  | { status: "partial"; proteinG: number; fatG: number }
   | {
       status: "blocked";
       reason: "no_weight" | "sex_unset" | "scope_mismatch" | "invalid_profile" | "invalid_activity";
@@ -165,6 +171,203 @@ async function tryRatchetRecompute(args: {
   };
 }
 
+/**
+ * FOO-1036: default activity factor used when no prior `live` history exists
+ * for the user. Picked at the "lightly active" end of the standard TDEE range
+ * (RMR × 1.4) so the seeded calorie target is always above RMR × 1.05 — never
+ * yields a sub-RMR goal even before any Fitbit data is recorded.
+ */
+export const DEFAULT_ACTIVITY_MULTIPLIER = 1.4;
+
+/**
+ * FOO-1036 promotion: when a stored seeded row's live `caloriesOut` finally
+ * clears `RMR × 1.05`, overwrite the row with live values regardless of
+ * direction. Returns the new values when a promotion UPDATE fired; null when
+ * skipped (not today, row already live/legacy, no live data, or threshold not
+ * cleared). Does not throw — promotion is best-effort; on failure the caller
+ * serves the cached seeded values.
+ */
+async function tryPromoteSeededRow(args: {
+  userId: string;
+  date: string;
+  existing: DbRow;
+  liveActivity: { caloriesOut: number | null } | null;
+  liveProfile: { ageYears: number; sex: "MALE" | "FEMALE" | "NA"; heightCm: number } | null;
+  wKg: number;
+  goalType: MacroGoalType;
+  targetIsToday: boolean;
+  storedIsSeeded: boolean;
+  log: Logger;
+}): Promise<RatchetResult | null> {
+  const {
+    userId,
+    date,
+    existing,
+    liveActivity,
+    liveProfile,
+    wKg,
+    goalType,
+    targetIsToday,
+    storedIsSeeded,
+    log,
+  } = args;
+
+  if (
+    !targetIsToday ||
+    !storedIsSeeded ||
+    liveProfile === null ||
+    liveProfile.sex === "NA" ||
+    liveActivity === null ||
+    liveActivity.caloriesOut === null
+  ) {
+    return null;
+  }
+
+  const rmrThreshold =
+    computeRmr(liveProfile.sex, liveProfile.ageYears, liveProfile.heightCm, wKg) * 1.05;
+  if (liveActivity.caloriesOut < rmrThreshold) return null;
+
+  let engineOut: ReturnType<typeof computeMacroTargets>;
+  try {
+    const macroProfile = (await loadUserMacroProfile(userId, log)).profile;
+    engineOut = computeMacroTargets(
+      {
+        ageYears: liveProfile.ageYears,
+        sex: liveProfile.sex,
+        heightCm: liveProfile.heightCm,
+        weightKg: wKg,
+        caloriesOut: liveActivity.caloriesOut,
+        goalType,
+      },
+      macroProfile,
+    );
+  } catch {
+    return null;
+  }
+
+  await getDb()
+    .update(dailyCalorieGoals)
+    .set({
+      calorieGoal: engineOut.targetKcal,
+      proteinGoal: engineOut.proteinG,
+      carbsGoal: engineOut.carbsG,
+      fatGoal: engineOut.fatG,
+      caloriesOut: liveActivity.caloriesOut,
+      rmr: engineOut.rmr,
+      activityKcal: engineOut.activityKcal,
+      bmiTier: engineOut.bmiTier,
+      tdeeSource: "live",
+      updatedAt: new Date(),
+    })
+    .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
+
+  log.info(
+    {
+      action: "daily_goals_promoted",
+      userId,
+      date,
+      from: existing.calorieGoal,
+      to: engineOut.targetKcal,
+      fromSource: existing.tdeeSource,
+    },
+    "calorie target promoted from seed to live",
+  );
+
+  return {
+    targetKcal: engineOut.targetKcal,
+    proteinG: engineOut.proteinG,
+    carbsG: engineOut.carbsG,
+    fatG: engineOut.fatG,
+    rmr: engineOut.rmr,
+    activityKcal: engineOut.activityKcal,
+    tdee: engineOut.tdee,
+    caloriesOut: liveActivity.caloriesOut,
+  };
+}
+
+/**
+ * FOO-1036 seed resolver: pure read that picks a reasonable `caloriesOut`
+ * value to feed the macro engine on days where Fitbit hasn't yet recorded a
+ * usable cumulative `caloriesOut` (typical morning state).
+ *
+ * Strategy:
+ *  - Pull rows from the prior 7 days (strictly before `targetDate`) where
+ *    `tdee_source = 'live'` (NULL is treated as `'live'` for legacy rows
+ *    written before this column existed).
+ *  - Median of the qualifying `caloriesOut` values; for an even count, take
+ *    the LOWER of the two middle values to keep the result an integer (no
+ *    float arithmetic, robust against single high outliers).
+ *  - If no qualifying rows exist, fall back to `round(rmr × 1.4)`.
+ *
+ * The caller decides whether to insert/update — this function never mutates.
+ */
+export async function resolveTdeeSeed(
+  userId: string,
+  targetDate: string,
+  rmr: number,
+  log: Logger,
+): Promise<{ source: "history" | "default"; value: number }> {
+  // 7-day inclusive-from / exclusive-to window: [targetDate - 7d, targetDate).
+  // Exclusive upper bound guarantees today's own row never feeds its own seed.
+  const targetTs = Date.parse(targetDate);
+  const lookbackStart = new Date(targetTs - 7 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+
+  const rows = await getDb()
+    .select({
+      tdeeSource: dailyCalorieGoals.tdeeSource,
+      caloriesOut: dailyCalorieGoals.caloriesOut,
+    })
+    .from(dailyCalorieGoals)
+    .where(
+      and(
+        eq(dailyCalorieGoals.userId, userId),
+        gte(dailyCalorieGoals.date, lookbackStart),
+        lt(dailyCalorieGoals.date, targetDate),
+      ),
+    )
+    .orderBy(desc(dailyCalorieGoals.date))
+    .limit(7);
+
+  // Treat NULL tdeeSource as 'live' (legacy rows pre-FOO-1036). 'history' and
+  // 'default' rows are skipped — re-using a seed as input to another seed
+  // would compound the estimate.
+  const liveCalories: number[] = [];
+  for (const row of rows) {
+    if (
+      row.caloriesOut !== null &&
+      (row.tdeeSource === null || row.tdeeSource === "live")
+    ) {
+      liveCalories.push(row.caloriesOut);
+    }
+  }
+
+  if (liveCalories.length === 0) {
+    const value = Math.round(rmr * DEFAULT_ACTIVITY_MULTIPLIER);
+    log.debug(
+      { action: "tdee_seed_resolved", source: "default", value, sampleSize: 0 },
+      "tdee seed resolved (default fallback)",
+    );
+    return { source: "default", value };
+  }
+
+  // Median: ascending sort, pick floor((n-1)/2) → exact middle for odd, lower
+  // of two middle for even. Integer-clean (no division).
+  const sorted = [...liveCalories].sort((a, b) => a - b);
+  const value = sorted[Math.floor((sorted.length - 1) / 2)];
+  log.debug(
+    {
+      action: "tdee_seed_resolved",
+      source: "history",
+      value,
+      sampleSize: sorted.length,
+    },
+    "tdee seed resolved (history median)",
+  );
+  return { source: "history", value };
+}
+
 /** Compute weightStale flag from target date and weight log date. */
 function computeWeightStale(targetDate: string, weightLoggedDate: string | null): boolean {
   if (weightLoggedDate === null) return false;
@@ -246,6 +449,7 @@ async function queryRow(userId: string, date: string): Promise<DbRow | null> {
       bmiTier: dailyCalorieGoals.bmiTier,
       profileVersion: dailyCalorieGoals.profileVersion,
       weightLoggedDate: dailyCalorieGoals.weightLoggedDate,
+      tdeeSource: dailyCalorieGoals.tdeeSource,
     })
     .from(dailyCalorieGoals)
     .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
@@ -348,32 +552,62 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
       const liveProfile =
         profileRes.status === "fulfilled" ? profileRes.value : null;
 
-      // FOO-1034: ratchet only runs for today. Historical dates stay stable.
-      const ratchet = targetIsToday
-        ? await tryRatchetRecompute({
-            userId,
-            date,
-            existing,
-            liveActivity,
-            liveProfile,
-            wKg,
-            goalType,
-            log: l,
-          })
-        : null;
+      // FOO-1036: stored tdeeSource of 'history' or 'default' indicates the row
+      // was seeded (engine fed a default/history caloriesOut, not today's live
+      // Fitbit value). NULL = legacy pre-FOO-1036 row, treated as 'live'.
+      const storedIsSeeded =
+        existing.tdeeSource === "history" || existing.tdeeSource === "default";
 
-      const tdee = ratchet
-        ? ratchet.tdee
+      // FOO-1036 promotion: a seeded row gets fully overwritten with live
+      // values the moment today's live caloriesOut clears RMR × 1.05 — the
+      // direction (up or down) doesn't matter because a seeded calorieGoal is
+      // an estimate, not a stable anchor. Promotion is one-way per design: once
+      // the row is 'live' it follows the ratchet UP-only rule below. Skipped
+      // entirely on historical dates and on rows that are already live or legacy.
+      const promoted = await tryPromoteSeededRow({
+        userId,
+        date,
+        existing,
+        liveActivity,
+        liveProfile,
+        wKg,
+        goalType,
+        targetIsToday,
+        storedIsSeeded,
+        log: l,
+      });
+
+      // FOO-1034: ratchet only runs for today. FOO-1036: ratchet only runs
+      // for non-seeded rows (legacy NULL = live). Seeded rows take the
+      // promotion path above; if promotion didn't fire (threshold not cleared
+      // or live data unavailable), serve the cached seeded values.
+      const ratchet =
+        targetIsToday && !storedIsSeeded
+          ? await tryRatchetRecompute({
+              userId,
+              date,
+              existing,
+              liveActivity,
+              liveProfile,
+              wKg,
+              goalType,
+              log: l,
+            })
+          : null;
+
+      const recompute = promoted ?? ratchet;
+      const tdee = recompute
+        ? recompute.tdee
         : (existing.rmr ?? 0) + (existing.activityKcal ?? 0);
 
       return {
         status: "ok",
-        goals: ratchet
+        goals: recompute
           ? {
-              calorieGoal: ratchet.targetKcal,
-              proteinGoal: ratchet.proteinG,
-              carbsGoal: ratchet.carbsG,
-              fatGoal: ratchet.fatG,
+              calorieGoal: recompute.targetKcal,
+              proteinGoal: recompute.proteinG,
+              carbsGoal: recompute.carbsG,
+              fatGoal: recompute.fatG,
             }
           : {
               calorieGoal: existing.calorieGoal,
@@ -382,16 +616,18 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
               fatGoal: existing.fatGoal!,
             },
         audit: {
-          rmr: existing.rmr!,
-          activityKcal: ratchet ? ratchet.activityKcal : existing.activityKcal!,
+          rmr: recompute ? recompute.rmr : existing.rmr!,
+          activityKcal: recompute ? recompute.activityKcal : existing.activityKcal!,
           tdee,
           weightKg: existing.weightKg!,
           bmiTier,
           goalType,
-          caloriesOut: ratchet ? ratchet.caloriesOut : existing.caloriesOut!,
+          caloriesOut: recompute ? recompute.caloriesOut : existing.caloriesOut!,
           weightLoggedDate: existing.weightLoggedDate,
         },
         weightStale: computeWeightStale(date, existing.weightLoggedDate),
+        // After a successful promotion the row is now live — clear isSeeded.
+        ...(storedIsSeeded && !promoted ? { isSeeded: true } : {}),
       };
     }
 
@@ -415,16 +651,16 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
 
     const weightKg = weightLog.weightKg;
     const goalType: MacroGoalType = weightGoal?.goalType ?? "MAINTAIN";
-    const bmiTier = getBmiTier(weightKg, profile.heightCm);
 
-    // Profile is needed for both partial and full compute paths — load it now,
+    // Profile is needed for both seeded and live compute paths — load it now,
     // after the blocked-state guards above so blocked-state tests don't need to mock it.
     const { profile: macroProfile, version: profileVersion } = await loadUserMacroProfile(userId, l);
 
-    // FOO-1030 (PR review): explicit invalid-activity gate before the partial
-    // fallback. Negative / NaN / Infinity / >30000 caloriesOut would otherwise
-    // be masked as "partial" by the rmrThreshold gate below, bypassing the
-    // macro-engine's INVALID_ACTIVITY_DATA validation. Mirror that validation here.
+    // FOO-1030: explicit invalid-activity gate. Negative / NaN / Infinity /
+    // > 30000 caloriesOut would otherwise be silently routed to the seed path
+    // by the rmrThreshold gate below, bypassing the macro-engine's
+    // INVALID_ACTIVITY_DATA validation. Mirror that validation here so an
+    // unrecoverable Fitbit reading produces a 'blocked' status, not a seeded ok.
     if (
       activity !== null &&
       activity.caloriesOut !== null &&
@@ -435,34 +671,42 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
       return { status: "blocked", reason: "invalid_activity" };
     }
 
-    // FOO-999: 5% headroom above RMR — caloriesOut below this is too noisy
-    // (early-morning Fitbit reports before tracking begins) to anchor a target,
-    // and below RMR would yield an unsafe sub-RMR calorie goal for LOSE/MAINTAIN.
+    // FOO-999 / FOO-1036: 5% headroom above RMR is the boundary between "live
+    // caloriesOut is reliable enough to anchor a target" and "fall back to a
+    // seeded value". Below this, Fitbit's morning cumulative is too noisy and
+    // the engine would otherwise produce a sub-RMR target. Per FOO-1036 the
+    // engine no longer returns a partial result: instead we seed the engine's
+    // caloriesOut input from a 7-day history median (or RMR × 1.4 fallback).
     // sex === "NA" is already filtered out by the blocked guard above.
-    const rmrThreshold =
-      computeRmr(profile.sex, profile.ageYears, profile.heightCm, weightKg) * 1.05;
+    const rmr = computeRmr(profile.sex, profile.ageYears, profile.heightCm, weightKg);
+    const rmrThreshold = rmr * 1.05;
+
+    let effectiveCaloriesOut: number;
+    let computeTdeeSource: "live" | "history" | "default";
+    let isSeeded: boolean;
 
     if (
       activity === null ||
       activity.caloriesOut === null ||
       activity.caloriesOut < rmrThreshold
     ) {
-      // Partial: compute protein/fat per the active profile without a full calorie target.
-      const proteinG = Math.round(
-        weightKg * macroProfile.proteinCoefficients[bmiTier][goalType],
-      );
-      const fatG = Math.round(weightKg * macroProfile.fatPerKgFactor);
-      return { status: "partial", proteinG, fatG };
+      const seed = await resolveTdeeSeed(userId, date, rmr, l);
+      effectiveCaloriesOut = seed.value;
+      computeTdeeSource = seed.source;
+      isSeeded = true;
+    } else {
+      effectiveCaloriesOut = activity.caloriesOut;
+      computeTdeeSource = "live";
+      isSeeded = false;
     }
 
-    // Full compute
     const engineOut = computeMacroTargets(
       {
         ageYears: profile.ageYears,
         sex: profile.sex,
         heightCm: profile.heightCm,
         weightKg,
-        caloriesOut: activity.caloriesOut,
+        caloriesOut: effectiveCaloriesOut,
         goalType,
       },
       macroProfile,
@@ -479,13 +723,14 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
         carbsGoal: engineOut.carbsG,
         fatGoal: engineOut.fatG,
         weightKg: String(weightKg),
-        caloriesOut: activity.caloriesOut,
+        caloriesOut: effectiveCaloriesOut,
         rmr: engineOut.rmr,
         activityKcal: engineOut.activityKcal,
         goalType,
         bmiTier: engineOut.bmiTier,
         profileVersion,
         weightLoggedDate: weightLog.loggedDate,
+        tdeeSource: computeTdeeSource,
       })
       .onConflictDoNothing();
 
@@ -516,42 +761,60 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     // version this compute is anchored to.
     const versionStale =
       row !== null && row.profileVersion != null && row.profileVersion < profileVersion;
+    // FOO-1036: only preserve an existing calorieGoal when the row pre-dates
+    // this feature (legacy NULL tdeeSource = Lumen-backfilled). Rows that were
+    // already seeded by us ('history' / 'default') must be overwritten — their
+    // calorieGoal is just an estimate, not user-supplied data.
+    const existingIsSeededRow =
+      row !== null && (row.tdeeSource === "history" || row.tdeeSource === "default");
     if (row && (!hasMacros(row) || versionStale)) {
       await getDb()
         .update(dailyCalorieGoals)
         .set({
           calorieGoal:
-            !hasMacros(row) && row.calorieGoal > 0 ? row.calorieGoal : engineOut.targetKcal,
+            !hasMacros(row) && row.calorieGoal > 0 && !existingIsSeededRow
+              ? row.calorieGoal
+              : engineOut.targetKcal,
           proteinGoal: engineOut.proteinG,
           carbsGoal: engineOut.carbsG,
           fatGoal: engineOut.fatG,
           weightKg: String(weightKg),
-          caloriesOut: activity.caloriesOut,
+          caloriesOut: effectiveCaloriesOut,
           rmr: engineOut.rmr,
           activityKcal: engineOut.activityKcal,
           goalType,
           bmiTier: engineOut.bmiTier,
           profileVersion,
           weightLoggedDate: weightLog.loggedDate,
+          tdeeSource: computeTdeeSource,
           updatedAt: new Date(),
         })
         .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
     }
 
     l.info(
-      { action: "daily_goals_computed", userId, date, goalType, bmiTier: engineOut.bmiTier },
-      "daily goals computed"
+      {
+        action: "daily_goals_computed",
+        userId,
+        date,
+        goalType,
+        bmiTier: engineOut.bmiTier,
+        tdeeSource: computeTdeeSource,
+        ...(isSeeded ? { seedSource: computeTdeeSource } : {}),
+      },
+      "daily goals computed",
     );
 
     return {
       status: "ok",
       goals: {
-        // Preserve a real Lumen-backfilled calorieGoal (case a above), but on a
-        // version-stale recompute (case b) the row's calorieGoal was computed
+        // Preserve a real Lumen-backfilled calorieGoal (legacy row, NULL tdeeSource),
+        // but on a version-stale recompute the row's calorieGoal was computed
         // under a different profile — return the fresh engine value to match
-        // what we just persisted.
+        // what we just persisted. Already-seeded rows ('history'/'default') are
+        // overwritten unconditionally per FOO-1036.
         calorieGoal:
-          row && row.calorieGoal > 0 && !versionStale
+          row && row.calorieGoal > 0 && !versionStale && !existingIsSeededRow
             ? row.calorieGoal
             : engineOut.targetKcal,
         proteinGoal: engineOut.proteinG,
@@ -565,10 +828,11 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
         weightKg: String(weightKg),
         bmiTier: engineOut.bmiTier,
         goalType,
-        caloriesOut: activity.caloriesOut,
+        caloriesOut: effectiveCaloriesOut,
         weightLoggedDate: weightLog.loggedDate,
       },
       weightStale: computeWeightStale(date, weightLog.loggedDate),
+      ...(isSeeded ? { isSeeded: true } : {}),
     };
   } catch (error) {
     if (error instanceof Error && error.message === "FITBIT_SCOPE_MISSING") {
@@ -629,6 +893,7 @@ export async function invalidateUserDailyGoalsForDate(
       bmiTier: null,
       profileVersion: null,
       weightLoggedDate: null,
+      tdeeSource: null,
       updatedAt: new Date(),
     })
     .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
@@ -672,6 +937,7 @@ export async function invalidateUserDailyGoalsForProfileChange(
       caloriesOut: null,
       rmr: null,
       activityKcal: null,
+      tdeeSource: null,
       updatedAt: new Date(),
     })
     .where(
@@ -729,15 +995,7 @@ export function mapComputeResultToNutritionGoals(result: ComputeResult): Nutriti
       status: "ok",
       audit: result.audit,
       ...(result.weightStale ? { weightStale: true } : {}),
-    };
-  }
-  if (result.status === "partial") {
-    return {
-      calories: null,
-      proteinG: result.proteinG,
-      carbsG: null,
-      fatG: result.fatG,
-      status: "partial",
+      ...(result.isSeeded ? { isSeeded: true } : {}),
     };
   }
   return {

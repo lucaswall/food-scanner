@@ -79,21 +79,9 @@ export function TargetsCard({ date }: TargetsCardProps) {
     );
   }
 
-  if (goals.status === "partial") {
-    return (
-      <div className="rounded-lg border p-3 space-y-1">
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
-          {goals.proteinG != null && <span>P:{goals.proteinG}g</span>}
-          {goals.fatG != null && <span>F:{goals.fatG}g</span>}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Calories and carbs pending Fitbit activity sync.
-        </p>
-      </div>
-    );
-  }
-
-  // status === "ok"
+  // status === "ok" — FOO-1036: every authenticated user with sex+weight+height
+  // sees all four numbers at all times of day. `isSeeded` may be true when the
+  // engine fed a history/default caloriesOut, but the UI is silent about it.
   const weightAgeDays =
     goals.audit?.weightLoggedDate != null
       ? Math.floor(

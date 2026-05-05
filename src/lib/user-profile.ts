@@ -88,7 +88,7 @@ export async function buildUserProfile(
       sections.push(`Targets ${calorieGoal} cal/day`);
     }
   } else if (dailyGoals !== null) {
-    // Row exists but calorieGoal is null or 0 — partial state (waiting for activity)
+    // Row exists but calorieGoal is null or 0 — invalidated row awaiting recompute.
     sections.push("Targets pending — waiting for Fitbit activity");
   }
 

@@ -314,3 +314,47 @@
 - **First-day cold start uses `RMR × 1.4`**: not personalized, but always within a safe TDEE range (no sub-RMR target risk because the seed itself is `≥ RMR × 1.4`, well above `RMR × 1.05`).
 - **Legacy rows treated as `'live'`**: existing zeroed-historical rows from FOO-995 still recompute lazily on view via the seeded path (since `caloriesOut` for past dates is either recorded by Fitbit or unrecoverable, and the seed path handles both).
 - **Concurrency**: existing in-flight Promise dedupe + `INSERT ... ON CONFLICT DO NOTHING + read-back UPDATE` sequence covers both seeded and live writes. The promotion UPDATE is a same-row mutation gated on `targetIsToday + tdeeSource !== 'live' + threshold-cleared`; no new race window introduced.
+
+---
+
+## Iteration 1
+
+**Date:** 2026-05-05
+**Method:** single-agent
+**Status:** COMPLETE
+
+### Tasks Completed
+
+1. **Task 1** — Added `tdee_source text` column to `daily_calorie_goals` (nullable, no default). Generated migration `drizzle/0025_wonderful_franklin_storm.sql` via `drizzle-kit generate`. Appended MIGRATIONS.md entry.
+2. **Task 2** — Implemented `resolveTdeeSeed(userId, targetDate, rmr, log)` in `src/lib/daily-goals.ts`. Pure read; pulls 7-day lookback rows ordered DESC, filters to `tdeeSource ∈ {null, 'live'}` with non-null `caloriesOut`, returns median (lower of two middle on even count) or `round(rmr × 1.4)` fallback. Exported `DEFAULT_ACTIVITY_MULTIPLIER = 1.4`. Added 8 tests covering history-median, single-row median, even-count lower-of-two-middle, non-live exclusion, default fallback, lookback window bounds.
+3. **Task 3** — Replaced the `partial` branch in `doCompute` with a seed-vs-live decision. Added the `tdeeSource` field to `INSERT` and the post-conflict `UPDATE`. The Lumen-row `calorieGoal` preservation rule now also gates on `existingIsSeededRow` (treats NULL as legacy/live → preserve, treats `'history'/'default'` → overwrite). 7 new tests for seeded compute (cold start, history median, just-under-threshold, threshold cleared = live, audit.caloriesOut surfaces seed value, default-MAINTAIN goalType, FOO-1030 invalid-activity precedence).
+4. **Task 4** — Added `tryPromoteSeededRow` helper. Cache-hit branch runs promotion BEFORE ratchet for seeded rows: when `targetIsToday && storedIsSeeded && live caloriesOut ≥ RMR × 1.05`, the row is overwritten with live values regardless of direction (downward or upward). Ratchet (FOO-1009) is now gated on `!storedIsSeeded`. `isSeeded` cleared on successful promotion. 7 promotion tests (downward override, upward override, threshold-not-cleared, no live activity, historical-date frozen, legacy-NULL ratchet still works, legacy-NULL no-change regression). 3 cache-hit isSeeded propagation tests.
+5. **Task 5** — `NutritionGoals.status` reduced to `"ok" | "blocked"`. Added `isSeeded?: boolean` to both `NutritionGoals` and `ComputeResult.ok`. Mapper drops the `partial` branch and propagates `isSeeded`. `ActivitySummary` doc comment updated.
+6. **Task 6** — Removed the `partial` branch from `TargetsCard`. Silent UI for seeded ok (no badge, no "estimated" copy). Test replaced with seeded-ok rendering check.
+7. **Task 7** — Removed the `partial` else-if branch from `chat-tools.ts get_nutrition_summary`. The "FOO-1002 partial" comment block replaced with a one-liner. Test replaced with seeded-ok format check.
+8. **Task 8** — Verified no remaining `partial` references in source (only the FOO-1036 explainer comments and one unrelated "partial range params" in v1 route remain). Updated FOO-1030 invalid-activity gate comment to reference seed routing instead of partial. Cleaned a stale "partial state" comment in `src/lib/user-profile.ts`. Removed the now-unused `bmiTier` slow-path local in `doCompute` (the engine returns its own bmiTier and the partial branch that consumed it is gone).
+9. **Task 9** — Verified MIGRATIONS.md entry: `ALTER TABLE … ADD COLUMN tdee_source text` (nullable, no default), no data backfill, behavior expectations documented.
+
+### Test Results
+
+- `npm test` — **3469 tests passed** across 191 test files (~115s)
+- `npm run lint` — zero warnings, zero errors
+- `npm run build` — succeeded, 59 static pages generated, no warnings
+- `bug-hunter` — **0 bugs found**. Verified: race-safety in promotion (idempotent same-input writers, mirrors FOO-1009 precedent), NULL/legacy-row handling, calorieGoal preservation rule, UTC-correct date arithmetic in `resolveTdeeSeed`, promotion-before-ratchet ordering. Doc nit fixed (`user-profile.ts:91`).
+
+### Files Changed
+
+- `src/db/schema.ts`, `drizzle/0025_wonderful_franklin_storm.sql`, `drizzle/meta/_journal.json`, `drizzle/meta/0025_snapshot.json`
+- `src/lib/daily-goals.ts` (heavy)
+- `src/types/index.ts`
+- `src/components/targets-card.tsx`
+- `src/lib/chat-tools.ts`
+- `src/lib/user-profile.ts` (one-line comment update)
+- `src/lib/__tests__/daily-goals.test.ts` (+25 tests, ~3 partial tests replaced/removed)
+- `src/components/__tests__/targets-card.test.tsx` (1 test replaced)
+- `src/lib/__tests__/chat-tools.test.ts` (1 test replaced)
+- `MIGRATIONS.md`
+
+### Tasks Remaining
+
+None. Plan is complete and ready for `plan-review-implementation` → PR.

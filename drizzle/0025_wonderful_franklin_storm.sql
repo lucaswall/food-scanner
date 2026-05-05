@@ -1,0 +1,1 @@
+ALTER TABLE "daily_calorie_goals" ADD COLUMN "tdee_source" text;

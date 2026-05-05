@@ -176,6 +176,13 @@
       "when": 1777927909836,
       "tag": "0024_far_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1777976223172,
+      "tag": "0025_wonderful_franklin_storm",
+      "breakpoints": true
     }
   ]
 }
