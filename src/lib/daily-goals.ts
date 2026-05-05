@@ -277,13 +277,21 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
         existing.profileVersion === (await loadUserMacroProfileVersion(userId)));
 
     if (cacheHit && existing) {
+      // FOO-1034 (PR review): the FOO-1009 ratchet is a today-only correction
+      // for late-day exercise. Skip the activity fetch entirely on historical
+      // dates — they stay stable per FOO-995/FOO-1032, and avoiding the Fitbit
+      // call also saves quota on history scrolls.
+      const targetIsToday = date === getTodayDate();
+
       // Re-fetch profile + weight goal + activity from process-level cache.
       // All "optional" — when the breaker rejects (low headroom), gracefully
       // degrade to stored values. Activity is needed for FOO-1009 ratchet-up.
       const [profileRes, weightGoalRes, activityRes] = await Promise.allSettled([
         getCachedFitbitProfile(userId, l, "optional"),
         getCachedFitbitWeightGoal(userId, l, "optional"),
-        getCachedActivitySummary(userId, date, l, "optional"),
+        targetIsToday
+          ? getCachedActivitySummary(userId, date, l, "optional")
+          : Promise.resolve(null),
       ]);
 
       // Re-throw any non-breaker rejection from the profile fetch (the only
@@ -340,16 +348,19 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
       const liveProfile =
         profileRes.status === "fulfilled" ? profileRes.value : null;
 
-      const ratchet = await tryRatchetRecompute({
-        userId,
-        date,
-        existing,
-        liveActivity,
-        liveProfile,
-        wKg,
-        goalType,
-        log: l,
-      });
+      // FOO-1034: ratchet only runs for today. Historical dates stay stable.
+      const ratchet = targetIsToday
+        ? await tryRatchetRecompute({
+            userId,
+            date,
+            existing,
+            liveActivity,
+            liveProfile,
+            wKg,
+            goalType,
+            log: l,
+          })
+        : null;
 
       const tdee = ratchet
         ? ratchet.tdee

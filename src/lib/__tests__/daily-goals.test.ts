@@ -309,11 +309,13 @@ describe("getOrComputeDailyGoals", () => {
       // Same caloriesOut → no ratchet UPDATE, but the fetch still happens.
       mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 3000 });
 
-      await getOrComputeDailyGoals("user-cache2", "2026-04-29");
+      // Use mocked today (2026-05-03) — FOO-1034 skips the activity fetch on
+      // historical dates, so this test must use today to exercise the ratchet path.
+      await getOrComputeDailyGoals("user-cache2", "2026-05-03");
 
       expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
         "user-cache2",
-        "2026-04-29",
+        "2026-05-03",
         expect.any(Object),
         "optional",
       );
@@ -571,22 +573,76 @@ describe("getOrComputeDailyGoals", () => {
 
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Activity fetch is skipped for historical dates (FOO-1034 — ratchet is
+      // a today-only correction). The mock would return ACTIVITY_3000 if called.
       mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
 
       const result = await getOrComputeDailyGoals("user-historical", "2020-01-01");
 
-      // Cache-hit succeeded — slow-path ("important" criticality) was NOT taken.
-      // The ratchet uses "optional" criticality, but it's the only call.
+      // No DB UPDATE — historical row stays as-is.
+      expect(mockDb.update).not.toHaveBeenCalled();
+      // FOO-1034: activity not fetched at all on historical dates (ratchet skipped).
+      expect(mockGetCachedActivitySummary).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+    });
+
+    // ─── FOO-1034 (PR review P1): ratchet skipped on historical dates ───────
+    it("cache-hit on historical date skips ratchet even when activity would trigger UPDATE", async () => {
+      // Stored row at low calorieGoal: a high live caloriesOut would normally
+      // ratchet up. But ratchet (FOO-1009) is a today-only correction — running
+      // it on historical dates rewrites stable history. Skip entirely.
+      const lowCalorieHistoricalRow = { ...COMPUTED_ROW, profileVersion: 1, calorieGoal: 1500 };
+      mockSelectOnce([lowCalorieHistoricalRow]);
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Even if activity were fetched, this would compute a target above 1500
+      // and try to UPDATE the row. But the historical-date guard prevents the
+      // fetch and the call entirely.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      const result = await getOrComputeDailyGoals("user-historical-ratchet", "2020-01-01");
+
+      // No Fitbit activity call — saved a quota hit on history scroll.
+      expect(mockGetCachedActivitySummary).not.toHaveBeenCalled();
+      // No UPDATE — historical row preserved.
+      expect(mockDb.update).not.toHaveBeenCalled();
+      // Returned values match the stored (stable) row, not a recomputed one.
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(1500);
+    });
+
+    it("cache-hit on TODAY still runs ratchet (regression guard)", async () => {
+      // Confirm the FOO-1034 gate doesn't accidentally disable the ratchet for
+      // today. Stored row at low calorieGoal; live activity high → expect UPDATE.
+      const todayRow = { ...COMPUTED_ROW, profileVersion: 1, calorieGoal: 1500 };
+      mockSelectOnce([todayRow]);
+      mockMacroProfileVersionSelect(1); // version match → cache-hit
+      mockMacroProfileSelect("muscle_preserve", 1); // ratchet's loadUserMacroProfile
+      mockUpdateOnce();
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      // "2026-05-03" is today (mocked at module scope).
+      const result = await getOrComputeDailyGoals("user-today-ratchet", "2026-05-03");
+
+      // Activity fetched on today (with "optional" cache-hit criticality).
       expect(mockGetCachedActivitySummary).toHaveBeenCalledTimes(1);
       expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
-        "user-historical",
-        "2020-01-01",
+        "user-today-ratchet",
+        "2026-05-03",
         expect.any(Object),
         "optional",
       );
-      // No DB UPDATE — historical row stays as-is.
-      expect(mockDb.update).not.toHaveBeenCalled();
+      // Ratchet applied → UPDATE fired.
+      expect(mockDb.update).toHaveBeenCalled();
       expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      // Recomputed target above stored 1500.
+      expect(result.goals.calorieGoal).toBeGreaterThan(1500);
     });
 
     // ─── FOO-1023: cache-hit guarded against null caloriesOut ───────────────
