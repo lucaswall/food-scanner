@@ -402,6 +402,20 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     // after the blocked-state guards above so blocked-state tests don't need to mock it.
     const { profile: macroProfile, version: profileVersion } = await loadUserMacroProfile(userId, l);
 
+    // FOO-1030 (PR review): explicit invalid-activity gate before the partial
+    // fallback. Negative / NaN / Infinity / >30000 caloriesOut would otherwise
+    // be masked as "partial" by the rmrThreshold gate below, bypassing the
+    // macro-engine's INVALID_ACTIVITY_DATA validation. Mirror that validation here.
+    if (
+      activity !== null &&
+      activity.caloriesOut !== null &&
+      (!Number.isFinite(activity.caloriesOut) ||
+        activity.caloriesOut < 0 ||
+        activity.caloriesOut > 30000)
+    ) {
+      return { status: "blocked", reason: "invalid_activity" };
+    }
+
     // FOO-999: 5% headroom above RMR — caloriesOut below this is too noisy
     // (early-morning Fitbit reports before tracking begins) to anchor a target,
     // and below RMR would yield an unsafe sub-RMR calorie goal for LOSE/MAINTAIN.
@@ -459,15 +473,29 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     // Read back the row (may be the one we inserted or an older conflict row)
     const row = await queryRow(userId, date);
 
-    // If the read-back row is missing macros (Lumen-backfilled or pre-feature row),
-    // update macro+audit columns. Preserve a real existing calorieGoal, but overwrite
-    // the `0` placeholder produced by the Lumen backfill (rows that had no prior
-    // daily_calorie_goals entry).
-    if (row && !hasMacros(row)) {
+    // Update the read-back row when:
+    //  (a) it's missing macros (Lumen-backfilled or pre-feature row), OR
+    //  (b) FOO-1029 (PR review): its persisted profile_version is stale relative
+    //      to the user's current version. This happens in the FOO-996 race when
+    //      an older in-flight compute already wrote a fully populated row before
+    //      PATCH bumped the version. The INSERT...ON CONFLICT DO NOTHING above
+    //      is a no-op in that case, so without this UPDATE the stale row stays
+    //      and every subsequent read mismatches → infinite full-compute loop.
+    //
+    // For Lumen-backfilled rows (case a), preserve a real existing calorieGoal.
+    // For version-stale rows (case b), the existing macros were computed under a
+    // different profile — overwrite with the fresh engine output.
+    // `!= null` mirrors the cache-hit check (line 268): a null profileVersion
+    // is a legacy pre-F1 row, not a stale version — leave it for the cache-hit
+    // path to handle on the next read.
+    const versionStale =
+      row !== null && row.profileVersion != null && row.profileVersion !== profileVersion;
+    if (row && (!hasMacros(row) || versionStale)) {
       await getDb()
         .update(dailyCalorieGoals)
         .set({
-          calorieGoal: row.calorieGoal > 0 ? row.calorieGoal : engineOut.targetKcal,
+          calorieGoal:
+            !hasMacros(row) && row.calorieGoal > 0 ? row.calorieGoal : engineOut.targetKcal,
           proteinGoal: engineOut.proteinG,
           carbsGoal: engineOut.carbsG,
           fatGoal: engineOut.fatG,
@@ -492,7 +520,14 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     return {
       status: "ok",
       goals: {
-        calorieGoal: row && row.calorieGoal > 0 ? row.calorieGoal : engineOut.targetKcal,
+        // Preserve a real Lumen-backfilled calorieGoal (case a above), but on a
+        // version-stale recompute (case b) the row's calorieGoal was computed
+        // under a different profile — return the fresh engine value to match
+        // what we just persisted.
+        calorieGoal:
+          row && row.calorieGoal > 0 && !versionStale
+            ? row.calorieGoal
+            : engineOut.targetKcal,
         proteinGoal: engineOut.proteinG,
         carbsGoal: engineOut.carbsG,
         fatGoal: engineOut.fatG,
