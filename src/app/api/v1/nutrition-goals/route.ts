@@ -120,18 +120,40 @@ export async function GET(request: Request) {
         loadUserMacroProfileKey(authResult.userId),
       ]);
 
-      const entries: RangeEntry[] = rows.map((row) => {
+      // FOO-1033 (PR review): gap-fill any date in [from, to] that has no DB
+      // row with `status: "blocked", reason: "not_computed"` so the response
+      // covers the full requested span. Without this, clients silently see
+      // missing days as dropped data and timelines misalign.
+      const rowByDate = new Map(rows.map((row) => [row.date, row]));
+      const entries: RangeEntry[] = [];
+      const startMs = Date.parse(fromParam);
+      const endMs = Date.parse(toParam);
+      for (let ms = startMs; ms <= endMs; ms += 86_400_000) {
+        const date = new Date(ms).toISOString().slice(0, 10);
+        const row = rowByDate.get(date);
+        if (!row) {
+          entries.push({
+            date,
+            calories: null,
+            proteinG: null,
+            carbsG: null,
+            fatG: null,
+            status: "blocked",
+            reason: "not_computed",
+          });
+          continue;
+        }
         const computed = row.calorieGoal !== null && row.calorieGoal > 0 && row.proteinGoal !== null;
-        return {
-          date: row.date,
+        entries.push({
+          date,
           calories: row.calorieGoal && row.calorieGoal > 0 ? row.calorieGoal : null,
           proteinG: row.proteinGoal,
           carbsG: row.carbsGoal,
           fatG: row.fatGoal,
           status: computed ? "ok" : "blocked",
           ...(computed ? {} : { reason: "not_computed" }),
-        };
-      });
+        });
+      }
 
       log.debug(
         { action: "v1_nutrition_goals_range", userId: authResult.userId, count: entries.length },

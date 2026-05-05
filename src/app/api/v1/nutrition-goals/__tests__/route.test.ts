@@ -254,6 +254,80 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
 
       expect(response.status).toBe(400);
     });
+
+    // ─── FOO-1033 (PR review P1): gap-fill missing dates as not_computed ────
+    it("emits blocked/not_computed entries for dates with no row in range (gap-fill)", async () => {
+      // DB has rows for only 2 of the 4 days in the requested range. Without
+      // gap-fill, clients see 2 entries and get the timeline misaligned.
+      mockGetDailyGoalsByDateRange.mockResolvedValue([
+        { date: "2026-05-02", calorieGoal: 2300, proteinGoal: 145, carbsGoal: 230, fatGoal: 82 },
+        { date: "2026-05-04", calorieGoal: 2400, proteinGoal: 150, carbsGoal: 240, fatGoal: 85 },
+      ]);
+
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?from=2026-05-01&to=2026-05-04",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.entries).toHaveLength(4);
+      // Dates returned in chronological order, gaps filled.
+      expect(body.data.entries.map((e: { date: string }) => e.date)).toEqual([
+        "2026-05-01",
+        "2026-05-02",
+        "2026-05-03",
+        "2026-05-04",
+      ]);
+      // 2026-05-01: missing → not_computed
+      expect(body.data.entries[0]).toMatchObject({
+        date: "2026-05-01",
+        calories: null,
+        proteinG: null,
+        carbsG: null,
+        fatG: null,
+        status: "blocked",
+        reason: "not_computed",
+      });
+      // 2026-05-02: present, computed
+      expect(body.data.entries[1]).toMatchObject({
+        date: "2026-05-02",
+        calories: 2300,
+        status: "ok",
+      });
+      // 2026-05-03: missing → not_computed
+      expect(body.data.entries[2]).toMatchObject({
+        date: "2026-05-03",
+        status: "blocked",
+        reason: "not_computed",
+      });
+      // 2026-05-04: present, computed
+      expect(body.data.entries[3]).toMatchObject({
+        date: "2026-05-04",
+        calories: 2400,
+        status: "ok",
+      });
+    });
+
+    it("returns single entry (not_computed) for one-day range with no row", async () => {
+      mockGetDailyGoalsByDateRange.mockResolvedValue([]);
+
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?from=2026-05-04&to=2026-05-04",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.entries).toHaveLength(1);
+      expect(body.data.entries[0]).toMatchObject({
+        date: "2026-05-04",
+        status: "blocked",
+        reason: "not_computed",
+      });
+    });
   });
 
   // ─── FOO-1025: response headers ─────────────────────────────────────────
