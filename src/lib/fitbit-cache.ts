@@ -12,6 +12,7 @@ import {
 
 const TTL_24H = 24 * 60 * 60 * 1000;
 const TTL_1H = 60 * 60 * 1000;
+const TTL_10MIN = 10 * 60 * 1000;
 const TTL_5MIN = 5 * 60 * 1000;
 
 interface CacheEntry<T> {
@@ -108,7 +109,10 @@ export async function getCachedFitbitWeightKg(
       const accessToken = await ensureFreshToken(userId, l);
       const weight = await getFitbitLatestWeightKg(accessToken, targetDate, l, userId, criticality);
       if (getUserGeneration(userId) === generationAtStart) {
-        weightCache.set(key, { value: weight, expiresAt: Date.now() + TTL_1H });
+        // FOO-1010: keep null TTL short so the user-feedback loop is tight
+        // when "no weight" is the blocking factor. Positive results stay 1h.
+        const ttl = weight === null ? TTL_10MIN : TTL_1H;
+        weightCache.set(key, { value: weight, expiresAt: Date.now() + ttl });
       }
       return weight;
     } finally {

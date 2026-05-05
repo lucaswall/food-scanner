@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD CONSTRAINT "users_macro_profile_chk" CHECK ("users"."macro_profile" IN ('muscle_preserve', 'metabolic_flex'));

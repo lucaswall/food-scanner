@@ -11,15 +11,8 @@ type MacroProfileKey = "muscle_preserve" | "metabolic_flex";
 interface MacroProfileResponse {
   profile: MacroProfileKey;
   name: string;
-  available: { key: MacroProfileKey; name: string }[];
+  available: { key: MacroProfileKey; name: string; description: string }[];
 }
-
-const PROFILE_DESCRIPTIONS: Record<MacroProfileKey, string> = {
-  muscle_preserve:
-    "High protein (1.6–2.2 g/kg) with a 130 g carb floor. Sports-nutrition / muscle-preservation school.",
-  metabolic_flex:
-    "Moderate protein (1.0–1.4 g/kg), 80 g carbs, fat fills the rest. Lumen / metabolic-flexibility school.",
-};
 
 export function MacroProfileCard() {
   const { mutate: globalMutate } = useSWRConfig();
@@ -114,7 +107,7 @@ export function MacroProfileCard() {
                 {isPending && <span className="text-xs text-muted-foreground">Saving…</span>}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {PROFILE_DESCRIPTIONS[option.key]}
+                {option.description}
               </p>
             </button>
           );

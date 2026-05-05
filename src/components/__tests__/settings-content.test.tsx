@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SettingsContent } from "../settings-content";
 
@@ -34,6 +34,15 @@ vi.mock("@/components/targets-card", () => ({
   ),
 }));
 
+const mockGetTodayDate = vi.fn();
+vi.mock("@/lib/date-utils", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/date-utils")>("@/lib/date-utils");
+  return {
+    ...actual,
+    getTodayDate: () => mockGetTodayDate(),
+  };
+});
+
 // Create a mockable useSWR function
 const mockUseSWRImplementation = vi.fn();
 vi.mock("swr", () => ({
@@ -42,6 +51,7 @@ vi.mock("swr", () => ({
 
 describe("SettingsContent", () => {
   beforeEach(() => {
+    mockGetTodayDate.mockReturnValue("2026-05-04");
     mockUseSWRImplementation.mockImplementation((key: string) => {
       if (key === "/api/auth/session") {
         return { data: null, error: null };
@@ -84,6 +94,29 @@ describe("SettingsContent", () => {
     const card = screen.getByTestId("targets-card");
     // YYYY-MM-DD pattern from getTodayDate()
     expect(card.getAttribute("data-date")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("DailyTargetsSection updates date when visibility becomes visible after midnight (FOO-1007)", async () => {
+    mockGetTodayDate.mockReturnValue("2026-05-04");
+    render(<SettingsContent />);
+    expect(screen.getByTestId("targets-card").getAttribute("data-date")).toBe("2026-05-04");
+
+    // Tab is hidden — record state.
+    act(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    // Time advances past midnight, app returns to tab.
+    mockGetTodayDate.mockReturnValue("2026-05-05");
+    act(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("targets-card").getAttribute("data-date")).toBe("2026-05-05");
+    });
   });
 
   describe("accessibility - form labels", () => {

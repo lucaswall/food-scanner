@@ -51,6 +51,12 @@ vi.mock("@/lib/logger", () => {
   };
 });
 
+const mockInvalidateUserDailyGoalsForDate = vi.fn();
+vi.mock("@/lib/daily-goals", () => ({
+  invalidateUserDailyGoalsForDate: (...args: unknown[]) =>
+    mockInvalidateUserDailyGoalsForDate(...args),
+}));
+
 const mockGetTodayDate = vi.fn();
 vi.mock("@/lib/date-utils", () => ({
   getTodayDate: () => mockGetTodayDate(),
@@ -174,12 +180,21 @@ describe("GET /api/fitbit/profile", () => {
     expect(data.success).toBe(true);
   });
 
+  it("invalidates today's daily-goals row when ?refresh=1 (FOO-992)", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+
+    await GET(createRequest("http://localhost:3000/api/fitbit/profile?refresh=1"));
+
+    expect(mockInvalidateUserDailyGoalsForDate).toHaveBeenCalledWith("user-123", "2026-01-15");
+  });
+
   it("does not call invalidateFitbitProfileCache without ?refresh=1", async () => {
     mockGetSession.mockResolvedValue(validSession);
 
     await GET(createRequest());
 
     expect(mockInvalidateFitbitProfileCache).not.toHaveBeenCalled();
+    expect(mockInvalidateUserDailyGoalsForDate).not.toHaveBeenCalled();
   });
 
   it("returns 424 on FITBIT_CREDENTIALS_MISSING error", async () => {

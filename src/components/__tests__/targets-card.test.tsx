@@ -62,6 +62,8 @@ describe("TargetsCard", () => {
         weightKg: "75",
         bmiTier: "25to30",
         goalType: "MAINTAIN",
+        caloriesOut: 2150,
+        weightLoggedDate: "2026-05-01",
       },
     }));
     renderTargetsCard();
@@ -80,7 +82,7 @@ describe("TargetsCard", () => {
       carbsG: 220,
       fatG: 80,
       status: "ok",
-      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN" },
+      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 2150, weightLoggedDate: "2026-05-01" },
     }));
     renderTargetsCard();
     await waitFor(() => {
@@ -99,7 +101,7 @@ describe("TargetsCard", () => {
       carbsG: 220,
       fatG: 80,
       status: "ok",
-      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN" },
+      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 2150, weightLoggedDate: "2026-05-01" },
     }));
     renderTargetsCard();
     await waitFor(() => {
@@ -108,9 +110,11 @@ describe("TargetsCard", () => {
     const expandBtn = screen.getByRole("button", { name: /show calculation details/i });
     await user.click(expandBtn);
     expect(screen.getByText(/RMR: 1600 kcal/)).toBeInTheDocument();
-    expect(screen.getByText(/Activity: 450 kcal/)).toBeInTheDocument();
+    expect(screen.getByText(/Fitbit calories burned: 2,150 kcal/)).toBeInTheDocument();
+    expect(screen.getByText(/Activity \(after 0\.85× haircut\): 450 kcal/)).toBeInTheDocument();
     expect(screen.getByText(/TDEE: 2050 kcal/)).toBeInTheDocument();
-    expect(screen.getByText(/Weight: 75kg \(25to30\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Weight: 75kg \(logged 2026-05-01\)/)).toBeInTheDocument();
+    expect(screen.getByText(/BMI tier: 25to30/)).toBeInTheDocument();
     expect(screen.getByText(/Goal: MAINTAIN/)).toBeInTheDocument();
   });
 
@@ -118,7 +122,7 @@ describe("TargetsCard", () => {
     mockFetch.mockResolvedValueOnce(goalsResponse({
       calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
       status: "ok",
-      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN" },
+      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 2150, weightLoggedDate: "2026-05-01" },
     }));
     renderTargetsCard();
     await waitFor(() => {
@@ -133,7 +137,7 @@ describe("TargetsCard", () => {
     mockFetch.mockResolvedValueOnce(goalsResponse({
       calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
       status: "ok",
-      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN" },
+      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 2150, weightLoggedDate: "2026-05-01" },
     }));
     renderTargetsCard();
     await waitFor(() => {
@@ -145,15 +149,18 @@ describe("TargetsCard", () => {
     expect(screen.queryByText(/RMR:/i)).not.toBeInTheDocument();
   });
 
-  it("renders pending message when status is partial", async () => {
+  it("renders partial protein/fat with calorie-pending footnote (FOO-997)", async () => {
     mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: null, proteinG: null, carbsG: null, fatG: null,
+      calories: null, proteinG: 218, carbsG: null, fatG: 97,
       status: "partial",
     }));
     renderTargetsCard();
     await waitFor(() => {
-      expect(screen.getByText(/targets pending — waiting for fitbit activity/i)).toBeInTheDocument();
+      expect(screen.getByText("P:218g")).toBeInTheDocument();
     });
+    expect(screen.getByText("F:97g")).toBeInTheDocument();
+    expect(screen.getByText(/calories.*pending|pending.*Fitbit activity/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^C:/)).not.toBeInTheDocument();
   });
 
   it("renders no_weight blocked message", async () => {
@@ -214,7 +221,7 @@ describe("TargetsCard", () => {
       .mockResolvedValueOnce(goalsResponse({
         calories: 2000, proteinG: 130, carbsG: 200, fatG: 70,
         status: "ok",
-        audit: { rmr: 1500, activityKcal: 400, tdee: 1900, weightKg: "70", bmiTier: "25to30", goalType: "MAINTAIN" },
+        audit: { rmr: 1500, activityKcal: 400, tdee: 1900, weightKg: "70", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 1900, weightLoggedDate: "2026-05-01" },
       }));
     renderTargetsCard();
     await waitFor(() => {

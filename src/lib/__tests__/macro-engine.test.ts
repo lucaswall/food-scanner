@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   computeMacroTargets,
   ACTIVITY_MULTIPLIER,
@@ -9,6 +9,7 @@ import {
   DEFAULT_MACRO_PROFILE,
   isMacroProfileKey,
   getMacroProfile,
+  describeProfile,
 } from "@/lib/macro-engine";
 
 describe("macro engine constants", () => {
@@ -79,6 +80,53 @@ describe("getMacroProfile", () => {
     expect(getMacroProfile(null)).toBe(DEFAULT_MACRO_PROFILE);
     expect(getMacroProfile(undefined)).toBe(DEFAULT_MACRO_PROFILE);
   });
+
+  it("logs a warning when stored key is invalid (FOO-1001)", () => {
+    const warn = vi.fn();
+    const fakeLogger = {
+      info: vi.fn(),
+      warn,
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    const result = getMacroProfile("foo" as never, fakeLogger as never);
+    expect(result).toBe(DEFAULT_MACRO_PROFILE);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "macro_profile_invalid_key", key: "foo" }),
+      expect.any(String),
+    );
+  });
+
+  it("does NOT log when key is null/undefined (legitimate unset state)", () => {
+    const warn = vi.fn();
+    const fakeLogger = {
+      info: vi.fn(),
+      warn,
+      error: vi.fn(),
+      debug: vi.fn(),
+    };
+    getMacroProfile(null, fakeLogger as never);
+    getMacroProfile(undefined, fakeLogger as never);
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("describeProfile (FOO-1006)", () => {
+  it("muscle-preserve description references current coefficients", () => {
+    const desc = describeProfile(MACRO_PROFILE_MUSCLE_PRESERVE);
+    expect(desc).toContain("1.6"); // min from lt25.MAINTAIN
+    expect(desc).toContain("2.2"); // max from lt25.LOSE
+    expect(desc).toContain("130"); // carb floor
+    expect(desc).toMatch(/muscle-preservation/i);
+  });
+
+  it("metabolic-flex description references current coefficients", () => {
+    const desc = describeProfile(MACRO_PROFILE_METABOLIC_FLEX);
+    expect(desc).toContain("1.0"); // min from ge30.MAINTAIN
+    expect(desc).toContain("1.4"); // max from lt25.LOSE
+    expect(desc).toContain("80"); // carbs
+    expect(desc).toMatch(/metabolic-flexibility/i);
+  });
 });
 
 describe("computeMacroTargets", () => {
@@ -135,6 +183,45 @@ describe("computeMacroTargets", () => {
       expect(() =>
         computeMacroTargets({ ...baseInputs, heightCm: Number.POSITIVE_INFINITY }),
       ).toThrow("INVALID_PROFILE_DATA");
+    });
+  });
+
+  describe("invalid activity data — throws INVALID_ACTIVITY_DATA (FOO-998)", () => {
+    const baseInputs = {
+      ageYears: 30,
+      sex: "MALE" as const,
+      heightCm: 175,
+      weightKg: 70,
+      caloriesOut: 2500,
+      goalType: "MAINTAIN" as const,
+    };
+
+    it("throws on NaN caloriesOut", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, caloriesOut: Number.NaN })).toThrow(
+        "INVALID_ACTIVITY_DATA",
+      );
+    });
+
+    it("throws on Infinity caloriesOut", () => {
+      expect(() =>
+        computeMacroTargets({ ...baseInputs, caloriesOut: Number.POSITIVE_INFINITY }),
+      ).toThrow("INVALID_ACTIVITY_DATA");
+    });
+
+    it("throws on negative caloriesOut", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, caloriesOut: -100 })).toThrow(
+        "INVALID_ACTIVITY_DATA",
+      );
+    });
+
+    it("accepts caloriesOut up to 30000", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, caloriesOut: 30000 })).not.toThrow();
+    });
+
+    it("throws above 30000", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, caloriesOut: 30001 })).toThrow(
+        "INVALID_ACTIVITY_DATA",
+      );
     });
   });
 

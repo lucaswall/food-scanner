@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -347,10 +347,33 @@ export function SettingsContent() {
 }
 
 function DailyTargetsSection() {
+  const [date, setDate] = useState(() => getTodayDate());
+  // Mirror daily-dashboard.tsx:79-114 — reset to today when (a) date changed
+  // since hide, or (b) >1h elapsed since the tab became hidden (FOO-1007).
+  // Init the ref lazily inside useEffect to keep render pure (React 19).
+  const lastActiveRef = useRef<{ date: string; timestamp: number } | null>(null);
+  useEffect(() => {
+    lastActiveRef.current = { date: getTodayDate(), timestamp: Date.now() };
+    const handler = () => {
+      if (document.visibilityState === "hidden") {
+        lastActiveRef.current = { date: getTodayDate(), timestamp: Date.now() };
+      } else if (document.visibilityState === "visible") {
+        if (lastActiveRef.current === null) return;
+        const today = getTodayDate();
+        const elapsed = Date.now() - lastActiveRef.current.timestamp;
+        if (today !== lastActiveRef.current.date || elapsed > 3_600_000) {
+          setDate(today);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, []);
+
   return (
     <div className="flex flex-col gap-4 rounded-xl border bg-card p-6">
       <h2 className="text-lg font-semibold">Today&apos;s Targets</h2>
-      <TargetsCard date={getTodayDate()} />
+      <TargetsCard date={date} />
     </div>
   );
 }

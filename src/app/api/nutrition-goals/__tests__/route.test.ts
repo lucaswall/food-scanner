@@ -35,6 +35,45 @@ vi.mock("@/lib/session", () => ({
 const mockGetOrComputeDailyGoals = vi.fn();
 vi.mock("@/lib/daily-goals", () => ({
   getOrComputeDailyGoals: (...args: unknown[]) => mockGetOrComputeDailyGoals(...args),
+  // Local mapper mirroring the real implementation closely enough for these tests.
+  mapComputeResultToNutritionGoals: (result: {
+    status: "ok" | "partial" | "blocked";
+    goals?: { calorieGoal: number; proteinGoal: number; carbsGoal: number; fatGoal: number };
+    audit?: unknown;
+    proteinG?: number;
+    fatG?: number;
+    reason?: string;
+    weightStale?: boolean;
+  }) => {
+    if (result.status === "ok") {
+      return {
+        calories: result.goals!.calorieGoal,
+        proteinG: result.goals!.proteinGoal,
+        carbsG: result.goals!.carbsGoal,
+        fatG: result.goals!.fatGoal,
+        status: "ok",
+        audit: result.audit,
+        ...(result.weightStale ? { weightStale: true } : {}),
+      };
+    }
+    if (result.status === "partial") {
+      return {
+        calories: null,
+        proteinG: result.proteinG,
+        carbsG: null,
+        fatG: result.fatG,
+        status: "partial",
+      };
+    }
+    return {
+      calories: null,
+      proteinG: null,
+      carbsG: null,
+      fatG: null,
+      status: "blocked",
+      reason: result.reason,
+    };
+  },
 }));
 
 vi.mock("@/lib/logger", () => {

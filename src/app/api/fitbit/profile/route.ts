@@ -7,6 +7,7 @@ import {
   getCachedFitbitWeightGoal,
   invalidateFitbitProfileCache,
 } from "@/lib/fitbit-cache";
+import { invalidateUserDailyGoalsForDate } from "@/lib/daily-goals";
 import { getTodayDate } from "@/lib/date-utils";
 import type { FitbitProfileData } from "@/types";
 
@@ -22,6 +23,9 @@ export async function GET(request: Request) {
 
   if (shouldRefresh) {
     invalidateFitbitProfileCache(session!.userId);
+    // FOO-992: also invalidate today's daily-goals row so the next dashboard
+    // load recomputes under the refreshed Fitbit inputs (weight/sex/height/goal).
+    await invalidateUserDailyGoalsForDate(session!.userId, getTodayDate());
   }
 
   try {

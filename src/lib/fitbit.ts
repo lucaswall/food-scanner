@@ -635,51 +635,6 @@ export async function ensureFreshToken(userId: string, log?: Logger): Promise<st
   return tokenRow.accessToken;
 }
 
-export async function getFoodGoals(
-  accessToken: string,
-  log?: Logger,
-  userId?: string,
-  criticality: FitbitCallCriticality = "optional",
-): Promise<import("@/types").FitbitFoodGoals> {
-  const l = log ?? logger;
-  const elapsed = startTimer();
-  l.debug(
-    { action: "fitbit_get_food_goals" },
-    "fetching food goals",
-  );
-
-  const response = await fetchWithRetry(
-    `${FITBIT_API_BASE}/1/user/-/foods/log/goal.json`,
-    {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    },
-    0, Date.now(), l, userId, criticality,
-  );
-
-  if (!response.ok) {
-    const rawBody = await parseErrorBody(response);
-    const errorBody = sanitizeErrorBody(rawBody);
-    l.error(
-      { action: "fitbit_get_food_goals_failed", status: response.status, errorBody },
-      "food goals fetch failed",
-    );
-    throw new Error("FITBIT_API_ERROR");
-  }
-
-  const data = await jsonWithTimeout<Record<string, unknown>>(response);
-  const goals = data.goals as Record<string, unknown> | undefined;
-  if (typeof goals?.calories !== "number") {
-    l.debug({ action: "fitbit_get_food_goals_no_calories", durationMs: elapsed() }, "food goals fetched (no calorie goal)");
-    return { calories: null };
-  }
-
-  l.debug({ action: "fitbit_get_food_goals_success", durationMs: elapsed() }, "food goals fetched");
-  return { calories: goals.calories };
-}
-
 function subtractDays(dateStr: string, days: number): string {
   const date = new Date(dateStr + "T00:00:00Z");
   date.setUTCDate(date.getUTCDate() - days);
@@ -753,11 +708,11 @@ export async function getFitbitLatestWeightKg(
   const elapsed = startTimer();
   l.debug({ action: "fitbit_get_weight", targetDate }, "fetching latest weight");
 
-  // Single shared deadline across all 7 walk-back days — without this, each
-  // iteration would get its own 30s budget (210s worst case).
+  // Single shared deadline across all 14 walk-back days — without this, each
+  // iteration would get its own 30s budget (420s worst case).
   const walkbackStart = Date.now();
 
-  for (let daysBack = 0; daysBack < 7; daysBack++) {
+  for (let daysBack = 0; daysBack < 14; daysBack++) {
     const date = subtractDays(targetDate, daysBack);
 
     // No Accept-Language header — Fitbit defaults to METRIC (kg). en_US would return pounds.

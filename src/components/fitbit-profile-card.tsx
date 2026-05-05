@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { apiFetcher } from "@/lib/swr";
+import { apiFetcher, FITBIT_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { FitbitProfileData } from "@/types";
@@ -23,10 +23,19 @@ function formatGoalType(goalType: "LOSE" | "MAINTAIN" | "GAIN" | null | undefine
   }
 }
 
+/** Days between today and the weight log, or null when not loggable. */
+function weightAgeDays(loggedDate: string | null | undefined): number | null {
+  if (!loggedDate) return null;
+  const ageMs = Date.now() - Date.parse(loggedDate);
+  if (!Number.isFinite(ageMs) || ageMs < 0) return null;
+  return Math.floor(ageMs / 86_400_000);
+}
+
 export function FitbitProfileCard() {
   const { data, error, isLoading, mutate } = useSWR<FitbitProfileData>(
     "/api/fitbit/profile",
     apiFetcher,
+    FITBIT_BACKED_SWR_CONFIG,
   );
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -114,6 +123,17 @@ export function FitbitProfileCard() {
                 : NOT_SET}
             </span>
           </div>
+          {(() => {
+            const ageDays = weightAgeDays(data.weightLoggedDate);
+            if (ageDays !== null && ageDays > 7 && ageDays <= 14) {
+              return (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  Weight log is {ageDays} days old — consider weighing in.
+                </p>
+              );
+            }
+            return null;
+          })()}
           <div className="flex justify-between">
             <span className="text-muted-foreground">Goal</span>
             <span>{formatGoalType(data.goalType)}</span>

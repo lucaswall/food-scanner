@@ -10,6 +10,21 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Shared SWR config for SWR keys that hit Fitbit-backed endpoints
+ * (`/api/nutrition-goals`, `/api/fitbit/profile`). Disables the default
+ * `revalidateOnFocus` and uses a 30-minute dedupe window so tab-switching
+ * doesn't burn the user's 150-req/hour Fitbit quota (FOO-1003).
+ *
+ * Mutate-after-action calls (refresh button, profile change) bypass the
+ * dedupe window — see `swr.mutate(...)` invocations.
+ */
+export const FITBIT_BACKED_SWR_CONFIG = {
+  revalidateOnFocus: false,
+  revalidateOnReconnect: true,
+  dedupingInterval: 30 * 60 * 1000,
+} as const;
+
 export async function apiFetcher(url: string) {
   const response = await fetch(url);
   if (!response.ok) {

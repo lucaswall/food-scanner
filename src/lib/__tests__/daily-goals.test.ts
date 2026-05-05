@@ -25,12 +25,20 @@ vi.mock("@/db/index", () => ({ getDb: () => mockDb }));
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => `eq:${val}`),
   and: vi.fn((...args: unknown[]) => `and:(${args.join(",")})`),
+  gte: vi.fn((_col: unknown, val: unknown) => `gte:${val}`),
 }));
 
 vi.mock("@/lib/logger", () => {
   const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
   return { logger: mockLogger, createRequestLogger: vi.fn(() => mockLogger) };
 });
+
+// Pin "today" so the FOO-1032 historical-date guard is testable. Existing
+// tests use date="2026-05-03" — make that today; the new historical-date test
+// uses "2020-01-01" which is firmly in the past.
+vi.mock("@/lib/date-utils", () => ({
+  getTodayDate: () => "2026-05-03",
+}));
 
 // ─── DB helper factories ────────────────────────────────────────────────────
 function mockSelectOnce(rows: Record<string, unknown>[] = []) {
@@ -59,8 +67,13 @@ function mockUpdateOnce() {
  * sex_unset guards but before computing macros. Defaults to muscle_preserve so
  * existing scenario assertions (which use muscle-preserve coefficients) hold.
  */
-function mockMacroProfileSelect(key: string = "muscle_preserve") {
-  return mockSelectOnce([{ macroProfile: key }]);
+function mockMacroProfileSelect(key: string = "muscle_preserve", version: number = 1) {
+  return mockSelectOnce([{ macroProfile: key, macroProfileVersion: version }]);
+}
+
+/** Queue the version-only select used by the cache-hit race-safety check (FOO-996). */
+function mockMacroProfileVersionSelect(version: number = 1) {
+  return mockSelectOnce([{ macroProfileVersion: version }]);
 }
 
 // ─── Sample data ─────────────────────────────────────────────────────────────
@@ -82,6 +95,10 @@ const COMPUTED_ROW = {
   caloriesOut: 3000,
   rmr: 2070,
   activityKcal: 791,
+  goalType: "LOSE" as const,
+  bmiTier: "ge30" as const,
+  profileVersion: 1,
+  weightLoggedDate: "2026-05-03",
 };
 
 // ─── Module import (after mocks set up) ─────────────────────────────────────
@@ -138,7 +155,7 @@ describe("getOrComputeDailyGoals", () => {
       expect(result.goals.fatGoal).toBe(97);
     });
 
-    it("returns audit with rmr, activityKcal, tdee, bmiTier, goalType", async () => {
+    it("returns audit with rmr, activityKcal, tdee, bmiTier, goalType, caloriesOut", async () => {
       mockSelectOnce([]);
       mockMacroProfileSelect();
       mockInsertOnce();
@@ -158,6 +175,7 @@ describe("getOrComputeDailyGoals", () => {
       expect(result.audit.bmiTier).toBe("ge30"); // BMI=39 for 121kg/176cm
       expect(result.audit.goalType).toBe("LOSE");
       expect(result.audit.weightKg).toBe("121");
+      expect(result.audit.caloriesOut).toBe(3000);
     });
 
     it("calls INSERT with ON CONFLICT DO NOTHING", async () => {
@@ -173,6 +191,29 @@ describe("getOrComputeDailyGoals", () => {
       await getOrComputeDailyGoals("user-d", "2026-05-03");
 
       expect(onConflictDoNothing).toHaveBeenCalled();
+    });
+
+    it("persists goal_type, bmi_tier, profile_version, weight_logged_date on INSERT", async () => {
+      mockSelectOnce([]);
+      mockMacroProfileSelect("muscle_preserve", 7);
+      const { values } = mockInsertOnce();
+      // Fresh insert (no conflict) — read-back reflects what was just inserted (profileVersion=7).
+      mockSelectOnce([{ ...COMPUTED_ROW, profileVersion: 7 }]);
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-02" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      await getOrComputeDailyGoals("user-persist", "2026-05-03");
+
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          goalType: "LOSE",
+          bmiTier: "ge30",
+          profileVersion: 7,
+          weightLoggedDate: "2026-05-02",
+        }),
+      );
     });
   });
 
@@ -246,6 +287,7 @@ describe("getOrComputeDailyGoals", () => {
     it("returns ok with cached data when row has macro+audit columns", async () => {
       // Row already has macros populated
       mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect(); // FOO-996 race-safety check
       // Re-fetch profile/goal for bmiTier + goalType
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
@@ -258,18 +300,30 @@ describe("getOrComputeDailyGoals", () => {
       expect(result.audit.bmiTier).toBe("ge30");
     });
 
-    it("does NOT call getCachedActivitySummary when row is cached", async () => {
+    it("calls getCachedActivitySummary with 'optional' criticality on cache-hit (FOO-1009 ratchet)", async () => {
       mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect();
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Same caloriesOut → no ratchet UPDATE, but the fetch still happens.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 3000 });
 
-      await getOrComputeDailyGoals("user-cache2", "2026-04-29");
+      // Use mocked today (2026-05-03) — FOO-1034 skips the activity fetch on
+      // historical dates, so this test must use today to exercise the ratchet path.
+      await getOrComputeDailyGoals("user-cache2", "2026-05-03");
 
-      expect(mockGetCachedActivitySummary).not.toHaveBeenCalled();
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+        "user-cache2",
+        "2026-05-03",
+        expect.any(Object),
+        "optional",
+      );
     });
 
     it("does NOT call INSERT when row is cached", async () => {
       mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
 
@@ -278,8 +332,17 @@ describe("getOrComputeDailyGoals", () => {
       expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
-    it("falls back to degraded audit when breaker rejects optional re-fetches (FOO-1014)", async () => {
-      mockSelectOnce([COMPUTED_ROW]);
+    it("falls back to degraded audit when breaker rejects optional re-fetches on legacy row (FOO-1014)", async () => {
+      // Legacy row predating F1 — no stored goalType/bmiTier, so the cache-hit
+      // path must rely on the live re-fetch, which the breaker rejects here.
+      const legacyRow = {
+        ...COMPUTED_ROW,
+        goalType: null,
+        bmiTier: null,
+        profileVersion: null,
+        weightLoggedDate: null,
+      };
+      mockSelectOnce([legacyRow]);
       // Both optional re-fetches are blocked by the breaker.
       mockGetCachedFitbitProfile.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
       mockGetCachedFitbitWeightGoal.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
@@ -298,6 +361,7 @@ describe("getOrComputeDailyGoals", () => {
 
     it("re-throws non-breaker errors from the cache-hit re-fetch", async () => {
       mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
       mockGetCachedFitbitProfile.mockRejectedValue(new Error("FITBIT_TOKEN_INVALID"));
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
 
@@ -308,6 +372,7 @@ describe("getOrComputeDailyGoals", () => {
 
     it("uses 'optional' criticality on the cache-hit re-fetch", async () => {
       mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
       mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
       mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
 
@@ -323,6 +388,400 @@ describe("getOrComputeDailyGoals", () => {
         expect.any(Object),
         "optional",
       );
+    });
+
+    // ─── FOO-1009: ratchet-up recompute on read ──────────────────────────────
+    it("ratchet-up: cache-hit re-fetches activity and updates row when new target exceeds stored", async () => {
+      // Stored: caloriesOut 3000, calorieGoal 2289 (LOSE).
+      mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect(); // ratchet's loadUserMacroProfile
+      const ratchetUpdate = mockUpdateOnce();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // After a workout: caloriesOut grows to 4500.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      const result = await getOrComputeDailyGoals("user-ratchet-up", "2026-05-03");
+
+      // computeMacroTargets(MALE, 49y, 176cm, 121kg, 4500, LOSE):
+      // RMR=2070, activity=round(max(0,2430)*0.85)=2066, tdee=4136, target=round(4136*0.80)=3309
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.audit.caloriesOut).toBe(4500);
+      expect(result.goals.calorieGoal).toBeGreaterThan(2289);
+      expect(ratchetUpdate.set).toHaveBeenCalled();
+    });
+
+    it("ratchet-up: does NOT update when new target equals stored", async () => {
+      mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect(); // ratchet's loadUserMacroProfile
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Same caloriesOut → same target.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 3000 });
+
+      await getOrComputeDailyGoals("user-ratchet-equal", "2026-05-03");
+
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("ratchet-up: does NOT update when new target lower than stored", async () => {
+      mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect(); // ratchet's loadUserMacroProfile (still called)
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Live caloriesOut DROPS — sedentary device sample. Don't ratchet down.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2200 });
+
+      const result = await getOrComputeDailyGoals("user-ratchet-down", "2026-05-03");
+
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      // Stored target preserved.
+      expect(result.goals.calorieGoal).toBe(2289);
+    });
+
+    it("ratchet-up: skipped when activity below RMR×1.05 threshold", async () => {
+      mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Below RMR threshold (2070*1.05=2173.5) — too noisy to anchor.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 1500 });
+
+      await getOrComputeDailyGoals("user-ratchet-noisy", "2026-05-03");
+
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    it("ratchet-up: gracefully degrades when activity fetch rejected by breaker", async () => {
+      mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_RATE_LIMIT_LOW"));
+
+      const result = await getOrComputeDailyGoals("user-ratchet-breaker", "2026-05-03");
+
+      // Stored target served — no UPDATE.
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(2289);
+    });
+
+    it("ratchet-up: serves stored row when activity fetch fails with non-breaker error (bug-hunter Bug 1)", async () => {
+      mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Any non-breaker activity error must NOT bubble — the ratchet is optional.
+      mockGetCachedActivitySummary.mockRejectedValue(new Error("FITBIT_API_ERROR"));
+
+      const result = await getOrComputeDailyGoals("user-act-error", "2026-05-03");
+
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(2289);
+    });
+
+    // ─── FOO-996: profile version mismatch triggers full recompute ──────────
+    it("cache-hit falls through to full compute when stored profile_version mismatches user version", async () => {
+      // Stored row has profileVersion 1; user has bumped to 2.
+      const oldVersionRow = { ...COMPUTED_ROW, profileVersion: 1 };
+      mockSelectOnce([oldVersionRow]); // queryRow
+      mockMacroProfileVersionSelect(2); // cache-hit version check sees 2 → mismatch
+      mockMacroProfileSelect("muscle_preserve", 2); // slow-path profile load
+      mockInsertOnce();
+      mockSelectOnce([{ ...COMPUTED_ROW, profileVersion: 2 }]); // read-back
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      await getOrComputeDailyGoals("user-version-mismatch", "2026-05-03");
+
+      // Full-compute path was taken — getCachedActivitySummary called with the
+      // slow-path "important" criticality (cache-hit fast path uses "optional").
+      // FOO-1027: discriminates the slow path; toHaveBeenCalled() alone passes
+      // both paths because the ratchet on cache-hit also fetches activity.
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        "important",
+      );
+    });
+
+    // ─── FOO-1029 (PR review P1): version mismatch persists recomputed row ──
+    it("forces UPDATE of stale row when persisted profile_version mismatches user version", async () => {
+      // Race scenario: an older in-flight compute wrote profileVersion=1, then
+      // PATCH bumped users.macro_profile_version to 2. Next read sees mismatch
+      // and falls through to full compute. The INSERT...ON CONFLICT DO NOTHING
+      // is a no-op (row exists), so the read-back returns the OLD row with
+      // profileVersion=1. Without the version-aware UPDATE, the row stays
+      // stale and every subsequent read mismatches → infinite recompute storm.
+      const staleVersionRow = { ...COMPUTED_ROW, profileVersion: 1, calorieGoal: 1000 };
+      mockSelectOnce([staleVersionRow]); // queryRow
+      mockMacroProfileVersionSelect(2); // cache-hit version check sees 2 → mismatch
+      mockMacroProfileSelect("muscle_preserve", 2); // slow-path profile load
+      mockInsertOnce(); // no-op due to row exists
+      mockSelectOnce([staleVersionRow]); // read-back: row STILL stale (insert was no-op)
+      const updateMock = mockUpdateOnce(); // expect forced UPDATE because version stale
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      const result = await getOrComputeDailyGoals("user-version-stale", "2026-05-03");
+
+      expect(mockDb.update).toHaveBeenCalled();
+      expect(updateMock.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          profileVersion: 2,
+          calorieGoal: 2289,
+          proteinGoal: 218,
+          carbsGoal: 136,
+          fatGoal: 97,
+        }),
+      );
+      // The returned goals must match what we just persisted (engineOut), not
+      // the in-memory stale row.calorieGoal — otherwise this call serves stale
+      // data even though the DB has been refreshed.
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(2289);
+    });
+
+    // ─── FOO-1032 (PR review P1): version mismatch is ignored for historical dates ─
+    it("cache-hit accepts stored profile_version mismatch on historical dates (FOO-995 stability)", async () => {
+      // Historical date: profile changes only invalidate today + forward
+      // (FOO-995). Past rows keep their old profile_version by design — the
+      // mismatch check must be gated to today/future or every history scroll
+      // triggers an expensive Fitbit recompute storm.
+      const historicalRow = { ...COMPUTED_ROW, profileVersion: 1 };
+      mockSelectOnce([historicalRow]); // queryRow
+      // No mockMacroProfileVersionSelect: the version check is short-circuited
+      // for historical dates, so loadUserMacroProfileVersion never runs.
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Activity fetch is skipped for historical dates (FOO-1034 — ratchet is
+      // a today-only correction). The mock would return ACTIVITY_3000 if called.
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      const result = await getOrComputeDailyGoals("user-historical", "2020-01-01");
+
+      // No DB UPDATE — historical row stays as-is.
+      expect(mockDb.update).not.toHaveBeenCalled();
+      // FOO-1034: activity not fetched at all on historical dates (ratchet skipped).
+      expect(mockGetCachedActivitySummary).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+    });
+
+    // ─── FOO-1034 (PR review P1): ratchet skipped on historical dates ───────
+    it("cache-hit on historical date skips ratchet even when activity would trigger UPDATE", async () => {
+      // Stored row at low calorieGoal: a high live caloriesOut would normally
+      // ratchet up. But ratchet (FOO-1009) is a today-only correction — running
+      // it on historical dates rewrites stable history. Skip entirely.
+      const lowCalorieHistoricalRow = { ...COMPUTED_ROW, profileVersion: 1, calorieGoal: 1500 };
+      mockSelectOnce([lowCalorieHistoricalRow]);
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Even if activity were fetched, this would compute a target above 1500
+      // and try to UPDATE the row. But the historical-date guard prevents the
+      // fetch and the call entirely.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      const result = await getOrComputeDailyGoals("user-historical-ratchet", "2020-01-01");
+
+      // No Fitbit activity call — saved a quota hit on history scroll.
+      expect(mockGetCachedActivitySummary).not.toHaveBeenCalled();
+      // No UPDATE — historical row preserved.
+      expect(mockDb.update).not.toHaveBeenCalled();
+      // Returned values match the stored (stable) row, not a recomputed one.
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.goals.calorieGoal).toBe(1500);
+    });
+
+    it("cache-hit on TODAY still runs ratchet (regression guard)", async () => {
+      // Confirm the FOO-1034 gate doesn't accidentally disable the ratchet for
+      // today. Stored row at low calorieGoal; live activity high → expect UPDATE.
+      const todayRow = { ...COMPUTED_ROW, profileVersion: 1, calorieGoal: 1500 };
+      mockSelectOnce([todayRow]);
+      mockMacroProfileVersionSelect(1); // version match → cache-hit
+      mockMacroProfileSelect("muscle_preserve", 1); // ratchet's loadUserMacroProfile
+      mockUpdateOnce();
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      // "2026-05-03" is today (mocked at module scope).
+      const result = await getOrComputeDailyGoals("user-today-ratchet", "2026-05-03");
+
+      // Activity fetched on today (with "optional" cache-hit criticality).
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledTimes(1);
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+        "user-today-ratchet",
+        "2026-05-03",
+        expect.any(Object),
+        "optional",
+      );
+      // Ratchet applied → UPDATE fired.
+      expect(mockDb.update).toHaveBeenCalled();
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      // Recomputed target above stored 1500.
+      expect(result.goals.calorieGoal).toBeGreaterThan(1500);
+    });
+
+    // ─── FOO-1035 (PR review P1): stale compute does NOT clobber newer row ──
+    it("does NOT overwrite a newer row when this compute's profile_version is older", async () => {
+      // Race scenario: compute A loaded profileVersion=1 before a PATCH bumped
+      // it to 2; in the meantime, parallel compute B wrote a fresh row with
+      // profileVersion=2. When A reaches the writeback, the persisted row is
+      // NEWER than A's anchor. Without `<` (older-than) semantics, A would
+      // clobber B's row with stale version-1 macros, defeating the FOO-996
+      // race-safety mechanism.
+      mockSelectOnce([]); // initial queryRow — pretend cache-hit didn't apply
+      mockMacroProfileSelect("muscle_preserve", 1); // A's slow-path profile load (anchored to v=1)
+      mockInsertOnce(); // INSERT ... ON CONFLICT DO NOTHING (B's row blocks insert)
+      // Read-back returns B's NEWER row (profileVersion=2, calorieGoal=2289).
+      mockSelectOnce([{ ...COMPUTED_ROW, profileVersion: 2 }]);
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      await getOrComputeDailyGoals("user-no-clobber", "2026-05-03");
+
+      // No UPDATE — A must NOT clobber B's fresh row.
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
+    // ─── FOO-1023: cache-hit guarded against null caloriesOut ───────────────
+    it("cache-hit bypassed when stored row has null caloriesOut", async () => {
+      // Row has macros populated but caloriesOut is null — hasMacros() must
+      // reject it so the cache-hit fast path doesn't return audit.caloriesOut!
+      // as a number (latent null deref in TargetsCard).
+      const nullCaloriesOutRow = { ...COMPUTED_ROW, caloriesOut: null };
+      mockSelectOnce([nullCaloriesOutRow]); // queryRow — hasMacros returns false
+      // No FOO-996 version select queued: hasMacros=false short-circuits the
+      // cacheHit && check before loadUserMacroProfileVersion runs.
+      mockMacroProfileSelect(); // slow-path loadUserMacroProfile
+      mockInsertOnce();
+      mockSelectOnce([COMPUTED_ROW]); // read-back
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      await getOrComputeDailyGoals("user-null-cout", "2026-05-03");
+
+      // Slow path takes "important" criticality; cache-hit ratchet uses "optional".
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+        "user-null-cout",
+        "2026-05-03",
+        expect.any(Object),
+        "important",
+      );
+    });
+
+    // ─── FOO-1010: weight staleness ─────────────────────────────────────────
+    it("audit exposes weightLoggedDate and weightStale flag set when >7 days old", async () => {
+      // Target date is 2026-05-03; weight logged 2026-04-25 (8 days ago) → stale.
+      const staleRow = { ...COMPUTED_ROW, weightLoggedDate: "2026-04-25" };
+      mockSelectOnce([staleRow]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+
+      const result = await getOrComputeDailyGoals("user-stale", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.audit.weightLoggedDate).toBe("2026-04-25");
+      expect(result.weightStale).toBe(true);
+    });
+
+    it("does NOT set weightStale when log is within 7 days", async () => {
+      // Target 2026-05-03; weight logged 2026-04-30 (3 days ago) → fresh.
+      const freshRow = { ...COMPUTED_ROW, weightLoggedDate: "2026-04-30" };
+      mockSelectOnce([freshRow]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+
+      const result = await getOrComputeDailyGoals("user-fresh", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.weightStale).toBeFalsy();
+    });
+
+    // ─── FOO-1000: audit exposes raw caloriesOut ─────────────────────────────
+    it("audit includes raw caloriesOut from stored row", async () => {
+      mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+
+      const result = await getOrComputeDailyGoals("user-co", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.audit.caloriesOut).toBe(3000);
+      expect(result.audit.activityKcal).toBe(791);
+    });
+
+    // ─── FOO-993: stored audit columns (goalType, bmiTier) ──────────────────
+    it("returns stored goalType and bmiTier from row, not current Fitbit state", async () => {
+      // Row was written under LOSE goal (goalType: "LOSE" stored).
+      mockSelectOnce([COMPUTED_ROW]);
+      mockMacroProfileVersionSelect();
+      // User has since changed Fitbit goal to MAINTAIN.
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
+
+      const result = await getOrComputeDailyGoals("user-stored-audit", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.audit.goalType).toBe("LOSE");
+      expect(result.audit.bmiTier).toBe("ge30");
+    });
+
+    it("falls back to current Fitbit goalType/bmiTier when stored values are null (legacy row)", async () => {
+      // Legacy row predating F1 — goalType/bmiTier columns are null.
+      const legacyRow = {
+        ...COMPUTED_ROW,
+        goalType: null,
+        bmiTier: null,
+        profileVersion: null,
+        weightLoggedDate: null,
+      };
+      mockSelectOnce([legacyRow]);
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+
+      const result = await getOrComputeDailyGoals("user-legacy", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      expect(result.audit.goalType).toBe("LOSE");
+      expect(result.audit.bmiTier).toBe("ge30");
     });
   });
 
@@ -410,6 +869,39 @@ describe("getOrComputeDailyGoals", () => {
   });
 
   // ─── Status: blocked — scope_mismatch ────────────────────────────────────
+  // ─── Status: blocked — invalid_activity ──────────────────────────────────
+  describe("blocked: invalid_activity (FOO-998)", () => {
+    it("returns blocked/invalid_activity when computeMacroTargets throws INVALID_ACTIVITY_DATA", async () => {
+      mockSelectOnce([]); // no existing row
+      mockMacroProfileSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 70, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_MAINTAIN);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: Number.NaN });
+
+      const result = await getOrComputeDailyGoals("user-bad-activity", "2026-05-03");
+
+      expect(result).toEqual({ status: "blocked", reason: "invalid_activity" });
+    });
+
+    // ─── FOO-1030 (PR review P2): negative caloriesOut blocks, not partial ──
+    it("returns blocked/invalid_activity when caloriesOut is negative (not partial)", async () => {
+      // Negative caloriesOut is < rmrThreshold, so the FOO-999 partial gate
+      // would mask it as a normal "partial" state — bypassing the macro-engine
+      // INVALID_ACTIVITY_DATA validation. The fix gates invalid values explicitly.
+      mockSelectOnce([]); // no existing row
+      mockMacroProfileSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: -100 });
+
+      const result = await getOrComputeDailyGoals("user-neg-cout", "2026-05-03");
+
+      expect(result).toEqual({ status: "blocked", reason: "invalid_activity" });
+    });
+  });
+
   describe("blocked: invalid_profile", () => {
     it("returns blocked/invalid_profile when computeMacroTargets throws INVALID_PROFILE_DATA", async () => {
       mockSelectOnce([]); // no existing row
@@ -477,6 +969,62 @@ describe("getOrComputeDailyGoals", () => {
       await getOrComputeDailyGoals("user-partial2", "2026-05-03");
 
       expect(mockDb.insert).not.toHaveBeenCalled();
+    });
+
+    // ─── FOO-999: below-RMR caloriesOut → partial ────────────────────────────
+    // For 49y/M/176cm/121kg, RMR = 2070. Threshold = 2070 * 1.05 = 2173.5
+    it("returns partial when caloriesOut === 0 (FOO-999)", async () => {
+      mockSelectOnce([]);
+      mockMacroProfileSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 0 });
+
+      const result = await getOrComputeDailyGoals("user-zero-co", "2026-05-03");
+
+      expect(result.status).toBe("partial");
+    });
+
+    it("returns partial when caloriesOut equals RMR exactly (FOO-999)", async () => {
+      mockSelectOnce([]);
+      mockMacroProfileSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 2070 });
+
+      const result = await getOrComputeDailyGoals("user-eq-rmr", "2026-05-03");
+
+      expect(result.status).toBe("partial");
+    });
+
+    it("returns partial when caloriesOut just below 1.05 × RMR (FOO-999)", async () => {
+      mockSelectOnce([]);
+      mockMacroProfileSelect();
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: Math.floor(2070 * 1.04) });
+
+      const result = await getOrComputeDailyGoals("user-below-thresh", "2026-05-03");
+
+      expect(result.status).toBe("partial");
+    });
+
+    it("returns ok when caloriesOut at 1.05 × RMR (FOO-999)", async () => {
+      mockSelectOnce([]);
+      mockMacroProfileSelect();
+      mockInsertOnce();
+      mockSelectOnce([COMPUTED_ROW]);
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: Math.ceil(2070 * 1.05) });
+
+      const result = await getOrComputeDailyGoals("user-at-thresh", "2026-05-03");
+
+      expect(result.status).toBe("ok");
     });
 
     it("uses default MAINTAIN goalType for partial when weight goal is unavailable", async () => {
@@ -615,6 +1163,7 @@ describe("getOrComputeDailyGoals", () => {
       caloriesOut: 2200,
       rmr: 1282,
       activityKcal: 780,
+      profileVersion: 1,
     };
 
     it("returns correct goals and audit for female scenario", async () => {
@@ -634,6 +1183,73 @@ describe("getOrComputeDailyGoals", () => {
       expect(result.goals.proteinGoal).toBe(104);
       expect(result.audit.bmiTier).toBe("lt25"); // BMI ≈ 24.77
     });
+  });
+});
+
+// ─── invalidateUserDailyGoalsForProfileChange + invalidateUserDailyGoalsForDate ─
+const {
+  invalidateUserDailyGoalsForProfileChange,
+  invalidateUserDailyGoalsForDate,
+} = await import("@/lib/daily-goals");
+
+describe("invalidateUserDailyGoalsForDate (FOO-992)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.update.mockReset();
+  });
+
+  it("scopes the UPDATE to the single (userId, date) row", async () => {
+    const updateMock = mockUpdateOnce();
+
+    await invalidateUserDailyGoalsForDate("user-x", "2026-05-04");
+
+    const whereCall = updateMock.where.mock.calls[0][0];
+    expect(String(whereCall)).toContain("eq:user-x");
+    expect(String(whereCall)).toContain("eq:2026-05-04");
+  });
+
+  it("zeroes macro+audit columns including F1 columns", async () => {
+    const updateMock = mockUpdateOnce();
+
+    await invalidateUserDailyGoalsForDate("user-x", "2026-05-04");
+
+    expect(updateMock.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        calorieGoal: 0,
+        proteinGoal: null,
+        goalType: null,
+        bmiTier: null,
+        profileVersion: null,
+        weightLoggedDate: null,
+      }),
+    );
+  });
+});
+
+describe("invalidateUserDailyGoalsForProfileChange", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.update.mockReset();
+  });
+
+  it("scopes the UPDATE to today + future dates only (FOO-995)", async () => {
+    const updateMock = mockUpdateOnce();
+
+    await invalidateUserDailyGoalsForProfileChange("user-a", "2026-05-04");
+
+    // The where clause must combine the userId equality and a gte:date constraint.
+    const whereCall = updateMock.where.mock.calls[0][0];
+    expect(String(whereCall)).toContain("eq:user-a");
+    expect(String(whereCall)).toContain("gte:2026-05-04");
+  });
+
+  it("clears in-flight keys only for fromDate and after", async () => {
+    // Run with fromDate = 2026-05-04. Past dates should NOT be touched.
+    // We can only assert behavior indirectly through the SQL built by where().
+    mockUpdateOnce();
+    await invalidateUserDailyGoalsForProfileChange("user-b", "2026-05-04");
+    // No specific assertion beyond not throwing — the SQL assertion above
+    // already covers the date scoping; the in-flight scoping is internal.
   });
 });
 
