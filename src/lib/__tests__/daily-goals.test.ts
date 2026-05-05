@@ -33,6 +33,13 @@ vi.mock("@/lib/logger", () => {
   return { logger: mockLogger, createRequestLogger: vi.fn(() => mockLogger) };
 });
 
+// Pin "today" so the FOO-1032 historical-date guard is testable. Existing
+// tests use date="2026-05-03" — make that today; the new historical-date test
+// uses "2020-01-01" which is firmly in the past.
+vi.mock("@/lib/date-utils", () => ({
+  getTodayDate: () => "2026-05-03",
+}));
+
 // ─── DB helper factories ────────────────────────────────────────────────────
 function mockSelectOnce(rows: Record<string, unknown>[] = []) {
   const where = vi.fn().mockResolvedValueOnce(rows);
@@ -549,6 +556,37 @@ describe("getOrComputeDailyGoals", () => {
       expect(result.status).toBe("ok");
       if (result.status !== "ok") return;
       expect(result.goals.calorieGoal).toBe(2289);
+    });
+
+    // ─── FOO-1032 (PR review P1): version mismatch is ignored for historical dates ─
+    it("cache-hit accepts stored profile_version mismatch on historical dates (FOO-995 stability)", async () => {
+      // Historical date: profile changes only invalidate today + forward
+      // (FOO-995). Past rows keep their old profile_version by design — the
+      // mismatch check must be gated to today/future or every history scroll
+      // triggers an expensive Fitbit recompute storm.
+      const historicalRow = { ...COMPUTED_ROW, profileVersion: 1 };
+      mockSelectOnce([historicalRow]); // queryRow
+      // No mockMacroProfileVersionSelect: the version check is short-circuited
+      // for historical dates, so loadUserMacroProfileVersion never runs.
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      const result = await getOrComputeDailyGoals("user-historical", "2020-01-01");
+
+      // Cache-hit succeeded — slow-path ("important" criticality) was NOT taken.
+      // The ratchet uses "optional" criticality, but it's the only call.
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledTimes(1);
+      expect(mockGetCachedActivitySummary).toHaveBeenCalledWith(
+        "user-historical",
+        "2020-01-01",
+        expect.any(Object),
+        "optional",
+      );
+      // No DB UPDATE — historical row stays as-is.
+      expect(mockDb.update).not.toHaveBeenCalled();
+      expect(result.status).toBe("ok");
     });
 
     // ─── FOO-1023: cache-hit guarded against null caloriesOut ───────────────

@@ -1,6 +1,7 @@
 import { getDb } from "@/db/index";
 import { dailyCalorieGoals, users } from "@/db/schema";
 import { eq, and, gte } from "drizzle-orm";
+import { getTodayDate } from "@/lib/date-utils";
 import {
   computeMacroTargets,
   computeRmr,
@@ -258,6 +259,12 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
   try {
     // Fast path: row already fully computed — re-use from DB
     const existing = await queryRow(userId, date);
+    // FOO-1032 (PR review): version-mismatch fallback only applies to today
+    // and forward. invalidateUserDailyGoalsForProfileChange (FOO-995) only
+    // clears today + future rows on profile change, so historical rows keep
+    // their old profile_version by design — checking it on history scrolls
+    // would force a Fitbit recompute storm and rewrite stable history.
+    const targetIsTodayOrLater = date >= getTodayDate();
     const cacheHit =
       existing !== null &&
       hasMacros(existing) &&
@@ -265,7 +272,8 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
       // current version. A mismatch means a profile change landed AFTER this
       // row was written by an older in-flight compute — recompute.
       // Legacy rows (profile_version null, pre-F1) are accepted as-is.
-      (existing.profileVersion === null ||
+      (!targetIsTodayOrLater ||
+        existing.profileVersion === null ||
         existing.profileVersion === (await loadUserMacroProfileVersion(userId)));
 
     if (cacheHit && existing) {
