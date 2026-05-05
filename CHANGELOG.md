@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-05-05
+
+### Fixed
+
+- Always-on calorie & carbs goals — eliminated the morning gap where the dashboard showed no calorie ring or carbs target until Fitbit's cumulative `caloriesOut` cleared `RMR × 1.05`. Targets now seed from per-user history (or sensible defaults) at the first read of each day and promote to live values once Fitbit data catches up (FOO-1036)
+- Cache-hit DB writes in the daily goals engine no longer surface as 500s — best-effort UPDATEs (ratchet recompute, seeded-row promotion) degrade gracefully and serve stored values on transient DB errors (FOO-1037, FOO-1038)
+
+### Changed
+
+- `/api/v1/nutrition-goals` no longer returns `status: "partial"` — every authenticated user with sex/weight/height set sees a complete macro target at all times of day. A new `tdeeSource` field on each day's audit shows how TDEE was derived (`live` | `history` | `default`)
+
 ## [2.1.0] - 2026-05-04
 
 ### Added
@@ -539,7 +550,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/lucaswall/food-scanner/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/lucaswall/food-scanner/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/lucaswall/food-scanner/compare/v1.25.1...v2.0.0
 [1.25.1]: https://github.com/lucaswall/food-scanner/compare/v1.25.0...v1.25.1
