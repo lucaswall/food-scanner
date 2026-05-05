@@ -135,18 +135,29 @@ async function tryRatchetRecompute(args: {
 
   // Ratchet UP. Don't touch goalType/bmiTier/profileVersion/weightLoggedDate —
   // those are stable identity fields, not activity-derived.
-  await getDb()
-    .update(dailyCalorieGoals)
-    .set({
-      calorieGoal: engineOut.targetKcal,
-      proteinGoal: engineOut.proteinG,
-      carbsGoal: engineOut.carbsG,
-      fatGoal: engineOut.fatG,
-      caloriesOut: liveActivity.caloriesOut,
-      activityKcal: engineOut.activityKcal,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
+  try {
+    await getDb()
+      .update(dailyCalorieGoals)
+      .set({
+        calorieGoal: engineOut.targetKcal,
+        proteinGoal: engineOut.proteinG,
+        carbsGoal: engineOut.carbsG,
+        fatGoal: engineOut.fatG,
+        caloriesOut: liveActivity.caloriesOut,
+        activityKcal: engineOut.activityKcal,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
+  } catch (err) {
+    // The ratchet is documented as optional — if Fitbit errors, we serve the
+    // stored row. Apply the same graceful-degrade rule when the DB UPDATE
+    // throws: never break the cache-hit path.
+    log.warn(
+      { action: "daily_goals_ratchet_failed", userId, date, err: (err as Error).message },
+      "ratchet UPDATE failed; serving cached values",
+    );
+    return null;
+  }
 
   log.info(
     {
@@ -245,21 +256,32 @@ async function tryPromoteSeededRow(args: {
     return null;
   }
 
-  await getDb()
-    .update(dailyCalorieGoals)
-    .set({
-      calorieGoal: engineOut.targetKcal,
-      proteinGoal: engineOut.proteinG,
-      carbsGoal: engineOut.carbsG,
-      fatGoal: engineOut.fatG,
-      caloriesOut: liveActivity.caloriesOut,
-      rmr: engineOut.rmr,
-      activityKcal: engineOut.activityKcal,
-      bmiTier: engineOut.bmiTier,
-      tdeeSource: "live",
-      updatedAt: new Date(),
-    })
-    .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
+  try {
+    await getDb()
+      .update(dailyCalorieGoals)
+      .set({
+        calorieGoal: engineOut.targetKcal,
+        proteinGoal: engineOut.proteinG,
+        carbsGoal: engineOut.carbsG,
+        fatGoal: engineOut.fatG,
+        caloriesOut: liveActivity.caloriesOut,
+        rmr: engineOut.rmr,
+        activityKcal: engineOut.activityKcal,
+        bmiTier: engineOut.bmiTier,
+        tdeeSource: "live",
+        updatedAt: new Date(),
+      })
+      .where(and(eq(dailyCalorieGoals.userId, userId), eq(dailyCalorieGoals.date, date)));
+  } catch (err) {
+    // Honor the docstring's "does not throw" contract — a transient DB error
+    // must not turn a successful cache-hit into a 500. Caller serves cached
+    // seeded values; promotion will retry on the next read.
+    log.warn(
+      { action: "daily_goals_promotion_failed", userId, date, err: (err as Error).message },
+      "promotion UPDATE failed; serving cached seeded values",
+    );
+    return null;
+  }
 
   log.info(
     {

@@ -1395,6 +1395,59 @@ describe("getOrComputeDailyGoals", () => {
 
       expect(mockDb.update).not.toHaveBeenCalled();
     });
+
+    it("promotion: DB UPDATE throw → does not propagate; serves cached seeded values", async () => {
+      // Docstring guarantees promotion is best-effort. A transient DB error
+      // (connection pool exhausted, query timeout) must not turn a cache-hit
+      // into a 500 — the seeded row's stored values are self-sufficient.
+      const seededRow = { ...COMPUTED_ROW, tdeeSource: "history" as const, calorieGoal: 2400 };
+      mockSelectOnce([seededRow]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect(); // promotion's loadUserMacroProfile
+      // UPDATE throws — promotion should swallow and fall through to cached values.
+      const where = vi.fn().mockRejectedValueOnce(new Error("DB connection lost"));
+      const set = vi.fn().mockReturnValue({ where });
+      mockDb.update.mockReturnValueOnce({ set });
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      const result = await getOrComputeDailyGoals("user-promote-db-throw", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      // Cached seeded calorieGoal preserved; isSeeded still true.
+      expect(result.goals.calorieGoal).toBe(2400);
+      expect(result.isSeeded).toBe(true);
+    });
+  });
+
+  // ─── Ratchet graceful-degrade on DB UPDATE throw (FOO-1036 review) ───────
+  describe("ratchet: DB UPDATE throw → does not propagate", () => {
+    it("ratchet: DB UPDATE throw → serves stored values; cache-hit path preserved", async () => {
+      // The ratchet is documented as optional ("if Fitbit errors, the stored
+      // row is self-sufficient — never break the cache-hit path"). A DB error
+      // during the ratchet UPDATE must follow the same graceful-degrade rule.
+      const livingRow = { ...COMPUTED_ROW, calorieGoal: 2289 }; // tdeeSource: 'live'
+      mockSelectOnce([livingRow]);
+      mockMacroProfileVersionSelect();
+      mockMacroProfileSelect(); // ratchet's loadUserMacroProfile
+      const where = vi.fn().mockRejectedValueOnce(new Error("DB connection lost"));
+      const set = vi.fn().mockReturnValue({ where });
+      mockDb.update.mockReturnValueOnce({ set });
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      // Live caloriesOut higher than stored — would normally ratchet UP.
+      mockGetCachedActivitySummary.mockResolvedValue({ caloriesOut: 4500 });
+
+      const result = await getOrComputeDailyGoals("user-ratchet-db-throw", "2026-05-03");
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") return;
+      // Stored value served — UPDATE was attempted but threw, so the in-memory
+      // recompute is discarded and we fall back to the cached row.
+      expect(result.goals.calorieGoal).toBe(2289);
+    });
   });
 
   // ─── Cache-hit return: stored row's tdeeSource decides isSeeded ───────────

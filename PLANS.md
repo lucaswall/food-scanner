@@ -358,3 +358,37 @@
 ### Tasks Remaining
 
 None. Plan is complete and ready for `plan-review-implementation` → PR.
+
+### Review Findings
+
+Summary: 3 issue(s) found, fixed inline (Team: security, reliability, quality reviewers)
+- FIXED INLINE: 3 issue(s) — verified via TDD + bug-hunter
+
+**Issues fixed inline:**
+- [HIGH] BUG: `tryPromoteSeededRow` DB UPDATE not wrapped in try/catch (`src/lib/daily-goals.ts:248`) — violates docstring's "Does not throw" contract; transient DB error turned a cache-hit into a 500. Wrapped in try/catch returning null with warn log; added regression test.
+- [MEDIUM] BUG: `tryRatchetRecompute` DB UPDATE not wrapped in try/catch (`src/lib/daily-goals.ts:138`) — pre-existing class of bug surfaced during FOO-1036 review; same graceful-degrade contract violated. Symmetric fix applied; added regression test.
+- [LOW] CONVENTION: Stale `partial` references in `src/app/api/nutrition-goals/__tests__/route.test.ts` — local mock type union, `PARTIAL_RESULT` fixture, and one test exercised dead behavior after FOO-1036 dropped the `partial` status. Removed all three; mock type now matches real `ComputeResult`.
+
+**Discarded findings (not bugs):**
+- [DISCARDED] [LOW] [security] No DB CHECK constraint on `tdee_source` column — follows the existing pattern of `goalType`/`bmiTier` on the same table; PLANS.md Task 1 explicitly chose to skip CHECK initially "to keep the migration trivial". TS enforces the values. Style/enhancement, not a bug.
+- [DISCARDED] [LOW] [edge-case] `audit.bmiTier` returns `storedBmiTier` instead of `engineOut.bmiTier` after promotion (`src/lib/daily-goals.ts:598`) — theoretical only. bmiTier depends on weightKg (identical between seed and promotion via the same `wKg`) and heightCm. Adult heightCm doesn't change intra-day. Reviewer themselves noted "these will match in practice".
+- [DISCARDED] [LOW] [edge-case] No test for `{ tdeeSource: 'live', caloriesOut: null }` row in `resolveTdeeSeed` — code is correct (filters on `caloriesOut !== null` first). Pure coverage gap with no correctness implication.
+- [DISCARDED] [LOW] [type] No direct unit test for `mapComputeResultToNutritionGoals` `isSeeded` propagation — a trivial spread already exercised end-to-end via `targets-card.test.tsx`. Adding a test would be redundant.
+
+### Linear Updates
+- FOO-1036: Review → Merge (original task completed)
+- FOO-1037: Created in Merge (Fix: tryPromoteSeededRow DB UPDATE try/catch — fixed inline)
+- FOO-1038: Created in Merge (Fix: tryRatchetRecompute DB UPDATE try/catch — fixed inline)
+- FOO-1039: Created in Merge (Fix: stale `partial` test fixtures — fixed inline)
+
+### Inline Fix Verification
+- Unit tests: 3470 pass (was 3469: +2 new regression tests, -1 deleted partial test)
+- Bug-hunter: no new issues
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
