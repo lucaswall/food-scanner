@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-05-04
+
+### Added
+
+- `/api/v1/nutrition-goals` now supports range mode (`?from=&to=`) for fetching daily goals across a span of dates
+- Macro audit panel on Today's Targets card — shows the goal type, BMI tier, RMR, TDEE, weight, and profile version used for each day's computation
+
+### Changed
+
+- `/api/v1/nutrition-goals` now returns engine-computed macros (calories, protein, carbs, fat) instead of a Fitbit passthrough; top-level `data.calories` preserved for existing consumers
+- Fitbit calls now back off automatically when rate-limit headroom is low, honor `Retry-After` headers, and cache activity summaries with stale-while-revalidate
+
+### Fixed
+
+- Macro engine correctness — stale in-flight computes can no longer clobber newer rows; profile-change invalidation correctly scopes to today+forward; range mode gap-fills missing dates as `not_computed`; HTTP 403 returned for blocked/scope_mismatch failures (FOO-1029–FOO-1035)
+- Fitbit body endpoints now consistently return metric units
+- Settings macro profile selector validated against allowed values at the database level
+
 ## [2.0.0] - 2026-05-03
 
 ### Added
@@ -521,7 +539,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/lucaswall/food-scanner/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/lucaswall/food-scanner/compare/v1.25.1...v2.0.0
 [1.25.1]: https://github.com/lucaswall/food-scanner/compare/v1.25.0...v1.25.1
 [1.25.0]: https://github.com/lucaswall/food-scanner/compare/v1.24.1...v1.25.0
