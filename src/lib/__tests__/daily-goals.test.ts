@@ -645,6 +645,31 @@ describe("getOrComputeDailyGoals", () => {
       expect(result.goals.calorieGoal).toBeGreaterThan(1500);
     });
 
+    // ─── FOO-1035 (PR review P1): stale compute does NOT clobber newer row ──
+    it("does NOT overwrite a newer row when this compute's profile_version is older", async () => {
+      // Race scenario: compute A loaded profileVersion=1 before a PATCH bumped
+      // it to 2; in the meantime, parallel compute B wrote a fresh row with
+      // profileVersion=2. When A reaches the writeback, the persisted row is
+      // NEWER than A's anchor. Without `<` (older-than) semantics, A would
+      // clobber B's row with stale version-1 macros, defeating the FOO-996
+      // race-safety mechanism.
+      mockSelectOnce([]); // initial queryRow — pretend cache-hit didn't apply
+      mockMacroProfileSelect("muscle_preserve", 1); // A's slow-path profile load (anchored to v=1)
+      mockInsertOnce(); // INSERT ... ON CONFLICT DO NOTHING (B's row blocks insert)
+      // Read-back returns B's NEWER row (profileVersion=2, calorieGoal=2289).
+      mockSelectOnce([{ ...COMPUTED_ROW, profileVersion: 2 }]);
+
+      mockGetCachedFitbitProfile.mockResolvedValue(PROFILE_MALE);
+      mockGetCachedFitbitWeightKg.mockResolvedValue({ weightKg: 121, loggedDate: "2026-05-03" });
+      mockGetCachedFitbitWeightGoal.mockResolvedValue(WEIGHT_GOAL_LOSE);
+      mockGetCachedActivitySummary.mockResolvedValue(ACTIVITY_3000);
+
+      await getOrComputeDailyGoals("user-no-clobber", "2026-05-03");
+
+      // No UPDATE — A must NOT clobber B's fresh row.
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
+
     // ─── FOO-1023: cache-hit guarded against null caloriesOut ───────────────
     it("cache-hit bypassed when stored row has null caloriesOut", async () => {
       // Row has macros populated but caloriesOut is null — hasMacros() must

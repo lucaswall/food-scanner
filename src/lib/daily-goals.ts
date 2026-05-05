@@ -507,8 +507,15 @@ async function doCompute(userId: string, date: string, log?: Logger): Promise<Co
     // `!= null` mirrors the cache-hit check (line 268): a null profileVersion
     // is a legacy pre-F1 row, not a stale version — leave it for the cache-hit
     // path to handle on the next read.
+    //
+    // FOO-1035 (PR review): use `<` (strictly older), NOT `!==`. The original
+    // FOO-1029 test only covered the case where this compute is newer than the
+    // row — but with `!==`, a stale in-flight compute (loaded before a PATCH)
+    // would clobber a row that a parallel newer compute already refreshed. The
+    // overwrite must happen only when the persisted version is older than the
+    // version this compute is anchored to.
     const versionStale =
-      row !== null && row.profileVersion != null && row.profileVersion !== profileVersion;
+      row !== null && row.profileVersion != null && row.profileVersion < profileVersion;
     if (row && (!hasMacros(row) || versionStale)) {
       await getDb()
         .update(dailyCalorieGoals)
