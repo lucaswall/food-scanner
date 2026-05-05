@@ -222,8 +222,9 @@ async function executeGetNutritionSummary(
   // Case 1: single date
   if (date && typeof date === "string" && !from_date) {
     const summary = await getDailyNutritionSummary(userId, date, log);
-    // FOO-1002: use getOrComputeDailyGoals so partial protein/fat targets surface
-    // even when Fitbit hasn't reported caloriesOut yet (no row written for partial).
+    // FOO-1036: macro engine always returns 'ok' (with all four goals) for any
+    // authenticated user with sex+weight+height set; the only non-ok branch is
+    // 'blocked' for unrecoverable inputs.
     const result = await getOrComputeDailyGoals(userId, date, log);
 
     const lines: string[] = [];
@@ -248,17 +249,6 @@ async function executeGetNutritionSummary(
       lines.push(
         `Macro goals: P:${result.goals.proteinGoal}g (${proteinPct}%) C:${result.goals.carbsGoal}g (${carbsPct}%) F:${result.goals.fatGoal}g (${fatPct}%)`,
       );
-    } else if (result.status === "partial") {
-      const proteinPct = result.proteinG > 0
-        ? Math.round((summary.totals.proteinG / result.proteinG) * 100)
-        : 0;
-      const fatPct = result.fatG > 0
-        ? Math.round((summary.totals.fatG / result.fatG) * 100)
-        : 0;
-      lines.push(
-        `Protein goal: ${result.proteinG}g (${proteinPct}%) — calorie goal pending Fitbit activity sync`,
-      );
-      lines.push(`Fat goal: ${result.fatG}g (${fatPct}%)`);
     } else {
       lines.push(`Goal status: blocked (${result.reason})`);
     }

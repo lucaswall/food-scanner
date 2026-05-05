@@ -615,7 +615,10 @@ describe("executeTool - get_nutrition_summary", () => {
     expect(result).toContain("90%");
   });
 
-  it("get_nutrition_summary surfaces partial protein/fat goals when calorie goal is pending (FOO-1002)", async () => {
+  it("get_nutrition_summary surfaces seeded ok goals identically to live ok (FOO-1036 supersedes FOO-1002)", async () => {
+    // FOO-1036: the engine no longer returns 'partial'. Below-threshold days
+    // produce ok+isSeeded — chat tool emits the same string format as the live
+    // case (no "pending Fitbit activity" copy).
     mockGetDailyNutritionSummary.mockResolvedValue({
       date: "2026-05-04",
       meals: [],
@@ -634,9 +637,10 @@ describe("executeTool - get_nutrition_summary", () => {
     });
 
     mockGetOrComputeDailyGoals.mockResolvedValue({
-      status: "partial",
-      proteinG: 218,
-      fatG: 97,
+      status: "ok",
+      goals: { calorieGoal: 2289, proteinGoal: 218, carbsGoal: 136, fatGoal: 97 },
+      audit: {},
+      isSeeded: true,
     });
 
     const result = await executeTool(
@@ -646,10 +650,11 @@ describe("executeTool - get_nutrition_summary", () => {
       "2026-05-04",
     );
 
-    expect(result).toContain("Protein goal: 218g");
-    expect(result).toMatch(/calorie goal pending Fitbit activity/i);
-    expect(result).toContain("Fat goal: 97g");
-    expect(result).not.toContain("Calorie goal:");
+    expect(result).toContain("Calorie goal: 2289 cal");
+    expect(result).toContain("P:218g");
+    expect(result).toContain("C:136g");
+    expect(result).toContain("F:97g");
+    expect(result).not.toMatch(/pending Fitbit activity/i);
   });
 
   it("executes date range summary", async () => {

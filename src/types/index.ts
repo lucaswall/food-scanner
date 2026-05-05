@@ -346,7 +346,11 @@ export interface NutritionSummary {
 }
 
 export interface ActivitySummary {
-  /** May be null when Fitbit hasn't recorded activity yet (e.g., earliest minutes after midnight) — drives the macro engine's "partial" status. */
+  /**
+   * May be null when Fitbit hasn't recorded activity yet (e.g., earliest
+   * minutes after midnight). The macro engine seeds a value (history median or
+   * RMR × 1.4 default) in that case rather than reporting an unusable target.
+   */
   caloriesOut: number | null;
 }
 
@@ -620,7 +624,7 @@ export interface NutritionGoals {
   proteinG: number | null;
   carbsG: number | null;
   fatG: number | null;
-  status: "ok" | "partial" | "blocked";
+  status: "ok" | "blocked";
   reason?:
     | "no_weight"
     | "sex_unset"
@@ -631,4 +635,11 @@ export interface NutritionGoals {
   audit?: NutritionGoalsAudit;
   /** True when the Fitbit weight log used was logged > 7 days before the target date (FOO-1010). */
   weightStale?: boolean;
+  /**
+   * FOO-1036: true when the engine's `caloriesOut` input was a seed (7-day
+   * history median or RMR × 1.4 default) rather than today's live Fitbit
+   * activity. Surfaced for clients/telemetry; the dashboard does not render a
+   * badge for this — goals always appear, regardless of seed source.
+   */
+  isSeeded?: boolean;
 }

@@ -149,18 +149,26 @@ describe("TargetsCard", () => {
     expect(screen.queryByText(/RMR:/i)).not.toBeInTheDocument();
   });
 
-  it("renders partial protein/fat with calorie-pending footnote (FOO-997)", async () => {
+  it("seeded ok response (FOO-1036): renders identical to non-seeded ok — silent UI, all four numbers visible", async () => {
+    // The engine no longer returns 'partial'. When today's caloriesOut is below
+    // the RMR×1.05 threshold, the engine seeds caloriesOut from history/default
+    // and returns ok with isSeeded=true. The dashboard renders this identically
+    // to a normal ok response — no badge, no "estimated" copy.
     mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: null, proteinG: 218, carbsG: null, fatG: 97,
-      status: "partial",
+      calories: 2200, proteinG: 218, carbsG: 220, fatG: 97,
+      status: "ok",
+      isSeeded: true,
+      audit: { rmr: 2070, activityKcal: 800, tdee: 2870, weightKg: "121", bmiTier: "ge30", goalType: "LOSE", caloriesOut: 2898, weightLoggedDate: "2026-05-03" },
     }));
     renderTargetsCard();
     await waitFor(() => {
-      expect(screen.getByText("P:218g")).toBeInTheDocument();
+      expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
     });
+    expect(screen.getByText("P:218g")).toBeInTheDocument();
+    expect(screen.getByText("C:220g")).toBeInTheDocument();
     expect(screen.getByText("F:97g")).toBeInTheDocument();
-    expect(screen.getByText(/calories.*pending|pending.*Fitbit activity/i)).toBeInTheDocument();
-    expect(screen.queryByText(/^C:/)).not.toBeInTheDocument();
+    // Silent: no "pending Fitbit activity" copy, no "estimated" badge.
+    expect(screen.queryByText(/pending|estimated|seeded/i)).not.toBeInTheDocument();
   });
 
   it("renders no_weight blocked message", async () => {

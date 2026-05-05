@@ -171,6 +171,7 @@ export const dailyCalorieGoals = pgTable(
     bmiTier: text("bmi_tier"),
     profileVersion: integer("profile_version"),
     weightLoggedDate: date("weight_logged_date"),
+    tdeeSource: text("tdee_source"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

@@ -37,11 +37,9 @@ vi.mock("@/lib/daily-goals", () => ({
   getOrComputeDailyGoals: (...args: unknown[]) => mockGetOrComputeDailyGoals(...args),
   // Local mapper mirroring the real implementation closely enough for these tests.
   mapComputeResultToNutritionGoals: (result: {
-    status: "ok" | "partial" | "blocked";
+    status: "ok" | "blocked";
     goals?: { calorieGoal: number; proteinGoal: number; carbsGoal: number; fatGoal: number };
     audit?: unknown;
-    proteinG?: number;
-    fatG?: number;
     reason?: string;
     weightStale?: boolean;
   }) => {
@@ -54,15 +52,6 @@ vi.mock("@/lib/daily-goals", () => ({
         status: "ok",
         audit: result.audit,
         ...(result.weightStale ? { weightStale: true } : {}),
-      };
-    }
-    if (result.status === "partial") {
-      return {
-        calories: null,
-        proteinG: result.proteinG,
-        carbsG: null,
-        fatG: result.fatG,
-        status: "partial",
       };
     }
     return {
@@ -116,12 +105,6 @@ const OK_RESULT = {
     bmiTier: "ge30" as const,
     goalType: "LOSE" as const,
   },
-};
-
-const PARTIAL_RESULT = {
-  status: "partial" as const,
-  proteinG: 218,
-  fatG: 97,
 };
 
 describe("GET /api/nutrition-goals", () => {
@@ -213,23 +196,6 @@ describe("GET /api/nutrition-goals", () => {
     await GET(createRequest());
 
     expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-03", expect.any(Object));
-  });
-
-  // ─── Status: partial ─────────────────────────────────────────────────────
-  it("returns 200 with partial status when activity has no caloriesOut", async () => {
-    mockGetSession.mockResolvedValue(validSession);
-    mockGetOrComputeDailyGoals.mockResolvedValue(PARTIAL_RESULT);
-
-    const response = await GET(createRequest());
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.data.status).toBe("partial");
-    expect(body.data.calories).toBeNull();
-    expect(body.data.proteinG).toBe(218);
-    expect(body.data.carbsG).toBeNull();
-    expect(body.data.fatG).toBe(97);
-    expect(body.data.audit).toBeUndefined();
   });
 
   // ─── Status: blocked ─────────────────────────────────────────────────────
