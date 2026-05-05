@@ -147,6 +147,19 @@ export async function GET(request: Request) {
       getOrComputeDailyGoals(authResult.userId, date, log),
       loadUserMacroProfileKey(authResult.userId),
     ]);
+
+    // FOO-1031 (PR review): getOrComputeDailyGoals catches FITBIT_SCOPE_MISSING
+    // and returns a resolved blocked/scope_mismatch result rather than throwing.
+    // The external API contract requires 403 here so clients can trigger their
+    // re-auth flow — `mapFitbitError` would never run otherwise.
+    if (result.status === "blocked" && result.reason === "scope_mismatch") {
+      return errorResponse(
+        "FITBIT_SCOPE_MISSING",
+        "Fitbit permissions need updating. Please reconnect your Fitbit account in Settings.",
+        403,
+      );
+    }
+
     const goals = mapComputeResultToNutritionGoals(result);
 
     log.debug(

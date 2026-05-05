@@ -288,11 +288,13 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
   });
 
   // ─── FOO-1026: Fitbit error-code mapping ────────────────────────────────
+  // Note: FITBIT_SCOPE_MISSING is intentionally NOT in this list — getOrComputeDailyGoals
+  // catches it upstream and converts it to a resolved blocked/scope_mismatch result
+  // (see "blocked-status mapping" describe block below for the realistic test).
   describe("Fitbit error mapping", () => {
     const cases: { error: string; status: number; code: string }[] = [
       { error: "FITBIT_CREDENTIALS_MISSING", status: 424, code: "FITBIT_CREDENTIALS_MISSING" },
       { error: "FITBIT_TOKEN_INVALID", status: 401, code: "FITBIT_TOKEN_INVALID" },
-      { error: "FITBIT_SCOPE_MISSING", status: 403, code: "FITBIT_SCOPE_MISSING" },
       { error: "FITBIT_RATE_LIMIT", status: 429, code: "FITBIT_RATE_LIMIT" },
       { error: "FITBIT_TIMEOUT", status: 504, code: "FITBIT_TIMEOUT" },
       { error: "FITBIT_API_ERROR", status: 502, code: "FITBIT_API_ERROR" },
@@ -313,5 +315,29 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
         expect(body.error.code).toBe(code);
       });
     }
+  });
+
+  // ─── FOO-1031: blocked-status → HTTP error mapping (PR review P1) ────────
+  // getOrComputeDailyGoals catches FITBIT_SCOPE_MISSING from underlying Fitbit
+  // calls and returns a *resolved* `blocked/scope_mismatch` ComputeResult — not
+  // a thrown error. The external API contract requires 403 (re-auth signal) for
+  // this case, so the route maps the blocked reason to an HTTP error.
+  describe("blocked-status mapping", () => {
+    it("maps blocked/scope_mismatch → 403 FITBIT_SCOPE_MISSING", async () => {
+      mockGetOrComputeDailyGoals.mockResolvedValue({
+        status: "blocked",
+        reason: "scope_mismatch",
+      });
+
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?date=2026-05-04",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+      const body = await response.json();
+
+      expect(response.status).toBe(403);
+      expect(body.error.code).toBe("FITBIT_SCOPE_MISSING");
+    });
   });
 });
