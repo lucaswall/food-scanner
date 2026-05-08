@@ -334,6 +334,17 @@ async function doCompute(
           deficitKcal:       engineOut.deficitKcal,
           updatedAt:         new Date(),
         },
+        // FOO-1066: only overwrite a stored row if its settings match what we
+        // computed with. Prevents a stale doCompute (using pre-PATCH settings)
+        // from overwriting a fresher row written by a subsequent compute that
+        // already used the new settings. Without this guard, range-mode reads
+        // could surface stale `ok` targets between the stale write and the
+        // next single-date read that triggers a settings-drift recompute.
+        setWhere: and(
+          eq(dailyCalorieGoals.activityLevel, userActivityLevel),
+          eq(dailyCalorieGoals.goalWeightKg, userGoalWeightKg),
+          eq(dailyCalorieGoals.goalRateKgPerWeek, userGoalRateKgPerWeek),
+        ),
       });
 
     l.info(

@@ -514,6 +514,39 @@ describe("getOrComputeDailyGoals — past-date row stability under settings drif
   });
 });
 
+// ─── FOO-1066: setWhere guard against stale-compute overwrite ────────────────
+describe("getOrComputeDailyGoals — UPSERT setWhere guard (FOO-1066)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.update.mockReset();
+    mockDb.delete.mockReset();
+  });
+
+  it("includes a setWhere clause matching the input settings to prevent stale-compute overwrites", async () => {
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([]);
+    mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
+    mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    const { onConflictDoUpdate } = mockUpsertOnce();
+
+    await getOrComputeDailyGoals("user-1", "2026-05-08");
+
+    expect(onConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        setWhere: expect.anything(),
+      }),
+    );
+    // Mocked drizzle helpers serialize `eq(col, val)` to `eq:val` and
+    // `and(...args)` to `and:(arg1,arg2,...)`. Verify the setWhere is the
+    // full and/eq composition with our exact input settings, in order.
+    // Substring matches would be ambiguous (e.g. "eq:70" ⊂ "eq:700").
+    const args = onConflictDoUpdate.mock.calls[0][0] as { setWhere: unknown };
+    expect(String(args.setWhere)).toBe("and:(eq:moderate,eq:70,eq:0.5)");
+  });
+});
+
 // ─── FOO-1062: migration-cutover safety — past row visible under null users.* ─
 describe("getOrComputeDailyGoals — past-date row visible under null user settings (FOO-1062)", () => {
   beforeEach(() => {

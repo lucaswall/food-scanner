@@ -58,14 +58,32 @@ export async function buildUserProfile(
 ): Promise<string | null> {
   const l = options?.log ?? logger;
 
-  const [goalsResult, nutritionSummary, topFoods] = await Promise.all([
-    getOrComputeDailyGoals(userId, currentDate, l),
+  // FOO-1064: goals are optional enrichment for the chat profile. Isolate the
+  // goal-compute promise so a transient Fitbit error (token invalid, rate
+  // limited, timeout) does not discard the DB-only nutrition summary and
+  // top-foods context, which may have succeeded.
+  const [goalsSettled, nutritionSummary, topFoods] = await Promise.all([
+    getOrComputeDailyGoals(userId, currentDate, l).then(
+      (value) => ({ ok: true as const, value }),
+      (err: unknown) => {
+        l.warn(
+          {
+            action: "build_user_profile_goals_failed",
+            userId,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          "goal compute threw — degrading to base profile without targets",
+        );
+        return { ok: false as const };
+      },
+    ),
     getDailyNutritionSummary(userId, currentDate),
     getTopFoodsByFrequency(userId, currentDate),
   ]);
 
-  const calorieGoal = goalsResult.status === "ok" ? goalsResult.goals.calorieGoal : null;
-  const hasGoals = goalsResult.status === "ok";
+  const goalsResult = goalsSettled.ok ? goalsSettled.value : null;
+  const calorieGoal = goalsResult?.status === "ok" ? goalsResult.goals.calorieGoal : null;
+  const hasGoals = goalsResult?.status === "ok";
   const hasProgress = nutritionSummary.totals.calories > 0;
   const hasMeals = nutritionSummary.meals.some((g) => g.entries.length > 0);
   const hasTopFoods = topFoods.length > 0;
@@ -79,7 +97,7 @@ export async function buildUserProfile(
   const sections: string[] = [];
 
   // Section 1: Goals (highest priority)
-  if (calorieGoal !== null && calorieGoal > 0 && goalsResult.status === "ok") {
+  if (calorieGoal !== null && calorieGoal > 0 && goalsResult?.status === "ok") {
     const { proteinGoal, carbsGoal, fatGoal } = goalsResult.goals;
     if (proteinGoal > 0 && carbsGoal > 0 && fatGoal > 0) {
       sections.push(
@@ -88,7 +106,7 @@ export async function buildUserProfile(
     } else {
       sections.push(`Targets ${calorieGoal} cal/day`);
     }
-  } else if (goalsResult.status === "blocked" && goalsResult.reason === "goals_not_set") {
+  } else if (goalsResult?.status === "blocked" && goalsResult.reason === "goals_not_set") {
     // User hasn't declared their activity level / goal weight / goal rate yet.
     sections.push("Targets pending — set up daily goals in Settings");
   }

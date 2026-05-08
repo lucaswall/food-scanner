@@ -383,4 +383,41 @@ describe("buildUserProfile", () => {
     expect(result).toContain("2000 cal/day");
     expect(result).not.toContain("Current time:");
   });
+
+  // FOO-1064: goal compute throwing must NOT discard DB-only food context
+  it("preserves nutrition summary and top foods when getOrComputeDailyGoals throws (FOO-1064)", async () => {
+    // Simulate a Fitbit-side error like FITBIT_TOKEN_INVALID propagating from
+    // getOrComputeDailyGoals. Without the Promise.all isolation, this would
+    // reject buildUserProfile entirely and discard the DB-only context.
+    mockGetOrComputeDailyGoals.mockRejectedValueOnce(new Error("FITBIT_TOKEN_INVALID"));
+    mockGetNutritionSummary.mockResolvedValue({
+      date: TEST_DATE,
+      meals: [
+        { mealTypeId: 1, entries: [{ foodName: "Café con leche", calories: 90 }], totals: { calories: 90, proteinG: 5, carbsG: 10, fatG: 3, fiberG: 0, sodiumMg: 50, saturatedFatG: 2, transFatG: 0, sugarsG: 8, caloriesFromFat: 27 } },
+      ],
+      totals: { calories: 90, proteinG: 5, carbsG: 10, fatG: 3, fiberG: 0, sodiumMg: 50, saturatedFatG: 2, transFatG: 0, sugarsG: 8, caloriesFromFat: 27 },
+    });
+    mockLimit.mockResolvedValue([{ foodName: "Medialunas", calories: 180, count: 32 }]);
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Today so far: 90 cal");
+    expect(result).toContain("Café con leche");
+    expect(result).toContain("Medialunas");
+    // No Targets line (goal compute failed) and no "Targets pending" message
+    expect(result).not.toContain("Targets ");
+    expect(result).not.toContain("Targets pending");
+  });
+
+  it("returns null when goal compute throws AND user has no DB-side data either (FOO-1064)", async () => {
+    mockGetOrComputeDailyGoals.mockRejectedValueOnce(new Error("FITBIT_RATE_LIMIT_LOW"));
+    // default mocks: no nutrition, no top foods, no meals
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).toBeNull();
+  });
 });

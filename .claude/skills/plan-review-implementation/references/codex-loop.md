@@ -71,9 +71,21 @@ unresolved.
 
 Evaluate in order — first match wins:
 
-#### 3a. 👍 reaction present
+#### 3a. 👍 reaction present AND latest review is on HEAD_SHA AND zero unresolved threads
 **Action:** STOP — proceed to step 4 (merge phase). Codex has signalled
-clean review.
+clean review of the current HEAD.
+
+All three conditions must hold:
+- `THUMBS == true` (PR has 👍 from `chatgpt-codex-connector`).
+- `LATEST_REVIEW.commit == HEAD_SHA` (the most recent Codex review is for
+  the current HEAD, not a stale predecessor — PR-level reactions persist
+  across pushes, so a 👍 on commit A would otherwise leak forward to a
+  later, unreviewed commit B).
+- Zero unresolved review threads (any open thread overrides the reaction).
+
+If any check fails, fall through to 3b. Step 4's merge phase re-verifies
+threads as a backstop, but trusting only the reaction here would skip the
+"New findings on HEAD" branch entirely — which is what this guard prevents.
 
 #### 3b. New findings on HEAD (top-level review body OR open threads)
 **Action:** Assess each finding for validity, then fix or resolve.
