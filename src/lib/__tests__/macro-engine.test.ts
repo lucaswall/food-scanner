@@ -122,6 +122,18 @@ describe("computeMacroTargets — input validation", () => {
     it("throws on NaN ageYears", () => {
       expect(() => computeMacroTargets({ ...baseInputs, ageYears: NaN })).toThrow("INVALID_PROFILE_DATA");
     });
+
+    it("throws when goalWeightKg is 0", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, goalWeightKg: 0 })).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws on NaN goalWeightKg", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, goalWeightKg: NaN })).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws on Infinity goalWeightKg", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, goalWeightKg: Infinity })).toThrow("INVALID_PROFILE_DATA");
+    });
   });
 
   describe("INVALID_GOAL_RATE", () => {

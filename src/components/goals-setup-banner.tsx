@@ -2,18 +2,9 @@ import Link from "next/link";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { NutritionGoals } from "@/types";
 
-/**
- * Reason values from NutritionGoals["reason"] — defined locally so this
- * component compiles before Worker 1 lands the updated @/types definition.
- */
-export type GoalBlockedReason =
-  | "goals_not_set"
-  | "no_weight"
-  | "sex_unset"
-  | "scope_mismatch"
-  | "invalid_profile"
-  | "invalid_activity";
+export type GoalBlockedReason = NonNullable<NutritionGoals["reason"]>;
 
 const REASON_MESSAGES: Record<GoalBlockedReason, string> = {
   goals_not_set: "Set up your daily goals in Settings to see your targets.",
@@ -22,7 +13,6 @@ const REASON_MESSAGES: Record<GoalBlockedReason, string> = {
   scope_mismatch: "Reconnect Fitbit to enable targets.",
   invalid_profile:
     "Your Fitbit profile has invalid values — update it in the Fitbit app.",
-  invalid_activity: "Fitbit returned invalid activity data — try again later.",
 };
 
 interface GoalsSetupBannerProps {

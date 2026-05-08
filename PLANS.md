@@ -488,3 +488,73 @@
 - v1 API audit-block shape change is breaking for external consumers (e.g., HealthHelper). Acceptable per project's "delete unused code immediately" stance.
 - Past-date dashboard views will show partial audit data (only RMR + Weight) for entries written by the old engine. UI handles gracefully by rendering only non-null rows.
 - Migration is sizable (drop + add 14 columns total + DELETE step). The DELETE statement must be appended to the drizzle-kit-generated SQL by hand because drizzle-kit emits DDL only.
+
+---
+
+## Iteration 1
+
+**Implemented:** 2026-05-08
+**Method:** Agent team (4 workers, worktree-isolated)
+
+### Tasks Completed This Iteration
+- Task 1 (FOO-1040): Schema migration — schema.ts + types/index.ts + MIGRATIONS.md (worker-1)
+- Task 2 (FOO-1041): Rewrote macro-engine.ts — declared PAL, rate-anchored deficit, no safety clamp (worker-1)
+- Task 3 (FOO-1042): Rewrote daily-goals.ts — single idempotent compute, dropped ratchet/seed/promote (worker-1)
+- Task 4 (FOO-1043): New /api/daily-goals-settings GET/PATCH; deleted /api/macro-profile (worker-2)
+- Task 5 (FOO-1044): DailyGoalsCard component with live target preview + safety-floor warning; deleted MacroProfileCard (worker-2)
+- Task 6 (FOO-1045): TargetsCard rewrite — no expand toggle; inline audit fields with non-null guards (worker-3)
+- Task 7 (FOO-1046): GoalsSetupBanner + dashboard gate (worker-3)
+- Task 8 (FOO-1047, **partial**): ROADMAP.md cleanup landed; fitbit-cache.ts/fitbit.ts cleanup deferred (live callers in /api/fitbit/profile and /api/v1/activity-summary remain) (worker-4 + lead)
+- Task 9 (FOO-1048): Updated user-profile.ts, chat-tools.ts tests, food-log.ts (range mode), nutrition-goals + v1/nutrition-goals routes for new audit shape and goals_not_set reason (worker-4)
+- Task 10 (FOO-1049): New e2e/tests/goal-anchored-engine.spec.ts (smoke-level: banner, DailyGoalsCard, TargetsCard inline); deleted old e2e/tests/macro-engine.spec.ts (lead post-merge)
+
+### Files Modified
+- Schema/types: src/db/schema.ts, src/types/index.ts, drizzle/0026_goal_anchored_engine.sql, drizzle/meta/0026_snapshot.json, drizzle/meta/_journal.json, MIGRATIONS.md
+- Engine/service: src/lib/macro-engine.ts, src/lib/daily-goals.ts, src/lib/users.ts (helpers added)
+- API routes: src/app/api/daily-goals-settings/route.ts (created), src/app/api/macro-profile/route.ts (deleted), src/app/api/v1/nutrition-goals/route.ts
+- UI: src/components/daily-goals-card.tsx (created), src/components/macro-profile-card.tsx (deleted), src/components/targets-card.tsx, src/components/goals-setup-banner.tsx (created), src/components/daily-dashboard.tsx, src/components/settings-content.tsx
+- Integration: src/lib/user-profile.ts, src/lib/__tests__/chat-tools.test.ts, src/app/api/nutrition-goals/__tests__/route.test.ts, src/app/api/v1/nutrition-goals/__tests__/route.test.ts, src/lib/__tests__/user-profile.test.ts
+- Tests: associated __tests__ files for every module above
+- E2E: e2e/tests/goal-anchored-engine.spec.ts (created), e2e/tests/macro-engine.spec.ts (deleted), e2e/tests/dashboard.spec.ts (Settings link selectors disambiguated)
+- Docs: ROADMAP.md (Calorie Target Formula Review section removed), MIGRATIONS.md (entry added)
+
+### Linear Updates
+- FOO-1040: Todo → In Progress → Review
+- FOO-1041: Todo → In Progress → Review
+- FOO-1042: Todo → In Progress → Review
+- FOO-1043: Todo → In Progress → Review
+- FOO-1044: Todo → In Progress → Review
+- FOO-1045: Todo → In Progress → Review
+- FOO-1046: Todo → In Progress → Review
+- FOO-1047: Todo → In Progress → Review (partial — see Tasks Remaining)
+- FOO-1048: Todo → In Progress → Review
+- FOO-1049: Todo → In Progress → Review
+
+### Pre-commit Verification
+- bug-hunter: Found 5 issues (2 Major, 3 Minor) — all fixed before final verification:
+  1. Major: `goalWeightKg` not validated in computeMacroTargets — added to INVALID_PROFILE_DATA guard.
+  2. Major: Stale `NewAudit` local interface in targets-card.tsx — replaced with canonical `NutritionGoalsAudit`.
+  3. Minor: Stale `as RangeEntry["reason"]` casts in v1/nutrition-goals/route.ts — removed.
+  4. Minor: Stale audit fixture in daily-dashboard.test.tsx (line 252) — updated to new shape.
+  5. Minor: `invalid_activity` dead reason — removed from union, banner, REASON_MESSAGES, and tests (no path produces it after engine rewrite).
+- verifier: 3491 unit tests pass, lint clean, build clean, 144 E2E tests pass.
+
+### Work Partition
+- Worker 1: Tasks 1, 2, 3 (foundation — schema, engine, service)
+- Worker 2: Tasks 4, 5 (settings — API + DailyGoalsCard)
+- Worker 3: Tasks 6, 7 (dashboard UI — TargetsCard inline + GoalsSetupBanner)
+- Worker 4: Tasks 8, 9 (cleanup + integration — chat/profile/v1, fitbit-cache)
+- Lead post-merge: drizzle-kit generate (Task 1's generated artifacts), Task 10 (E2E spec), bug-hunter fixes, fitbit-cache cleanup investigation
+
+### Merge Summary
+- Worker 1: fast-forward (no conflicts)
+- Worker 2: ort merge, no conflicts (zero file overlap with worker-1's owned files)
+- Worker 3: ort merge, no conflicts
+- Worker 4: ort merge, no conflicts
+- Cross-worker type errors at intermediate stages all resolved by subsequent merges. Lead added back `FitbitWeightGoal` to src/types/index.ts because /api/fitbit/profile and /api/v1/activity-summary still consume the old Fitbit cache helpers — Worker-1's preemptive type drop was incorrect given those callers.
+
+### Tasks Remaining
+- **Task 8 (FOO-1047) partial — fitbit-cache cleanup deferred.** `getCachedFitbitWeightGoal`, `getFitbitWeightGoal`, `getCachedActivitySummary`, `getActivitySummary` still have live callers in `src/app/api/fitbit/profile/route.ts` (Settings page) and `src/app/api/v1/activity-summary/route.ts` (external API). The plan assumed daily-goals.ts was the only consumer — incorrect. Decision needed: either retire the consuming features or accept the helpers as long-lived for those features. Recommend the latter — they serve unrelated functionality and the cleanup goal was scoping to the engine rework.
+
+### Continuation Status
+Goal-anchored engine rework substantively complete. All 10 task IDs in Review. The remaining Task 8 cleanup is a scope-decision for follow-up, not a blocker for release.

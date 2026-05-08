@@ -72,7 +72,8 @@ export function computeMacroTargets(inputs: MacroEngineInputs): MacroEngineOutpu
   if (
     !Number.isFinite(ageYears)  || ageYears  <= 0 ||
     !Number.isFinite(heightCm)  || heightCm  <= 0 ||
-    !Number.isFinite(currentWeightKg) || currentWeightKg <= 0
+    !Number.isFinite(currentWeightKg) || currentWeightKg <= 0 ||
+    !Number.isFinite(goalWeightKg) || goalWeightKg <= 0
   ) {
     throw new Error("INVALID_PROFILE_DATA");
   }

@@ -249,7 +249,18 @@ const mockGoalsOk = {
   carbsG: 200,
   fatG: 70,
   status: "ok" as const,
-  audit: { rmr: 1500, activityKcal: 400, tdee: 1900, weightKg: 70, bmiTier: "normal", goalType: "maintenance" },
+  audit: {
+    rmr: 1500,
+    palMultiplier: 1.55,
+    tdee: 1900,
+    weightKg: "70",
+    weightLoggedDate: "2026-05-08",
+    activityLevel: "moderate" as const,
+    goalWeightKg: 70,
+    goalRateKgPerWeek: 0,
+    deficitKcal: 0,
+    direction: "MAINTAIN" as const,
+  },
 };
 
 function renderDailyDashboard() {

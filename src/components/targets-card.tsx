@@ -31,28 +31,9 @@ function getBlockedMessage(reason?: string): string {
       return "Reconnect Fitbit to enable macro targets.";
     case "invalid_profile":
       return "Your Fitbit profile has invalid values (height, weight, or age). Update it in the Fitbit app.";
-    case "invalid_activity":
-      return "Fitbit returned invalid activity data. Try again later or check the Fitbit app.";
     default:
       return "Macro targets unavailable.";
   }
-}
-
-/**
- * New NutritionGoalsAudit shape (Task 1 updates @/types; until merged we cast here).
- * Fields added by the new engine; historical rows from the old engine will have nulls.
- */
-interface NewAudit {
-  rmr: number | null;
-  palMultiplier: number | null;
-  tdee: number | null;
-  weightKg: string | null;
-  weightLoggedDate: string | null;
-  activityLevel: string | null;
-  goalWeightKg: number | null;
-  goalRateKgPerWeek: number | null;
-  deficitKcal: number | null;
-  direction: string | null;
 }
 
 export function TargetsCard({ date }: TargetsCardProps) {
@@ -104,8 +85,7 @@ export function TargetsCard({ date }: TargetsCardProps) {
   }
 
   // status === "ok"
-  // Cast to new audit shape — Worker 1 will update @/types to match.
-  const audit = goals.audit as NewAudit | undefined;
+  const audit = goals.audit;
 
   const weightAgeDays =
     audit?.weightLoggedDate != null

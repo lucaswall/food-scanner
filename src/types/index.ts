@@ -346,12 +346,11 @@ export interface NutritionSummary {
 }
 
 export interface ActivitySummary {
-  /**
-   * May be null when Fitbit hasn't recorded activity yet (e.g., earliest
-   * minutes after midnight). The macro engine seeds a value (history median or
-   * RMR × 1.4 default) in that case rather than reporting an unusable target.
-   */
   caloriesOut: number | null;
+}
+
+export interface FitbitWeightGoal {
+  goalType: "LOSE" | "MAINTAIN" | "GAIN";
 }
 
 export interface ClaudeUsageRecord {
@@ -631,7 +630,6 @@ export interface NutritionGoals {
     | "sex_unset"
     | "scope_mismatch"
     | "invalid_profile"
-    | "invalid_activity"
     | "goals_not_set";
   audit?: NutritionGoalsAudit;
   /** True when the Fitbit weight log used was logged > 7 days before the target date (FOO-1010). */

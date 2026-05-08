@@ -13,8 +13,9 @@ test.describe('Dashboard', () => {
     // Verify dashboard loaded (no heading — removed in FOO-684)
     await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
 
-    // Verify Settings link in dashboard body
-    await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
+    // Verify Settings link in dashboard body (exact match — distinguishes
+    // from the GoalsSetupBanner's "Open Settings" CTA when goals are blocked).
+    await expect(page.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
 
     // Capture screenshot
     await page.waitForLoadState('networkidle');
@@ -58,8 +59,10 @@ test.describe('Dashboard', () => {
   test('action links navigate to correct pages', async ({ page }) => {
     await page.goto('/app');
 
-    // Click Settings gear icon and verify navigation to /settings
-    await page.getByRole('link', { name: 'Settings' }).click();
+    // Click Settings gear icon and verify navigation to /settings.
+    // Use exact match so we don't accidentally click the GoalsSetupBanner CTA
+    // ("Open Settings") that appears when the test user's goals are not set.
+    await page.getByRole('link', { name: 'Settings', exact: true }).click();
     await expect(page).toHaveURL('/settings');
   });
 

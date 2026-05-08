@@ -128,8 +128,6 @@ export async function GET(request: Request) {
         const date = new Date(ms).toISOString().slice(0, 10);
         const row = rowByDate.get(date);
         if (!row) {
-          // "goals_not_set" is added to the reason union by FOO-1041 (Worker 1).
-          // Cast required until that branch is merged.
           entries.push({
             date,
             calories: null,
@@ -137,7 +135,7 @@ export async function GET(request: Request) {
             carbsG: null,
             fatG: null,
             status: "blocked",
-            reason: "goals_not_set" as RangeEntry["reason"],
+            reason: "goals_not_set",
           });
           continue;
         }
@@ -149,7 +147,7 @@ export async function GET(request: Request) {
           carbsG: row.carbsGoal,
           fatG: row.fatGoal,
           status: computed ? "ok" : "blocked",
-          ...(computed ? {} : { reason: "goals_not_set" as RangeEntry["reason"] }),
+          ...(computed ? {} : { reason: "goals_not_set" as const }),
         });
       }
 

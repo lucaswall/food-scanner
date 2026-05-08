@@ -57,13 +57,6 @@ describe("GoalsSetupBanner", () => {
     ).toBeInTheDocument();
   });
 
-  it("maps invalid_activity → correct message", () => {
-    render(<GoalsSetupBanner reason="invalid_activity" />);
-    expect(
-      screen.getByText(/Fitbit returned invalid activity data — try again later\./i)
-    ).toBeInTheDocument();
-  });
-
   // Structural assertions
   it("renders an element with role=alert", () => {
     render(<GoalsSetupBanner reason="goals_not_set" />);
@@ -92,7 +85,6 @@ describe("GoalsSetupBanner", () => {
       "sex_unset",
       "scope_mismatch",
       "invalid_profile",
-      "invalid_activity",
     ] as const;
     for (const reason of reasons) {
       const { unmount } = render(<GoalsSetupBanner reason={reason} />);
