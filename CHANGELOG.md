@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-05-08
+
+### Added
+
+- Goal-anchored calorie & macro engine — calorie targets are now derived from declared activity level (PAL) and a goal-anchored deficit (current weight, goal weight, weekly rate) instead of Fitbit's running `caloriesOut`. Targets are stable from morning to night and identical across devices.
+- `DailyGoalsCard` on Settings — set activity level (sedentary/light/moderate/very_active/extra_active), goal weight, and weekly rate; shows live target preview and a safety-floor warning when the rate produces calories below the safe floor.
+- `GoalsSetupBanner` on the dashboard — appears when goals aren't configured, directing users to Settings.
+- Audit snapshot on every `daily_calorie_goals` row — `activity_level`, `goal_weight_kg`, `goal_rate_kg_per_week`, `tdee`, `deficit_kcal`. Today's Targets card shows all audit fields inline (no expand-on-tap).
+
+### Changed
+
+- **BREAKING:** `/api/v1/nutrition-goals` audit block reshaped — replaces `caloriesOut`/`activityKcal`/`bmiTier`/`goalType`/`profileVersion`/`tdeeSource` with `activityLevel`/`goalWeightKg`/`goalRateKgPerWeek`/`tdee`/`deficitKcal`. Range mode now distinguishes `not_computed` (configured user, gap to fill) from `goals_not_set` (no settings yet).
+- Past-date `daily_calorie_goals` rows are immutable — historical targets are always returned as stored, regardless of current settings drift.
+
+### Removed
+
+- `/api/macro-profile` route (replaced by `/api/daily-goals-settings`).
+- Macro profile selector (MUSCLE_PRESERVE / METABOLIC_FLEX), BMI-tier protein logic, and body-fat input.
+- Schema columns: `users.macro_profile`, `users.macro_profile_version`, `daily_calorie_goals.calories_out`/`activity_kcal`/`bmi_tier`/`goal_type`/`profile_version`/`tdee_source`.
+- Cache-hit ratchet recompute, seeded-row promotion, and 7-day TDEE median seed — replaced by a single idempotent compute path.
+
+### Fixed
+
+- Daily ratchet — calorie target no longer drifts upward throughout the day as Fitbit `caloriesOut` accumulates.
+- Race-safe writes in the compute path — settings-anchored CAS predicate prevents stale computes from overwriting fresher rows after settings invalidation.
+
+### Migration
+
+- Drizzle migration `0026_goal_anchored_engine.sql` runs at deploy startup — drops the listed columns, adds the new ones (all nullable), and clears today/future `daily_calorie_goals` rows so the new engine recomputes fresh values. Historical rows keep their `calorie_goal`/macro values; new audit columns read NULL for them (handled by the UI). All users start with NULL settings and will see the goals-setup banner until they configure their goals.
+
 ## [2.1.1] - 2026-05-05
 
 ### Fixed
@@ -550,7 +580,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dark mode with system preference detection
 - Mobile-first PWA with Add to Home Screen support
 
-[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v2.1.1...HEAD
+[Unreleased]: https://github.com/lucaswall/food-scanner/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/lucaswall/food-scanner/compare/v2.1.1...v3.0.0
 [2.1.1]: https://github.com/lucaswall/food-scanner/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/lucaswall/food-scanner/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/lucaswall/food-scanner/compare/v1.25.1...v2.0.0
