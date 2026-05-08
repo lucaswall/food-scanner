@@ -306,6 +306,57 @@ async function doCompute(
       goalRateKgPerWeek: parseFloat(userGoalRateKgPerWeek),
     });
 
+    // FOO-1070: re-read users.* immediately before the write to catch a
+    // settings PATCH that fired during our compute. Without this, a stale
+    // doCompute racing with a settings PATCH could write its pre-PATCH input:
+    // the setWhere CAS only protects the conflict path, but if the PATCH's
+    // invalidation DELETED the row, the INSERT bypasses conflict entirely.
+    // The recheck closes the conflict-time race; the residual recheck→INSERT
+    // µs window is acceptable for the family-scale workload.
+    const freshUserRows = await getDb()
+      .select({
+        activityLevel:     users.activityLevel,
+        goalWeightKg:      users.goalWeightKg,
+        goalRateKgPerWeek: users.goalRateKgPerWeek,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+    const fresh = freshUserRows[0];
+    const stillFresh =
+      fresh !== undefined &&
+      fresh.activityLevel     === userActivityLevel &&
+      fresh.goalWeightKg      === userGoalWeightKg &&
+      fresh.goalRateKgPerWeek === userGoalRateKgPerWeek;
+
+    if (!stillFresh) {
+      l.debug(
+        { action: "daily_goals_compute_skipped_write_drift", userId, date },
+        "settings drifted during compute — returning fresh values without persisting",
+      );
+      return {
+        status: "ok",
+        goals: {
+          calorieGoal: engineOut.targetKcal,
+          proteinGoal: engineOut.proteinG,
+          carbsGoal:   engineOut.carbsG,
+          fatGoal:     engineOut.fatG,
+        },
+        audit: {
+          rmr:               engineOut.rmr,
+          palMultiplier:     engineOut.palMultiplier,
+          tdee:              engineOut.tdee,
+          weightKg:          String(weightLog.weightKg),
+          weightLoggedDate:  weightLog.loggedDate,
+          activityLevel:     userActivityLevel as ActivityLevel,
+          goalWeightKg:      parseFloat(userGoalWeightKg),
+          goalRateKgPerWeek: parseFloat(userGoalRateKgPerWeek),
+          deficitKcal:       engineOut.deficitKcal,
+          direction:         engineOut.direction,
+        },
+        ...(computeWeightStale(date, weightLog.loggedDate) ? { weightStale: true } : {}),
+      };
+    }
+
     // ── Step 5: UPSERT ───────────────────────────────────────────────────────
     await getDb()
       .insert(dailyCalorieGoals)

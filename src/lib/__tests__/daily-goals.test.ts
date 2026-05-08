@@ -52,8 +52,20 @@ function mockSelectOnce(rows: Record<string, unknown>[] = []) {
   return { where };
 }
 
-/** Queue an `insert().values().onConflictDoUpdate(...)`. */
-function mockUpsertOnce() {
+/**
+ * Queue the recheck `select(...).from(users)` (FOO-1070) followed by the
+ * `insert().values().onConflictDoUpdate(...)`. The recheck is the users.*
+ * read that doCompute does immediately before the UPSERT to guard against
+ * settings drift during compute. By default returns USER_SETTINGS so the
+ * recheck succeeds; pass `rechecks: []` or different settings to simulate
+ * drift.
+ */
+function mockUpsertOnce(
+  rechecks: Record<string, unknown>[] = [USER_SETTINGS],
+) {
+  // Recheck SELECT — happens between Step 4 and Step 5 in doCompute
+  mockSelectOnce(rechecks);
+
   const onConflictDoUpdate = vi.fn().mockResolvedValueOnce(undefined);
   const values = vi.fn().mockReturnValue({ onConflictDoUpdate });
   mockDb.insert.mockReturnValueOnce({ values });
@@ -348,11 +360,12 @@ describe("getOrComputeDailyGoals — fresh compute path", () => {
   });
 
   it("passes user settings to computeMacroTargets (activityLevel, goalWeightKg, goalRateKgPerWeek)", async () => {
-    mockSelectOnce([{ activityLevel: "light", goalWeightKg: "75", goalRateKgPerWeek: "0.3" }]);
+    const customSettings = { activityLevel: "light", goalWeightKg: "75", goalRateKgPerWeek: "0.3" };
+    mockSelectOnce([customSettings]);
     mockSelectOnce([]);
     mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
     mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
-    mockUpsertOnce();
+    mockUpsertOnce([customSettings]);
 
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
     expect(result.status).toBe("ok");
@@ -518,6 +531,50 @@ describe("getOrComputeDailyGoals — past-date row stability under settings drif
   });
 });
 
+// ─── FOO-1070: skip write when settings drift between compute and persist ────
+describe("getOrComputeDailyGoals — recheck users.* before write (FOO-1070)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.update.mockReset();
+    mockDb.delete.mockReset();
+  });
+
+  it("returns fresh values without UPSERTing when users.* drifted during compute", async () => {
+    // Step 1: initial users read returns moderate
+    mockSelectOnce([USER_SETTINGS]);
+    // Step 2: no existing row
+    mockSelectOnce([]);
+    mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
+    mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    // Recheck: users.* now returns DIFFERENT settings (PATCH happened mid-compute)
+    mockSelectOnce([{ activityLevel: "light", goalWeightKg: "75", goalRateKgPerWeek: "0.3" }]);
+    // Note: no mockUpsertOnce — UPSERT should be SKIPPED
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
+
+    // Returns fresh computed values to caller
+    expect(result.status).toBe("ok");
+    // But did NOT write to the DB — stale write is the bug being prevented
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("returns fresh values without UPSERTing when users row was deleted during compute (no recheck row)", async () => {
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([]);
+    mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
+    mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    // Recheck: users row is gone (defensively handled — `fresh === undefined`)
+    mockSelectOnce([]);
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
+
+    expect(result.status).toBe("ok");
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+});
+
 // ─── FOO-1066/1067/1068: setWhere atomic compare-and-swap on users.* ─────────
 describe("getOrComputeDailyGoals — UPSERT setWhere CAS (FOO-1066/1067/1068)", () => {
   beforeEach(() => {
@@ -608,11 +665,12 @@ describe("getOrComputeDailyGoals — MAINTAIN direction (FOO-1054)", () => {
 
   it("Case A: goalWeightKg === currentWeightKg → MAINTAIN with deficitKcal=0", async () => {
     // Current weight 80, goal weight 80 → MAINTAIN regardless of rate
-    mockSelectOnce([{ activityLevel: "moderate", goalWeightKg: "80", goalRateKgPerWeek: "0.5" }]);
+    const settingsA = { activityLevel: "moderate", goalWeightKg: "80", goalRateKgPerWeek: "0.5" };
+    mockSelectOnce([settingsA]);
     mockSelectOnce([]);
     mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
     mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG); // 80kg
-    const { values } = mockUpsertOnce();
+    const { values } = mockUpsertOnce([settingsA]);
 
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
     expect(result.status).toBe("ok");
@@ -625,11 +683,12 @@ describe("getOrComputeDailyGoals — MAINTAIN direction (FOO-1054)", () => {
 
   it("Case B: goalRateKgPerWeek=0 → MAINTAIN even with mismatched weights", async () => {
     // Current 80, goal 70, rate 0 → MAINTAIN (rate forces it)
-    mockSelectOnce([{ activityLevel: "moderate", goalWeightKg: "70", goalRateKgPerWeek: "0" }]);
+    const settingsB = { activityLevel: "moderate", goalWeightKg: "70", goalRateKgPerWeek: "0" };
+    mockSelectOnce([settingsB]);
     mockSelectOnce([]);
     mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
     mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
-    const { values } = mockUpsertOnce();
+    const { values } = mockUpsertOnce([settingsB]);
 
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
     expect(result.status).toBe("ok");
