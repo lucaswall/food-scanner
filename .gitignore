@@ -42,6 +42,8 @@ e2e/.auth/
 # Claude Code local settings (personal overrides)
 .claude/settings.local.json
 .claude/agent-memory/
+.claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
 
 # Production migration backups
 _migrations/
