@@ -18,12 +18,10 @@ vi.mock("@/lib/logger", () => {
 
 const mockGetOrComputeDailyGoals = vi.fn();
 const mockMapComputeResultToNutritionGoals = vi.fn();
-const mockLoadUserMacroProfileKey = vi.fn();
 vi.mock("@/lib/daily-goals", () => ({
   getOrComputeDailyGoals: (...args: unknown[]) => mockGetOrComputeDailyGoals(...args),
   mapComputeResultToNutritionGoals: (...args: unknown[]) =>
     mockMapComputeResultToNutritionGoals(...args),
-  loadUserMacroProfileKey: (...args: unknown[]) => mockLoadUserMacroProfileKey(...args),
 }));
 
 const mockGetDailyGoalsByDateRange = vi.fn();
@@ -55,7 +53,6 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
     vi.clearAllMocks();
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
-    mockLoadUserMacroProfileKey.mockResolvedValue("muscle_preserve");
     mockMapComputeResultToNutritionGoals.mockImplementation((result) => {
       if (result.status === "ok") {
         return {
@@ -133,7 +130,7 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       expect(body.data.date).toBe("2026-05-04");
       expect(body.data.calories).toBe(2289);
       expect(body.data.proteinG).toBe(218);
-      expect(body.data.profileKey).toBe("muscle_preserve");
+      expect(body.data).not.toHaveProperty("profileKey");
       expect(body.data.status).toBe("ok");
       expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith("user-123", "2026-05-04", expect.any(Object));
     });
@@ -199,8 +196,8 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       expect(body.data.entries[0].status).toBe("ok");
       expect(body.data.entries[2].calories).toBeNull();
       expect(body.data.entries[2].status).toBe("blocked");
-      expect(body.data.entries[2].reason).toBe("not_computed");
-      expect(body.data.profileKey).toBe("muscle_preserve");
+      expect(body.data.entries[2].reason).toBe("goals_not_set");
+      expect(body.data).not.toHaveProperty("profileKey");
       // Should NOT call the engine for any of the days
       expect(mockGetOrComputeDailyGoals).not.toHaveBeenCalled();
     });
@@ -255,8 +252,8 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       expect(response.status).toBe(400);
     });
 
-    // ─── FOO-1033 (PR review P1): gap-fill missing dates as not_computed ────
-    it("emits blocked/not_computed entries for dates with no row in range (gap-fill)", async () => {
+    // ─── FOO-1033 (PR review P1): gap-fill missing dates as goals_not_set ───
+    it("emits blocked/goals_not_set entries for dates with no row in range (gap-fill)", async () => {
       // DB has rows for only 2 of the 4 days in the requested range. Without
       // gap-fill, clients see 2 entries and get the timeline misaligned.
       mockGetDailyGoalsByDateRange.mockResolvedValue([
@@ -288,7 +285,7 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
         carbsG: null,
         fatG: null,
         status: "blocked",
-        reason: "not_computed",
+        reason: "goals_not_set",
       });
       // 2026-05-02: present, computed
       expect(body.data.entries[1]).toMatchObject({
@@ -300,7 +297,7 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       expect(body.data.entries[2]).toMatchObject({
         date: "2026-05-03",
         status: "blocked",
-        reason: "not_computed",
+        reason: "goals_not_set",
       });
       // 2026-05-04: present, computed
       expect(body.data.entries[3]).toMatchObject({
@@ -310,7 +307,7 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       });
     });
 
-    it("returns single entry (not_computed) for one-day range with no row", async () => {
+    it("returns single entry (goals_not_set) for one-day range with no row", async () => {
       mockGetDailyGoalsByDateRange.mockResolvedValue([]);
 
       const request = createRequest(
@@ -325,7 +322,7 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       expect(body.data.entries[0]).toMatchObject({
         date: "2026-05-04",
         status: "blocked",
-        reason: "not_computed",
+        reason: "goals_not_set",
       });
     });
   });
@@ -412,6 +409,29 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
 
       expect(response.status).toBe(403);
       expect(body.error.code).toBe("FITBIT_SCOPE_MISSING");
+    });
+
+    it("returns 200 blocked/goals_not_set when user has not set up daily goals", async () => {
+      mockGetOrComputeDailyGoals.mockResolvedValue({
+        status: "blocked",
+        reason: "goals_not_set",
+      });
+      mockMapComputeResultToNutritionGoals.mockReturnValue({
+        calories: null, proteinG: null, carbsG: null, fatG: null,
+        status: "blocked", reason: "goals_not_set",
+      });
+
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?date=2026-05-04",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.status).toBe("blocked");
+      expect(body.data.reason).toBe("goals_not_set");
+      expect(body.data.calories).toBeNull();
     });
   });
 });
