@@ -97,7 +97,11 @@ export async function buildUserProfile(
   const sections: string[] = [];
 
   // Section 1: Goals (highest priority)
-  if (calorieGoal !== null && calorieGoal > 0 && goalsResult?.status === "ok") {
+  // FOO-1069: include non-positive `calorieGoal` (extreme rate, no clamp by
+  // design) — the engine output is what the user opted into via the safety
+  // warning. Filtering it here silently dropped the target line even when
+  // `hasGoals` was true.
+  if (calorieGoal !== null && goalsResult?.status === "ok") {
     const { proteinGoal, carbsGoal, fatGoal } = goalsResult.goals;
     if (proteinGoal > 0 && carbsGoal > 0 && fatGoal > 0) {
       sections.push(

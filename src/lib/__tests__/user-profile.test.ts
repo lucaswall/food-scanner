@@ -384,6 +384,37 @@ describe("buildUserProfile", () => {
     expect(result).not.toContain("Current time:");
   });
 
+  // FOO-1069: non-positive engine output (extreme rate, no clamp) must still
+  // emit the target line — the user opted into it via the safety warning.
+  it("includes target line when status is ok with non-positive calorieGoal (FOO-1069)", async () => {
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: -500, proteinGoal: 176, carbsGoal: 130, fatGoal: 64 },
+      audit: {},
+    });
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Targets -500 cal/day");
+    expect(result).toContain("P:176g C:130g F:64g");
+  });
+
+  it("includes target line when status is ok with calorieGoal of zero (FOO-1069)", async () => {
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 0, proteinGoal: 176, carbsGoal: 130, fatGoal: 64 },
+      audit: {},
+    });
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Targets 0 cal/day");
+  });
+
   // FOO-1064: goal compute throwing must NOT discard DB-only food context
   it("preserves nutrition summary and top foods when getOrComputeDailyGoals throws (FOO-1064)", async () => {
     // Simulate a Fitbit-side error like FITBIT_TOKEN_INVALID propagating from
