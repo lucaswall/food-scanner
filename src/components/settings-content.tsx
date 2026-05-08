@@ -10,7 +10,7 @@ import useSWR from "swr";
 import { apiFetcher } from "@/lib/swr";
 import type { NutritionLabel } from "@/types";
 import { FitbitProfileCard } from "@/components/fitbit-profile-card";
-import { MacroProfileCard } from "@/components/macro-profile-card";
+import { DailyGoalsCard } from "@/components/daily-goals-card";
 import { TargetsCard } from "@/components/targets-card";
 import { getTodayDate } from "@/lib/date-utils";
 
@@ -304,7 +304,7 @@ export function SettingsContent() {
 
       <FitbitProfileCard />
 
-      <MacroProfileCard />
+      <DailyGoalsCard />
 
       <DailyTargetsSection />
 

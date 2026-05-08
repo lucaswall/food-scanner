@@ -24,8 +24,8 @@ vi.mock("@/components/fitbit-profile-card", () => ({
   FitbitProfileCard: () => <div data-testid="fitbit-profile-card" />,
 }));
 
-vi.mock("@/components/macro-profile-card", () => ({
-  MacroProfileCard: () => <div data-testid="macro-profile-card" />,
+vi.mock("@/components/daily-goals-card", () => ({
+  DailyGoalsCard: () => <div data-testid="daily-goals-card" />,
 }));
 
 vi.mock("@/components/targets-card", () => ({
@@ -83,9 +83,9 @@ describe("SettingsContent", () => {
     expect(screen.queryByRole("link", { name: /back to food scanner/i })).not.toBeInTheDocument();
   });
 
-  it("renders the macro profile card", () => {
+  it("renders the daily goals card", () => {
     render(<SettingsContent />);
-    expect(screen.getByTestId("macro-profile-card")).toBeInTheDocument();
+    expect(screen.getByTestId("daily-goals-card")).toBeInTheDocument();
   });
 
   it("renders the daily targets section with today's date", () => {
