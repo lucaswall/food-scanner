@@ -694,3 +694,60 @@ Goal-anchored engine rework + Iteration 1 review fixes COMPLETE. All 8 fix issue
 
 <!-- ITERATION COMPLETE -->
 
+### Review Findings
+
+Summary: 8 findings raised by 3-reviewer team (security, reliability, quality); 4 classified as FIX (all S-size; Fix Plan path because count > 3), 4 DISCARDED.
+
+**Issues requiring fix (Linear issues created in Todo):**
+- [LOW] SECURITY: PATCH /api/daily-goals-settings missing upper bounds on goalWeightKg / goalRateKgPerWeek (`src/app/api/daily-goals-settings/route.ts:106,119`) — [FOO-1058](https://linear.app/lw-claude/issue/FOO-1058)
+- [LOW] EDGE CASE: empty PATCH body `{}` triggers unnecessary daily-goals invalidation + Fitbit re-fetch (`src/app/api/daily-goals-settings/route.ts:132-133`) — [FOO-1059](https://linear.app/lw-claude/issue/FOO-1059)
+- [MEDIUM] TYPE: `log as never` should be `log as unknown as Logger` in 5 places (`src/lib/__tests__/daily-goals.test.ts:596,610,622,638,653`) — [FOO-1060](https://linear.app/lw-claude/issue/FOO-1060)
+- [LOW] TEST: missing acceptance boundary test for `goalRateKgPerWeek = 0` in PATCH (`src/app/api/daily-goals-settings/__tests__/route.test.ts`) — [FOO-1061](https://linear.app/lw-claude/issue/FOO-1061)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] SECURITY: `date` not URL-encoded in TargetsCard SWR fetch (`src/components/targets-card.tsx:44`) — `date` prop is a page-level computation, not raw user input, and the server-side handler validates format via `isValidDateFormat`. The scenario literally cannot occur given the app's input flow. Reviewer noted "low severity, defense-in-depth" — not a real bug.
+- [DISCARDED] SECURITY: Prompt injection vector via food names interpolated into AI profile string (`src/lib/user-profile.ts:115,123-124`) — pre-existing in lines NOT modified by Iteration 2; the changed file's only modification (Fix 6) was line 91. The threat model does not apply: this is a single-user/family app with `ALLOWED_EMAILS` allowlist; food names are user-typed input that goes only into that user's own AI context. There is no privilege boundary being crossed and no adversarial source. Self-attack via crafted food names has no meaningful impact.
+- [DISCARDED] CONVENTION: `GoalBlockedReason` type lives in `goals-setup-banner.tsx` instead of `@/types` (`src/components/goals-setup-banner.tsx:7`) — the type is a 1-line derivation `NonNullable<NutritionGoals["reason"]>` from the canonical `NutritionGoals` type already in `@/types`. Collocation with primary user is acceptable; CLAUDE.md's "src/types is source of truth" rule applies to API contract types, not derived utility aliases. Style preference, no correctness impact.
+- [DISCARDED] LOGGING: mild double-logging of blocked results (`src/lib/daily-goals.ts` + `src/app/api/nutrition-goals/route.ts`) — different layers serve different purposes: lib emits specific blocked-reason context at warn level for diagnostics; route emits request-completion log at debug level with `status` field for filtering. Action name `nutrition_goals_success` is the route's standard request-completion log pattern (covers both success and blocked statuses); the `status` field in the structured log discriminates. Reviewer noted "not severe duplication".
+
+### Linear Updates
+- FOO-1050 → FOO-1057: Review → Merge (8 Iteration 1 fix issues completed)
+- FOO-1058 → FOO-1061: Created in Todo (4 Iteration 2 fix issues — all S-size; routed via Fix Plan because count > 3)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Iteration 2 review findings (2026-05-08)
+**Linear Issues:** [FOO-1058](https://linear.app/lw-claude/issue/FOO-1058), [FOO-1059](https://linear.app/lw-claude/issue/FOO-1059), [FOO-1060](https://linear.app/lw-claude/issue/FOO-1060), [FOO-1061](https://linear.app/lw-claude/issue/FOO-1061)
+
+### Fix 1: Add upper bounds to goalWeightKg and goalRateKgPerWeek in PATCH validation
+**Linear Issue:** [FOO-1058](https://linear.app/lw-claude/issue/FOO-1058)
+
+1. Add tests in `src/app/api/daily-goals-settings/__tests__/route.test.ts` covering both rejection (above max) and acceptance (at max) for `goalWeightKg` (max 500) and `goalRateKgPerWeek` (max 5).
+2. In `src/app/api/daily-goals-settings/route.ts:106`, extend the `goalWeightKg` guard with `|| v > 500`.
+3. In `src/app/api/daily-goals-settings/route.ts:119`, extend the `goalRateKgPerWeek` guard with `|| v > 5`.
+4. Run vitest (expect pass).
+
+### Fix 2: Short-circuit empty PATCH body to avoid unnecessary daily-goals invalidation
+**Linear Issue:** [FOO-1059](https://linear.app/lw-claude/issue/FOO-1059)
+
+1. Add a route test asserting that `PATCH` with body `{}` returns 200 without calling `updateUserGoalSettings` or `invalidateUserDailyGoalsForSettingsChange`.
+2. In `src/app/api/daily-goals-settings/route.ts`, after building the `update` object, short-circuit when `Object.keys(update).length === 0` — return current settings via `getUserGoalSettings(session!.userId)` and `successResponse(buildResponse(...))` without touching the lib helpers.
+3. Run vitest (expect pass).
+
+### Fix 3: Replace `log as never` with `log as unknown as Logger` in daily-goals tests
+**Linear Issue:** [FOO-1060](https://linear.app/lw-claude/issue/FOO-1060)
+
+1. Add `import type { Logger } from "@/lib/logger";` (verify export name) at the top of `src/lib/__tests__/daily-goals.test.ts`.
+2. Replace `log as never` with `log as unknown as Logger` at lines 596, 610, 622, 638, 653.
+3. Run `npm run typecheck` and vitest.
+
+### Fix 4: Add acceptance boundary test for `goalRateKgPerWeek = 0` in PATCH
+**Linear Issue:** [FOO-1061](https://linear.app/lw-claude/issue/FOO-1061)
+
+1. Add a test in `src/app/api/daily-goals-settings/__tests__/route.test.ts` asserting that `PATCH` with body `{ goalRateKgPerWeek: 0 }` returns 200 and persists `goalRateKgPerWeek: 0` (MAINTAIN-direction case reachable via API).
+2. Run vitest (expect pass).
+
