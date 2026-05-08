@@ -156,10 +156,12 @@ Run all checks again before merging — state can change between ticks:
 
 ## Bounds
 
-The cron's recurring jobs auto-expire after 7 days (per `CronCreate` docs).
-That is the absolute upper bound on this loop; in practice it should
-self-terminate within 30–60 minutes of PR creation under normal Codex
-cadence.
+The cron is intentionally **session-only** (`CronCreate` called without
+`durable: true`). If the user closes their Claude session, the cron dies —
+this is the correct behavior, since the user is no longer supervising the
+auto-merge. The session-only cron's recurring jobs also auto-expire after
+7 days. In practice this loop should self-terminate within 30–60 minutes
+of PR creation under normal Codex cadence.
 
 ## Resolving a Codex Review Thread
 

@@ -492,6 +492,7 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
    - Call `CronCreate` with:
      - `cron`: `*/3 * * * *` (every 3 minutes)
      - `recurring`: `true`
+     - **Do NOT pass `durable: true`.** The cron is intentionally session-only — if the user closes their Claude session, they are no longer supervising the auto-merge, so the cron should die with the session. Re-launch on next session if still needed.
      - `prompt` (literal — fill in the values):
        ```
        <MONITOR_TAG> — tick. PR_NUMBER=<N>. BRANCH=<branch>. MONITOR_TAG="<MONITOR_TAG>".
@@ -499,8 +500,8 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
        and execute exactly one iteration of the per-tick logic. The cron stops
        itself (CronDelete by MONITOR_TAG) when the merge phase succeeds.
        ```
-   - Tell the user: `Codex monitor active (every 3 min). It will assess each Codex finding for validity, fix CI failures, and squash-merge + clean up to main once CI is green and Codex is clean. The monitor self-terminates on completion.`
-   - Do NOT block waiting for the cron to finish — the skill exits after launching it. The cron continues across user turns.
+   - Tell the user: `Codex monitor active (every 3 min, session-only — dies if you exit Claude). It will assess each Codex finding for validity, fix CI failures, and squash-merge + clean up to main once CI is green and Codex is clean. The monitor self-terminates on completion.`
+   - Do NOT block waiting for the cron to finish — the skill exits after launching it. The cron continues across user turns within the same session.
 
 **Branch handling:** Assumes plan-implement already created a feature branch. If on `main`, create branch first.
 
@@ -531,5 +532,5 @@ If the scope assessment chose single-agent mode (≤4 changed files) OR `TeamCre
 - **Review scope assessment** — ≤4 changed files → single-agent review. 5+ files → 3 reviewers. Always use team for security-sensitive changes regardless of file count.
 - **Only reviewers are teammates** — Bug-hunter, verifier, and pr-creator are standalone subagents spawned via `Agent` tool WITHOUT `team_name`. Only the 3 domain reviewers are team members.
 - **Shut down reviewers immediately** — Send shutdown request to each reviewer as soon as they report findings. Call `TeamDelete` as soon as the last reviewer is shut down. Do NOT keep teammates alive during merge/evaluate/document phases.
-- **Launch Codex monitor only after a successful PR** — When `pr-creator` reports success in the For-Complete-Plans flow, create the 3-min cron with the prompt template above. The cron self-terminates when its merge phase completes (CI green, all threads resolved, squash-merge succeeded, on `main`). See [references/codex-loop.md](references/codex-loop.md) for the per-tick logic.
+- **Launch Codex monitor only after a successful PR** — When `pr-creator` reports success in the For-Complete-Plans flow, create the 3-min cron with the prompt template above. The cron is intentionally session-only (do NOT pass `durable: true`) — if the user closes the session they are not supervising the auto-merge, so the cron should die with the session. The cron self-terminates when its merge phase completes (CI green, all threads resolved, squash-merge succeeded, on `main`). See [references/codex-loop.md](references/codex-loop.md) for the per-tick logic.
 - **Codex findings must be assessed for validity** — The monitor never accepts a Codex finding on face value. Each finding is verified against the actual code, CLAUDE.md's "KNOWN ACCEPTED PATTERNS", project memory, and accepted patterns before fixing. Invalid findings are resolved with reasoning, not silently dismissed.
