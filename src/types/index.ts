@@ -578,21 +578,21 @@ export interface FitbitWeightLog {
   loggedDate: string;
 }
 
-export interface FitbitWeightGoal {
-  goalType: "LOSE" | "MAINTAIN" | "GAIN";
-}
-
-export type MacroGoalType = "LOSE" | "MAINTAIN" | "GAIN";
-
-export type BmiTier = "lt25" | "25to30" | "ge30";
+export type ActivityLevel =
+  | "sedentary"
+  | "light"
+  | "moderate"
+  | "very_active"
+  | "extra_active";
 
 export interface MacroEngineInputs {
-  ageYears: number;
   sex: "MALE" | "FEMALE" | "NA";
+  ageYears: number;
   heightCm: number;
-  weightKg: number;
-  caloriesOut: number;
-  goalType: MacroGoalType;
+  currentWeightKg: number;
+  activityLevel: ActivityLevel;
+  goalWeightKg: number;
+  goalRateKgPerWeek: number;
 }
 
 export interface MacroEngineOutputs {
@@ -601,22 +601,23 @@ export interface MacroEngineOutputs {
   carbsG: number;
   fatG: number;
   rmr: number;
-  activityKcal: number;
+  palMultiplier: number;
   tdee: number;
-  bmiTier: BmiTier;
+  deficitKcal: number;
+  direction: "LOSE" | "MAINTAIN" | "GAIN";
 }
 
 export interface NutritionGoalsAudit {
   rmr: number;
-  activityKcal: number;
+  palMultiplier: number;
   tdee: number;
   weightKg: string;
-  bmiTier: BmiTier;
-  goalType: MacroGoalType;
-  /** Raw caloriesOut from Fitbit before the 0.85× haircut. Surfaces the math in the UI. */
-  caloriesOut: number;
-  /** Date of the Fitbit weight log used to compute these targets (YYYY-MM-DD). */
   weightLoggedDate: string | null;
+  activityLevel: ActivityLevel;
+  goalWeightKg: number;
+  goalRateKgPerWeek: number;
+  deficitKcal: number;
+  direction: "LOSE" | "MAINTAIN" | "GAIN";
 }
 
 export interface NutritionGoals {
@@ -631,15 +632,8 @@ export interface NutritionGoals {
     | "scope_mismatch"
     | "invalid_profile"
     | "invalid_activity"
-    | "not_computed";
+    | "goals_not_set";
   audit?: NutritionGoalsAudit;
   /** True when the Fitbit weight log used was logged > 7 days before the target date (FOO-1010). */
   weightStale?: boolean;
-  /**
-   * FOO-1036: true when the engine's `caloriesOut` input was a seed (7-day
-   * history median or RMR × 1.4 default) rather than today's live Fitbit
-   * activity. Surfaced for clients/telemetry; the dashboard does not render a
-   * badge for this — goals always appear, regardless of seed source.
-   */
-  isSeeded?: boolean;
 }

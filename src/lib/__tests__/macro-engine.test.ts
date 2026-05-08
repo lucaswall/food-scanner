@@ -1,402 +1,454 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
+  computeRmr,
   computeMacroTargets,
-  ACTIVITY_MULTIPLIER,
-  GOAL_MULTIPLIERS,
-  MACRO_PROFILE_MUSCLE_PRESERVE,
-  MACRO_PROFILE_METABOLIC_FLEX,
-  MACRO_PROFILES_BY_KEY,
-  DEFAULT_MACRO_PROFILE,
-  isMacroProfileKey,
-  getMacroProfile,
-  describeProfile,
+  PAL_BY_ACTIVITY_LEVEL,
+  ACTIVITY_LEVEL_LABELS,
+  PROTEIN_PER_KG_LOSE,
+  PROTEIN_PER_KG_MAINTAIN,
+  PROTEIN_PER_KG_GAIN,
+  FAT_PER_KG,
+  FAT_MIN_PERCENT_KCAL,
+  CARB_FLOOR_GRAMS,
+  KCAL_PER_KG,
 } from "@/lib/macro-engine";
+import type { ActivityLevel } from "@/types";
 
-describe("macro engine constants", () => {
-  it("exports ACTIVITY_MULTIPLIER = 0.85", () => {
-    expect(ACTIVITY_MULTIPLIER).toBe(0.85);
+// ─── RMR (Mifflin-St Jeor — unchanged) ───────────────────────────────────────
+
+describe("computeRmr", () => {
+  it("computes correct RMR for a male", () => {
+    // 10*70 + 6.25*175 - 5*30 + 5 = 700 + 1093.75 - 150 + 5 = 1648.75 → 1649
+    expect(computeRmr("MALE", 30, 175, 70)).toBe(1649);
   });
 
-  it("exports correct GOAL_MULTIPLIERS", () => {
-    expect(GOAL_MULTIPLIERS.LOSE).toBe(0.80);
-    expect(GOAL_MULTIPLIERS.MAINTAIN).toBe(1.00);
-    expect(GOAL_MULTIPLIERS.GAIN).toBe(1.10);
+  it("computes correct RMR for a female", () => {
+    // 10*60 + 6.25*165 - 5*25 - 161 = 600 + 1031.25 - 125 - 161 = 1345.25 → 1345
+    expect(computeRmr("FEMALE", 25, 165, 60)).toBe(1345);
   });
 
-  it("default profile is muscle-preserve (preserves prior behavior)", () => {
-    expect(DEFAULT_MACRO_PROFILE).toBe(MACRO_PROFILE_MUSCLE_PRESERVE);
+  it("rounds to nearest integer", () => {
+    const result = computeRmr("MALE", 30, 175, 70);
+    expect(Number.isInteger(result)).toBe(true);
   });
 
-  it("muscle-preserve coefficients match the original engine values", () => {
-    const c = MACRO_PROFILE_MUSCLE_PRESERVE.proteinCoefficients;
-    expect(c.lt25.LOSE).toBe(2.2);
-    expect(c.lt25.MAINTAIN).toBe(1.6);
-    expect(c.lt25.GAIN).toBe(1.8);
-    expect(c["25to30"].LOSE).toBe(2.0);
-    expect(c["25to30"].MAINTAIN).toBe(1.6);
-    expect(c["25to30"].GAIN).toBe(1.8);
-    expect(c.ge30.LOSE).toBe(1.8);
-    expect(c.ge30.MAINTAIN).toBe(1.6);
-    expect(c.ge30.GAIN).toBe(1.6);
-    expect(MACRO_PROFILE_MUSCLE_PRESERVE.carbGrams).toBe(130);
-    expect(MACRO_PROFILE_MUSCLE_PRESERVE.residualMacro).toBe("carbs");
-  });
-
-  it("metabolic-flex coefficients match Lumen-style profile", () => {
-    const c = MACRO_PROFILE_METABOLIC_FLEX.proteinCoefficients;
-    expect(c.lt25.LOSE).toBe(1.4);
-    expect(c.ge30.LOSE).toBe(1.2);
-    expect(MACRO_PROFILE_METABOLIC_FLEX.carbGrams).toBe(80);
-    expect(MACRO_PROFILE_METABOLIC_FLEX.residualMacro).toBe("fat");
-  });
-
-  it("MACRO_PROFILES_BY_KEY exposes both profiles", () => {
-    expect(MACRO_PROFILES_BY_KEY.muscle_preserve).toBe(MACRO_PROFILE_MUSCLE_PRESERVE);
-    expect(MACRO_PROFILES_BY_KEY.metabolic_flex).toBe(MACRO_PROFILE_METABOLIC_FLEX);
+  it("matches canonical scenario: 49y/M/176cm/121kg", () => {
+    // 10*121 + 6.25*176 - 5*49 + 5 = 1210 + 1100 - 245 + 5 = 2070
+    expect(computeRmr("MALE", 49, 176, 121)).toBe(2070);
   });
 });
 
-describe("isMacroProfileKey", () => {
-  it("accepts known keys", () => {
-    expect(isMacroProfileKey("muscle_preserve")).toBe(true);
-    expect(isMacroProfileKey("metabolic_flex")).toBe(true);
-  });
+// ─── PAL lookup ───────────────────────────────────────────────────────────────
 
-  it("rejects unknown values", () => {
-    expect(isMacroProfileKey("foo")).toBe(false);
-    expect(isMacroProfileKey(null)).toBe(false);
-    expect(isMacroProfileKey(undefined)).toBe(false);
-    expect(isMacroProfileKey(42)).toBe(false);
-  });
-});
+describe("PAL_BY_ACTIVITY_LEVEL", () => {
+  it("sedentary = 1.2", () => expect(PAL_BY_ACTIVITY_LEVEL.sedentary).toBe(1.2));
+  it("light = 1.375", () => expect(PAL_BY_ACTIVITY_LEVEL.light).toBe(1.375));
+  it("moderate = 1.55", () => expect(PAL_BY_ACTIVITY_LEVEL.moderate).toBe(1.55));
+  it("very_active = 1.725", () => expect(PAL_BY_ACTIVITY_LEVEL.very_active).toBe(1.725));
+  it("extra_active = 1.9", () => expect(PAL_BY_ACTIVITY_LEVEL.extra_active).toBe(1.9));
 
-describe("getMacroProfile", () => {
-  it("returns the profile for a known key", () => {
-    expect(getMacroProfile("muscle_preserve")).toBe(MACRO_PROFILE_MUSCLE_PRESERVE);
-    expect(getMacroProfile("metabolic_flex")).toBe(MACRO_PROFILE_METABOLIC_FLEX);
-  });
-
-  it("falls back to DEFAULT_MACRO_PROFILE for null/undefined", () => {
-    expect(getMacroProfile(null)).toBe(DEFAULT_MACRO_PROFILE);
-    expect(getMacroProfile(undefined)).toBe(DEFAULT_MACRO_PROFILE);
-  });
-
-  it("logs a warning when stored key is invalid (FOO-1001)", () => {
-    const warn = vi.fn();
-    const fakeLogger = {
-      info: vi.fn(),
-      warn,
-      error: vi.fn(),
-      debug: vi.fn(),
-    };
-    const result = getMacroProfile("foo" as never, fakeLogger as never);
-    expect(result).toBe(DEFAULT_MACRO_PROFILE);
-    expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "macro_profile_invalid_key", key: "foo" }),
-      expect.any(String),
-    );
-  });
-
-  it("does NOT log when key is null/undefined (legitimate unset state)", () => {
-    const warn = vi.fn();
-    const fakeLogger = {
-      info: vi.fn(),
-      warn,
-      error: vi.fn(),
-      debug: vi.fn(),
-    };
-    getMacroProfile(null, fakeLogger as never);
-    getMacroProfile(undefined, fakeLogger as never);
-    expect(warn).not.toHaveBeenCalled();
+  it("covers all ActivityLevel values", () => {
+    const levels: ActivityLevel[] = ["sedentary", "light", "moderate", "very_active", "extra_active"];
+    for (const level of levels) {
+      expect(PAL_BY_ACTIVITY_LEVEL[level]).toBeGreaterThan(1);
+    }
   });
 });
 
-describe("describeProfile (FOO-1006)", () => {
-  it("muscle-preserve description references current coefficients", () => {
-    const desc = describeProfile(MACRO_PROFILE_MUSCLE_PRESERVE);
-    expect(desc).toContain("1.6"); // min from lt25.MAINTAIN
-    expect(desc).toContain("2.2"); // max from lt25.LOSE
-    expect(desc).toContain("130"); // carb floor
-    expect(desc).toMatch(/muscle-preservation/i);
-  });
+// ─── ACTIVITY_LEVEL_LABELS ────────────────────────────────────────────────────
 
-  it("metabolic-flex description references current coefficients", () => {
-    const desc = describeProfile(MACRO_PROFILE_METABOLIC_FLEX);
-    expect(desc).toContain("1.0"); // min from ge30.MAINTAIN
-    expect(desc).toContain("1.4"); // max from lt25.LOSE
-    expect(desc).toContain("80"); // carbs
-    expect(desc).toMatch(/metabolic-flexibility/i);
+describe("ACTIVITY_LEVEL_LABELS", () => {
+  it("has correct display labels", () => {
+    expect(ACTIVITY_LEVEL_LABELS.sedentary).toBe("Sedentary");
+    expect(ACTIVITY_LEVEL_LABELS.light).toBe("Light");
+    expect(ACTIVITY_LEVEL_LABELS.moderate).toBe("Moderate");
+    expect(ACTIVITY_LEVEL_LABELS.very_active).toBe("Very active");
+    expect(ACTIVITY_LEVEL_LABELS.extra_active).toBe("Extra active");
   });
 });
 
-describe("computeMacroTargets", () => {
-  describe("sex NA — returns error", () => {
-    it("throws when sex is NA", () => {
-      expect(() =>
-        computeMacroTargets({
-          ageYears: 30,
-          sex: "NA",
-          heightCm: 170,
-          weightKg: 70,
-          caloriesOut: 2500,
-          goalType: "MAINTAIN",
-        })
-      ).toThrow("SEX_UNSET");
+// ─── Engine constants ─────────────────────────────────────────────────────────
+
+describe("engine constants", () => {
+  it("PROTEIN_PER_KG_LOSE = 2.2", () => expect(PROTEIN_PER_KG_LOSE).toBe(2.2));
+  it("PROTEIN_PER_KG_MAINTAIN = 1.6", () => expect(PROTEIN_PER_KG_MAINTAIN).toBe(1.6));
+  it("PROTEIN_PER_KG_GAIN = 1.8", () => expect(PROTEIN_PER_KG_GAIN).toBe(1.8));
+  it("FAT_PER_KG = 0.8", () => expect(FAT_PER_KG).toBe(0.8));
+  it("FAT_MIN_PERCENT_KCAL = 0.25", () => expect(FAT_MIN_PERCENT_KCAL).toBe(0.25));
+  it("CARB_FLOOR_GRAMS = 130", () => expect(CARB_FLOOR_GRAMS).toBe(130));
+  it("KCAL_PER_KG = 7700", () => expect(KCAL_PER_KG).toBe(7700));
+});
+
+// ─── Input validation ─────────────────────────────────────────────────────────
+
+describe("computeMacroTargets — input validation", () => {
+  const baseInputs = {
+    sex: "MALE" as const,
+    ageYears: 30,
+    heightCm: 175,
+    currentWeightKg: 70,
+    activityLevel: "moderate" as const,
+    goalWeightKg: 65,
+    goalRateKgPerWeek: 0.5,
+  };
+
+  describe("SEX_UNSET", () => {
+    it("throws SEX_UNSET when sex is NA", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, sex: "NA" })).toThrow("SEX_UNSET");
     });
   });
 
-  describe("invalid profile data — throws INVALID_PROFILE_DATA", () => {
-    const baseInputs = {
-      ageYears: 30,
-      sex: "MALE" as const,
-      heightCm: 175,
-      weightKg: 70,
-      caloriesOut: 2500,
-      goalType: "MAINTAIN" as const,
-    };
-
+  describe("INVALID_PROFILE_DATA", () => {
     it("throws when heightCm is 0", () => {
-      expect(() => computeMacroTargets({ ...baseInputs, heightCm: 0 })).toThrow(
-        "INVALID_PROFILE_DATA",
-      );
+      expect(() => computeMacroTargets({ ...baseInputs, heightCm: 0 })).toThrow("INVALID_PROFILE_DATA");
     });
 
-    it("throws when weightKg is 0", () => {
-      expect(() => computeMacroTargets({ ...baseInputs, weightKg: 0 })).toThrow(
-        "INVALID_PROFILE_DATA",
-      );
+    it("throws when currentWeightKg is 0", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, currentWeightKg: 0 })).toThrow("INVALID_PROFILE_DATA");
     });
 
     it("throws when ageYears is negative", () => {
-      expect(() => computeMacroTargets({ ...baseInputs, ageYears: -1 })).toThrow(
-        "INVALID_PROFILE_DATA",
-      );
+      expect(() => computeMacroTargets({ ...baseInputs, ageYears: -1 })).toThrow("INVALID_PROFILE_DATA");
     });
 
     it("throws on NaN weight", () => {
-      expect(() => computeMacroTargets({ ...baseInputs, weightKg: Number.NaN })).toThrow(
-        "INVALID_PROFILE_DATA",
-      );
+      expect(() => computeMacroTargets({ ...baseInputs, currentWeightKg: NaN })).toThrow("INVALID_PROFILE_DATA");
     });
 
     it("throws on Infinity height", () => {
-      expect(() =>
-        computeMacroTargets({ ...baseInputs, heightCm: Number.POSITIVE_INFINITY }),
-      ).toThrow("INVALID_PROFILE_DATA");
+      expect(() => computeMacroTargets({ ...baseInputs, heightCm: Infinity })).toThrow("INVALID_PROFILE_DATA");
+    });
+
+    it("throws on NaN ageYears", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, ageYears: NaN })).toThrow("INVALID_PROFILE_DATA");
     });
   });
 
-  describe("invalid activity data — throws INVALID_ACTIVITY_DATA (FOO-998)", () => {
-    const baseInputs = {
+  describe("INVALID_GOAL_RATE", () => {
+    it("throws when goalRateKgPerWeek is negative", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, goalRateKgPerWeek: -0.5 })).toThrow("INVALID_GOAL_RATE");
+    });
+
+    it("throws when goalRateKgPerWeek is NaN", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, goalRateKgPerWeek: NaN })).toThrow("INVALID_GOAL_RATE");
+    });
+
+    it("throws when goalRateKgPerWeek is Infinity", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, goalRateKgPerWeek: Infinity })).toThrow("INVALID_GOAL_RATE");
+    });
+
+    it("accepts goalRateKgPerWeek = 0 (MAINTAIN override)", () => {
+      expect(() => computeMacroTargets({ ...baseInputs, goalRateKgPerWeek: 0 })).not.toThrow();
+    });
+  });
+});
+
+// ─── TDEE computation ─────────────────────────────────────────────────────────
+
+describe("computeMacroTargets — TDEE", () => {
+  it("TDEE = round(RMR × PAL) for sedentary", () => {
+    // RMR for 30y/M/175cm/70kg:
+    // 10*70 + 6.25*175 - 5*30 + 5 = 1648.75 → 1649
+    // TDEE = round(1649 × 1.2) = round(1978.8) = 1979
+    const result = computeMacroTargets({
+      sex: "MALE",
       ageYears: 30,
-      sex: "MALE" as const,
       heightCm: 175,
-      weightKg: 70,
-      caloriesOut: 2500,
-      goalType: "MAINTAIN" as const,
-    };
-
-    it("throws on NaN caloriesOut", () => {
-      expect(() => computeMacroTargets({ ...baseInputs, caloriesOut: Number.NaN })).toThrow(
-        "INVALID_ACTIVITY_DATA",
-      );
+      currentWeightKg: 70,
+      activityLevel: "sedentary",
+      goalWeightKg: 65,
+      goalRateKgPerWeek: 0.5,
     });
-
-    it("throws on Infinity caloriesOut", () => {
-      expect(() =>
-        computeMacroTargets({ ...baseInputs, caloriesOut: Number.POSITIVE_INFINITY }),
-      ).toThrow("INVALID_ACTIVITY_DATA");
-    });
-
-    it("throws on negative caloriesOut", () => {
-      expect(() => computeMacroTargets({ ...baseInputs, caloriesOut: -100 })).toThrow(
-        "INVALID_ACTIVITY_DATA",
-      );
-    });
-
-    it("accepts caloriesOut up to 30000", () => {
-      expect(() => computeMacroTargets({ ...baseInputs, caloriesOut: 30000 })).not.toThrow();
-    });
-
-    it("throws above 30000", () => {
-      expect(() => computeMacroTargets({ ...baseInputs, caloriesOut: 30001 })).toThrow(
-        "INVALID_ACTIVITY_DATA",
-      );
-    });
+    expect(result.rmr).toBe(1649);
+    expect(result.palMultiplier).toBe(1.2);
+    expect(result.tdee).toBe(Math.round(1649 * 1.2));
   });
 
-  describe("activity_kcal clamps to 0 when caloriesOut <= RMR", () => {
-    it("returns activityKcal = 0 when caloriesOut is 0", () => {
-      const result = computeMacroTargets({
-        ageYears: 30,
-        sex: "MALE",
-        heightCm: 175,
-        weightKg: 70,
-        caloriesOut: 0,
-        goalType: "MAINTAIN",
-      });
-      expect(result.activityKcal).toBe(0);
+  it("TDEE = round(RMR × PAL) for moderate", () => {
+    // RMR = 1649, PAL = 1.55 → round(1649 × 1.55) = round(2555.95) = 2556
+    const result = computeMacroTargets({
+      sex: "MALE",
+      ageYears: 30,
+      heightCm: 175,
+      currentWeightKg: 70,
+      activityLevel: "moderate",
+      goalWeightKg: 65,
+      goalRateKgPerWeek: 0.5,
     });
+    expect(result.tdee).toBe(Math.round(1649 * 1.55));
+    expect(result.palMultiplier).toBe(1.55);
+  });
+});
 
-    it("returns activityKcal = 0 when caloriesOut is less than RMR", () => {
-      const result = computeMacroTargets({
-        ageYears: 30,
-        sex: "MALE",
-        heightCm: 175,
-        weightKg: 70,
-        caloriesOut: 1000,
-        goalType: "MAINTAIN",
-      });
-      expect(result.activityKcal).toBe(0);
-    });
+// ─── Direction inference ──────────────────────────────────────────────────────
+
+describe("computeMacroTargets — direction", () => {
+  const base = {
+    sex: "MALE" as const,
+    ageYears: 30,
+    heightCm: 175,
+    currentWeightKg: 80,
+    activityLevel: "moderate" as const,
+    goalRateKgPerWeek: 0.5,
+  };
+
+  it("LOSE when currentWeight > goalWeight", () => {
+    const result = computeMacroTargets({ ...base, goalWeightKg: 70 });
+    expect(result.direction).toBe("LOSE");
   });
 
-  describe("muscle-preserve profile (default)", () => {
-    // Scenario: 49y/M/176cm/121kg/LOSE/3000 caloriesOut
-    // RMR = 10*121 + 6.25*176 - 5*49 + 5 = 2070
-    // activity_kcal = round(max(0, 3000-2070)*0.85) = round(790.5) = 791
-    // tdee = 2861, target = round(2861*0.80) = 2289
-    // BMI ≈ 39.07 → ge30; protein = round(121*1.8) = 218
-    // fat = round(max(121*0.8, 2289*0.25/9)) = round(96.8) = 97
-    // carbs = round(max((2289-872-873)/4, 130, 57.225)) = round(136) = 136
-
-    const inputs = {
-      ageYears: 49,
-      sex: "MALE" as const,
-      heightCm: 176,
-      weightKg: 121,
-      caloriesOut: 3000,
-      goalType: "LOSE" as const,
-    };
-
-    it("matches the original engine for the canonical scenario", () => {
-      const result = computeMacroTargets(inputs, MACRO_PROFILE_MUSCLE_PRESERVE);
-      expect(result.rmr).toBe(2070);
-      expect(result.activityKcal).toBe(791);
-      expect(result.tdee).toBe(2861);
-      expect(result.targetKcal).toBe(2289);
-      expect(result.bmiTier).toBe("ge30");
-      expect(result.proteinG).toBe(218);
-      expect(result.fatG).toBe(97);
-      expect(result.carbsG).toBe(136);
-    });
-
-    it("default profile equals muscle-preserve for this scenario", () => {
-      const explicit = computeMacroTargets(inputs, MACRO_PROFILE_MUSCLE_PRESERVE);
-      const defaulted = computeMacroTargets(inputs);
-      expect(defaulted).toEqual(explicit);
-    });
-
-    it("enforces 130g carb floor on aggressive cuts", () => {
-      const result = computeMacroTargets(
-        {
-          ageYears: 25,
-          sex: "FEMALE",
-          heightCm: 150,
-          weightKg: 40,
-          caloriesOut: 1200,
-          goalType: "LOSE",
-        },
-        MACRO_PROFILE_MUSCLE_PRESERVE,
-      );
-      expect(result.carbsG).toBeGreaterThanOrEqual(130);
-    });
+  it("GAIN when currentWeight < goalWeight", () => {
+    const result = computeMacroTargets({ ...base, goalWeightKg: 90 });
+    expect(result.direction).toBe("GAIN");
   });
 
-  describe("metabolic-flex profile (Lumen-style)", () => {
-    // Same scenario as above: 49y/M/176cm/121kg/LOSE/3000 caloriesOut → target 2289 kcal
-    // protein = round(121*1.2) = 145
-    // carbs = 80 (fixed)
-    // fat = round(max(0, (2289 - 145*4 - 80*4)/9)) = round((2289-580-320)/9) = round(1389/9) = round(154.33) = 154
-
-    it("computes lower protein, fixed carbs, higher fat", () => {
-      const result = computeMacroTargets(
-        {
-          ageYears: 49,
-          sex: "MALE",
-          heightCm: 176,
-          weightKg: 121,
-          caloriesOut: 3000,
-          goalType: "LOSE",
-        },
-        MACRO_PROFILE_METABOLIC_FLEX,
-      );
-      expect(result.proteinG).toBe(145);
-      expect(result.carbsG).toBe(80);
-      expect(result.fatG).toBe(154);
-    });
-
-    it("rmr/tdee/targetKcal do not depend on profile", () => {
-      const inputs = {
-        ageYears: 30,
-        sex: "FEMALE" as const,
-        heightCm: 165,
-        weightKg: 60,
-        caloriesOut: 2200,
-        goalType: "MAINTAIN" as const,
-      };
-      const muscle = computeMacroTargets(inputs, MACRO_PROFILE_MUSCLE_PRESERVE);
-      const flex = computeMacroTargets(inputs, MACRO_PROFILE_METABOLIC_FLEX);
-      expect(flex.rmr).toBe(muscle.rmr);
-      expect(flex.tdee).toBe(muscle.tdee);
-      expect(flex.targetKcal).toBe(muscle.targetKcal);
-      expect(flex.bmiTier).toBe(muscle.bmiTier);
-    });
-
-    it("clamps fat to 0 when protein+carbs already exceed target", () => {
-      // Tiny target with high protein coeff would yield negative residual
-      const result = computeMacroTargets(
-        {
-          ageYears: 30,
-          sex: "FEMALE",
-          heightCm: 150,
-          weightKg: 100,
-          caloriesOut: 1000,
-          goalType: "LOSE",
-        },
-        MACRO_PROFILE_METABOLIC_FLEX,
-      );
-      expect(result.fatG).toBeGreaterThanOrEqual(0);
-    });
+  it("MAINTAIN when currentWeight === goalWeight", () => {
+    const result = computeMacroTargets({ ...base, goalWeightKg: 80 });
+    expect(result.direction).toBe("MAINTAIN");
   });
 
-  describe("BMI tier boundaries", () => {
-    it("assigns 25to30 tier for BMI exactly 25", () => {
-      const result = computeMacroTargets({
-        ageYears: 30,
-        sex: "MALE",
-        heightCm: 170,
-        weightKg: 72.25,
-        caloriesOut: 2500,
-        goalType: "MAINTAIN",
-      });
-      expect(result.bmiTier).toBe("25to30");
-    });
+  it("MAINTAIN when goalRateKgPerWeek === 0 even if goal differs", () => {
+    const result = computeMacroTargets({ ...base, goalWeightKg: 70, goalRateKgPerWeek: 0 });
+    expect(result.direction).toBe("MAINTAIN");
+  });
+});
 
-    it("assigns ge30 tier for BMI exactly 30", () => {
-      const result = computeMacroTargets({
-        ageYears: 30,
-        sex: "MALE",
-        heightCm: 170,
-        weightKg: 86.7,
-        caloriesOut: 2500,
-        goalType: "MAINTAIN",
-      });
-      expect(result.bmiTier).toBe("ge30");
+// ─── Deficit / surplus magnitude ─────────────────────────────────────────────
+
+describe("computeMacroTargets — deficit/surplus and targetKcal", () => {
+  it("LOSE: targetKcal = tdee − round(rate × 1100); deficitKcal is negative", () => {
+    // 30y/M/175cm/80kg, moderate (PAL=1.55), goalWeight=70, rate=0.5
+    // RMR = 10*80 + 6.25*175 - 5*30 + 5 = 800 + 1093.75 - 150 + 5 = 1748.75 → 1749
+    // TDEE = round(1749 × 1.55) = round(2710.95) = 2711
+    // kcal_per_day = round(0.5 × 1100) = 550
+    // targetKcal = 2711 - 550 = 2161
+    // deficitKcal = -550
+    const result = computeMacroTargets({
+      sex: "MALE",
+      ageYears: 30,
+      heightCm: 175,
+      currentWeightKg: 80,
+      activityLevel: "moderate",
+      goalWeightKg: 70,
+      goalRateKgPerWeek: 0.5,
     });
+    expect(result.rmr).toBe(1749);
+    expect(result.tdee).toBe(Math.round(1749 * 1.55));
+    expect(result.targetKcal).toBe(result.tdee - Math.round(0.5 * 1100));
+    expect(result.deficitKcal).toBe(-Math.round(0.5 * 1100));
   });
 
-  describe("GAIN goal", () => {
-    it("computes correct targetKcal for GAIN goal (muscle-preserve)", () => {
-      const result = computeMacroTargets({
-        ageYears: 25,
-        sex: "MALE",
-        heightCm: 180,
-        weightKg: 75,
-        caloriesOut: 2600,
-        goalType: "GAIN",
-      });
-      expect(result.targetKcal).toBe(2720);
+  it("GAIN: targetKcal = tdee + round(rate × 1100); deficitKcal is positive", () => {
+    const result = computeMacroTargets({
+      sex: "MALE",
+      ageYears: 30,
+      heightCm: 175,
+      currentWeightKg: 70,
+      activityLevel: "moderate",
+      goalWeightKg: 80,
+      goalRateKgPerWeek: 0.3,
     });
+    const kcalPerDay = Math.round(0.3 * 1100);
+    expect(result.targetKcal).toBe(result.tdee + kcalPerDay);
+    expect(result.deficitKcal).toBe(kcalPerDay);
+    expect(result.direction).toBe("GAIN");
+  });
+
+  it("MAINTAIN: targetKcal = tdee; deficitKcal = 0", () => {
+    const result = computeMacroTargets({
+      sex: "MALE",
+      ageYears: 30,
+      heightCm: 175,
+      currentWeightKg: 70,
+      activityLevel: "moderate",
+      goalWeightKg: 70,
+      goalRateKgPerWeek: 0.5,
+    });
+    expect(result.targetKcal).toBe(result.tdee);
+    expect(result.deficitKcal).toBe(0);
+    expect(result.direction).toBe("MAINTAIN");
+  });
+});
+
+// ─── No safety clamp ─────────────────────────────────────────────────────────
+
+describe("computeMacroTargets — no safety clamp", () => {
+  it("returns raw targetKcal even when < 1200 (sedentary + aggressive rate)", () => {
+    // 25y/F/155cm/55kg, sedentary (PAL=1.2), goalWeight=45, rate=1.5
+    // RMR = 10*55 + 6.25*155 - 5*25 - 161 = 550 + 968.75 - 125 - 161 = 1232.75 → 1233
+    // TDEE = round(1233 × 1.2) = round(1479.6) = 1480
+    // kcal_per_day = round(1.5 × 1100) = 1650
+    // targetKcal = 1480 - 1650 = -170 (definitely below 1200, even below 0)
+    const result = computeMacroTargets({
+      sex: "FEMALE",
+      ageYears: 25,
+      heightCm: 155,
+      currentWeightKg: 55,
+      activityLevel: "sedentary",
+      goalWeightKg: 45,
+      goalRateKgPerWeek: 1.5,
+    });
+    expect(result.targetKcal).toBeLessThan(1200);
+    // Explicitly confirm it's the raw computed value (no 1200 floor applied)
+    const rmr = computeRmr("FEMALE", 25, 155, 55);
+    const tdee = Math.round(rmr * 1.2);
+    const kcalPerDay = Math.round(1.5 * 1100);
+    expect(result.targetKcal).toBe(tdee - kcalPerDay);
+  });
+});
+
+// ─── Protein anchoring ────────────────────────────────────────────────────────
+
+describe("computeMacroTargets — protein anchoring", () => {
+  const base = {
+    sex: "MALE" as const,
+    ageYears: 30,
+    heightCm: 175,
+    activityLevel: "moderate" as const,
+    goalRateKgPerWeek: 0.5,
+  };
+
+  it("LOSE: protein = round(2.2 × currentWeightKg)", () => {
+    const result = computeMacroTargets({
+      ...base,
+      currentWeightKg: 80,
+      goalWeightKg: 70,
+    });
+    expect(result.proteinG).toBe(Math.round(2.2 * 80));
+    expect(result.direction).toBe("LOSE");
+  });
+
+  it("MAINTAIN: protein = round(1.6 × currentWeightKg)", () => {
+    const result = computeMacroTargets({
+      ...base,
+      currentWeightKg: 70,
+      goalWeightKg: 70,
+    });
+    expect(result.proteinG).toBe(Math.round(1.6 * 70));
+    expect(result.direction).toBe("MAINTAIN");
+  });
+
+  it("GAIN: protein = round(1.8 × currentWeightKg)", () => {
+    const result = computeMacroTargets({
+      ...base,
+      currentWeightKg: 70,
+      goalWeightKg: 80,
+    });
+    expect(result.proteinG).toBe(Math.round(1.8 * 70));
+    expect(result.direction).toBe("GAIN");
+  });
+});
+
+// ─── Carbs/fat split ──────────────────────────────────────────────────────────
+
+describe("computeMacroTargets — carbs/fat split", () => {
+  it("fatG = round(max(weight × 0.8, targetKcal × 0.25 / 9))", () => {
+    // 30y/M/175cm/80kg, moderate, LOSE (goal=70, rate=0.5)
+    // targetKcal = 2161, weight = 80
+    // fatFromWeight = 80 × 0.8 = 64
+    // fatFromKcal = 2161 × 0.25 / 9 = 540.25 / 9 = 60.03
+    // fatG = round(max(64, 60.03)) = 64
+    const result = computeMacroTargets({
+      sex: "MALE",
+      ageYears: 30,
+      heightCm: 175,
+      currentWeightKg: 80,
+      activityLevel: "moderate",
+      goalWeightKg: 70,
+      goalRateKgPerWeek: 0.5,
+    });
+    const fatFromWeight = 80 * 0.8;
+    const fatFromKcal = result.targetKcal * 0.25 / 9;
+    expect(result.fatG).toBe(Math.round(Math.max(fatFromWeight, fatFromKcal)));
+  });
+
+  it("carbsG = round(max(residual, 130, targetKcal × 0.10 / 4))", () => {
+    const result = computeMacroTargets({
+      sex: "MALE",
+      ageYears: 30,
+      heightCm: 175,
+      currentWeightKg: 80,
+      activityLevel: "moderate",
+      goalWeightKg: 70,
+      goalRateKgPerWeek: 0.5,
+    });
+    const carbsResidual = (result.targetKcal - result.proteinG * 4 - result.fatG * 9) / 4;
+    const carbsFloor = result.targetKcal * 0.10 / 4;
+    expect(result.carbsG).toBe(Math.round(Math.max(carbsResidual, 130, carbsFloor)));
+  });
+
+  it("enforces 130g carb floor on aggressive deficit scenarios", () => {
+    const result = computeMacroTargets({
+      sex: "FEMALE",
+      ageYears: 25,
+      heightCm: 160,
+      currentWeightKg: 60,
+      activityLevel: "sedentary",
+      goalWeightKg: 55,
+      goalRateKgPerWeek: 0.3,
+    });
+    expect(result.carbsG).toBeGreaterThanOrEqual(130);
+  });
+});
+
+// ─── Canonical scenario ────────────────────────────────────────────────────────
+
+describe("computeMacroTargets — canonical scenario (49y/M/176cm/121kg, LOSE 0.5/week, moderate)", () => {
+  // RMR = 10*121 + 6.25*176 - 5*49 + 5 = 1210 + 1100 - 245 + 5 = 2070
+  // PAL (moderate) = 1.55 → TDEE = round(2070 × 1.55) = round(3208.5) = 3209
+  // kcal_per_day = round(0.5 × 1100) = 550
+  // targetKcal = 3209 - 550 = 2659
+  // direction = LOSE (121 > 70)
+  // proteinG = round(2.2 × 121) = round(266.2) = 266
+  // fatFromWeight = 121 × 0.8 = 96.8; fatFromKcal = 2659 × 0.25 / 9 = 73.86
+  // fatG = round(96.8) = 97
+  // carbsResidual = (2659 - 266*4 - 97*9) / 4 = (2659 - 1064 - 873) / 4 = 722/4 = 180.5
+  // carbsFloor10pct = 2659 * 0.10 / 4 = 66.475
+  // carbsG = round(max(180.5, 130, 66.475)) = 181
+
+  const inputs = {
+    sex: "MALE" as const,
+    ageYears: 49,
+    heightCm: 176,
+    currentWeightKg: 121,
+    activityLevel: "moderate" as const,
+    goalWeightKg: 70,
+    goalRateKgPerWeek: 0.5,
+  };
+
+  it("rmr = 2070", () => {
+    expect(computeMacroTargets(inputs).rmr).toBe(2070);
+  });
+
+  it("palMultiplier = 1.55", () => {
+    expect(computeMacroTargets(inputs).palMultiplier).toBe(1.55);
+  });
+
+  it("tdee = round(2070 × 1.55) = 3209", () => {
+    expect(computeMacroTargets(inputs).tdee).toBe(3209);
+  });
+
+  it("targetKcal = 3209 - 550 = 2659", () => {
+    expect(computeMacroTargets(inputs).targetKcal).toBe(2659);
+  });
+
+  it("direction = LOSE", () => {
+    expect(computeMacroTargets(inputs).direction).toBe("LOSE");
+  });
+
+  it("deficitKcal = -550", () => {
+    expect(computeMacroTargets(inputs).deficitKcal).toBe(-550);
+  });
+
+  it("proteinG = round(2.2 × 121) = 266", () => {
+    expect(computeMacroTargets(inputs).proteinG).toBe(266);
+  });
+
+  it("fatG = 97 (weight-anchored)", () => {
+    expect(computeMacroTargets(inputs).fatG).toBe(97);
+  });
+
+  it("carbsG = 181 (residual dominates)", () => {
+    expect(computeMacroTargets(inputs).carbsG).toBe(181);
   });
 });
