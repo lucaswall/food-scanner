@@ -1649,4 +1649,93 @@ describe("DailyDashboard", () => {
       });
     });
   });
+
+  // FOO-1046: GoalsSetupBanner gate
+  describe("GoalsSetupBanner (FOO-1046)", () => {
+    function setupWithGoals(goalsData: object) {
+      mockFetch.mockImplementation((url: string) => {
+        if (url.includes("/api/earliest-entry")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { date: null } }),
+          });
+        }
+        if (url.includes("/api/nutrition-summary")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: mockSummary }),
+          });
+        }
+        if (url.includes("/api/nutrition-goals")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: goalsData }),
+          });
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: null }),
+        });
+      });
+    }
+
+    it("renders GoalsSetupBanner when goals are blocked with reason goals_not_set", async () => {
+      setupWithGoals({ status: "blocked", reason: "goals_not_set", calories: null, proteinG: null, carbsG: null, fatG: null });
+      renderDailyDashboard();
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Set up your daily goals in Settings to see your targets\./i)
+        ).toBeInTheDocument();
+      });
+    });
+
+    it("does NOT render CalorieRing when goals are blocked", async () => {
+      setupWithGoals({ status: "blocked", reason: "goals_not_set", calories: null, proteinG: null, carbsG: null, fatG: null });
+      renderDailyDashboard();
+      await waitFor(() => {
+        expect(screen.queryByTestId("calorie-ring-svg")).not.toBeInTheDocument();
+      });
+      // Bare calorie total IS visible
+      expect(screen.getByText("1,200")).toBeInTheDocument();
+    });
+
+    it("renders MacroBars without goal targets when goals are blocked", async () => {
+      setupWithGoals({ status: "blocked", reason: "goals_not_set", calories: null, proteinG: null, carbsG: null, fatG: null });
+      renderDailyDashboard();
+      await waitFor(() => {
+        expect(screen.getByTestId("macro-bars")).toBeInTheDocument();
+        // Without goals, macro bars show current values only (no "/ goal" format)
+        expect(screen.getByText("85g")).toBeInTheDocument();
+        expect(screen.queryByText(/\/ \d+g/)).not.toBeInTheDocument();
+      });
+    });
+
+    it("does NOT render GoalsSetupBanner when goals are ok", async () => {
+      setupWithGoals({
+        status: "ok",
+        calories: 2000,
+        proteinG: 120,
+        carbsG: 200,
+        fatG: 70,
+      });
+      renderDailyDashboard();
+      await waitFor(() => {
+        expect(screen.getByTestId("calorie-ring-svg")).toBeInTheDocument();
+      });
+      // Banner should not be present
+      expect(
+        screen.queryByText(/Set up your daily goals in Settings to see your targets\./i)
+      ).not.toBeInTheDocument();
+    });
+
+    it("renders GoalsSetupBanner with Open Settings link for any blocked reason", async () => {
+      setupWithGoals({ status: "blocked", reason: "no_weight", calories: null, proteinG: null, carbsG: null, fatG: null });
+      renderDailyDashboard();
+      await waitFor(() => {
+        const link = screen.getByRole("link", { name: /open settings/i });
+        expect(link).toBeInTheDocument();
+        expect(link).toHaveAttribute("href", "/settings");
+      });
+    });
+  });
 });
