@@ -161,6 +161,104 @@ function settingsAreComplete(
   );
 }
 
+type EngineOut = ReturnType<typeof computeMacroTargets>;
+interface WeightLog {
+  weightKg: number;
+  loggedDate: string;
+}
+
+/** Build the success response from a stored DB row (legacy or new engine output). */
+function buildOkResponseFromRow(row: DbRow, date: string): ComputeResult {
+  return {
+    status: "ok",
+    goals: {
+      calorieGoal: row.calorieGoal,
+      proteinGoal: row.proteinGoal ?? row.calorieGoal,
+      carbsGoal:   row.carbsGoal   ?? 0,
+      fatGoal:     row.fatGoal     ?? 0,
+    },
+    audit: buildAuditFromRow(row),
+    ...(computeWeightStale(date, row.weightLoggedDate) ? { weightStale: true } : {}),
+  };
+}
+
+/**
+ * Engine-output column values written to `daily_calorie_goals`. Shared by the
+ * INSERT.values() and onConflictDoUpdate.set clauses (set adds `updatedAt`).
+ */
+function buildEngineWriteValues(
+  engineOut: EngineOut,
+  userActivityLevel: string,
+  userGoalWeightKg: string,
+  userGoalRateKgPerWeek: string,
+  weightLog: WeightLog,
+) {
+  return {
+    calorieGoal:       engineOut.targetKcal,
+    proteinGoal:       engineOut.proteinG,
+    carbsGoal:         engineOut.carbsG,
+    fatGoal:           engineOut.fatG,
+    weightKg:          String(weightLog.weightKg),
+    weightLoggedDate:  weightLog.loggedDate,
+    rmr:               engineOut.rmr,
+    tdee:              engineOut.tdee,
+    activityLevel:     userActivityLevel,
+    goalWeightKg:      userGoalWeightKg,
+    goalRateKgPerWeek: userGoalRateKgPerWeek,
+    deficitKcal:       engineOut.deficitKcal,
+  };
+}
+
+/** Build NutritionGoalsAudit from engine output (post-compute, vs. buildAuditFromRow which builds from a stored DB row). */
+function buildAuditFromEngine(
+  engineOut: EngineOut,
+  userActivityLevel: string,
+  userGoalWeightKg: string,
+  userGoalRateKgPerWeek: string,
+  weightLog: WeightLog,
+): NutritionGoalsAudit {
+  return {
+    rmr:               engineOut.rmr,
+    palMultiplier:     engineOut.palMultiplier,
+    tdee:              engineOut.tdee,
+    weightKg:          String(weightLog.weightKg),
+    weightLoggedDate:  weightLog.loggedDate,
+    activityLevel:     userActivityLevel as ActivityLevel,
+    goalWeightKg:      parseFloat(userGoalWeightKg),
+    goalRateKgPerWeek: parseFloat(userGoalRateKgPerWeek),
+    deficitKcal:       engineOut.deficitKcal,
+    direction:         engineOut.direction,
+  };
+}
+
+/** Build the engine-success ComputeResult. Used by both the post-write success path AND the FOO-1070 drift skip-write path. */
+function buildOkResponseFromEngine(
+  engineOut: EngineOut,
+  userActivityLevel: string,
+  userGoalWeightKg: string,
+  userGoalRateKgPerWeek: string,
+  weightLog: WeightLog,
+  date: string,
+): ComputeResult {
+  return {
+    status: "ok",
+    goals: {
+      calorieGoal: engineOut.targetKcal,
+      proteinGoal: engineOut.proteinG,
+      carbsGoal:   engineOut.carbsG,
+      fatGoal:     engineOut.fatG,
+    },
+    audit: buildAuditFromEngine(
+      engineOut,
+      userActivityLevel,
+      userGoalWeightKg,
+      userGoalRateKgPerWeek,
+      weightLog,
+    ),
+    ...(computeWeightStale(date, weightLog.loggedDate) ? { weightStale: true } : {}),
+  };
+}
+
 // In-flight Promise Map keyed `${userId}:${date}` — delete on settle
 const computeInFlight = new Map<string, Promise<ComputeResult>>();
 
@@ -187,28 +285,20 @@ async function doCompute(
     const userSettings = userRows[0];
     const isPast = date < getTodayDate();
 
-    // FOO-1062: migration cutover — when current users.* settings are null
-    // (e.g., right after the FOO-1040 schema migration) but a historical
-    // daily_calorie_goals row exists, return that row. Past rows are stable
-    // and the date-history view must remain visible before users reconfigure
-    // their new goal settings.
-    if (!settingsAreComplete(userSettings) && isPast) {
-      const past = await queryRow(userId, date);
-      // FOO-1068: same sentinel — `proteinGoal !== null` reliably identifies
-      // real engine output (legacy or new), while invalidated rows are skipped.
-      if (past !== null && past.proteinGoal !== null) {
-        return {
-          status: "ok",
-          goals: {
-            calorieGoal: past.calorieGoal,
-            proteinGoal: past.proteinGoal ?? past.calorieGoal,
-            carbsGoal:   past.carbsGoal   ?? 0,
-            fatGoal:     past.fatGoal     ?? 0,
-          },
-          audit: buildAuditFromRow(past),
-          ...(computeWeightStale(date, past.weightLoggedDate) ? { weightStale: true } : {}),
-        };
-      }
+    // ── Step 2: Read existing row (early — past historical rows are stable
+    //           regardless of current users.* state, so we can short-circuit
+    //           before the settings check covering the FOO-1062 migration
+    //           cutover and the regular past-date cache hit in one branch).
+    //
+    // Sentinel: `proteinGoal !== null` is "row was written by the engine"
+    // (FOO-1068). The new engine permits non-positive `calorieGoal` for
+    // extreme rates so `> 0` would mistreat valid extreme rows as missing;
+    // invalidation nulls all macro columns so `proteinGoal !== null`
+    // distinguishes real engine output from invalidated rows.
+    const existing = await queryRow(userId, date);
+
+    if (isPast && existing !== null && existing.proteinGoal !== null) {
+      return buildOkResponseFromRow(existing, date);
     }
 
     if (!settingsAreComplete(userSettings)) {
@@ -225,32 +315,8 @@ async function doCompute(
       goalRateKgPerWeek: userGoalRateKgPerWeek,
     } = userSettings;
 
-    // ── Step 2: Check for existing row ───────────────────────────────────────
-    const existing = await queryRow(userId, date);
-
-    // FOO-1068: use `proteinGoal !== null` as the "row was written by the
-    // engine" sentinel — the new engine permits non-positive `calorieGoal`
-    // for extreme rates (no clamp by design), so `> 0` would mistakenly
-    // treat valid extreme rows as missing and force recompute on every read.
-    // Invalidation nulls all macro columns, so `proteinGoal !== null`
-    // distinguishes real engine output from invalidated rows.
+    // Today/future cache hit (past rows already returned above).
     if (existing !== null && existing.proteinGoal !== null) {
-      if (isPast) {
-        // Historical rows are stable — return as-is regardless of settings drift.
-        return {
-          status: "ok",
-          goals: {
-            calorieGoal: existing.calorieGoal,
-            proteinGoal: existing.proteinGoal ?? existing.calorieGoal,
-            carbsGoal:   existing.carbsGoal   ?? 0,
-            fatGoal:     existing.fatGoal     ?? 0,
-          },
-          audit: buildAuditFromRow(existing),
-          ...(computeWeightStale(date, existing.weightLoggedDate) ? { weightStale: true } : {}),
-        };
-      }
-
-      // Today/future: check if stored settings still match current user settings.
       if (
         rowSettingsMatch(
           existing,
@@ -259,17 +325,7 @@ async function doCompute(
           userGoalRateKgPerWeek,
         )
       ) {
-        return {
-          status: "ok",
-          goals: {
-            calorieGoal: existing.calorieGoal,
-            proteinGoal: existing.proteinGoal ?? existing.calorieGoal,
-            carbsGoal:   existing.carbsGoal   ?? 0,
-            fatGoal:     existing.fatGoal     ?? 0,
-          },
-          audit: buildAuditFromRow(existing),
-          ...(computeWeightStale(date, existing.weightLoggedDate) ? { weightStale: true } : {}),
-        };
+        return buildOkResponseFromRow(existing, date);
       }
       // Settings drifted → fall through to full recompute.
     }
@@ -333,66 +389,30 @@ async function doCompute(
         { action: "daily_goals_compute_skipped_write_drift", userId, date },
         "settings drifted during compute — returning fresh values without persisting",
       );
-      return {
-        status: "ok",
-        goals: {
-          calorieGoal: engineOut.targetKcal,
-          proteinGoal: engineOut.proteinG,
-          carbsGoal:   engineOut.carbsG,
-          fatGoal:     engineOut.fatG,
-        },
-        audit: {
-          rmr:               engineOut.rmr,
-          palMultiplier:     engineOut.palMultiplier,
-          tdee:              engineOut.tdee,
-          weightKg:          String(weightLog.weightKg),
-          weightLoggedDate:  weightLog.loggedDate,
-          activityLevel:     userActivityLevel as ActivityLevel,
-          goalWeightKg:      parseFloat(userGoalWeightKg),
-          goalRateKgPerWeek: parseFloat(userGoalRateKgPerWeek),
-          deficitKcal:       engineOut.deficitKcal,
-          direction:         engineOut.direction,
-        },
-        ...(computeWeightStale(date, weightLog.loggedDate) ? { weightStale: true } : {}),
-      };
+      return buildOkResponseFromEngine(
+        engineOut,
+        userActivityLevel,
+        userGoalWeightKg,
+        userGoalRateKgPerWeek,
+        weightLog,
+        date,
+      );
     }
 
     // ── Step 5: UPSERT ───────────────────────────────────────────────────────
+    const writeValues = buildEngineWriteValues(
+      engineOut,
+      userActivityLevel,
+      userGoalWeightKg,
+      userGoalRateKgPerWeek,
+      weightLog,
+    );
     await getDb()
       .insert(dailyCalorieGoals)
-      .values({
-        userId,
-        date,
-        calorieGoal:       engineOut.targetKcal,
-        proteinGoal:       engineOut.proteinG,
-        carbsGoal:         engineOut.carbsG,
-        fatGoal:           engineOut.fatG,
-        weightKg:          String(weightLog.weightKg),
-        weightLoggedDate:  weightLog.loggedDate,
-        rmr:               engineOut.rmr,
-        tdee:              engineOut.tdee,
-        activityLevel:     userActivityLevel,
-        goalWeightKg:      userGoalWeightKg,
-        goalRateKgPerWeek: userGoalRateKgPerWeek,
-        deficitKcal:       engineOut.deficitKcal,
-      })
+      .values({ userId, date, ...writeValues })
       .onConflictDoUpdate({
         target: [dailyCalorieGoals.userId, dailyCalorieGoals.date],
-        set: {
-          calorieGoal:       engineOut.targetKcal,
-          proteinGoal:       engineOut.proteinG,
-          carbsGoal:         engineOut.carbsG,
-          fatGoal:           engineOut.fatG,
-          weightKg:          String(weightLog.weightKg),
-          weightLoggedDate:  weightLog.loggedDate,
-          rmr:               engineOut.rmr,
-          tdee:              engineOut.tdee,
-          activityLevel:     userActivityLevel,
-          goalWeightKg:      userGoalWeightKg,
-          goalRateKgPerWeek: userGoalRateKgPerWeek,
-          deficitKcal:       engineOut.deficitKcal,
-          updatedAt:         new Date(),
-        },
+        set: { ...writeValues, updatedAt: new Date() },
         // FOO-1066/1067/1068: atomic compare-and-swap — only overwrite if our
         // input still matches `users.*` AT WRITE TIME via an EXISTS subquery.
         // This single predicate covers every case correctly:
@@ -430,30 +450,14 @@ async function doCompute(
       "daily goals computed",
     );
 
-    const audit: NutritionGoalsAudit = {
-      rmr:               engineOut.rmr,
-      palMultiplier:     engineOut.palMultiplier,
-      tdee:              engineOut.tdee,
-      weightKg:          String(weightLog.weightKg),
-      weightLoggedDate:  weightLog.loggedDate,
-      activityLevel:     userActivityLevel as ActivityLevel,
-      goalWeightKg:      parseFloat(userGoalWeightKg),
-      goalRateKgPerWeek: parseFloat(userGoalRateKgPerWeek),
-      deficitKcal:       engineOut.deficitKcal,
-      direction:         engineOut.direction,
-    };
-
-    return {
-      status: "ok",
-      goals: {
-        calorieGoal: engineOut.targetKcal,
-        proteinGoal: engineOut.proteinG,
-        carbsGoal:   engineOut.carbsG,
-        fatGoal:     engineOut.fatG,
-      },
-      audit,
-      ...(computeWeightStale(date, weightLog.loggedDate) ? { weightStale: true } : {}),
-    };
+    return buildOkResponseFromEngine(
+      engineOut,
+      userActivityLevel,
+      userGoalWeightKg,
+      userGoalRateKgPerWeek,
+      weightLog,
+      date,
+    );
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     // Note: SEX_UNSET is not handled here — `profile.sex === "NA"` is checked

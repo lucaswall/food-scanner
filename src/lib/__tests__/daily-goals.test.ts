@@ -155,6 +155,7 @@ describe("getOrComputeDailyGoals — goals not set (FOO-1042)", () => {
 
   it("returns blocked/goals_not_set when activityLevel is null", async () => {
     mockSelectOnce([{ ...USER_SETTINGS_NULL }]);
+    mockSelectOnce([]); // queryRow runs early after the refactor (no row)
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
     expect(result).toEqual({ status: "blocked", reason: "goals_not_set" });
     // Must NOT insert any row
@@ -163,6 +164,7 @@ describe("getOrComputeDailyGoals — goals not set (FOO-1042)", () => {
 
   it("returns blocked/goals_not_set when goalWeightKg is null", async () => {
     mockSelectOnce([{ activityLevel: "moderate", goalWeightKg: null, goalRateKgPerWeek: "0.5" }]);
+    mockSelectOnce([]);
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
     expect(result).toEqual({ status: "blocked", reason: "goals_not_set" });
     expect(mockDb.insert).not.toHaveBeenCalled();
@@ -170,6 +172,7 @@ describe("getOrComputeDailyGoals — goals not set (FOO-1042)", () => {
 
   it("returns blocked/goals_not_set when goalRateKgPerWeek is null", async () => {
     mockSelectOnce([{ activityLevel: "moderate", goalWeightKg: "70", goalRateKgPerWeek: null }]);
+    mockSelectOnce([]);
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
     expect(result).toEqual({ status: "blocked", reason: "goals_not_set" });
     expect(mockDb.insert).not.toHaveBeenCalled();
@@ -177,6 +180,7 @@ describe("getOrComputeDailyGoals — goals not set (FOO-1042)", () => {
 
   it("returns blocked/goals_not_set when user row not found", async () => {
     mockSelectOnce([]);  // no user row
+    mockSelectOnce([]);  // also no daily-goals row
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
     expect(result).toEqual({ status: "blocked", reason: "goals_not_set" });
     expect(mockDb.insert).not.toHaveBeenCalled();
@@ -646,6 +650,7 @@ describe("getOrComputeDailyGoals — past-date row visible under null user setti
 
   it("returns blocked/goals_not_set for today even when settings null (no migration-cutover backstop for today)", async () => {
     mockSelectOnce([USER_SETTINGS_NULL]);
+    mockSelectOnce([]); // queryRow runs early; no row → fall through to settings check
 
     const result = await getOrComputeDailyGoals("user-1", "2026-05-08"); // today
     expect(result).toEqual({ status: "blocked", reason: "goals_not_set" });
@@ -760,6 +765,7 @@ describe("getOrComputeDailyGoals — log conversions (FOO-1052)", () => {
   it("debugs when goals_not_set (expected user state)", async () => {
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
     mockSelectOnce([USER_SETTINGS_NULL]);
+    mockSelectOnce([]); // queryRow runs early after the refactor
 
     await getOrComputeDailyGoals("user-1", "2026-05-08", log as unknown as Logger);
 
