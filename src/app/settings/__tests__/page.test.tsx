@@ -20,11 +20,11 @@ vi.mock("next/navigation", () => ({
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
-// MacroProfileCard and TargetsCard fetch their own SWR endpoints; they are tested
+// DailyGoalsCard and TargetsCard fetch their own SWR endpoints; they are tested
 // independently. Stub them here so their fetch calls don't fight the URL-agnostic
 // `mockFetch.mockResolvedValue(...)` pattern used throughout this file.
-vi.mock("@/components/macro-profile-card", () => ({
-  MacroProfileCard: () => <div data-testid="macro-profile-card" />,
+vi.mock("@/components/daily-goals-card", () => ({
+  DailyGoalsCard: () => <div data-testid="daily-goals-card" />,
 }));
 vi.mock("@/components/targets-card", () => ({
   TargetsCard: ({ date }: { date: string }) => (
