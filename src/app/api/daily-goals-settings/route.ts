@@ -103,8 +103,12 @@ export async function PATCH(request: Request) {
   if ("goalWeightKg" in raw) {
     const v = raw.goalWeightKg;
     if (v !== null && v !== undefined) {
-      if (typeof v !== "number" || !isFinite(v) || v <= 0) {
-        return errorResponse("VALIDATION_ERROR", "goalWeightKg must be a finite number > 0", 400);
+      if (typeof v !== "number" || !isFinite(v) || v <= 0 || v > 500) {
+        return errorResponse(
+          "VALIDATION_ERROR",
+          "goalWeightKg must be a finite number > 0 and <= 500",
+          400,
+        );
       }
       update.goalWeightKg = v;
     } else {
@@ -116,10 +120,10 @@ export async function PATCH(request: Request) {
   if ("goalRateKgPerWeek" in raw) {
     const v = raw.goalRateKgPerWeek;
     if (v !== null && v !== undefined) {
-      if (typeof v !== "number" || !isFinite(v) || v < 0) {
+      if (typeof v !== "number" || !isFinite(v) || v < 0 || v > 5) {
         return errorResponse(
           "VALIDATION_ERROR",
-          "goalRateKgPerWeek must be a finite number >= 0",
+          "goalRateKgPerWeek must be a finite number >= 0 and <= 5",
           400,
         );
       }
@@ -127,6 +131,15 @@ export async function PATCH(request: Request) {
     } else {
       update.goalRateKgPerWeek = null;
     }
+  }
+
+  if (Object.keys(update).length === 0) {
+    const current = await getUserGoalSettings(session!.userId);
+    log.debug(
+      { action: "daily_goals_settings_patch_noop", userId: session!.userId },
+      "PATCH with empty body — no settings changed",
+    );
+    return successResponse(buildResponse(current));
   }
 
   const updated = await updateUserGoalSettings(session!.userId, update);

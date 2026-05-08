@@ -751,3 +751,33 @@ Summary: 8 findings raised by 3-reviewer team (security, reliability, quality); 
 1. Add a test in `src/app/api/daily-goals-settings/__tests__/route.test.ts` asserting that `PATCH` with body `{ goalRateKgPerWeek: 0 }` returns 200 and persists `goalRateKgPerWeek: 0` (MAINTAIN-direction case reachable via API).
 2. Run vitest (expect pass).
 
+---
+
+## Iteration 3
+
+**Implemented:** 2026-05-08
+**Method:** Single-agent (4 surgical fixes, all S-sized — 2 work units / 4 effort points; per scope table single-agent path)
+
+### Tasks Completed This Iteration
+- Fix 1 (FOO-1058): Added upper-bound validation to PATCH `/api/daily-goals-settings` — `goalWeightKg ≤ 500`, `goalRateKgPerWeek ≤ 5`. Added rejection tests at 501 / 5.1 and acceptance tests at 500 / 5.
+- Fix 2 (FOO-1059): Empty PATCH body `{}` short-circuits — when `Object.keys(update).length === 0`, return current settings via `getUserGoalSettings(...)` and skip both `updateUserGoalSettings` and `invalidateUserDailyGoalsForSettingsChange`. Added test asserting no-op call counts. Emits a `daily_goals_settings_patch_noop` debug log.
+- Fix 3 (FOO-1060): Replaced 5 sites of `log as never` with `log as unknown as Logger` in `src/lib/__tests__/daily-goals.test.ts`; added `import type { Logger } from "@/lib/logger";`.
+- Fix 4 (FOO-1061): Added acceptance test for `{ goalRateKgPerWeek: 0 }` returning 200 and persisting 0 (MAINTAIN-direction reachable via the API).
+
+### Files Modified
+- `src/app/api/daily-goals-settings/route.ts` (Fix 1, Fix 2)
+- `src/app/api/daily-goals-settings/__tests__/route.test.ts` (Fix 1, Fix 2, Fix 4)
+- `src/lib/__tests__/daily-goals.test.ts` (Fix 3)
+
+### Linear Updates
+- FOO-1058 → FOO-1061: Todo → In Progress → Review (4 fix issues completed)
+
+### Pre-commit Verification
+- bug-hunter: No bugs found. Verified: bound checks correctly placed after `!isFinite(v)` (NaN/Infinity rejected first); empty-body short-circuit triggers ONLY on `{}` (a body containing `{ activityLevel: null }` correctly proceeds to update); double-cast idiom is correct; no CLAUDE.md violations.
+- verifier (default mode): All unit tests pass, lint clean, build clean, zero warnings.
+
+### Continuation Status
+Goal-anchored engine rework + Iteration 1 review fixes + Iteration 2 review fixes COMPLETE. All 4 Iteration 2 review fix issues moved to Review. No tasks remaining.
+
+<!-- ITERATION COMPLETE -->
+

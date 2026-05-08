@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { Logger } from "@/lib/logger";
 
 // ─── Fitbit-cache mocks ──────────────────────────────────────────────────────
 const mockGetCachedFitbitProfile = vi.fn();
@@ -593,7 +594,7 @@ describe("getOrComputeDailyGoals — log conversions (FOO-1052)", () => {
     mockGetCachedFitbitProfile.mockResolvedValueOnce({ sex: "MALE", ageYears: 30, heightCm: 0 });
     mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
 
-    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as unknown as Logger);
 
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ action: "daily_goals_blocked", reason: "invalid_profile" }),
@@ -607,7 +608,7 @@ describe("getOrComputeDailyGoals — log conversions (FOO-1052)", () => {
     mockSelectOnce([]);
     mockGetCachedFitbitProfile.mockRejectedValueOnce(new Error("FITBIT_SCOPE_MISSING"));
 
-    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as unknown as Logger);
 
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ action: "daily_goals_blocked", reason: "scope_mismatch" }),
@@ -619,7 +620,7 @@ describe("getOrComputeDailyGoals — log conversions (FOO-1052)", () => {
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
     mockSelectOnce([USER_SETTINGS_NULL]);
 
-    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as unknown as Logger);
 
     expect(log.debug).toHaveBeenCalledWith(
       expect.objectContaining({ action: "daily_goals_blocked", reason: "goals_not_set" }),
@@ -635,7 +636,7 @@ describe("getOrComputeDailyGoals — log conversions (FOO-1052)", () => {
     mockGetCachedFitbitProfile.mockResolvedValueOnce({ sex: "NA", ageYears: 30, heightCm: 175 });
     mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
 
-    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as unknown as Logger);
 
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ action: "daily_goals_blocked", reason: "sex_unset" }),
@@ -650,7 +651,7 @@ describe("getOrComputeDailyGoals — log conversions (FOO-1052)", () => {
     mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
     mockGetCachedFitbitWeightKg.mockResolvedValueOnce(null);
 
-    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as unknown as Logger);
 
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ action: "daily_goals_blocked", reason: "no_weight" }),

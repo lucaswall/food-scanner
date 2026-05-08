@@ -223,6 +223,31 @@ describe("PATCH /api/daily-goals-settings", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  // FOO-1061: boundary value — goalRateKgPerWeek = 0 must be ACCEPTED (impl uses v < 0)
+  // This represents the MAINTAIN direction reachable via the API.
+  it("accepts goalRateKgPerWeek = 0 (boundary — MAINTAIN direction)", async () => {
+    mockUpdateUserGoalSettings.mockResolvedValue({
+      activityLevel: null,
+      goalWeightKg: null,
+      goalRateKgPerWeek: 0,
+    });
+
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goalRateKgPerWeek: 0 }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateUserGoalSettings).toHaveBeenCalledWith("user-uuid-123", {
+      goalRateKgPerWeek: 0,
+    });
+    const body = await response.json();
+    expect(body.data.goalRateKgPerWeek).toBe(0);
+  });
+
   // FOO-1057: boundary value — goalWeightKg = 0 must be rejected (impl uses v <= 0)
   it("returns 400 VALIDATION_ERROR for goalWeightKg = 0 (boundary)", async () => {
     const response = await PATCH(
@@ -265,6 +290,102 @@ describe("PATCH /api/daily-goals-settings", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  // FOO-1059: empty body `{}` should short-circuit — no invalidation, no DB write
+  it("short-circuits empty body without invalidating daily goals", async () => {
+    mockGetUserGoalSettings.mockResolvedValue({
+      activityLevel: "light",
+      goalWeightKg: 75.0,
+      goalRateKgPerWeek: 0.5,
+    });
+
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.data).toEqual({
+      activityLevel: "light",
+      goalWeightKg: 75.0,
+      goalRateKgPerWeek: 0.5,
+    });
+    expect(mockUpdateUserGoalSettings).not.toHaveBeenCalled();
+    expect(mockInvalidateUserDailyGoalsForSettingsChange).not.toHaveBeenCalled();
+  });
+
+  // FOO-1058: upper-bound validation — extreme finite values must be rejected
+  it("returns 400 VALIDATION_ERROR for goalWeightKg > 500", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goalWeightKg: 501 }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("returns 400 VALIDATION_ERROR for goalRateKgPerWeek > 5", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goalRateKgPerWeek: 5.1 }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("accepts goalWeightKg = 500 (upper boundary)", async () => {
+    mockUpdateUserGoalSettings.mockResolvedValue({
+      activityLevel: null,
+      goalWeightKg: 500,
+      goalRateKgPerWeek: null,
+    });
+
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goalWeightKg: 500 }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateUserGoalSettings).toHaveBeenCalledWith("user-uuid-123", { goalWeightKg: 500 });
+  });
+
+  it("accepts goalRateKgPerWeek = 5 (upper boundary)", async () => {
+    mockUpdateUserGoalSettings.mockResolvedValue({
+      activityLevel: null,
+      goalWeightKg: null,
+      goalRateKgPerWeek: 5,
+    });
+
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goalRateKgPerWeek: 5 }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateUserGoalSettings).toHaveBeenCalledWith("user-uuid-123", {
+      goalRateKgPerWeek: 5,
+    });
   });
 
   it("returns 400 VALIDATION_ERROR for invalid JSON body", async () => {
