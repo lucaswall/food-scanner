@@ -99,11 +99,15 @@ const OK_RESULT = {
   goals: { calorieGoal: 2289, proteinGoal: 218, carbsGoal: 136, fatGoal: 97 },
   audit: {
     rmr: 2070,
-    activityKcal: 791,
+    palMultiplier: 1.55,
     tdee: 2861,
-    weightKg: "121",
-    bmiTier: "ge30" as const,
-    goalType: "LOSE" as const,
+    weightKg: "90",
+    weightLoggedDate: "2026-05-01",
+    activityLevel: "moderate",
+    goalWeightKg: 80,
+    goalRateKgPerWeek: 0.5,
+    deficitKcal: -550,
+    direction: "LOSE" as const,
   },
 };
 
@@ -161,11 +165,15 @@ describe("GET /api/nutrition-goals", () => {
     expect(body.data.fatG).toBe(97);
     expect(body.data.audit).toEqual({
       rmr: 2070,
-      activityKcal: 791,
+      palMultiplier: 1.55,
       tdee: 2861,
-      weightKg: "121",
-      bmiTier: "ge30",
-      goalType: "LOSE",
+      weightKg: "90",
+      weightLoggedDate: "2026-05-01",
+      activityLevel: "moderate",
+      goalWeightKg: 80,
+      goalRateKgPerWeek: 0.5,
+      deficitKcal: -550,
+      direction: "LOSE",
     });
   });
 
@@ -234,6 +242,19 @@ describe("GET /api/nutrition-goals", () => {
     expect(response.status).toBe(200);
     expect(body.data.status).toBe("blocked");
     expect(body.data.reason).toBe("sex_unset");
+  });
+
+  it("returns 200 with blocked/goals_not_set when user has not configured daily goals", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetOrComputeDailyGoals.mockResolvedValue({ status: "blocked", reason: "goals_not_set" });
+
+    const response = await GET(createRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.status).toBe("blocked");
+    expect(body.data.reason).toBe("goals_not_set");
+    expect(body.data.calories).toBeNull();
   });
 
   // ─── Fitbit errors (thrown) ───────────────────────────────────────────────

@@ -183,6 +183,13 @@
       "when": 1777976223172,
       "tag": "0025_wonderful_franklin_storm",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1778243685836,
+      "tag": "0026_goal_anchored_engine",
+      "breakpoints": true
     }
   ]
 }

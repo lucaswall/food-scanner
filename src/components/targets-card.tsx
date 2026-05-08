@@ -1,37 +1,40 @@
 "use client";
 
-import { useState } from "react";
 import useSWR from "swr";
 import { apiFetcher, FITBIT_BACKED_SWR_CONFIG } from "@/lib/swr";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import { ACTIVITY_LEVEL_LABELS } from "@/lib/macro-engine";
 import type { NutritionGoals } from "@/types";
+import type { GoalBlockedReason } from "@/components/goals-setup-banner";
 
 interface TargetsCardProps {
   date: string;
 }
 
-function getBlockedMessage(reason?: string): string {
-  switch (reason) {
-    case "no_weight":
-      return "Log your weight in Fitbit to enable macro targets.";
-    case "sex_unset":
-      return "Set your biological sex in Fitbit profile to enable macro targets.";
-    case "scope_mismatch":
-      return "Reconnect Fitbit to enable macro targets.";
-    case "invalid_profile":
-      return "Your Fitbit profile has invalid values (height, weight, or age). Update it in the Fitbit app.";
-    case "invalid_activity":
-      return "Fitbit returned invalid activity data. Try again later or check the Fitbit app.";
-    default:
-      return "Macro targets unavailable.";
-  }
+/** Format a signed deficit value: negative numbers already carry a minus, positive get +. */
+function formatSignedDeficit(kcal: number): string {
+  if (kcal === 0) return "0";
+  if (kcal > 0) return `+${kcal}`;
+  return `${kcal}`;
+}
+
+const BLOCKED_MESSAGES: Record<GoalBlockedReason, string> = {
+  goals_not_set: "Set up your daily goals in Settings to enable targets.",
+  no_weight: "Log your weight in Fitbit to enable macro targets.",
+  sex_unset: "Set your biological sex in Fitbit profile to enable macro targets.",
+  scope_mismatch: "Reconnect Fitbit to enable macro targets.",
+  invalid_profile:
+    "Your Fitbit profile has invalid values (height, weight, or age). Update it in the Fitbit app.",
+};
+
+function getBlockedMessage(reason?: GoalBlockedReason): string {
+  if (reason === undefined) return "Macro targets unavailable.";
+  return BLOCKED_MESSAGES[reason];
 }
 
 export function TargetsCard({ date }: TargetsCardProps) {
-  const [expanded, setExpanded] = useState(false);
-
   const {
     data: goals,
     error,
@@ -68,7 +71,7 @@ export function TargetsCard({ date }: TargetsCardProps) {
     );
   }
 
-  // Hide if no data or status not yet populated (pre-macro-engine API)
+  // Hide if no data or status not yet populated
   if (!goals || !goals.status) return null;
 
   if (goals.status === "blocked") {
@@ -79,13 +82,13 @@ export function TargetsCard({ date }: TargetsCardProps) {
     );
   }
 
-  // status === "ok" — FOO-1036: every authenticated user with sex+weight+height
-  // sees all four numbers at all times of day. `isSeeded` may be true when the
-  // engine fed a history/default caloriesOut, but the UI is silent about it.
+  // status === "ok"
+  const audit = goals.audit;
+
   const weightAgeDays =
-    goals.audit?.weightLoggedDate != null
+    audit?.weightLoggedDate != null
       ? Math.floor(
-          (Date.parse(date) - Date.parse(goals.audit.weightLoggedDate)) / 86_400_000,
+          (Date.parse(date) - Date.parse(audit.weightLoggedDate)) / 86_400_000,
         )
       : null;
 
@@ -96,48 +99,48 @@ export function TargetsCard({ date }: TargetsCardProps) {
           ⚠ Weight log is {weightAgeDays} days old — log a recent weight in Fitbit.
         </p>
       )}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
-          <span className="font-medium">
-            {goals.calories != null
-              ? goals.calories.toLocaleString("en-US")
-              : "—"}{" "}
-            cal/day
-          </span>
-          {goals.proteinG != null && <span>P:{goals.proteinG}g</span>}
-          {goals.carbsG != null && <span>C:{goals.carbsG}g</span>}
-          {goals.fatG != null && <span>F:{goals.fatG}g</span>}
-        </div>
-        {goals.audit && (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0"
-            aria-label={
-              expanded ? "Hide calculation details" : "Show calculation details"
-            }
-          >
-            {expanded ? (
-              <ChevronUp className="h-4 w-4" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
-          </button>
-        )}
+      {/* Top-line target summary — unchanged */}
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+        <span className="font-medium">
+          {goals.calories != null
+            ? goals.calories.toLocaleString("en-US")
+            : "—"}{" "}
+          cal/day
+        </span>
+        {goals.proteinG != null && <span>P:{goals.proteinG}g</span>}
+        {goals.carbsG != null && <span>C:{goals.carbsG}g</span>}
+        {goals.fatG != null && <span>F:{goals.fatG}g</span>}
       </div>
 
-      {expanded && goals.audit && (
+      {/* Audit detail — shown inline whenever audit is present (FOO-1045: no expand toggle) */}
+      {audit && (
         <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t">
-          <p>RMR: {goals.audit.rmr} kcal</p>
-          <p>Fitbit calories burned: {goals.audit.caloriesOut.toLocaleString("en-US")} kcal</p>
-          <p>Activity (after 0.85× haircut): {goals.audit.activityKcal} kcal</p>
-          <p>TDEE: {goals.audit.tdee} kcal</p>
-          <p>
-            Weight: {goals.audit.weightKg}kg
-            {goals.audit.weightLoggedDate ? ` (logged ${goals.audit.weightLoggedDate})` : ""}
-          </p>
-          <p>BMI tier: {goals.audit.bmiTier}</p>
-          <p>Goal: {goals.audit.goalType}</p>
+          {audit.rmr != null && <p>RMR: {audit.rmr} kcal</p>}
+          {audit.activityLevel != null && audit.palMultiplier != null && (
+            <p>
+              Activity:{" "}
+              {ACTIVITY_LEVEL_LABELS[audit.activityLevel as keyof typeof ACTIVITY_LEVEL_LABELS]}{" "}
+              (PAL ×{audit.palMultiplier})
+            </p>
+          )}
+          {audit.tdee != null && <p>TDEE: {audit.tdee} kcal</p>}
+          {audit.weightKg != null && (
+            <p>
+              Weight: {audit.weightKg} kg
+              {audit.weightLoggedDate
+                ? ` (logged ${audit.weightLoggedDate})`
+                : " (no log date)"}
+            </p>
+          )}
+          {audit.goalWeightKg != null && <p>Goal weight: {audit.goalWeightKg} kg</p>}
+          {audit.goalRateKgPerWeek != null && (
+            <p>Goal rate: {audit.goalRateKgPerWeek} kg/week</p>
+          )}
+          {audit.deficitKcal != null && audit.direction != null && (
+            <p>
+              Deficit: {formatSignedDeficit(audit.deficitKcal)} kcal/day · {audit.direction}
+            </p>
+          )}
         </div>
       )}
     </div>

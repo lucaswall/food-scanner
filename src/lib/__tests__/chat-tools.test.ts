@@ -874,6 +874,35 @@ describe("executeTool - error handling", () => {
     expect(mockGetDailyNutritionSummary).toHaveBeenCalledWith("user-123", "2026-02-15", expect.anything());
   });
 
+  it("get_nutrition_summary blocked with goals_not_set emits reason in output", async () => {
+    mockGetDailyNutritionSummary.mockResolvedValue({
+      date: "2026-02-15",
+      meals: [],
+      totals: {
+        calories: 800, proteinG: 40, carbsG: 80, fatG: 30,
+        fiberG: 5, sodiumMg: 600, saturatedFatG: 8, transFatG: 0,
+        sugarsG: 20, caloriesFromFat: 270,
+      },
+    });
+
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "blocked",
+      reason: "goals_not_set",
+    });
+
+    const result = await executeTool(
+      "get_nutrition_summary",
+      { date: "2026-02-15", from_date: null, to_date: null },
+      "user-123",
+      "2026-02-15"
+    );
+
+    expect(result).toContain("Nutrition summary");
+    expect(result).toContain("Goal status: blocked (goals_not_set)");
+    expect(result).not.toContain("Calorie goal:");
+    expect(result).not.toContain("Macro goals:");
+  });
+
   it("get_fasting_info accepts null parameters", async () => {
     mockGetFastingWindow.mockResolvedValue({
       date: "2026-02-15",

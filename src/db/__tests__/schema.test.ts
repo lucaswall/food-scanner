@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getTableColumns } from "drizzle-orm";
-import { users, sessions, fitbitTokens, customFoods, foodLogEntries } from "@/db/schema";
+import { users, sessions, fitbitTokens, customFoods, foodLogEntries, dailyCalorieGoals } from "@/db/schema";
 
 describe("database schema", () => {
   describe("users table", () => {
@@ -127,5 +127,73 @@ describe("database schema", () => {
   it("does not export foodLogs", async () => {
     const schema = await import("@/db/schema");
     expect(schema).not.toHaveProperty("foodLogs");
+  });
+});
+
+// ─── FOO-1040: goal-anchored columns ─────────────────────────────────────────
+
+describe("users table — goal-anchored columns (FOO-1040)", () => {
+  it("has activityLevel, goalWeightKg, goalRateKgPerWeek columns", () => {
+    const columns = getTableColumns(users);
+    expect(columns).toHaveProperty("activityLevel");
+    expect(columns).toHaveProperty("goalWeightKg");
+    expect(columns).toHaveProperty("goalRateKgPerWeek");
+  });
+
+  it("activityLevel is nullable text", () => {
+    const columns = getTableColumns(users);
+    expect(columns.activityLevel.dataType).toBe("string");
+    expect(columns.activityLevel.notNull).toBe(false);
+  });
+
+  it("goalWeightKg is nullable numeric", () => {
+    const columns = getTableColumns(users);
+    expect(columns.goalWeightKg.dataType).toBe("string");
+    expect(columns.goalWeightKg.notNull).toBe(false);
+  });
+
+  it("goalRateKgPerWeek is nullable numeric", () => {
+    const columns = getTableColumns(users);
+    expect(columns.goalRateKgPerWeek.dataType).toBe("string");
+    expect(columns.goalRateKgPerWeek.notNull).toBe(false);
+  });
+
+  it("does NOT have macroProfile or macroProfileVersion columns", () => {
+    const columns = getTableColumns(users) as Record<string, unknown>;
+    expect(columns).not.toHaveProperty("macroProfile");
+    expect(columns).not.toHaveProperty("macroProfileVersion");
+  });
+});
+
+describe("dailyCalorieGoals table — goal-anchored columns (FOO-1040)", () => {
+  it("has activityLevel, goalWeightKg, goalRateKgPerWeek, tdee, deficitKcal columns", () => {
+    const columns = getTableColumns(dailyCalorieGoals);
+    expect(columns).toHaveProperty("activityLevel");
+    expect(columns).toHaveProperty("goalWeightKg");
+    expect(columns).toHaveProperty("goalRateKgPerWeek");
+    expect(columns).toHaveProperty("tdee");
+    expect(columns).toHaveProperty("deficitKcal");
+  });
+
+  it("tdee is nullable integer", () => {
+    const columns = getTableColumns(dailyCalorieGoals);
+    expect(columns.tdee.dataType).toBe("number");
+    expect(columns.tdee.notNull).toBe(false);
+  });
+
+  it("deficitKcal is nullable integer", () => {
+    const columns = getTableColumns(dailyCalorieGoals);
+    expect(columns.deficitKcal.dataType).toBe("number");
+    expect(columns.deficitKcal.notNull).toBe(false);
+  });
+
+  it("does NOT have caloriesOut, activityKcal, bmiTier, goalType, profileVersion, tdeeSource", () => {
+    const columns = getTableColumns(dailyCalorieGoals) as Record<string, unknown>;
+    expect(columns).not.toHaveProperty("caloriesOut");
+    expect(columns).not.toHaveProperty("activityKcal");
+    expect(columns).not.toHaveProperty("bmiTier");
+    expect(columns).not.toHaveProperty("goalType");
+    expect(columns).not.toHaveProperty("profileVersion");
+    expect(columns).not.toHaveProperty("tdeeSource");
   });
 });

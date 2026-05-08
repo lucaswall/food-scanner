@@ -26,9 +26,9 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 // Mock dependent modules
-const mockGetDailyGoals = vi.fn();
+const mockGetOrComputeDailyGoals = vi.fn();
 vi.mock("@/lib/daily-goals", () => ({
-  getDailyGoalsByDate: (...args: unknown[]) => mockGetDailyGoals(...args),
+  getOrComputeDailyGoals: (...args: unknown[]) => mockGetOrComputeDailyGoals(...args),
 }));
 
 const mockGetNutritionSummary = vi.fn();
@@ -52,8 +52,8 @@ const TEST_DATE = "2026-03-09";
 function setupDefaultMocks() {
   vi.clearAllMocks();
 
-  // Default: no data (new user)
-  mockGetDailyGoals.mockResolvedValue(null);
+  // Default: no data (new user) — goals blocked/goals_not_set, no meals
+  mockGetOrComputeDailyGoals.mockResolvedValue({ status: "blocked", reason: "goals_not_set" });
   mockGetNutritionSummary.mockResolvedValue({
     date: TEST_DATE,
     meals: [],
@@ -86,8 +86,10 @@ describe("buildUserProfile", () => {
   });
 
   it("returns profile with all sections when user has full data", async () => {
-    mockGetDailyGoals.mockResolvedValue({
-      calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80,
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
+      audit: { rmr: 1800, palMultiplier: 1.55, tdee: 2790, weightKg: "80", weightLoggedDate: "2026-05-01", activityLevel: "moderate", goalWeightKg: 75, goalRateKgPerWeek: 0.5, deficitKcal: -550, direction: "LOSE" },
     });
     mockGetNutritionSummary.mockResolvedValue({
       date: TEST_DATE,
@@ -125,25 +127,67 @@ describe("buildUserProfile", () => {
     expect(result).toContain("Café con leche");
   });
 
-  it("includes calorie goal but omits macro goals when macros are null", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: 2000, proteinGoal: null, carbsGoal: null, fatGoal: null });
+  it("includes calorie goal but omits macro goals when macros are 0", async () => {
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2000, proteinGoal: 0, carbsGoal: 0, fatGoal: 0 },
+      audit: {},
+    });
 
     const { buildUserProfile } = await import("@/lib/user-profile");
     const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
 
     expect(result).not.toBeNull();
     expect(result).toContain("2000 cal/day");
-    expect(result).not.toContain("P:");
+    expect(result).not.toContain("P:0g");
   });
 
-  it("shows partial targets message when daily goals row exists but calorieGoal is null", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: null, proteinGoal: null, carbsGoal: null, fatGoal: null });
+  it("shows goals_not_set message when goals are not configured", async () => {
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "blocked",
+      reason: "goals_not_set",
+    });
+    // Add some meals so the function doesn't return null
+    mockGetNutritionSummary.mockResolvedValue({
+      date: TEST_DATE,
+      meals: [
+        { mealTypeId: 1, entries: [{ foodName: "Toast", calories: 200 }], totals: { calories: 200, proteinG: 5, carbsG: 30, fatG: 5, fiberG: 2, sodiumMg: 100, saturatedFatG: 1, transFatG: 0, sugarsG: 3, caloriesFromFat: 45 } },
+      ],
+      totals: {
+        calories: 200, proteinG: 5, carbsG: 30, fatG: 5,
+        fiberG: 2, sodiumMg: 100, saturatedFatG: 1, transFatG: 0,
+        sugarsG: 3, caloriesFromFat: 45,
+      },
+    });
 
     const { buildUserProfile } = await import("@/lib/user-profile");
     const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
 
     expect(result).not.toBeNull();
-    expect(result).toContain("Targets pending — waiting for Fitbit activity");
+    expect(result).toContain("Targets pending — set up daily goals in Settings");
+    expect(result).not.toContain("cal/day");
+  });
+
+  it("does not show targets message for other blocked reasons (no_weight, sex_unset)", async () => {
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "blocked",
+      reason: "no_weight",
+    });
+    mockGetNutritionSummary.mockResolvedValue({
+      date: TEST_DATE,
+      meals: [],
+      totals: {
+        calories: 500, proteinG: 30, carbsG: 50, fatG: 20,
+        fiberG: 5, sodiumMg: 300, saturatedFatG: 5, transFatG: 0,
+        sugarsG: 10, caloriesFromFat: 180,
+      },
+    });
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).not.toContain("Targets pending");
     expect(result).not.toContain("cal/day");
   });
 
@@ -161,7 +205,11 @@ describe("buildUserProfile", () => {
   });
 
   it("omits today's progress when no food logged today", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: 2200, proteinGoal: null, carbsGoal: null, fatGoal: null });
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
+      audit: {},
+    });
 
     const { buildUserProfile } = await import("@/lib/user-profile");
     const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
@@ -173,7 +221,11 @@ describe("buildUserProfile", () => {
   });
 
   it("profile string stays under 1200 characters", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 });
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
+      audit: {},
+    });
     mockGetNutritionSummary.mockResolvedValue({
       date: TEST_DATE,
       meals: [],
@@ -203,12 +255,16 @@ describe("buildUserProfile", () => {
     const { buildUserProfile } = await import("@/lib/user-profile");
     await buildUserProfile(TEST_USER_ID, TEST_DATE);
 
-    expect(mockGetDailyGoals).toHaveBeenCalledWith(TEST_USER_ID, TEST_DATE);
+    expect(mockGetOrComputeDailyGoals).toHaveBeenCalledWith(TEST_USER_ID, TEST_DATE, expect.any(Object));
     expect(mockGetNutritionSummary).toHaveBeenCalledWith(TEST_USER_ID, TEST_DATE);
   });
 
   it("does not include current time in profile (time is in dateTimeLine footer)", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: 2200, proteinGoal: null, carbsGoal: null, fatGoal: null });
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
+      audit: {},
+    });
 
     const { buildUserProfile } = await import("@/lib/user-profile");
     const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
@@ -222,7 +278,11 @@ describe("buildUserProfile", () => {
   });
 
   it("includes today's meals section with times when meals have been logged", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: 2200, proteinGoal: null, carbsGoal: null, fatGoal: null });
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
+      audit: {},
+    });
     mockGetNutritionSummary.mockResolvedValue({
       date: TEST_DATE,
       meals: [
@@ -242,7 +302,11 @@ describe("buildUserProfile", () => {
   });
 
   it("formats meals without time as meal type and food name only", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: 2200, proteinGoal: null, carbsGoal: null, fatGoal: null });
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
+      audit: {},
+    });
     mockGetNutritionSummary.mockResolvedValue({
       date: TEST_DATE,
       meals: [
@@ -261,7 +325,11 @@ describe("buildUserProfile", () => {
   });
 
   it("omits today's meals section when no meals have been logged", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: 2200, proteinGoal: null, carbsGoal: null, fatGoal: null });
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
+      audit: {},
+    });
     // Default mock has empty meals
 
     const { buildUserProfile } = await import("@/lib/user-profile");
@@ -272,7 +340,11 @@ describe("buildUserProfile", () => {
   });
 
   it("truncation removes top foods first then today's meals if still over 1200 chars", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 });
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2200, proteinGoal: 140, carbsGoal: 220, fatGoal: 80 },
+      audit: {},
+    });
     mockGetNutritionSummary.mockResolvedValue({
       date: TEST_DATE,
       meals: Array.from({ length: 8 }, (_, i) => ({
@@ -298,7 +370,11 @@ describe("buildUserProfile", () => {
   });
 
   it("accepts only userId and currentDate without options - backward compat", async () => {
-    mockGetDailyGoals.mockResolvedValue({ calorieGoal: 2000, proteinGoal: null, carbsGoal: null, fatGoal: null });
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 2000, proteinGoal: 130, carbsGoal: 200, fatGoal: 75 },
+      audit: {},
+    });
 
     const { buildUserProfile } = await import("@/lib/user-profile");
     const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
@@ -306,5 +382,73 @@ describe("buildUserProfile", () => {
     expect(result).not.toBeNull();
     expect(result).toContain("2000 cal/day");
     expect(result).not.toContain("Current time:");
+  });
+
+  // FOO-1069: non-positive engine output (extreme rate, no clamp) must still
+  // emit the target line — the user opted into it via the safety warning.
+  it("includes target line when status is ok with non-positive calorieGoal (FOO-1069)", async () => {
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: -500, proteinGoal: 176, carbsGoal: 130, fatGoal: 64 },
+      audit: {},
+    });
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Targets -500 cal/day");
+    expect(result).toContain("P:176g C:130g F:64g");
+  });
+
+  it("includes target line when status is ok with calorieGoal of zero (FOO-1069)", async () => {
+    mockGetOrComputeDailyGoals.mockResolvedValue({
+      status: "ok",
+      goals: { calorieGoal: 0, proteinGoal: 176, carbsGoal: 130, fatGoal: 64 },
+      audit: {},
+    });
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Targets 0 cal/day");
+  });
+
+  // FOO-1064: goal compute throwing must NOT discard DB-only food context
+  it("preserves nutrition summary and top foods when getOrComputeDailyGoals throws (FOO-1064)", async () => {
+    // Simulate a Fitbit-side error like FITBIT_TOKEN_INVALID propagating from
+    // getOrComputeDailyGoals. Without the Promise.all isolation, this would
+    // reject buildUserProfile entirely and discard the DB-only context.
+    mockGetOrComputeDailyGoals.mockRejectedValueOnce(new Error("FITBIT_TOKEN_INVALID"));
+    mockGetNutritionSummary.mockResolvedValue({
+      date: TEST_DATE,
+      meals: [
+        { mealTypeId: 1, entries: [{ foodName: "Café con leche", calories: 90 }], totals: { calories: 90, proteinG: 5, carbsG: 10, fatG: 3, fiberG: 0, sodiumMg: 50, saturatedFatG: 2, transFatG: 0, sugarsG: 8, caloriesFromFat: 27 } },
+      ],
+      totals: { calories: 90, proteinG: 5, carbsG: 10, fatG: 3, fiberG: 0, sodiumMg: 50, saturatedFatG: 2, transFatG: 0, sugarsG: 8, caloriesFromFat: 27 },
+    });
+    mockLimit.mockResolvedValue([{ foodName: "Medialunas", calories: 180, count: 32 }]);
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).not.toBeNull();
+    expect(result).toContain("Today so far: 90 cal");
+    expect(result).toContain("Café con leche");
+    expect(result).toContain("Medialunas");
+    // No Targets line (goal compute failed) and no "Targets pending" message
+    expect(result).not.toContain("Targets ");
+    expect(result).not.toContain("Targets pending");
+  });
+
+  it("returns null when goal compute throws AND user has no DB-side data either (FOO-1064)", async () => {
+    mockGetOrComputeDailyGoals.mockRejectedValueOnce(new Error("FITBIT_RATE_LIMIT_LOW"));
+    // default mocks: no nutrition, no top foods, no meals
+
+    const { buildUserProfile } = await import("@/lib/user-profile");
+    const result = await buildUserProfile(TEST_USER_ID, TEST_DATE);
+
+    expect(result).toBeNull();
   });
 });

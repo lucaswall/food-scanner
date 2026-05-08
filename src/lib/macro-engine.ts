@@ -1,116 +1,34 @@
-import type { BmiTier, MacroEngineInputs, MacroEngineOutputs, MacroGoalType } from "@/types";
-import { logger as defaultLogger } from "@/lib/logger";
-import type { Logger } from "@/lib/logger";
+import type { ActivityLevel, MacroEngineInputs, MacroEngineOutputs } from "@/types";
 
-export type { BmiTier };
+// ─── PAL lookup table ─────────────────────────────────────────────────────────
 
-/** Fitbit caloriesOut overestimate haircut — wrist-device validations show ~23–27% overshoot */
-export const ACTIVITY_MULTIPLIER = 0.85;
-
-export const GOAL_MULTIPLIERS: Record<MacroGoalType, number> = {
-  LOSE:     0.80,
-  MAINTAIN: 1.00,
-  GAIN:     1.10,
+export const PAL_BY_ACTIVITY_LEVEL: Record<ActivityLevel, number> = {
+  sedentary:    1.2,
+  light:        1.375,
+  moderate:     1.55,
+  very_active:  1.725,
+  extra_active: 1.9,
 };
 
-export interface MacroProfile {
-  /** Display name for UI */
-  name: string;
-  /** Protein g/kg of total bodyweight, indexed by BMI tier × goal */
-  proteinCoefficients: Record<BmiTier, Record<MacroGoalType, number>>;
-  /** Which macro absorbs leftover calories after protein + the anchored macro */
-  residualMacro: "carbs" | "fat";
-  /** Carbs (g) — when residualMacro="carbs" this is the floor; when "fat" this is the fixed target */
-  carbGrams: number;
-  /** Used only when residualMacro="carbs": fat = max(weightKg * factor, target * pct / 9) */
-  fatPerKgFactor: number;
-  fatPercentOfKcal: number;
-}
-
-/** High-protein, carb-floor, fat as residual. Sports-nutrition / muscle-preservation school. */
-export const MACRO_PROFILE_MUSCLE_PRESERVE: MacroProfile = {
-  name: "Muscle Preserve",
-  proteinCoefficients: {
-    lt25:    { LOSE: 2.2, MAINTAIN: 1.6, GAIN: 1.8 },
-    "25to30":{ LOSE: 2.0, MAINTAIN: 1.6, GAIN: 1.8 },
-    ge30:    { LOSE: 1.8, MAINTAIN: 1.6, GAIN: 1.6 },
-  },
-  residualMacro: "carbs",
-  carbGrams: 130,
-  fatPerKgFactor: 0.8,
-  fatPercentOfKcal: 0.25,
+export const ACTIVITY_LEVEL_LABELS: Record<ActivityLevel, string> = {
+  sedentary:    "Sedentary",
+  light:        "Light",
+  moderate:     "Moderate",
+  very_active:  "Very active",
+  extra_active: "Extra active",
 };
 
-/** Moderate-protein, low-carb, fat as residual. RER / Lumen / metabolic-flexibility school. */
-export const MACRO_PROFILE_METABOLIC_FLEX: MacroProfile = {
-  name: "Metabolic Flex",
-  proteinCoefficients: {
-    lt25:    { LOSE: 1.4, MAINTAIN: 1.2, GAIN: 1.4 },
-    "25to30":{ LOSE: 1.3, MAINTAIN: 1.2, GAIN: 1.4 },
-    ge30:    { LOSE: 1.2, MAINTAIN: 1.0, GAIN: 1.2 },
-  },
-  residualMacro: "fat",
-  carbGrams: 80,
-  fatPerKgFactor: 1.2,
-  fatPercentOfKcal: 0.40,
-};
+// ─── Macro constants ──────────────────────────────────────────────────────────
 
-/** Default profile when a user hasn't picked one — keeps existing behavior on first load. */
-export const DEFAULT_MACRO_PROFILE: MacroProfile = MACRO_PROFILE_MUSCLE_PRESERVE;
+export const PROTEIN_PER_KG_LOSE     = 2.2;
+export const PROTEIN_PER_KG_MAINTAIN = 1.6;
+export const PROTEIN_PER_KG_GAIN     = 1.8;
+export const FAT_PER_KG              = 0.8;
+export const FAT_MIN_PERCENT_KCAL    = 0.25;
+export const CARB_FLOOR_GRAMS        = 130;
+export const KCAL_PER_KG             = 7700;
 
-/** Database key → profile lookup. Source of truth for valid macro_profile column values. */
-export const MACRO_PROFILES_BY_KEY = {
-  muscle_preserve: MACRO_PROFILE_MUSCLE_PRESERVE,
-  metabolic_flex: MACRO_PROFILE_METABOLIC_FLEX,
-} as const satisfies Record<string, MacroProfile>;
-
-export type MacroProfileKey = keyof typeof MACRO_PROFILES_BY_KEY;
-
-export const MACRO_PROFILE_KEYS: readonly MacroProfileKey[] = [
-  "muscle_preserve",
-  "metabolic_flex",
-];
-
-export function isMacroProfileKey(value: unknown): value is MacroProfileKey {
-  return typeof value === "string" && value in MACRO_PROFILES_BY_KEY;
-}
-
-/**
- * Render a human-readable description of a macro profile, derived from its
- * coefficients. Surfaces in `MacroProfileCard` so the description stays in
- * sync if engine constants change (FOO-1006).
- */
-export function describeProfile(profile: MacroProfile): string {
-  const allCoeffs = Object.values(profile.proteinCoefficients).flatMap((tier) =>
-    Object.values(tier),
-  );
-  const minProtein = Math.min(...allCoeffs).toFixed(1);
-  const maxProtein = Math.max(...allCoeffs).toFixed(1);
-  const carbDescriptor =
-    profile.residualMacro === "carbs"
-      ? `${profile.carbGrams} g carb floor`
-      : `${profile.carbGrams} g carbs`;
-  const school =
-    profile.residualMacro === "carbs"
-      ? "Sports-nutrition / muscle-preservation"
-      : "Lumen / metabolic-flexibility";
-  return `Protein ${minProtein}–${maxProtein} g/kg with a ${carbDescriptor}. ${school} school.`;
-}
-
-export function getMacroProfile(
-  key: MacroProfileKey | string | null | undefined,
-  log: Logger = defaultLogger,
-): MacroProfile {
-  if (key === null || key === undefined) return DEFAULT_MACRO_PROFILE;
-  if (key in MACRO_PROFILES_BY_KEY) {
-    return MACRO_PROFILES_BY_KEY[key as MacroProfileKey];
-  }
-  log.warn(
-    { action: "macro_profile_invalid_key", key },
-    "users.macro_profile holds an unknown key — falling back to default. CHECK constraint should prevent this.",
-  );
-  return DEFAULT_MACRO_PROFILE;
-}
+// ─── RMR (Mifflin-St Jeor) ────────────────────────────────────────────────────
 
 /** Mifflin-St Jeor RMR. Inputs MUST be finite and positive (caller validates). */
 export function computeRmr(
@@ -126,77 +44,97 @@ export function computeRmr(
   return Math.round(rmrRaw);
 }
 
+// ─── Goal-anchored macro targets ──────────────────────────────────────────────
+
 /**
- * Compute macro targets from biometric inputs.
- * Throws "SEX_UNSET" if sex is "NA" — engine never silently picks a sex.
+ * Compute macro targets from declared goal inputs.
  *
- * `profile` defaults to DEFAULT_MACRO_PROFILE; production callers should pass
- * the user's chosen profile (looked up from users.macro_profile).
+ * Throws:
+ * - "SEX_UNSET" if sex === "NA"
+ * - "INVALID_PROFILE_DATA" if any biometric input is non-finite or non-positive
+ * - "INVALID_GOAL_RATE" if goalRateKgPerWeek < 0 or non-finite
  */
-export function computeMacroTargets(
-  inputs: MacroEngineInputs,
-  profile: MacroProfile = DEFAULT_MACRO_PROFILE,
-): MacroEngineOutputs {
-  const { ageYears, sex, heightCm, weightKg, caloriesOut, goalType } = inputs;
+export function computeMacroTargets(inputs: MacroEngineInputs): MacroEngineOutputs {
+  const {
+    sex,
+    ageYears,
+    heightCm,
+    currentWeightKg,
+    activityLevel,
+    goalWeightKg,
+    goalRateKgPerWeek,
+  } = inputs;
 
   if (sex === "NA") {
     throw new Error("SEX_UNSET");
   }
 
   if (
-    !Number.isFinite(heightCm) ||
-    !Number.isFinite(weightKg) ||
-    !Number.isFinite(ageYears) ||
-    heightCm <= 0 ||
-    weightKg <= 0 ||
-    ageYears <= 0
+    !Number.isFinite(ageYears)  || ageYears  <= 0 ||
+    !Number.isFinite(heightCm)  || heightCm  <= 0 ||
+    !Number.isFinite(currentWeightKg) || currentWeightKg <= 0 ||
+    !Number.isFinite(goalWeightKg) || goalWeightKg <= 0
   ) {
     throw new Error("INVALID_PROFILE_DATA");
   }
 
-  // 30000 kcal/day is well above the documented Tour-de-France ceiling (~9000),
-  // so anything above that is bogus Fitbit data. Negative/NaN/Infinity always bogus.
-  if (!Number.isFinite(caloriesOut) || caloriesOut < 0 || caloriesOut > 30000) {
-    throw new Error("INVALID_ACTIVITY_DATA");
+  if (!Number.isFinite(goalRateKgPerWeek) || goalRateKgPerWeek < 0) {
+    throw new Error("INVALID_GOAL_RATE");
   }
 
-  const rmr = computeRmr(sex, ageYears, heightCm, weightKg);
+  // ── Core calculations ──────────────────────────────────────────────────────
 
-  // Activity calories with overshoot haircut
-  const rawActivityKcal = Math.max(0, caloriesOut - rmr) * ACTIVITY_MULTIPLIER;
-  const activityKcal = Math.round(rawActivityKcal);
+  const rmr = computeRmr(sex, ageYears, heightCm, currentWeightKg);
+  const palMultiplier = PAL_BY_ACTIVITY_LEVEL[activityLevel];
+  const tdee = Math.round(rmr * palMultiplier);
 
-  const tdee = rmr + activityKcal;
-
-  const targetKcal = Math.round(tdee * GOAL_MULTIPLIERS[goalType]);
-
-  // BMI tier
-  const heightM = heightCm / 100;
-  const bmi = weightKg / (heightM * heightM);
-  const bmiTier: BmiTier =
-    bmi < 25 ? "lt25" : bmi < 30 ? "25to30" : "ge30";
-
-  // Protein (anchored in both profiles)
-  const proteinG = Math.round(weightKg * profile.proteinCoefficients[bmiTier][goalType]);
-
-  let carbsG: number;
-  let fatG: number;
-
-  if (profile.residualMacro === "carbs") {
-    // Muscle-preserve: fat anchored, carbs absorb residual with a floor.
-    const fatFromWeight = weightKg * profile.fatPerKgFactor;
-    const fatFromKcal = (targetKcal * profile.fatPercentOfKcal) / 9;
-    fatG = Math.round(Math.max(fatFromWeight, fatFromKcal));
-
-    const carbsResidual = (targetKcal - proteinG * 4 - fatG * 9) / 4;
-    const carbs10Pct = (0.10 * targetKcal) / 4;
-    carbsG = Math.round(Math.max(carbsResidual, profile.carbGrams, carbs10Pct));
+  // Direction: derived from currentWeight vs goalWeight; rate=0 forces MAINTAIN
+  let direction: "LOSE" | "MAINTAIN" | "GAIN";
+  if (goalRateKgPerWeek === 0) {
+    direction = "MAINTAIN";
+  } else if (currentWeightKg > goalWeightKg) {
+    direction = "LOSE";
+  } else if (currentWeightKg < goalWeightKg) {
+    direction = "GAIN";
   } else {
-    // Metabolic-flex: carbs fixed (low), fat absorbs residual.
-    carbsG = profile.carbGrams;
-    const fatRaw = (targetKcal - proteinG * 4 - carbsG * 4) / 9;
-    fatG = Math.round(Math.max(0, fatRaw));
+    direction = "MAINTAIN";
   }
+
+  // Daily calorie offset (no safety clamp)
+  const kcalPerDay = Math.round(goalRateKgPerWeek * (KCAL_PER_KG / 7)); // = rate × 1100
+
+  let targetKcal: number;
+  let deficitKcal: number;
+
+  if (direction === "LOSE") {
+    targetKcal  = tdee - kcalPerDay;
+    deficitKcal = -kcalPerDay;
+  } else if (direction === "GAIN") {
+    targetKcal  = tdee + kcalPerDay;
+    deficitKcal = kcalPerDay;
+  } else {
+    targetKcal  = tdee;
+    deficitKcal = 0;
+  }
+
+  // ── Macros ────────────────────────────────────────────────────────────────
+
+  // Protein: single coefficient per direction, anchored to current body weight
+  const proteinCoeff =
+    direction === "LOSE"     ? PROTEIN_PER_KG_LOSE :
+    direction === "GAIN"     ? PROTEIN_PER_KG_GAIN :
+                               PROTEIN_PER_KG_MAINTAIN;
+  const proteinG = Math.round(proteinCoeff * currentWeightKg);
+
+  // Fat: weight-anchored floor with a percent-of-target floor
+  const fatFromWeight = currentWeightKg * FAT_PER_KG;
+  const fatFromKcal   = (targetKcal * FAT_MIN_PERCENT_KCAL) / 9;
+  const fatG = Math.round(Math.max(fatFromWeight, fatFromKcal));
+
+  // Carbs: residual with a 130g floor and a 10%-of-target floor
+  const carbsResidual  = (targetKcal - proteinG * 4 - fatG * 9) / 4;
+  const carbsFloor10pct = (targetKcal * 0.10) / 4;
+  const carbsG = Math.round(Math.max(carbsResidual, CARB_FLOOR_GRAMS, carbsFloor10pct));
 
   return {
     targetKcal,
@@ -204,8 +142,9 @@ export function computeMacroTargets(
     carbsG,
     fatG,
     rmr,
-    activityKcal,
+    palMultiplier,
     tdee,
-    bmiTier,
+    deficitKcal,
+    direction,
   };
 }
