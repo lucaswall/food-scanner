@@ -781,3 +781,33 @@ Goal-anchored engine rework + Iteration 1 review fixes + Iteration 2 review fixe
 
 <!-- ITERATION COMPLETE -->
 
+### Review Findings
+
+Files reviewed: 3 (single-agent review mode — ≤4 changed files threshold)
+Reviewer scope: security, reliability, quality (sequential)
+Checks applied: Security, Logic, Async, Resources, Type Safety, Conventions, CLAUDE.md compliance, test quality
+
+No issues found — all 4 fixes are surgical, well-tested, and conventional.
+
+Verified:
+- Bound checks (500 kg, 5 kg/week) are placed after `!isFinite(v)` so NaN/Infinity rejected first; rejection (501 / 5.1) and acceptance (500 / 5) tests both present.
+- Empty-update short-circuit triggers ONLY when `Object.keys(update).length === 0`; explicit `null` values still flow through the update path (semantically a settings change, invalidation warranted).
+- `as unknown as Logger` matches the documented test pattern; `Logger` correctly imported from the pino re-export at `src/lib/logger.ts:5`.
+- Acceptance test for `goalRateKgPerWeek = 0` covers the MAINTAIN-direction reachability via the API.
+- No CLAUDE.md violations; standardized API response shape preserved; structured logging with `action` field maintained.
+
+### Linear Updates
+- FOO-1058 → FOO-1061: Review → Merge (4 Iteration 2 fix issues completed)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Status: COMPLETE
+
+All tasks implemented and reviewed successfully. All Linear issues moved to Merge.
+- Iteration 1: 10 task issues (FOO-1040..FOO-1049) → Merge
+- Iteration 1 review: 8 fix issues (FOO-1050..FOO-1057) → Merge
+- Iteration 2 review: 4 fix issues (FOO-1058..FOO-1061) → Merge
+- E2E suite: 144 tests pass.
+
