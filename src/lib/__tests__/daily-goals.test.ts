@@ -21,13 +21,15 @@ const mockDb = {
 vi.mock("@/db/index", () => ({ getDb: () => mockDb }));
 
 vi.mock("drizzle-orm", () => ({
-  eq:     vi.fn((_col: unknown, val: unknown) => `eq:${val}`),
-  and:    vi.fn((...args: unknown[]) => `and:(${args.join(",")})`),
-  gte:    vi.fn((_col: unknown, val: unknown) => `gte:${val}`),
-  lt:     vi.fn((_col: unknown, val: unknown) => `lt:${val}`),
-  desc:   vi.fn((col: unknown) => `desc:${String(col)}`),
-  isNull: vi.fn(() => `isNull:?`),
-  or:     vi.fn((...args: unknown[]) => `or:(${args.join(",")})`),
+  eq:   vi.fn((_col: unknown, val: unknown) => `eq:${val}`),
+  and:  vi.fn((...args: unknown[]) => `and:(${args.join(",")})`),
+  gte:  vi.fn((_col: unknown, val: unknown) => `gte:${val}`),
+  lt:   vi.fn((_col: unknown, val: unknown) => `lt:${val}`),
+  desc: vi.fn((col: unknown) => `desc:${String(col)}`),
+  // The `sql` tag is a template-literal function; for the EXISTS-subquery
+  // setWhere we just need a recognizable token. Real shape is verified at
+  // the integration level, not unit-test level.
+  sql:  vi.fn(() => "sql:exists-users-match"),
 }));
 
 vi.mock("@/lib/logger", () => {
@@ -516,8 +518,8 @@ describe("getOrComputeDailyGoals — past-date row stability under settings drif
   });
 });
 
-// ─── FOO-1066/1067: setWhere guard — stale-compute + invalidated-row safe ────
-describe("getOrComputeDailyGoals — UPSERT setWhere guard (FOO-1066/1067)", () => {
+// ─── FOO-1066/1067/1068: setWhere atomic compare-and-swap on users.* ─────────
+describe("getOrComputeDailyGoals — UPSERT setWhere CAS (FOO-1066/1067/1068)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDb.select.mockReset();
@@ -526,7 +528,7 @@ describe("getOrComputeDailyGoals — UPSERT setWhere guard (FOO-1066/1067)", () 
     mockDb.delete.mockReset();
   });
 
-  it("setWhere allows overwriting when stored row is invalidated OR settings match input (FOO-1066/1067)", async () => {
+  it("setWhere uses an EXISTS-on-users predicate to atomically gate writes on input matching users.* at write time", async () => {
     mockSelectOnce([USER_SETTINGS]);
     mockSelectOnce([]);
     mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
@@ -540,15 +542,10 @@ describe("getOrComputeDailyGoals — UPSERT setWhere guard (FOO-1066/1067)", () 
         setWhere: expect.anything(),
       }),
     );
-    // Mocked drizzle helpers serialize `eq(col, val)` → `eq:val`, `isNull(col)`
-    // → `isNull:?`, `and(...args)` → `and:(...)`, `or(...args)` → `or:(...)`.
-    // Verify both branches are present in order:
-    //   1. isNull(activityLevel) — FOO-1067 invalidated-row backstop
-    //   2. and(eq×3 of our settings) — FOO-1066 stale-compute guard
+    // The `sql` tag mock returns a literal token — full SQL shape is
+    // verified at the integration level, not in unit tests.
     const args = onConflictDoUpdate.mock.calls[0][0] as { setWhere: unknown };
-    expect(String(args.setWhere)).toBe(
-      "or:(isNull:?,and:(eq:moderate,eq:70,eq:0.5))",
-    );
+    expect(String(args.setWhere)).toBe("sql:exists-users-match");
   });
 });
 

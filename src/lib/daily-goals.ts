@@ -1,6 +1,6 @@
 import { getDb } from "@/db/index";
 import { dailyCalorieGoals, users } from "@/db/schema";
-import { eq, and, gte, isNull, or } from "drizzle-orm";
+import { eq, and, gte, sql } from "drizzle-orm";
 import { getTodayDate } from "@/lib/date-utils";
 import { computeMacroTargets } from "@/lib/macro-engine";
 import {
@@ -194,7 +194,9 @@ async function doCompute(
     // their new goal settings.
     if (!settingsAreComplete(userSettings) && isPast) {
       const past = await queryRow(userId, date);
-      if (past !== null && past.calorieGoal > 0) {
+      // FOO-1068: same sentinel — `proteinGoal !== null` reliably identifies
+      // real engine output (legacy or new), while invalidated rows are skipped.
+      if (past !== null && past.proteinGoal !== null) {
         return {
           status: "ok",
           goals: {
@@ -226,7 +228,13 @@ async function doCompute(
     // ── Step 2: Check for existing row ───────────────────────────────────────
     const existing = await queryRow(userId, date);
 
-    if (existing !== null && existing.calorieGoal > 0) {
+    // FOO-1068: use `proteinGoal !== null` as the "row was written by the
+    // engine" sentinel — the new engine permits non-positive `calorieGoal`
+    // for extreme rates (no clamp by design), so `> 0` would mistakenly
+    // treat valid extreme rows as missing and force recompute on every read.
+    // Invalidation nulls all macro columns, so `proteinGoal !== null`
+    // distinguishes real engine output from invalidated rows.
+    if (existing !== null && existing.proteinGoal !== null) {
       if (isPast) {
         // Historical rows are stable — return as-is regardless of settings drift.
         return {
@@ -334,27 +342,30 @@ async function doCompute(
           deficitKcal:       engineOut.deficitKcal,
           updatedAt:         new Date(),
         },
-        // FOO-1066/1067: compare-and-swap that allows overwriting in two cases:
-        //   1. stored row was invalidated by `invalidateUserDailyGoalsForDate`
-        //      (FOO-992 profile-refresh path zeros calorieGoal and nulls all
-        //      setting columns) — the row is a placeholder waiting for fresh
-        //      data, must be rewritten.
-        //   2. stored row's settings match what we computed with — idempotent
-        //      recompute by the same logical request, safe to overwrite.
-        //
-        // What this BLOCKS: a stale doCompute (using pre-PATCH settings)
-        // overwriting a fresher row written by a subsequent compute that
-        // already used the new settings. Without that guard, range-mode reads
-        // could surface stale `ok` targets between the stale write and the
-        // next single-date read that triggers a settings-drift recompute.
-        setWhere: or(
-          isNull(dailyCalorieGoals.activityLevel),
-          and(
-            eq(dailyCalorieGoals.activityLevel, userActivityLevel),
-            eq(dailyCalorieGoals.goalWeightKg, userGoalWeightKg),
-            eq(dailyCalorieGoals.goalRateKgPerWeek, userGoalRateKgPerWeek),
-          ),
-        ),
+        // FOO-1066/1067/1068: atomic compare-and-swap — only overwrite if our
+        // input still matches `users.*` AT WRITE TIME via an EXISTS subquery.
+        // This single predicate covers every case correctly:
+        //   - FOO-1066 stale-compute race: pre-PATCH compute's input no longer
+        //     matches users.* (which was updated by PATCH) → predicate FALSE,
+        //     UPDATE skipped, fresher row preserved.
+        //   - FOO-1067 invalidated row: invalidate left the row as
+        //     calorieGoal=0/null-settings; our compute's input matches users.*
+        //     → predicate TRUE, UPDATE proceeds, row is rewritten.
+        //   - drift-recompute (settings changed without invalidation, e.g.
+        //     crash mid-PATCH or direct DB write): the rowSettingsMatch fail
+        //     above made us recompute with current users.*; predicate TRUE,
+        //     UPDATE proceeds.
+        //   - idempotent recompute: input == users.* trivially, predicate
+        //     TRUE, UPDATE is a no-op overwrite.
+        // Postgres evaluates EXISTS as part of the same statement, so there
+        // is no TOCTOU window between the check and the UPDATE.
+        setWhere: sql`EXISTS (
+          SELECT 1 FROM ${users}
+          WHERE ${users.id} = ${userId}
+            AND ${users.activityLevel} = ${userActivityLevel}
+            AND ${users.goalWeightKg} = ${userGoalWeightKg}
+            AND ${users.goalRateKgPerWeek} = ${userGoalRateKgPerWeek}
+        )`,
       });
 
     l.info(

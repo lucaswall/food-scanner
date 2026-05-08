@@ -159,10 +159,15 @@ export async function GET(request: Request) {
           });
           continue;
         }
-        const computed = row.calorieGoal !== null && row.calorieGoal > 0 && row.proteinGoal !== null;
+        // FOO-1068: `proteinGoal !== null` is the "engine wrote macros"
+        // sentinel — distinguishes real engine output (legacy or new, any
+        // sign of calorieGoal) from invalidated rows (FOO-992 nulls macros).
+        // The new engine permits non-positive calorieGoal for extreme rates,
+        // so the prior `> 0` filter was wrong for valid rows.
+        const computed = row.proteinGoal !== null;
         entries.push({
           date,
-          calories: row.calorieGoal && row.calorieGoal > 0 ? row.calorieGoal : null,
+          calories: computed ? row.calorieGoal : null,
           proteinG: row.proteinGoal,
           carbsG: row.carbsGoal,
           fatG: row.fatGoal,
