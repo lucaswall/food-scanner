@@ -177,7 +177,7 @@ When the breaker rejects, it throws `FITBIT_RATE_LIMIT_LOW`. Route handlers map 
 | **investigate** | Opus | "check why X is failing" | Read-only investigation |
 | **add-to-backlog** | Opus | "add to backlog" | Convert ideas to Linear Backlog issues |
 | **backlog-refine** | Opus | "refine FOO-123" | Interactive refinement of vague issues |
-| **plan-review-implementation** | Opus (lead) / Sonnet (reviewers) | After plan-implement | Agent team QA review |
+| **plan-review-implementation** | Opus (lead) / Sonnet (reviewers) | After plan-implement | Agent team QA review + post-PR Codex monitor (auto-fix + squash-merge) |
 | **frontend-review** | Opus (lead) / Sonnet (reviewers) | "review frontend" | Agent team frontend review → Linear Backlog issues |
 | **deep-review** | Opus | "deep review X", "analyse this screen" | Focused cross-domain analysis of a single screen/feature |
 | **roadmap** | Opus | "roadmap", "pull from roadmap", "push to roadmap", "add to roadmap", "analyze this feature" | Deep research + discussion → write to roadmap, pull to backlog, plan, modify, or drop |
