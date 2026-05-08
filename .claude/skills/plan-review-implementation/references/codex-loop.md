@@ -130,6 +130,85 @@ is generous — Codex normally responds within 5–10 min.
 #### 3e. None of the above (eyes still on, or review pending)
 **Action:** End tick. Wait for the next firing.
 
+### Step 3.5 — Calibration (BEFORE acting on findings in 3b)
+
+Codex finds real bugs but does not calibrate severity to the project context.
+For a single-/family-scale production app like this one, race conditions
+requiring sub-second concurrent timing, edge cases of opt-in extreme
+configurations, and theme-cascade findings (the same root cause re-flagged
+in successively narrower call sites) hit diminishing returns fast. Apply
+this calibration before fixing in 3b — file-and-defer instead of fix-now
+when the rules below say so.
+
+#### Track three signals across ticks (in your turn-to-turn context)
+
+- **Iteration count** on this PR (how many push→review cycles you have done since PR creation).
+- **Theme** of each finding (1-3 word root cause label, e.g. "non-positive engine output" or "stale-write race").
+- **Severity floor** crossed so far (P1 fixed? P2 fixed? P3 fixed?).
+
+#### Decision matrix (apply per finding, not per-tick)
+
+| Iteration | Severity | Same theme as a prior fix on this PR? | Action |
+|---|---|---|---|
+| 1 (first review) | any | n/a | **Fix** |
+| 2 | P0/P1 | any | **Fix** |
+| 2 | P2 | no | **Fix** |
+| 2 | P2 | yes | **File and defer** — create Linear in `Backlog`, resolve thread with the link |
+| 2 | P3 | any | **File and defer** |
+| 3+ | P0/P1 | any | **Fix** |
+| 3+ | P2 | no | **Fix** |
+| 3+ | P2 | yes | **File and defer** |
+| 3+ | P3 | any | **File and defer** |
+
+"File and defer" means: create a Linear issue in `Backlog` (NOT Todo) labeled
+`Codex follow-up`, with the finding body and the `gh` thread URL. Resolve
+the Codex thread by replying with a link to the Linear issue, then resolve
+via `resolveReviewThread`. The PR proceeds to merge with the issue tracked
+for later prioritization.
+
+#### Hard caps
+
+These bypass the matrix and force a stop:
+
+- **Iteration cap:** after 4 push→review cycles on a single PR, stop and
+  defer all remaining P2/P3 findings even if they're new themes.
+- **Time cap:** after 90 minutes of monitor uptime, stop. (The cron's
+  session-only nature already limits reach; this is the explicit upper bound
+  on engineering time.)
+- **Race-condition realism cap:** any race-condition finding requiring
+  concurrent sub-second timing is **automatically P3** for a
+  single-/family-scale app, regardless of Codex's posted severity. The
+  CLAUDE.md "STATUS: PRODUCTION" tag does not change this — production
+  here means "deployed", not "high-concurrency." File and defer.
+
+#### Theme detection
+
+Track theme labels across the session. If you have already fixed 1 finding
+with theme T, and a new finding shares theme T:
+
+- The fact that Codex re-flagged a similar issue at a different site is
+  evidence the design (not the call site) needs revisiting — but a single
+  PR is not the venue for that. **File and defer.**
+- The deferred Linear issue should reference the prior fix(es) so the
+  follow-up author sees the cluster.
+
+Examples of "same theme":
+- "non-positive engine output" — every site filtering on `> 0` for a value
+  the engine permits to be ≤ 0.
+- "stale-compute race" — every code path where in-flight compute can race
+  with a concurrent invalidation/PATCH.
+- "missing exhaustive case" — every union-mapped switch missing a new
+  variant.
+
+#### Reporting
+
+When you defer a finding, include in the user-facing tick summary:
+> Deferred [Codex finding summary] to [Linear URL] under theme "[theme]"
+> (iteration N, severity P2). PR proceeds to merge.
+
+This makes the calibration visible to the user; if they disagree, they can
+override and ask for the fix.
+
 ### Step 4 — Merge phase (when stopping)
 
 Run all checks again before merging — state can change between ticks:
