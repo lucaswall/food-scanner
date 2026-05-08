@@ -5,13 +5,43 @@ import { SWRConfig } from "swr";
 import { TargetsCard } from "../targets-card";
 import type { NutritionGoals } from "@/types";
 
+// Mock ACTIVITY_LEVEL_LABELS from macro-engine (added by Worker 1)
+vi.mock("@/lib/macro-engine", () => ({
+  ACTIVITY_LEVEL_LABELS: {
+    sedentary: "Sedentary",
+    light: "Light",
+    moderate: "Moderate",
+    very_active: "Very active",
+    extra_active: "Extra active",
+  },
+}));
+
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 const TEST_DATE = "2026-05-03";
 
-// Strictly-typed fixture builder — TS rejects invalid bmiTier/goalType/status literals at compile time.
-function goalsResponse(data: NutritionGoals) {
+// Local type that reflects the new NutritionGoalsAudit shape (Worker 1 updates these types).
+// Using a relaxed type here so test fixtures work before type updates land.
+type NewAudit = {
+  rmr: number;
+  palMultiplier?: number | null;
+  tdee?: number | null;
+  weightKg: string;
+  weightLoggedDate: string | null;
+  activityLevel?: string | null;
+  goalWeightKg?: number | null;
+  goalRateKgPerWeek?: number | null;
+  deficitKcal?: number | null;
+  direction?: string | null;
+};
+
+type GoalsData = Omit<NutritionGoals, "audit" | "reason"> & {
+  audit?: NewAudit;
+  reason?: string;
+};
+
+function goalsResponse(data: GoalsData) {
   return {
     ok: true,
     json: () => Promise.resolve({ success: true, data }),
@@ -49,23 +79,27 @@ describe("TargetsCard", () => {
   });
 
   it("renders calorie + macro targets when status is ok", async () => {
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: 2200,
-      proteinG: 140,
-      carbsG: 220,
-      fatG: 80,
-      status: "ok",
-      audit: {
-        rmr: 1600,
-        activityKcal: 450,
-        tdee: 2050,
-        weightKg: "75",
-        bmiTier: "25to30",
-        goalType: "MAINTAIN",
-        caloriesOut: 2150,
-        weightLoggedDate: "2026-05-01",
-      },
-    }));
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: 2200,
+        proteinG: 140,
+        carbsG: 220,
+        fatG: 80,
+        status: "ok",
+        audit: {
+          rmr: 1760,
+          palMultiplier: 1.375,
+          tdee: 2420,
+          weightKg: "75",
+          weightLoggedDate: "2026-05-01",
+          activityLevel: "light",
+          goalWeightKg: 70,
+          goalRateKgPerWeek: 0.5,
+          deficitKcal: -550,
+          direction: "LOSE",
+        },
+      })
+    );
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
@@ -75,107 +109,233 @@ describe("TargetsCard", () => {
     });
   });
 
-  it("audit math is collapsed by default", async () => {
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: 2200,
-      proteinG: 140,
-      carbsG: 220,
-      fatG: 80,
-      status: "ok",
-      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 2150, weightLoggedDate: "2026-05-01" },
-    }));
+  // FOO-1045: no expand toggle — audit shown inline at all times
+  it("does NOT render expand/hide toggle button", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: 2200,
+        proteinG: 140,
+        carbsG: 220,
+        fatG: 80,
+        status: "ok",
+        audit: {
+          rmr: 1760,
+          palMultiplier: 1.375,
+          tdee: 2420,
+          weightKg: "75",
+          weightLoggedDate: "2026-05-01",
+          activityLevel: "light",
+          goalWeightKg: 70,
+          goalRateKgPerWeek: 0.5,
+          deficitKcal: -550,
+          direction: "LOSE",
+        },
+      })
+    );
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
     });
-    // Audit details should not be visible when collapsed
-    expect(screen.queryByText(/RMR:/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/TDEE:/i)).not.toBeInTheDocument();
+    // No expand/hide toggle
+    expect(
+      screen.queryByRole("button", { name: /show calculation details/i })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /hide calculation details/i })
+    ).not.toBeInTheDocument();
   });
 
-  it("expand toggle shows audit math details", async () => {
-    const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: 2200,
-      proteinG: 140,
-      carbsG: 220,
-      fatG: 80,
-      status: "ok",
-      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 2150, weightLoggedDate: "2026-05-01" },
-    }));
+  // FOO-1045: all audit fields visible inline when audit is fully populated
+  it("renders all audit rows inline when audit is fully populated", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: 2200,
+        proteinG: 140,
+        carbsG: 220,
+        fatG: 80,
+        status: "ok",
+        audit: {
+          rmr: 1760,
+          palMultiplier: 1.375,
+          tdee: 2420,
+          weightKg: "75",
+          weightLoggedDate: "2026-05-01",
+          activityLevel: "light",
+          goalWeightKg: 70,
+          goalRateKgPerWeek: 0.5,
+          deficitKcal: -550,
+          direction: "LOSE",
+        },
+      })
+    );
     renderTargetsCard();
     await waitFor(() => {
-      expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
+      expect(screen.getByText(/RMR: 1760 kcal/)).toBeInTheDocument();
+      expect(screen.getByText(/Activity: Light \(PAL ×1\.375\)/)).toBeInTheDocument();
+      expect(screen.getByText(/TDEE: 2420 kcal/)).toBeInTheDocument();
+      expect(screen.getByText(/Weight: 75 kg \(logged 2026-05-01\)/)).toBeInTheDocument();
+      expect(screen.getByText(/Goal weight: 70 kg/)).toBeInTheDocument();
+      expect(screen.getByText(/Goal rate: 0\.5 kg\/week/)).toBeInTheDocument();
+      expect(screen.getByText(/-550 kcal\/day · LOSE/)).toBeInTheDocument();
     });
-    const expandBtn = screen.getByRole("button", { name: /show calculation details/i });
-    await user.click(expandBtn);
-    expect(screen.getByText(/RMR: 1600 kcal/)).toBeInTheDocument();
-    expect(screen.getByText(/Fitbit calories burned: 2,150 kcal/)).toBeInTheDocument();
-    expect(screen.getByText(/Activity \(after 0\.85× haircut\): 450 kcal/)).toBeInTheDocument();
-    expect(screen.getByText(/TDEE: 2050 kcal/)).toBeInTheDocument();
-    expect(screen.getByText(/Weight: 75kg \(logged 2026-05-01\)/)).toBeInTheDocument();
-    expect(screen.getByText(/BMI tier: 25to30/)).toBeInTheDocument();
-    expect(screen.getByText(/Goal: MAINTAIN/)).toBeInTheDocument();
   });
 
-  it("expand toggle has at least 44px touch target", async () => {
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
-      status: "ok",
-      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 2150, weightLoggedDate: "2026-05-01" },
-    }));
+  // FOO-1045: GAIN direction shows positive sign
+  it("formats positive deficit (surplus/GAIN) with + prefix", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: 2750,
+        proteinG: 150,
+        carbsG: 280,
+        fatG: 90,
+        status: "ok",
+        audit: {
+          rmr: 1760,
+          palMultiplier: 1.375,
+          tdee: 2420,
+          weightKg: "70",
+          weightLoggedDate: "2026-05-01",
+          activityLevel: "light",
+          goalWeightKg: 75,
+          goalRateKgPerWeek: 0.3,
+          deficitKcal: 330,
+          direction: "GAIN",
+        },
+      })
+    );
     renderTargetsCard();
     await waitFor(() => {
-      expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
+      expect(screen.getByText(/\+330 kcal\/day · GAIN/)).toBeInTheDocument();
     });
-    const expandBtn = screen.getByRole("button", { name: /show calculation details/i });
-    expect(expandBtn).toHaveClass("min-h-[44px]");
   });
 
-  it("collapse toggle hides audit math details after expand", async () => {
-    const user = userEvent.setup();
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
-      status: "ok",
-      audit: { rmr: 1600, activityKcal: 450, tdee: 2050, weightKg: "75", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 2150, weightLoggedDate: "2026-05-01" },
-    }));
+  // FOO-1045: MAINTAIN direction shows zero
+  it("formats zero deficit (MAINTAIN) without sign", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: 2420,
+        proteinG: 140,
+        carbsG: 240,
+        fatG: 85,
+        status: "ok",
+        audit: {
+          rmr: 1760,
+          palMultiplier: 1.375,
+          tdee: 2420,
+          weightKg: "75",
+          weightLoggedDate: "2026-05-01",
+          activityLevel: "light",
+          goalWeightKg: 75,
+          goalRateKgPerWeek: 0,
+          deficitKcal: 0,
+          direction: "MAINTAIN",
+        },
+      })
+    );
     renderTargetsCard();
     await waitFor(() => {
-      expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
+      expect(screen.getByText(/0 kcal\/day · MAINTAIN/)).toBeInTheDocument();
     });
-    await user.click(screen.getByRole("button", { name: /show calculation details/i }));
-    expect(screen.getByText(/RMR: 1600 kcal/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /hide calculation details/i }));
-    expect(screen.queryByText(/RMR:/i)).not.toBeInTheDocument();
   });
 
-  it("seeded ok response (FOO-1036): renders identical to non-seeded ok — silent UI, all four numbers visible", async () => {
-    // The engine no longer returns 'partial'. When today's caloriesOut is below
-    // the RMR×1.05 threshold, the engine seeds caloriesOut from history/default
-    // and returns ok with isSeeded=true. The dashboard renders this identically
-    // to a normal ok response — no badge, no "estimated" copy.
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: 2200, proteinG: 218, carbsG: 220, fatG: 97,
-      status: "ok",
-      isSeeded: true,
-      audit: { rmr: 2070, activityKcal: 800, tdee: 2870, weightKg: "121", bmiTier: "ge30", goalType: "LOSE", caloriesOut: 2898, weightLoggedDate: "2026-05-03" },
-    }));
+  // FOO-1045: past rows written by old engine only have rmr + weightKg;
+  // new columns (palMultiplier, tdee, activityLevel, etc.) are null → skip those rows.
+  it("renders only non-null audit rows for past rows missing new audit fields", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: 2000,
+        proteinG: 130,
+        carbsG: 200,
+        fatG: 70,
+        status: "ok",
+        audit: {
+          rmr: 1600,
+          palMultiplier: null,
+          tdee: null,
+          weightKg: "75",
+          weightLoggedDate: "2026-03-01",
+          activityLevel: null,
+          goalWeightKg: null,
+          goalRateKgPerWeek: null,
+          deficitKcal: null,
+          direction: null,
+        },
+      })
+    );
     renderTargetsCard();
     await waitFor(() => {
-      expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
+      // Only RMR and Weight rows render
+      expect(screen.getByText(/RMR: 1600 kcal/)).toBeInTheDocument();
+      expect(screen.getByText(/Weight: 75 kg \(logged 2026-03-01\)/)).toBeInTheDocument();
     });
-    expect(screen.getByText("P:218g")).toBeInTheDocument();
-    expect(screen.getByText("C:220g")).toBeInTheDocument();
-    expect(screen.getByText("F:97g")).toBeInTheDocument();
-    // Silent: no "pending Fitbit activity" copy, no "estimated" badge.
-    expect(screen.queryByText(/pending|estimated|seeded/i)).not.toBeInTheDocument();
+    // New fields must not render
+    expect(screen.queryByText(/Activity:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/TDEE:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Goal weight:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Goal rate:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Deficit:/)).not.toBeInTheDocument();
+  });
+
+  // FOO-1045: weight logged date absent → show "no log date"
+  it("shows 'no log date' when weightLoggedDate is null", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: 2000,
+        proteinG: 130,
+        carbsG: 200,
+        fatG: 70,
+        status: "ok",
+        audit: {
+          rmr: 1600,
+          palMultiplier: 1.375,
+          tdee: 2200,
+          weightKg: "72",
+          weightLoggedDate: null,
+          activityLevel: "light",
+          goalWeightKg: 70,
+          goalRateKgPerWeek: 0.5,
+          deficitKcal: -550,
+          direction: "LOSE",
+        },
+      })
+    );
+    renderTargetsCard();
+    await waitFor(() => {
+      expect(screen.getByText(/Weight: 72 kg \(no log date\)/)).toBeInTheDocument();
+    });
+  });
+
+  // FOO-1045: new blocked reason
+  it("renders goals_not_set blocked message", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: null,
+        proteinG: null,
+        carbsG: null,
+        fatG: null,
+        status: "blocked",
+        reason: "goals_not_set",
+      })
+    );
+    renderTargetsCard();
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Set up your daily goals in Settings to enable targets\./i)
+      ).toBeInTheDocument();
+    });
   });
 
   it("renders no_weight blocked message", async () => {
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: null, proteinG: null, carbsG: null, fatG: null,
-      status: "blocked", reason: "no_weight",
-    }));
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: null,
+        proteinG: null,
+        carbsG: null,
+        fatG: null,
+        status: "blocked",
+        reason: "no_weight",
+      })
+    );
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText(/log your weight in fitbit/i)).toBeInTheDocument();
@@ -183,10 +343,16 @@ describe("TargetsCard", () => {
   });
 
   it("renders sex_unset blocked message", async () => {
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: null, proteinG: null, carbsG: null, fatG: null,
-      status: "blocked", reason: "sex_unset",
-    }));
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: null,
+        proteinG: null,
+        carbsG: null,
+        fatG: null,
+        status: "blocked",
+        reason: "sex_unset",
+      })
+    );
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText(/biological sex/i)).toBeInTheDocument();
@@ -194,10 +360,16 @@ describe("TargetsCard", () => {
   });
 
   it("renders scope_mismatch blocked message", async () => {
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: null, proteinG: null, carbsG: null, fatG: null,
-      status: "blocked", reason: "scope_mismatch",
-    }));
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: null,
+        proteinG: null,
+        carbsG: null,
+        fatG: null,
+        status: "blocked",
+        reason: "scope_mismatch",
+      })
+    );
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByText(/reconnect fitbit/i)).toBeInTheDocument();
@@ -224,13 +396,30 @@ describe("TargetsCard", () => {
     mockFetch
       .mockResolvedValueOnce({
         ok: false,
-        json: () => Promise.resolve({ success: false, error: { code: "INTERNAL_ERROR", message: "Error" } }),
+        json: () =>
+          Promise.resolve({ success: false, error: { code: "INTERNAL_ERROR", message: "Error" } }),
       })
-      .mockResolvedValueOnce(goalsResponse({
-        calories: 2000, proteinG: 130, carbsG: 200, fatG: 70,
-        status: "ok",
-        audit: { rmr: 1500, activityKcal: 400, tdee: 1900, weightKg: "70", bmiTier: "25to30", goalType: "MAINTAIN", caloriesOut: 1900, weightLoggedDate: "2026-05-01" },
-      }));
+      .mockResolvedValueOnce(
+        goalsResponse({
+          calories: 2000,
+          proteinG: 130,
+          carbsG: 200,
+          fatG: 70,
+          status: "ok",
+          audit: {
+            rmr: 1500,
+            palMultiplier: 1.375,
+            tdee: 2063,
+            weightKg: "70",
+            weightLoggedDate: "2026-05-01",
+            activityLevel: "light",
+            goalWeightKg: 68,
+            goalRateKgPerWeek: 0.25,
+            deficitKcal: -275,
+            direction: "LOSE",
+          },
+        })
+      );
     renderTargetsCard();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
@@ -253,16 +442,33 @@ describe("TargetsCard", () => {
     });
   });
 
-  it("does not render expand button when audit is absent", async () => {
-    mockFetch.mockResolvedValueOnce(goalsResponse({
-      calories: 2200, proteinG: 140, carbsG: 220, fatG: 80,
-      status: "ok",
-      // no audit block
-    }));
-    renderTargetsCard();
+  // weight-stale warning preserved
+  it("shows weight-stale warning when weightStale is true", async () => {
+    mockFetch.mockResolvedValueOnce(
+      goalsResponse({
+        calories: 2200,
+        proteinG: 140,
+        carbsG: 220,
+        fatG: 80,
+        status: "ok",
+        weightStale: true,
+        audit: {
+          rmr: 1760,
+          palMultiplier: 1.375,
+          tdee: 2420,
+          weightKg: "75",
+          weightLoggedDate: "2026-04-01",
+          activityLevel: "light",
+          goalWeightKg: 70,
+          goalRateKgPerWeek: 0.5,
+          deficitKcal: -550,
+          direction: "LOSE",
+        },
+      })
+    );
+    renderTargetsCard("2026-05-03");
     await waitFor(() => {
-      expect(screen.getByText("2,200 cal/day")).toBeInTheDocument();
+      expect(screen.getByText(/weight log is \d+ days old/i)).toBeInTheDocument();
     });
-    expect(screen.queryByRole("button", { name: /show calculation details/i })).not.toBeInTheDocument();
   });
 });

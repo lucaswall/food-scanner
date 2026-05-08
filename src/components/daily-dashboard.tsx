@@ -30,6 +30,8 @@ import { useDeleteFoodEntry } from "@/hooks/use-delete-food-entry";
 import { SavedForLaterSection } from "@/components/saved-for-later-section";
 import { CaptureSessionBanner } from "@/components/capture-session-banner";
 import { useCaptureSession } from "@/hooks/use-capture-session";
+import { GoalsSetupBanner } from "@/components/goals-setup-banner";
+import type { GoalBlockedReason } from "@/components/goals-setup-banner";
 
 function DashboardSkeleton() {
   return (
@@ -284,6 +286,11 @@ export function DailyDashboard() {
         earliestDate={earliestEntry?.date ?? null}
         isLoading={earliestLoading}
       />
+
+      {/* Goals setup banner — shown above calorie ring when goals are blocked (FOO-1046) */}
+      {goals?.status === "blocked" && goals.reason && (
+        <GoalsSetupBanner reason={goals.reason as GoalBlockedReason} />
+      )}
 
       {/* Calorie Ring or Plain Display */}
       <div className="flex justify-center">
