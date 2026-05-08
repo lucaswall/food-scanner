@@ -6,6 +6,7 @@ import {
   mapComputeResultToNutritionGoals,
 } from "@/lib/daily-goals";
 import { getDailyGoalsByDateRange } from "@/lib/nutrition-goals";
+import { getUserGoalSettings } from "@/lib/users";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getTodayDate, isValidDateFormat } from "@/lib/date-utils";
 import type { NutritionGoals } from "@/types";
@@ -14,12 +15,18 @@ const RATE_LIMIT_MAX = 30;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const MAX_RANGE_DAYS = 90;
 
-// Range-mode entry shape — pinned to the public `NutritionGoals` contract so
-// any drift on the `reason` union (FOO-1024) becomes a compile error here.
+// FOO-1063: range mode distinguishes "row not yet computed for a configured
+// user" (`not_computed`) from "user has not set up goals" (`goals_not_set`).
+// Locally extends the public `NutritionGoals.reason` union without polluting
+// the shared type — `not_computed` is meaningful only in range mode.
+type RangeReason = NonNullable<NutritionGoals["reason"]> | "not_computed";
+
+// Range-mode entry shape — pinned to the public `NutritionGoals` contract for
+// the data fields, with the locally-extended reason union for range gaps.
 type RangeEntry = Pick<
   NutritionGoals,
-  "calories" | "proteinG" | "carbsG" | "fatG" | "status" | "reason"
-> & { date: string };
+  "calories" | "proteinG" | "carbsG" | "fatG" | "status"
+> & { date: string; reason?: RangeReason };
 
 function mapFitbitError(error: unknown): Response | null {
   if (!(error instanceof Error)) return null;
@@ -114,12 +121,25 @@ export async function GET(request: Request) {
         );
       }
 
-      const rows = await getDailyGoalsByDateRange(authResult.userId, fromParam, toParam);
+      const [rows, userSettings] = await Promise.all([
+        getDailyGoalsByDateRange(authResult.userId, fromParam, toParam),
+        getUserGoalSettings(authResult.userId),
+      ]);
+
+      // FOO-1063: distinguish "user has no goal settings" from "row not yet
+      // computed". Without this, configured users hitting the range endpoint
+      // before single-date computes have populated rows are told their goals
+      // aren't set up — wrong remediation.
+      const settingsConfigured =
+        userSettings.activityLevel !== null &&
+        userSettings.goalWeightKg !== null &&
+        userSettings.goalRateKgPerWeek !== null;
+      const gapReason: RangeReason = settingsConfigured ? "not_computed" : "goals_not_set";
 
       // FOO-1033 (PR review): gap-fill any date in [from, to] that has no DB
-      // row with `status: "blocked", reason: "goals_not_set"` so the response
-      // covers the full requested span. Without this, clients silently see
-      // missing days as dropped data and timelines misalign.
+      // row with a blocked entry so the response covers the full requested
+      // span. Without this, clients silently see missing days as dropped data
+      // and timelines misalign.
       const rowByDate = new Map(rows.map((row) => [row.date, row]));
       const entries: RangeEntry[] = [];
       const startMs = Date.parse(fromParam);
@@ -135,7 +155,7 @@ export async function GET(request: Request) {
             carbsG: null,
             fatG: null,
             status: "blocked",
-            reason: "goals_not_set",
+            reason: gapReason,
           });
           continue;
         }
@@ -147,7 +167,7 @@ export async function GET(request: Request) {
           carbsG: row.carbsGoal,
           fatG: row.fatGoal,
           status: computed ? "ok" : "blocked",
-          ...(computed ? {} : { reason: "goals_not_set" as const }),
+          ...(computed ? {} : { reason: gapReason }),
         });
       }
 

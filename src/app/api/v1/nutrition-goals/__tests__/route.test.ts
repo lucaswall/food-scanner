@@ -29,6 +29,11 @@ vi.mock("@/lib/nutrition-goals", () => ({
   getDailyGoalsByDateRange: (...args: unknown[]) => mockGetDailyGoalsByDateRange(...args),
 }));
 
+const mockGetUserGoalSettings = vi.fn();
+vi.mock("@/lib/users", () => ({
+  getUserGoalSettings: (...args: unknown[]) => mockGetUserGoalSettings(...args),
+}));
+
 const mockCheckRateLimit = vi.fn();
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
@@ -53,6 +58,12 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
     vi.clearAllMocks();
     mockValidateApiRequest.mockResolvedValue({ userId: "user-123" });
     mockCheckRateLimit.mockReturnValue({ allowed: true, remaining: 29 });
+    // Default: user has goals configured (range mode tests can override).
+    mockGetUserGoalSettings.mockResolvedValue({
+      activityLevel: "moderate",
+      goalWeightKg: "70",
+      goalRateKgPerWeek: "0.5",
+    });
     mockMapComputeResultToNutritionGoals.mockImplementation((result) => {
       if (result.status === "ok") {
         return {
@@ -196,7 +207,8 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       expect(body.data.entries[0].status).toBe("ok");
       expect(body.data.entries[2].calories).toBeNull();
       expect(body.data.entries[2].status).toBe("blocked");
-      expect(body.data.entries[2].reason).toBe("goals_not_set");
+      // Default mock has settings configured → incomplete row → not_computed (FOO-1063).
+      expect(body.data.entries[2].reason).toBe("not_computed");
       expect(body.data).not.toHaveProperty("profileKey");
       // Should NOT call the engine for any of the days
       expect(mockGetOrComputeDailyGoals).not.toHaveBeenCalled();
@@ -253,9 +265,9 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
     });
 
     // ─── FOO-1033 (PR review P1): gap-fill missing dates as goals_not_set ───
-    it("emits blocked/goals_not_set entries for dates with no row in range (gap-fill)", async () => {
-      // DB has rows for only 2 of the 4 days in the requested range. Without
-      // gap-fill, clients see 2 entries and get the timeline misaligned.
+    it("emits blocked/not_computed entries for dates with no row when settings ARE configured (FOO-1063)", async () => {
+      // Configured user — gaps in range mean rows haven't been computed yet,
+      // not that goals aren't set up.
       mockGetDailyGoalsByDateRange.mockResolvedValue([
         { date: "2026-05-02", calorieGoal: 2300, proteinGoal: 145, carbsGoal: 230, fatGoal: 82 },
         { date: "2026-05-04", calorieGoal: 2400, proteinGoal: 150, carbsGoal: 240, fatGoal: 85 },
@@ -270,14 +282,13 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
 
       expect(response.status).toBe(200);
       expect(body.data.entries).toHaveLength(4);
-      // Dates returned in chronological order, gaps filled.
       expect(body.data.entries.map((e: { date: string }) => e.date)).toEqual([
         "2026-05-01",
         "2026-05-02",
         "2026-05-03",
         "2026-05-04",
       ]);
-      // 2026-05-01: missing → not_computed
+      // 2026-05-01: missing + configured → not_computed
       expect(body.data.entries[0]).toMatchObject({
         date: "2026-05-01",
         calories: null,
@@ -285,21 +296,19 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
         carbsG: null,
         fatG: null,
         status: "blocked",
-        reason: "goals_not_set",
+        reason: "not_computed",
       });
-      // 2026-05-02: present, computed
       expect(body.data.entries[1]).toMatchObject({
         date: "2026-05-02",
         calories: 2300,
         status: "ok",
       });
-      // 2026-05-03: missing → not_computed
+      // 2026-05-03: missing + configured → not_computed
       expect(body.data.entries[2]).toMatchObject({
         date: "2026-05-03",
         status: "blocked",
-        reason: "goals_not_set",
+        reason: "not_computed",
       });
-      // 2026-05-04: present, computed
       expect(body.data.entries[3]).toMatchObject({
         date: "2026-05-04",
         calories: 2400,
@@ -307,7 +316,79 @@ describe("GET /api/v1/nutrition-goals (FOO-1008)", () => {
       });
     });
 
-    it("returns single entry (goals_not_set) for one-day range with no row", async () => {
+    it("emits blocked/goals_not_set entries when user settings are NULL (FOO-1063)", async () => {
+      mockGetUserGoalSettings.mockResolvedValue({
+        activityLevel: null,
+        goalWeightKg: null,
+        goalRateKgPerWeek: null,
+      });
+      mockGetDailyGoalsByDateRange.mockResolvedValue([
+        { date: "2026-05-02", calorieGoal: 2300, proteinGoal: 145, carbsGoal: 230, fatGoal: 82 },
+      ]);
+
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?from=2026-05-01&to=2026-05-03",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.entries).toHaveLength(3);
+      // 2026-05-01: missing + settings null → goals_not_set
+      expect(body.data.entries[0]).toMatchObject({
+        date: "2026-05-01",
+        status: "blocked",
+        reason: "goals_not_set",
+      });
+      // 2026-05-03: missing + settings null → goals_not_set
+      expect(body.data.entries[2]).toMatchObject({
+        date: "2026-05-03",
+        status: "blocked",
+        reason: "goals_not_set",
+      });
+    });
+
+    it("returns single entry (not_computed) for one-day range with no row when settings ARE configured", async () => {
+      mockGetDailyGoalsByDateRange.mockResolvedValue([]);
+
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?from=2026-05-04&to=2026-05-04",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.entries).toHaveLength(1);
+      expect(body.data.entries[0]).toMatchObject({
+        date: "2026-05-04",
+        status: "blocked",
+        reason: "not_computed",
+      });
+    });
+
+    it("returns 500 INTERNAL_ERROR when getUserGoalSettings rejects (FOO-1063 negative path)", async () => {
+      mockGetDailyGoalsByDateRange.mockResolvedValue([]);
+      mockGetUserGoalSettings.mockRejectedValueOnce(new Error("DB error"));
+
+      const request = createRequest(
+        "http://localhost:3000/api/v1/nutrition-goals?from=2026-05-01&to=2026-05-04",
+        { Authorization: "Bearer valid-key" },
+      );
+      const response = await GET(request);
+      const body = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(body.error.code).toBe("INTERNAL_ERROR");
+    });
+
+    it("returns single entry (goals_not_set) for one-day range with no row when settings are NULL", async () => {
+      mockGetUserGoalSettings.mockResolvedValue({
+        activityLevel: null,
+        goalWeightKg: null,
+        goalRateKgPerWeek: null,
+      });
       mockGetDailyGoalsByDateRange.mockResolvedValue([]);
 
       const request = createRequest(

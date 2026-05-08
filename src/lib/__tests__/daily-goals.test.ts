@@ -514,6 +514,53 @@ describe("getOrComputeDailyGoals — past-date row stability under settings drif
   });
 });
 
+// ─── FOO-1062: migration-cutover safety — past row visible under null users.* ─
+describe("getOrComputeDailyGoals — past-date row visible under null user settings (FOO-1062)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.update.mockReset();
+    mockDb.delete.mockReset();
+  });
+
+  it("returns past historical row even when users.* goal settings are all null (migration cutover)", async () => {
+    // Migration cutover state: user just got the new schema, settings are NULL
+    // but their daily_calorie_goals history still exists.
+    mockSelectOnce([USER_SETTINGS_NULL]);
+    mockSelectOnce([CACHED_ROW]);
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-01"); // past
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.goals.calorieGoal).toBe(CACHED_ROW.calorieGoal);
+    }
+    // Must NOT call Fitbit
+    expect(mockGetCachedFitbitProfile).not.toHaveBeenCalled();
+    expect(mockGetCachedFitbitWeightKg).not.toHaveBeenCalled();
+    // Must NOT write to DB
+    expect(mockDb.insert).not.toHaveBeenCalled();
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("returns blocked/goals_not_set for past date when settings null AND no historical row", async () => {
+    mockSelectOnce([USER_SETTINGS_NULL]);
+    mockSelectOnce([]); // no historical row
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-01");
+    expect(result).toEqual({ status: "blocked", reason: "goals_not_set" });
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("returns blocked/goals_not_set for today even when settings null (no migration-cutover backstop for today)", async () => {
+    mockSelectOnce([USER_SETTINGS_NULL]);
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-08"); // today
+    expect(result).toEqual({ status: "blocked", reason: "goals_not_set" });
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+});
+
 // ─── FOO-1054: MAINTAIN direction at integration level ───────────────────────
 describe("getOrComputeDailyGoals — MAINTAIN direction (FOO-1054)", () => {
   beforeEach(() => {

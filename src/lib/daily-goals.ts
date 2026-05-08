@@ -137,6 +137,30 @@ function rowSettingsMatch(
   );
 }
 
+interface UserSettingsRow {
+  activityLevel: string | null;
+  goalWeightKg: string | null;
+  goalRateKgPerWeek: string | null;
+}
+
+interface CompleteUserSettings {
+  activityLevel: string;
+  goalWeightKg: string;
+  goalRateKgPerWeek: string;
+}
+
+/** Type predicate: all three goal-setting columns are non-null. */
+function settingsAreComplete(
+  s: UserSettingsRow | undefined,
+): s is CompleteUserSettings {
+  return (
+    s !== undefined &&
+    s.activityLevel !== null &&
+    s.goalWeightKg !== null &&
+    s.goalRateKgPerWeek !== null
+  );
+}
+
 // In-flight Promise Map keyed `${userId}:${date}` — delete on settle
 const computeInFlight = new Map<string, Promise<ComputeResult>>();
 
@@ -161,12 +185,31 @@ async function doCompute(
       .where(eq(users.id, userId));
 
     const userSettings = userRows[0];
-    if (
-      !userSettings ||
-      userSettings.activityLevel === null ||
-      userSettings.goalWeightKg === null ||
-      userSettings.goalRateKgPerWeek === null
-    ) {
+    const isPast = date < getTodayDate();
+
+    // FOO-1062: migration cutover — when current users.* settings are null
+    // (e.g., right after the FOO-1040 schema migration) but a historical
+    // daily_calorie_goals row exists, return that row. Past rows are stable
+    // and the date-history view must remain visible before users reconfigure
+    // their new goal settings.
+    if (!settingsAreComplete(userSettings) && isPast) {
+      const past = await queryRow(userId, date);
+      if (past !== null && past.calorieGoal > 0) {
+        return {
+          status: "ok",
+          goals: {
+            calorieGoal: past.calorieGoal,
+            proteinGoal: past.proteinGoal ?? past.calorieGoal,
+            carbsGoal:   past.carbsGoal   ?? 0,
+            fatGoal:     past.fatGoal     ?? 0,
+          },
+          audit: buildAuditFromRow(past),
+          ...(computeWeightStale(date, past.weightLoggedDate) ? { weightStale: true } : {}),
+        };
+      }
+    }
+
+    if (!settingsAreComplete(userSettings)) {
       l.debug(
         { action: "daily_goals_blocked", reason: "goals_not_set", userId, date },
         "Daily goals blocked",
@@ -184,8 +227,6 @@ async function doCompute(
     const existing = await queryRow(userId, date);
 
     if (existing !== null && existing.calorieGoal > 0) {
-      const isPast = date < getTodayDate();
-
       if (isPast) {
         // Historical rows are stable — return as-is regardless of settings drift.
         return {

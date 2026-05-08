@@ -809,5 +809,36 @@ All tasks implemented and reviewed successfully. All Linear issues moved to Merg
 - Iteration 1: 10 task issues (FOO-1040..FOO-1049) → Merge
 - Iteration 1 review: 8 fix issues (FOO-1050..FOO-1057) → Merge
 - Iteration 2 review: 4 fix issues (FOO-1058..FOO-1061) → Merge
+- Iteration 4 (post-PR Codex review): 2 fix issues (FOO-1062, FOO-1063) → Merge
 - E2E suite: 144 tests pass.
+
+---
+
+## Iteration 4 (post-PR Codex review)
+
+**Implemented:** 2026-05-08
+**Method:** Single-agent inline fixes — both bugs M-size, threshold overridden by user direction (fix on the open PR rather than spinning a new iteration).
+
+### Source
+PR #141 received 2 P2 inline comments from Codex (chatgpt-codex-connector bot). Both confirmed real bugs and inline-fixed before merge.
+
+### Tasks Completed This Iteration
+- **FOO-1062 — Past-date row blocked when users.* settings are null (migration cutover regression).** In `src/lib/daily-goals.ts`, the `goals_not_set` early return fired before the existing-row lookup, so post-migration users (where `users.*` goal columns start as NULL but `daily_calorie_goals` history rows persist) saw `blocked/goals_not_set` for every past date instead of their stored historical targets. Fixed by adding a migration-cutover branch BEFORE the goals_not_set return: when settings are not complete AND date is past, look up the existing row and return it if present (regardless of current settings). Today/future continues to block. Refactored the inline null-disjunction into a `settingsAreComplete(s): s is CompleteUserSettings` type predicate for clean narrowing across both call sites.
+- **FOO-1063 — v1 range mode misreports uncomputed gaps as goals_not_set.** In `src/app/api/v1/nutrition-goals/route.ts`, range-mode hardcoded `reason: "goals_not_set"` for every missing/incomplete date row, without checking user settings. Configured users hitting the range endpoint before single-date computes populated rows were told their goals weren't set up. Fixed by reading user settings via `getUserGoalSettings` in parallel with the date-range query, then choosing `gapReason = settingsConfigured ? "not_computed" : "goals_not_set"`. Introduced a local `RangeReason` type extending `NutritionGoals.reason` with `"not_computed"` — kept range-mode-only so the shared union doesn't pollute the dashboard banner / TargetsCard exhaustive Records.
+
+### Files Modified
+- `src/lib/daily-goals.ts` (FOO-1062 — `doCompute` refactor + `settingsAreComplete` predicate)
+- `src/lib/__tests__/daily-goals.test.ts` (FOO-1062 — 3 new tests in dedicated describe block)
+- `src/app/api/v1/nutrition-goals/route.ts` (FOO-1063 — `getUserGoalSettings` import, parallel fetch, `gapReason` branch, local `RangeReason` type)
+- `src/app/api/v1/nutrition-goals/__tests__/route.test.ts` (FOO-1063 — `mockGetUserGoalSettings` mock, default-configured beforeEach, 4 new tests, updated 1 existing assertion to `not_computed`)
+
+### Linear Updates
+- FOO-1062: Created in Merge (inline-fixed)
+- FOO-1063: Created in Merge (inline-fixed)
+
+### Pre-commit Verification
+- verifier (default mode): 3515 unit tests pass, lint 0, typecheck 0, build 0 warnings.
+
+<!-- ITERATION COMPLETE -->
+<!-- REVIEW COMPLETE -->
 
