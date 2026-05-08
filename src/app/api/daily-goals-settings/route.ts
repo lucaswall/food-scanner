@@ -76,7 +76,7 @@ export async function PATCH(request: Request) {
   }
 
   const raw = body as Record<string, unknown> | null;
-  if (!raw || typeof raw !== "object") {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return errorResponse("VALIDATION_ERROR", "Request body must be a JSON object", 400);
   }
 

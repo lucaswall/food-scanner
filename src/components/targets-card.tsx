@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { ACTIVITY_LEVEL_LABELS } from "@/lib/macro-engine";
 import type { NutritionGoals } from "@/types";
+import type { GoalBlockedReason } from "@/components/goals-setup-banner";
 
 interface TargetsCardProps {
   date: string;
@@ -19,21 +20,18 @@ function formatSignedDeficit(kcal: number): string {
   return `${kcal}`;
 }
 
-function getBlockedMessage(reason?: string): string {
-  switch (reason) {
-    case "goals_not_set":
-      return "Set up your daily goals in Settings to enable targets.";
-    case "no_weight":
-      return "Log your weight in Fitbit to enable macro targets.";
-    case "sex_unset":
-      return "Set your biological sex in Fitbit profile to enable macro targets.";
-    case "scope_mismatch":
-      return "Reconnect Fitbit to enable macro targets.";
-    case "invalid_profile":
-      return "Your Fitbit profile has invalid values (height, weight, or age). Update it in the Fitbit app.";
-    default:
-      return "Macro targets unavailable.";
-  }
+const BLOCKED_MESSAGES: Record<GoalBlockedReason, string> = {
+  goals_not_set: "Set up your daily goals in Settings to enable targets.",
+  no_weight: "Log your weight in Fitbit to enable macro targets.",
+  sex_unset: "Set your biological sex in Fitbit profile to enable macro targets.",
+  scope_mismatch: "Reconnect Fitbit to enable macro targets.",
+  invalid_profile:
+    "Your Fitbit profile has invalid values (height, weight, or age). Update it in the Fitbit app.",
+};
+
+function getBlockedMessage(reason?: GoalBlockedReason): string {
+  if (reason === undefined) return "Macro targets unavailable.";
+  return BLOCKED_MESSAGES[reason];
 }
 
 export function TargetsCard({ date }: TargetsCardProps) {

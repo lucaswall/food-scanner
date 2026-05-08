@@ -88,7 +88,7 @@ export async function buildUserProfile(
     } else {
       sections.push(`Targets ${calorieGoal} cal/day`);
     }
-  } else if (goalsResult.status === "blocked" && (goalsResult.reason as string) === "goals_not_set") {
+  } else if (goalsResult.status === "blocked" && goalsResult.reason === "goals_not_set") {
     // User hasn't declared their activity level / goal weight / goal rate yet.
     sections.push("Targets pending — set up daily goals in Settings");
   }

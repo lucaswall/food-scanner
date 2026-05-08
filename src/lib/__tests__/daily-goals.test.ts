@@ -473,6 +473,192 @@ describe("getOrComputeDailyGoals — past-date computes", () => {
   });
 });
 
+// ─── FOO-1053: past-date row stability under settings drift ──────────────────
+describe("getOrComputeDailyGoals — past-date row stability under settings drift (FOO-1053)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.update.mockReset();
+    mockDb.delete.mockReset();
+  });
+
+  it("returns past-date row as-is even when users settings have drifted", async () => {
+    // Past-date row stored with one set of settings
+    const driftedPastRow = {
+      ...CACHED_ROW,
+      activityLevel: "sedentary",
+      goalWeightKg: "80",
+      goalRateKgPerWeek: "1.0",
+    };
+    // Users now have different settings (moderate / 70 / 0.5)
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([driftedPastRow]);
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-03"); // past
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      // Goals reflect the stored historical row, not current settings
+      expect(result.goals.calorieGoal).toBe(driftedPastRow.calorieGoal);
+      expect(result.goals.proteinGoal).toBe(driftedPastRow.proteinGoal);
+      expect(result.audit?.activityLevel).toBe("sedentary");
+      expect(result.audit?.goalWeightKg).toBe(80);
+      expect(result.audit?.goalRateKgPerWeek).toBe(1.0);
+    }
+    // No Fitbit call, no DB write
+    expect(mockGetCachedFitbitProfile).not.toHaveBeenCalled();
+    expect(mockGetCachedFitbitWeightKg).not.toHaveBeenCalled();
+    expect(mockDb.insert).not.toHaveBeenCalled();
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+});
+
+// ─── FOO-1054: MAINTAIN direction at integration level ───────────────────────
+describe("getOrComputeDailyGoals — MAINTAIN direction (FOO-1054)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.update.mockReset();
+    mockDb.delete.mockReset();
+  });
+
+  it("Case A: goalWeightKg === currentWeightKg → MAINTAIN with deficitKcal=0", async () => {
+    // Current weight 80, goal weight 80 → MAINTAIN regardless of rate
+    mockSelectOnce([{ activityLevel: "moderate", goalWeightKg: "80", goalRateKgPerWeek: "0.5" }]);
+    mockSelectOnce([]);
+    mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
+    mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG); // 80kg
+    const { values } = mockUpsertOnce();
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.audit?.direction).toBe("MAINTAIN");
+      expect(result.audit?.deficitKcal).toBe(0);
+    }
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ deficitKcal: 0 }));
+  });
+
+  it("Case B: goalRateKgPerWeek=0 → MAINTAIN even with mismatched weights", async () => {
+    // Current 80, goal 70, rate 0 → MAINTAIN (rate forces it)
+    mockSelectOnce([{ activityLevel: "moderate", goalWeightKg: "70", goalRateKgPerWeek: "0" }]);
+    mockSelectOnce([]);
+    mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
+    mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+    const { values } = mockUpsertOnce();
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-08");
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.audit?.direction).toBe("MAINTAIN");
+      expect(result.audit?.deficitKcal).toBe(0);
+    }
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ deficitKcal: 0 }));
+  });
+
+  it("Case C: buildAuditFromRow reconstructs MAINTAIN when stored deficitKcal=0", async () => {
+    // Past-date cache hit on a row with deficit_kcal = 0 and tdee = rmr × pal
+    const maintainRow = {
+      ...CACHED_ROW,
+      deficitKcal: 0,
+      tdee: 2711, // 1749 × 1.55 (rounded)
+    };
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([maintainRow]);
+
+    const result = await getOrComputeDailyGoals("user-1", "2026-05-01"); // past
+    expect(result.status).toBe("ok");
+    if (result.status === "ok") {
+      expect(result.audit?.direction).toBe("MAINTAIN");
+      expect(result.audit?.deficitKcal).toBe(0);
+    }
+  });
+});
+
+// ─── FOO-1052: log conversions of upstream errors in doCompute ───────────────
+describe("getOrComputeDailyGoals — log conversions (FOO-1052)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.update.mockReset();
+    mockDb.delete.mockReset();
+  });
+
+  it("warns when engine throws INVALID_PROFILE_DATA", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([]);
+    mockGetCachedFitbitProfile.mockResolvedValueOnce({ sex: "MALE", ageYears: 30, heightCm: 0 });
+    mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "daily_goals_blocked", reason: "invalid_profile" }),
+      expect.any(String),
+    );
+  });
+
+  it("warns when getCachedFitbitProfile throws FITBIT_SCOPE_MISSING", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([]);
+    mockGetCachedFitbitProfile.mockRejectedValueOnce(new Error("FITBIT_SCOPE_MISSING"));
+
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "daily_goals_blocked", reason: "scope_mismatch" }),
+      expect.any(String),
+    );
+  });
+
+  it("debugs when goals_not_set (expected user state)", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    mockSelectOnce([USER_SETTINGS_NULL]);
+
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+
+    expect(log.debug).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "daily_goals_blocked", reason: "goals_not_set" }),
+      expect.any(String),
+    );
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it("warns when Fitbit profile.sex === NA (sex_unset)", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([]);
+    mockGetCachedFitbitProfile.mockResolvedValueOnce({ sex: "NA", ageYears: 30, heightCm: 175 });
+    mockGetCachedFitbitWeightKg.mockResolvedValueOnce(WEIGHT_LOG);
+
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "daily_goals_blocked", reason: "sex_unset" }),
+      expect.any(String),
+    );
+  });
+
+  it("warns when weightLog is null (no_weight)", async () => {
+    const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    mockSelectOnce([USER_SETTINGS]);
+    mockSelectOnce([]);
+    mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
+    mockGetCachedFitbitWeightKg.mockResolvedValueOnce(null);
+
+    await getOrComputeDailyGoals("user-1", "2026-05-08", log as never);
+
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "daily_goals_blocked", reason: "no_weight" }),
+      expect.any(String),
+    );
+  });
+});
+
 // ─── invalidateUserDailyGoalsForSettingsChange ────────────────────────────────
 
 describe("invalidateUserDailyGoalsForSettingsChange", () => {

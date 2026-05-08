@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     const result = await getOrComputeDailyGoals(session!.userId, date, log);
     const goals = mapComputeResultToNutritionGoals(result);
 
-    log.info(
+    log.debug(
       { action: "nutrition_goals_success", status: result.status },
       "nutrition goals retrieved"
     );

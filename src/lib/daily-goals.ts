@@ -167,6 +167,10 @@ async function doCompute(
       userSettings.goalWeightKg === null ||
       userSettings.goalRateKgPerWeek === null
     ) {
+      l.debug(
+        { action: "daily_goals_blocked", reason: "goals_not_set", userId, date },
+        "Daily goals blocked",
+      );
       return { status: "blocked", reason: "goals_not_set" };
     }
 
@@ -228,9 +232,17 @@ async function doCompute(
     ]);
 
     if (profile.sex === "NA") {
+      l.warn(
+        { action: "daily_goals_blocked", reason: "sex_unset", userId, date },
+        "Daily goals blocked",
+      );
       return { status: "blocked", reason: "sex_unset" };
     }
     if (weightLog === null) {
+      l.warn(
+        { action: "daily_goals_blocked", reason: "no_weight", userId, date },
+        "Daily goals blocked",
+      );
       return { status: "blocked", reason: "no_weight" };
     }
 
@@ -319,17 +331,21 @@ async function doCompute(
       ...(computeWeightStale(date, weightLog.loggedDate) ? { weightStale: true } : {}),
     };
   } catch (error) {
-    if (error instanceof Error && error.message === "FITBIT_SCOPE_MISSING") {
-      return { status: "blocked", reason: "scope_mismatch" };
-    }
-    if (error instanceof Error && error.message === "INVALID_PROFILE_DATA") {
-      return { status: "blocked", reason: "invalid_profile" };
-    }
-    if (error instanceof Error && error.message === "SEX_UNSET") {
-      return { status: "blocked", reason: "sex_unset" };
-    }
-    if (error instanceof Error && error.message === "INVALID_GOAL_RATE") {
-      return { status: "blocked", reason: "invalid_profile" };
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    // Note: SEX_UNSET is not handled here — `profile.sex === "NA"` is checked
+    // and short-circuited before computeMacroTargets is called, so the engine
+    // never reaches its SEX_UNSET throw path from this caller.
+    let reason: "scope_mismatch" | "invalid_profile" | null = null;
+    if (errorMessage === "FITBIT_SCOPE_MISSING") reason = "scope_mismatch";
+    else if (errorMessage === "INVALID_PROFILE_DATA") reason = "invalid_profile";
+    else if (errorMessage === "INVALID_GOAL_RATE") reason = "invalid_profile";
+
+    if (reason !== null) {
+      l.warn(
+        { action: "daily_goals_blocked", reason, userId, date, errorMessage },
+        "Daily goals blocked",
+      );
+      return { status: "blocked", reason };
     }
     throw error;
   }

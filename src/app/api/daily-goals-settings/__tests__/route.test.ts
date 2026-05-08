@@ -223,6 +223,36 @@ describe("PATCH /api/daily-goals-settings", () => {
     expect(body.error.code).toBe("VALIDATION_ERROR");
   });
 
+  // FOO-1057: boundary value — goalWeightKg = 0 must be rejected (impl uses v <= 0)
+  it("returns 400 VALIDATION_ERROR for goalWeightKg = 0 (boundary)", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goalWeightKg: 0 }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  // FOO-1050: typeof [] === "object" — array body must be rejected
+  it("returns 400 VALIDATION_ERROR for JSON array body", async () => {
+    const response = await PATCH(
+      new Request("http://localhost/api/daily-goals-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify([{ activityLevel: "light" }]),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+  });
+
   it("returns 400 VALIDATION_ERROR for goalRateKgPerWeek < 0", async () => {
     const response = await PATCH(
       new Request("http://localhost/api/daily-goals-settings", {

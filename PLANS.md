@@ -651,3 +651,46 @@ Summary: 14 findings raised by 3-reviewer team (security, reliability, quality);
 
 1. Add a test case to the existing PATCH validation block in `src/app/api/daily-goals-settings/__tests__/route.test.ts`: assert `{ goalWeightKg: 0 }` returns 400 `VALIDATION_ERROR`.
 2. Run vitest (should pass with the current implementation).
+
+---
+
+## Iteration 2
+
+**Implemented:** 2026-05-08
+**Method:** Single-agent (8 surgical fixes, all S-sized — worker overhead would have exceeded serial implementation time per Fix Plan calibration)
+
+### Tasks Completed This Iteration
+- Fix 1 (FOO-1050): Added `Array.isArray(raw)` to PATCH `/api/daily-goals-settings` body guard; added test for JSON array body
+- Fix 2 (FOO-1051): Replaced `getBlockedMessage`'s `string` switch with `Record<GoalBlockedReason, string>` exhaustive lookup in `targets-card.tsx`; imported `GoalBlockedReason` from `goals-setup-banner`
+- Fix 3 (FOO-1052): Added `l.warn` logs on engine/Fitbit error conversions in `doCompute` (catch block — `FITBIT_SCOPE_MISSING`, `INVALID_PROFILE_DATA`, `INVALID_GOAL_RATE`); added `l.debug` for `goals_not_set`. **Bug-hunter follow-up:** also added `l.warn` for `sex_unset` and `no_weight` direct-return paths (FOO-1052 was incomplete — those Fitbit-state checks were missing from the spec but obviously in scope)
+- Fix 4 (FOO-1053): Added unit test for past-date row stability under settings drift — verifies stored historical row is returned as-is (no recompute, no DB write) when current `users` settings differ from row's stored values
+- Fix 5 (FOO-1054): Added 3 unit tests for MAINTAIN direction integration — `goalWeight === currentWeight`, `goalRate = 0` with mismatched weights, and `buildAuditFromRow` reconstruction from stored `deficitKcal = 0`
+- Fix 6 (FOO-1055): Removed unnecessary `as string` cast in `user-profile.ts:91` `goals_not_set` check — type narrowing already provided by the `status === "blocked"` guard
+- Fix 7 (FOO-1056): Lowered `log.info` → `log.debug` on the `/api/nutrition-goals` GET success branch (routine read, not a state change)
+- Fix 8 (FOO-1057): Added boundary test for `{ goalWeightKg: 0 }` returning 400 in PATCH validation
+- **Dead-code removal (bug-hunter follow-up):** Removed unreachable `SEX_UNSET` branch from `doCompute` catch block — `profile.sex === "NA"` is short-circuited before `computeMacroTargets` is called, so the engine's `SEX_UNSET` throw never reaches the catch from this caller
+
+### Files Modified
+- `src/app/api/daily-goals-settings/route.ts` (Fix 1)
+- `src/app/api/daily-goals-settings/__tests__/route.test.ts` (Fix 1, Fix 8)
+- `src/app/api/nutrition-goals/route.ts` (Fix 7)
+- `src/components/targets-card.tsx` (Fix 2)
+- `src/lib/daily-goals.ts` (Fix 3 + bug-hunter follow-ups)
+- `src/lib/__tests__/daily-goals.test.ts` (Fix 3, Fix 4, Fix 5 + bug-hunter follow-up tests)
+- `src/lib/user-profile.ts` (Fix 6)
+
+### Linear Updates
+- FOO-1050 → FOO-1057: Todo → In Progress → Review (8 fix issues completed)
+
+### Pre-commit Verification
+- bug-hunter: Found 3 issues — 1 Medium, 2 Low. All fixed before final verification:
+  1. Medium: `sex_unset` and `no_weight` direct-return paths in `daily-goals.ts` lacked the `l.warn` logging that FOO-1052 added elsewhere — implementation was incomplete relative to the spec's intent (Fitbit-state observability gap). Fixed by adding `l.warn` calls and corresponding test cases.
+  2. Low: `SEX_UNSET` branch in catch block was dead code (unreachable due to early sex-check). Removed.
+  3. Low: Missing tests for the new `sex_unset`/`no_weight` log paths. Added.
+- verifier (default mode): All unit tests pass, lint clean, build clean, zero warnings.
+
+### Continuation Status
+Goal-anchored engine rework + Iteration 1 review fixes COMPLETE. All 8 fix issues moved to Review. No tasks remaining.
+
+<!-- ITERATION COMPLETE -->
+
