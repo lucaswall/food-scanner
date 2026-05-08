@@ -21,11 +21,13 @@ const mockDb = {
 vi.mock("@/db/index", () => ({ getDb: () => mockDb }));
 
 vi.mock("drizzle-orm", () => ({
-  eq:  vi.fn((_col: unknown, val: unknown) => `eq:${val}`),
-  and: vi.fn((...args: unknown[]) => `and:(${args.join(",")})`),
-  gte: vi.fn((_col: unknown, val: unknown) => `gte:${val}`),
-  lt:  vi.fn((_col: unknown, val: unknown) => `lt:${val}`),
-  desc: vi.fn((col: unknown) => `desc:${String(col)}`),
+  eq:     vi.fn((_col: unknown, val: unknown) => `eq:${val}`),
+  and:    vi.fn((...args: unknown[]) => `and:(${args.join(",")})`),
+  gte:    vi.fn((_col: unknown, val: unknown) => `gte:${val}`),
+  lt:     vi.fn((_col: unknown, val: unknown) => `lt:${val}`),
+  desc:   vi.fn((col: unknown) => `desc:${String(col)}`),
+  isNull: vi.fn(() => `isNull:?`),
+  or:     vi.fn((...args: unknown[]) => `or:(${args.join(",")})`),
 }));
 
 vi.mock("@/lib/logger", () => {
@@ -514,8 +516,8 @@ describe("getOrComputeDailyGoals — past-date row stability under settings drif
   });
 });
 
-// ─── FOO-1066: setWhere guard against stale-compute overwrite ────────────────
-describe("getOrComputeDailyGoals — UPSERT setWhere guard (FOO-1066)", () => {
+// ─── FOO-1066/1067: setWhere guard — stale-compute + invalidated-row safe ────
+describe("getOrComputeDailyGoals — UPSERT setWhere guard (FOO-1066/1067)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDb.select.mockReset();
@@ -524,7 +526,7 @@ describe("getOrComputeDailyGoals — UPSERT setWhere guard (FOO-1066)", () => {
     mockDb.delete.mockReset();
   });
 
-  it("includes a setWhere clause matching the input settings to prevent stale-compute overwrites", async () => {
+  it("setWhere allows overwriting when stored row is invalidated OR settings match input (FOO-1066/1067)", async () => {
     mockSelectOnce([USER_SETTINGS]);
     mockSelectOnce([]);
     mockGetCachedFitbitProfile.mockResolvedValueOnce(FITBIT_PROFILE_MALE);
@@ -538,12 +540,15 @@ describe("getOrComputeDailyGoals — UPSERT setWhere guard (FOO-1066)", () => {
         setWhere: expect.anything(),
       }),
     );
-    // Mocked drizzle helpers serialize `eq(col, val)` to `eq:val` and
-    // `and(...args)` to `and:(arg1,arg2,...)`. Verify the setWhere is the
-    // full and/eq composition with our exact input settings, in order.
-    // Substring matches would be ambiguous (e.g. "eq:70" ⊂ "eq:700").
+    // Mocked drizzle helpers serialize `eq(col, val)` → `eq:val`, `isNull(col)`
+    // → `isNull:?`, `and(...args)` → `and:(...)`, `or(...args)` → `or:(...)`.
+    // Verify both branches are present in order:
+    //   1. isNull(activityLevel) — FOO-1067 invalidated-row backstop
+    //   2. and(eq×3 of our settings) — FOO-1066 stale-compute guard
     const args = onConflictDoUpdate.mock.calls[0][0] as { setWhere: unknown };
-    expect(String(args.setWhere)).toBe("and:(eq:moderate,eq:70,eq:0.5)");
+    expect(String(args.setWhere)).toBe(
+      "or:(isNull:?,and:(eq:moderate,eq:70,eq:0.5))",
+    );
   });
 });
 

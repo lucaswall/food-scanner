@@ -1,6 +1,6 @@
 import { getDb } from "@/db/index";
 import { dailyCalorieGoals, users } from "@/db/schema";
-import { eq, and, gte } from "drizzle-orm";
+import { eq, and, gte, isNull, or } from "drizzle-orm";
 import { getTodayDate } from "@/lib/date-utils";
 import { computeMacroTargets } from "@/lib/macro-engine";
 import {
@@ -334,16 +334,26 @@ async function doCompute(
           deficitKcal:       engineOut.deficitKcal,
           updatedAt:         new Date(),
         },
-        // FOO-1066: only overwrite a stored row if its settings match what we
-        // computed with. Prevents a stale doCompute (using pre-PATCH settings)
-        // from overwriting a fresher row written by a subsequent compute that
-        // already used the new settings. Without this guard, range-mode reads
+        // FOO-1066/1067: compare-and-swap that allows overwriting in two cases:
+        //   1. stored row was invalidated by `invalidateUserDailyGoalsForDate`
+        //      (FOO-992 profile-refresh path zeros calorieGoal and nulls all
+        //      setting columns) — the row is a placeholder waiting for fresh
+        //      data, must be rewritten.
+        //   2. stored row's settings match what we computed with — idempotent
+        //      recompute by the same logical request, safe to overwrite.
+        //
+        // What this BLOCKS: a stale doCompute (using pre-PATCH settings)
+        // overwriting a fresher row written by a subsequent compute that
+        // already used the new settings. Without that guard, range-mode reads
         // could surface stale `ok` targets between the stale write and the
         // next single-date read that triggers a settings-drift recompute.
-        setWhere: and(
-          eq(dailyCalorieGoals.activityLevel, userActivityLevel),
-          eq(dailyCalorieGoals.goalWeightKg, userGoalWeightKg),
-          eq(dailyCalorieGoals.goalRateKgPerWeek, userGoalRateKgPerWeek),
+        setWhere: or(
+          isNull(dailyCalorieGoals.activityLevel),
+          and(
+            eq(dailyCalorieGoals.activityLevel, userActivityLevel),
+            eq(dailyCalorieGoals.goalWeightKg, userGoalWeightKg),
+            eq(dailyCalorieGoals.goalRateKgPerWeek, userGoalRateKgPerWeek),
+          ),
         ),
       });
 
