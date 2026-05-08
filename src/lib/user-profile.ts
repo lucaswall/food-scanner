@@ -1,7 +1,7 @@
 import { getDb } from "@/db/index";
 import { foodLogEntries, customFoods } from "@/db/schema";
 import { eq, and, gte, desc, count } from "drizzle-orm";
-import { getDailyGoalsByDate } from "@/lib/daily-goals";
+import { getOrComputeDailyGoals } from "@/lib/daily-goals";
 import { getDailyNutritionSummary } from "@/lib/food-log";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
@@ -58,14 +58,14 @@ export async function buildUserProfile(
 ): Promise<string | null> {
   const l = options?.log ?? logger;
 
-  const [dailyGoals, nutritionSummary, topFoods] = await Promise.all([
-    getDailyGoalsByDate(userId, currentDate),
+  const [goalsResult, nutritionSummary, topFoods] = await Promise.all([
+    getOrComputeDailyGoals(userId, currentDate, l),
     getDailyNutritionSummary(userId, currentDate),
     getTopFoodsByFrequency(userId, currentDate),
   ]);
 
-  const calorieGoal = dailyGoals?.calorieGoal ?? null;
-  const hasGoals = dailyGoals !== null;
+  const calorieGoal = goalsResult.status === "ok" ? goalsResult.goals.calorieGoal : null;
+  const hasGoals = goalsResult.status === "ok";
   const hasProgress = nutritionSummary.totals.calories > 0;
   const hasMeals = nutritionSummary.meals.some((g) => g.entries.length > 0);
   const hasTopFoods = topFoods.length > 0;
@@ -79,17 +79,18 @@ export async function buildUserProfile(
   const sections: string[] = [];
 
   // Section 1: Goals (highest priority)
-  if (calorieGoal !== null && calorieGoal > 0) {
-    if (dailyGoals?.proteinGoal != null && dailyGoals?.carbsGoal != null && dailyGoals?.fatGoal != null) {
+  if (calorieGoal !== null && calorieGoal > 0 && goalsResult.status === "ok") {
+    const { proteinGoal, carbsGoal, fatGoal } = goalsResult.goals;
+    if (proteinGoal > 0 && carbsGoal > 0 && fatGoal > 0) {
       sections.push(
-        `Targets ${calorieGoal} cal/day (P:${dailyGoals.proteinGoal}g C:${dailyGoals.carbsGoal}g F:${dailyGoals.fatGoal}g)`
+        `Targets ${calorieGoal} cal/day (P:${proteinGoal}g C:${carbsGoal}g F:${fatGoal}g)`
       );
     } else {
       sections.push(`Targets ${calorieGoal} cal/day`);
     }
-  } else if (dailyGoals !== null) {
-    // Row exists but calorieGoal is null or 0 — invalidated row awaiting recompute.
-    sections.push("Targets pending — waiting for Fitbit activity");
+  } else if (goalsResult.status === "blocked" && (goalsResult.reason as string) === "goals_not_set") {
+    // User hasn't declared their activity level / goal weight / goal rate yet.
+    sections.push("Targets pending — set up daily goals in Settings");
   }
 
   // Section 2: Today's progress (second priority)

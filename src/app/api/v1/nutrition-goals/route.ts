@@ -3,7 +3,6 @@ import { conditionalResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import {
   getOrComputeDailyGoals,
-  loadUserMacroProfileKey,
   mapComputeResultToNutritionGoals,
 } from "@/lib/daily-goals";
 import { getDailyGoalsByDateRange } from "@/lib/nutrition-goals";
@@ -115,13 +114,10 @@ export async function GET(request: Request) {
         );
       }
 
-      const [rows, profileKey] = await Promise.all([
-        getDailyGoalsByDateRange(authResult.userId, fromParam, toParam),
-        loadUserMacroProfileKey(authResult.userId),
-      ]);
+      const rows = await getDailyGoalsByDateRange(authResult.userId, fromParam, toParam);
 
       // FOO-1033 (PR review): gap-fill any date in [from, to] that has no DB
-      // row with `status: "blocked", reason: "not_computed"` so the response
+      // row with `status: "blocked", reason: "goals_not_set"` so the response
       // covers the full requested span. Without this, clients silently see
       // missing days as dropped data and timelines misalign.
       const rowByDate = new Map(rows.map((row) => [row.date, row]));
@@ -132,6 +128,8 @@ export async function GET(request: Request) {
         const date = new Date(ms).toISOString().slice(0, 10);
         const row = rowByDate.get(date);
         if (!row) {
+          // "goals_not_set" is added to the reason union by FOO-1041 (Worker 1).
+          // Cast required until that branch is merged.
           entries.push({
             date,
             calories: null,
@@ -139,7 +137,7 @@ export async function GET(request: Request) {
             carbsG: null,
             fatG: null,
             status: "blocked",
-            reason: "not_computed",
+            reason: "goals_not_set" as RangeEntry["reason"],
           });
           continue;
         }
@@ -151,7 +149,7 @@ export async function GET(request: Request) {
           carbsG: row.carbsGoal,
           fatG: row.fatGoal,
           status: computed ? "ok" : "blocked",
-          ...(computed ? {} : { reason: "not_computed" }),
+          ...(computed ? {} : { reason: "goals_not_set" as RangeEntry["reason"] }),
         });
       }
 
@@ -160,15 +158,12 @@ export async function GET(request: Request) {
         "v1 nutrition goals range retrieved",
       );
 
-      return conditionalResponse(request, { entries, profileKey });
+      return conditionalResponse(request, { entries });
     }
 
     // Single-date mode — engine-computed.
     const date = dateParam ?? getTodayDate();
-    const [result, profileKey] = await Promise.all([
-      getOrComputeDailyGoals(authResult.userId, date, log),
-      loadUserMacroProfileKey(authResult.userId),
-    ]);
+    const result = await getOrComputeDailyGoals(authResult.userId, date, log);
 
     // FOO-1031 (PR review): getOrComputeDailyGoals catches FITBIT_SCOPE_MISSING
     // and returns a resolved blocked/scope_mismatch result rather than throwing.
@@ -189,7 +184,7 @@ export async function GET(request: Request) {
       "v1 nutrition goals retrieved",
     );
 
-    return conditionalResponse(request, { date, profileKey, ...goals });
+    return conditionalResponse(request, { date, ...goals });
   } catch (error) {
     log.error(
       { action: "v1_nutrition_goals_error", error: error instanceof Error ? error.message : String(error) },
