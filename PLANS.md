@@ -558,3 +558,96 @@
 
 ### Continuation Status
 Goal-anchored engine rework substantively complete. All 10 task IDs in Review. The remaining Task 8 cleanup is a scope-decision for follow-up, not a blocker for release.
+
+### Review Findings
+
+Summary: 14 findings raised by 3-reviewer team (security, reliability, quality); 8 classified as FIX, 6 DISCARDED.
+
+**Issues requiring fix (Linear issues created in Todo):**
+- [LOW] EDGE CASE: PATCH /api/daily-goals-settings accepts JSON array body silently (`src/app/api/daily-goals-settings/route.ts:78-80`) — [FOO-1050](https://linear.app/lw-claude/issue/FOO-1050)
+- [MEDIUM] TYPE: getBlockedMessage param widened to string defeats exhaustiveness (`src/components/targets-card.tsx:22`) — [FOO-1051](https://linear.app/lw-claude/issue/FOO-1051)
+- [MEDIUM] LOGGING: doCompute catch block silently swallows engine error context (`src/lib/daily-goals.ts:321-334`) — [FOO-1052](https://linear.app/lw-claude/issue/FOO-1052)
+- [MEDIUM] EDGE CASE: missing test for past-date row stability under settings drift (`src/lib/__tests__/daily-goals.test.ts`) — [FOO-1053](https://linear.app/lw-claude/issue/FOO-1053)
+- [MEDIUM] EDGE CASE: missing integration tests for MAINTAIN direction (`src/lib/__tests__/daily-goals.test.ts`) — [FOO-1054](https://linear.app/lw-claude/issue/FOO-1054)
+- [LOW] TYPE: unnecessary `as string` widening cast in goals_not_set check (`src/lib/user-profile.ts:91`) — [FOO-1055](https://linear.app/lw-claude/issue/FOO-1055)
+- [LOW] LOGGING: nutrition-goals GET success logged at INFO instead of DEBUG (`src/app/api/nutrition-goals/route.ts:29`) — [FOO-1056](https://linear.app/lw-claude/issue/FOO-1056)
+- [LOW] EDGE CASE: missing boundary test for goalWeightKg = 0 in PATCH validation (`src/app/api/daily-goals-settings/__tests__/route.test.ts`) — [FOO-1057](https://linear.app/lw-claude/issue/FOO-1057)
+
+**Discarded findings (not bugs):**
+- [DISCARDED] EDGE CASE: migration timing for `DELETE FROM daily_calorie_goals WHERE date >= CURRENT_DATE` (`drizzle/0026_goal_anchored_engine.sql:20`) — Operational note only; the push-to-production skill controls deploy timing and the row regeneration is by design (banner-gated UI handles the transient blocked state).
+- [DISCARDED] CONVENTION: hand-edit appended to drizzle-generated SQL (`drizzle/0026_goal_anchored_engine.sql:20`) — Documented accepted pattern in MEMORY.md ("Drizzle migrations + manual data migrations" lesson) and explicitly required by the plan's Task 1 step 5; drizzle-kit emits DDL only.
+- [DISCARDED] EDGE CASE: `buildAuditFromRow` direction reconstruction (`src/lib/daily-goals.ts:83-84`) — Reviewer self-confirmed: reconstruction from `deficitKcal` sign is consistent with engine's storage rules. No bug.
+- [DISCARDED] EDGE CASE: negative `targetKcal` on extreme `goalRateKgPerWeek` (`src/lib/macro-engine.ts:104`) — By design (no safety clamp); the safety-floor warning in DailyGoalsCard handles user agency. Reviewer self-confirmed intentional.
+- [DISCARDED] ASYNC: pre-existing Fitbit-error propagation from `buildUserProfile` (`src/lib/user-profile.ts:61`) — Pre-existing pattern (route-level handlers catch generic errors). Reviewer flagged "for awareness" not as a definitive bug. Existing chat-tool callers handle thrown errors via the generic catch path.
+- [DISCARDED] BUG: race condition in `invalidateUserDailyGoalsForSettingsChange` vs in-flight `doCompute` (`src/lib/daily-goals.ts:362-384`) — Self-correcting via the settings-drift check at step 2 of `getOrComputeDailyGoals`: when an in-flight compute writes a stale row after invalidate, the next read detects mismatch between stored `(activityLevel, goalWeightKg, goalRateKgPerWeek)` and `users.*` and recomputes. Window is bounded to one stale page load; concurrent invocation across two tabs/devices in <100ms is the only trigger. Reviewer described as "self-correcting within one request cycle"; the existing rowSettingsMatch logic is the citation.
+
+### Linear Updates
+- FOO-1040 → FOO-1049: Review → Merge (10 original task issues completed)
+- FOO-1050 → FOO-1057: Created in Todo (8 Fix issues — all S-size; routed via Fix Plan because count > 3)
+
+<!-- REVIEW COMPLETE -->
+
+---
+
+## Fix Plan
+
+**Source:** Iteration 1 review findings (2026-05-08)
+**Linear Issues:** [FOO-1050](https://linear.app/lw-claude/issue/FOO-1050), [FOO-1051](https://linear.app/lw-claude/issue/FOO-1051), [FOO-1052](https://linear.app/lw-claude/issue/FOO-1052), [FOO-1053](https://linear.app/lw-claude/issue/FOO-1053), [FOO-1054](https://linear.app/lw-claude/issue/FOO-1054), [FOO-1055](https://linear.app/lw-claude/issue/FOO-1055), [FOO-1056](https://linear.app/lw-claude/issue/FOO-1056), [FOO-1057](https://linear.app/lw-claude/issue/FOO-1057)
+
+### Fix 1: Reject JSON array body in PATCH /api/daily-goals-settings
+**Linear Issue:** [FOO-1050](https://linear.app/lw-claude/issue/FOO-1050)
+
+1. Add a route test in `src/app/api/daily-goals-settings/__tests__/route.test.ts` asserting `[{"activityLevel":"light"}]` returns 400 `VALIDATION_ERROR`. Run vitest (expect fail).
+2. In `src/app/api/daily-goals-settings/route.ts:78-80`, add `Array.isArray(raw)` to the rejection branch alongside the existing object-shape guard.
+3. Run vitest (expect pass).
+
+### Fix 2: Tighten getBlockedMessage param type in TargetsCard
+**Linear Issue:** [FOO-1051](https://linear.app/lw-claude/issue/FOO-1051)
+
+1. In `src/components/targets-card.tsx:22`, change `reason?: string` to `reason?: GoalBlockedReason` (import the union from `@/types` or replicate from `goals-setup-banner.tsx`).
+2. Convert the switch into an exhaustive `Record<GoalBlockedReason, string>` lookup matching `goals-setup-banner.tsx`'s pattern, so adding a new union member produces a compile-time error here.
+3. Run `npm run typecheck` and vitest.
+
+### Fix 3: Log conversions of upstream errors in doCompute
+**Linear Issue:** [FOO-1052](https://linear.app/lw-claude/issue/FOO-1052)
+
+1. Add a unit test in `src/lib/__tests__/daily-goals.test.ts`: mock the engine to throw `INVALID_PROFILE_DATA`, assert a `warn` log is emitted via the existing test logger spy. Run vitest (expect fail).
+2. In `src/lib/daily-goals.ts:321-334`, emit `l.warn({ action: "daily_goals_blocked", reason }, "Daily goals blocked")` (or matching shape) on each engine/Fitbit error conversion. Use `debug` for `goals_not_set` (expected user state) and `warn` for the engine/Fitbit error conversions.
+3. Run vitest (expect pass).
+
+### Fix 4: Test past-date row stability under settings drift
+**Linear Issue:** [FOO-1053](https://linear.app/lw-claude/issue/FOO-1053)
+
+1. Add unit test in `src/lib/__tests__/daily-goals.test.ts`:
+   - Insert a `daily_calorie_goals` row for `(userId, today - 5)` storing `activityLevel: "sedentary"`, `goalWeightKg: 80`, `goalRateKgPerWeek: 0.5`.
+   - Set the `users` row to drifted values (`"moderate"`, 75, 1.0).
+   - Call `getOrComputeDailyGoals(userId, today - 5)`.
+   - Assert returned goals/audit match the stored row exactly. Verify no DB write was issued (mock the UPSERT spy).
+2. Run vitest (test should pass with the current implementation).
+
+### Fix 5: Test MAINTAIN direction at integration level
+**Linear Issue:** [FOO-1054](https://linear.app/lw-claude/issue/FOO-1054)
+
+1. Add three test cases in `src/lib/__tests__/daily-goals.test.ts`:
+   - Case A: `goalWeightKg === currentWeightKg`, `goalRateKgPerWeek = 0.5` → assert `audit.direction === "MAINTAIN"`, `audit.deficitKcal === 0`, stored row's `deficit_kcal === 0`.
+   - Case B: `goalRateKgPerWeek = 0` (with mismatched weights) → same assertions.
+   - Case C: seed a row with `deficit_kcal = 0`, `tdee = rmr × pal` → assert `buildAuditFromRow` reconstructs `direction === "MAINTAIN"`.
+2. Run vitest (cases should pass with the current implementation).
+
+### Fix 6: Remove unnecessary string cast in user-profile.ts
+**Linear Issue:** [FOO-1055](https://linear.app/lw-claude/issue/FOO-1055)
+
+1. In `src/lib/user-profile.ts:91`, remove the `as string` cast: `(goalsResult.reason as string) === "goals_not_set"` → `goalsResult.reason === "goals_not_set"`.
+2. Run `npm run typecheck` and vitest.
+
+### Fix 7: Lower nutrition-goals GET log level to DEBUG
+**Linear Issue:** [FOO-1056](https://linear.app/lw-claude/issue/FOO-1056)
+
+1. In `src/app/api/nutrition-goals/route.ts:29`, change `log.info(...)` on the success branch to `log.debug(...)`.
+2. Run vitest.
+
+### Fix 8: Add boundary test for goalWeightKg = 0 in PATCH validation
+**Linear Issue:** [FOO-1057](https://linear.app/lw-claude/issue/FOO-1057)
+
+1. Add a test case to the existing PATCH validation block in `src/app/api/daily-goals-settings/__tests__/route.test.ts`: assert `{ goalWeightKg: 0 }` returns 400 `VALIDATION_ERROR`.
+2. Run vitest (should pass with the current implementation).
