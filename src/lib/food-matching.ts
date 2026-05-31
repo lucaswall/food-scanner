@@ -3,6 +3,7 @@ import { customFoods, foodLogEntries } from "@/db/schema";
 import { eq, and, isNotNull, max } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
+import { coerceServingUnit } from "@/types";
 import type { FoodAnalysis, FoodMatch } from "@/types";
 
 export type { FoodMatch };
@@ -82,13 +83,13 @@ export async function findMatchingFoods(
         proteinG: customFoods.proteinG,
         carbsG: customFoods.carbsG,
         fatG: customFoods.fatG,
-        fitbitFoodId: customFoods.fitbitFoodId,
         keywords: customFoods.keywords,
         createdAt: customFoods.createdAt,
         amount: customFoods.amount,
         unitId: customFoods.unitId,
       },
       lastLoggedAt: max(foodLogEntries.loggedAt),
+      latestHealthLogId: max(foodLogEntries.healthLogId),
     })
     .from(customFoods)
     .leftJoin(
@@ -99,7 +100,7 @@ export async function findMatchingFoods(
       and(
         eq(customFoods.userId, userId),
         isNotNull(customFoods.keywords),
-        ...(process.env.FITBIT_DRY_RUN !== "true" ? [isNotNull(customFoods.fitbitFoodId)] : []),
+        ...(process.env.HEALTH_DRY_RUN !== "true" ? [isNotNull(foodLogEntries.healthLogId)] : []),
       ),
     )
     .groupBy(customFoods.id);
@@ -109,7 +110,7 @@ export async function findMatchingFoods(
   for (const row of rows) {
     const food = row.custom_foods;
     if (!food.keywords) continue;
-    if (process.env.FITBIT_DRY_RUN !== "true" && !food.fitbitFoodId) continue;
+    if (process.env.HEALTH_DRY_RUN !== "true" && !row.latestHealthLogId) continue;
 
     const matchRatio = computeMatchRatio(newAnalysis.keywords, food.keywords);
     if (matchRatio < 0.5) continue;
@@ -139,11 +140,10 @@ export async function findMatchingFoods(
       proteinG: Number(food.proteinG),
       carbsG: Number(food.carbsG),
       fatG: Number(food.fatG),
-      fitbitFoodId: food.fitbitFoodId ?? null,
       matchRatio,
       lastLoggedAt,
       amount: Number(food.amount),
-      unitId: food.unitId,
+      unitId: coerceServingUnit(food.unitId),
       sortDate: lastLoggedAt.getTime(),
     });
   }
@@ -162,7 +162,6 @@ export async function findMatchingFoods(
     proteinG: m.proteinG,
     carbsG: m.carbsG,
     fatG: m.fatG,
-    fitbitFoodId: m.fitbitFoodId ?? null,
     matchRatio: m.matchRatio,
     lastLoggedAt: m.lastLoggedAt,
     amount: m.amount,

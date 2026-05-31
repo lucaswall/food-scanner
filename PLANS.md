@@ -803,3 +803,56 @@ Resume at **Phase 1, Task 4** (FOO-1074 — single-owner `src/types/index.ts` re
 - `src/lib/fitbit.ts` (modify — helpers moved out, re-exported from @/lib/http)
 - `src/lib/auth.ts` (modify — import @/lib/http; widen exchangeGoogleCode)
 - `src/lib/__tests__/auth.test.ts` (modify — 3 new exchangeGoogleCode tests)
+
+---
+
+## Iteration 2: Phase 1 — data model + single-owner type rename + session contract
+
+**Date:** 2026-05-31
+**Status:** PARTIAL — 20 tasks remaining (Phases 2–5, Tasks 11–30)
+**Method:** single-agent
+
+### Summary
+Completed all of **Phase 1 (Tasks 4–10)** — the foundational data-model + type cutover. Task 4 owns the single rename of `src/types/index.ts`; Tasks 5–9 rewrite `src/db/schema.ts` (token table rename, credentials-table drop, food-log column changes, indexes/checks, `weightGoalType`); Task 10 rewires the session contract. Every Phase-1 task was implemented test-first; **all 251 Phase-1 unit tests pass** and **all seven Phase-1 source files typecheck clean** (0 errors in `types/index.ts`, `db/schema.ts`, `health-tokens.ts`, `food-log.ts`, `food-matching.ts`, `users.ts`, `session.ts`). bug-hunter reviewed the diff and found 0 actionable bugs.
+
+**Expected red global typecheck (≈384 errors):** The single-owner `types/index.ts` rename cascades across every consumer that is migrated in later phases (`fitbit*.ts`, `claude.ts`, `daily-goals.ts`, all `src/app/api/**` routes, `src/components/**`, hooks). This is the documented inherent property of this atomic cutover (Iteration 1 flagged it: "breaks compilation across every consumer until Tasks 5–23 land"). The full build/verifier/E2E gate is therefore deferred to the end of the migration (the plan's Post-Implementation Checklist + plan-review-implementation), not run mid-cutover. Verification this iteration was per-task via `npx vitest run` (Vitest compiles per-file via esbuild, independent of the project-wide `tsc`).
+
+### Completed Tasks
+- **Task 4 (FOO-1074):** Single-owner `src/types/index.ts` rewrite — `FITBIT_UNITS`/`getUnitById`/`FitbitUnitKey` → `ServingUnit` string enum + `SERVING_UNITS` + `coerceServingUnit` + `LEGACY_FITBIT_UNIT_ID_TO_SERVING_UNIT`; `getUnitLabel(ServingUnit|string, amount)`; retyped `unit_id`/`unitId` to `ServingUnit` on `FoodAnalysis`/`CommonFood`/`FoodLogHistoryEntry`/`FoodMatch`/`FoodLogEntryDetail`/`MealEntry`; `fitbitConnected`→`healthConnected`, dropped `hasFitbitCredentials`; `ErrorCode` FITBIT_*→HEALTH_* (dropped `FITBIT_CREDENTIALS_MISSING`); `FoodLogResponse.fitbitLogId`(number)→`healthLogId`(string), dropped `fitbitFoodId`; `FitbitProfile(Data)`→`HealthProfile(Data)`, `FitbitWeightLog`→`HealthWeightLog`, `FitbitHealthStatus`→`HealthConnectionStatus` (dropped `needs_setup`), `FITBIT_MEAL_TYPE_LABELS`→`MEAL_TYPE_LABELS`, `FitbitMealType`→`MealType`; removed `FitbitWeightGoal`. 19 tests.
+- **Task 5 (FOO-1075):** `fitbit_tokens`→`health_tokens` (`fitbit_user_id`→`health_user_id`); ported the store to `src/lib/health-tokens.ts` (`getHealthTokens`/`upsertHealthTokens`/`deleteHealthTokens`, `HealthTokenRow`); deleted `fitbit-tokens.ts` + test. 10 tests.
+- **Task 6 (FOO-1076):** Dropped `fitbit_credentials` table; deleted `src/lib/fitbit-credentials.ts` + test.
+- **Task 7 (FOO-1077):** `food_log_entries.fitbit_log_id`(bigint)→`health_log_id`(text), dropped `custom_foods.fitbit_food_id`, **`unit_id` integer→text on both tables** (required for the `ServingUnit` types + the migration's USING-cast backfill); rewired `food-log.ts` + `food-matching.ts` (every `fitbitLogId`→`healthLogId` string, removed all `fitbitFoodId`, mappers wrap unit reads in `coerceServingUnit`); re-based the visibility/DRY-RUN filter from `custom_foods.fitbit_food_id` to `food_log_entries.health_log_id` gated on `HEALTH_DRY_RUN` across `getCommonFoods`/`getRecentFoods`/`searchFoods`/`findMatchingFoods`; renamed all `FITBIT_DRY_RUN`→`HEALTH_DRY_RUN`. 161 tests (food-log + food-matching).
+- **Task 8 (FOO-1078):** Added indexes `food_log_entries_user_date_idx`, `food_log_entries_custom_food_idx`, `custom_foods_user_idx`; `daily_calorie_goals_activity_level_chk` CHECK; partial unique index `food_log_entries_user_health_log_uniq` on `(user_id, health_log_id) WHERE health_log_id IS NOT NULL`.
+- **Task 9 (FOO-1079):** Added nullable `users.weight_goal_type` + CHECK (`LOSE`/`MAINTAIN`/`GAIN`); `getWeightGoalType`/`setWeightGoalType` in `src/lib/users.ts` (the existing settings module — the plan's notional `user-settings.ts`).
+- **Task 10 (FOO-1080):** `session.ts` derives `healthConnected` from `getHealthTokens`; dropped `hasFitbitCredentials`; `validateSession({requireHealth})` → 400 `HEALTH_NOT_CONNECTED` (collapsed the two-tier fitbit check).
+
+### Interpretations / decisions (documented per Autonomous-Execution rules)
+- **Single-owner completeness:** the plan's Task-4 step-3 enumeration omitted the `fitbitLogId`→`healthLogId` rename and `fitbitFoodId` removal on the *data interfaces* (`FoodLogHistoryEntry`/`MealEntry`/`FoodLogEntryDetail`/`CommonFood`/`FoodMatch`), but those tasks "must not edit `types/index.ts`" (C2). Resolved by making Task 4 reflect the full end-state shape so consumers cascade — the only internally consistent reading.
+- **`unit_id` column type:** no task explicitly assigned the `integer`→`text` schema change, but the `ServingUnit` string types + the deploy notes' USING-cast backfill + Task 29's `drizzle-kit generate` all require it. Assigned to Task 7 (the schema + food-log data task) as the natural owner.
+- **`HealthConnectionStatus` dropped `needs_setup`** and **`FitbitWeightGoal` removed** now (end-state) even though their last consumers (`fitbit-health.ts`, `fitbit.ts`/`fitbit-cache.ts`) aren't deleted until Phase 3 — consistent with the cascade; those files are already red and are deleted in Tasks 18/20.
+- **Module mapping:** plan's `user-settings.ts` = existing `src/lib/users.ts`; weight-goal helpers added there.
+- **Test-fixture transform:** the visibility filter is mocked in unit tests (WHERE isn't executed), so the `HEALTH_DRY_RUN` dry-run tests assert mapping/inclusion (renamed away from the dead `fitbitFoodId` assertions); numeric `unit_id` fixtures coerce correctly via `coerceServingUnit`.
+
+### Issues Encountered
+- The food-log test suite (~3000 lines) required a bulk mechanical transform (`FITBIT_DRY_RUN`→`HEALTH_DRY_RUN`, `fitbitLogId`→`healthLogId` with number→string, helper-default unit strings) plus ~15 targeted semantic edits (removed obsolete `fitbitFoodId` insert-value/output assertions, deleted the bigint-range and "uses provided fitbitFoodId" tests). Done via a Node regex pass + hand edits; all 141 food-log tests pass.
+
+### Tasks Remaining
+Resume at **Phase 2, Task 11** (FOO-1081 — `buildGoogleHealthAuthUrl`/`getGoogleHealthIdentity`/email_verified gate), then the rest of Phase 2 (Tasks 12–15: google-health initiation route, callback branching, rate-limit core, google-health transport core), Phase 3 (Tasks 16–21: nutrition write/delete + read migration, route rewires, fitbit.ts deletion, health-cache, profile/v1 routes, Claude serving_unit schema), Phase 4 (Tasks 22–28: hook/component cutover, UI connect flow, Anthropic A2/A3, non-migration fixes, integration suite, E2E/docs), Phase 5 (Tasks 29–30: lead-only `drizzle-kit generate` + release env/token-clear). The global typecheck returns to green around Task 23 (when the last UI/route/claude consumers land); the full verifier + E2E gate runs after Phase 4.
+
+### Verification
+- Phase-1 suites (all green): `types/__tests__/index` (19), `db/__tests__/schema` (33), `health-tokens` (10), `food-log` (141), `food-matching` (20), `users` (12), `session` (15) — **251 tests pass**.
+- `npm run typecheck` — **intentionally red (~384 errors), all in unmigrated Phase 2–4 consumers**; the 7 Phase-1 source files are typecheck-clean (verified by filtering tsc output to those paths → empty).
+- bug-hunter (Sonnet) reviewed the full Phase-1 diff — **0 actionable bugs** (one redundant-but-harmless dry-run guard noted, kept for parity with the original Fitbit code).
+- Full build/lint/E2E **deferred** to migration end (structurally impossible mid-cutover; runs in the Post-Implementation Checklist / plan-review-implementation).
+
+### Files Changed
+- `src/types/index.ts` (modify), `src/types/__tests__/index.test.ts` (modify)
+- `src/db/schema.ts` (modify — health_tokens rename, fitbit_credentials drop, food_log/custom_foods columns, unit_id→text, indexes/checks, weightGoalType), `src/db/__tests__/schema.test.ts` (modify)
+- `src/lib/health-tokens.ts` (create), `src/lib/__tests__/health-tokens.test.ts` (create)
+- `src/lib/fitbit-tokens.ts` (delete), `src/lib/__tests__/fitbit-tokens.test.ts` (delete)
+- `src/lib/fitbit-credentials.ts` (delete), `src/lib/__tests__/fitbit-credentials.test.ts` (delete)
+- `src/lib/food-log.ts` (modify), `src/lib/__tests__/food-log.test.ts` (modify)
+- `src/lib/food-matching.ts` (modify), `src/lib/__tests__/food-matching.test.ts` (modify)
+- `src/lib/users.ts` (modify — weightGoalType helpers), `src/lib/__tests__/users.test.ts` (modify)
+- `src/lib/session.ts` (modify), `src/lib/__tests__/session.test.ts` (modify)
+- `MIGRATIONS.md` (modify — Tasks 4–10 migration notes)

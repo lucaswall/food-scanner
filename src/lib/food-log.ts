@@ -3,7 +3,8 @@ import { nanoid } from "nanoid";
 import { getDb } from "@/db/index";
 import { customFoods, foodLogEntries } from "@/db/schema";
 import { computeMatchRatio } from "@/lib/food-matching";
-import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry, FoodLogEntryDetail, DailyNutritionTotals } from "@/types";
+import type { CommonFood, CommonFoodsCursor, CommonFoodsResponse, RecentFoodsCursor, RecentFoodsResponse, FoodLogHistoryEntry, FoodLogEntryDetail, DailyNutritionTotals, ServingUnit } from "@/types";
+import { coerceServingUnit } from "@/types";
 import { getDailyGoalsByDateRange } from "@/lib/nutrition-goals";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
@@ -11,7 +12,7 @@ import type { Logger } from "@/lib/logger";
 export interface CustomFoodInput {
   foodName: string;
   amount: number;
-  unitId: number;
+  unitId: ServingUnit;
   calories: number;
   proteinG: number;
   carbsG: number;
@@ -25,7 +26,6 @@ export interface CustomFoodInput {
   confidence: "high" | "medium" | "low";
   notes: string | null;
   description?: string | null;
-  fitbitFoodId?: number | null;
   keywords?: string[] | null;
 }
 
@@ -33,17 +33,17 @@ export interface FoodLogEntryInput {
   customFoodId: number;
   mealTypeId: number;
   amount: number;
-  unitId: number;
+  unitId: ServingUnit;
   date: string;
   time: string;
   zoneOffset?: string | null;
-  fitbitLogId?: number | null;
+  healthLogId?: string | null;
 }
 
 export interface UpdateFoodLogInput {
   foodName: string;
   amount: number;
-  unitId: number;
+  unitId: ServingUnit;
   calories: number;
   proteinG: number;
   carbsG: number;
@@ -62,8 +62,7 @@ export interface UpdateFoodLogInput {
   date: string;
   time: string;
   zoneOffset?: string | null;
-  fitbitLogId?: number | null;
-  fitbitFoodId?: number | null;
+  healthLogId?: string | null;
 }
 
 export async function insertCustomFood(
@@ -93,7 +92,6 @@ export async function insertCustomFood(
       confidence: data.confidence,
       notes: data.notes,
       description: data.description ?? null,
-      fitbitFoodId: data.fitbitFoodId ?? null,
       keywords: data.keywords ?? null,
     })
     .returning({ id: customFoods.id, createdAt: customFoods.createdAt });
@@ -122,7 +120,7 @@ export async function insertFoodLogEntry(
       date: data.date,
       time: data.time,
       zoneOffset: data.zoneOffset ?? null,
-      fitbitLogId: data.fitbitLogId ?? null,
+      healthLogId: data.healthLogId ?? null,
     })
     .returning({ id: foodLogEntries.id, loggedAt: foodLogEntries.loggedAt });
 
@@ -176,10 +174,10 @@ interface JoinedRow {
     customFoodId: number;
     mealTypeId: number;
     amount: string;
-    unitId: number;
+    unitId: string;
     date: string;
     time: string;
-    fitbitLogId: number | null;
+    healthLogId: string | null;
     loggedAt: Date;
   };
   custom_foods: {
@@ -187,7 +185,7 @@ interface JoinedRow {
     userId: string;
     foodName: string;
     amount: string;
-    unitId: number;
+    unitId: string;
     calories: number;
     proteinG: string;
     carbsG: string;
@@ -198,7 +196,6 @@ interface JoinedRow {
     transFatG: string | null;
     sugarsG: string | null;
     caloriesFromFat: string | null;
-    fitbitFoodId: number | null;
     confidence: string;
     notes: string | null;
     description: string | null;
@@ -214,7 +211,7 @@ function mapRowToCommonFood(row: JoinedRow): CommonFood {
     customFoodId: row.custom_foods.id,
     foodName: row.custom_foods.foodName,
     amount: Number(row.custom_foods.amount),
-    unitId: row.custom_foods.unitId,
+    unitId: coerceServingUnit(row.custom_foods.unitId),
     calories: row.custom_foods.calories,
     proteinG: Number(row.custom_foods.proteinG),
     carbsG: Number(row.custom_foods.carbsG),
@@ -225,7 +222,6 @@ function mapRowToCommonFood(row: JoinedRow): CommonFood {
     transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
     sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
     caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
-    fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
     mealTypeId: row.food_log_entries.mealTypeId,
     isFavorite: row.custom_foods.isFavorite,
   };
@@ -272,7 +268,7 @@ export async function getCommonFoods(
     .where(
       and(
         eq(foodLogEntries.userId, userId),
-        ...(process.env.FITBIT_DRY_RUN !== "true" ? [isNotNull(customFoods.fitbitFoodId)] : []),
+        ...(process.env.HEALTH_DRY_RUN !== "true" ? [isNotNull(foodLogEntries.healthLogId)] : []),
         gte(foodLogEntries.date, cutoffDate),
       ),
     );
@@ -387,8 +383,8 @@ export async function getRecentFoods(
 
   const conditions = [eq(foodLogEntries.userId, userId)];
 
-  if (process.env.FITBIT_DRY_RUN !== "true") {
-    conditions.push(isNotNull(customFoods.fitbitFoodId));
+  if (process.env.HEALTH_DRY_RUN !== "true") {
+    conditions.push(isNotNull(foodLogEntries.healthLogId));
   }
 
   if (options.cursor) {
@@ -505,11 +501,11 @@ export async function getFoodLogHistory(
     sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
     caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
     amount: Number(row.food_log_entries.amount),
-    unitId: row.food_log_entries.unitId,
+    unitId: coerceServingUnit(row.food_log_entries.unitId),
     mealTypeId: row.food_log_entries.mealTypeId,
     date: row.food_log_entries.date,
     time: row.food_log_entries.time,
-    fitbitLogId: row.food_log_entries.fitbitLogId,
+    healthLogId: row.food_log_entries.healthLogId,
     isFavorite: row.custom_foods.isFavorite,
   }));
   l.debug({ action: "get_food_log_history", startDate: options.startDate, endDate: options.endDate, entryCount: result.length }, "food log history retrieved");
@@ -557,12 +553,11 @@ export async function getFoodLogEntryDetail(
     sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
     caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
     amount: Number(row.food_log_entries.amount),
-    unitId: row.food_log_entries.unitId,
+    unitId: coerceServingUnit(row.food_log_entries.unitId),
     mealTypeId: row.food_log_entries.mealTypeId,
     date: row.food_log_entries.date,
     time: row.food_log_entries.time,
-    fitbitLogId: row.food_log_entries.fitbitLogId,
-    fitbitFoodId: row.custom_foods.fitbitFoodId,
+    healthLogId: row.food_log_entries.healthLogId,
     confidence: row.custom_foods.confidence,
     isFavorite: row.custom_foods.isFavorite,
     keywords: row.custom_foods.keywords ?? [],
@@ -573,7 +568,7 @@ export interface FoodLogEntryMetadataUpdate {
   mealTypeId: number;
   date: string;
   time: string;
-  fitbitLogId: number | null;
+  healthLogId: string | null;
   zoneOffset?: string | null;
 }
 
@@ -592,7 +587,7 @@ export async function updateFoodLogEntryMetadata(
       mealTypeId: updates.mealTypeId,
       date: updates.date,
       time: updates.time,
-      fitbitLogId: updates.fitbitLogId,
+      healthLogId: updates.healthLogId,
       ...(updates.zoneOffset !== undefined ? { zoneOffset: updates.zoneOffset } : {}),
     })
     .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
@@ -637,7 +632,6 @@ export async function insertCustomFoodWithLogEntry(
         confidence: customFoodData.confidence,
         notes: customFoodData.notes,
         description: customFoodData.description ?? null,
-        fitbitFoodId: customFoodData.fitbitFoodId ?? null,
         keywords: customFoodData.keywords ?? null,
       })
       .returning({ id: customFoods.id, createdAt: customFoods.createdAt });
@@ -656,7 +650,7 @@ export async function insertCustomFoodWithLogEntry(
         date: logEntryData.date,
         time: logEntryData.time,
         zoneOffset: logEntryData.zoneOffset ?? null,
-        fitbitLogId: logEntryData.fitbitLogId ?? null,
+        healthLogId: logEntryData.healthLogId ?? null,
       })
       .returning({ id: foodLogEntries.id, loggedAt: foodLogEntries.loggedAt });
 
@@ -690,7 +684,7 @@ export async function deleteFoodLogEntry(
   userId: string,
   entryId: number,
   log?: Logger,
-): Promise<{ fitbitLogId: number | null } | null> {
+): Promise<{ healthLogId: string | null } | null> {
   const l = log ?? logger;
   const db = getDb();
 
@@ -702,7 +696,7 @@ export async function deleteFoodLogEntry(
         and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)),
       )
       .returning({
-        fitbitLogId: foodLogEntries.fitbitLogId,
+        healthLogId: foodLogEntries.healthLogId,
         customFoodId: foodLogEntries.customFoodId,
       });
 
@@ -712,7 +706,7 @@ export async function deleteFoodLogEntry(
     const orphanedFoodCleaned = await cleanupOrphanCustomFood(tx, row.customFoodId, userId);
 
     l.debug({ action: "delete_food_log_entry", entryId, orphanedFoodCleaned }, "food log entry deleted");
-    return { fitbitLogId: row.fitbitLogId };
+    return { healthLogId: row.healthLogId };
   });
 }
 
@@ -721,16 +715,16 @@ export async function updateFoodLogEntry(
   entryId: number,
   data: UpdateFoodLogInput,
   log?: Logger,
-): Promise<{ fitbitLogId: number | null; newCustomFoodId: number } | null> {
+): Promise<{ healthLogId: string | null; newCustomFoodId: number } | null> {
   const l = log ?? logger;
   const db = getDb();
 
   return db.transaction(async (tx) => {
-    // Fetch current entry to get customFoodId and fitbitLogId
+    // Fetch current entry to get customFoodId and healthLogId
     const rows = await tx
       .select({
         customFoodId: foodLogEntries.customFoodId,
-        fitbitLogId: foodLogEntries.fitbitLogId,
+        healthLogId: foodLogEntries.healthLogId,
       })
       .from(foodLogEntries)
       .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
@@ -743,7 +737,6 @@ export async function updateFoodLogEntry(
     // Fetch metadata from old custom food to preserve during replacement
     const oldFoodRows = await tx
       .select({
-        fitbitFoodId: customFoods.fitbitFoodId,
         isFavorite: customFoods.isFavorite,
         shareToken: customFoods.shareToken,
       })
@@ -781,7 +774,6 @@ export async function updateFoodLogEntry(
         notes: data.notes,
         description: data.description ?? null,
         keywords: data.keywords ?? null,
-        fitbitFoodId: data.fitbitFoodId ?? oldFood?.fitbitFoodId ?? null,
         isFavorite: oldFood?.isFavorite ?? false,
         shareToken: oldFood?.shareToken ?? null,
       })
@@ -801,7 +793,7 @@ export async function updateFoodLogEntry(
         date: data.date,
         time: data.time,
         ...(data.zoneOffset !== undefined ? { zoneOffset: data.zoneOffset } : {}),
-        ...(data.fitbitLogId !== undefined ? { fitbitLogId: data.fitbitLogId } : {}),
+        ...(data.healthLogId !== undefined ? { healthLogId: data.healthLogId } : {}),
       })
       .where(and(eq(foodLogEntries.id, entryId), eq(foodLogEntries.userId, userId)));
 
@@ -809,7 +801,7 @@ export async function updateFoodLogEntry(
     await cleanupOrphanCustomFood(tx, oldCustomFoodId, userId);
 
     l.debug({ action: "update_food_log_entry", entryId, newCustomFoodId: newFood.id }, "food log entry updated");
-    return { fitbitLogId: data.fitbitLogId !== undefined ? data.fitbitLogId : row.fitbitLogId, newCustomFoodId: newFood.id };
+    return { healthLogId: data.healthLogId !== undefined ? data.healthLogId : row.healthLogId, newCustomFoodId: newFood.id };
   });
 }
 
@@ -825,8 +817,8 @@ export async function searchFoods(
 
   const conditions = [eq(customFoods.userId, userId)];
 
-  if (process.env.FITBIT_DRY_RUN !== "true") {
-    conditions.push(isNotNull(customFoods.fitbitFoodId));
+  if (process.env.HEALTH_DRY_RUN !== "true") {
+    conditions.push(isNotNull(foodLogEntries.healthLogId));
   }
 
   const rows = await db
@@ -897,7 +889,7 @@ export async function searchFoods(
       customFoodId: row.custom_foods.id,
       foodName: row.custom_foods.foodName,
       amount: Number(row.custom_foods.amount),
-      unitId: row.custom_foods.unitId,
+      unitId: coerceServingUnit(row.custom_foods.unitId),
       calories: row.custom_foods.calories,
       proteinG: Number(row.custom_foods.proteinG),
       carbsG: Number(row.custom_foods.carbsG),
@@ -908,7 +900,6 @@ export async function searchFoods(
       transFatG: row.custom_foods.transFatG != null ? Number(row.custom_foods.transFatG) : null,
       sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
       caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
-      fitbitFoodId: row.custom_foods.fitbitFoodId ?? null,
       mealTypeId: entryRow.food_log_entries?.mealTypeId ?? 7,
       isFavorite: row.custom_foods.isFavorite,
     };
@@ -1069,9 +1060,9 @@ export async function getDailyNutritionSummary(
         sugarsG: row.custom_foods.sugarsG != null ? Number(row.custom_foods.sugarsG) : null,
         caloriesFromFat: row.custom_foods.caloriesFromFat != null ? Number(row.custom_foods.caloriesFromFat) : null,
         amount: Number(row.food_log_entries.amount),
-        unitId: row.food_log_entries.unitId,
+        unitId: coerceServingUnit(row.food_log_entries.unitId),
         isFavorite: row.custom_foods.isFavorite,
-        fitbitLogId: row.food_log_entries.fitbitLogId,
+        healthLogId: row.food_log_entries.healthLogId,
       });
 
       mealCalories += calories;

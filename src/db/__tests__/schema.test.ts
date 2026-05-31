@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { getTableColumns } from "drizzle-orm";
-import { users, sessions, fitbitTokens, customFoods, foodLogEntries, dailyCalorieGoals } from "@/db/schema";
+import { getTableConfig } from "drizzle-orm/pg-core";
+import { users, sessions, healthTokens, customFoods, foodLogEntries, dailyCalorieGoals } from "@/db/schema";
 
 describe("database schema", () => {
   describe("users table", () => {
@@ -46,22 +47,28 @@ describe("database schema", () => {
     });
   });
 
-  describe("fitbitTokens table", () => {
+  describe("healthTokens table", () => {
     it("has expected columns", () => {
-      const columns = getTableColumns(fitbitTokens);
+      const columns = getTableColumns(healthTokens);
       expect(columns).toHaveProperty("id");
-      expect(columns).toHaveProperty("fitbitUserId");
+      expect(columns).toHaveProperty("healthUserId");
       expect(columns).toHaveProperty("accessToken");
       expect(columns).toHaveProperty("refreshToken");
       expect(columns).toHaveProperty("expiresAt");
+      expect(columns).toHaveProperty("scope");
       expect(columns).toHaveProperty("updatedAt");
     });
 
-    it("has userId column referencing users", () => {
-      const columns = getTableColumns(fitbitTokens);
+    it("has notNull userId column referencing users", () => {
+      const columns = getTableColumns(healthTokens);
       expect(columns.userId).toBeDefined();
       expect(columns.userId.dataType).toBe("string");
       expect(columns.userId.notNull).toBe(true);
+    });
+
+    it("no longer exports fitbitTokens", async () => {
+      const schema = await import("@/db/schema");
+      expect(schema).not.toHaveProperty("fitbitTokens");
     });
   });
 
@@ -78,10 +85,19 @@ describe("database schema", () => {
       expect(columns).toHaveProperty("fatG");
       expect(columns).toHaveProperty("fiberG");
       expect(columns).toHaveProperty("sodiumMg");
-      expect(columns).toHaveProperty("fitbitFoodId");
       expect(columns).toHaveProperty("confidence");
       expect(columns).toHaveProperty("notes");
       expect(columns).toHaveProperty("createdAt");
+    });
+
+    it("unitId is a text column (serving-unit string)", () => {
+      const columns = getTableColumns(customFoods);
+      expect(columns.unitId.dataType).toBe("string");
+    });
+
+    it("no longer has fitbitFoodId (FOO-1077 — dropped)", () => {
+      const columns = getTableColumns(customFoods) as Record<string, unknown>;
+      expect(columns).not.toHaveProperty("fitbitFoodId");
     });
 
     it("has a keywords column", () => {
@@ -102,13 +118,25 @@ describe("database schema", () => {
       const columns = getTableColumns(foodLogEntries);
       expect(columns).toHaveProperty("id");
       expect(columns).toHaveProperty("customFoodId");
-      expect(columns).toHaveProperty("fitbitLogId");
+      expect(columns).toHaveProperty("healthLogId");
       expect(columns).toHaveProperty("mealTypeId");
       expect(columns).toHaveProperty("amount");
       expect(columns).toHaveProperty("unitId");
       expect(columns).toHaveProperty("date");
       expect(columns).toHaveProperty("time");
       expect(columns).toHaveProperty("loggedAt");
+    });
+
+    it("healthLogId is a nullable text column, fitbitLogId is gone (FOO-1077)", () => {
+      const columns = getTableColumns(foodLogEntries) as Record<string, { dataType?: string; notNull?: boolean }>;
+      expect(columns).not.toHaveProperty("fitbitLogId");
+      expect(columns.healthLogId.dataType).toBe("string");
+      expect(columns.healthLogId.notNull).toBe(false);
+    });
+
+    it("unitId is a text column (serving-unit string)", () => {
+      const columns = getTableColumns(foodLogEntries);
+      expect(columns.unitId.dataType).toBe("string");
     });
 
     it("has userId column referencing users", () => {
@@ -122,6 +150,11 @@ describe("database schema", () => {
   it("does not export lumenGoals (FOO-979 — table dropped)", async () => {
     const schema = await import("@/db/schema");
     expect(schema).not.toHaveProperty("lumenGoals");
+  });
+
+  it("does not export fitbitCredentials (FOO-1076 — table dropped)", async () => {
+    const schema = await import("@/db/schema");
+    expect(schema).not.toHaveProperty("fitbitCredentials");
   });
 
   it("does not export foodLogs", async () => {
@@ -165,6 +198,21 @@ describe("users table — goal-anchored columns (FOO-1040)", () => {
   });
 });
 
+describe("users table — weightGoalType (FOO-1079)", () => {
+  it("has a nullable weightGoalType text column", () => {
+    const columns = getTableColumns(users);
+    expect(columns).toHaveProperty("weightGoalType");
+    expect(columns.weightGoalType.dataType).toBe("string");
+    expect(columns.weightGoalType.notNull).toBe(false);
+  });
+
+  it("constrains weightGoalType to LOSE/MAINTAIN/GAIN via CHECK", () => {
+    const cfg = getTableConfig(users);
+    const names = cfg.checks.map((c) => c.name);
+    expect(names).toContain("users_weight_goal_type_chk");
+  });
+});
+
 describe("dailyCalorieGoals table — goal-anchored columns (FOO-1040)", () => {
   it("has activityLevel, goalWeightKg, goalRateKgPerWeek, tdee, deficitKcal columns", () => {
     const columns = getTableColumns(dailyCalorieGoals);
@@ -195,5 +243,52 @@ describe("dailyCalorieGoals table — goal-anchored columns (FOO-1040)", () => {
     expect(columns).not.toHaveProperty("goalType");
     expect(columns).not.toHaveProperty("profileVersion");
     expect(columns).not.toHaveProperty("tdeeSource");
+  });
+});
+
+// ─── FOO-1078: performance indexes + checks + partial unique index ────────────
+
+describe("performance indexes, checks, partial unique index (FOO-1078)", () => {
+  it("food_log_entries has user-date and custom-food indexes", () => {
+    const cfg = getTableConfig(foodLogEntries);
+    const byName = new Map(cfg.indexes.map((i) => [i.config.name, i]));
+    expect(byName.has("food_log_entries_user_date_idx")).toBe(true);
+    expect(byName.has("food_log_entries_custom_food_idx")).toBe(true);
+
+    const userDate = byName.get("food_log_entries_user_date_idx")!;
+    expect(userDate.config.columns.map((c) => (c as { name: string }).name)).toEqual([
+      "user_id",
+      "date",
+    ]);
+
+    const customFood = byName.get("food_log_entries_custom_food_idx")!;
+    expect(customFood.config.columns.map((c) => (c as { name: string }).name)).toEqual([
+      "custom_food_id",
+    ]);
+  });
+
+  it("food_log_entries has a partial unique index on (user_id, health_log_id)", () => {
+    const cfg = getTableConfig(foodLogEntries);
+    const uniq = cfg.indexes.find((i) => i.config.name === "food_log_entries_user_health_log_uniq");
+    expect(uniq).toBeDefined();
+    expect(uniq!.config.unique).toBe(true);
+    expect(uniq!.config.columns.map((c) => (c as { name: string }).name)).toEqual([
+      "user_id",
+      "health_log_id",
+    ]);
+    // Non-empty partial WHERE clause (health_log_id IS NOT NULL)
+    expect(uniq!.config.where).toBeDefined();
+  });
+
+  it("custom_foods has a user index", () => {
+    const cfg = getTableConfig(customFoods);
+    const names = cfg.indexes.map((i) => i.config.name);
+    expect(names).toContain("custom_foods_user_idx");
+  });
+
+  it("daily_calorie_goals has an activity_level CHECK", () => {
+    const cfg = getTableConfig(dailyCalorieGoals);
+    const names = cfg.checks.map((c) => c.name);
+    expect(names).toContain("daily_calorie_goals_activity_level_chk");
   });
 });

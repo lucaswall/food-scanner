@@ -185,6 +185,7 @@ describe("findMatchingFoods", () => {
           unitId: 304,
         },
         lastLoggedAt: new Date("2026-01-15"),
+        latestHealthLogId: "logged",
       },
     ]);
 
@@ -228,6 +229,7 @@ describe("findMatchingFoods", () => {
           unitId: 91,
         },
         lastLoggedAt: new Date("2026-01-15"),
+        latestHealthLogId: "logged",
       },
     ]);
 
@@ -271,6 +273,7 @@ describe("findMatchingFoods", () => {
           unitId: 91,
         },
         lastLoggedAt: new Date("2026-01-10"),
+        latestHealthLogId: "logged",
       },
       {
         custom_foods: {
@@ -287,6 +290,7 @@ describe("findMatchingFoods", () => {
           unitId: 91,
         },
         lastLoggedAt: new Date("2026-01-20"),
+        latestHealthLogId: "logged",
       },
       {
         custom_foods: {
@@ -303,6 +307,7 @@ describe("findMatchingFoods", () => {
           unitId: 91,
         },
         lastLoggedAt: new Date("2026-01-25"),
+        latestHealthLogId: "logged",
       },
     ]);
 
@@ -353,6 +358,7 @@ describe("findMatchingFoods", () => {
         unitId: 91,
       },
       lastLoggedAt: new Date(`2026-01-${10 + i}`),
+      latestHealthLogId: "logged",
     }));
     mockGroupBy.mockResolvedValue(foods);
 
@@ -396,6 +402,7 @@ describe("findMatchingFoods", () => {
           unitId: 91,
         },
         lastLoggedAt: new Date("2026-01-15"),
+        latestHealthLogId: "logged",
       },
     ]);
 
@@ -422,9 +429,9 @@ describe("findMatchingFoods", () => {
     expect(result).toEqual([]);
   });
 
-  describe("FITBIT_DRY_RUN=true", () => {
-    it("includes foods with null fitbitFoodId", async () => {
-      vi.stubEnv("FITBIT_DRY_RUN", "true");
+  describe("HEALTH_DRY_RUN=true", () => {
+    it("includes foods with no remote health log in dry-run mode", async () => {
+      vi.stubEnv("HEALTH_DRY_RUN", "true");
       mockGroupBy.mockResolvedValue([
         {
           custom_foods: {
@@ -434,13 +441,13 @@ describe("findMatchingFoods", () => {
             proteinG: "2",
             carbsG: "5",
             fatG: "2",
-            fitbitFoodId: null,
             keywords: ["tea", "milk"],
             createdAt: new Date("2026-01-01"),
             amount: "1",
             unitId: 91,
           },
           lastLoggedAt: new Date("2026-01-15"),
+          latestHealthLogId: null,
         },
       ]);
 
@@ -466,7 +473,6 @@ describe("findMatchingFoods", () => {
 
       expect(result).toHaveLength(1);
       expect(result[0].foodName).toBe("Tea with milk");
-      expect(result[0].fitbitFoodId).toBeNull();
     });
   });
 });

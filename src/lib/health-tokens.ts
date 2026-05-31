@@ -1,14 +1,14 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db/index";
-import { fitbitTokens } from "@/db/schema";
+import { healthTokens } from "@/db/schema";
 import { encryptToken, decryptToken } from "@/lib/token-encryption";
 import { logger } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 
-export interface FitbitTokenRow {
+export interface HealthTokenRow {
   id: number;
   userId: string;
-  fitbitUserId: string;
+  healthUserId: string;
   accessToken: string;
   refreshToken: string;
   expiresAt: Date;
@@ -16,25 +16,25 @@ export interface FitbitTokenRow {
   updatedAt: Date;
 }
 
-export async function getFitbitTokens(userId: string, log?: Logger): Promise<FitbitTokenRow | null> {
+export async function getHealthTokens(userId: string, log?: Logger): Promise<HealthTokenRow | null> {
   const l = log ?? logger;
   const db = getDb();
-  const rows = await db.select().from(fitbitTokens).where(eq(fitbitTokens.userId, userId));
+  const rows = await db.select().from(healthTokens).where(eq(healthTokens.userId, userId));
   const row = rows[0];
   if (!row) {
-    l.debug({ action: "get_fitbit_tokens", found: false }, "fitbit tokens not found");
+    l.debug({ action: "get_health_tokens", found: false }, "health tokens not found");
     return null;
   }
   const accessToken = decryptToken(row.accessToken);
   const refreshToken = decryptToken(row.refreshToken);
-  l.debug({ action: "get_fitbit_tokens", found: true }, "fitbit tokens retrieved");
+  l.debug({ action: "get_health_tokens", found: true }, "health tokens retrieved");
   return { ...row, accessToken, refreshToken };
 }
 
-export async function upsertFitbitTokens(
+export async function upsertHealthTokens(
   userId: string,
   data: {
-    fitbitUserId: string;
+    healthUserId: string;
     accessToken: string;
     refreshToken: string;
     expiresAt: Date;
@@ -49,10 +49,10 @@ export async function upsertFitbitTokens(
   const encryptedRefreshToken = encryptToken(data.refreshToken);
   const scope = data.scope ?? null;
   await db
-    .insert(fitbitTokens)
+    .insert(healthTokens)
     .values({
       userId,
-      fitbitUserId: data.fitbitUserId,
+      healthUserId: data.healthUserId,
       accessToken: encryptedAccessToken,
       refreshToken: encryptedRefreshToken,
       expiresAt: data.expiresAt,
@@ -60,9 +60,9 @@ export async function upsertFitbitTokens(
       updatedAt: now,
     })
     .onConflictDoUpdate({
-      target: fitbitTokens.userId,
+      target: healthTokens.userId,
       set: {
-        fitbitUserId: data.fitbitUserId,
+        healthUserId: data.healthUserId,
         accessToken: encryptedAccessToken,
         refreshToken: encryptedRefreshToken,
         expiresAt: data.expiresAt,
@@ -70,12 +70,12 @@ export async function upsertFitbitTokens(
         updatedAt: now,
       },
     });
-  l.debug({ action: "upsert_fitbit_tokens" }, "fitbit tokens upserted");
+  l.debug({ action: "upsert_health_tokens" }, "health tokens upserted");
 }
 
-export async function deleteFitbitTokens(userId: string, log?: Logger): Promise<void> {
+export async function deleteHealthTokens(userId: string, log?: Logger): Promise<void> {
   const l = log ?? logger;
   const db = getDb();
-  await db.delete(fitbitTokens).where(eq(fitbitTokens.userId, userId));
-  l.debug({ action: "delete_fitbit_tokens" }, "fitbit tokens deleted");
+  await db.delete(healthTokens).where(eq(healthTokens.userId, userId));
+  l.debug({ action: "delete_health_tokens" }, "health tokens deleted");
 }

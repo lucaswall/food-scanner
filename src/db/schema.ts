@@ -7,12 +7,13 @@ import {
   serial,
   numeric,
   integer,
-  bigint,
   boolean,
   check,
   date,
   time,
   unique,
+  index,
+  uniqueIndex,
   jsonb,
   varchar,
 } from "drizzle-orm/pg-core";
@@ -26,6 +27,7 @@ export const users = pgTable(
     activityLevel: text("activity_level"),
     goalWeightKg: numeric("goal_weight_kg"),
     goalRateKgPerWeek: numeric("goal_rate_kg_per_week"),
+    weightGoalType: text("weight_goal_type"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -38,6 +40,10 @@ export const users = pgTable(
       "users_goal_rate_chk",
       sql`${table.goalRateKgPerWeek} IS NULL OR ${table.goalRateKgPerWeek} >= 0`,
     ),
+    weightGoalTypeCheck: check(
+      "users_weight_goal_type_chk",
+      sql`${table.weightGoalType} IS NULL OR ${table.weightGoalType} IN ('LOSE','MAINTAIN','GAIN')`,
+    ),
   }),
 );
 
@@ -48,23 +54,14 @@ export const sessions = pgTable("sessions", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
 
-export const fitbitTokens = pgTable("fitbit_tokens", {
+export const healthTokens = pgTable("health_tokens", {
   id: serial("id").primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id).unique(),
-  fitbitUserId: text("fitbit_user_id").notNull(),
+  healthUserId: text("health_user_id").notNull(),
   accessToken: text("access_token").notNull(),
   refreshToken: text("refresh_token").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   scope: text("scope"),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
-
-export const fitbitCredentials = pgTable("fitbit_credentials", {
-  id: serial("id").primaryKey(),
-  userId: uuid("user_id").notNull().references(() => users.id).unique(),
-  fitbitClientId: text("fitbit_client_id").notNull(),
-  encryptedClientSecret: text("encrypted_client_secret").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -73,7 +70,7 @@ export const customFoods = pgTable("custom_foods", {
   userId: uuid("user_id").notNull().references(() => users.id),
   foodName: text("food_name").notNull(),
   amount: numeric("amount").notNull(),
-  unitId: integer("unit_id").notNull(),
+  unitId: text("unit_id").notNull(),
   calories: integer("calories").notNull(),
   proteinG: numeric("protein_g").notNull(),
   carbsG: numeric("carbs_g").notNull(),
@@ -84,7 +81,6 @@ export const customFoods = pgTable("custom_foods", {
   transFatG: numeric("trans_fat_g"),
   sugarsG: numeric("sugars_g"),
   caloriesFromFat: numeric("calories_from_fat"),
-  fitbitFoodId: bigint("fitbit_food_id", { mode: "number" }),
   confidence: text("confidence").notNull(),
   notes: text("notes"),
   description: text("description"),
@@ -92,21 +88,29 @@ export const customFoods = pgTable("custom_foods", {
   isFavorite: boolean("is_favorite").default(false).notNull(),
   shareToken: text("share_token").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  userIdx: index("custom_foods_user_idx").on(table.userId),
+}));
 
 export const foodLogEntries = pgTable("food_log_entries", {
   id: serial("id").primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),
   customFoodId: integer("custom_food_id").notNull().references(() => customFoods.id),
-  fitbitLogId: bigint("fitbit_log_id", { mode: "number" }),
+  healthLogId: text("health_log_id"),
   mealTypeId: integer("meal_type_id").notNull(),
   amount: numeric("amount").notNull(),
-  unitId: integer("unit_id").notNull(),
+  unitId: text("unit_id").notNull(),
   date: date("date").notNull(),
   time: time("time").notNull(),
   zoneOffset: varchar("zone_offset", { length: 6 }),
   loggedAt: timestamp("logged_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (table) => ({
+  userDateIdx: index("food_log_entries_user_date_idx").on(table.userId, table.date),
+  customFoodIdx: index("food_log_entries_custom_food_idx").on(table.customFoodId),
+  userHealthLogUniq: uniqueIndex("food_log_entries_user_health_log_uniq")
+    .on(table.userId, table.healthLogId)
+    .where(sql`health_log_id IS NOT NULL`),
+}));
 
 export const apiKeys = pgTable("api_keys", {
   id: serial("id").primaryKey(),
@@ -181,6 +185,10 @@ export const dailyCalorieGoals = pgTable(
   },
   (table) => ({
     userDateUnique: unique("daily_calorie_goals_user_date_uniq").on(table.userId, table.date),
+    activityLevelCheck: check(
+      "daily_calorie_goals_activity_level_chk",
+      sql`${table.activityLevel} IS NULL OR ${table.activityLevel} IN ('sedentary','light','moderate','very_active','extra_active')`,
+    ),
   })
 );
 

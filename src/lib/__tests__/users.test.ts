@@ -19,11 +19,15 @@ const mockReturning = vi.fn();
 const mockSelect = vi.fn();
 const mockFrom = vi.fn();
 const mockWhere = vi.fn();
+const mockUpdate = vi.fn();
+const mockUpdateSet = vi.fn();
+const mockUpdateWhere = vi.fn();
 
 vi.mock("@/db/index", () => ({
   getDb: vi.fn(() => ({
     insert: mockInsert,
     select: mockSelect,
+    update: mockUpdate,
   })),
 }));
 
@@ -32,6 +36,7 @@ vi.mock("@/db/schema", () => ({
     id: "id",
     email: "email",
     name: "name",
+    weightGoalType: "weight_goal_type",
     createdAt: "created_at",
     updatedAt: "updated_at",
   },
@@ -48,6 +53,9 @@ beforeEach(() => {
   mockOnConflictDoUpdate.mockReturnValue({ returning: mockReturning });
   mockSelect.mockReturnValue({ from: mockFrom });
   mockFrom.mockReturnValue({ where: mockWhere });
+  mockUpdate.mockReturnValue({ set: mockUpdateSet });
+  mockUpdateSet.mockReturnValue({ where: mockUpdateWhere });
+  mockUpdateWhere.mockResolvedValue(undefined);
 });
 
 const fakeUser = {
@@ -148,5 +156,65 @@ describe("getUserById", () => {
     const result = await getUserById("nonexistent");
 
     expect(result).toBeNull();
+  });
+});
+
+describe("getWeightGoalType", () => {
+  it("returns the stored weightGoalType", async () => {
+    const { getWeightGoalType } = await import("@/lib/users");
+    mockWhere.mockResolvedValue([{ weightGoalType: "LOSE" }]);
+
+    const result = await getWeightGoalType(fakeUser.id);
+    expect(result).toBe("LOSE");
+  });
+
+  it("returns null when unset", async () => {
+    const { getWeightGoalType } = await import("@/lib/users");
+    mockWhere.mockResolvedValue([{ weightGoalType: null }]);
+
+    const result = await getWeightGoalType(fakeUser.id);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when no row exists", async () => {
+    const { getWeightGoalType } = await import("@/lib/users");
+    mockWhere.mockResolvedValue([]);
+
+    const result = await getWeightGoalType(fakeUser.id);
+    expect(result).toBeNull();
+  });
+});
+
+describe("setWeightGoalType", () => {
+  it("writes a valid value scoped by userId", async () => {
+    const { setWeightGoalType } = await import("@/lib/users");
+
+    await setWeightGoalType(fakeUser.id, "GAIN");
+
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ weightGoalType: "GAIN" }),
+    );
+    expect(mockUpdateWhere).toHaveBeenCalled();
+  });
+
+  it("allows clearing with null", async () => {
+    const { setWeightGoalType } = await import("@/lib/users");
+
+    await setWeightGoalType(fakeUser.id, null);
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ weightGoalType: null }),
+    );
+  });
+
+  it("rejects values outside LOSE/MAINTAIN/GAIN", async () => {
+    const { setWeightGoalType } = await import("@/lib/users");
+
+    await expect(
+      // @ts-expect-error invalid enum value
+      setWeightGoalType(fakeUser.id, "BULK"),
+    ).rejects.toThrow();
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });

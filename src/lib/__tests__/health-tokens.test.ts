@@ -31,9 +31,9 @@ vi.mock("@/db/index", () => ({
 }));
 
 vi.mock("@/db/schema", () => ({
-  fitbitTokens: {
+  healthTokens: {
     userId: "user_id",
-    fitbitUserId: "fitbit_user_id",
+    healthUserId: "health_user_id",
     accessToken: "access_token",
     refreshToken: "refresh_token",
     expiresAt: "expires_at",
@@ -64,21 +64,21 @@ beforeEach(() => {
   mockDeleteWhere.mockResolvedValue(undefined);
 });
 
-describe("getFitbitTokens", () => {
+describe("getHealthTokens", () => {
   it("returns null when no tokens exist", async () => {
-    const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
+    const { getHealthTokens } = await import("@/lib/health-tokens");
     mockWhere.mockResolvedValue([]);
 
-    const result = await getFitbitTokens("user-uuid-123");
+    const result = await getHealthTokens("user-uuid-123");
     expect(result).toBeNull();
   });
 
-  it("decrypts tokens when reading from DB", async () => {
-    const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
+  it("decrypts tokens and exposes healthUserId when reading from DB", async () => {
+    const { getHealthTokens } = await import("@/lib/health-tokens");
     mockWhere.mockResolvedValue([{
       id: 1,
       userId: "user-uuid-123",
-      fitbitUserId: "user-123",
+      healthUserId: "health-uid-123",
       accessToken: "encrypted:my-access-token",
       refreshToken: "encrypted:my-refresh-token",
       expiresAt: new Date("2026-12-01"),
@@ -86,21 +86,22 @@ describe("getFitbitTokens", () => {
       updatedAt: new Date(),
     }]);
 
-    const result = await getFitbitTokens("user-uuid-123");
+    const result = await getHealthTokens("user-uuid-123");
 
     expect(result).not.toBeNull();
     expect(mockDecryptToken).toHaveBeenCalledWith("encrypted:my-access-token");
     expect(mockDecryptToken).toHaveBeenCalledWith("encrypted:my-refresh-token");
     expect(result!.accessToken).toBe("my-access-token");
     expect(result!.refreshToken).toBe("my-refresh-token");
+    expect(result!.healthUserId).toBe("health-uid-123");
   });
 
   it("throws when decryption fails", async () => {
-    const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
+    const { getHealthTokens } = await import("@/lib/health-tokens");
     mockWhere.mockResolvedValue([{
       id: 1,
       userId: "user-uuid-123",
-      fitbitUserId: "user-123",
+      healthUserId: "health-uid-123",
       accessToken: "corrupted-data",
       refreshToken: "corrupted-data",
       expiresAt: new Date("2026-12-01"),
@@ -110,32 +111,32 @@ describe("getFitbitTokens", () => {
 
     mockDecryptToken.mockImplementationOnce(() => { throw new Error("Invalid token format"); });
 
-    await expect(getFitbitTokens("user-uuid-123")).rejects.toThrow("Invalid token format");
+    await expect(getHealthTokens("user-uuid-123")).rejects.toThrow("Invalid token format");
   });
 
   it("returns scope from DB row", async () => {
-    const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
+    const { getHealthTokens } = await import("@/lib/health-tokens");
     mockWhere.mockResolvedValue([{
       id: 1,
       userId: "user-uuid-123",
-      fitbitUserId: "user-123",
+      healthUserId: "health-uid-123",
       accessToken: "encrypted:my-access-token",
       refreshToken: "encrypted:my-refresh-token",
       expiresAt: new Date("2026-12-01"),
-      scope: "nutrition activity profile weight",
+      scope: "googlehealth.nutrition.writeonly profile.readonly",
       updatedAt: new Date(),
     }]);
 
-    const result = await getFitbitTokens("user-uuid-123");
-    expect(result!.scope).toBe("nutrition activity profile weight");
+    const result = await getHealthTokens("user-uuid-123");
+    expect(result!.scope).toBe("googlehealth.nutrition.writeonly profile.readonly");
   });
 
   it("returns null scope when not set in DB", async () => {
-    const { getFitbitTokens } = await import("@/lib/fitbit-tokens");
+    const { getHealthTokens } = await import("@/lib/health-tokens");
     mockWhere.mockResolvedValue([{
       id: 1,
       userId: "user-uuid-123",
-      fitbitUserId: "user-123",
+      healthUserId: "health-uid-123",
       accessToken: "encrypted:my-access-token",
       refreshToken: "encrypted:my-refresh-token",
       expiresAt: new Date("2026-12-01"),
@@ -143,16 +144,16 @@ describe("getFitbitTokens", () => {
       updatedAt: new Date(),
     }]);
 
-    const result = await getFitbitTokens("user-uuid-123");
+    const result = await getHealthTokens("user-uuid-123");
     expect(result!.scope).toBeNull();
   });
 });
 
-describe("upsertFitbitTokens", () => {
-  it("encrypts tokens when writing to DB", async () => {
-    const { upsertFitbitTokens } = await import("@/lib/fitbit-tokens");
-    await upsertFitbitTokens("user-uuid-123", {
-      fitbitUserId: "user-123",
+describe("upsertHealthTokens", () => {
+  it("encrypts both tokens when writing to DB", async () => {
+    const { upsertHealthTokens } = await import("@/lib/health-tokens");
+    await upsertHealthTokens("user-uuid-123", {
+      healthUserId: "health-uid-123",
       accessToken: "my-access-token",
       refreshToken: "my-refresh-token",
       expiresAt: new Date("2026-12-01"),
@@ -161,46 +162,72 @@ describe("upsertFitbitTokens", () => {
     expect(mockEncryptToken).toHaveBeenCalledWith("my-access-token");
     expect(mockEncryptToken).toHaveBeenCalledWith("my-refresh-token");
 
-    // Verify that encrypted values were passed to insert
     expect(mockValues).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "user-uuid-123",
+        healthUserId: "health-uid-123",
         accessToken: "encrypted:my-access-token",
         refreshToken: "encrypted:my-refresh-token",
       }),
     );
   });
 
-  it("persists scope when provided", async () => {
-    const { upsertFitbitTokens } = await import("@/lib/fitbit-tokens");
-    await upsertFitbitTokens("user-uuid-123", {
-      fitbitUserId: "user-123",
+  it("upserts on conflict targeting userId", async () => {
+    const { upsertHealthTokens } = await import("@/lib/health-tokens");
+    await upsertHealthTokens("user-uuid-123", {
+      healthUserId: "health-uid-123",
       accessToken: "my-access-token",
       refreshToken: "my-refresh-token",
       expiresAt: new Date("2026-12-01"),
-      scope: "nutrition activity profile weight",
     });
 
-    expect(mockValues).toHaveBeenCalledWith(
+    expect(mockOnConflictDoUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        scope: "nutrition activity profile weight",
+        target: "user_id",
+        set: expect.objectContaining({
+          healthUserId: "health-uid-123",
+          accessToken: "encrypted:my-access-token",
+          refreshToken: "encrypted:my-refresh-token",
+        }),
       }),
     );
   });
 
+  it("persists scope when provided", async () => {
+    const { upsertHealthTokens } = await import("@/lib/health-tokens");
+    await upsertHealthTokens("user-uuid-123", {
+      healthUserId: "health-uid-123",
+      accessToken: "my-access-token",
+      refreshToken: "my-refresh-token",
+      expiresAt: new Date("2026-12-01"),
+      scope: "googlehealth.nutrition.writeonly",
+    });
+
+    expect(mockValues).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "googlehealth.nutrition.writeonly" }),
+    );
+  });
+
   it("persists null scope when not provided", async () => {
-    const { upsertFitbitTokens } = await import("@/lib/fitbit-tokens");
-    await upsertFitbitTokens("user-uuid-123", {
-      fitbitUserId: "user-123",
+    const { upsertHealthTokens } = await import("@/lib/health-tokens");
+    await upsertHealthTokens("user-uuid-123", {
+      healthUserId: "health-uid-123",
       accessToken: "my-access-token",
       refreshToken: "my-refresh-token",
       expiresAt: new Date("2026-12-01"),
     });
 
     expect(mockValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        scope: null,
-      }),
+      expect.objectContaining({ scope: null }),
     );
+  });
+});
+
+describe("deleteHealthTokens", () => {
+  it("deletes filtered by userId", async () => {
+    const { deleteHealthTokens } = await import("@/lib/health-tokens");
+    await deleteHealthTokens("user-uuid-123");
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockDeleteWhere).toHaveBeenCalled();
   });
 });

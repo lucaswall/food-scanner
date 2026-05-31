@@ -31,22 +31,16 @@ vi.mock("@/lib/session-db", () => ({
   touchSession: (...args: unknown[]) => mockTouchSession(...args),
 }));
 
-const mockGetFitbitTokens = vi.fn();
-vi.mock("@/lib/fitbit-tokens", () => ({
-  getFitbitTokens: (...args: unknown[]) => mockGetFitbitTokens(...args),
-}));
-
-const mockHasFitbitCredentials = vi.fn();
-vi.mock("@/lib/fitbit-credentials", () => ({
-  hasFitbitCredentials: (...args: unknown[]) => mockHasFitbitCredentials(...args),
+const mockGetHealthTokens = vi.fn();
+vi.mock("@/lib/health-tokens", () => ({
+  getHealthTokens: (...args: unknown[]) => mockGetHealthTokens(...args),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockDeleteSession.mockResolvedValue(undefined);
   mockTouchSession.mockResolvedValue(undefined);
-  mockGetFitbitTokens.mockResolvedValue(null);
-  mockHasFitbitCredentials.mockResolvedValue(false);
+  mockGetHealthTokens.mockResolvedValue(null);
 });
 
 const { getSession, getRawSession, validateSession } = await import(
@@ -89,7 +83,7 @@ describe("getSession", () => {
     expect(mockGetSessionById).toHaveBeenCalledWith("abc-123");
   });
 
-  it("returns full session with userId when cookie and DB session exist", async () => {
+  it("returns full session with healthConnected=false when no health tokens exist", async () => {
     const mockDestroy = vi.fn();
     mockGetIronSession.mockResolvedValue({
       sessionId: "abc-123",
@@ -102,21 +96,19 @@ describe("getSession", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     });
-    mockGetFitbitTokens.mockResolvedValue(null);
+    mockGetHealthTokens.mockResolvedValue(null);
 
     const result = await getSession();
 
     expect(result).not.toBeNull();
     expect(result!.sessionId).toBe("abc-123");
     expect(result!.userId).toBe("user-uuid-123");
-    expect(result!.fitbitConnected).toBe(false);
-    expect(result!.hasFitbitCredentials).toBe(false);
+    expect(result!.healthConnected).toBe(false);
     expect(typeof result!.expiresAt).toBe("number");
-    expect(mockGetFitbitTokens).toHaveBeenCalledWith("user-uuid-123");
-    expect(mockHasFitbitCredentials).toHaveBeenCalledWith("user-uuid-123");
+    expect(mockGetHealthTokens).toHaveBeenCalledWith("user-uuid-123");
   });
 
-  it("sets hasFitbitCredentials to true when credentials exist", async () => {
+  it("does not expose legacy fitbit session keys", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "abc-123",
       save: vi.fn(),
@@ -128,15 +120,14 @@ describe("getSession", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     });
-    mockGetFitbitTokens.mockResolvedValue(null);
-    mockHasFitbitCredentials.mockResolvedValue(true);
 
     const result = await getSession();
 
-    expect(result!.hasFitbitCredentials).toBe(true);
+    expect(result).not.toHaveProperty("fitbitConnected");
+    expect(result).not.toHaveProperty("hasFitbitCredentials");
   });
 
-  it("sets fitbitConnected to true when Fitbit tokens exist", async () => {
+  it("sets healthConnected to true when health tokens exist", async () => {
     mockGetIronSession.mockResolvedValue({
       sessionId: "abc-123",
       save: vi.fn(),
@@ -148,16 +139,16 @@ describe("getSession", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + 86400000),
     });
-    mockGetFitbitTokens.mockResolvedValue({
+    mockGetHealthTokens.mockResolvedValue({
       accessToken: "tok",
       refreshToken: "ref",
-      fitbitUserId: "uid",
+      healthUserId: "uid",
       expiresAt: new Date(Date.now() + 86400000),
     });
 
     const result = await getSession();
 
-    expect(result!.fitbitConnected).toBe(true);
+    expect(result!.healthConnected).toBe(true);
   });
 
   it("destroy() clears both cookie and DB session", async () => {
@@ -182,7 +173,6 @@ describe("getSession", () => {
   });
 
   it("calls touchSession when expiresAt is less than 29 days from now", async () => {
-    // Session expires in 20 days — that's less than 29 days, so it should be touched
     const twentyDaysMs = 20 * 24 * 60 * 60 * 1000;
     mockGetIronSession.mockResolvedValue({
       sessionId: "abc-123",
@@ -202,7 +192,6 @@ describe("getSession", () => {
   });
 
   it("does NOT call touchSession when expiresAt is more than 29 days from now", async () => {
-    // Session expires in 29.5 days — recently touched, no need to extend
     const twentyNineAndHalfDaysMs = 29.5 * 24 * 60 * 60 * 1000;
     mockGetIronSession.mockResolvedValue({
       sessionId: "abc-123",
@@ -225,7 +214,6 @@ describe("getSession", () => {
     const { logger } = await import("@/lib/logger");
     const twentyDaysMs = 20 * 24 * 60 * 60 * 1000;
 
-    // Reset the internal counter by calling with a successful touch first
     mockTouchSession.mockResolvedValueOnce(undefined);
     mockGetIronSession.mockResolvedValue({
       sessionId: "abc-123",
@@ -239,11 +227,9 @@ describe("getSession", () => {
       expiresAt: new Date(Date.now() + twentyDaysMs),
     });
     await getSession();
-    // Wait for the fire-and-forget promise to settle
     await new Promise((r) => setTimeout(r, 10));
     vi.clearAllMocks();
 
-    // Now trigger 3 consecutive failures (threshold)
     const dbError = new Error("DB connection lost");
     mockTouchSession.mockRejectedValue(dbError);
 
@@ -263,7 +249,6 @@ describe("getSession", () => {
       await new Promise((r) => setTimeout(r, 10));
     }
 
-    // First two failures should log at warn, third at error
     expect(logger.warn).toHaveBeenCalledTimes(2);
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ action: "touch_session_error", consecutiveFailures: 3 }),
@@ -276,7 +261,6 @@ describe("getSession", () => {
     const twentyDaysMs = 20 * 24 * 60 * 60 * 1000;
     const dbError = new Error("DB connection lost");
 
-    // Trigger 2 failures
     mockTouchSession.mockRejectedValue(dbError);
     for (let i = 0; i < 2; i++) {
       mockGetIronSession.mockResolvedValue({
@@ -294,7 +278,6 @@ describe("getSession", () => {
       await new Promise((r) => setTimeout(r, 10));
     }
 
-    // Now succeed — should reset counter
     vi.clearAllMocks();
     mockTouchSession.mockResolvedValue(undefined);
     mockGetIronSession.mockResolvedValue({
@@ -308,11 +291,10 @@ describe("getSession", () => {
       createdAt: new Date(),
       expiresAt: new Date(Date.now() + twentyDaysMs),
     });
-    mockGetFitbitTokens.mockResolvedValue(null);
+    mockGetHealthTokens.mockResolvedValue(null);
     await getSession();
     await new Promise((r) => setTimeout(r, 10));
 
-    // Now trigger 2 more failures — should be back to warn (counter was reset)
     vi.clearAllMocks();
     mockTouchSession.mockRejectedValue(dbError);
     for (let i = 0; i < 2; i++) {
@@ -331,72 +313,43 @@ describe("getSession", () => {
       await new Promise((r) => setTimeout(r, 10));
     }
 
-    // Should only see warn, no error (counter was reset by success)
     expect(logger.warn).toHaveBeenCalledTimes(2);
     expect(logger.error).not.toHaveBeenCalled();
   });
 });
 
 describe("validateSession", () => {
+  const baseSession = {
+    sessionId: "abc",
+    userId: "user-uuid-123",
+    expiresAt: Date.now() + 60000,
+    destroy: vi.fn(),
+  };
+
   it("returns error response when session is null", () => {
     const result = validateSession(null);
     expect(result).not.toBeNull();
     expect(result!.status).toBe(401);
   });
 
-  it("returns error response when fitbit is not connected and requireFitbit is true", () => {
-    const session = {
-      sessionId: "abc",
-      userId: "user-uuid-123",
-      expiresAt: Date.now() + 60000,
-      fitbitConnected: false,
-      hasFitbitCredentials: false,
-      destroy: vi.fn(),
-    };
-    const result = validateSession(session, { requireFitbit: true });
+  it("returns HEALTH_NOT_CONNECTED (400) when health is not connected and requireHealth is true", async () => {
+    const session = { ...baseSession, healthConnected: false };
+    const result = validateSession(session, { requireHealth: true });
     expect(result).not.toBeNull();
     expect(result!.status).toBe(400);
+    const body = await result!.json();
+    expect(body.error.code).toBe("HEALTH_NOT_CONNECTED");
   });
 
-  it("returns null when session is valid without fitbit requirement", () => {
-    const session = {
-      sessionId: "abc",
-      userId: "user-uuid-123",
-      expiresAt: Date.now() + 60000,
-      fitbitConnected: false,
-      hasFitbitCredentials: false,
-      destroy: vi.fn(),
-    };
+  it("returns null when session is valid without health requirement", () => {
+    const session = { ...baseSession, healthConnected: false };
     const result = validateSession(session);
     expect(result).toBeNull();
   });
 
-  it("returns null when session is valid with fitbit connected", () => {
-    const session = {
-      sessionId: "abc",
-      userId: "user-uuid-123",
-      expiresAt: Date.now() + 60000,
-      fitbitConnected: true,
-      hasFitbitCredentials: true,
-      destroy: vi.fn(),
-    };
-    const result = validateSession(session, { requireFitbit: true });
+  it("returns null when session is valid with health connected", () => {
+    const session = { ...baseSession, healthConnected: true };
+    const result = validateSession(session, { requireHealth: true });
     expect(result).toBeNull();
-  });
-
-  it("returns FITBIT_CREDENTIALS_MISSING when fitbit connected but no credentials", async () => {
-    const session = {
-      sessionId: "abc",
-      userId: "user-uuid-123",
-      expiresAt: Date.now() + 60000,
-      fitbitConnected: true,
-      hasFitbitCredentials: false,
-      destroy: vi.fn(),
-    };
-    const result = validateSession(session, { requireFitbit: true });
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(400);
-    const body = await result!.json();
-    expect(body.error.code).toBe("FITBIT_CREDENTIALS_MISSING");
   });
 });

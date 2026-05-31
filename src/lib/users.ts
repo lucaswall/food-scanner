@@ -100,6 +100,43 @@ export async function updateUserGoalSettings(
   return getUserGoalSettings(userId);
 }
 
+export type WeightGoalType = "LOSE" | "MAINTAIN" | "GAIN";
+
+const WEIGHT_GOAL_TYPES: readonly WeightGoalType[] = ["LOSE", "MAINTAIN", "GAIN"];
+
+/**
+ * Read the local display-only weight-goal direction (replaces the former Fitbit
+ * weight-goal read). Returns null when the user has not selected one.
+ */
+export async function getWeightGoalType(userId: string): Promise<WeightGoalType | null> {
+  const db = getDb();
+  const rows = await db
+    .select({ weightGoalType: users.weightGoalType })
+    .from(users)
+    .where(eq(users.id, userId));
+
+  const value = rows[0]?.weightGoalType ?? null;
+  return value as WeightGoalType | null;
+}
+
+/**
+ * Persist the local weight-goal direction. Validates the enum (throws on an
+ * out-of-range value) and scopes the write by userId. Pass null to clear it.
+ */
+export async function setWeightGoalType(
+  userId: string,
+  value: WeightGoalType | null,
+): Promise<void> {
+  if (value !== null && !WEIGHT_GOAL_TYPES.includes(value)) {
+    throw new Error(`Invalid weight goal type: ${String(value)}`);
+  }
+  const db = getDb();
+  await db
+    .update(users)
+    .set({ weightGoalType: value, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
 export async function getUserById(userId: string, log?: Logger): Promise<User | null> {
   const l = log ?? logger;
   const db = getDb();
