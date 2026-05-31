@@ -22,6 +22,18 @@ Skills load information in stages to optimize context window usage:
 
 **Note:** `user-invocable` only controls menu visibility, not Skill tool access. Use `disable-model-invocation: true` to block programmatic invocation entirely.
 
+### Additional frontmatter (newer fields)
+
+| Field | Effect |
+|-------|--------|
+| `disallowed-tools` | Removes tools from the pool while the skill is active (clears on next user message). E.g. drop `AskUserQuestion` from autonomous/loop skills |
+| `effort` | Override effort while active: `low`/`medium`/`high`/`xhigh`/`max` (model-dependent; `xhigh` = Opus 4.8/4.7 only) |
+| `paths` | Glob patterns; the skill auto-activates only when working on matching files (monorepo-friendly) |
+| `arguments` | Declare named positional args → `$name` substitution (cleaner than `$0`/`$1`) |
+| `shell` | `bash` (default) or `powershell` for `!`-injected dynamic context |
+
+`model`/`effort` frontmatter scope to the **current turn only** (resume the session model next prompt). On an **inline** (non-`fork`) skill, `model` still switches the active session for that turn — prefer `context: fork` when you want true model isolation.
+
 ## Skill Directory Structure
 
 ```
@@ -225,11 +237,11 @@ Syntax: `Skill(name)` exact, `Skill(name *)` prefix match
 
 ## Context Budget
 
-Skill descriptions budget scales dynamically at **2% of the context window**, with a fallback of **16,000 characters**.
+Skill descriptions budget scales dynamically as a fraction of the context window (`skillListingBudgetFraction`), with a character fallback. On overflow, the descriptions of **least-invoked skills are dropped first**, stripping the keywords Claude needs to match them.
 
-Check: `/context` -- shows warning if skills excluded.
+**Per-skill cap:** the combined `description` + `when_to_use` text is truncated at **1,536 chars** in the listing (`maxSkillDescriptionChars`) — **put the most important trigger phrase FIRST** so it survives truncation.
 
-Override: `SLASH_COMMAND_TOOL_CHAR_BUDGET=30000`
+Check: `/doctor` (flags listing-budget overflow) and `/context`. Override the budget with `SLASH_COMMAND_TOOL_CHAR_BUDGET=30000`. Free budget without editing other skills via the `skillOverrides` setting (`on` / `name-only` / `user-invocable-only` / `off`, managed with `/skills`).
 
 ## Nested Discovery
 
@@ -270,8 +282,8 @@ Skills defined in `.claude/skills/` within `--add-dir` directories are loaded au
 
 ## Best Practices Checklist
 
-- [ ] Description follows `[what] + [when] + [features]` formula
-- [ ] SKILL.md under 500 lines
+- [ ] Description follows `[what] + [when] + [features]` formula, written in third person, **trigger phrase first** (1,536-char listing cap)
+- [ ] SKILL.md under 500 lines; reference files one level deep, with a TOC if >100 lines
 - [ ] Side effects -> `disable-model-invocation: true`
 - [ ] Research -> `context: fork` with explicit task
 - [ ] Background knowledge -> `user-invocable: false`

@@ -50,3 +50,6 @@ _migrations/
 
 # Worker worktrees (plan-implement agent team)
 _workers/
+
+# Claude-managed git worktrees (isolation: worktree, claude --worktree)
+.claude/worktrees/

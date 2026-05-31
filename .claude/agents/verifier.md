@@ -19,7 +19,7 @@ When invoked with a test specifier argument:
 - `verifier "parser"` - Run tests matching pattern
 
 **TDD Workflow:**
-1. Run `npm test -- --testPathPattern=<argument>`
+1. Run `npx vitest run "<argument>"` (Vitest takes the pattern as a positional filename/path filter — there is no `--testPathPattern` flag; that is Jest-only)
 2. Parse test output
 3. Report results (NO build step)
 

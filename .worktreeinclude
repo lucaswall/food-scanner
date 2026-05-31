@@ -1,0 +1,9 @@
+# Files to auto-copy into Claude-managed git worktrees
+# (isolation: worktree subagents, `claude --worktree`, EnterWorktree).
+# Gitignore syntax; only matched *gitignored* files are copied — tracked files are never duplicated.
+#
+# NOTE: node_modules is intentionally NOT listed. It is large, and copying it
+# dereferences/breaks node_modules/.bin symlinks on macOS. plan-implement's
+# hand-rolled worktrees symlink it instead (ln -s) — see plan-implement/SKILL.md.
+.env
+.env.local

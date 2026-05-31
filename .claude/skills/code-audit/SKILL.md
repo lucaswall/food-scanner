@@ -2,7 +2,7 @@
 name: code-audit
 description: Audits codebase using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Triages open Sentry issues (creates Linear issues for real bugs, resolves/ignores noise). Creates Linear issues in Backlog state for findings. Use when user says "audit", "find bugs", "check security", "review codebase", or "team audit". Higher token cost, faster and deeper analysis. Falls back to single-agent mode if agent teams unavailable.
 argument-hint: [optional: specific area like "lib" or "api"]
-allowed-tools: Read, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__sentry__find_organizations, mcp__sentry__find_projects, mcp__sentry__search_issues, mcp__sentry__get_issue_details, mcp__sentry__analyze_issue_with_seer, mcp__sentry__update_issue
+allowed-tools: Read, Glob, Grep, Agent, Bash, Workflow, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__sentry__find_organizations, mcp__sentry__find_projects, mcp__sentry__search_issues, mcp__sentry__get_sentry_resource, mcp__sentry__analyze_issue_with_seer, mcp__sentry__update_issue
 disable-model-invocation: true
 ---
 
@@ -28,7 +28,17 @@ Perform a comprehensive code audit using an agent team with domain-specialized r
 6. **Discover Sentry context** — Call `mcp__sentry__find_organizations` to discover org slug, then `mcp__sentry__find_projects` with org slug to find the project. If Sentry MCP unavailable, skip Sentry triage later (warn user).
 7. **Fetch unresolved Sentry issues** — Call `mcp__sentry__search_issues` with org slug and project slug, query: "unresolved issues". Record each issue's ID, title, URL, event count, user count, last seen date. If none found, skip Sentry Triage phase later.
 
+## Review Orchestration
+
+The 3 domain reviewers can run three ways — all converge on the same **Merge & Deduplicate** → **Create Linear Issues** → **Sentry Triage** steps. Pick the first available:
+
+1. **Workflow mode (preferred).** Use the `Workflow` tool to fan the 3 reviewers out as a background script. Each `agent()` receives the **Common Preamble** + its domain section (from **Reviewer Prompts** below) + its relevant `pending_validation` issues, and returns validated structured findings via a `schema` — e.g. `{domain, validated: [{id, status: "FIXED"|"STILL_EXISTS", reason}], findings: [{category, priority, file, line, description}]}`. The workflow keeps reviewer output out of the main context and returns only the structured findings; the lead then proceeds to **Merge & Deduplicate**. Reviewers are READ-ONLY — give workflow agents NO write/MCP tools; the lead does ALL Linear/Sentry writes. This avoids the ~7× agent-team token cost and the team's task-status-lag / no-resume gaps.
+2. **Agent-team fallback.** If the `Workflow` tool is unavailable, use the agent team in **Team Setup** below.
+3. **Single-agent fallback.** If neither is available, use **Fallback: Single-Agent Mode**.
+
 ## Team Setup
+
+*(Agent-team fallback — used when the `Workflow` tool is unavailable; see **Review Orchestration**.)*
 
 ### Create the team
 
@@ -48,9 +58,9 @@ Use `TaskCreate` to create 3 review tasks (these track progress for each reviewe
 
 ### Spawn 3 reviewer teammates
 
-Use the `Task` tool with `team_name: "code-audit"`, `subagent_type: "general-purpose"`, and `model: "sonnet"` to spawn each reviewer. Give each a `name` and a detailed `prompt` (see Reviewer Prompts below).
+Use the `Agent` tool with `team_name: "code-audit"`, `subagent_type: "general-purpose"`, and `model: "sonnet"` to spawn each reviewer. Give each a `name` and a detailed `prompt` (see Reviewer Prompts below).
 
-Spawn all 3 reviewers in parallel (3 concurrent Task calls in one message).
+Spawn all 3 reviewers in parallel (3 concurrent Agent calls in one message).
 
 **IMPORTANT:** Each reviewer prompt MUST include:
 - Their specific domain checklist (copied from the Reviewer Prompts section)
@@ -323,7 +333,7 @@ After creating Linear issues from audit findings, triage all unresolved Sentry i
 
 ### For each unresolved Sentry issue:
 
-1. **Get details** — Call `mcp__sentry__get_issue_details` to get the full stacktrace and context
+1. **Get details** — Call `mcp__sentry__get_sentry_resource` to get the full stacktrace and context
 2. **Locate in codebase** — Read the referenced files/lines from the stacktrace
 3. **Cross-reference** — Check if:
    - An audit finding already covers this issue (from the reviewer phase)
@@ -383,7 +393,7 @@ If `TeamCreate` fails (agent teams unavailable), perform the audit sequentially 
 
 1. **Inform user:** "Agent teams unavailable. Running audit in single-agent mode."
 2. **Validate existing issues** — For each `pending_validation` issue, check if the referenced code still has the problem. Close fixed issues, carry forward valid ones.
-3. **Systematic exploration** — Use Task tool with `subagent_type=Explore` to examine each discovered area. Look for:
+3. **Systematic exploration** — Use the Agent tool with `subagent_type=Explore` to examine each discovered area. Look for:
    - Logic errors, null handling, race conditions
    - Security vulnerabilities (injection, missing auth, exposed secrets)
    - Unhandled edge cases and boundary conditions

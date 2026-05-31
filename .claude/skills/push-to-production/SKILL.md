@@ -1,7 +1,7 @@
 ---
 name: push-to-production
 description: Promote main to release with production DB backup and migration handling. Use when user says "push to production", "release", "deploy to production", or "promote to release". Backs up production DB, assesses MIGRATIONS.md, writes migration code if needed, and merges main to release.
-allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Task, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__update_issue, mcp__linear__list_issue_statuses, mcp__Railway__get-logs, mcp__Railway__list-deployments
+allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Agent, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__update_issue, mcp__linear__list_issue_statuses, mcp__Railway__get_logs, mcp__Railway__list_deployments, mcp__Railway__environment_status
 argument-hint: [version]
 disable-model-invocation: true
 ---
@@ -83,7 +83,7 @@ If PLANS.md doesn't exist or has no incomplete tasks, continue.
 Run the `verifier` agent (full mode) to confirm unit tests, lint, and build pass:
 
 ```
-Use Task tool with subagent_type "verifier"
+Use the Agent tool with subagent_type "verifier"
 ```
 
 If verifier reports failures, **STOP**. Do not proceed with a broken build.
@@ -93,7 +93,7 @@ If verifier reports failures, **STOP**. Do not proceed with a broken build.
 Run the `verifier` agent in E2E mode to confirm end-to-end tests pass:
 
 ```
-Use Task tool with subagent_type "verifier" with prompt "e2e"
+Use the Agent tool with subagent_type "verifier" with prompt "e2e"
 ```
 
 Docker is already verified in Phase 1.3, so prerequisites are met.
@@ -513,7 +513,7 @@ The git tag and deploy already succeeded — the GitHub Release is cosmetic and 
 
 ### 5.8 Verify Railway Deployment (if Railway MCP is available)
 
-If the Railway MCP is available (`mcp__Railway__list-deployments` and `mcp__Railway__get-logs`), check deployment logs to confirm the release deployed successfully to production.
+If the Railway MCP is available (`mcp__Railway__list_deployments` and `mcp__Railway__get_logs`), check deployment logs to confirm the release deployed successfully to production.
 
 If the Railway MCP tools are not accessible, skip this step silently and note "Railway MCP not available — verify deployment manually at https://railway.app" in the Phase 6 report.
 
@@ -521,14 +521,14 @@ If available:
 1. Wait briefly (30 seconds) for the deploy to initialize
 2. List recent production deployments to find the one triggered by the push to `release`:
    ```
-   Use mcp__Railway__list-deployments with environment: "production"
+   Use mcp__Railway__list_deployments with environment_id: "production"
    ```
 3. Fetch production logs and look for:
    - Successful build completion
    - Next.js server startup confirmation
    - No crash loops or error patterns
    ```
-   Use mcp__Railway__get-logs with environment: "production"
+   Use mcp__Railway__get_logs with environment_id: "production" and log_type: "deploy"
    ```
 
 If the deployment appears to have failed:
@@ -536,7 +536,7 @@ If the deployment appears to have failed:
 - **Do NOT stop** — the git tag and GitHub Release already succeeded. The deployment issue needs separate investigation.
 - Note the failure in the Phase 6 report
 
-**Always specify `environment: "production"`** — the Railway MCP defaults to staging.
+**Always specify `environment_id: "production"`** — the Railway MCP defaults to the currently linked environment.
 
 ## Phase 6: Post-Release
 

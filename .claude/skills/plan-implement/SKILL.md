@@ -1,7 +1,7 @@
 ---
 name: plan-implement
 description: Execute the pending plan in PLANS.md using an agent team for parallel implementation. Use when user says "implement the plan", "execute the plan", "team implement", or after any plan-* skill creates a plan. Spawns worker agents in isolated git worktrees for full code isolation. Updates Linear issues in real-time. Falls back to single-agent mode if agent teams unavailable.
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Write, Glob, Grep, Agent, Bash, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 
@@ -109,6 +109,8 @@ Before proceeding, verify:
 
 ## Worktree Setup
 
+> **Why hand-rolled worktrees and not native `isolation: worktree`?** Claude-managed worktrees (`isolation: worktree`, `--worktree`, the repo-root `.worktreeinclude` file) do NOT provision `node_modules` — they would force a slow `npm install` per worktree or a copy that breaks `.bin` symlinks on macOS. The `ln -s node_modules` approach below is the correct, fast solution for this JS project and is retained deliberately. (`.worktreeinclude` still covers `.env`/`.env.local` for any *other* native-worktree use; it does not affect the manual `git worktree add` flow here.)
+
 ### Determine Feature Branch
 
 If on `main`, create a feature branch:
@@ -184,9 +186,9 @@ Use `TaskCreate` for each work unit:
 
 ### Spawn workers
 
-Use `Task` tool with `team_name: "plan-implement"`, `subagent_type: "general-purpose"`, `model: "sonnet"`, and `mode: "bypassPermissions"` for each worker. Name them `worker-1`, `worker-2`, etc.
+Use the `Agent` tool with `team_name: "plan-implement"`, `subagent_type: "general-purpose"`, `model: "sonnet"`, and `mode: "bypassPermissions"` for each worker. Name them `worker-1`, `worker-2`, etc.
 
-Spawn all workers in parallel (concurrent Task calls in one message).
+Spawn all workers in parallel (concurrent Agent calls in one message).
 
 ### Worker Prompt Template
 
@@ -364,7 +366,7 @@ docker ps --filter name=postgres-e2e --format '{{.Status}}' | grep -q Up || \
 
 Run the `verifier` agent in E2E mode:
 ```
-Task tool with subagent_type "verifier" and prompt "e2e"
+Agent tool with subagent_type "verifier" and prompt "e2e"
 ```
 If E2E tests fail → fix the specs directly, then re-run.
 
@@ -372,14 +374,14 @@ If E2E tests fail → fix the specs directly, then re-run.
 
 **Bug hunter:**
 ```
-Task tool with subagent_type "bug-hunter"
+Agent tool with subagent_type "bug-hunter"
 ```
 
 Fix ALL real bugs — pre-existing or new. Only skip verifiable false positives.
 
 **Verifier (tests + lint + build):**
 ```
-Task tool with subagent_type "verifier"
+Agent tool with subagent_type "verifier"
 ```
 
 If failures → fix directly (workers are shut down by this point).

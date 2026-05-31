@@ -2,7 +2,7 @@
 name: plan-fix
 description: Investigates bugs AND creates actionable TDD fix plans. Creates Linear issues in Todo state. Use when you know you want to fix something - user reports errors, deployment failures, wrong data, or UI issues. Can be chained from investigate skill. Discovers MCPs from CLAUDE.md for debugging (logs, etc.).
 argument-hint: <bug description>
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__sentry__find_organizations, mcp__sentry__find_projects, mcp__sentry__search_issues, mcp__sentry__get_issue_details, mcp__sentry__analyze_issue_with_seer, mcp__sentry__search_events, mcp__sentry__search_issue_events, mcp__sentry__get_issue_tag_values
+allowed-tools: Read, Edit, Write, Glob, Grep, Agent, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__sentry__find_organizations, mcp__sentry__find_projects, mcp__sentry__search_issues, mcp__sentry__get_sentry_resource, mcp__sentry__analyze_issue_with_seer, mcp__sentry__search_events, mcp__sentry__search_issue_events, mcp__sentry__get_issue_tag_values
 disable-model-invocation: true
 ---
 
@@ -98,7 +98,7 @@ If the bug involves production crashes, errors, or runtime issues, search Sentry
 
 1. **Find the org/project** — Use `mcp__sentry__find_organizations` then `mcp__sentry__find_projects` to get slugs
 2. **Search for issues** — Use `mcp__sentry__search_issues` with natural language (e.g., "unresolved crashes from last week")
-3. **Get issue details** — Use `mcp__sentry__get_issue_details` for full stack traces and metadata
+3. **Get issue details** — Use `mcp__sentry__get_sentry_resource` for full stack traces and metadata
 4. **Analyze root cause** — Use `mcp__sentry__analyze_issue_with_seer` for AI-powered analysis
 5. **Check distributions** — Use `mcp__sentry__get_issue_tag_values` for environment/release breakdown
 

@@ -2,7 +2,7 @@
 name: plan-backlog
 description: Convert Linear Backlog issues into TDD implementation plans. Use when user says "plan FOO-123", "plan all bugs", "work on backlog", or wants to implement issues from Linear. With no arguments, plans ALL Backlog issues. Moves planned issues to Todo state. Explores codebase for patterns and discovers available MCPs from CLAUDE.md.
 argument-hint: [issue-selector] (optional) e.g., "FOO-123", "all Bug issues" — omit to plan all Backlog items
-allowed-tools: Read, Edit, Write, Glob, Grep, Task, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__create_comment, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+allowed-tools: Read, Edit, Write, Glob, Grep, Agent, Bash, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__create_comment, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
 disable-model-invocation: true
 ---
 

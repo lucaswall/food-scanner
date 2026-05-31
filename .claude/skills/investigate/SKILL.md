@@ -2,7 +2,7 @@
 name: investigate
 description: Read-only investigation that reports findings WITHOUT creating plans or modifying code. Use when user says "investigate", "check why", "look into", "diagnose", or wants to understand a problem before deciding on action. Accesses Sentry errors, Railway logs, and codebase.
 argument-hint: <what to investigate>
-allowed-tools: Read, Glob, Grep, Task, Bash, mcp__Railway__check-railway-status, mcp__Railway__get-logs, mcp__Railway__list-deployments, mcp__Railway__list-projects, mcp__Railway__list-services, mcp__Railway__list-variables, mcp__sentry__search_issues, mcp__sentry__get_issue_details, mcp__sentry__search_events, mcp__sentry__search_issue_events, mcp__sentry__get_trace_details, mcp__sentry__get_issue_tag_values, mcp__sentry__analyze_issue_with_seer
+allowed-tools: Read, Glob, Grep, Agent, Bash, mcp__Railway__environment_status, mcp__Railway__get_logs, mcp__Railway__list_deployments, mcp__Railway__list_projects, mcp__Railway__list_services, mcp__Railway__list_variables, mcp__sentry__search_issues, mcp__sentry__get_sentry_resource, mcp__sentry__search_events, mcp__sentry__search_issue_events, mcp__sentry__get_issue_tag_values, mcp__sentry__analyze_issue_with_seer
 disable-model-invocation: true
 ---
 
@@ -30,10 +30,10 @@ Environment mappings are also in CLAUDE.md SENTRY section.
 | Goal | Tool | Example |
 |------|------|---------|
 | List matching issues | `search_issues` | "unresolved errors in production" |
-| Issue details + stacktrace | `get_issue_details` | Pass issue ID like `FOOD-SCANNER-1` |
+| Issue details + stacktrace | `get_sentry_resource` | Pass the issue ID/URL (e.g. `FOOD-SCANNER-1`) to fetch the full issue/event resource |
 | Count errors or search events | `search_events` | "how many errors today", "database errors from last hour" |
 | Filter events within one issue | `search_issue_events` | "events from last hour" on issue X |
-| View a trace | `get_trace_details` | Pass 32-char hex trace ID |
+| View a trace | `get_sentry_resource` | Fetch a trace resource by ID/URL (or `search_events` on the `spans` dataset) |
 | Tag distribution for an issue | `get_issue_tag_values` | tagKey: "environment", "url", "browser" |
 | AI root cause analysis | `analyze_issue_with_seer` | Deep analysis with code fix suggestions |
 
@@ -42,7 +42,7 @@ Environment mappings are also in CLAUDE.md SENTRY section.
 **CRITICAL: Default to unresolved issues.** Unless the user explicitly asks for resolved, ignored, or all issues:
 - Always include "unresolved" in `search_issues` queries (e.g., "unresolved errors in production")
 - After fetching issue lists, check each issue's `status` field — skip any that are `resolved` or `ignored`
-- When `get_issue_details` returns an issue, check its status before investigating further — don't waste effort on already-resolved issues
+- When `get_sentry_resource` returns an issue, check its status before investigating further — don't waste effort on already-resolved issues
 - If all matching issues are resolved/ignored, report that to the user rather than analyzing stale issues
 
 The `search_issues` tool returns a `status` field per issue (`unresolved`, `resolved`, `ignored`). Always read it.
@@ -51,18 +51,18 @@ The `search_issues` tool returns a `status` field per issue (`unresolved`, `reso
 
 **Error investigation:**
 1. `search_issues` — find matching **unresolved** issues by description or symptoms
-2. `get_issue_details` — get stacktrace, affected users, frequency — **verify status is unresolved**
+2. `get_sentry_resource` — get stacktrace, affected users, frequency — **verify status is unresolved**
 3. `get_issue_tag_values` — check environment/release/url distribution
 4. `search_issue_events` — filter to specific timeframe or environment
 5. `analyze_issue_with_seer` — get AI root cause analysis with code fixes
 
 **Performance investigation:**
 1. `search_events` — query spans: "slow API requests", "p95 response time"
-2. `get_trace_details` — inspect a specific trace for bottlenecks
+2. `get_sentry_resource` — inspect a specific trace for bottlenecks
 
 **Claude API investigation:**
 1. `search_events` — query AI spans: "anthropic API calls", "token usage by model", "slow Claude responses"
-2. `get_trace_details` — trace a full request through Claude tool_use loops
+2. `get_sentry_resource` — fetch a full trace through Claude tool_use loops
 
 **Trend investigation:**
 1. `search_events` — "count of errors today vs yesterday", "error rate this week"
@@ -83,7 +83,7 @@ This project has two Railway environments. **Always determine the target environ
 3. If user mentions a specific branch: `release` → `production`, `main` → `staging`
 4. If ambiguous, **ask the user** which environment to investigate before pulling logs
 
-**CRITICAL: Always pass `environment` explicitly to Railway MCP tools.** The Railway CLI may be linked to any environment — do NOT rely on the default. Every call to `get-logs`, `list-deployments`, or `list-variables` MUST include the `environment` parameter matching the target.
+**CRITICAL: Always pass `environment_id` explicitly to Railway MCP tools.** The Railway CLI may be linked to any environment — do NOT rely on the default. Every call to `get_logs`, `list_deployments`, or `list_variables` MUST include the `environment_id` parameter (it accepts the environment **name** or ID) matching the target.
 
 ## Arguments
 
@@ -116,22 +116,22 @@ Based on $ARGUMENTS, determine what you're investigating:
 
 **Start with Sentry** for most investigations — it provides the richest context (stacktraces, traces, frequency, affected environments):
 1. `search_issues` to find related **unresolved** errors (always include "unresolved" in the query)
-2. `get_issue_details` for stacktrace and metadata — **verify status is unresolved before deep-diving**
+2. `get_sentry_resource` for stacktrace and metadata — **verify status is unresolved before deep-diving**
 3. `search_events` for counts, trends, or individual events
-4. `get_trace_details` to trace a request through the system
+4. `get_sentry_resource` to fetch a trace through the system
 
 **For Codebase Analysis:**
 - Use Grep/Glob for specific searches
-- Use Task tool with `subagent_type=Explore` for broader exploration
+- Use the Agent tool with `subagent_type=Explore` for broader exploration
 - Read relevant source files, configs, and tests
 
 **For Deployment Issues (via Railway MCP):**
 1. **Determine target environment** from $ARGUMENTS (see "Railway Environments" above). If unclear, ask user.
-2. Check Railway MCP status
-3. List services to find affected service
-4. List recent deployments with statuses — pass `environment: "<target>"` explicitly
-5. Get deployment and build logs — pass `environment: "<target>"` explicitly
-6. Search logs for errors using filters (e.g., `@level:error`)
+2. Check Railway status with `environment_status`
+3. `list_services` to find affected service
+4. `list_deployments` with statuses — pass `environment_id: "<target>"` explicitly
+5. `get_logs` for deploy and build logs (`log_type: "deploy"` / `"build"`) — pass `environment_id: "<target>"` and `service_id` explicitly
+6. Filter logs for errors using `level: "error"` or `search` (deploy/build logs), or `status: ">=400"` for `log_type: "http"`
 
 **For API Issues:**
 - Check Sentry for related errors and traces first
@@ -190,11 +190,11 @@ If uncertain, list possibilities ranked by likelihood.]
 When investigating deployment issues (via Railway MCP):
 
 1. **Identify target environment** - Determine `production` or `staging` from user context (see "Railway Environments" section)
-2. **Check status first** - Verify MCP access
-3. **List recent deployments** - Get deployment IDs and statuses (pass `environment` param)
-4. **Get targeted logs** - Search for errors using filters (pass `environment` param)
+2. **Check status first** - Verify MCP access with `environment_status`
+3. **List recent deployments** - `list_deployments` for deployment IDs and statuses (pass `environment_id`)
+4. **Get targeted logs** - `get_logs` with `level`/`search` filters (pass `environment_id` + `service_id`)
 5. **Look for patterns** - Repeated errors, timing correlations
-6. **Check configuration** - Environment variables, settings (pass `environment` param to `list-variables`)
+6. **Check configuration** - Environment variables, settings (pass `environment_id` to `list_variables`)
 
 ## Error Handling
 
@@ -214,7 +214,7 @@ When investigating deployment issues (via Railway MCP):
 - **No plans** - Do NOT write PLANS.md or fix plans
 - **Start with Sentry** - For error/performance investigations, check Sentry before Railway logs
 - **Unresolved only** - Default to unresolved issues. Always check issue status before investigating. Do not analyze resolved or ignored issues unless the user explicitly asks.
-- **Explicit environment** - ALWAYS pass the `environment` parameter to Railway MCP tools; never rely on CLI defaults
+- **Explicit environment** - ALWAYS pass the `environment_id` parameter (environment name or ID) to Railway MCP tools; never rely on CLI defaults
 - **Sentry constants** - ALWAYS pass `organizationSlug: "lucas-wall"` and `regionUrl: "https://us.sentry.io"` to Sentry tools
 - **Be thorough** - Check multiple sources before concluding
 - **Be specific** - Include exact values, line numbers, timestamps, Sentry issue IDs

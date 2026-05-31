@@ -28,6 +28,8 @@ Agent teams coordinate multiple Claude Code instances working together. One sess
 
 **Use subagents** for quick focused workers that report back. **Use agent teams** when teammates need to share findings, challenge each other, and coordinate.
 
+> **Third option — Dynamic Workflows (CC v2.1.154+):** a JavaScript orchestration script the runtime runs in the background (up to 16 concurrent / 1,000 total agents), keeping intermediate results out of the main context. Prefer a workflow over a team when the orchestration is **deterministic** (fan-out → verify → synthesize, loop-until-dry, multi-angle planning) and you want it codified/rerunnable as a saved `/<name>` command. Prefer **agent teams** when teammates must message each other mid-task or you need a known role decomposition with audit logs. Teams cost ~7× a normal session (more in plan mode); workflows keep the lead's context clean. See `code.claude.com/docs/en/workflows`.
+
 ## Architecture
 
 | Component | Role |
@@ -97,14 +99,17 @@ Inter-agent communication:
 - `type: "plan_approval_response"` — Approve/reject teammate's plan
 
 ### Spawning Teammates
-Use `Task` tool with `team_name` and `name` parameters:
+Use the `Agent` tool (the subagent-spawning tool, renamed from `Task` in CC v2.1.63 — `Task` still aliases) with `team_name` and `name` parameters:
 ```
-Task:
+Agent:
   team_name: "my-team"
   name: "security-reviewer"
   subagent_type: "general-purpose"
+  model: "sonnet"
   prompt: "Detailed instructions for this teammate..."
 ```
+
+You can also pass a custom subagent type as `subagent_type` (e.g. a `code-reviewer` agent def) — the teammate honors that def's `tools` + `model` and appends its body to the system prompt. **Caveat:** the `skills` and `mcpServers` frontmatter fields are NOT applied when a subagent def runs as a teammate; teammates load skills/MCP from project + user settings like a normal session.
 
 ## Delegate Mode
 
@@ -133,12 +138,14 @@ Give the lead criteria: "only approve plans that include test coverage" or "reje
 **Implementation teams** (workers that create/edit files) should each get an isolated **git worktree** — a separate working directory with its own branch, staging area, and `node_modules`. This eliminates file conflicts and enables **domain-based** task assignment (workers MAY touch overlapping files):
 
 ```bash
-git worktree add _workers/worker-1 -b feat/<name>/worker-1
-cp -r node_modules _workers/worker-1/node_modules
+git worktree add _workers/worker-1 -b feat/<name>-worker-1   # hyphen, NOT slash: git can't create feat/<name>/worker-1 when feat/<name> already exists as a branch ref
+ln -s "$(pwd)/node_modules" _workers/worker-1/node_modules    # symlink, NOT `cp -r`: on macOS `cp -r` dereferences node_modules/.bin symlinks and breaks the CLIs (vitest, tsc)
 cp .env _workers/worker-1/.env 2>/dev/null || true
 ```
 
-Workers commit to their own branches; the lead merges sequentially after all workers complete. Merge order: lower-level code first (types → services → routes → UI), with `npx tsc --noEmit` after each merge to catch integration issues.
+Workers commit to their own branches; the lead merges sequentially after all workers complete. Merge order: lower-level code first (types → services → routes → UI), with `npm run typecheck` after each merge to catch integration issues.
+
+> **Native alternative (CC worktree support):** `isolation: worktree` in a subagent's frontmatter, plus a repo-root `.worktreeinclude` file (gitignore-syntax list of gitignored files like `.env` to auto-copy into each worktree) and the `worktree.baseRef: "head"` setting, now do most of this plumbing for you — no manual symlink/`cp` dance. See `code.claude.com/docs/en/worktrees`.
 
 **Review teams** (read-only workers like code-audit, frontend-review) do NOT need worktrees. Reviewers only read files and report findings — they can all work in the same project directory safely.
 
@@ -192,6 +199,9 @@ Check in on progress, redirect approaches that aren't working, and synthesize fi
 
 ### TeammateIdle
 Runs when a teammate is about to go idle. Exit code 2 sends feedback and keeps them working.
+
+### TaskCreated
+Runs when a task is being created. Exit code 2 blocks creation and sends feedback (e.g. enforce a task-naming convention).
 
 ### TaskCompleted
 Runs when a task is being marked complete. Exit code 2 prevents completion and sends feedback.
@@ -253,7 +263,7 @@ When a skill needs to orchestrate an agent team, include team tools in `allowed-
 ```yaml
 ---
 name: my-team-skill
-allowed-tools: Read, Glob, Grep, Task, Bash, TeamCreate, TeamDelete,
+allowed-tools: Read, Glob, Grep, Agent, Bash, TeamCreate, TeamDelete,
   SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet
 disable-model-invocation: true
 ---
@@ -263,7 +273,7 @@ disable-model-invocation: true
 1. Pre-flight checks (verify dependencies like MCP connections)
 2. TeamCreate with descriptive name
 3. TaskCreate for each work unit
-4. Spawn teammates via Task tool with `team_name` and `name`
+4. Spawn teammates via the Agent tool with `team_name` and `name`
 5. Assign tasks via TaskUpdate
 6. Wait for teammate messages (auto-delivered)
 7. Merge/synthesize findings
@@ -275,7 +285,7 @@ disable-model-invocation: true
 ```
 1. Try TeamCreate
 2. If fails → inform user "Agent teams unavailable, running in single-agent mode"
-3. Use sequential Task tool subagents instead (without team_name)
+3. Use sequential Agent tool subagents instead (without team_name)
 ```
 
 ## Troubleshooting
@@ -317,6 +327,6 @@ If a task involves running a CLI generator (migrations, codegen, etc.), reserve 
 - **One team per session** — clean up before starting a new team
 - **No nested teams** — teammates cannot spawn their own teams
 - **Lead is fixed** — can't promote a teammate to lead
-- **Permissions set at spawn** — `mode: "bypassPermissions"` on Task tool is ignored for teammates; they inherit the lead's permission mode ([#24073](https://github.com/anthropics/claude-code/issues/24073)). Workaround: instruct workers to avoid Bash for file ops, have lead pre-create directories.
+- **Permissions set at spawn** — `mode: "bypassPermissions"` on the Agent tool is ignored for teammates; they inherit the lead's permission mode ([#24073](https://github.com/anthropics/claude-code/issues/24073)). Workaround: instruct workers to avoid Bash for file ops, have lead pre-create directories.
 - **MCP access unreliable** for teammates — keep MCP operations on the lead
 - **Split panes** require tmux or iTerm2 (not VS Code terminal, Windows Terminal, or Ghostty)

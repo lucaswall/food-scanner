@@ -2,7 +2,7 @@
 name: staging-qa
 description: Automated functional QA against the staging site using Chrome browser automation. Trigger on "staging qa", "run qa", "test staging". Navigates the real staging app, runs test scenarios with GIF recording, and reports results.
 argument-hint: "[gif] [scenarios] — 'gif' enables GIF recording per scenario. Scenario names filter which to run (e.g., 'gif dashboard analyze'). Omit to run all without GIFs."
-allowed-tools: Read, Glob, Grep, Bash, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__find, mcp__claude-in-chrome__form_input, mcp__claude-in-chrome__get_page_text, mcp__claude-in-chrome__javascript_tool, mcp__claude-in-chrome__read_console_messages, mcp__claude-in-chrome__read_network_requests, mcp__claude-in-chrome__gif_creator, mcp__claude-in-chrome__resize_window, mcp__Railway__get-logs, mcp__sentry__search_issues
+allowed-tools: Read, Glob, Grep, Bash, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__find, mcp__claude-in-chrome__form_input, mcp__claude-in-chrome__get_page_text, mcp__claude-in-chrome__javascript_tool, mcp__claude-in-chrome__read_console_messages, mcp__claude-in-chrome__read_network_requests, mcp__claude-in-chrome__gif_creator, mcp__claude-in-chrome__resize_window, mcp__Railway__get_logs, mcp__sentry__search_issues
 disable-model-invocation: true
 ---
 
@@ -160,7 +160,7 @@ When waiting for AI results (analyze, refine, edit scenarios):
 - **Each poll doubles as a heartbeat** — keeps the Chrome service worker alive.
 - **Never use a single long `computer` wait** — the 30s max would kill the connection.
 - **Check for error states** in the DOM (error messages, error toasts) at each poll — fail fast if the analysis errored.
-- **On "internal error":** Immediately pull Railway staging logs via `mcp__Railway__get-logs` (filter: `error`, last 20 lines) to diagnose the root cause. Include the server error in the scenario FAIL details. If the error is fixable (e.g., bad model ID, missing env var), fix it, push, wait for redeploy, then retry the scenario — don't just mark it as FAIL and move on.
+- **On "internal error":** Immediately pull Railway staging logs via `mcp__Railway__get_logs` (`environment_id: "staging"`, `log_type: "deploy"`, `level: "error"`, `lines: 20`) to diagnose the root cause. Include the server error in the scenario FAIL details. If the error is fixable (e.g., bad model ID, missing env var), fix it, push, wait for redeploy, then retry the scenario — don't just mark it as FAIL and move on.
 
 ### Screenshot Budget
 
@@ -218,7 +218,7 @@ Check for server-side errors during the QA run.
 
 ### 6.1 Railway Logs
 
-Use `mcp__Railway__get-logs` to pull recent staging logs. Filter for:
+Use `mcp__Railway__get_logs` (`environment_id: "staging"`, `log_type: "deploy"`) to pull recent staging logs. Use `level: "error"` or a `search` term to filter for:
 - `ERROR`, `WARN`, `500`, `unhandled`, `timeout`, `ECONNREFUSED`
 - Ignore expected patterns: health check 200s, static asset requests
 
@@ -292,7 +292,7 @@ For server errors, include:
 | AI analysis timeout (>90s) | FAIL the scenario, continue to next |
 | Element not found | Retry once after 3s, then FAIL |
 | Unexpected page state | Take screenshot, FAIL with description |
-| Internal server error in UI | Pull Railway logs (`get-logs`, filter: error, 20 lines), diagnose, fix+push+redeploy if fixable, then retry |
+| Internal server error in UI | Pull Railway logs (`get_logs`, `level: "error"`, `lines: 20`), diagnose, fix+push+redeploy if fixable, then retry |
 | DB seeding fails | WARN but continue (less visual data) |
 | DB cleanup fails | WARN, fall back to UI cleanup |
 | Railway logs unavailable | WARN, skip server health check |
