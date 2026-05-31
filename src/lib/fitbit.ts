@@ -12,10 +12,18 @@ import {
 } from "@/lib/fitbit-rate-limit";
 
 export type { FitbitCallCriticality } from "@/lib/fitbit-rate-limit";
+import {
+  REQUEST_TIMEOUT_MS,
+  parseErrorBody,
+  sanitizeErrorBody,
+  jsonWithTimeout,
+} from "@/lib/http";
+
+// Re-exported for existing importers (fitbit.test.ts imports these from @/lib/fitbit).
+export { parseErrorBody, sanitizeErrorBody, jsonWithTimeout };
 
 const FITBIT_API_BASE = "https://api.fitbit.com";
 const MAX_RETRIES = 3;
-const REQUEST_TIMEOUT_MS = 10000;
 const DEADLINE_MS = 30000;
 const RATE_LIMIT_NO_HEADER_DELAY_MS = 1000;
 
@@ -57,38 +65,6 @@ interface LogFoodResponse {
 interface FindOrCreateResult {
   foodId: number;
   reused: boolean;
-}
-
-export function sanitizeErrorBody(body: unknown): unknown {
-  if (typeof body === "string") {
-    return body.replace(/<[^>]*>/g, "").slice(0, 500);
-  }
-  return body;
-}
-
-export async function parseErrorBody(response: Response): Promise<unknown> {
-  const bodyText = await response.text().catch(() => "unable to read body");
-  try {
-    return JSON.parse(bodyText);
-  } catch {
-    return bodyText;
-  }
-}
-
-export async function jsonWithTimeout<T>(response: Response, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout>;
-  const jsonPromise = response.json().then((v) => v as T);
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error("Response body read timed out")), timeoutMs);
-  });
-  // Attach noop catch handlers to prevent unhandled rejection from losing promise
-  jsonPromise.catch(() => {});
-  timeoutPromise.catch(() => {});
-  try {
-    return await Promise.race([jsonPromise, timeoutPromise]);
-  } finally {
-    clearTimeout(timeoutId!);
-  }
 }
 
 async function fetchWithRetry(

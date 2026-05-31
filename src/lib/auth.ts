@@ -1,6 +1,6 @@
 import { logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
-import { parseErrorBody, sanitizeErrorBody, jsonWithTimeout } from "@/lib/fitbit";
+import { parseErrorBody, sanitizeErrorBody, jsonWithTimeout } from "@/lib/http";
 
 const OAUTH_TIMEOUT_MS = 10000;
 
@@ -18,10 +18,17 @@ export function buildGoogleAuthUrl(state: string, redirectUri: string): string {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
+export interface ExchangeGoogleCodeResult {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  scope?: string;
+}
+
 export async function exchangeGoogleCode(
   code: string,
   redirectUri: string,
-): Promise<{ access_token: string }> {
+): Promise<ExchangeGoogleCodeResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), OAUTH_TIMEOUT_MS);
 
@@ -51,7 +58,12 @@ export async function exchangeGoogleCode(
     if (typeof data.access_token !== "string") {
       throw new Error("Invalid Google token response: missing access_token");
     }
-    return { access_token: data.access_token };
+    return {
+      access_token: data.access_token,
+      refresh_token: typeof data.refresh_token === "string" ? data.refresh_token : undefined,
+      expires_in: typeof data.expires_in === "number" ? data.expires_in : undefined,
+      scope: typeof data.scope === "string" ? data.scope : undefined,
+    };
   } finally {
     clearTimeout(timeoutId);
   }

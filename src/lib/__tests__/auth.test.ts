@@ -166,6 +166,62 @@ describe("exchangeGoogleCode", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
+
+  it("POSTs grant_type, client_id, client_secret, and redirect_uri", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "token" }), { status: 200 }),
+    );
+
+    await exchangeGoogleCode("my-auth-code", "https://app.example.com/cb");
+
+    const body = String((fetchSpy.mock.calls[0][1] as RequestInit).body);
+    expect(body).toContain("grant_type=authorization_code");
+    expect(body).toContain("client_id=");
+    expect(body).toContain("client_secret=");
+    expect(body).toContain("redirect_uri=https%3A%2F%2Fapp.example.com%2Fcb");
+
+    vi.restoreAllMocks();
+  });
+
+  it("returns refresh_token, expires_in, and scope when the token endpoint provides them", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          access_token: "google-access-token",
+          refresh_token: "google-refresh-token",
+          expires_in: 3599,
+          scope: "openid email https://www.googleapis.com/auth/googlehealth.nutrition.writeonly",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await exchangeGoogleCode("auth-code", "http://localhost:3000/callback");
+
+    expect(result.access_token).toBe("google-access-token");
+    expect(result.refresh_token).toBe("google-refresh-token");
+    expect(result.expires_in).toBe(3599);
+    expect(result.scope).toBe(
+      "openid email https://www.googleapis.com/auth/googlehealth.nutrition.writeonly",
+    );
+
+    vi.restoreAllMocks();
+  });
+
+  it("leaves refresh_token/expires_in/scope undefined when omitted by the endpoint", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ access_token: "only-access" }), { status: 200 }),
+    );
+
+    const result = await exchangeGoogleCode("auth-code", "http://localhost:3000/callback");
+
+    expect(result.access_token).toBe("only-access");
+    expect(result.refresh_token).toBeUndefined();
+    expect(result.expires_in).toBeUndefined();
+    expect(result.scope).toBeUndefined();
+
+    vi.restoreAllMocks();
+  });
 });
 
 describe("getGoogleProfile", () => {

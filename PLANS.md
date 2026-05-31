@@ -764,3 +764,42 @@ The release env + token-clear steps are performed by the LEAD agent (Railway MCP
 - context-management clear_tool_uses interacts with prompt caching — clearing tool results invalidates the cached prefix at the clear point, so clear_at_least must be high enough and image-prefix caching (A2) lands before A3.
 - src/types/index.ts and src/lib/session.ts are foundation files imported by nearly every route; the field renames break the build until all consumers land in the same merge — lead runs full npm test post-merge.
 - Forcing both users to re-consent means healthConnected=false until they reconnect — expected but must be communicated.
+
+---
+
+## Iteration 1: Phase 0 — Anthropic SDK bump + provider-neutral HTTP extraction
+
+**Date:** 2026-05-31
+**Status:** PARTIAL — 27 tasks remaining (Phases 1–5)
+**Method:** single-agent
+
+### Summary
+Completed all of Phase 0 (foundation-before-deletes): bumped `@anthropic-ai/sdk` to ^0.100.1, extracted the shared HTTP helpers into a provider-neutral `src/lib/http.ts`, and widened `exchangeGoogleCode` to surface `refresh_token`/`expires_in`/`scope` for the upcoming health-connect callback. The tree is fully green (typecheck 0 errors, all touched suites pass, build + lint clean). Stopped at the Phase 0/1 boundary — Phase 1 renames the single-owner `src/types/index.ts`, which breaks compilation across every consumer until Tasks 5–23 land, so it cannot be partially completed; the next run resumes at Task 4.
+
+### Completed Tasks
+- **Task 1: Bump @anthropic-ai/sdk ^0.78 → ^0.100.1** (FOO-1071) — dependency upgraded + `npm install`; the anticipated type fallout did not materialize (typecheck passed with zero source edits to claude.ts/claude-usage.ts); `vitest "claude"` = 292 passing (= baseline), build + lint clean.
+- **Task 2: Extract parseErrorBody/sanitizeErrorBody/jsonWithTimeout → src/lib/http.ts** (FOO-1072) — moved the 3 helpers + `REQUEST_TIMEOUT_MS` verbatim into the new `src/lib/http.ts` with a colocated test; `fitbit.ts` now imports + re-exports them (so `fitbit.test.ts` importers stay green until fitbit.ts is deleted in Phase 3); `auth.ts` repointed to `@/lib/http`.
+- **Task 3: Widen exchangeGoogleCode → {access_token, refresh_token?, expires_in?, scope?}** (FOO-1073) — added the `ExchangeGoogleCodeResult` interface, parse the optional fields with type guards (undefined when omitted), LOGIN callers (read only `access_token`) untouched; 3 new auth tests.
+
+### Issues Encountered
+- The repeated "blank/duplicated" tool outputs earlier in the run were a transient output-delivery lag, not failures — every command had actually executed. Mitigated by routing long commands to a file via `run_in_background` and reading the file on the completion notification.
+- Initial Task-2 test draft asserted incorrect helper behavior (assumed Bearer-redaction); corrected to match the verbatim implementations (`sanitizeErrorBody` strips HTML + truncates to 500; `parseErrorBody` falls back to `"unable to read body"`; `jsonWithTimeout` throws `"Response body read timed out"`).
+- A Task-3 test compared a `URLSearchParams` body as a string; fixed by `String(...)`-coercing before asserting `.toContain`.
+
+### Tasks Remaining
+Resume at **Phase 1, Task 4** (FOO-1074 — single-owner `src/types/index.ts` rename), then Tasks 5–10 (rest of Phase 1), then Phases 2–5 (Tasks 11–30). Phase 1 must be completed as one atomic unit (the types rename cascades across all consumers + schema.ts) before typecheck returns to green.
+
+### Verification
+- `npm run typecheck` — 0 errors
+- `npx vitest run http` — pass (8); `npx vitest run auth` — pass (24); `npx vitest run fitbit` — pass (130); `npx vitest run "claude"` — pass (292)
+- `npm run build` — success; `npm run lint` — zero warnings
+- (Task 1 full gate run earlier: tests + build + lint all exit 0)
+
+### Files Changed
+- `package.json` (modify — SDK ^0.100.1)
+- `package-lock.json` (modify)
+- `src/lib/http.ts` (create)
+- `src/lib/__tests__/http.test.ts` (create)
+- `src/lib/fitbit.ts` (modify — helpers moved out, re-exported from @/lib/http)
+- `src/lib/auth.ts` (modify — import @/lib/http; widen exchangeGoogleCode)
+- `src/lib/__tests__/auth.test.ts` (modify — 3 new exchangeGoogleCode tests)
