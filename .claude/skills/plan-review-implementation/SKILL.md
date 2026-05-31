@@ -2,12 +2,21 @@
 name: plan-review-implementation
 description: QA review of completed implementation using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Use after plan-implement finishes, or when user says "review the implementation". Moves Linear issues Review→Merge. Creates new issues in Todo for bugs found. After PR creation, launches a 3-min Codex monitor that auto-fixes findings, watches CI, and squash-merges + cleans up when both are clean. Falls back to single-agent mode if agent teams unavailable.
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash, Agent, Workflow, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, CronCreate, CronList, CronDelete, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__sentry__update_issue, mcp__sentry__find_organizations, mcp__sentry__find_projects, mcp__sentry__search_issues
+disallowed-tools: AskUserQuestion, EnterPlanMode, ExitPlanMode
 disable-model-invocation: true
 ---
 
 Review **ALL** implementation iterations that need review using an agent team with domain-specialized reviewers. You are the **team lead/coordinator**. You orchestrate 3 reviewer teammates who review changed files in parallel through different lenses, then you merge findings, document them, and handle Linear/git.
 
 **If agent teams are unavailable** (TeamCreate fails), fall back to single-agent mode — see "Fallback: Single-Agent Mode" section.
+
+## Autonomous Execution — never stop to ask
+
+This is a **workflow skill**: it runs to completion without consulting the user mid-run. `AskUserQuestion` and plan mode are disabled while it is active.
+
+- **NEVER** ask the user a question, request a choice/confirmation, propose options, or enter plan mode — about scope, approach, the Codex-monitor loop, or whether to continue. Resolve every decision with the most reasonable default and document it in your output.
+- **Ambiguity** (which iterations to review, how to handle a finding) → resolve via this skill's rules and the Codex-calibration matrix; pick the reasonable default and proceed.
+- The **ONLY** permitted stops are the terminal STOP conditions in this skill (e.g. Linear MCP down) — they emit a fixed message and end the run; they are not questions.
 
 **Reference:** See [references/code-review-checklist.md](references/code-review-checklist.md) for comprehensive checklist.
 

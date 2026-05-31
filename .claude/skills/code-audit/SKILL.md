@@ -3,12 +3,21 @@ name: code-audit
 description: Audits codebase using an agent team with 3 domain-specialized reviewers (security, reliability, quality). Triages open Sentry issues (creates Linear issues for real bugs, resolves/ignores noise). Creates Linear issues in Backlog state for findings. Use when user says "audit", "find bugs", "check security", "review codebase", or "team audit". Higher token cost, faster and deeper analysis. Falls back to single-agent mode if agent teams unavailable.
 argument-hint: [optional: specific area like "lib" or "api"]
 allowed-tools: Read, Glob, Grep, Agent, Bash, Workflow, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses, mcp__sentry__find_organizations, mcp__sentry__find_projects, mcp__sentry__search_issues, mcp__sentry__get_sentry_resource, mcp__sentry__analyze_issue_with_seer, mcp__sentry__update_issue
+disallowed-tools: AskUserQuestion, EnterPlanMode, ExitPlanMode
 disable-model-invocation: true
 ---
 
 Perform a comprehensive code audit using an agent team with domain-specialized reviewers. You are the **team lead/coordinator**. You orchestrate 3 reviewer teammates who scan the codebase in parallel, then you merge findings and create Linear issues.
 
 **If agent teams are unavailable** (TeamCreate fails), fall back to single-agent mode — see "Fallback: Single-Agent Mode" section.
+
+## Autonomous Execution — never stop to ask
+
+This is a **workflow skill**: it runs to completion without consulting the user mid-run. `AskUserQuestion` and plan mode are disabled while it is active.
+
+- **NEVER** ask the user a question, request a choice/confirmation, propose options, or enter plan mode — about scope, approach, or whether to continue. Resolve every decision with the most reasonable default from the request/arguments and document it in your output.
+- **Ambiguous scope** (e.g. no area argument) → audit the full default scope; don't ask which part to review.
+- The **ONLY** permitted stops are the terminal STOP conditions in this skill (e.g. Linear MCP down) — they emit a fixed message and end the run; they are not questions.
 
 ## Pre-flight
 

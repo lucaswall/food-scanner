@@ -3,12 +3,21 @@ name: frontend-review
 description: Reviews all frontend elements (UI, UX, accessibility, visual design, responsiveness, performance, visual QA from screenshots) using an agent team with 4 domain-specialized reviewers. Creates Linear issues in Backlog state for findings. Use when user says "review frontend", "check UI", "review UX", "audit accessibility", "check responsive", or "review screens". Falls back to single-agent mode if agent teams unavailable.
 argument-hint: [optional: specific area like "settings page" or "photo capture"]
 allowed-tools: Read, Glob, Grep, Agent, Bash, Workflow, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet, mcp__linear__list_teams, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__create_issue, mcp__linear__update_issue, mcp__linear__list_issue_labels, mcp__linear__list_issue_statuses
+disallowed-tools: AskUserQuestion, EnterPlanMode, ExitPlanMode
 disable-model-invocation: true
 ---
 
 Review all frontend elements using an agent team with domain-specialized reviewers. You are the **team lead/coordinator**. You orchestrate 4 reviewer teammates who examine the frontend through different lenses in parallel, then you merge findings, create Linear issues, and output a summary report.
 
 **If agent teams are unavailable** (TeamCreate fails), fall back to single-agent mode — see "Fallback: Single-Agent Mode" section.
+
+## Autonomous Execution — never stop to ask
+
+This is a **workflow skill**: it runs to completion without consulting the user mid-run. `AskUserQuestion` and plan mode are disabled while it is active.
+
+- **NEVER** ask the user a question, request a choice/confirmation, propose options, or enter plan mode — about scope, approach, or whether to continue. Resolve every decision with the most reasonable default from the request/arguments and document it in your output.
+- **Ambiguous scope** (e.g. no area argument) → review the full default frontend scope; don't ask which screen to review.
+- The **ONLY** permitted stops are the terminal STOP conditions in this skill (e.g. Linear MCP down) — they emit a fixed message and end the run; they are not questions.
 
 **Reference:** See [references/frontend-checklist.md](references/frontend-checklist.md) for the comprehensive checklist and [references/reviewer-prompts.md](references/reviewer-prompts.md) for domain-specific reviewer instructions.
 
