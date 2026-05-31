@@ -674,7 +674,7 @@
 - Must land before the E2E gate runs (Phase 1.6 of push-to-production / before PR creation)
 - No outbound connect-src for health.googleapis.com is needed (REST is server-side, not browser)
 
-- **Migration note:** Docs document HEALTH_DRY_RUN (staging=true, production unset) and that Google Health scopes live on the GCP consent screen, not env. E2E fixtures seed health_tokens.
+- **Migration note:** Docs document HEALTH_DRY_RUN (staging always true, production always false) and that Google Health scopes live on the GCP consent screen, not env. E2E fixtures seed health_tokens.
 
 <!-- ===== Phase 5 ===== -->
 
@@ -705,7 +705,7 @@
 - `MIGRATIONS.md` (modify)
 
 **Steps:**
-1. At the staging deploy (when this branch merges to main → staging), the LEAD sets HEALTH_DRY_RUN=true on the staging environment via the Railway MCP (set_variables) BEFORE/with the deploy so staging stays DB-only.
+1. At the staging deploy, the LEAD sets HEALTH_DRY_RUN=true on staging AND HEALTH_DRY_RUN=false on production via the Railway MCP (set_variables) — the standing invariant: staging always true (writes skipped), production always false (writes live). Set staging=true before/with the deploy so staging never goes live.
 2. Via Railway MCP, remove the orphaned vars FITBIT_DRY_RUN (staging), FITBIT_CLIENT_ID and FITBIT_CLIENT_SECRET (both staging + production). Safe to remove FITBIT_DRY_RUN only AFTER the migrated code (which reads HEALTH_DRY_RUN, not FITBIT_DRY_RUN) is live — never before, or pre-migration staging would go live.
 3. Apply the data-only token clear DELETE FROM health_tokens against staging, then production at release (per the push-to-production data-SQL policy — agent-applied, never deferred to the user), so Lucas + Mariana hit the reconnect path and re-consent once.
 4. Verify: GET /api/health reports healthMode=Dry Run on staging; the login → /app/connect-health → google-health round-trip succeeds; production health unaffected. Log the env + token-clear actions in MIGRATIONS.md.
@@ -715,7 +715,7 @@
 - GCP precondition (enable Google Health API + add the 4 scopes) is already DONE — verified by the user.
 - Production application of the Drizzle migration (Task 29) + this token clear happens via the push-to-production release flow, which already runs data SQL agent-side.
 
-- **Migration note:** Release/deploy ops (agent-applied, no human): Railway env changes (HEALTH_DRY_RUN on staging; drop FITBIT_DRY_RUN/FITBIT_CLIENT_ID/FITBIT_CLIENT_SECRET) + DELETE FROM health_tokens. Sequence the HEALTH_DRY_RUN set with the staging deploy; only drop FITBIT_DRY_RUN after the migrated code is live.
+- **Migration note:** Release/deploy ops (agent-applied, no human): Railway env — HEALTH_DRY_RUN=true on staging, HEALTH_DRY_RUN=false on production (standing invariant); drop FITBIT_DRY_RUN/FITBIT_CLIENT_ID/FITBIT_CLIENT_SECRET; + DELETE FROM health_tokens. Only drop FITBIT_DRY_RUN after the migrated code is live.
 
 ## Deploy Steps — AGENT-EXECUTED, no human action
 
@@ -754,6 +754,7 @@ The release env + token-clear steps are performed by the LEAD agent (Railway MCP
 - Anthropic Core: keep model claude-sonnet-4-6; move volatile date/time into the message stream so the system prefix caches; extend cache_control over image blocks; replace truncateConversation with beta context-management clear_tool_uses (delete fn + tests + all 3 call sites).
 - drizzle-kit generate is ONE lead-only task after ALL schema edits land; workers never hand-write migrations or snapshots.
 - Release env/DB steps are AGENT-executed by the lead via Railway MCP + DB (Task 30) — set HEALTH_DRY_RUN on staging, drop orphaned FITBIT_* vars, clear health_tokens. Zero human action; GCP enablement already verified done.
+- Dry-run invariant matches the current Fitbit architecture exactly: HEALTH_DRY_RUN gates ONLY the nutrition write/delete (createNutritionLog/deleteNutritionLogs) + the visibility filter; OAuth (all 4 scopes), token refresh, and profile/weight/activity reads are REAL on staging. Staging always HEALTH_DRY_RUN=true, production always false. The actual nutrition write/delete is the only surface first exercised in production.
 **Risks:**
 - Google Health request/response BODY SHAPES (nutrition-log create/batchDelete, users/me/identity, health_metrics weight query, activity dailyRollUp, profile sex/height/DOB) are inferred from docs, not a live API. Body-builders are isolated; unit tests mock fetch; correctness is verified during staging QA (C4).
 - The fitbitFoodId visibility-filter re-base changes which foods appear in history/search in production — intended under Postgres-as-source-of-truth but a visible behavior change to call out in the PR (C1).
