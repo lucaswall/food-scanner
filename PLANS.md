@@ -2,7 +2,7 @@
 
 **Created:** 2026-05-31
 **Source:** Inline request: Full Fitbit → Google Health API migration (hard cutover, staging-testable) + all review-surfaced bug/defect fixes + Anthropic Core modernization. Agent-only, single-shot, no deferred work.
-**Linear Issues:** [FOO-1071](https://linear.app/lw-claude/issue/FOO-1071), [FOO-1072](https://linear.app/lw-claude/issue/FOO-1072), [FOO-1073](https://linear.app/lw-claude/issue/FOO-1073), [FOO-1074](https://linear.app/lw-claude/issue/FOO-1074), [FOO-1075](https://linear.app/lw-claude/issue/FOO-1075), [FOO-1076](https://linear.app/lw-claude/issue/FOO-1076), [FOO-1077](https://linear.app/lw-claude/issue/FOO-1077), [FOO-1078](https://linear.app/lw-claude/issue/FOO-1078), [FOO-1079](https://linear.app/lw-claude/issue/FOO-1079), [FOO-1080](https://linear.app/lw-claude/issue/FOO-1080), [FOO-1081](https://linear.app/lw-claude/issue/FOO-1081), [FOO-1082](https://linear.app/lw-claude/issue/FOO-1082), [FOO-1083](https://linear.app/lw-claude/issue/FOO-1083), [FOO-1084](https://linear.app/lw-claude/issue/FOO-1084), [FOO-1085](https://linear.app/lw-claude/issue/FOO-1085), [FOO-1086](https://linear.app/lw-claude/issue/FOO-1086), [FOO-1087](https://linear.app/lw-claude/issue/FOO-1087), [FOO-1088](https://linear.app/lw-claude/issue/FOO-1088), [FOO-1089](https://linear.app/lw-claude/issue/FOO-1089), [FOO-1090](https://linear.app/lw-claude/issue/FOO-1090), [FOO-1091](https://linear.app/lw-claude/issue/FOO-1091), [FOO-1092](https://linear.app/lw-claude/issue/FOO-1092), [FOO-1093](https://linear.app/lw-claude/issue/FOO-1093), [FOO-1094](https://linear.app/lw-claude/issue/FOO-1094), [FOO-1095](https://linear.app/lw-claude/issue/FOO-1095), [FOO-1096](https://linear.app/lw-claude/issue/FOO-1096), [FOO-1097](https://linear.app/lw-claude/issue/FOO-1097), [FOO-1098](https://linear.app/lw-claude/issue/FOO-1098), [FOO-1099](https://linear.app/lw-claude/issue/FOO-1099)
+**Linear Issues:** [FOO-1071](https://linear.app/lw-claude/issue/FOO-1071), [FOO-1072](https://linear.app/lw-claude/issue/FOO-1072), [FOO-1073](https://linear.app/lw-claude/issue/FOO-1073), [FOO-1074](https://linear.app/lw-claude/issue/FOO-1074), [FOO-1075](https://linear.app/lw-claude/issue/FOO-1075), [FOO-1076](https://linear.app/lw-claude/issue/FOO-1076), [FOO-1077](https://linear.app/lw-claude/issue/FOO-1077), [FOO-1078](https://linear.app/lw-claude/issue/FOO-1078), [FOO-1079](https://linear.app/lw-claude/issue/FOO-1079), [FOO-1080](https://linear.app/lw-claude/issue/FOO-1080), [FOO-1081](https://linear.app/lw-claude/issue/FOO-1081), [FOO-1082](https://linear.app/lw-claude/issue/FOO-1082), [FOO-1083](https://linear.app/lw-claude/issue/FOO-1083), [FOO-1084](https://linear.app/lw-claude/issue/FOO-1084), [FOO-1085](https://linear.app/lw-claude/issue/FOO-1085), [FOO-1086](https://linear.app/lw-claude/issue/FOO-1086), [FOO-1087](https://linear.app/lw-claude/issue/FOO-1087), [FOO-1088](https://linear.app/lw-claude/issue/FOO-1088), [FOO-1089](https://linear.app/lw-claude/issue/FOO-1089), [FOO-1090](https://linear.app/lw-claude/issue/FOO-1090), [FOO-1091](https://linear.app/lw-claude/issue/FOO-1091), [FOO-1092](https://linear.app/lw-claude/issue/FOO-1092), [FOO-1093](https://linear.app/lw-claude/issue/FOO-1093), [FOO-1094](https://linear.app/lw-claude/issue/FOO-1094), [FOO-1095](https://linear.app/lw-claude/issue/FOO-1095), [FOO-1096](https://linear.app/lw-claude/issue/FOO-1096), [FOO-1097](https://linear.app/lw-claude/issue/FOO-1097), [FOO-1098](https://linear.app/lw-claude/issue/FOO-1098), [FOO-1099](https://linear.app/lw-claude/issue/FOO-1099), [FOO-1100](https://linear.app/lw-claude/issue/FOO-1100)
 **Branch:** feat/google-health-migration
 
 ## Context Gathered
@@ -698,10 +698,30 @@
 
 - **Migration note:** Produces the consolidated Drizzle migration for the full schema delta (token rename, credentials drop, food_log/custom_foods column changes, unit_id integer->text + backfill, users.weightGoalType, indexes, daily_calorie_goals CHECK, partial unique index). Lead applies it against production during the release per humanDeployNotes.
 
-## Human / Deploy Notes (LEAD at release — NOT worker tasks)
+### Task 30: LEAD ONLY (agent via Railway MCP + DB): apply release env + token-clear deploy steps — zero human action
+**Linear Issue:** [FOO-1100](https://linear.app/lw-claude/issue/FOO-1100) · **Label:** Technical Debt · **Phase 5** · **Depends on:** Task 29
 
-**Precondition (you, in the existing "Food Scanner" GCP project — Testing mode, ~5 min):** enable the Google Health API + add the 4 scopes to the consent screen. No new project/client/redirect URI/credentials.
+**Files:**
+- `MIGRATIONS.md` (modify)
 
+**Steps:**
+1. At the staging deploy (when this branch merges to main → staging), the LEAD sets HEALTH_DRY_RUN=true on the staging environment via the Railway MCP (set_variables) BEFORE/with the deploy so staging stays DB-only.
+2. Via Railway MCP, remove the orphaned vars FITBIT_DRY_RUN (staging), FITBIT_CLIENT_ID and FITBIT_CLIENT_SECRET (both staging + production). Safe to remove FITBIT_DRY_RUN only AFTER the migrated code (which reads HEALTH_DRY_RUN, not FITBIT_DRY_RUN) is live — never before, or pre-migration staging would go live.
+3. Apply the data-only token clear DELETE FROM health_tokens against staging, then production at release (per the push-to-production data-SQL policy — agent-applied, never deferred to the user), so Lucas + Mariana hit the reconnect path and re-consent once.
+4. Verify: GET /api/health reports healthMode=Dry Run on staging; the login → /app/connect-health → google-health round-trip succeeds; production health unaffected. Log the env + token-clear actions in MIGRATIONS.md.
+
+**Notes:**
+- Executed by the LEAD (Railway MCP + DB access), not a worker — workers have no MCP. This replaces what were previously framed as manual deploy notes; NO human action is required.
+- GCP precondition (enable Google Health API + add the 4 scopes) is already DONE — verified by the user.
+- Production application of the Drizzle migration (Task 29) + this token clear happens via the push-to-production release flow, which already runs data SQL agent-side.
+
+- **Migration note:** Release/deploy ops (agent-applied, no human): Railway env changes (HEALTH_DRY_RUN on staging; drop FITBIT_DRY_RUN/FITBIT_CLIENT_ID/FITBIT_CLIENT_SECRET) + DELETE FROM health_tokens. Sequence the HEALTH_DRY_RUN set with the staging deploy; only drop FITBIT_DRY_RUN after the migrated code is live.
+
+## Deploy Steps — AGENT-EXECUTED, no human action
+
+**Precondition (GCP enable Google Health API + add the 4 scopes): VERIFIED DONE by the user.** No remaining human action.
+
+The release env + token-clear steps are performed by the LEAD agent (Railway MCP + DB) in **Task 30** — not by a human:
 - Railway (staging): set HEALTH_DRY_RUN=true; remove FITBIT_DRY_RUN, FITBIT_CLIENT_ID, FITBIT_CLIENT_SECRET (0 code usages). Production leaves HEALTH_DRY_RUN unset for live writes.
 - DB one-time (lead, at deploy): after the fitbit_tokens->health_tokens rename, clear the table (DELETE FROM health_tokens;) so both Lucas and Mariana re-consent once via login -> /app/connect-health -> Google Health. They will see healthConnected=false until they reconnect.
 - DB (lead, drizzle-kit generate + reviewed SQL): fitbit_tokens RENAME TO health_tokens (+ column rename fitbit_user_id->health_user_id, preserve FK/unique); DROP fitbit_credentials; food_log_entries DROP fitbit_log_id + ADD health_log_id text; custom_foods DROP fitbit_food_id; custom_foods/food_log_entries unit_id integer->text with USING cast + legacy-ID backfill (147->g,226->oz,91->cup,349->tbsp,364->tsp,209->ml,311->slice,304->serving, unknown->serving) and saved_analyses.food_analysis JSONB unit_id remap; ADD users.weightGoalType; new indexes (CREATE INDEX CONCURRENTLY on a live table); daily_calorie_goals activity_level CHECK; partial unique index on food_log_entries(user_id, health_log_id) WHERE NOT NULL.
@@ -720,8 +740,8 @@
 
 **Objective:** Hard-cutover the app's nutrition/profile/weight/activity integration from Fitbit to Google Health (single absolute switch, no provider flags), fix the review-surfaced bugs, and modernize the Anthropic Core (SDK ^0.100, prompt-cache, server-side context editing).
 **Approach:** Phase the work foundation-first: extract shared HTTP helpers and bump the SDK before any deletes (Phase 0); land the entire data model, the single-owner src/types/index.ts rename, the serving-unit re-model, and the session contract (Phase 1); stand up the Google Health OAuth connect flow and the google-health transport/rate-limit cores (Phase 2); rewire all write and read paths plus the renamed routes/caches (Phase 3); migrate UI/hooks, the Claude cache/context-editing changes, docs, the non-migration bug-fixes, and the E2E/goal-engine tests (Phase 4); then a single lead-only drizzle-kit generate (Phase 5). Every task is test-first with colocated __tests__/ and concrete assertions; Google Health request/response body shapes are isolated in body-builder helpers and verified against the real API during staging QA.
-**Linear Issues:** FOO-1071–FOO-1099 (29 issues, Todo)
-**Scope:** 29 tasks across 6 phases, ~144 files, 62+ test files
+**Linear Issues:** FOO-1071–FOO-1100 (30 issues, Todo)
+**Scope:** 30 tasks across 6 phases, ~144 files, 62+ test files
 **Key Decisions:**
 - Single absolute cutover: delete ALL Fitbit code (fitbit.ts, fitbit-tokens.ts, fitbit-credentials.ts, fitbit-cache.ts, fitbit-rate-limit.ts, fitbit-health.ts, setup-fitbit, fitbit-setup-form, fitbit-setup-guard, fitbit-status-banner, fitbit-profile-card) — no shims, no provider flag, no deferred stage.
 - Per-user Fitbit credentials are eliminated: Google Health reuses the single shared Google OAuth client; fitbit_credentials table + module dropped.
@@ -733,6 +753,7 @@
 - Weight-goal (LOSE/MAINTAIN/GAIN) has no Google Health equivalent — degrade to a local nullable users.weightGoalType column (display-only consumer); delete getFitbitWeightGoal + its cache.
 - Anthropic Core: keep model claude-sonnet-4-6; move volatile date/time into the message stream so the system prefix caches; extend cache_control over image blocks; replace truncateConversation with beta context-management clear_tool_uses (delete fn + tests + all 3 call sites).
 - drizzle-kit generate is ONE lead-only task after ALL schema edits land; workers never hand-write migrations or snapshots.
+- Release env/DB steps are AGENT-executed by the lead via Railway MCP + DB (Task 30) — set HEALTH_DRY_RUN on staging, drop orphaned FITBIT_* vars, clear health_tokens. Zero human action; GCP enablement already verified done.
 **Risks:**
 - Google Health request/response BODY SHAPES (nutrition-log create/batchDelete, users/me/identity, health_metrics weight query, activity dailyRollUp, profile sex/height/DOB) are inferred from docs, not a live API. Body-builders are isolated; unit tests mock fetch; correctness is verified during staging QA (C4).
 - The fitbitFoodId visibility-filter re-base changes which foods appear in history/search in production — intended under Postgres-as-source-of-truth but a visible behavior change to call out in the PR (C1).
