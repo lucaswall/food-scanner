@@ -127,7 +127,8 @@ function createMockRequest(body: unknown): Request {
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // resetAllMocks clears Once queues AND call history — ensures test isolation
+  vi.resetAllMocks();
   mockGetSession.mockResolvedValue(validSession);
   mockGetFoodLogEntryDetail.mockResolvedValue(existingEntry);
   mockEnsureFreshToken.mockResolvedValue("access-token-abc");
@@ -271,14 +272,67 @@ describe("POST /api/edit-food", () => {
     );
   });
 
+  it("regular path: DB failure re-creates original health log and updates DB metadata (full compensation)", async () => {
+    // Setup: new createNutritionLog succeeds, DB update fails
+    mockCreateNutritionLog
+      .mockResolvedValueOnce({ healthLogId: "new-log-to-delete" }) // initial create
+      .mockResolvedValueOnce({ healthLogId: "compensation-log-id" }); // re-create original
+    mockUpdateFoodLogEntry.mockRejectedValue(new Error("DB error"));
+    // compensation ensureFreshToken (second call)
+    mockEnsureFreshToken
+      .mockResolvedValueOnce("access-token-abc")
+      .mockResolvedValueOnce("fresh-token-compensation");
+
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+
+    // delete the new log
+    expect(mockDeleteNutritionLogs).toHaveBeenCalledWith(
+      "fresh-token-compensation",
+      ["new-log-to-delete"],
+      expect.any(Object),
+      "user-uuid-123",
+    );
+    // re-create original from entry's nutrients
+    expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
+    // persist compensation id to DB
+    expect(mockUpdateFoodLogEntryMetadata).toHaveBeenCalledWith(
+      "user-uuid-123",
+      42,
+      expect.objectContaining({ healthLogId: "compensation-log-id" }),
+      expect.anything(),
+    );
+  });
+
   it("regular path: relog failure calls createNutritionLog for compensation (re-create original)", async () => {
     // First createNutritionLog (new food) fails, triggering compensation
     mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
     const response = await POST(createMockRequest(validBody));
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(502);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_API_ERROR");
+  });
+
+  it("regular path: delete failure with HEALTH_SCOPE_MISSING returns 403", async () => {
+    // deleteNutritionLogs (for old log) fails with scope error
+    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_SCOPE_MISSING"));
+
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
+  });
+
+  it("regular path: delete failure with HEALTH_TIMEOUT returns 504", async () => {
+    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_TIMEOUT"));
+
+    const response = await POST(createMockRequest(validBody));
+    expect(response.status).toBe(504);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_TIMEOUT");
   });
 
   describe("fast path (nutrition unchanged)", () => {
@@ -352,9 +406,19 @@ describe("POST /api/edit-food", () => {
       mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_API_ERROR"));
 
       const response = await POST(createMockRequest(unchangedBody));
-      expect(response.status).toBe(500);
+      expect(response.status).toBe(502);
       const body = await response.json();
       expect(body.error.code).toBe("HEALTH_API_ERROR");
+    });
+
+    it("fast path: delete failure with HEALTH_SCOPE_MISSING returns 403", async () => {
+      // deleteNutritionLogs (for old log) fails with scope error
+      mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_SCOPE_MISSING"));
+
+      const response = await POST(createMockRequest(unchangedBody));
+      expect(response.status).toBe(403);
+      const body = await response.json();
+      expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
     });
 
     it("HEALTH_DRY_RUN: skips remote calls on fast path", async () => {

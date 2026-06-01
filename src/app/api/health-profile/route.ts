@@ -85,6 +85,9 @@ export async function GET(request: Request) {
           403,
         );
       }
+      if (error.message === "HEALTH_RATE_LIMIT") {
+        return errorResponse("HEALTH_RATE_LIMIT", "Google Health API rate limited. Please try again later.", 429);
+      }
       if (error.message === "HEALTH_RATE_LIMIT_LOW") {
         return errorResponse(
           "HEALTH_RATE_LIMIT_LOW",

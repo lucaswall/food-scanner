@@ -161,6 +161,20 @@ describe("GET /api/v1/activity-summary", () => {
     expect(data.error.code).toBe("HEALTH_API_ERROR");
   });
 
+  it("returns 500 HEALTH_TOKEN_SAVE_FAILED when token upsert fails after refresh", async () => {
+    mockGetCachedHealthActivitySummary.mockRejectedValue(new Error("HEALTH_TOKEN_SAVE_FAILED"));
+
+    const request = createRequest(
+      "http://localhost:3000/api/v1/activity-summary?date=2026-02-11",
+      { Authorization: "Bearer valid-key" }
+    );
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(data.error.code).toBe("HEALTH_TOKEN_SAVE_FAILED");
+  });
+
   it("returns 429 when API rate limit is exceeded", async () => {
     mockCheckRateLimit.mockReturnValue({ allowed: false, remaining: 0 });
 

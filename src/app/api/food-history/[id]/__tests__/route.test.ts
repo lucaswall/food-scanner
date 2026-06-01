@@ -216,6 +216,40 @@ describe("DELETE /api/food-history/[id]", () => {
     expect(body.error.code).toBe("HEALTH_RATE_LIMIT_LOW");
   });
 
+  it("returns 504 HEALTH_TIMEOUT when ensureFreshToken times out", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+    mockEnsureFreshToken.mockRejectedValue(new Error("HEALTH_TIMEOUT"));
+
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(504);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_TIMEOUT");
+  });
+
+  it("returns 429 HEALTH_RATE_LIMIT when deleteNutritionLogs is rate-limited", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+    mockEnsureFreshToken.mockResolvedValue("fresh-token");
+    mockDeleteNutritionLogs.mockRejectedValue(new Error("HEALTH_RATE_LIMIT"));
+
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(429);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_RATE_LIMIT");
+  });
+
+  it("returns 403 HEALTH_SCOPE_MISSING when Google Health scope is missing", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockGetFoodLogEntry.mockResolvedValue(sampleEntry);
+    mockEnsureFreshToken.mockRejectedValue(new Error("HEALTH_SCOPE_MISSING"));
+
+    const response = await DELETE(createRequest(), { params: Promise.resolve({ id: "42" }) });
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
+  });
+
   it("returns 500 INTERNAL_ERROR when DB delete fails after remote success", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockGetFoodLogEntry.mockResolvedValue(sampleEntry);

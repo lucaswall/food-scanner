@@ -234,7 +234,19 @@ describe("POST /api/log-food", () => {
     expect(body.error.code).toBe("HEALTH_RATE_LIMIT");
   });
 
-  it("returns 500 HEALTH_API_ERROR on createNutritionLog failure", async () => {
+  it("returns 403 HEALTH_SCOPE_MISSING when Google Health scope is missing", async () => {
+    mockGetSession.mockResolvedValue(validSession);
+    mockEnsureFreshToken.mockRejectedValue(new Error("HEALTH_SCOPE_MISSING"));
+
+    const request = createMockRequest(validFoodLogRequest);
+    const response = await POST(request);
+
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_SCOPE_MISSING");
+  });
+
+  it("returns 502 HEALTH_API_ERROR on createNutritionLog failure", async () => {
     mockGetSession.mockResolvedValue(validSession);
     mockEnsureFreshToken.mockResolvedValue("fresh-token");
     mockCreateNutritionLog.mockRejectedValue(new Error("HEALTH_API_ERROR"));
@@ -242,7 +254,7 @@ describe("POST /api/log-food", () => {
     const request = createMockRequest(validFoodLogRequest);
     const response = await POST(request);
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(502);
     const body = await response.json();
     expect(body.error.code).toBe("HEALTH_API_ERROR");
   });
@@ -465,6 +477,51 @@ describe("POST /api/log-food", () => {
       await POST(createMockRequest(body2));
 
       expect(mockCreateNutritionLog).toHaveBeenCalledTimes(2);
+    });
+
+    it("reuse flow: cache hit returns reusedFood: true (not hardcoded false)", async () => {
+      mockGetSession.mockResolvedValue(validSession);
+      mockEnsureFreshToken.mockResolvedValue("fresh-token");
+      mockGetCustomFoodById.mockResolvedValue({
+        id: 42,
+        userId: "user-uuid-123",
+        foodName: "Tea with milk",
+        amount: "1",
+        unitId: "cup" as ServingUnit,
+        calories: 50,
+        proteinG: "2",
+        carbsG: "5",
+        fatG: "2",
+        fiberG: "0",
+        sodiumMg: "30",
+        saturatedFatG: null,
+        transFatG: null,
+        sugarsG: null,
+        caloriesFromFat: null,
+        confidence: "high",
+        notes: null,
+        description: null,
+        keywords: ["tea", "milk"],
+        createdAt: new Date("2026-02-05T12:00:00Z"),
+      });
+      mockCreateNutritionLog.mockResolvedValue({ healthLogId: "log-reuse-idem-r" });
+      mockInsertFoodLogEntry.mockResolvedValue({ id: 77, loggedAt: new Date() });
+
+      const body = { ...validFoodLogRequest, reuseCustomFoodId: 42, clientToken: "reuse-token-flag-check" };
+
+      const response1 = await POST(createMockRequest(body));
+      const response2 = await POST(createMockRequest(body));
+
+      expect(response1.status).toBe(200);
+      expect(response2.status).toBe(200);
+
+      const data1 = (await response1.json()).data;
+      const data2 = (await response2.json()).data;
+      // First response: fresh
+      expect(data1.reusedFood).toBe(true);
+      // Second response: from cache — must also return reusedFood: true
+      expect(data2.reusedFood).toBe(true);
+      expect(data2.foodLogId).toBe(77);
     });
 
     it("is idempotent in the reuse flow: same clientToken calls createNutritionLog once", async () => {

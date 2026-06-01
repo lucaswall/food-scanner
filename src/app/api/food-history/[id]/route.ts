@@ -3,6 +3,7 @@ import { successResponse, errorResponse, conditionalResponse } from "@/lib/api-r
 import { createRequestLogger } from "@/lib/logger";
 import { getFoodLogEntry, deleteFoodLogEntry, getFoodLogEntryDetail } from "@/lib/food-log";
 import { ensureFreshToken, deleteNutritionLogs } from "@/lib/google-health";
+import { mapHealthError } from "@/lib/health-error-response";
 
 export async function GET(
   request: Request,
@@ -99,36 +100,10 @@ export async function DELETE(
 
     return successResponse({ deleted: true });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    if (errorMessage === "HEALTH_TOKEN_INVALID") {
-      log.warn(
-        { action: "delete_food_log_token_invalid" },
-        "Google Health token invalid, reconnect required",
-      );
-      return errorResponse(
-        "HEALTH_TOKEN_INVALID",
-        "Google Health session expired. Please reconnect your account.",
-        401,
-      );
-    }
-
-    if (errorMessage === "HEALTH_RATE_LIMIT_LOW") {
-      log.warn(
-        { action: "delete_food_log_rate_limit_low" },
-        "Google Health rate limit headroom low",
-      );
-      return errorResponse(
-        "HEALTH_RATE_LIMIT_LOW",
-        "Google Health rate-limit headroom is low. Please try again in a few minutes.",
-        503,
-      );
-    }
-
     log.error(
-      { action: "delete_food_log_error", error: errorMessage },
+      { action: "delete_food_log_error", error: error instanceof Error ? error.message : String(error) },
       "failed to delete food log entry",
     );
-    return errorResponse("HEALTH_API_ERROR", "Failed to delete food log entry", 502);
+    return mapHealthError(error);
   }
 }

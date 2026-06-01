@@ -88,6 +88,9 @@ export async function GET(request: Request) {
       if (error.message === "HEALTH_REFRESH_TRANSIENT") {
         return errorResponse("HEALTH_REFRESH_TRANSIENT", "Temporary Google Health error. Please try again.", 502);
       }
+      if (error.message === "HEALTH_TOKEN_SAVE_FAILED") {
+        return errorResponse("HEALTH_TOKEN_SAVE_FAILED", "Failed to save Google Health tokens. Please try again.", 500);
+      }
       if (error.message === "HEALTH_API_ERROR") {
         return errorResponse("HEALTH_API_ERROR", "Google Health API error", 502);
       }

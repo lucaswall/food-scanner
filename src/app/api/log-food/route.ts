@@ -2,6 +2,7 @@ import { getSession, validateSession } from "@/lib/session";
 import { successResponse, errorResponse } from "@/lib/api-response";
 import { createRequestLogger } from "@/lib/logger";
 import { ensureFreshToken, createNutritionLog, deleteNutritionLogs } from "@/lib/google-health";
+import { mapHealthError } from "@/lib/health-error-response";
 import { insertCustomFoodWithLogEntry, insertFoodLogEntry, getCustomFoodById, updateCustomFoodMetadata } from "@/lib/food-log";
 import { isValidDateFormat, isValidTimeFormat } from "@/lib/date-utils";
 import { isValidFoodAnalysisFields } from "@/lib/food-validation";
@@ -22,12 +23,23 @@ const VALID_MEAL_TYPE_IDS = [
  * Per-user clientToken idempotency cache.
  * Keyed by "userId:clientToken" → cached result.
  * TTL: 5 minutes per entry (resets on deploy — acceptable for a 2-user app).
+ * Expired entries are swept on each write to prevent unbounded growth.
  */
 const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
 const idempotencyCache = new Map<
   string,
-  { healthLogId?: string; foodLogId?: number; expiresAt: number }
+  { healthLogId?: string; foodLogId?: number; reusedFood: boolean; expiresAt: number }
 >();
+
+/** Drop all entries whose TTL has elapsed (O(n) sweep, called on each write). */
+function sweepIdempotencyCache(): void {
+  const now = Date.now();
+  for (const [key, value] of idempotencyCache) {
+    if (value.expiresAt <= now) {
+      idempotencyCache.delete(key);
+    }
+  }
+}
 
 function getIdempotencyKey(userId: string, clientToken: string): string {
   return `${userId}:${clientToken}`;
@@ -153,7 +165,7 @@ export async function POST(request: Request) {
       const response: FoodLogResponse = {
         success: true,
         healthLogId: cached.healthLogId,
-        reusedFood: false,
+        reusedFood: cached.reusedFood,
         foodLogId: cached.foodLogId,
       };
       return successResponse(response);
@@ -287,10 +299,12 @@ export async function POST(request: Request) {
 
       // Store in idempotency cache if clientToken provided (reuse flow)
       if (clientToken) {
+        sweepIdempotencyCache();
         const cacheKey = getIdempotencyKey(userId, clientToken);
         idempotencyCache.set(cacheKey, {
           healthLogId,
           foodLogId,
+          reusedFood: true,
           expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
         });
       }
@@ -399,10 +413,12 @@ export async function POST(request: Request) {
 
     // Store in idempotency cache if clientToken provided
     if (clientToken) {
+      sweepIdempotencyCache();
       const cacheKey = getIdempotencyKey(userId, clientToken);
       idempotencyCache.set(cacheKey, {
         healthLogId,
         foodLogId,
+        reusedFood: false,
         expiresAt: Date.now() + IDEMPOTENCY_TTL_MS,
       });
     }
@@ -422,37 +438,10 @@ export async function POST(request: Request) {
 
     return successResponse(response);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-
-    if (errorMessage === "HEALTH_TOKEN_INVALID") {
-      log.warn({ action: "log_food_token_invalid" }, "Google Health token invalid, reconnect required");
-      return errorResponse(
-        "HEALTH_TOKEN_INVALID",
-        "Google Health session expired. Please reconnect your account.",
-        401
-      );
-    }
-
-    if (errorMessage === "HEALTH_TIMEOUT") {
-      log.warn({ action: "log_food_timeout" }, "Google Health request timed out");
-      return errorResponse("HEALTH_TIMEOUT", "Request to Google Health timed out. Please try again.", 504);
-    }
-
-    if (errorMessage === "HEALTH_RATE_LIMIT_LOW") {
-      log.warn({ action: "log_food_rate_limit_low" }, "Google Health rate limit headroom low");
-      return errorResponse(
-        "HEALTH_RATE_LIMIT_LOW",
-        "Google Health rate-limit headroom is low. Please try again in a few minutes.",
-        503
-      );
-    }
-
-    if (errorMessage === "HEALTH_RATE_LIMIT") {
-      log.warn({ action: "log_food_rate_limited" }, "Google Health rate limited");
-      return errorResponse("HEALTH_RATE_LIMIT", "Google Health API rate limited. Please try again later.", 429);
-    }
-
-    log.error({ action: "log_food_error", error: errorMessage }, "Google Health API error");
-    return errorResponse("HEALTH_API_ERROR", "Failed to log food to Google Health", 500);
+    log.error(
+      { action: "log_food_error", error: error instanceof Error ? error.message : String(error) },
+      "Google Health API error",
+    );
+    return mapHealthError(error);
   }
 }

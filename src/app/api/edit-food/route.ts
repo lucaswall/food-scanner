@@ -5,6 +5,7 @@ import { ensureFreshToken, createNutritionLog, deleteNutritionLogs } from "@/lib
 import { getFoodLogEntryDetail, updateFoodLogEntry, updateFoodLogEntryMetadata, updateCustomFoodMetadata } from "@/lib/food-log";
 import { isValidDateFormat, isValidTimeFormat } from "@/lib/date-utils";
 import { isValidFoodAnalysisFields } from "@/lib/food-validation";
+import { mapHealthError } from "@/lib/health-error-response";
 import type { FoodAnalysis, FoodLogEntryDetail, ServingUnit } from "@/types";
 import { MealType, coerceServingUnit } from "@/types";
 
@@ -59,34 +60,6 @@ function buildAnalysisFromEntry(entry: FoodLogEntryDetail): FoodAnalysis {
   };
 }
 
-/** Map a thrown Google Health error code to a typed HTTP response (mirrors log-food's outer catch). */
-function mapHealthErrorToResponse(
-  error: unknown,
-  log: ReturnType<typeof createRequestLogger>,
-  action: string,
-): Response {
-  const errorMessage = error instanceof Error ? error.message : String(error);
-
-  if (errorMessage === "HEALTH_TOKEN_INVALID") {
-    log.warn({ action }, "Google Health token invalid, reconnect required");
-    return errorResponse("HEALTH_TOKEN_INVALID", "Google Health session expired. Please reconnect your account.", 401);
-  }
-  if (errorMessage === "HEALTH_TIMEOUT") {
-    log.warn({ action }, "Google Health request timed out");
-    return errorResponse("HEALTH_TIMEOUT", "Request to Google Health timed out. Please try again.", 504);
-  }
-  if (errorMessage === "HEALTH_RATE_LIMIT_LOW") {
-    log.warn({ action }, "Google Health rate limit headroom low");
-    return errorResponse("HEALTH_RATE_LIMIT_LOW", "Google Health rate-limit headroom is low. Please try again in a few minutes.", 503);
-  }
-  if (errorMessage === "HEALTH_RATE_LIMIT") {
-    log.warn({ action }, "Google Health rate limited");
-    return errorResponse("HEALTH_RATE_LIMIT", "Google Health API rate limited. Please try again later.", 429);
-  }
-
-  log.error({ action, error: errorMessage }, "Google Health API error");
-  return errorResponse("HEALTH_API_ERROR", "Failed to update food in Google Health", 500);
-}
 
 export async function POST(request: Request) {
   const log = createRequestLogger("POST", "/api/edit-food");
@@ -181,7 +154,8 @@ export async function POST(request: Request) {
       try {
         accessToken = await ensureFreshToken(userId, log);
       } catch (tokenErr) {
-        return mapHealthErrorToResponse(tokenErr, log, "edit_food_fast_path_ensure_token_failed");
+        log.error({ action: "edit_food_fast_path_ensure_token_failed", error: tokenErr instanceof Error ? tokenErr.message : String(tokenErr) }, "health error on token refresh (fast path)");
+        return mapHealthError(tokenErr);
       }
 
       // Delete old health log if exists
@@ -191,7 +165,7 @@ export async function POST(request: Request) {
         } catch (deleteErr) {
           const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
           log.error({ action: "edit_food_fast_path_delete_failed", error: errMsg }, "failed to delete old health log");
-          return errorResponse("HEALTH_API_ERROR", "Failed to delete old health log", 500);
+          return mapHealthError(deleteErr);
         }
       }
 
@@ -231,7 +205,7 @@ export async function POST(request: Request) {
           }
         }
 
-        return errorResponse("HEALTH_API_ERROR", "Failed to update food in Google Health", 500);
+        return mapHealthError(logErr);
       }
     }
 
@@ -311,7 +285,8 @@ export async function POST(request: Request) {
     try {
       accessToken = await ensureFreshToken(userId, log);
     } catch (tokenErr) {
-      return mapHealthErrorToResponse(tokenErr, log, "edit_food_ensure_token_failed");
+      log.error({ action: "edit_food_ensure_token_failed", error: tokenErr instanceof Error ? tokenErr.message : String(tokenErr) }, "health error on token refresh");
+      return mapHealthError(tokenErr);
     }
 
     // Delete old health log if exists
@@ -322,7 +297,7 @@ export async function POST(request: Request) {
       } catch (deleteErr) {
         const errMsg = deleteErr instanceof Error ? deleteErr.message : String(deleteErr);
         log.error({ action: "edit_food_delete_failed", error: errMsg }, "failed to delete old health log");
-        return errorResponse("HEALTH_API_ERROR", "Failed to delete old health log", 500);
+        return mapHealthError(deleteErr);
       }
     }
 
@@ -367,7 +342,7 @@ export async function POST(request: Request) {
         }
       }
 
-      return errorResponse("HEALTH_API_ERROR", "Failed to update food in Google Health", 500);
+      return mapHealthError(logErr);
     }
   }
 
@@ -422,12 +397,28 @@ export async function POST(request: Request) {
     const errMsg = dbErr instanceof Error ? dbErr.message : String(dbErr);
     log.error({ action: "edit_food_db_error", error: errMsg }, "DB update failed after health log creation, attempting compensation");
 
-    // Compensation: delete new health log
+    // Compensation: delete new health log + re-create original (mirrors fast-path pattern)
     if (newHealthLogId !== undefined && !isDryRun) {
       try {
         const freshToken = await ensureFreshToken(userId, log);
         await deleteNutritionLogs(freshToken, [newHealthLogId], log, userId);
-        log.info({ action: "edit_food_db_compensation", healthLogId: newHealthLogId }, "new health log deleted after DB failure");
+        // Re-create the original health log from the entry's stored nutrients
+        const compensationResult = await createNutritionLog(freshToken, buildAnalysisFromEntry(entry), log, userId);
+        const compensationHealthLogId = compensationResult.healthLogId;
+        try {
+          await updateFoodLogEntryMetadata(userId, entryId, {
+            mealTypeId: entry.mealTypeId,
+            date: entry.date,
+            time: entry.time ?? time,
+            healthLogId: compensationHealthLogId,
+          }, log);
+        } catch (dbUpdateErr) {
+          log.error(
+            { action: "edit_food_db_compensation_db_failed", error: dbUpdateErr instanceof Error ? dbUpdateErr.message : String(dbUpdateErr) },
+            "failed to update healthLogId after regular path DB compensation"
+          );
+        }
+        log.info({ action: "edit_food_db_compensation_success", healthLogId: compensationHealthLogId }, "original health log restored after DB failure");
       } catch (compensationErr) {
         log.error(
           { action: "edit_food_db_compensation_failed", healthLogId: newHealthLogId, error: compensationErr instanceof Error ? compensationErr.message : String(compensationErr) },

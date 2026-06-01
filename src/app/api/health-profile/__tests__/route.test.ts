@@ -151,6 +151,14 @@ describe("GET /api/health-profile", () => {
     expect(body.error.code).toBe("HEALTH_RATE_LIMIT_LOW");
   });
 
+  it("returns 429 HEALTH_RATE_LIMIT when Google Health rate-limits the request", async () => {
+    mockGetCachedHealthProfile.mockRejectedValue(new Error("HEALTH_RATE_LIMIT"));
+    const response = await GET(createRequest("http://localhost:3000/api/health-profile"));
+    expect(response.status).toBe(429);
+    const body = await response.json();
+    expect(body.error.code).toBe("HEALTH_RATE_LIMIT");
+  });
+
   it("returns null weightKg when no weight log", async () => {
     mockGetCachedHealthWeightKg.mockResolvedValue(null);
     const response = await GET(createRequest("http://localhost:3000/api/health-profile"));
