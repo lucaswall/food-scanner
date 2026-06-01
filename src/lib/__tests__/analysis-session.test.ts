@@ -66,11 +66,11 @@ describe("analysis-session", () => {
     it("state includes all expected fields", () => {
       const state = makeState({
         description: "Chicken salad",
-        analysis: { food_name: "Chicken Salad", calories: 350, protein_g: 30, carbs_g: 10, fat_g: 20, fiber_g: 3, sodium_mg: 500, saturated_fat_g: null, trans_fat_g: null, sugars_g: null, calories_from_fat: null, confidence: "high", notes: "", description: "Chicken salad", keywords: ["chicken", "salad"], amount: 1, unit_id: 304 },
+        analysis: { food_name: "Chicken Salad", calories: 350, protein_g: 30, carbs_g: 10, fat_g: 20, fiber_g: 3, sodium_mg: 500, saturated_fat_g: null, trans_fat_g: null, sugars_g: null, calories_from_fat: null, confidence: "high", notes: "", description: "Chicken salad", keywords: ["chicken", "salad"], amount: 1, unit_id: "serving" },
         analysisNarrative: "A healthy chicken salad",
         mealTypeId: 3,
         selectedTime: "18:00",
-        matches: [{ customFoodId: 1, foodName: "Chicken Salad", calories: 350, proteinG: 30, carbsG: 10, fatG: 20, fitbitFoodId: null, matchRatio: 0.95, lastLoggedAt: "2026-03-01T12:00:00.000Z", amount: 1, unitId: 304 }],
+        matches: [{ customFoodId: 1, foodName: "Chicken Salad", calories: 350, proteinG: 30, carbsG: 10, fatG: 20, matchRatio: 0.95, lastLoggedAt: "2026-03-01T12:00:00.000Z", amount: 1, unitId: "serving" }],
       });
       saveSessionState("session-1", state);
       const loaded = loadSessionState("session-1");
@@ -183,6 +183,59 @@ describe("analysis-session", () => {
     it("loadSessionPhotos returns empty array when IndexedDB unavailable", async () => {
       const result = await loadSessionPhotos("s1");
       expect(result).toEqual([]);
+    });
+  });
+
+  // ===========================================================================
+  // isValidSerializedMatch — unitId ServingUnit string migration (Task 21)
+  // ===========================================================================
+  describe("isValidSerializedMatch — unitId ServingUnit string (Task 21)", () => {
+    const baseMatch = {
+      customFoodId: 1,
+      foodName: "Chicken Salad",
+      calories: 350,
+      proteinG: 30,
+      carbsG: 10,
+      fatG: 20,
+      matchRatio: 0.9,
+      lastLoggedAt: "2026-03-01T12:00:00.000Z",
+      amount: 1,
+    };
+
+    it("accepts match with unitId as ServingUnit string 'cup'", () => {
+      sessionStorage.setItem(
+        "food-scanner-analysis-session:match-cup",
+        JSON.stringify(makeState({ matches: [{ ...baseMatch, unitId: "cup" }] })),
+      );
+      const loaded = loadSessionState("match-cup");
+      expect(loaded).not.toBeNull();
+      expect(loaded?.matches[0].unitId).toBe("cup");
+    });
+
+    it("rejects match with unitId as numeric 91 (old Fitbit cup id)", () => {
+      // Build raw JSON to bypass TypeScript type checking — testing intentionally invalid data
+      const rawState = { description: "Test meal", analysis: null, analysisNarrative: null, mealTypeId: 7, selectedTime: "12:30", createdAt: new Date().toISOString(), matches: [{ ...baseMatch, unitId: 91 }] };
+      sessionStorage.setItem("food-scanner-analysis-session:match-91", JSON.stringify(rawState));
+      expect(loadSessionState("match-91")).toBeNull();
+    });
+
+    it("rejects match with unitId as bogus string 'bogus'", () => {
+      // Build raw JSON to bypass TypeScript type checking — testing intentionally invalid data
+      const rawState = { description: "Test meal", analysis: null, analysisNarrative: null, mealTypeId: 7, selectedTime: "12:30", createdAt: new Date().toISOString(), matches: [{ ...baseMatch, unitId: "bogus" }] };
+      sessionStorage.setItem("food-scanner-analysis-session:match-bogus", JSON.stringify(rawState));
+      expect(loadSessionState("match-bogus")).toBeNull();
+    });
+
+    it("accepts all 8 valid ServingUnit members as unitId", () => {
+      const units = ["g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "serving"] as const;
+      for (const unit of units) {
+        sessionStorage.setItem(
+          `food-scanner-analysis-session:match-${unit}`,
+          JSON.stringify(makeState({ matches: [{ ...baseMatch, unitId: unit }] })),
+        );
+        const loaded = loadSessionState(`match-${unit}`);
+        expect(loaded).not.toBeNull();
+      }
     });
   });
 });

@@ -4,7 +4,7 @@ import { isValidFoodAnalysisFields } from "@/lib/food-validation";
 const validBody: Record<string, unknown> = {
   food_name: "Grilled Chicken",
   amount: 150,
-  unit_id: 147,
+  unit_id: "g",
   calories: 250,
   protein_g: 30,
   carbs_g: 5,
@@ -152,6 +152,38 @@ describe("isValidFoodAnalysisFields", () => {
     it("returns true when keywords is undefined (optional)", () => {
       const { keywords: _, ...body } = { ...validBody, keywords: ["tag"] }; // eslint-disable-line @typescript-eslint/no-unused-vars
       expect(isValidFoodAnalysisFields(body)).toBe(true);
+    });
+  });
+
+  // ===========================================================================
+  // unit_id validation — serving_unit migration (Task 21)
+  // ===========================================================================
+  describe("unit_id — ServingUnit string validation (Task 21)", () => {
+    it("accepts unit_id as valid ServingUnit string 'g'", () => {
+      expect(isValidFoodAnalysisFields({ ...validBody, unit_id: "g" })).toBe(true);
+    });
+
+    it("accepts unit_id as valid ServingUnit string 'cup'", () => {
+      expect(isValidFoodAnalysisFields({ ...validBody, unit_id: "cup" })).toBe(true);
+    });
+
+    it("rejects unit_id as numeric 147 (old Fitbit unit id)", () => {
+      expect(isValidFoodAnalysisFields({ ...validBody, unit_id: 147 })).toBe(false);
+    });
+
+    it("rejects unit_id as bogus string 'bogus'", () => {
+      expect(isValidFoodAnalysisFields({ ...validBody, unit_id: "bogus" })).toBe(false);
+    });
+
+    it("accepts all 8 valid ServingUnit members", () => {
+      const units = ["g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "serving"];
+      for (const u of units) {
+        expect(isValidFoodAnalysisFields({ ...validBody, unit_id: u })).toBe(true);
+      }
+    });
+
+    it("rejects unit_id as empty string", () => {
+      expect(isValidFoodAnalysisFields({ ...validBody, unit_id: "" })).toBe(false);
     });
   });
 });

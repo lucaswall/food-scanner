@@ -1,15 +1,21 @@
+import { coerceServingUnit } from "@/types";
+
 /**
  * Shared validation for FoodAnalysis fields.
  * Used by log-food and edit-food routes.
  */
 export function isValidFoodAnalysisFields(body: Record<string, unknown>): boolean {
+  const rawUnitId = body.unit_id;
+  const validUnit =
+    typeof rawUnitId === "string" && coerceServingUnit(rawUnitId) === rawUnitId;
+
   if (
     typeof body.food_name !== "string" ||
     body.food_name.length === 0 ||
     body.food_name.length > 500 ||
     typeof body.amount !== "number" ||
     body.amount <= 0 ||
-    typeof body.unit_id !== "number" ||
+    !validUnit ||
     typeof body.calories !== "number" ||
     body.calories < 0 ||
     typeof body.protein_g !== "number" ||

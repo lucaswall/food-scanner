@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import * as Sentry from "@sentry/nextjs";
 import type { FoodAnalysis, ConversationMessage, FoodLogEntryDetail } from "@/types";
-import { getUnitLabel, FITBIT_MEAL_TYPE_LABELS } from "@/types";
+import { getUnitLabel, MEAL_TYPE_LABELS, coerceServingUnit } from "@/types";
 import { logger, startTimer } from "@/lib/logger";
 import type { Logger } from "@/lib/logger";
 import { getRequiredEnv } from "@/lib/env";
@@ -118,9 +118,10 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
         type: "number",
         description: "Estimated quantity in the chosen unit (e.g., 150 for grams, 1 for cup, 2 for slices)",
       },
-      unit_id: {
-        type: "number",
-        description: "Fitbit measurement unit ID. Use: 147=gram, 91=cup, 226=oz, 349=tbsp, 364=tsp, 209=ml, 311=slice, 304=serving. Choose the most natural unit for the food (e.g., cups for beverages, grams for solid food, slices for pizza/bread, serving for individual items).",
+      serving_unit: {
+        type: "string",
+        enum: ["g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "serving"],
+        description: "Serving unit. Choose the most natural unit for the food: g=grams (solid food by weight), oz=ounces, cup=cups (beverages, liquids), tbsp=tablespoons, tsp=teaspoons, ml=milliliters, slice=slices (pizza, bread), serving=servings (individual packaged items).",
       },
       calories: { type: "number" },
       protein_g: { type: "number" },
@@ -182,7 +183,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
     required: [
       "food_name",
       "amount",
-      "unit_id",
+      "serving_unit",
       "calories",
       "protein_g",
       "carbs_g",
@@ -207,7 +208,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
   input_examples: [
     {
       food_name: "Milanesa de pollo con puré",
-      amount: 350, unit_id: 147, calories: 620, protein_g: 38, carbs_g: 45, fat_g: 30,
+      amount: 350, serving_unit: "g", calories: 620, protein_g: 38, carbs_g: 45, fat_g: 30,
       fiber_g: 3, sodium_mg: 680, saturated_fat_g: 8, trans_fat_g: 0.5, sugars_g: 2,
       calories_from_fat: 270, confidence: "high", notes: "Breaded chicken cutlet with mashed potatoes, typical Argentine portion",
       keywords: ["milanesa", "pollo", "pure"], description: "Breaded chicken cutlet with creamy mashed potatoes, golden brown coating",
@@ -215,7 +216,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
     },
     {
       food_name: "Café con leche",
-      amount: 1, unit_id: 91, calories: 60, protein_g: 3, carbs_g: 5, fat_g: 3,
+      amount: 1, serving_unit: "cup", calories: 60, protein_g: 3, carbs_g: 5, fat_g: 3,
       fiber_g: 0, sodium_mg: 50, saturated_fat_g: 2, trans_fat_g: 0, sugars_g: 5,
       calories_from_fat: 27, confidence: "medium", notes: "Standard café con leche, assumed whole milk",
       keywords: ["cafe", "leche"], description: "Coffee with steamed whole milk in a standard cup",
@@ -223,7 +224,7 @@ export const REPORT_NUTRITION_TOOL: Anthropic.Tool = {
     },
     {
       food_name: "Pizza de muzzarella (2 porciones)",
-      amount: 2, unit_id: 311, calories: 540, protein_g: 22, carbs_g: 60, fat_g: 24,
+      amount: 2, serving_unit: "slice", calories: 540, protein_g: 22, carbs_g: 60, fat_g: 24,
       fiber_g: 3, sodium_mg: 1100, saturated_fat_g: 10, trans_fat_g: 0, sugars_g: 6,
       calories_from_fat: 216, confidence: "medium", notes: "Editing to change from 1 to 2 slices",
       keywords: ["pizza", "muzzarella"], description: "Two slices of classic Argentine muzzarella pizza",
@@ -425,9 +426,19 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   }
 
   const numericFields = [
-    "amount", "unit_id", "calories", "protein_g",
+    "amount", "calories", "protein_g",
     "carbs_g", "fat_g", "fiber_g", "sodium_mg",
   ] as const;
+
+  // Coerce serving_unit from model output — tolerant, defaults to 'serving' on unknown values
+  const rawServingUnit = data.serving_unit;
+  const unit_id = coerceServingUnit(rawServingUnit);
+  if (typeof rawServingUnit !== "string" || unit_id !== rawServingUnit) {
+    logger.warn(
+      { action: "validation_coerce_serving_unit", received: rawServingUnit },
+      "coerced invalid serving_unit to default"
+    );
+  }
 
   for (const field of numericFields) {
     if (typeof data[field] !== "number") {
@@ -579,7 +590,7 @@ export function validateFoodAnalysis(input: unknown): FoodAnalysis {
   const result: FoodAnalysis = {
     food_name: data.food_name as string,
     amount: data.amount as number,
-    unit_id: data.unit_id as number,
+    unit_id,
     calories: data.calories as number,
     protein_g: data.protein_g as number,
     carbs_g: data.carbs_g as number,
@@ -2006,9 +2017,10 @@ export const REPORT_SESSION_ITEMS_TOOL: Anthropic.Tool = {
               type: "number",
               description: "Estimated quantity in the chosen unit",
             },
-            unit_id: {
-              type: "number",
-              description: "Fitbit measurement unit ID. Use: 147=gram, 91=cup, 226=oz, 349=tbsp, 364=tsp, 209=ml, 311=slice, 304=serving.",
+            serving_unit: {
+              type: "string",
+              enum: ["g", "oz", "cup", "tbsp", "tsp", "ml", "slice", "serving"],
+              description: "Serving unit. Choose the most natural unit: g=grams, oz=ounces, cup=cups, tbsp=tablespoons, tsp=teaspoons, ml=milliliters, slice=slices, serving=servings.",
             },
             calories: { type: "number" },
             protein_g: { type: "number" },
@@ -2067,7 +2079,7 @@ export const REPORT_SESSION_ITEMS_TOOL: Anthropic.Tool = {
           required: [
             "food_name",
             "amount",
-            "unit_id",
+            "serving_unit",
             "calories",
             "protein_g",
             "carbs_g",
@@ -2338,8 +2350,8 @@ function convertTriageMessages(messages: ConversationMessage[]): Anthropic.Messa
     // For assistant messages with sessionItems, inject structured item summary
     if (msg.role === "assistant" && msg.sessionItems && msg.sessionItems.length > 0) {
       const itemLines = msg.sessionItems.map((item, i) => {
-        const mealLabel = item.mealTypeId != null ? (FITBIT_MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
-        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, ${item.amount} units (unit_id: ${item.unit_id}), meal: ${mealLabel}, time: ${item.time ?? "unset"}`;
+        const mealLabel = item.mealTypeId != null ? (MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
+        return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, ${item.amount} ${item.unit_id}, meal: ${mealLabel}, time: ${item.time ?? "unset"}`;
       });
       const summary = `[Current session items:\n${itemLines.join("\n")}\n]`;
       content.push({ type: "text" as const, text: summary });
@@ -2376,7 +2388,7 @@ export async function* triageRefine(
     // Inject initial items as baseline context in the system prompt
     if (initialItems && initialItems.length > 0) {
       const itemLines = initialItems.map((item, i) => {
-        const mealLabel = item.mealTypeId != null ? (FITBIT_MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
+        const mealLabel = item.mealTypeId != null ? (MEAL_TYPE_LABELS[item.mealTypeId] ?? `type ${item.mealTypeId}`) : "unset";
         return `  ${i + 1}. ${item.food_name} — ${item.calories} cal, time: ${item.time ?? "unset"}, meal: ${mealLabel}`;
       });
       systemPrompt += `\n\nCurrent session items baseline:\n${itemLines.join("\n")}\n\nWhen the user requests changes, call report_session_items with the updated complete list.`;
